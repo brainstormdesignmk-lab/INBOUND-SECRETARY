@@ -54,7 +54,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     port: num(process.env.PORT, 8080),
     groqApiKey: process.env.GROQ_API_KEY || '',
     groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-    groqModelClassify: process.env.GROQ_MODEL_CLASSIFY || 'llama-3.3-70b-versatile',
+    groqModelClassify: process.env.GROQ_MODEL_CLASSIFY || 'llama-3.1-8b-instant',
     personaTemp: num(process.env.PERSONA_TEMP, 0.8),
     ownerTypingDelayMs: num(process.env.OWNER_TYPING_DELAY_MS, 30_000),
     classifyTemp: num(process.env.CLASSIFY_TEMP, 0.2),
