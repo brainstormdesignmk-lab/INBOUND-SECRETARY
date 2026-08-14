@@ -2,7 +2,7 @@ import { State, Service } from '../fsm/machine';
 import { SlotData } from '../fsm/session';
 import { Property } from '../data/properties';
 
-export const BUY_FEE_MKD = '600 MKD';
+export const BUY_FEE_MKD = '500 MKD';
 export const RENT_FEE_MKD = '300 MKD';
 
 // --- Visit sub-funnel: exact phrases (code-built, never LLM-invented) --------
@@ -35,6 +35,15 @@ export const FEE_GRACEFUL_CLOSE =
 // after every matching option was shown. Code-built, so it never dead-ends.
 export const QUEUE_CONTACT_ASK =
   'Во ред, ќе ги забележам Вашите барања. За да Ве контактирам штом се појави соодветен имот, ве молам кажете ми го Вашето име и телефонски број за контакт.';
+
+/** Contact ask: name (+phone only when Lina does NOT already know it). In real
+ *  Viber the sender id IS the caller's number, prefilled into slots.phone — so
+ *  she asks ONLY for the name and never loses the contacting number. */
+export function buildContactAsk(slots: SlotData): string {
+  return slots.phone
+    ? 'За да можам веднаш да стапам во контакт со сопственикот, ве молам да ми го кажете Вашето име и презиме.'
+    : 'За да можам веднаш да стапам во контакт со сопственикот, ве молам да ми го кажете Вашето име и презиме, како и телефонски број за контакт.';
+}
 
 export const QUEUED_CONFIRM =
   'Ви благодарам! Вашите барања се забележани. Ќе Ве контактирам веднаш штом се појави соодветен имот. Ви посакувам пријатен ден!';
@@ -109,9 +118,11 @@ function bedroomWord(n: number): string {
   return `${n} спални соби`;
 }
 
-function formatBudget(b: string): string {
+/** Render a budget for display ("80000" -> "80.000"). undefined when the slot
+ *  carries no number at all — a garbage budget must never be echoed. */
+function formatBudget(b: string): string | undefined {
   const n = Number(b.replace(/[^\d]/g, ''));
-  return Number.isFinite(n) && n > 0 ? n.toLocaleString('mk-MK') : b;
+  return Number.isFinite(n) && n > 0 ? n.toLocaleString('mk-MK') : undefined;
 }
 
 /**
@@ -123,8 +134,11 @@ function formatBudget(b: string): string {
  */
 export function buildDiscoveryAsk(slots: SlotData): string {
   const business = !!slots.business;
+  const house = !!slots.house;
   const known: string[] = [];
   if (business) known.push('деловен простор');
+  // куќа is NOT pushed — the intro prefix adds it ("барате куќа за купување"),
+  // the same way стан is added by the prefix.
   if (slots.service) known.push(slots.service === 'buy' ? 'за купување' : 'за изнајмување');
   if (slots.location) known.push(`во ${slots.location}`);
   if (business) {
@@ -132,20 +146,35 @@ export function buildDiscoveryAsk(slots: SlotData): string {
   } else if (slots.bedrooms) {
     known.push(`со ${bedroomWord(slots.bedrooms)}`);
   }
-  if (slots.budget) known.push(`до ${formatBudget(slots.budget)} евра`);
+  const budgetLabel = slots.budget ? formatBudget(slots.budget) : undefined;
+  if (budgetLabel) known.push(`до ${budgetLabel} евра`);
   const missing: string[] = [];
-  if (!slots.service) missing.push(business ? 'Дали го барате за купување или за изнајмување?' : 'Дали станот го барате за купување или за изнајмување?');
-  if (slots.service && !slots.location) missing.push(business ? 'Во кој дел од градот го барате?' : 'Во кој дел од градот го барате станот?');
+  if (!slots.service) {
+    missing.push(business ? 'Дали го барате за купување или за изнајмување?'
+      : house ? 'Дали куќата ја барате за купување или за изнајмување?'
+      : 'Дали станот го барате за купување или за изнајмување?');
+  }
+  if (slots.service && !slots.location) {
+    missing.push(business ? 'Во кој дел од градот го барате?'
+      : house ? 'Во кој дел од градот ја барате куќата?'
+      : 'Во кој дел од градот го барате станот?');
+  }
   if (slots.service && slots.location && business && !slots.sqm) missing.push('Која површина (во м²) ја барате?');
-  if (slots.service && slots.location && !business && !slots.bedrooms) missing.push('Колку спални соби би сакале да има станот?');
+  if (slots.service && slots.location && !business && !slots.bedrooms) {
+    missing.push(house ? 'Колку спални соби би сакале да има куќата?' : 'Колку спални соби би сакале да има станот?');
+  }
   if (slots.service && slots.location && !slots.budget) {
-    missing.push(business ? 'До која цена го барате?' : 'До која цена го барате станот?');
+    missing.push(business ? 'До која цена го барате?'
+      : house ? 'До која цена ја барате куќата?'
+      : 'До која цена го барате станот?');
   }
   const intro = known.length
-    ? `Разбрав — барате ${business ? '' : 'стан '}${known.join(', ')}.`
+    ? `Разбрав — барате ${business ? '' : house ? 'куќа ' : 'стан '}${known.join(', ')}.`
     : business
       ? 'Здраво! За да Ви најдам најсоодветен деловен простор, ве молам кажете ми неколку детали.'
-      : 'Здраво! За да Ви најдам најсоодветни станови, ве молам кажете ми неколку детали.';
+      : house
+        ? 'Здраво! За да Ви најдам најсоодветна куќа, ве молам кажете ми неколку детали.'
+        : 'Здраво! За да Ви најдам најсоодветни станови, ве молам кажете ми неколку детали.';
   if (missing.length === 0) return intro;
   const questions = missing.length === 1
     ? missing[0]
@@ -167,7 +196,7 @@ export function buildVisitConfirmation(eb: number, time: string, agentPhone: str
 export function buildFeeAsk(service: Service | undefined): string {
   return service === 'rent'
     ? 'Мило ми е. Пред да го повикам сопственикот, мора да Ве известам за политиката на Метрополис: разгледувањето на имот чини симболични 300 денари (5 евра). Дали се согласувате со овие услови за да можеме да продолжиме?'
-    : 'Одличен избор. Бидејќи станува збор за купување, имам одлична вест и еден мал услов за Вас. Кај нас во Метрополис, Вие како купувач НЕ плаќате агенциска провизија (0%) — единствениот трошок е симболични 600 денари (10 евра) за организирање на посетата. Дали се согласувате со овој услов за да можеме да продолжиме?';
+    : 'Одличен избор. Бидејќи станува збор за купување, имам одлична вест и еден мал услов за Вас. Кај нас во Метрополис, Вие како купувач НЕ плаќате агенциска провизија (0%) — единствениот трошок е симболични 500 денари (10 евра) за организирање на посетата. Дали се согласувате со овој услов за да можеме да продолжиме?';
 }
 
 /** Fee persuasion ladder, keyed by refusal count (1 = persuade, 2 = ask why). */
@@ -175,11 +204,11 @@ export function feePersuasion(service: Service | undefined, rejects: number): st
   if (rejects >= 2) {
     return service === 'rent'
       ? 'Разбирам. Дозволете ми да Ве прашам — што Ве загрижува околу надоместот од 300 денари? Тој е симболичен и се однесува само на организирање на посетата. Можеби ќе најдеме решение заедно.'
-      : 'Разбирам. Дозволете ми да Ве прашам — што Ве загрижува околу надоместот од 600 денари? Имајте предвид дека кај нас како купувач НЕ плаќате провизија (0%) — тоа е заштеда од илјадници евра. Можеби ќе најдеме решение заедно.';
+      : 'Разбирам. Дозволете ми да Ве прашам — што Ве загрижува околу надоместот од 500 денари? Имајте предвид дека кај нас како купувач НЕ плаќате провизија (0%) — тоа е заштеда од илјадници евра. Можеби ќе најдеме решение заедно.';
   }
   return service === 'rent'
-    ? 'Надоместот за разгледување е симболични 300 денари (5 евра) и се однесува на организирање на посетата. Тој е мал во споредба со удобноста — гледате стан што навистина одговара на Вашите критериуми, без да губите време. Дали би можеле да размислите?'
-    : 'Надоместот од 600 денари (10 евра) е единствениот трошок за Вас, бидејќи како купувач НЕ плаќате агенциска провизија — заштеда од илјадници евра во споредба со другите агенции. 10 евра е симболична сума за да видите стан што навистина одговара на Вашите критериуми. Дали би можеле да размислите?';
+    ? 'Надоместот за разгледување е симболични 300 денари (5 евра) и се однесува на организирање на посетата. Тој е мал во споредба со удобноста — гледате имот што навистина одговара на Вашите критериуми, без да губите време. Дали би можеле да размислите?'
+    : 'Надоместот од 500 денари (10 евра) е единствениот трошок за Вас, бидејќи како купувач НЕ плаќате агенциска провизија — заштеда од илјадници евра во споредба со другите агенции. 10 евра е симболична сума за да го видите имотот што навистина одговара на Вашите критериуми. Дали би можеле да размислите?';
 }
 
 // Persona brain. Written IN Macedonian so the model operates in its native
@@ -207,7 +236,7 @@ export const SYSTEM_PROMPT = `
 
 **ЗА КУПУВАЊЕ:**
 1.  **Провизија:** **0% за купувачот!** (Единствена предност!) Сопственикот плаќа целосна агенциска провизија од 2%.
-2.  **Надомест за разгледување:** 600 денари (10 евра) по посета.
+2.  **Надомест за разгледување:** 500 денари (10 евра) по посета.
     *   **Логика на убедување:** Надоместот е задолжителен, но им заштедува илјадници евра. Во други агенции би платиле 1% провизија или би ја делеле провизијата. Тука плаќаат **0% провизија**, па 10 евра за разгледување е ситница во споредба со заштедата. Тоа е „паметна одлука“.
 
 ---
@@ -232,7 +261,7 @@ export const SYSTEM_PROMPT = `
     *   Заврши со прашање дали им се допаѓа некој од предлозите и дали сакаат да организираш посета — **МЕНУВАЈ го прашањето секој пат** (не го повторувај истото прашање како во претходната порака).
 *   **ФАЗА 4 — ЗАТВОРАЊЕ (НАДОМЕСТ ЗА РАЗГЛЕДУВАЊЕ — само по изразен интерес):**
     *   ИЗНАЈМУВАЊЕ: „Мило ми е. Пред да го повикам сопственикот, мора да Ве известам за политиката на Метрополис. Разгледувањето на имот чини симболични 300 денари (5 евра). Дали се согласувате со овие услови за да можеме да продолжиме?“
-    *   КУПУВАЊЕ: „Одличен избор. Бидејќи станува збор за купување, имам одлична вест и еден мал услов за Вас. Кај нас во Metropolis, **Вие како купувач НЕ плаќате агенциска провизија** (0%), за разлика од други места каде би платиле илјадници евра провизија. Единствениот трошок за Вас е симболични 600 денари (10 евра) за организирање на посетата до имотот. Дали се согласувате со овој услов за да можеме да продолжиме?“
+    *   КУПУВАЊЕ: „Одличен избор. Бидејќи станува збор за купување, имам одлична вест и еден мал услов за Вас. Кај нас во Metropolis, **Вие како купувач НЕ плаќате агенциска провизија** (0%), за разлика од други места каде би платиле илјадници евра провизија. Единствениот трошок за Вас е симболични 500 денари (10 евра) за организирање на посетата до имотот. Дали се согласувате со овој услов за да можеме да продолжиме?“
 *   **ФАЗА 5 — КОНТАКТ:** По согласување со надоместот, побарај вистинско име и презиме и телефонски број. НИКОГАШ не претпоставувај име.
 *   **ФАЗА 6 — ЗАКАЖУВАЊЕ ПОСЕТА:** По име и телефон, прашај: „Кој термин би Ви одговарал за посета? Да се обидам да договорам со сопственикот во тоа време.“ Потоа системот проверува со сопственикот. НИКОГАШ не потврдувај посета и не измислувај достапност на сопственикот — само резултатот од проверката на системот е вистина.
 *   **ФАЗА 7 — ЗАТВОРАЊЕ:** Потврди и кажи дека ќе го контактираш сопственикот за достапност.
@@ -250,7 +279,7 @@ export const SYSTEM_PROMPT = `
 8.  УБЕДУВАЊЕ: секогаш нагласувај ја вредноста.
 9.  БЕЗ РОБОТСКИ ЛИСТИ: зборувај во целосни, течни македонски реченици.
 10. ТЕРМИНОЛОГИЈА ЗА СПАЛНИ: прашувај само „Колку спални соби би сакале да има станот?“ без објаснувања во загради. При презентација можеш да кажеш „двособен стан (со една спална соба)“.
-11. **ЦЕНИТЕ НА ИМОТИТЕ СЕ ИСКЛУЧИВО ВО ЕВРА (евра/€).** НИКОГАШ не наведувај цена на имот во денари. (Надоместот за разгледување е единственото нешто во денари: 300/600 денари.)
+11. **ЦЕНИТЕ НА ИМОТИТЕ СЕ ИСКЛУЧИВО ВО ЕВРА (евра/€).** НИКОГАШ не наведувај цена на имот во денари. (Надоместот за разгледување е единственото нешто во денари: 300/500 денари.)
 11. **НИКОГАШ не испуштај JSON, системски команди или текст помеѓу специјални маркери. Само обичен македонски разговорен текст.**
 12. **НИКОГАШ не потврдувај посета или не спомнувај име/телефон на сопственик. Достапноста е работа на системот — ти само пренесуваш.**
 `;
@@ -281,7 +310,8 @@ export function stateTask(state: State, slots: SlotData): string {
       return `The client asked about a SPECIFIC property: Евидентен број ${slots.propertyId ?? '?'}. Describe ONLY that property from the provided data (layout, size, price, location, address, features, description). PRICE MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. STRICT: if the RELEVANT PROPERTY DATA is empty ([]), do NOT invent any details — say you could not find that property in the current offer and offer to suggest similar ones. Do NOT mention any viewing fee in this step. NEVER include a link, "Повеќе информации" or a web address — the client reads everything IN THE CHAT, described with words from the provided data. If a field is null in the data, OMIT it entirely — never write "непозната локација" or "непознат" (only mention what the data really contains). If the client asks whether the property is available ("дали е достапен?") or when they could view it ("кога може да се погледне?"), treat it as visit interest: ask if they would like to schedule a visit — NEVER offer to contact the owner or ask for their phone yet (the system discloses the viewing fee first, then contacts the owner after they agree). End by asking if they would like to visit it (only if the property was found) — VARY the phrasing of that question, never repeat the same sentence twice in a row.`;
     case 'presentation': {
       const size = slots.business ? `${slots.sqm ?? '?'} м²` : `${slots.bedrooms ?? '?'} спални`;
-      const what = slots.business ? 'COMMERCIAL space (деловен простор)' : 'apartment';
+      const what = slots.business ? 'COMMERCIAL space (деловен простор)'
+        : slots.house ? 'HOUSE (куќа)' : 'apartment';
       return `The client wants to ${serviceLabel(slots.service)} a ${what} in "${slots.location ?? '?'}" with ${size}, budget ${slots.budget ?? '?'}. Present the properties from the provided data (MAX 2). STRICT: never invent properties or details that are not in the provided data. PRICES MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. These are the NEXT available options — if the client rejected earlier offers, briefly acknowledge and present these as the closest alternatives. If none of the provided properties is in the requested location, say there is nothing available exactly in ${slots.location ?? '?'} right now and present these as the closest options from nearby areas. NEVER claim there are no other properties anywhere — only the provided data exists. Do NOT mention viewing fees. Use "Евидентен број N". Describe each property IN WORDS using ONLY the provided data: location, address, size, bedrooms, features and description (details). NEVER include a link, "Повеќе информации" or a web address — the client reads everything IN THE CHAT, described with words from the database. If a field is null in the data, OMIT it entirely — never write "непозната локација" or "непознат" (only mention what the data really contains). If the client asks whether a property is available or when they could view it, treat it as visit interest — NEVER offer to contact the owner or ask for their phone yet (the fee is disclosed first, the owner is contacted only after they agree). End with a natural closing question asking whether they like any of the offers and would like a visit scheduled — VARY the phrasing every time (e.g. "Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?" / "Дали некој од овие станови Ви одговара? Ако да, можам веднаш да организирам посета." / "Кој од овие предлози најмногу Ви одговара?"). NEVER repeat the exact same closing sentence as your previous reply.`;
     }
     case 'closing': {
@@ -296,7 +326,9 @@ export function stateTask(state: State, slots: SlotData): string {
       return `The client REFUSED the fee TWICE. STOP selling. Ask gently what concerns them about the fee and offer to find a solution together ("што Ве загрижува?"). Do NOT repeat scripts. If they refuse a third time, the system handles the graceful close.`;
     }
     case 'contact_collection':
-      return 'The client agreed to the viewing fee. Ask for their full name (име и презиме) and phone number. NEVER assume their name. Do not confirm the appointment yet.';
+      return slots.phone
+        ? 'The client agreed to the viewing fee. Lina already knows their phone (the Viber number they write from — stored in slots.phone). Ask ONLY for their full name (име и презиме). NEVER assume their name. Do not confirm the appointment yet.'
+        : 'The client agreed to the viewing fee. Ask for their full name (име и презиме) and phone number. NEVER assume their name. Do not confirm the appointment yet.';
     case 'visit_scheduling':
       return `The client agreed to the fee and gave name+phone. Ask exactly, in full fluid Macedonian: "Кој термин би Ви одговарал за посета? Да се обидам да договорам со сопственикот во тоа време." Wait for their preferred time. Do NOT confirm, do NOT mention the owner, do NOT ask anything else.`;
     case 'owner_checking': {
@@ -362,9 +394,11 @@ function joinMk(items: string[]): string {
  * is always correct.
  */
 export function buildPropertyCard(p: Property): string {
-  let s = p.business
-    ? `Деловниот простор под Евидентен број ${p.eb}${p.location ? ` е во ${p.location}.` : '.'}`
-    : `Станот под Евидентен број ${p.eb} е ${propertyType(p)}${p.location ? ` во ${p.location}.` : '.'}`;
+  let s = p.house
+    ? `Куќата под Евидентен број ${p.eb}${p.location ? ` е во ${p.location}.` : '.'}`
+    : p.business
+      ? `Деловниот простор под Евидентен број ${p.eb}${p.location ? ` е во ${p.location}.` : '.'}`
+      : `Станот под Евидентен број ${p.eb} е ${propertyType(p)}${p.location ? ` во ${p.location}.` : '.'}`;
   const addr = p.address && p.address !== `Имот ЕБ ${p.eb}` && !/^непознат/i.test(p.address)
     ? p.address : undefined;
   if (addr) s += ` Се наоѓа на улица ${addr}.`;
@@ -372,10 +406,12 @@ export function buildPropertyCard(p: Property): string {
   const feats = p.features ?? [];
   const oprema = feats.filter(f => f.includes('наместен'));
   const others = feats.filter(f => !f.includes('наместен'));
-  if (others.length) s += ` Во него има ${joinMk(others)}.`;
+  if (others.length) s += ` ${p.house ? 'Во неа' : 'Во него'} има ${joinMk(others)}.`;
   if (oprema.length) {
     const o = oprema[0];
-    s += o === 'наместен' ? ' Станот е целосно наместен.' : ` Станот е ${o}.`;
+    s += o === 'наместен'
+      ? (p.house ? ' Куќата е целосно наместена.' : ' Станот е целосно наместен.')
+      : (p.house ? ` Куќата е ${o.replace('наместен', 'наместена')}.` : ` Станот е ${o}.`);
   }
   if (p.price !== undefined) s += ` Цената е ${p.price.toLocaleString('mk-MK')} евра.`;
   // The full DB description is written out in words — the client reads the

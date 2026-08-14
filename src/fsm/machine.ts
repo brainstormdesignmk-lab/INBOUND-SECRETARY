@@ -23,6 +23,7 @@ export interface Event {
   bedrooms?: number;
   sqm?: number;             // commercial space — size instead of bedrooms
   business?: boolean;       // деловен простор / канцеларија / локал
+  house?: boolean;          // куќа — a residential request that is NOT a стан
   budget?: string;
   propertyId?: number;      // = Евидентен број (EB)
   visitTime?: string;       // free-text time proposed by the client

@@ -22,7 +22,7 @@ import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '.
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import {
   serviceLabel, VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
-  FEE_GRACEFUL_CLOSE, QUEUE_CONTACT_ASK, QUEUED_CONFIRM, buildVisitConfirmation,
+  FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
   buildOwnerAsk, buildWhereIsAnswer, feePersuasion, FALLBACKS, NO_MATCH_LINE,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
 } from '../llm/prompts';
@@ -82,6 +82,15 @@ export class InboundHandler {
     return this.deps.cfg;
   }
 
+  /** Real Viber: the sender id IS the caller's phone number. Lina must KNOW the
+   *  number that is contacting her — prefill it once so the contact step only
+   *  collects the name and the appointment records the real number. */
+  private prefillViberPhone(session: ChatSession, channel: string, chatId: string): void {
+    if (!session.slots.phone && channel === 'viber' && /^\d{8,15}$/.test(chatId)) {
+      session.slots.phone = chatId;
+    }
+  }
+
   // Per-chat serialized queue: preserves order inside one chat, parallel across chats.
   private enqueue(chatId: string, fn: () => Promise<void>): Promise<void> {
     const prev = this.chains.get(chatId) ?? Promise.resolve();
@@ -99,6 +108,7 @@ export class InboundHandler {
         if (session && session.history.length > 0) return; // already chatting — stay silent
         if (!session) session = freshSession(channel, chatId);
         session.channel = channel;
+        this.prefillViberPhone(session, channel, chatId);
         session.state = 'idle';
         const greeting = buildGreeting(session);
         pushHistory(session, { role: 'assistant', text: greeting }, this.cfg.maxHistory);
@@ -141,6 +151,7 @@ export class InboundHandler {
     }
 
     touchInbound(session);
+    this.prefillViberPhone(session, channel, chatId);
 
     if (opts.kind !== undefined && opts.kind !== 'text') {
       pushHistory(session, { role: 'user', text: '[non-text message]' }, this.cfg.maxHistory);
@@ -267,6 +278,17 @@ export class InboundHandler {
 
     session.state = next;
 
+    // Contact complete when the phone is already known (Viber sender id) and
+    // the client gave their name — deterministic, no LLM needed: "GORAN MOZE NA
+    // OVOJ BROJ" means name + the number he is writing from.
+    if (session.state === 'contact_collection'
+      && !session.slots.queueAfterContact
+      && session.slots.name
+      && session.slots.phone) {
+      next = 'visit_scheduling';
+      session.state = next;
+    }
+
     // Post-transition side effects
     if (next === 'queued') {
       this.queueCustomer(session, session.slots.queueAfterContact ? 'исцрпени опции — регистрирани барања' : '3x одбиен надомест');
@@ -300,16 +322,31 @@ export class InboundHandler {
     if (next === 'queued') {
       reply = session.slots.queueAfterContact ? QUEUED_CONFIRM : FEE_GRACEFUL_CLOSE;
     } else if (session.slots.queueAfterContact && session.state === 'contact_collection') {
-      reply = QUEUE_CONTACT_ASK;
+      reply = buildContactAsk(session.slots);
     } else if (before === 'closing' && ev.type === 'FEE_REFUSED') {
       reply = feePersuasion(session.slots.service, session.slots.feeRejections ?? 1);
     } else if (next === 'visit_scheduling') {
       reply = VISIT_TIME_QUESTION;
     } else if (next === 'owner_checking') {
-      reply = OWNER_CHECK_ACK;
       const eb = session.slots.interestedPropertyId ?? session.slots.propertyId ?? 0;
       const t = session.slots.visitTime ?? '';
-      if (eb && t) void this.runOwnerCheck(session, eb, t);
+      if (before === 'owner_checking' && ev.type === 'TIME_REJECTED') {
+        // The client can't do the proposed time ("не можам во 18:00", "може
+        // покасно?") — collect a NEW concrete time instead of keeping the owner
+        // check on a time the client already rejected.
+        session.state = 'visit_scheduling';
+        reply = VISIT_TIME_QUESTION;
+      } else if (before === 'owner_checking' && ev.type === 'VISIT_TIME_PROVIDED') {
+        // The client changed the proposed time mid-check — re-ask the owner
+        // with the NEW time (the ping-pong continues with the new proposal).
+        reply = OWNER_CHECK_ACK;
+        if (eb && t) void this.runOwnerCheck(session, eb, t);
+      } else if (before === 'owner_checking') {
+        reply = PATIENCE_LINE; // chit-chat while the check is pending — no re-ask
+      } else {
+        reply = OWNER_CHECK_ACK; // first transition into owner_checking
+        if (eb && t) void this.runOwnerCheck(session, eb, t);
+      }
     } else if (next === 'escalated') {
       reply = FALLBACKS.escalated ?? 'Ќе Ве контактира менаџер.';
     } else if (session.state === 'owner_checking') {
@@ -423,7 +460,7 @@ export class InboundHandler {
   // ---------------- side-effect helpers ----------------
 
   private finalizeAppointment(session: ChatSession, time?: string): number {
-    const fee = session.slots.service === 'rent' ? '300 MKD' : '600 MKD';
+    const fee = session.slots.service === 'rent' ? '300 MKD' : '500 MKD';
     const propertyId = session.slots.interestedPropertyId ?? session.slots.propertyId ?? 0;
     const rowId = this.deps.appointments.insert({
       chatId: session.chatId,
@@ -485,6 +522,7 @@ export class InboundHandler {
     if (ev.bedrooms) session.slots.bedrooms = ev.bedrooms;
     if (ev.sqm) session.slots.sqm = ev.sqm;
     if (ev.business !== undefined) session.slots.business = ev.business;
+    if (ev.house !== undefined) session.slots.house = ev.house;
     if (ev.budget) session.slots.budget = ev.budget;
     if (ev.propertyId) session.slots.propertyId = ev.propertyId;
     if (ev.visitTime) session.slots.visitTime = ev.visitTime;
@@ -520,6 +558,7 @@ export class InboundHandler {
         bedrooms: session.slots.bedrooms,
         sqm: session.slots.sqm,
         business: session.slots.business,
+        house: session.slots.house,
         service: session.slots.service,
         budget: session.slots.budget,
         exclude: shown,

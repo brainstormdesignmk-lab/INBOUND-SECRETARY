@@ -16,7 +16,7 @@ test('guardText: property prices are quoted in euros, never denars', () => {
 
 test('buildFeeAsk: the fee is disclosed the moment the client is interested — code-built, never skippable', () => {
   const buy = buildFeeAsk('buy');
-  assert.ok(buy.includes('600 денари (10 евра)'), buy);
+  assert.ok(buy.includes('500 денари (10 евра)'), buy);
   assert.ok(buy.includes('НЕ плаќате агенциска провизија'), buy);
   assert.ok(buy.includes('Дали се согласувате'), buy);
   const rent = buildFeeAsk('rent');
@@ -38,23 +38,25 @@ test('guardText: owner-contact/phone asks are blocked before the fee is agreed',
 });
 
 test('guardText: the viewing fee stays in denars (always < 1000)', () => {
-  const s = 'Надоместот е 600 денари (10 евра). Дали се согласувате?';
+  const s = 'Надоместот е 500 денари (10 евра). Дали се согласувате?';
   assert.equal(guardText('closing', s), s);
   assert.equal(guardText('closing', '300 денари за разгледување'), '300 денари за разгледување');
 });
 
 test('guardText: fee mention blocked before interest (fallback reply)', () => {
-  const out = guardText('presentation', 'Надоместот е 600 денари');
-  assert.ok(!out.includes('600'));
+  const out = guardText('presentation', 'Надоместот е 500 денари');
+  assert.ok(!out.includes('500'));
   assert.ok(!out.includes('Надомест'));
 });
 
-test('guardText: a property price ending in 300/600 евра is NOT a fee mention', () => {
+test('guardText: property prices in евра are never a fee mention', () => {
   // Regression: the unanchored FEE_RE matched "300 евра" inside "68.300 евра"
   // and replaced the whole property card with the generic fallback line.
   const s = 'Цената изнесува 68.300 евра, а Евидентен број 80 чини 46.000 евра';
   assert.equal(guardText('presentation', s), s);
   assert.equal(guardText('presentation', 'Гарсоњера 46.000 евра'), 'Гарсоњера 46.000 евра');
+  // a real rent price of exactly 500 евра (EB 56) is a PRICE, not the 500-денар fee
+  assert.equal(guardText('presentation', 'Цената е 500 евра'), 'Цената е 500 евра');
 });
 
 test('guardText: ИД/ID terminology is normalized (Cyrillic boundary works)', () => {
@@ -146,6 +148,33 @@ test('guardText: property links are stripped — info is described in words, nev
   // non-property URLs are NOT touched
   const other = 'Проверете на https://example.com/x';
   assert.ok(guardText('presentation', other, SITE).includes('https://example.com/x'));
+});
+
+test('buildDiscoveryAsk: куќа requests use house wording, never стан', () => {
+  const ask = buildDiscoveryAsk({ service: 'buy', house: true } as SlotData);
+  assert.ok(ask.includes('Разбрав — барате куќа за купување.'), ask);
+  assert.ok(ask.includes('Во кој дел од градот ја барате куќата?'), ask);
+  assert.ok(!ask.includes('стан'), ask);
+  const more = buildDiscoveryAsk({ service: 'rent', house: true, location: 'Визбегово' } as SlotData);
+  assert.ok(more.includes('барате куќа за изнајмување, во Визбегово'), more);
+  assert.ok(more.includes('Колку спални соби би сакале да има куќата?'), more);
+  assert.ok(more.includes('До која цена ја барате куќата?'), more);
+  assert.ok(!more.includes('станот'), more);
+});
+
+test('buildPropertyCard: houses render as куќа, never стан', () => {
+  const prop: Property = {
+    eb: 44, id: 44, address: 'Визбегово', location: 'Скопје Север',
+    price: 150000, size: '150 м²', bedrooms: 4, house: true,
+  };
+  const card = buildPropertyCard(prop);
+  assert.ok(card.includes('Куќата под Евидентен број 44 е во Скопје Север.'), card);
+  assert.ok(card.includes('Има 150 м² станбена површина.'), card);
+  assert.ok(!card.includes('Станот'), card);
+  // feminine agreement for features
+  const furnished = buildPropertyCard({ ...prop, features: ['лифт', 'наместен'] });
+  assert.ok(furnished.includes('Во неа има лифт.'), furnished);
+  assert.ok(furnished.includes('Куќата е целосно наместена.'), furnished);
 });
 
 test('buildDiscoveryAsk: business spaces ask location/sqm/price — NEVER bedrooms', () => {

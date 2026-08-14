@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectRejection } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -23,6 +23,7 @@ Output ONLY valid JSON (no markdown, no commentary), exactly matching this schem
   "bedrooms": integer | null,
   "sqm": integer | null,
   "business": boolean | null,
+  "house": boolean | null,
   "budget": string | null,
   "propertyId": integer | null,
   "visitTime": string | null,
@@ -37,6 +38,7 @@ Rules:
 - PROPERTY_ID_REQUESTED: user references an "евидентен број" / "evidenten broj" / "sifra" / "шифра" / "#N" / "број N" OR a bare number that clearly means a specific property (e.g. "заинтересирана сум за 78", "што е со 95?", "сакам да ја видам 74", "дали е достапен 82?"). Put the number in "propertyId".
 - DETAILS_PROVIDED: user gives location (which part of the city), bedrooms (спални соби), or budget. Extract into the fields; fill only what is present.
 - business: true when the user wants COMMERCIAL space (деловен простор, канцеларија, локал, магацин, хала). For business requests, "sqm" (square meters) matters and bedrooms do NOT.
+- house: true when the user wants a HOUSE (куќа, кука, house, kukja) and false when they explicitly say стан/apartment. Leave null when the property type is not mentioned.
 - SEARCH_REQUESTED: user asks to see offers now, with enough details already given.
 - INTERESTED: user wants to visit / schedule / see a specific property ("сакам да ја видам", "договори посета", "кога може да се погледне", "дали е достапен?" after a property was shown, "да" after a presentation).
 - REJECTED: user declines offers, dislikes options, or disagrees with terms.
@@ -76,12 +78,28 @@ export function parseClassified(raw: string): Classified {
   const event: Event = { type };
   if (obj.service === 'buy' || obj.service === 'rent') event.service = obj.service;
   if (typeof obj.location === 'string' && obj.location.trim()) event.location = obj.location.trim();
+  // bedrooms/sqm are numeric-only (Number() already drops phrases like
+  // "кукја пофтина") — the bounds keep absurd LLM values (99 спални,
+  // 99999 м²) from derailing the search into a nonsense no-match.
   const beds = Number(obj.bedrooms);
-  if (Number.isFinite(beds) && beds > 0) event.bedrooms = Math.floor(beds);
+  if (Number.isFinite(beds) && beds >= 1 && beds <= 10) event.bedrooms = Math.floor(beds);
   const sqm = Number(obj.sqm);
-  if (Number.isFinite(sqm) && sqm > 0) event.sqm = Math.floor(sqm);
+  if (Number.isFinite(sqm) && sqm >= 10 && sqm <= 5000) event.sqm = Math.floor(sqm);
   if (obj.business === true) event.business = true;
-  if (typeof obj.budget === 'string' && obj.budget.trim()) event.budget = obj.budget.trim();
+  if (obj.house === true) event.house = true;
+  // Budget must carry a REAL number — the LLM sometimes fills the field with
+  // garbage ("кукја пофтина евра") when the message had no price; a digit-less
+  // value is dropped so the deterministic detector fills the real budget and a
+  // nonsense phrase is never echoed ("до кукја пофтина евра"). Worded amounts
+  // are canonicalized like detectBudget: "80 илјади" -> "80000", "до 80.000"
+  // -> "80000".
+  const budget = String(obj.budget ?? '').trim();
+  const budgetDigits = budget.replace(/[^\d]/g, '');
+  if (budgetDigits) {
+    let b = parseInt(budgetDigits, 10);
+    if (/(илјади|хилјади)/i.test(budget)) b *= 1000;
+    if (Number.isFinite(b) && b > 0) event.budget = String(b);
+  }
   const pid = Number(obj.propertyId);
   if (Number.isFinite(pid) && pid > 0) event.propertyId = Math.floor(pid);
   if (typeof obj.visitTime === 'string' && obj.visitTime.trim()) event.visitTime = obj.visitTime.trim();
@@ -167,21 +185,26 @@ export class Classifier {
     // discovery->presentation path survives without any LLM) or when the model
     // returned a discovery-family event (STAY / INTENT_DECLARED /
     // DETAILS_PROVIDED / SEARCH_REQUESTED) — in that case deterministic rules
-    // extract whatever the message actually says (including implied BUY from
-    // "ми треба стан") and fill only the FIELDS the LLM left empty, then
-    // recompute the funnel event. Meaningful LLM decisions (INTERESTED,
+    // extract whatever the message actually says (service only from EXPLICIT
+    // buy/rent markers — "ми треба стан" without one stays unknown, never an
+    // assumed buy) and fill only the FIELDS the LLM left empty, then recompute
+    // the funnel event. Meaningful LLM decisions (INTERESTED,
     // FEE_AGREED, REJECTED, PROPERTY_ID_REQUESTED, …) are kept untouched.
     // "сакам стан во Centar, 2 spalni, do 80.000 евра" -> SEARCH_REQUESTED
     // with or without a single LLM call.
     // LLM-down contact intake: in contact_collection a name+phone can be pulled
     // deterministically, so the queue/visit flow completes without any LLM.
+    // The phone may ALREADY be known — in real Viber the sender id IS the
+    // caller's number (prefilled into slots.phone), so the name alone completes
+    // the contact ("GORAN MOZE NA OVOJ BROJ" = name + the number he writes from).
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'contact_collection') {
       const c = detectContact(text);
-      if (c.phone || c.name) {
-        parsed.event = c.phone && c.name
-          ? { type: 'CONTACT_PROVIDED', name: c.name, phone: c.phone }
-          : c.phone
-            ? { type: 'CONTACT_INCOMPLETE', phone: c.phone }
+      const phone = c.phone ?? session.slots.phone;
+      if (phone || c.name) {
+        parsed.event = phone && c.name
+          ? { type: 'CONTACT_PROVIDED', name: c.name, phone }
+          : phone
+            ? { type: 'CONTACT_INCOMPLETE', phone }
             : { type: 'CONTACT_INCOMPLETE', name: c.name };
       }
     }
@@ -194,6 +217,14 @@ export class Classifier {
           const locs = await this.properties.locations();
           const loc = detectLocation(text, locs);
           if (loc) slots.location = loc;
+          // The LLM's location can be sloppy ("во Кисела Вода кај пазар") or
+          // garbage ("кукја пофтина") — canonicalize it against the feed's
+          // neighborhoods ("Кисела Вода") or drop it (undefined) so the
+          // gap-fill below supplies the deterministic match. A garbage phrase
+          // must never reach the reply ("…во кукја пофтина").
+          if (typeof parsed.event.location === 'string') {
+            parsed.event.location = detectLocation(parsed.event.location, locs) ?? undefined;
+          }
         } catch (e) {
           console.error('[classify] location lookup failed:', (e as Error).message);
         }
@@ -205,23 +236,30 @@ export class Classifier {
       if (ev.bedrooms === undefined && slots.bedrooms) ev.bedrooms = slots.bedrooms;
       if (ev.sqm === undefined && slots.sqm) ev.sqm = slots.sqm;
       if (ev.business === undefined && slots.business !== undefined) ev.business = slots.business;
+      if (ev.house === undefined && slots.house !== undefined) ev.house = slots.house;
       if (ev.budget === undefined && slots.budget) ev.budget = slots.budget;
       const det = buildEvent(session.state, {
         service: ev.service, location: ev.location, bedrooms: ev.bedrooms,
-        sqm: ev.sqm, business: ev.business, budget: ev.budget, rejected: slots.rejected,
+        sqm: ev.sqm, business: ev.business, house: ev.house, budget: ev.budget, rejected: slots.rejected,
       });
       if (det.type !== 'STAY') parsed.event = det;
     }
     // --- funnel overrides (run AFTER recompute so nothing clobbers them) ---
     // Visit interest in property states -> INTERESTED: "кога може да се
-    // погледне?", "дали е достапен?", "сакам да ја видам" all mean the client
-    // wants to SEE the property — which routes to closing, where the fee is
-    // disclosed (code-built, never skippable) before the owner ping-pong.
-    // Availability questions are the owner's job, and the owner is only
-    // contacted AFTER the fee is agreed.
-    if (parsed.event.type !== 'PROPERTY_ID_REQUESTED'
-      && ['property_query', 'presentation'].includes(session.state)
-      && (llmDown || parsed.event.type === 'STAY')
+    // погледне?", "дали е достапен?", "сакам да ја видам", "договори ми…" all
+    // mean the client wants to SEE the property — which routes to closing,
+    // where the fee is disclosed (code-built, never skippable) before the
+    // owner ping-pong. Availability questions are the owner's job, and the
+    // owner is only contacted AFTER the fee is agreed.
+    // Visit intent WINS over a bare-number property query: "ДОГОВОРИ МИ ЗА
+    // ОВОЈ СО БРОЈ 89" means "arrange a visit for 89", not "tell me about 89"
+    // — the number only supplies the propertyId (the inferPropertyId override
+    // above may have turned the message into PROPERTY_ID_REQUESTED, and that
+    // must not swallow the explicit visit request). Deliberate non-visit
+    // decisions (REJECTED, ESCALATE) are respected.
+    if (['property_query', 'presentation'].includes(session.state)
+      && parsed.event.type !== 'REJECTED'
+      && parsed.event.type !== 'ESCALATE'
       && detectVisitInterest(text)) {
       const pid = parsed.event.propertyId ?? session.slots.propertyId;
       parsed.event = pid ? { type: 'INTERESTED', propertyId: pid } : { type: 'INTERESTED' };
@@ -252,6 +290,22 @@ export class Classifier {
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'time_confirm') {
       if (detectRejection(text)) parsed.event = { type: 'TIME_REJECTED' };
       else if (detectAgreement(text)) parsed.event = { type: 'TIME_ACCEPTED' };
+    }
+    // Owner check in flight, but the client changed their mind about the time —
+    // deterministic (event-independent, like the visit_scheduling override) so
+    // the ping-pong survives any LLM mood: a rejection ("не можам во 18:00",
+    // "може покасно?") goes back to collecting a NEW concrete time; a NEW
+    // concrete time ("MOZAM VO 19:00") re-asks the owner with it. Deliberate
+    // events (ESCALATE, REJECTED) are respected.
+    if (session.state === 'owner_checking'
+      && parsed.event.type !== 'ESCALATE'
+      && parsed.event.type !== 'REJECTED') {
+      if (detectTimeRejection(text)) {
+        parsed.event = { type: 'TIME_REJECTED' };
+      } else {
+        const t = detectVisitTime(text);
+        if (t) parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+      }
     }
     return parsed;
   }

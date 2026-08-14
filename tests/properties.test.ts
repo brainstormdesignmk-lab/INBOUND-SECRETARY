@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { titleCase, featurePhrases, locMatches, PropertyService, Property } from '../src/data/properties';
+import { titleCase, cleanMacedonian, featurePhrases, locMatches, PropertyService, Property } from '../src/data/properties';
 
 class FakeProps extends PropertyService {
   constructor(private rows: Property[]) { super('http://fake-feed'); }
@@ -17,6 +17,19 @@ const ROWS: Property[] = [
   { eb: 56, id: 56, location: undefined, price: 500, service: 'rent', business: true, sqm: 40 },
   { eb: 59, id: 59, location: 'Центар', price: 950, service: 'rent', business: true, sqm: 105 },
 ];
+
+test('candidates: house requests match only houses; стан requests exclude them', async () => {
+  const ps = new FakeProps([
+    { eb: 44, id: 44, location: 'Скопје Север', price: 150000, service: 'buy', house: true },
+    { eb: 80, id: 80, location: 'Кисела Вода', price: 46000, service: 'buy' },
+  ]);
+  const houses = await ps.candidates({ service: 'buy', house: true });
+  assert.deepEqual(houses.map(p => p.eb), [44]);
+  const flats = await ps.candidates({ service: 'buy', house: false });
+  assert.deepEqual(flats.map(p => p.eb), [80]);
+  const any = await ps.candidates({ service: 'buy' });
+  assert.deepEqual(any.map(p => p.eb).sort((a, b) => a - b), [44, 80]);
+});
 
 test('candidates: a "во Карпош?" request never mixes in unrelated areas', async () => {
   const ps = new FakeProps(ROWS);
@@ -56,6 +69,39 @@ test('titleCase: feed ALL-CAPS addresses become proper Macedonian titles', () =>
   // already mixed-case — idempotent
   assert.equal(titleCase('Ефтим Спространов'), 'Ефтим Спространов');
   assert.equal(titleCase(''), '');
+});
+
+test('cleanMacedonian: feed lossy-Latin corruption is fixed word by word — never valid words', () => {
+  // the exact corrupted sentences from the live feed
+  assert.equal(
+    cleanMacedonian('Во него се зивеесе до пред 2 месеца.. Одлицна локација со поглед кон авионцето. Цист имотен лист'),
+    'Во него се живееше до пред 2 месеци.. Одлична локација со поглед кон авиончето. Чист имотен лист');
+  assert.equal(
+    cleanMacedonian('две инвертер клими, сопствено парно, фризидер, масина за перење, масина за садови'),
+    'две инвертер клими, сопствено парно, фрижидер, машина за перење, машина за садови');
+  assert.equal(
+    cleanMacedonian('Со мозност за изведба на усте една соба. Има сематски приказ и детски игралиста.'),
+    'Со можност за изведба на уште една соба. Има шематски приказ и детски игралишта.');
+  assert.equal(
+    cleanMacedonian('паркингот не се наплака ни ке се наплака во иднина, 3 спаизи и без многу комсии'),
+    'паркингот не се наплаќа ни ќе се наплаќа во иднина, 3 спални и без многу комшии');
+  assert.equal(
+    cleanMacedonian('паркот Авионце и Југосвовенска машина во Маџери'),
+    'паркот Авионче и Југословенска машина во Маџари');
+});
+
+test('cleanMacedonian: keeps the token casing and never touches valid words', () => {
+  // casing is preserved: ALL CAPS, title case, lowercase
+  assert.equal(cleanMacedonian('ЦИСТ ИМОТЕН ЛИСТ'), 'ЧИСТ ИМОТЕН ЛИСТ');
+  assert.equal(cleanMacedonian('Цист имотен лист'), 'Чист имотен лист');
+  assert.equal(cleanMacedonian('Одлицна локација'), 'Одлична локација');
+  // acronyms always render in their fixed case
+  assert.equal(cleanMacedonian('Бул. Асном бр.134'), 'Бул. АСНОМ бр.134');
+  assert.equal(cleanMacedonian('според дупот на Карпош'), 'според ДУП-от на Карпош');
+  // valid words with the same letters are NEVER touched
+  assert.equal(cleanMacedonian('одлична локација, чист имотен лист, машина за перење'), 'одлична локација, чист имотен лист, машина за перење');
+  assert.equal(cleanMacedonian('зграда во Центар со соба'), 'зграда во Центар со соба');
+  assert.equal(cleanMacedonian(''), '');
 });
 
 test('locMatches: a single-word query matches a multi-word feed location', () => {

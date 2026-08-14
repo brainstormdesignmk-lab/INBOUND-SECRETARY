@@ -15,6 +15,7 @@ export interface Property {
   sqm?: number;            // povrsina_m2 as a number (business spaces have no bedrooms — size matters)
   size?: string;           // povrsina_m2
   business?: boolean;      // деловен простор/канцеларија/локал — feed marks them by having NO bedroom type
+  house?: boolean;         // куќа — the feed marks houses only in the opis text ("Се продава куќа…")
   features?: string[];     // garaza, lift, greenje, dvor, parking, opremenost (per feed napomena)
   details?: string;        // opis
   gmaps?: string;
@@ -53,6 +54,12 @@ function parseBedrooms(raw: unknown): number | undefined {
 function isBusiness(r: Record<string, unknown>): boolean {
   const tip = str(r.tip_na_sobi).toLowerCase().replace(/\s+/g, ' ');
   return tip === '' || tip === 'нема податок' || tip === 'нема' || tip === 'не е наведено';
+}
+
+/** A HOUSE (куќа) — the feed carries houses as ordinary bedroom rows and marks
+ *  them only in the opis text ("Се продава куќа…", "Се издава Куќа…"). */
+function isHouse(r: Record<string, unknown>): boolean {
+  return /(куќ|кука|house|kukja|kuka)/i.test(str(r.opis));
 }
 
 /**
@@ -94,6 +101,65 @@ export function titleCase(s: string): string {
   return s.toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, sp: string, ch: string) => sp + ch.toUpperCase());
 }
 
+// The agency feed was typed in lossy Latin (ž->z, č->c, š->s, ќ->k) and then
+// converted back to Cyrillic with a naive per-letter map, producing corrupted
+// words: "ziveese"->"зивеесе", "cist"->"цист", "masina"->"масина",
+// "moznost"->"мозност". The corruption is NOT invertible per letter (з/ц/с
+// are legitimately common), so we fix the KNOWN garbled words word-level —
+// valid words like "за"/"соба"/"одлична" are never touched.
+const MK_GARBLED: Array<[string, string]> = [
+  // longer first — "авионцето" before the standalone "авионце"
+  ['авионцето', 'авиончето'],
+  ['авионце', 'авионче'],
+  ['зивеесе', 'живееше'],
+  ['одлицна', 'одлична'],
+  ['фризидер', 'фрижидер'],
+  ['земјистето', 'земјиштето'],
+  ['игралиста', 'игралишта'],
+  ['југосвовенска', 'југословенска'],
+  ['масина', 'машина'],
+  ['комсии', 'комшии'],
+  ['сематски', 'шематски'],
+  ['наплака', 'наплаќа'],
+  ['мозност', 'можност'],
+  ['месеца', 'месеци'],
+  ['мњсеци', 'месеци'],
+  ['спаизи', 'спални'],
+  ['маџери', 'маџари'],
+  ['усте', 'уште'],
+  ['цист', 'чист'],
+  ['ке', 'ќе'],
+  // Acronyms the agency typed lowercase — always re-uppercased.
+  ['асном', 'АСНОМ'],
+  ['дупот', 'ДУП-от'],
+];
+
+// Unicode-aware word boundaries (JS \b only knows ASCII).
+const MK_GARBLED_RE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(${MK_GARBLED.map(([g]) => g).join('|')})(?![\\p{L}\\p{N}])`,
+  'giu',
+);
+
+/** Fix feed-text corruption (lossy Latin->Cyrillic) word by word, keeping the
+ *  matched token's casing (ЦИСТ -> ЧИСТ, Цист -> Чист, цист -> чист).
+ *  Acronym entries (АСНОМ, ДУП-от) always render in their fixed case. */
+export function cleanMacedonian(text: string): string {
+  if (!text) return text;
+  return text.replace(MK_GARBLED_RE, (m) => {
+    const entry = MK_GARBLED.find(([g]) => g === m.toLowerCase());
+    if (!entry) return m;
+    const fix = entry[1];
+    if (fix !== fix.toLowerCase()) return fix; // АСНОМ / ДУП-от — fixed case
+    const allCaps = m === m.toUpperCase() && m !== m.toLowerCase();
+    if (allCaps) return fix.toUpperCase();
+    const first = m.charAt(0);
+    if (first !== first.toLowerCase() && first === first.toUpperCase()) {
+      return fix.charAt(0).toUpperCase() + fix.slice(1);
+    }
+    return fix;
+  });
+}
+
 function mapRow(r: Record<string, unknown>): Property | null {
   const eb = Math.floor(Number(str(r.evidenten_broj)));
   if (!Number.isFinite(eb) || eb <= 0) return null;
@@ -101,17 +167,18 @@ function mapRow(r: Record<string, unknown>): Property | null {
     eb,
     id: eb,
     uuid: typeof r.id === 'string' ? r.id : undefined,
-    address: titleCase(str(r.adresa) || str(r.naslov)) || `Имот ЕБ ${eb}`,
+    address: cleanMacedonian(titleCase(str(r.adresa) || str(r.naslov))) || `Имот ЕБ ${eb}`,
     price: num(r.cena_eur),
     priceLabel: str(r.cena_label) || undefined,
     location: str(r.naselba) || undefined,
     bedrooms: isBusiness(r) ? undefined : parseBedrooms(r.tip_na_sobi),
     sqm: num(r.povrsina_m2),
     business: isBusiness(r),
+    house: isHouse(r),
     size: r.povrsina_m2 !== undefined && r.povrsina_m2 !== null && r.povrsina_m2 !== ''
       ? `${r.povrsina_m2} м²` : undefined,
     features: featurePhrases(r),
-    details: str(r.opis) || undefined,
+    details: cleanMacedonian(str(r.opis)) || undefined,
     gmaps: str(r.gmaps) || undefined,
     url: str(r.url) || undefined,
     service: parseService(r.servis),
@@ -296,12 +363,14 @@ export class PropertyService {
     return [...set].sort((a, b) => b.length - a.length);
   }
 
-  async search(opts: { location?: string; bedrooms?: number; sqm?: number; business?: boolean; service?: Service; budget?: string }): Promise<Property[]> {
+  async search(opts: { location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean; service?: Service; budget?: string }): Promise<Property[]> {
     const all = await this.getAll();
     let out = all;
     if (opts.service) out = out.filter(p => !p.service || p.service === opts.service);
     if (opts.business === true) out = out.filter(p => p.business === true);
     else if (opts.business === false) out = out.filter(p => !p.business); // a "стан" search never shows offices
+    if (opts.house === true) out = out.filter(p => p.house === true);
+    else if (opts.house === false) out = out.filter(p => !p.house); // a "стан" search never shows houses
     if (opts.location) {
       out = out.filter(p => {
         const loc = (p.location ?? '').trim();
@@ -330,7 +399,7 @@ export class PropertyService {
    * slot. Other areas appear only after the requested area is fully exhausted.
    */
   async candidates(opts: {
-    location?: string; bedrooms?: number; sqm?: number; business?: boolean;
+    location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean;
     service?: Service; budget?: string; exclude?: number[];
   }): Promise<Property[]> {
     const all = await this.getAll();
@@ -342,6 +411,7 @@ export class PropertyService {
       .filter(p => !exclude.has(p.eb))
       .filter(p => !opts.service || !p.service || p.service === opts.service)
       .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
+      .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
       .filter(p => !opts.bedrooms || !p.bedrooms || p.bedrooms >= (opts.bedrooms as number))
       .filter(p => !opts.sqm || !p.sqm || p.sqm >= (opts.sqm as number))
       .filter(p => max === undefined || p.price === undefined || p.price <= max);

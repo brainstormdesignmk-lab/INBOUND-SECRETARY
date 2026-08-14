@@ -8,6 +8,7 @@ export interface SlotData {
   bedrooms?: number;
   sqm?: number;                 // commercial (деловен простор) — size instead of bedrooms
   business?: boolean;           // commercial property intent
+  house?: boolean;              // куќа — a residential request that is NOT a стан
   budget?: string;
   propertyId?: number;          // EB of the property currently discussed
   interestedPropertyId?: number;

@@ -26,6 +26,34 @@ class HallucinatingLlm implements LlmClient {
   }
 }
 
+// An LLM that is UP but fills the budget slot with GARBAGE ("кукја пофтина
+// евра") even though the message has a real price. The garbage must never
+// reach the reply — the real budget from the message wins.
+class GarbageBudgetLlm implements LlmClient {
+  async complete(args: { role: string }): Promise<string> {
+    if (args.role === 'respond') return 'Еве ги деталите.';
+    return JSON.stringify({ event: 'DETAILS_PROVIDED', service: 'buy', budget: 'кукја пофтина евра' });
+  }
+}
+
+// An LLM that is UP but returns a SENTENCE as the location — it must be
+// canonicalized to the feed neighborhood, never echoed verbatim.
+class SloppyLocationLlm implements LlmClient {
+  async complete(args: { role: string }): Promise<string> {
+    if (args.role === 'respond') return 'Еве ги деталите.';
+    return JSON.stringify({ event: 'DETAILS_PROVIDED', service: 'buy', location: 'во Кисела Вода кај пазар' });
+  }
+}
+
+// An LLM that is UP but returns GARBAGE as the location — it must be dropped
+// so the deterministic detector fills the real one from the message.
+class GarbageLocationLlm implements LlmClient {
+  async complete(args: { role: string }): Promise<string> {
+    if (args.role === 'respond') return 'Еве ги деталите.';
+    return JSON.stringify({ event: 'DETAILS_PROVIDED', service: 'buy', location: 'кукја пофтина' });
+  }
+}
+
 // An LLM that is UP but MISREADS the visit-time message as DETAILS_PROVIDED
 // ("MOZAM UTRE POSLE 18:00" → criteria, not a time). The deterministic
 // visit-time override must still start the owner ping-pong.
@@ -85,7 +113,7 @@ test('stuck loop: an area switch re-targets the search, agreement registers crit
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   // 1) search Кисела Вода up to 60.000 € -> only EB 80 fits
-  let s = await send('MI TREBA MALO STANCE VO KISELA VODA, DO 60.000 EVRA');
+  let s = await send('SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA');
   assert.equal(s.state, 'presentation');
   assert.ok(sent[0].includes('Евидентен број 80'), sent[0]);
 
@@ -112,7 +140,7 @@ test('stuck loop: an area switch re-targets the search, agreement registers crit
   // 6) agreement on the exhausted offer -> contact collection, NOT the same line
   s = await send('DOBRO');
   assert.equal(s.state, 'contact_collection');
-  assert.ok(sent[5].includes('име и телефонски број'), sent[5]);
+  assert.ok(sent[5].includes('име и презиме, како и телефонски број'), sent[5]);
   assert.ok(!sent[5].includes('Ги исцрпивме'), sent[5]);
 
   // 7) name + phone (LLM down) -> criteria registered (queued), confirm sent
@@ -156,7 +184,7 @@ test('ZOKI: visit interest ("дали е достапен?") -> fee disclosed ->
   //    Lina must disclose the FEE first — never "морам да го контактирам сопственикот".
   s = await send('DALI E SEUSTE DOSTAPEN ?');
   assert.equal(s.state, 'closing');
-  assert.ok(sent[1].includes('600 денари'), sent[1]); // buy fee disclosed
+  assert.ok(sent[1].includes('500 денари'), sent[1]); // buy fee disclosed
   assert.ok(!sent[1].includes('телефонски'), sent[1]); // no phone ask before agreement
   assert.ok(!sent[1].includes('контактирам'), sent[1]);
 
@@ -185,8 +213,185 @@ test('ZOKI: "кога може да се погледне" is visit interest too
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   const s = await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
   assert.equal(s.state, 'closing');
-  assert.ok(sent[1].includes('600 денари'), sent[1]);
+  assert.ok(sent[1].includes('500 денари'), sent[1]);
   assert.ok(!sent[1].includes('телефонски'), sent[1]);
+});
+
+test('"DOGOVORI MI ZA OVOJ SO BROJ 89" is visit interest — fee disclosed first, never the property-query re-ask', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'dogovori';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // the exact paste: the client is in presentation and explicitly asks to
+  // ARRANGE the visit for EB 89 — the bare number must not downgrade this to
+  // "tell me about 89" (property_query + card + "Дали овој имот Ви одговара?").
+  let s = await send('SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA');
+  assert.equal(s.state, 'presentation');
+  s = await send('DOGOVORI MI ZA OVOJ SO BROJ 89');
+  assert.equal(s.state, 'closing'); // straight to the fee, not a card re-ask
+  assert.equal(s.slots.interestedPropertyId, 89);
+  assert.ok(sent[1].includes('500 денари'), sent[1]); // buy fee disclosed (code-built)
+  assert.ok(!sent[1].includes('Дали овој имот Ви одговара'), sent[1]); // never the closing question again
+
+  // the same message with the Latin imperative must also route to closing
+  const { handler: h2, sessions: s2, sent: sent2 } = makeHandler();
+  const chatId2 = 'dogovori2';
+  const send2 = async (m: string) => { await h2.handle('test', chatId2, m); return s2.get(chatId2)!; };
+  let t = await send2('SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA');
+  assert.equal(t.state, 'presentation');
+  t = await send2('ZAKAZI MI ZA OVOJ SO BROJ 89');
+  assert.equal(t.state, 'closing');
+  void sent2;
+});
+
+test('an LLM sloppy location ("во Кисела Вода кај пазар") is canonicalized to the feed neighborhood', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new SloppyLocationLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels });
+  const chatId = 'sloppy';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  const s = await send('SAKAM DA KUPAM STAN'); // the LLM invents the location
+  assert.equal(s.state, 'discovery');
+  assert.equal(s.slots.location, 'Кисела Вода'); // canonical, not the sentence
+  assert.ok(sent[0].includes('во Кисела Вода'), sent[0]);
+  assert.ok(!sent[0].includes('кај пазар'), sent[0]);
+});
+
+test('an LLM garbage location ("кукја пофтина") never reaches the reply — the real location from the message wins', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new GarbageLocationLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels });
+  const chatId = 'gloc';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  const s = await send('SAKAM DA KUPAM STAN VO KISELA VODA'); // message carries the real location
+  assert.equal(s.state, 'discovery');
+  assert.equal(s.slots.location, 'Кисела Вода');
+  assert.ok(sent[0].includes('во Кисела Вода'), sent[0]);
+  assert.ok(!sent[0].includes('кукја'), sent[0]);
+  assert.ok(!sent[0].includes('пофтина'), sent[0]);
+});
+
+test('an LLM garbage budget ("кукја пофтина евра") never reaches the reply — the real budget wins', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new GarbageBudgetLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels });
+  const chatId = 'budget';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // the LLM says budget="кукја пофтина евра" but the message says DO 50000
+  // EVRA — the garbage is dropped and the REAL budget renders
+  const s = await send('SAKAM DA KUPAM STAN DO 50000 EVRA');
+  assert.equal(s.state, 'discovery');
+  assert.equal(s.slots.budget, '50000');
+  assert.ok(sent[0].includes('до 50.000 евра'), sent[0]);
+  assert.ok(!sent[0].includes('кукја'), sent[0]);
+  assert.ok(!sent[0].includes('пофтина'), sent[0]);
+});
+
+test('"SAKAM DA KUPAM KUKJA" is a HOUSE request — discovery speaks куќа, never стан', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'kukja';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  let s = await send('SAKAM DA KUPAM KUKJA');
+  assert.equal(s.state, 'discovery');
+  assert.equal(s.slots.service, 'buy');
+  assert.equal(s.slots.house, true);
+  assert.ok(sent[0].includes('барате куќа за купување'), sent[0]);
+  assert.ok(sent[0].includes('Во кој дел од градот ја барате куќата?'), sent[0]);
+  assert.ok(!sent[0].includes('стан'), sent[0]);
+});
+
+test('Viber: the contacting number (sender id) is known and stored — contact completes with the name alone', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'viber', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels });
+  const chatId = '38970123456'; // real Viber sender id = the caller's phone number
+  const send = async (m: string) => { await handler.handle('viber', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA, SE SOGLASUVAM');
+  let s = await send('GORAN MOZE NA OVOJ BROJ');
+  assert.equal(s.state, 'visit_scheduling'); // name alone completes the contact
+  assert.equal(s.slots.phone, '38970123456'); // THE contacting number is stored
+  assert.ok(s.slots.name === 'Goran' || s.slots.name === 'Горан', JSON.stringify(s.slots));
+  // the contact ask was name-only — Lina never asks for a number she already has
+  assert.ok(sent[2].includes('име и презиме'), sent[2]);
+  assert.ok(!sent[2].includes('телефонски'), sent[2]);
+});
+
+test('owner_checking: the client rejects the proposed time -> new time collected, owner re-asked with it (ping-pong survives)', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_chatId, eb, q) => { ownerAsks.push(`${eb}: ${q}`); };
+  const chatId = 'ping4';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA, SE SOGLASUVAM');
+  await send('ZORAN 078/914 196');
+  let s = await send('UTRE POPLADNE POSLE 6');
+  assert.equal(s.state, 'owner_checking');
+  assert.equal(ownerAsks.length, 1);
+  assert.ok(ownerAsks[0].includes('UTRE POPLADNE POSLE 6'), ownerAsks[0]);
+
+  // the client can't do the proposed time -> back to the time question, NOT
+  // the patience line, and no new owner ask for a time the client rejected
+  s = await send('NE MOZAM VO 18:00 DALI MOZE POKASNO');
+  assert.equal(s.state, 'visit_scheduling');
+  assert.ok(sent[5].includes('Кој термин'), sent[5]);
+  assert.equal(ownerAsks.length, 1);
+
+  // a NEW concrete time -> owner_checking again, owner re-asked WITH it
+  s = await send('MOZAM VO 19:00');
+  assert.equal(s.state, 'owner_checking');
+  assert.equal(ownerAsks.length, 2);
+  assert.ok(ownerAsks[1].includes('19:00'), ownerAsks[1]);
+  assert.ok(!ownerAsks[1].includes('18:00'), ownerAsks[1]);
 });
 
 test('visit time survives an LLM misread: "MOZAM UTRE POSLE 18:00" as DETAILS_PROVIDED still starts the owner ping-pong', async () => {
@@ -333,6 +538,32 @@ test('JANE burst: "ZDRAVO / MI TREBA STAN POD KIRIJA / DO 250 EVRA" as ONE turn 
   assert.ok(!sent[0].includes('не можам да го најдам'), sent[0]);
 });
 
+test('GORAN TUI regression: "MI TREBA STANCE VO AERODROM" is NOT a buy statement — intent is asked, never claimed', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'goran3';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // the exact paste from the TUI: no buy/rent marker -> discovery must ASK the
+  // intent question, never claim "барате стан за купување".
+  let s = await send('MI TREBA STANCE VO AERODROM');
+  assert.equal(s.state, 'discovery');
+  assert.equal(s.slots.service, undefined);
+  assert.equal(s.slots.location, 'Аеродром');
+  assert.ok(sent[0].includes('Разбрав — барате стан во Аеродром.'), sent[0]);
+  assert.ok(sent[0].includes('Дали станот го барате за купување или за изнајмување?'), sent[0]);
+  assert.ok(!sent[0].includes('барате стан за купување'), sent[0]); // never the false claim
+  assert.ok(!sent[0].includes('Евидентен број'), sent[0]); // no property before intent
+
+  // the client answers the intent question -> only bedrooms + budget remain
+  s = await send('ZA KUPUVANJE');
+  assert.equal(s.slots.service, 'buy');
+  assert.equal(s.state, 'discovery');
+  assert.ok(sent[1].includes('за купување, во Аеродром'), sent[1]);
+  assert.ok(sent[1].includes('Колку спални'), sent[1]);
+  assert.ok(sent[1].includes('До која цена'), sent[1]);
+  assert.ok(!sent[1].includes('купување или за изнајмување'), sent[1]);
+});
+
 test('"A NESTO POSKAPO DO 1000 EVRA": a hallucinated EB-0 property query stays in the funnel', async () => {
   const cfg = loadConfig();
   const db = new Db(':memory:');
@@ -378,7 +609,7 @@ test('"KADE E TOA PALOMA BJANKA ?" — a place question is answered from the DB,
 
   // generic referent: "каде се наоѓа тој стан?" right after a presentation
   // answers with the SHOWN property's location, not a new search.
-  await send('SAKAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA');
+  await send('SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA');
   assert.ok(sent[1].includes('Евидентен број 63'), sent[1]);
   s = await send('KADE SE NAOGA TOJ STAN ?');
   assert.equal(s.state, 'presentation'); // state untouched
@@ -391,7 +622,7 @@ test('stuck loop: the exhausted line never repeats for contact requests', async 
   const chatId = 'goran2';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
   // search + reject until every option is shown (exhausted line fires ONCE legitimately)
-  await send('MI TREBA MALO STANCE VO KISELA VODA, DO 60.000 EVRA');
+  await send('SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA');
   await send('NE MI SE DOPAGA');
   await send('NE MI SE DOPAGA');
   let s = await send('NE MI SE DOPAGA');
@@ -399,6 +630,6 @@ test('stuck loop: the exhausted line never repeats for contact requests', async 
   // contact intent must then move forward — never repeat the exhausted line
   s = await send('KONTAKTIRAJ ME');
   assert.equal(s.state, 'contact_collection');
-  assert.ok(sent[4].includes('име и телефонски број'), sent[4]);
+  assert.ok(sent[4].includes('име и презиме, како и телефонски број'), sent[4]);
   assert.ok(!sent[4].includes('Ги исцрпивме'), sent[4]);
 });

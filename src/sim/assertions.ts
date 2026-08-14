@@ -84,7 +84,7 @@ export function buildAssertions(
     });
   }
 
-  // 4. Viewing fee (300/600 MKD) must NEVER appear before the owner shows interest.
+  // 4. Viewing fee (300/500/600 MKD) must NEVER appear before the owner shows interest.
   for (const key of ['goran', 'elena', 'ana']) {
     const p = byKey(key);
     if (!p) continue;
@@ -93,7 +93,7 @@ export function buildAssertions(
     runner.add(`${key}: viewing fee not mentioned before interest`, () => {
       const msgs = fake.assistant(key);
       for (let i = 0; i < interestIdx && i < msgs.length; i++) {
-        if (/(?:300|600)\s*МКД|надомест/i.test(msgs[i].text)) {
+        if (/(?:300|500|600)\s*МКД|надомест/i.test(msgs[i].text)) {
           throw new Error(`fee leaked in reply #${i + 1}: ${msgs[i].text.slice(0, 140)}`);
         }
       }
@@ -147,12 +147,12 @@ export function buildAssertions(
     });
   }
 
-  // 8. Appointments: buy → 600 MKD, rent → 300 MKD.
-  runner.add('appointments: Горан (buy) → 600 MKD', () => {
+  // 8. Appointments: buy → 500 MKD, rent → 300 MKD.
+  runner.add('appointments: Горан (buy) → 500 MKD', () => {
     const rows = db.db.prepare('SELECT * FROM appointments').all() as Record<string, unknown>[];
     const hit = rows.some(r => {
       const v = Object.values(r).join(' ');
-      return v.includes('Горан') && v.includes('600');
+      return v.includes('Горан') && v.includes('500');
     });
     if (!hit) throw new Error('Горан row missing or wrong fee');
   });

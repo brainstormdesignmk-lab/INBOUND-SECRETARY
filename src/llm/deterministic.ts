@@ -14,19 +14,17 @@ export interface DetectedSlots {
   bedrooms?: number;
   sqm?: number;        // commercial spaces: size instead of bedrooms
   business?: boolean;  // деловен простор / канцеларија / локал
+  house?: boolean;     // куќа — a residential request that is NOT a стан
   budget?: string;     // canonical digits, e.g. "80000"
   rejected?: boolean;
 }
 
 // Latin spellings included — Macedonian clients type in Latin more often than Cyrillic.
-const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|\bbuy\b|kupuvam|kupam|kupi|kupn|prodazba|prodava)/i;
-const RENT_RE = /(изнајмува|изнајмам|изнајми|изнајм|кирија|под кирија|издава|издад|\brent\b|iznajmuvam|iznajmam|iznajmi|iznajm|kirija|pod kirija|izdava|izdad)/i;
-
-// No explicit buy/rent word, but "ми треба стан" / "барам стан" / "сакам стан"
-// (need/looking-for/want + apartment, no rent marker) is a BUY in Macedonian
-// real estate: renting is always marked (под кирија, изнајмување, за издавање).
-// NOTE: no \b around Cyrillic — JS \b only knows ASCII word chars.
-const NEED_STAN_RE = /((треба|барам|ми треба|потребен ми е|сакам|need|treba|baram|sakam)[\s\S]{0,50}(стан|станче|стани|stan|stance|apartment))/i;
+// The noun forms („купување“/„изнајмување“) are included too — they are the
+// exact answers to the intent question („за купување или за изнајмување?“),
+// in both scripts (clients type "ZA KUPUVANJE" as often as Cyrillic).
+const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|\bbuy\b|kupuvam|kupam|kupi|kupn|kupuvanje|kupuvanjе|prodazba|prodava)/i;
+const RENT_RE = /(изнајмува|изнајмам|изнајми|изнајм|кирија|под кирија|издава|издад|\brent\b|iznajmuvam|iznajmam|iznajmi|iznajm|iznajmuvanje|iznajmuvanjе|kirija|pod kirija|izdava|izdad)/i;
 
 const BED_NUM_RE = /(\d+)[-\s]*(?:спални|спална|соби|соба|спа|собен|собни|sob|sobi|soben|sobni|spalni|spalna)/i;
 const BED_WORDS: Array<[RegExp, number]> = [
@@ -39,12 +37,15 @@ const BED_WORDS: Array<[RegExp, number]> = [
 const REJECT_RE =
   /(не ми се допаѓа|не ми одговара|не го сакам|не ја сакам|не сакам (овој|оваа|тие|овие|ниту еден)|не ме интересира|нешто друго|друга населба|други опции|ne mi se dopaga|ne mi odgovara|ne go sakam|ne ja sakam|ne sakam|ne me interesira|nestо drugo|druga naselba|drugi opcii)/i;
 
+// "ми треба стан" / "барам стан" / "сакам стан" WITHOUT an explicit buy or
+// rent marker must stay UNKNOWN — Lina asks "за купување или за изнајмување?"
+// instead of putting words in the client's mouth ("MI TREBA STANCE" is NOT a
+// buy statement). Only explicit markers decide.
 export function detectService(text: string): Service | undefined {
   const b = text.search(BUY_RE);
   const r = text.search(RENT_RE);
   if (b >= 0 && (r < 0 || b < r)) return 'buy';
   if (r >= 0) return 'rent';
-  if (NEED_STAN_RE.test(text)) return 'buy';
   return undefined;
 }
 
@@ -98,12 +99,14 @@ export function detectRejection(text: string): boolean {
 
 // Visit interest: the client wants to SEE the property. In property states
 // (property_query/presentation) this is INTERESTED — "кога може да се
-// погледне?", "сакам да ја видам", "организирај посета" and availability
-// questions ("дали е достапен?") all mean "I want to visit it". Latin and
-// Cyrillic (clients type "KOGA BI MOZELO DA SE POGLEDNE STANOT?" more often
-// than Cyrillic). The negation guard keeps "не сакам да ја видам" out.
+// погледне?", "сакам да ја видам", "организирај посета", the bare
+// imperatives "договори ми" / "закажи ми" ("ДОГОВОРИ МИ ЗА ОВОЈ СО БРОЈ 89"
+// = arrange a visit for 89) and availability questions ("дали е достапен?")
+// all mean "I want to visit it". Latin and Cyrillic (clients type "KOGA BI
+// MOZELO DA SE POGLEDNE STANOT?" more often than Cyrillic). The negation
+// guard keeps "не сакам да ја видам" out.
 const VISIT_INTEREST_RE =
-  /(кога[^.!?\n]{0,40}(може|би можело|би можела)[^.!?\n]{0,25}(погледн|видам|разгледам|посета)|(сакам|би сакал|би сакала|посакувам)[^.!?\n]{0,40}(погледн|видам|разгледам|посета)|организира(ј|јте)?\s+посета|закаж(и|е)(те)?\s+посета|дали[^.!?\n]{0,30}достапен|дали[^.!?\n]{0,30}достапна|koga[^.!?\n]{0,40}(moze|bi mozelo|bi mozela)[^.!?\n]{0,25}(pogledn|vidam|razgledam|poseta)|sakam[^.!?\n]{0,40}(da ja vidam|da go vidam|da go poglednam|da go razgledam|poseta)|organiziraj(te)?\s+poseta|zakaz(e|i)(te)?\s+poseta|dali[^.!?\n]{0,30}dostapen|dali[^.!?\n]{0,30}dostapna)/i;
+  /(кога[^.!?\n]{0,40}(може|би можело|би можела)[^.!?\n]{0,25}(погледн|видам|разгледам|посета)|(сакам|би сакал|би сакала|посакувам)[^.!?\n]{0,40}(погледн|видам|разгледам|посета)|организира(ј|јте)?\s+посета|закаж(и|е)(те)?\s+посета|дали[^.!?\n]{0,30}достапен|дали[^.!?\n]{0,30}достапна|koga[^.!?\n]{0,40}(moze|bi mozelo|bi mozela)[^.!?\n]{0,25}(pogledn|vidam|razgledam|poseta)|sakam[^.!?\n]{0,40}(da ja vidam|da go vidam|da go poglednam|da go razgledam|poseta)|organiziraj(te)?\s+poseta|zakaz(e|i)(te)?\s+poseta|dali[^.!?\n]{0,30}dostapen|dali[^.!?\n]{0,30}dostapna|(?<![\p{L}\p{N}])(?:договори|dogovori)(?![\p{L}\p{N}])(?:\s+ми(?:\s+(?:ја|го))?)?|(?<![\p{L}\p{N}])(?:закажи|zakazi)(?![\p{L}\p{N}])(?:\s+ми)?)/iu;
 
 const VISIT_NEGATION_RE = /(не\s+(сакам|сакаме|би сакал|би сакала|посакувам|организира)|ne\s+(sakam|sakame|bi sakal|bi sakala|posakuvam|organizira))/i;
 
@@ -122,6 +125,17 @@ const VISIT_TIME_RE =
 export function detectVisitTime(text: string): string | undefined {
   if (!VISIT_TIME_RE.test(text)) return undefined;
   return text.trim().slice(0, 80);
+}
+
+// The client can't do the PROPOSED visit time — „не можам во 18:00“, „може
+// покасно/подоцна“, „не ми одговара“. In owner_checking this sends the
+// negotiation back to collecting a NEW concrete time — Lina must never confirm
+// (or keep asking the owner about) a time the client already rejected. The
+// "не"-anchored forms keep "MOZAM VO 19:00" (a new proposal) out.
+const TIME_REJECT_RE = /(не можам|не може|не можев|не можел|не ми одговара|не ми е згодно|не одговара|не тој термин|не тогаш|подоцна|покасно|друг термин|поинаков|поинаку|ne mozam|ne moze|ne mozev|ne mi odgovara|ne mi e zgodno|ne odgovara|ne toj termin|ne togas|podocna|pokasno|drug termin|poinakov|poinaku)/i;
+
+export function detectTimeRejection(text: string): boolean {
+  return TIME_REJECT_RE.test(text);
 }
 
 // Commercial-property intent: деловен простор / канцеларија / локал / магацин /
@@ -149,6 +163,17 @@ export function detectBusiness(text: string): boolean {
   // Weak term (кафе/ресторан/салон) is business only WITH a need context:
   // "барам ресторан под кирија" = business; bare "кафе" = nothing.
   return BUSINESS_NEED_RE.test(text);
+}
+
+// House intent: куќа / кука / house / kukja / kuka / вила (both scripts). An
+// explicit apartment word (стан/станче/stan/stance) wins — "сакам куќа или
+// стан" is ambiguous and stays an apartment request.
+const HOUSE_RE = /(куќ|кука|house|kukja|kuka|вила|vila)/i;
+const APARTMENT_RE = /(стан|стани|станче|stan|stance|apartment|apartman)/i;
+
+export function detectHouse(text: string): boolean {
+  if (!HOUSE_RE.test(text)) return false;
+  return !APARTMENT_RE.test(text);
 }
 
 /** Square meters for a commercial space: "40 м2", "40 квадрати", "150 kvadrata". */
@@ -182,7 +207,9 @@ const NAME_STOPWORDS = new Set(['моето', 'мое', 'име', 'јас', 'с�
   'evt', 'tel', 'phone', 'broj', 'kontakt', 'moeto', 'ime', 'jas', 'sum', 'vikam',
   'здраво', 'zdravo', 'како', 'kako', 'добар', 'dobar', 'ден', 'den', 'извинете',
   'izvinete', 'ве молам', 've molam', 'посакувам', 'posakuvam', 'господине',
-  'gospodine', 'госпоѓа', 'gospogja', 'благодарам', 'blagodaram', 'ова', 'тоа', 'toa']);
+  'gospodine', 'госпоѓа', 'gospogja', 'благодарам', 'blagodaram', 'ова', 'тоа', 'toa',
+  // "Горан може на овој број" — function words, never names
+  'овој', 'оваа', 'може', 'можам', 'ovoj', 'ovaa', 'moze', 'mozam']);
 
 export function detectContact(text: string): { name?: string; phone?: string } {
   let t = text.trim();
@@ -326,21 +353,22 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
  * asks for the missing pieces.
  */
 export function buildEvent(state: State, slots: DetectedSlots): Event {
-  const { service, location, bedrooms, sqm, business, budget, rejected } = slots;
+  const { service, location, bedrooms, sqm, business, house, budget, rejected } = slots;
   const has = !!(service || location || bedrooms || budget || sqm);
   if (!has) return { type: 'STAY' };
   if (rejected && ['property_query', 'presentation', 'closing'].includes(state)) {
-    return { type: 'REJECTED', service, location, bedrooms, sqm, business, budget };
+    return { type: 'REJECTED', service, location, bedrooms, sqm, business, house, budget };
   }
-  // Commercial spaces complete with size (м²) instead of bedrooms.
+  // Commercial spaces complete with size (м²) instead of bedrooms; a house
+  // completes with bedrooms like any apartment.
   const complete = service && location && (business ? sqm : bedrooms) && budget;
   if (complete) {
-    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, budget };
+    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, house, budget };
   }
   if (service && !location && !bedrooms && !budget && !sqm) {
-    return { type: 'INTENT_DECLARED', service, business };
+    return { type: 'INTENT_DECLARED', service, business, house };
   }
-  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, budget };
+  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, house, budget };
 }
 
 export function extractSlots(text: string): DetectedSlots {
@@ -348,6 +376,7 @@ export function extractSlots(text: string): DetectedSlots {
   const service = detectService(text);
   if (service) out.service = service;
   if (detectBusiness(text)) out.business = true;
+  out.house = detectHouse(text); // always set: true = куќа, false = стан/unspecified
   const beds = detectBedrooms(text);
   if (beds) out.bedrooms = beds;
   const sqm = detectSqm(text);

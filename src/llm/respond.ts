@@ -3,12 +3,14 @@ import { AppConfig } from '../config';
 import { ChatSession } from '../fsm/session';
 import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
-import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, feePersuasion } from './prompts';
+import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feePersuasion } from './prompts';
 
 // Anchored so a property price like "68.300 евра" never trips it — only a
-// STANDALONE 300/600 (the viewing fee) matches. Unicode-aware end boundary
-// (JS \b fails after Cyrillic).
-const FEE_RE = /(?<![\d.,])(300|600)\s*(мкд|ден\.?|денари|евра|eur)(?![\p{L}\p{N}])/iu;
+// STANDALONE 300/500/600 in денари (the viewing fee; buy is 500, rent 300)
+// matches. Units are денари/мкд only: a real rent price of "500 евра" (EB 56)
+// must never be mistaken for the fee. Unicode-aware end boundary (JS \b fails
+// after Cyrillic).
+const FEE_RE = /(?<![\d.,])(300|500|600)\s*(мкд|ден\.?|денари)(?![\p{L}\p{N}])/iu;
 
 // Owner-contact / phone-collection language is ONLY legal after the fee is
 // agreed (contact_collection onward). Before that the LLM must never jump
@@ -56,7 +58,7 @@ export function guardText(state: State, text: string, publicSiteUrl?: string): s
   out = out.replace(/использу(ется|ат|ва|ваат|е|јќи|јќи)\w*/gi, 'користење')
            .replace(/использован\w*/gi, 'користење');
   // Property prices are quoted in EUROS, never denars. The viewing fee
-  // (300/600 денари) is always < 1000, so any "N денари" with N >= 1000 is a
+  // (300/500/600 денари) is always < 1000, so any "N денари" with N >= 1000 is a
   // mislabeled property price — fix the unit word. (Unicode boundary — JS \b
   // fails after Cyrillic.)
   out = out.replace(/(\d[\d\s.,]*)\s*(денари|ден\.)(?![\p{L}\p{N}])/giu, (m: string, num: string) => {
@@ -78,8 +80,9 @@ export class Responder {
 
   async respond(session: ChatSession, properties: Property[], userText: string): Promise<string> {
     // The discovery ask is deterministic: it only asks for what is still
-    // missing and NEVER re-asks the intent once it is known — "ми треба стан"
-    // means BUY, so the generic buy/rent battery never fires.
+    // missing and NEVER re-asks the intent once it is known — a client who
+    // never said buy/rent ("ми треба станче") is asked the intent question
+    // first, never told they want to buy.
     if (session.state === 'idle' || session.state === 'intent' || session.state === 'discovery') {
       return guardText(session.state, buildDiscoveryAsk(session.slots), this.cfg.publicSiteUrl);
     }
@@ -125,6 +128,9 @@ export class Responder {
           buildPropertyCards(properties, session.state, session.history.length),
           this.cfg.publicSiteUrl);
       }
+      // Contact ask is code-built and phone-aware: when the number is already
+      // known (Viber sender id), only the name is requested.
+      if (session.state === 'contact_collection') return buildContactAsk(session.slots);
       return FALLBACKS[session.state] ?? FALLBACKS.default;
     }
   }

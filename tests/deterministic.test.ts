@@ -3,8 +3,8 @@ import assert from 'node:assert';
 import {
   detectService, detectBedrooms, detectBudget, detectRejection,
   detectLocation, buildEvent, extractSlots, detectAgreement, detectContact,
-  detectBusiness, detectSqm, detectVisitInterest, detectVisitTime, detectWhereIs,
-  detectOwnerVerdict,
+  detectBusiness, detectHouse, detectSqm, detectVisitInterest, detectVisitTime,
+  detectTimeRejection, detectWhereIs, detectOwnerVerdict,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -58,15 +58,24 @@ test('detectWhereIs: "каде е X?" is a place question, never a search', () =
   assert.equal(detectWhereIs('DALI E SEUSTE DOSTAPEN ?'), undefined); // visit-interest stays intact
 });
 
-test('detectService: "ми треба стан" without rent words implies BUY', () => {
-  assert.equal(detectService('ми треба мало станче'), 'buy');
-  assert.equal(detectService('MI TREBA MALO STANCE'), 'buy');
-  assert.equal(detectService('барам стан во Центар'), 'buy');
-  assert.equal(detectService('sakam stan vo Centar'), 'buy');
-  assert.equal(detectService('need an apartment in centar'), 'buy');
-  // explicit rent marker wins over the implied-buy fallback
+test('detectService: "ми треба стан" without a marker is UNKNOWN — never assumed buy', () => {
+  // "MI TREBA STANCE" does NOT say buy or rent — Lina must ask the intent
+  // question, not claim the client wants to buy.
+  assert.equal(detectService('ми треба мало станче'), undefined);
+  assert.equal(detectService('MI TREBA MALO STANCE'), undefined);
+  assert.equal(detectService('барам стан во Центар'), undefined);
+  assert.equal(detectService('sakam stan vo Centar'), undefined);
+  assert.equal(detectService('need an apartment in centar'), undefined);
+  // explicit markers still win
   assert.equal(detectService('ми треба стан под кирија'), 'rent');
   assert.equal(detectService('барам стан за изнајмување'), 'rent');
+  assert.equal(detectService('сакам да купам стан'), 'buy');
+  assert.equal(detectService('sakam da kupam stan'), 'buy');
+  // the answers to the intent question — both scripts
+  assert.equal(detectService('ЗА КУПУВАЊЕ'), 'buy');
+  assert.equal(detectService('ZA KUPUVANJE'), 'buy');
+  assert.equal(detectService('ЗА ИЗНАЈМУВАЊЕ'), 'rent');
+  assert.equal(detectService('ZA IZNAJMUVANJE'), 'rent');
   // no need/want word -> still unknown
   assert.equal(detectService('имате ли стан во Центар?'), undefined);
 });
@@ -132,6 +141,32 @@ test('detectBusiness: дуќан/дукјан/продавница/рестор�
   assert.equal(detectBusiness('sakam lokal pod kirija'), true);
 });
 
+test('detectHouse: куќа is a house — стан wins over a mixed mention', () => {
+  assert.equal(detectHouse('SAKAM DA KUPAM KUKJA'), true);
+  assert.equal(detectHouse('сакам да купам куќа'), true);
+  assert.equal(detectHouse('барам куќа под кирија'), true);
+  assert.equal(detectHouse('kukja vo VIZBEGOVO'), true);
+  assert.equal(detectHouse('вила на Водно'), true);
+  // an apartment word wins — "куќа или стан" stays an apartment request
+  assert.equal(detectHouse('сакам куќа или стан'), false);
+  assert.equal(detectHouse('SAKAM STAN'), false);
+  assert.equal(detectHouse('zdravo'), false);
+  assert.equal(detectHouse('деловен простор'), false);
+});
+
+test('extractSlots + buildEvent: a house request stays a house end-to-end', () => {
+  const s = extractSlots('SAKAM DA KUPAM KUKJA VO VIZBEGOVO');
+  assert.equal(s.service, 'buy');
+  assert.equal(s.house, true);
+  const ev = buildEvent('idle', s);
+  assert.equal(ev.type, 'INTENT_DECLARED');
+  assert.equal(ev.house, true);
+  // a complete house set -> SEARCH_REQUESTED with house preserved
+  const full = buildEvent('idle', { service: 'buy', house: true, location: 'Визбегово', bedrooms: 3, budget: '150000' });
+  assert.equal(full.type, 'SEARCH_REQUESTED');
+  assert.equal(full.house, true);
+});
+
 test('detectBusiness: an explicit стан/куќа makes business words landmarks, not the property', () => {
   assert.equal(detectBusiness('sakam stan do kafe'), false);
   assert.equal(detectBusiness('сакам стан до ресторан'), false);
@@ -173,6 +208,15 @@ test('detectVisitInterest: "кога може да се погледне" / "д�
   assert.equal(detectVisitInterest('сакам да ја видам'), true);
   assert.equal(detectVisitInterest('organizirajte poseta'), true);
   assert.equal(detectVisitInterest('да, сакам да организираме посета'), true);
+  // the bare "договори ми" / "закажи ми" imperatives are visit interest too
+  assert.equal(detectVisitInterest('DOGOVORI MI ZA OVOJ SO BROJ 89'), true);
+  assert.equal(detectVisitInterest('договори ми посета'), true);
+  assert.equal(detectVisitInterest('договори посета'), true);
+  assert.equal(detectVisitInterest('dogovori mi ja za 89'), true);
+  assert.equal(detectVisitInterest('ЗАКАЖИ МИ'), true);
+  // the noun "договор" / "договориме" are NOT visit commands
+  assert.equal(detectVisitInterest('договор за кирија'), false);
+  assert.equal(detectVisitInterest('можеме да се договориме'), false);
   // negation keeps rejection out
   assert.equal(detectVisitInterest('NE SAKAM DA JA VIDAM'), false);
   assert.equal(detectVisitInterest('не сакам да ја видам'), false);
@@ -192,11 +236,27 @@ test('detectVisitTime: a proposed time is recognized without any LLM', () => {
   assert.equal(detectVisitTime('STO IMAS VO KARPOS ?'), undefined);
 });
 
+test('detectTimeRejection: the client can\'t do the proposed time — never a new proposal', () => {
+  // rejection of the CURRENT proposal, both scripts
+  assert.equal(detectTimeRejection('NE MOZAM VO 18:00 DALI MOZE POKASNO'), true);
+  assert.equal(detectTimeRejection('не можам во 18:00'), true);
+  assert.equal(detectTimeRejection('ne mozam utre'), true);
+  assert.equal(detectTimeRejection('дали може покасно'), true);
+  assert.equal(detectTimeRejection('подоцна не ми одговара'), true);
+  assert.equal(detectTimeRejection('не ми е згодно тогаш'), true);
+  // a NEW concrete time is NOT a rejection
+  assert.equal(detectTimeRejection('MOZAM VO 19:00'), false);
+  assert.equal(detectTimeRejection('утре попладне'), false);
+  assert.equal(detectTimeRejection('zdravo'), false);
+});
+
 test('detectContact: name+phone intake without any LLM', () => {
   assert.deepEqual(detectContact('ZORAN 078/914 196'), { name: 'Zoran', phone: '078914196' });
   assert.deepEqual(detectContact('Моето име е Зоран Петровски, тел 078 914 196'),
     { name: 'Зоран Петровски', phone: '078914196' });
   assert.deepEqual(detectContact('078 914 196'), { name: undefined, phone: '078914196' });
+  // no number in the message — the name only (the number comes from the Viber id)
+  assert.deepEqual(detectContact('GORAN MOZE NA OVOJ BROJ'), { name: 'Goran', phone: undefined });
   assert.deepEqual(detectContact('zdravo, kako si?'), { name: undefined, phone: undefined });
 });
 
@@ -245,16 +305,17 @@ test('extractSlots: full LLM-free intake from a single Latin message', () => {
   assert.equal(s.rejected, undefined);
 });
 
-test('GORAN scenario: implied buy + location + size -> DETAILS_PROVIDED, never buy/rent re-ask', () => {
+test('GORAN scenario: "ми треба станче" without a marker stays UNKNOWN — discovery asks intent, never claims buy', () => {
   const s = extractSlots('ZDRAVO, MI TREBA MALO STANCE VO CENTAR ILI KISELA VODA');
-  assert.equal(s.service, 'buy');
+  assert.equal(s.service, undefined); // no buy assumption
   assert.equal(s.bedrooms, 1);
   const ev = buildEvent('idle', { ...s, location: 'Центар' });
   assert.equal(ev.type, 'DETAILS_PROVIDED');
-  assert.equal(ev.service, 'buy');
+  assert.equal(ev.service, undefined);
   assert.equal(ev.location, 'Центар');
   assert.equal(ev.bedrooms, 1);
-  // once the budget lands, the set is complete -> straight to presentation
+  // once the client ANSWERS the intent question and the budget lands, the set
+  // is complete -> straight to presentation
   const full = buildEvent('idle', { service: 'buy', location: 'Центар', bedrooms: 1, budget: '50000' });
   assert.equal(full.type, 'SEARCH_REQUESTED');
 });

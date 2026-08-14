@@ -34,6 +34,36 @@ test('inferPropertyId: does NOT fire on bedrooms/prices/sizes/times/phones/years
   assert.equal(inferPropertyId('ZAINTERESIRAN SUM ZA 78'), 78);
 });
 
+test('parseClassified: bedrooms/sqm are numeric-only and bounded — garbage and absurd values are dropped', () => {
+  const beds = parseClassified('{"event":"DETAILS_PROVIDED","bedrooms":"кукја пофтина"}');
+  assert.equal(beds.event.bedrooms, undefined);
+  const bedsOk = parseClassified('{"event":"DETAILS_PROVIDED","bedrooms":2}');
+  assert.equal(bedsOk.event.bedrooms, 2);
+  const bedsAbsurd = parseClassified('{"event":"DETAILS_PROVIDED","bedrooms":99}');
+  assert.equal(bedsAbsurd.event.bedrooms, undefined); // cap: 1..10
+  const sqmG = parseClassified('{"event":"DETAILS_PROVIDED","sqm":"многу квадрати"}');
+  assert.equal(sqmG.event.sqm, undefined);
+  const sqmOk = parseClassified('{"event":"DETAILS_PROVIDED","sqm":105}');
+  assert.equal(sqmOk.event.sqm, 105);
+  const sqmHuge = parseClassified('{"event":"DETAILS_PROVIDED","sqm":99999}');
+  assert.equal(sqmHuge.event.sqm, undefined); // cap: 10..5000
+  const sqmTiny = parseClassified('{"event":"DETAILS_PROVIDED","sqm":2}');
+  assert.equal(sqmTiny.event.sqm, undefined);
+});
+
+test('parseClassified: budget is canonicalized — garbage without digits is dropped', () => {
+  // "до кукја пофтина евра" — the LLM filled budget with nonsense (no number)
+  const garbage = parseClassified('{"event":"DETAILS_PROVIDED","budget":"кукја пофтина евра"}');
+  assert.equal(garbage.event.budget, undefined);
+  // canonical forms survive and normalize to digits
+  const plain = parseClassified('{"event":"DETAILS_PROVIDED","budget":"1000"}');
+  assert.equal(plain.event.budget, '1000');
+  const formatted = parseClassified('{"event":"DETAILS_PROVIDED","budget":"до 80.000 евра"}');
+  assert.equal(formatted.event.budget, '80000');
+  const words = parseClassified('{"event":"DETAILS_PROVIDED","budget":"80 илјади"}');
+  assert.equal(words.event.budget, '80000');
+});
+
 test('parseClassified: a PROPERTY_ID_REQUESTED with NO number is a hallucination', () => {
   // "A NESTO POSKAPO DO 1000 EVRA" — the LLM sometimes answers
   // PROPERTY_ID_REQUESTED with no propertyId; there is no EB to look up.
