@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -38,7 +38,7 @@ Rules:
 - DETAILS_PROVIDED: user gives location (which part of the city), bedrooms (спални соби), or budget. Extract into the fields; fill only what is present.
 - business: true when the user wants COMMERCIAL space (деловен простор, канцеларија, локал, магацин, хала). For business requests, "sqm" (square meters) matters and bedrooms do NOT.
 - SEARCH_REQUESTED: user asks to see offers now, with enough details already given.
-- INTERESTED: user wants to visit / schedule / see a specific property ("сакам да ја видам", "договори посета", "да" after a presentation).
+- INTERESTED: user wants to visit / schedule / see a specific property ("сакам да ја видам", "договори посета", "кога може да се погледне", "дали е достапен?" after a property was shown, "да" after a presentation).
 - REJECTED: user declines offers, dislikes options, or disagrees with terms.
 - FEE_AGREED: user EXPLICITLY agrees to pay the viewing fee ("се согласувам", "во ред", "да" in response to the fee question).
 - FEE_REFUSED: user REFUSES the viewing fee ("не сакам да платам", "зошто надомест", "без надомест"). Only in response to the fee question.
@@ -50,6 +50,7 @@ Rules:
 - ESCALATE: user asks about legal, financial, contractual or other complex matters the assistant cannot answer, OR explicitly asks to speak with a manager/supervisor ("сакам да зборувам со менаџер", "повикајте претпоставен", "дајте ми некој надлежен").
 - STAY: anything else (greetings, small talk, unclear messages, or messages that continue an existing flow without new information).
 - The CURRENT STATE hint disambiguates: in state "closing", "да"/"во ред" means FEE_AGREED; in state "time_confirm", "да"/"во ред" means TIME_ACCEPTED.
+- An availability question ("дали е достапен?") or a "when can I view it" ("кога може да се погледне?") in property_query/presentation is INTERESTED — never PROPERTY_ID_REQUESTED or STAY. The fee is disclosed first; the owner is contacted only after the client agrees.
 - "offensive": true only for vulgar, sexual, harassing or insulting language. "offenseLevel": 1 for first offense, 2 if it repeats, 3 for severe abuse or threats.
 - "reason": short Macedonian phrase summarizing why this event was chosen (max 15 words).
 - The conversation is in Macedonian; keep extracted values in their original language.
@@ -203,6 +204,32 @@ export class Classifier {
         sqm: ev.sqm, business: ev.business, budget: ev.budget, rejected: slots.rejected,
       });
       if (det.type !== 'STAY') parsed.event = det;
+    }
+    // --- funnel overrides (run AFTER recompute so nothing clobbers them) ---
+    // Visit interest in property states -> INTERESTED: "кога може да се
+    // погледне?", "дали е достапен?", "сакам да ја видам" all mean the client
+    // wants to SEE the property — which routes to closing, where the fee is
+    // disclosed (code-built, never skippable) before the owner ping-pong.
+    // Availability questions are the owner's job, and the owner is only
+    // contacted AFTER the fee is agreed.
+    if (parsed.event.type !== 'PROPERTY_ID_REQUESTED'
+      && ['property_query', 'presentation'].includes(session.state)
+      && (llmDown || parsed.event.type === 'STAY')
+      && detectVisitInterest(text)) {
+      const pid = parsed.event.propertyId ?? session.slots.propertyId;
+      parsed.event = pid ? { type: 'INTERESTED', propertyId: pid } : { type: 'INTERESTED' };
+    }
+    // LLM-down agreement in closing -> FEE_AGREED ("да, се согласувам" after
+    // the fee question). Without it, an LLM outage would loop the fee question
+    // forever and never reach the owner.
+    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing' && detectAgreement(text)) {
+      parsed.event = { type: 'FEE_AGREED' };
+    }
+    // LLM-down visit time in visit_scheduling -> VISIT_TIME_PROVIDED, so the
+    // owner check starts even with every LLM down ("утре на пладне").
+    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'visit_scheduling') {
+      const t = detectVisitTime(text);
+      if (t) parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
     }
     return parsed;
   }

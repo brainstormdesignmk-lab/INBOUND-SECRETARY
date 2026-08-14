@@ -3,12 +3,19 @@ import { AppConfig } from '../config';
 import { ChatSession } from '../fsm/session';
 import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
-import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk } from './prompts';
+import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, feePersuasion } from './prompts';
 
 // Anchored so a property price like "68.300 евра" never trips it — only a
 // STANDALONE 300/600 (the viewing fee) matches. Unicode-aware end boundary
 // (JS \b fails after Cyrillic).
 const FEE_RE = /(?<![\d.,])(300|600)\s*(мкд|ден\.?|денари|евра|eur)(?![\p{L}\p{N}])/iu;
+
+// Owner-contact / phone-collection language is ONLY legal after the fee is
+// agreed (contact_collection onward). Before that the LLM must never jump
+// ahead — "морам да го контактирам сопственикот, дајте телефон" skips the
+// fee disclosure the client must agree to first.
+const OWNER_JUMP_RE = /(морам да го контактирам|ќе го контактирам|да го контактирам|контактирам со сопственикот|прашам го сопственикот|телефонски број|телефон за контакт|број за контакт|кажете ми го вашиот телефон|дајте ми го вашиот телефон|име и телефонски|име и презиме и телефон)/i;
+const OWNER_JUMP_ALLOWED = new Set(['contact_collection', 'visit_scheduling', 'owner_checking', 'time_confirm', 'pending', 'queued']);
 
 export function guardText(state: State, text: string, publicSiteUrl?: string): string {
   let out = text.trim();
@@ -22,6 +29,13 @@ export function guardText(state: State, text: string, publicSiteUrl?: string): s
   // Hard rule: the viewing fee must NEVER appear before the client is interested.
   if (!isFeeAllowed(state) && FEE_RE.test(out)) {
     console.warn(`[guard] fee mention blocked in state "${state}"`);
+    return FALLBACKS[state] ?? FALLBACKS.default;
+  }
+  // The owner ping-pong only starts AFTER the fee is agreed — before
+  // contact_collection the LLM must never promise to contact the owner or ask
+  // for the phone (that is the funnel's job, in order: fee -> contact -> time).
+  if (!OWNER_JUMP_ALLOWED.has(state) && OWNER_JUMP_RE.test(out)) {
+    console.warn(`[guard] owner-contact/phone ask blocked in state "${state}"`);
     return FALLBACKS[state] ?? FALLBACKS.default;
   }
   // Terminology: "ID"/"ИД" is forbidden in outbound chat. NOTE: JS \b only
@@ -60,6 +74,17 @@ export class Responder {
     // means BUY, so the generic buy/rent battery never fires.
     if (session.state === 'idle' || session.state === 'intent' || session.state === 'discovery') {
       return guardText(session.state, buildDiscoveryAsk(session.slots), this.cfg.publicSiteUrl);
+    }
+    // The fee disclosure is deterministic: the moment the client shows interest
+    // in visiting (INTERESTED -> closing), the fee is asked CODE-BUILT — never
+    // LLM prose, so it can't be skipped or paraphrased. Refusals use the
+    // persuasion ladder; agreement moves to contact_collection (owner contact).
+    if (session.state === 'closing') {
+      const rejects = session.slots.feeRejections ?? 0;
+      const line = rejects > 0
+        ? feePersuasion(session.slots.service, rejects)
+        : buildFeeAsk(session.slots.service);
+      return guardText(session.state, line, this.cfg.publicSiteUrl);
     }
     const task = stateTask(session.state, session.slots);
     const propCtx = buildPropertyContext(properties, this.cfg.publicSiteUrl);

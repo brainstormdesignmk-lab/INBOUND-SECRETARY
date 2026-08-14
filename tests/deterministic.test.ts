@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import {
   detectService, detectBedrooms, detectBudget, detectRejection,
   detectLocation, buildEvent, extractSlots, detectAgreement, detectContact,
-  detectBusiness, detectSqm,
+  detectBusiness, detectSqm, detectVisitInterest, detectVisitTime,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -103,6 +103,34 @@ test('detectAgreement: exits the exhausted dead-end, never misfires on questions
   assert.equal(detectAgreement('дали е достапен 82?'), false); // "да" inside "дали"
   assert.equal(detectAgreement('STO IMAS VO KARPOS ?'), false);
   assert.equal(detectAgreement('НЕ САКАМ'), false);
+});
+
+test('detectVisitInterest: "кога може да се погледне" / "дали е достапен" / "сакам да ја видам" are visit interest', () => {
+  assert.equal(detectVisitInterest('KOGA BI MOZELO DA SE POGLEDNE STANOT ?'), true);
+  assert.equal(detectVisitInterest('Кога би можело да се погледне станот?'), true);
+  assert.equal(detectVisitInterest('DALI E SEUSTE DOSTAPEN ?'), true);
+  assert.equal(detectVisitInterest('Дали е достапен имотот?'), true);
+  assert.equal(detectVisitInterest('Sakam da ja vidam 78'), true);
+  assert.equal(detectVisitInterest('сакам да ја видам'), true);
+  assert.equal(detectVisitInterest('organizirajte poseta'), true);
+  assert.equal(detectVisitInterest('да, сакам да организираме посета'), true);
+  // negation keeps rejection out
+  assert.equal(detectVisitInterest('NE SAKAM DA JA VIDAM'), false);
+  assert.equal(detectVisitInterest('не сакам да ја видам'), false);
+  // unrelated chat is NOT visit interest
+  assert.equal(detectVisitInterest('zdravo, kako si?'), false);
+  assert.equal(detectVisitInterest('STO IMAS VO KARPOS ?'), false);
+  assert.equal(detectVisitInterest('дај ми цена'), false);
+});
+
+test('detectVisitTime: a proposed time is recognized without any LLM', () => {
+  assert.equal(detectVisitTime('UTRE NAPLADNE'), 'UTRE NAPLADNE');
+  assert.equal(detectVisitTime('утре на пладне'), 'утре на пладне');
+  assert.equal(detectVisitTime('Pozdravi, mozam utre popladne posle 6'), 'Pozdravi, mozam utre popladne posle 6');
+  assert.equal(detectVisitTime('сабота попладне'), 'сабота попладне');
+  assert.equal(detectVisitTime('petok vo 17:30'), 'petok vo 17:30');
+  assert.equal(detectVisitTime('zdravo'), undefined);
+  assert.equal(detectVisitTime('STO IMAS VO KARPOS ?'), undefined);
 });
 
 test('detectContact: name+phone intake without any LLM', () => {

@@ -31,6 +31,7 @@ const ROWS: Property[] = [
   { eb: 53, id: 53, location: 'Аеродром', price: 55000, service: 'buy' },
   { eb: 55, id: 55, location: 'Влае', price: 40000, service: 'buy' },
   { eb: 54, id: 54, location: 'Карпош III', price: 69500, service: 'buy' },
+  { eb: 78, id: 78, location: 'Капиштец', price: 185000, service: 'buy', bedrooms: 3, size: '82 м²', address: 'Народен Фронт' },
   { eb: 63, id: 63, location: 'Центар', price: 36000, service: 'buy' },
   { eb: 48, id: 48, location: 'Карпош III', price: 250, service: 'rent' },
   { eb: 56, id: 56, location: undefined, price: 500, service: 'rent', business: true, sqm: 40 },
@@ -115,6 +116,53 @@ test('business: деловен простор never asks bedrooms — location/s
   s = await send('40 KVADRATI, DO 500 EVRA');
   assert.equal(s.state, 'presentation');
   assert.ok(sent[1].includes('Деловниот простор под Евидентен број 56'), sent[1]);
+});
+
+test('ZOKI: visit interest ("дали е достапен?") -> fee disclosed -> agreement -> owner ping-pong — never a phone ask before the fee', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'zoki';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // 1) "ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78" -> property_query, property shown
+  let s = await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  assert.equal(s.state, 'property_query');
+  assert.ok(sent[0].includes('Евидентен број 78'), sent[0]);
+
+  // 2) "DALI E SEUSTE DOSTAPEN ?" -> INTERESTED (visit interest), NOT owner contact.
+  //    Lina must disclose the FEE first — never "морам да го контактирам сопственикот".
+  s = await send('DALI E SEUSTE DOSTAPEN ?');
+  assert.equal(s.state, 'closing');
+  assert.ok(sent[1].includes('600 денари'), sent[1]); // buy fee disclosed
+  assert.ok(!sent[1].includes('телефонски'), sent[1]); // no phone ask before agreement
+  assert.ok(!sent[1].includes('контактирам'), sent[1]);
+
+  // 3) "DA, SE SOGLASUVAM" -> FEE_AGREED -> contact_collection (name+phone now)
+  s = await send('DA, SE SOGLASUVAM');
+  assert.equal(s.state, 'contact_collection');
+  assert.ok(sent[2].includes('име'), sent[2]);
+
+  // 4) name + phone -> visit_scheduling -> preferred time question
+  s = await send('ZORAN 078/914 196');
+  assert.equal(s.state, 'visit_scheduling');
+  assert.ok(sent[3].includes('Кој термин'), sent[3]);
+
+  // 5) proposed time -> owner_checking (the owner ping-pong starts)
+  s = await send('UTRE POPLADNE POSLE 6');
+  assert.equal(s.state, 'owner_checking');
+  assert.ok(s.slots.visitTime?.includes('UTRE'), JSON.stringify(s.slots));
+  assert.ok(sent[4].includes('потврдам'), sent[4]); // OWNER_CHECK_ACK
+});
+
+test('ZOKI: "кога може да се погледне" is visit interest too — same fee funnel', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'zoki2';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  const s = await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
+  assert.equal(s.state, 'closing');
+  assert.ok(sent[1].includes('600 денари'), sent[1]);
+  assert.ok(!sent[1].includes('телефонски'), sent[1]);
 });
 
 test('stuck loop: the exhausted line never repeats for contact requests', async () => {

@@ -95,6 +95,34 @@ export function detectRejection(text: string): boolean {
   return REJECT_RE.test(text);
 }
 
+// Visit interest: the client wants to SEE the property. In property states
+// (property_query/presentation) this is INTERESTED — "кога може да се
+// погледне?", "сакам да ја видам", "организирај посета" and availability
+// questions ("дали е достапен?") all mean "I want to visit it". Latin and
+// Cyrillic (clients type "KOGA BI MOZELO DA SE POGLEDNE STANOT?" more often
+// than Cyrillic). The negation guard keeps "не сакам да ја видам" out.
+const VISIT_INTEREST_RE =
+  /(кога[^.!?\n]{0,40}(може|би можело|би можела)[^.!?\n]{0,25}(погледн|видам|разгледам|посета)|(сакам|би сакал|би сакала|посакувам)[^.!?\n]{0,40}(погледн|видам|разгледам|посета)|организира(ј|јте)?\s+посета|закаж(и|е)(те)?\s+посета|дали[^.!?\n]{0,30}достапен|дали[^.!?\n]{0,30}достапна|koga[^.!?\n]{0,40}(moze|bi mozelo|bi mozela)[^.!?\n]{0,25}(pogledn|vidam|razgledam|poseta)|sakam[^.!?\n]{0,40}(da ja vidam|da go vidam|da go poglednam|da go razgledam|poseta)|organiziraj(te)?\s+poseta|zakaz(e|i)(te)?\s+poseta|dali[^.!?\n]{0,30}dostapen|dali[^.!?\n]{0,30}dostapna)/i;
+
+const VISIT_NEGATION_RE = /(не\s+(сакам|сакаме|би сакал|би сакала|посакувам|организира)|ne\s+(sakam|sakame|bi sakal|bi sakala|posakuvam|organizira))/i;
+
+export function detectVisitInterest(text: string): boolean {
+  if (VISIT_NEGATION_RE.test(text)) return false;
+  return VISIT_INTEREST_RE.test(text);
+}
+
+// A proposed visit time (LLM-down path for visit_scheduling -> owner check).
+// Anything with a time/date reference: "утре на пладне", "после 6", "петок
+// во 17:30", "сабота попладне". Returns the raw phrase (used verbatim in the
+// owner check + confirmation).
+const VISIT_TIME_RE =
+  /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|после\s*\d{1,2}|по\s*\d{1,2}|после\s+\d{1,2}|понеделник|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
+
+export function detectVisitTime(text: string): string | undefined {
+  if (!VISIT_TIME_RE.test(text)) return undefined;
+  return text.trim().slice(0, 80);
+}
+
 // Commercial-property intent: деловен простор / канцеларија / локал / магацин…
 // ("за стан" searches must never ask or match these — and vice versa).
 const BUSINESS_RE = /(деловен|деловни|деловна|деловно|канцелар|локал|магацин|хала|бизнис|офис|deloven|delovni|delovna|kancelari|kancelariski|lokal|magacin|hala|biznis|ofis|office|business)/i;

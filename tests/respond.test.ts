@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { guardText } from '../src/llm/respond';
-import { buildPropertyCards, buildPropertyCard, buildDiscoveryAsk, buildPropertyContext, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS } from '../src/llm/prompts';
+import { buildPropertyCards, buildPropertyCard, buildDiscoveryAsk, buildPropertyContext, buildFeeAsk, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS } from '../src/llm/prompts';
 import { SlotData } from '../src/fsm/session';
 import { Property } from '../src/data/properties';
 
@@ -12,6 +12,29 @@ test('guardText: property prices are quoted in euros, never denars', () => {
   assert.equal(guardText('presentation', 'има и 5.000 денари кирија'), 'има и 5.000 евра кирија');
   // already euros — untouched
   assert.equal(guardText('presentation', 'Цената изнесува 46.000 евра'), 'Цената изнесува 46.000 евра');
+});
+
+test('buildFeeAsk: the fee is disclosed the moment the client is interested — code-built, never skippable', () => {
+  const buy = buildFeeAsk('buy');
+  assert.ok(buy.includes('600 денари (10 евра)'), buy);
+  assert.ok(buy.includes('НЕ плаќате агенциска провизија'), buy);
+  assert.ok(buy.includes('Дали се согласувате'), buy);
+  const rent = buildFeeAsk('rent');
+  assert.ok(rent.includes('300 денари (5 евра)'), rent);
+  assert.ok(rent.includes('Дали се согласувате'), rent);
+  assert.ok(!rent.includes('600'), rent);
+  // guard keeps it intact in closing (fee is legal there)
+  assert.equal(guardText('closing', rent), rent);
+});
+
+test('guardText: owner-contact/phone asks are blocked before the fee is agreed', () => {
+  const jump = 'Морам да го контактирам сопственикот. Кажете ми го вашиот телефонски број.';
+  const out = guardText('property_query', jump);
+  assert.ok(!out.includes('телефонски'), out);
+  assert.ok(!out.includes('сопственик'), out);
+  // legal in contact_collection (after FEE_AGREED)
+  const legal = 'Ве молам кажете ми го вашето име и телефонски број за контакт.';
+  assert.equal(guardText('contact_collection', legal), legal);
 });
 
 test('guardText: the viewing fee stays in denars (always < 1000)', () => {
