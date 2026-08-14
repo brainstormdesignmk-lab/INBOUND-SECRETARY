@@ -154,6 +154,13 @@ export class Classifier {
     if (PROP_INTAKE_STATES.has(session.state)) {
       const id = inferPropertyId(text);
       if (id) parsed.event = { type: 'PROPERTY_ID_REQUESTED', propertyId: id };
+      // A PROPERTY_ID_REQUESTED with NO number is a hallucination ("A NESTO
+      // POSKAPO DO 1000 EVRA" → PROPERTY_ID_REQUESTED with no EB). There is
+      // no property to look up — downgrade to STAY so the deterministic slot
+      // path extracts the budget and the discovery funnel continues.
+      else if (parsed.event.type === 'PROPERTY_ID_REQUESTED' && parsed.event.propertyId === undefined) {
+        parsed.event = { type: 'STAY' };
+      }
     }
     // Deterministic slot extraction + gap-fill: the discovery funnel must not
     // depend on the LLM's mood. It fires when the LLM is DOWN (the whole

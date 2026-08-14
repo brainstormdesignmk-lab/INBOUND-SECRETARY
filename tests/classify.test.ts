@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { inferPropertyId } from '../src/llm/classify';
+import { inferPropertyId, parseClassified } from '../src/llm/classify';
 
 test('inferPropertyId: bare 2-3 digit numbers are Евидентен број references', () => {
   assert.equal(inferPropertyId('ZAINTERESIRANA SUM ZA 78'), 78);
@@ -32,4 +32,12 @@ test('inferPropertyId: does NOT fire on bedrooms/prices/sizes/times/phones/years
   assert.equal(inferPropertyId('до 250 евра'), undefined);
   // but a genuine bare-number property reference still works
   assert.equal(inferPropertyId('ZAINTERESIRAN SUM ZA 78'), 78);
+});
+
+test('parseClassified: a PROPERTY_ID_REQUESTED with NO number is a hallucination', () => {
+  // "A NESTO POSKAPO DO 1000 EVRA" — the LLM sometimes answers
+  // PROPERTY_ID_REQUESTED with no propertyId; there is no EB to look up.
+  const c = parseClassified('{"event":"PROPERTY_ID_REQUESTED","propertyId":null,"reason":"neshto"}');
+  assert.equal(c.event.type, 'PROPERTY_ID_REQUESTED');
+  assert.equal(c.event.propertyId, undefined); // no number survived parsing
 });

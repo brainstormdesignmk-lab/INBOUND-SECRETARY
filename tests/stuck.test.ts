@@ -17,6 +17,14 @@ class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
 }
 
+// An LLM that is UP but hallucinates: answers PROPERTY_ID_REQUESTED with no
+// propertyId for a budget refinement ("A NESTO POSKAPO DO 1000 EVRA").
+class HallucinatingLlm implements LlmClient {
+  async complete(): Promise<string> {
+    return JSON.stringify({ event: 'PROPERTY_ID_REQUESTED', propertyId: null, reason: 'neshto poskapo' });
+  }
+}
+
 class FakeProps extends PropertyService {
   constructor(private rows: Property[]) { super('http://fake-feed'); }
   async getAll(): Promise<Property[]> { return this.rows; }
@@ -211,6 +219,35 @@ test('JANE burst: "ZDRAVO / MI TREBA STAN POD KIRIJA / DO 250 EVRA" as ONE turn 
   assert.ok(!sent[0].includes('купување или за изнајмување'), sent[0]);
   assert.ok(!sent[0].includes('Евидентен број 250'), sent[0]);
   assert.ok(!sent[0].includes('не можам да го најдам'), sent[0]);
+});
+
+test('"A NESTO POSKAPO DO 1000 EVRA": a hallucinated EB-0 property query stays in the funnel', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new HallucinatingLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels });
+  const chatId = 'poskapo';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // business discovery flow, then the budget refinement (the paste scenario)
+  await send('ZDRAVO, MI TREBA DUKJAN POD KIRIJA');
+  await send('VO CENTAR');
+  const s = await send('A NESTO POSKAPO DO 1000 EVRA');
+  assert.equal(s.state, 'discovery'); // never property_query
+  assert.equal(s.slots.budget, '1000');
+  assert.equal(s.slots.propertyId, undefined);
+  assert.ok(sent[2].includes('до 1.000 евра'), sent[2]);
+  assert.ok(!sent[2].includes('Евидентен број 0'), sent[2]);
+  assert.ok(!sent[2].includes('не можам да го најдам'), sent[2]);
 });
 
 test('stuck loop: the exhausted line never repeats for contact requests', async () => {
