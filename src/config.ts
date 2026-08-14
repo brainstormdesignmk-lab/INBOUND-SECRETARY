@@ -15,6 +15,7 @@ export interface AppConfig {
   groqModelClassify: string;
   personaTemp: number;
   ownerTypingDelayMs: number; // owner "typing" window before Lina relays (Enter bypasses)
+  clientTypingDelayMs: number; // client "typing" window before Lina replies (follow-ups reset, Enter flushes)
   classifyTemp: number;
   topP: number;
   topK: number;
@@ -57,6 +58,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     groqModelClassify: process.env.GROQ_MODEL_CLASSIFY || 'llama-3.1-8b-instant',
     personaTemp: num(process.env.PERSONA_TEMP, 0.8),
     ownerTypingDelayMs: num(process.env.OWNER_TYPING_DELAY_MS, 30_000),
+    clientTypingDelayMs: num(process.env.CLIENT_TYPING_DELAY_MS, 30_000),
     classifyTemp: num(process.env.CLASSIFY_TEMP, 0.2),
     topP: num(process.env.TOP_P, 0.95),
     topK: num(process.env.TOP_K, 40),

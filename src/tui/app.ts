@@ -55,6 +55,11 @@ export class TuiApp {
     eb: number; action: 'ok' | 'sold' | 'rented' | 'counter'; ownerTime?: string;
   } | null = null;
   private ownerTimer: NodeJS.Timeout | null = null;
+  // Client "typing" window — mirror of the owner's: after the client sends a
+  // message Lina waits (default 30s) before replying; follow-up messages reset
+  // the timer, and the queued messages flush in order when it fires or on Enter.
+  private clientWindow: { chatId: string; until: number; queue: string[] } | null = null;
+  private clientTimer: NodeJS.Timeout | null = null;
   private banner = '';
   private clock: any = null;
   private ticker: any = null;
@@ -107,7 +112,7 @@ export class TuiApp {
 
     this.clock = setInterval(() => { this.renderTop(); screen.render(); }, 1000);
     this.ticker = setInterval(() => {
-      if (this.typing || this.ownerTyping || this.busy.size > 0) {
+      if (this.typing || this.ownerTyping || this.clientWindow || this.busy.size > 0) {
         this.renderStatus();
         screen.render();
       }
@@ -161,12 +166,19 @@ export class TuiApp {
       case 'home': this.box.chatBox.scrollTo(0); this.chatFollow = false; this.box.screen.render(); return;
       case 'end': this.box.chatBox.setScrollPerc(100); this.chatFollow = true; this.box.screen.render(); return;
       case 'enter':
+        // Text typed + Enter = SEND it. (This is also what makes the OWNER
+        // follow-up work: a second /owner while the window is open goes through
+        // sendInput, which replaces the pending answer and resets the timer —
+        // it must NOT be swallowed by the bypass below.)
+        if (this.inputBuf.trim().length > 0) { this.sendInput(); return; }
+        // Pure Enter (empty buffer) = bypass whatever is pending.
         if (this.ownerTyping && this.ownerTyping.chatId === this.activeLead()?.chatId) {
           this.ownerAnswer(); // Enter = skip the owner's typing delay
           return;
         }
+        if (this.clientWindow) { this.flushClient(); return; } // flush the client's queued messages now
         if (this.channel.bypass()) { this.renderStatus(); screen.render(); return; }
-        this.sendInput(); return;
+        return;
       case 'backspace': this.inputBuf = this.inputBuf.slice(0, -1); break;
       case 'escape': this.inputBuf = ''; break;
       case 'space':
@@ -317,10 +329,38 @@ export class TuiApp {
     }
     // --- end v3 commands ---
     this.appendMsg(lead.chatId, { role: 'user', text, at: Date.now() });
-    this.runChain(lead.chatId, () =>
-      this.pipeline.handle('viber', lead.chatId, text, { kind: 'text', senderName: lead.name })
-    );
+    // Client 30s typing window: Lina waits for the client to finish before
+    // replying. Follow-up messages RESET the timer; when it fires (or [Enter]
+    // is pressed with an empty buffer) ALL queued messages flush in order.
+    // Slash commands above never queue — they run immediately.
+    if (this.clientWindow && this.clientWindow.chatId !== lead.chatId) {
+      this.flushClient(); // deliver the other chat's pending messages first
+    }
+    const delay = this.cfg.clientTypingDelayMs;
+    if (this.clientTimer) { clearTimeout(this.clientTimer); this.clientTimer = null; }
+    this.clientWindow = this.clientWindow && this.clientWindow.chatId === lead.chatId
+      ? { chatId: lead.chatId, until: Date.now() + delay, queue: [...this.clientWindow.queue, text] }
+      : { chatId: lead.chatId, until: Date.now() + delay, queue: [text] };
+    this.clientTimer = setTimeout(() => this.flushClient(), delay);
     this.renderInput();
+    this.renderStatus();
+    this.box.screen.render();
+  }
+
+  /** The client's queued messages land — process them IN ORDER through the pipeline. */
+  private flushClient(): void {
+    const cw = this.clientWindow;
+    if (!cw) return;
+    if (this.clientTimer) { clearTimeout(this.clientTimer); this.clientTimer = null; }
+    this.clientWindow = null;
+    const lead = this.leads.find(l => l.chatId === cw.chatId);
+    for (const text of cw.queue) {
+      this.runChain(cw.chatId, () =>
+        this.pipeline.handle('viber', cw.chatId, text, { kind: 'text', senderName: lead?.name ?? 'Клиент' })
+      );
+    }
+    this.renderStatus();
+    this.box.screen.render();
   }
 
   // Per-chat serialized chain: preserves order inside one chat, parallel across chats.
@@ -498,6 +538,11 @@ export class TuiApp {
       const who = this.ownerTyping.chatId === lead?.chatId ? '' : ` (${this.ownerTyping.chatId})`;
       s += `{white-bg}{black-fg} ⏳ сопственикот пишува…${who} ${rem.toFixed(1)}s — [Enter] инстант {/black-fg}{/white-bg} · `;
     }
+    if (this.clientWindow) {
+      const rem = Math.max(0, this.clientWindow.until - Date.now()) / 1000;
+      const who = this.clientWindow.chatId === lead?.chatId ? '' : ` (${this.clientWindow.chatId})`;
+      s += `{white-bg}{black-fg} ⏳ клиентот пишува…${who} ${rem.toFixed(1)}s — [Enter] инстант {/black-fg}{/white-bg} · `;
+    }
     if (this.typing) {
       const rem = Math.max(0, this.typing.until - Date.now()) / 1000;
       const who = this.typing.chatId === lead?.chatId ? '' : ` (${this.typing.chatId})`;
@@ -551,6 +596,7 @@ export class TuiApp {
     if (this.clock) clearInterval(this.clock);
     if (this.ticker) clearInterval(this.ticker);
     if (this.ownerTimer) clearTimeout(this.ownerTimer);
+    if (this.clientTimer) clearTimeout(this.clientTimer);
     this.box.screen.destroy();
     process.exit(0);
   }
