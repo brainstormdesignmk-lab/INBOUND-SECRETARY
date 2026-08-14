@@ -1,0 +1,180 @@
+import { LlmClient } from './types';
+import { ChatSession } from '../fsm/session';
+import { AppConfig } from '../config';
+import { Event, EventType, isValidEvent } from '../fsm/machine';
+import { PropertyService } from '../data/properties';
+import { extractSlots, detectLocation, buildEvent } from './deterministic';
+
+export interface Classified {
+  event: Event;
+  offensive: boolean;
+  offenseLevel: number;
+}
+
+// Cold brain: pure intent extraction, never persona prose.
+// v2: fee-refusal + visit-time negotiation events.
+const CLASSIFY_SYSTEM = `You are the intent classifier for "Lina", a Macedonian real-estate sales assistant.
+Classify the user's LATEST message based on the conversation history and the CURRENT STATE hint.
+Output ONLY valid JSON (no markdown, no commentary), exactly matching this schema:
+{
+  "event": "INTENT_DECLARED" | "PROPERTY_ID_REQUESTED" | "DETAILS_PROVIDED" | "SEARCH_REQUESTED" | "INTERESTED" | "REJECTED" | "FEE_AGREED" | "FEE_REFUSED" | "VISIT_TIME_PROVIDED" | "TIME_ACCEPTED" | "TIME_REJECTED" | "CONTACT_PROVIDED" | "CONTACT_INCOMPLETE" | "ESCALATE" | "STAY",
+  "service": "buy" | "rent" | null,
+  "location": string | null,
+  "bedrooms": integer | null,
+  "budget": string | null,
+  "propertyId": integer | null,
+  "visitTime": string | null,
+  "name": string | null,
+  "phone": string | null,
+  "reason": string | null,
+  "offensive": false,
+  "offenseLevel": 0
+}
+Rules:
+- INTENT_DECLARED: user states they want to buy (купување) or rent (изнајмување/кирија). Set "service" accordingly.
+- PROPERTY_ID_REQUESTED: user references an "евидентен број" / "evidenten broj" / "sifra" / "шифра" / "#N" / "број N" OR a bare number that clearly means a specific property (e.g. "заинтересирана сум за 78", "што е со 95?", "сакам да ја видам 74", "дали е достапен 82?"). Put the number in "propertyId".
+- DETAILS_PROVIDED: user gives location (which part of the city), bedrooms (спални соби), or budget. Extract into the fields; fill only what is present.
+- SEARCH_REQUESTED: user asks to see offers now, with enough details already given.
+- INTERESTED: user wants to visit / schedule / see a specific property ("сакам да ја видам", "договори посета", "да" after a presentation).
+- REJECTED: user declines offers, dislikes options, or disagrees with terms.
+- FEE_AGREED: user EXPLICITLY agrees to pay the viewing fee ("се согласувам", "во ред", "да" in response to the fee question).
+- FEE_REFUSED: user REFUSES the viewing fee ("не сакам да платам", "зошто надомест", "без надомест"). Only in response to the fee question.
+- VISIT_TIME_PROVIDED: user proposes a time/date for the visit ("петок 11.06 во 17:30", "утре на пладне", "сабота попладне"). Put the free text in "visitTime".
+- TIME_ACCEPTED: user ACCEPTS a time proposed by the assistant/owner ("во ред, тоа време е добро", "може, се согласувам").
+- TIME_REJECTED: user REJECTS a time proposed by the assistant/owner ("не ми одговара", "имам друг термин").
+- CONTACT_PROVIDED: user gives BOTH a full name and a phone number. Extract both.
+- CONTACT_INCOMPLETE: user gives only a name OR only a phone.
+- ESCALATE: user asks about legal, financial, contractual or other complex matters the assistant cannot answer, OR explicitly asks to speak with a manager/supervisor ("сакам да зборувам со менаџер", "повикајте претпоставен", "дајте ми некој надлежен").
+- STAY: anything else (greetings, small talk, unclear messages, or messages that continue an existing flow without new information).
+- The CURRENT STATE hint disambiguates: in state "closing", "да"/"во ред" means FEE_AGREED; in state "time_confirm", "да"/"во ред" means TIME_ACCEPTED.
+- "offensive": true only for vulgar, sexual, harassing or insulting language. "offenseLevel": 1 for first offense, 2 if it repeats, 3 for severe abuse or threats.
+- "reason": short Macedonian phrase summarizing why this event was chosen (max 15 words).
+- The conversation is in Macedonian; keep extracted values in their original language.
+- IMPORTANT: write "location" in standard Macedonian Cyrillic (e.g. "Центар", "Кисела Вода", "Капиштец", "Аеродром") even if the user typed Latin letters ("centar", "kisela voda", "kapistec"). Extract only the neighborhood name, not a full sentence.`;
+
+function cleanJson(raw: string): string {
+  const s = raw.trim();
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start !== -1 && end > start) return s.slice(start, end + 1);
+  return s;
+}
+
+export function parseClassified(raw: string): Classified {
+  let obj: Record<string, unknown> = {};
+  try {
+    obj = JSON.parse(cleanJson(raw)) as Record<string, unknown>;
+  } catch {
+    obj = {};
+  }
+  const rawEvent = String(obj.event ?? 'STAY').toUpperCase();
+  const type: EventType = isValidEvent(rawEvent) ? rawEvent : 'STAY';
+  const event: Event = { type };
+  if (obj.service === 'buy' || obj.service === 'rent') event.service = obj.service;
+  if (typeof obj.location === 'string' && obj.location.trim()) event.location = obj.location.trim();
+  const beds = Number(obj.bedrooms);
+  if (Number.isFinite(beds) && beds > 0) event.bedrooms = Math.floor(beds);
+  if (typeof obj.budget === 'string' && obj.budget.trim()) event.budget = obj.budget.trim();
+  const pid = Number(obj.propertyId);
+  if (Number.isFinite(pid) && pid > 0) event.propertyId = Math.floor(pid);
+  if (typeof obj.visitTime === 'string' && obj.visitTime.trim()) event.visitTime = obj.visitTime.trim();
+  if (typeof obj.name === 'string' && obj.name.trim()) event.name = obj.name.trim();
+  if (typeof obj.phone === 'string' && obj.phone.trim()) event.phone = obj.phone.trim();
+  if (typeof obj.reason === 'string' && obj.reason.trim()) event.reason = obj.reason.trim();
+  const level = Number(obj.offenseLevel);
+  return {
+    event,
+    offensive: obj.offensive === true,
+    offenseLevel: Number.isFinite(level) && level > 0 ? Math.floor(level) : 0,
+  };
+}
+
+/** States where a bare number can only mean an Евидентен број (property intake). */
+const PROP_INTAKE_STATES = new Set(['idle', 'intent', 'discovery', 'property_query', 'presentation']);
+
+/**
+ * Deterministic safety net: a bare 2-3 digit number in a property-intake state
+ * is an Евидентен број even when the LLM doesn't say PROPERTY_ID_REQUESTED
+ * ("заинтересирана сум за 78" — the user KNOWS what they want; Lina must not
+ * ask buy/rent). Guarded against times (18:30), phones (078/…), bedroom counts,
+ * prices (евра/денари) and sizes (м2).
+ */
+export function inferPropertyId(text: string): number | undefined {
+  if (/\b\d{1,2}[:.]\d{2}\b/.test(text)) return undefined;           // 18:30 / 18.30 — time
+  if (/0\d{1,2}\s*[/.]\s*\d{2,}/.test(text)) return undefined;       // 078/914 196 — phone
+  if (/(спални|соби|евра|евро|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот)/i.test(text)) return undefined;
+  const m = text.match(/\b(\d{2,3})\b(?!\s*[.,]\d)/);
+  if (!m) return undefined;
+  const n = parseInt(m[1], 10);
+  return n >= 10 && n <= 999 ? n : undefined;
+}
+
+/** Whether the event carries any actionable information (as opposed to an empty STAY). */
+function eventHasSlots(ev: Event): boolean {
+  return !!(ev.service || ev.location || ev.bedrooms || ev.budget || ev.propertyId
+    || ev.visitTime || ev.name || ev.phone || ev.reason);
+}
+
+export class Classifier {
+  constructor(
+    private llm: LlmClient,
+    private cfg: AppConfig,
+    private properties?: PropertyService,
+  ) {}
+
+  async classify(session: ChatSession, text: string): Promise<Classified> {
+    const messages = [
+      { role: 'system' as const, content: CLASSIFY_SYSTEM },
+      { role: 'system' as const, content: `CURRENT STATE: ${session.state}` },
+      ...session.history.slice(-8).map(m => ({ role: m.role, content: m.text })),
+      { role: 'user' as const, content: text },
+    ];
+    let parsed: Classified;
+    let llmDown = false;
+    try {
+      const raw = await this.llm.complete({
+        role: 'classify',
+        messages,
+        temperature: this.cfg.classifyTemp,
+        maxTokens: 300,
+        topP: this.cfg.topP,
+        json: true,
+      });
+      parsed = parseClassified(raw);
+    } catch (e) {
+      console.error('[classify] LLM failed:', (e as Error).message);
+      llmDown = true;
+      parsed = { event: { type: 'STAY' }, offensive: false, offenseLevel: 0 };
+    }
+    // Bare-number override (see inferPropertyId): in property-intake states a
+    // 2-3 digit number always means an Евидентен број, even when the LLM chose
+    // another event (e.g. INTERESTED) or when the LLM is DOWN — so "SIFRA 82"
+    // still routes to property_query instead of dead-ending in idle.
+    if (PROP_INTAKE_STATES.has(session.state)) {
+      const id = inferPropertyId(text);
+      if (id) parsed.event = { type: 'PROPERTY_ID_REQUESTED', propertyId: id };
+    }
+    // Deterministic slot extraction: fires when the LLM is DOWN (the whole
+    // discovery->presentation path must survive without any LLM) or when the
+    // model returned an empty STAY (nothing meaningful to lose by upgrading).
+    // "сакам стан во Centar, 2 spalni, do 80.000 евра" -> SEARCH_REQUESTED
+    // without a single LLM call. PROPERTY_ID_REQUESTED skips this — a bare
+    // number already routed the message.
+    if (parsed.event.type !== 'PROPERTY_ID_REQUESTED'
+      && (llmDown || (parsed.event.type === 'STAY' && !eventHasSlots(parsed.event)))) {
+      const slots = extractSlots(text);
+      if (this.properties) {
+        try {
+          const locs = await this.properties.locations();
+          const loc = detectLocation(text, locs);
+          if (loc) slots.location = loc;
+        } catch (e) {
+          console.error('[classify] location lookup failed:', (e as Error).message);
+        }
+      }
+      const det = buildEvent(session.state, slots);
+      if (det.type !== 'STAY') parsed.event = det;
+    }
+    return parsed;
+  }
+}

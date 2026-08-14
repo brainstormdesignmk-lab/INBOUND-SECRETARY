@@ -1,0 +1,37 @@
+{
+  "name": "metropolis-inbound-lina",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lina — inbound real-estate secretary. Appliance-grade state-machine Viber bot (Groq/Llama).",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "sim": "tsx src/sim/run.ts",
+    "sim:interactive": "tsx src/sim/run.ts --interactive",
+    "webhook:set": "tsx src/scripts/setWebhook.ts set",
+    "webhook:clear": "tsx src/scripts/setWebhook.ts clear",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "tui": "tsx src/tui/run.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "blessed": "^0.1.81",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "groq-sdk": "latest"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/blessed": "^0.1.27",
+    "@types/express": "^4.17.21",
+    "@types/node": "^18.19.31",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4"
+  }
+}
