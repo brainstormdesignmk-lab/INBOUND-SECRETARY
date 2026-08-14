@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -21,6 +21,8 @@ Output ONLY valid JSON (no markdown, no commentary), exactly matching this schem
   "service": "buy" | "rent" | null,
   "location": string | null,
   "bedrooms": integer | null,
+  "sqm": integer | null,
+  "business": boolean | null,
   "budget": string | null,
   "propertyId": integer | null,
   "visitTime": string | null,
@@ -34,6 +36,7 @@ Rules:
 - INTENT_DECLARED: user states they want to buy (купување) or rent (изнајмување/кирија). Set "service" accordingly.
 - PROPERTY_ID_REQUESTED: user references an "евидентен број" / "evidenten broj" / "sifra" / "шифра" / "#N" / "број N" OR a bare number that clearly means a specific property (e.g. "заинтересирана сум за 78", "што е со 95?", "сакам да ја видам 74", "дали е достапен 82?"). Put the number in "propertyId".
 - DETAILS_PROVIDED: user gives location (which part of the city), bedrooms (спални соби), or budget. Extract into the fields; fill only what is present.
+- business: true when the user wants COMMERCIAL space (деловен простор, канцеларија, локал, магацин, хала). For business requests, "sqm" (square meters) matters and bedrooms do NOT.
 - SEARCH_REQUESTED: user asks to see offers now, with enough details already given.
 - INTERESTED: user wants to visit / schedule / see a specific property ("сакам да ја видам", "договори посета", "да" after a presentation).
 - REJECTED: user declines offers, dislikes options, or disagrees with terms.
@@ -74,6 +77,9 @@ export function parseClassified(raw: string): Classified {
   if (typeof obj.location === 'string' && obj.location.trim()) event.location = obj.location.trim();
   const beds = Number(obj.bedrooms);
   if (Number.isFinite(beds) && beds > 0) event.bedrooms = Math.floor(beds);
+  const sqm = Number(obj.sqm);
+  if (Number.isFinite(sqm) && sqm > 0) event.sqm = Math.floor(sqm);
+  if (obj.business === true) event.business = true;
   if (typeof obj.budget === 'string' && obj.budget.trim()) event.budget = obj.budget.trim();
   const pid = Number(obj.propertyId);
   if (Number.isFinite(pid) && pid > 0) event.propertyId = Math.floor(pid);
@@ -102,17 +108,11 @@ const PROP_INTAKE_STATES = new Set(['idle', 'intent', 'discovery', 'property_que
 export function inferPropertyId(text: string): number | undefined {
   if (/\b\d{1,2}[:.]\d{2}\b/.test(text)) return undefined;           // 18:30 / 18.30 — time
   if (/0\d{1,2}\s*[/.]\s*\d{2,}/.test(text)) return undefined;       // 078/914 196 — phone
-  if (/(спални|соби|евра|евро|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот)/i.test(text)) return undefined;
+  if (/(спални|соби|евра|евро|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот|spalna|spalni)/i.test(text)) return undefined;
   const m = text.match(/\b(\d{2,3})\b(?!\s*[.,]\d)/);
   if (!m) return undefined;
   const n = parseInt(m[1], 10);
   return n >= 10 && n <= 999 ? n : undefined;
-}
-
-/** Whether the event carries any actionable information (as opposed to an empty STAY). */
-function eventHasSlots(ev: Event): boolean {
-  return !!(ev.service || ev.location || ev.bedrooms || ev.budget || ev.propertyId
-    || ev.visitTime || ev.name || ev.phone || ev.reason);
 }
 
 export class Classifier {
@@ -154,14 +154,32 @@ export class Classifier {
       const id = inferPropertyId(text);
       if (id) parsed.event = { type: 'PROPERTY_ID_REQUESTED', propertyId: id };
     }
-    // Deterministic slot extraction: fires when the LLM is DOWN (the whole
-    // discovery->presentation path must survive without any LLM) or when the
-    // model returned an empty STAY (nothing meaningful to lose by upgrading).
+    // Deterministic slot extraction + gap-fill: the discovery funnel must not
+    // depend on the LLM's mood. It fires when the LLM is DOWN (the whole
+    // discovery->presentation path survives without any LLM) or when the model
+    // returned a discovery-family event (STAY / INTENT_DECLARED /
+    // DETAILS_PROVIDED / SEARCH_REQUESTED) — in that case deterministic rules
+    // extract whatever the message actually says (including implied BUY from
+    // "ми треба стан") and fill only the FIELDS the LLM left empty, then
+    // recompute the funnel event. Meaningful LLM decisions (INTERESTED,
+    // FEE_AGREED, REJECTED, PROPERTY_ID_REQUESTED, …) are kept untouched.
     // "сакам стан во Centar, 2 spalni, do 80.000 евра" -> SEARCH_REQUESTED
-    // without a single LLM call. PROPERTY_ID_REQUESTED skips this — a bare
-    // number already routed the message.
+    // with or without a single LLM call.
+    // LLM-down contact intake: in contact_collection a name+phone can be pulled
+    // deterministically, so the queue/visit flow completes without any LLM.
+    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'contact_collection') {
+      const c = detectContact(text);
+      if (c.phone || c.name) {
+        parsed.event = c.phone && c.name
+          ? { type: 'CONTACT_PROVIDED', name: c.name, phone: c.phone }
+          : c.phone
+            ? { type: 'CONTACT_INCOMPLETE', phone: c.phone }
+            : { type: 'CONTACT_INCOMPLETE', name: c.name };
+      }
+    }
+    const RECOMPUTE_EVENTS: EventType[] = ['STAY', 'INTENT_DECLARED', 'DETAILS_PROVIDED', 'SEARCH_REQUESTED'];
     if (parsed.event.type !== 'PROPERTY_ID_REQUESTED'
-      && (llmDown || (parsed.event.type === 'STAY' && !eventHasSlots(parsed.event)))) {
+      && (llmDown || RECOMPUTE_EVENTS.includes(parsed.event.type))) {
       const slots = extractSlots(text);
       if (this.properties) {
         try {
@@ -172,7 +190,18 @@ export class Classifier {
           console.error('[classify] location lookup failed:', (e as Error).message);
         }
       }
-      const det = buildEvent(session.state, slots);
+      // Gap-fill: deterministic never overrides a field the LLM already set.
+      const ev = parsed.event;
+      if (ev.service === undefined && slots.service) ev.service = slots.service;
+      if (ev.location === undefined && slots.location) ev.location = slots.location;
+      if (ev.bedrooms === undefined && slots.bedrooms) ev.bedrooms = slots.bedrooms;
+      if (ev.sqm === undefined && slots.sqm) ev.sqm = slots.sqm;
+      if (ev.business === undefined && slots.business !== undefined) ev.business = slots.business;
+      if (ev.budget === undefined && slots.budget) ev.budget = slots.budget;
+      const det = buildEvent(session.state, {
+        service: ev.service, location: ev.location, bedrooms: ev.bedrooms,
+        sqm: ev.sqm, business: ev.business, budget: ev.budget, rejected: slots.rejected,
+      });
       if (det.type !== 'STAY') parsed.event = det;
     }
     return parsed;

@@ -6,6 +6,8 @@ export interface SlotData {
   service?: Service;
   location?: string;
   bedrooms?: number;
+  sqm?: number;                 // commercial (деловен простор) — size instead of bedrooms
+  business?: boolean;           // commercial property intent
   budget?: string;
   propertyId?: number;          // EB of the property currently discussed
   interestedPropertyId?: number;
@@ -23,6 +25,7 @@ export interface SlotData {
   agentName?: string;           // assigned by AgentDispatcher (code, never LLM)
   agentPhone?: string;
   soldEb?: number;              // property known to be gone — excluded from alternatives
+  queueAfterContact?: boolean;  // exhausted-options flow: collect contact, then queue
 }
 
 export type HistoryMsg = { role: 'user' | 'assistant'; text: string };

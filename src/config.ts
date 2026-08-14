@@ -30,6 +30,7 @@ export interface AppConfig {
   viberSenderName: string;
   viberSenderAvatar: string;
   propertyDataUrl: string;
+  publicSiteUrl: string; // customers' public property pages — feed gives only /property/<uuid>
   dbPath: string;
   minDelayMs: number;
   maxDelayMs: number;
@@ -72,6 +73,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     viberSenderAvatar: process.env.VIBER_SENDER_AVATAR || '',
     propertyDataUrl: process.env.PROPERTY_DATA_URL ||
       'https://qkgioqotxjxffiaufgwd.supabase.co/functions/v1/public-properties?format=json',
+    publicSiteUrl: process.env.PUBLIC_SITE_URL || 'https://preview--home-scan-search.lovable.app',
     dbPath: process.env.DB_PATH || path.join(process.cwd(), 'data', 'lina.db'),
     minDelayMs: num(process.env.MIN_DELAY_MS, 800),
     maxDelayMs: num(process.env.MAX_DELAY_MS, 2200),

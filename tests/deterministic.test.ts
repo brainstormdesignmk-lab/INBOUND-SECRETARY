@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import {
   detectService, detectBedrooms, detectBudget, detectRejection,
-  detectLocation, buildEvent, extractSlots,
+  detectLocation, buildEvent, extractSlots, detectAgreement, detectContact,
+  detectBusiness, detectSqm,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -16,6 +17,19 @@ test('detectService: buy vs rent, first mention wins', () => {
   assert.equal(detectService('сакам да купам, не да изнајмам'), 'buy');
 });
 
+test('detectService: "ми треба стан" without rent words implies BUY', () => {
+  assert.equal(detectService('ми треба мало станче'), 'buy');
+  assert.equal(detectService('MI TREBA MALO STANCE'), 'buy');
+  assert.equal(detectService('барам стан во Центар'), 'buy');
+  assert.equal(detectService('sakam stan vo Centar'), 'buy');
+  assert.equal(detectService('need an apartment in centar'), 'buy');
+  // explicit rent marker wins over the implied-buy fallback
+  assert.equal(detectService('ми треба стан под кирија'), 'rent');
+  assert.equal(detectService('барам стан за изнајмување'), 'rent');
+  // no need/want word -> still unknown
+  assert.equal(detectService('имате ли стан во Центар?'), undefined);
+});
+
 test('detectBedrooms: numbers and word forms', () => {
   assert.equal(detectBedrooms('2 spalni'), 2);
   assert.equal(detectBedrooms('двособен стан'), 2);
@@ -25,11 +39,22 @@ test('detectBedrooms: numbers and word forms', () => {
   assert.equal(detectBedrooms('zdravo'), undefined);
 });
 
+test('detectBedrooms: "мало станче"/"гарсоњера" is a 1-bedroom request (explicit wins)', () => {
+  assert.equal(detectBedrooms('ми треба мало станче'), 1);
+  assert.equal(detectBedrooms('MI TREBA MALO STANCE'), 1);
+  assert.equal(detectBedrooms('мала гарсоњера'), 1);
+  assert.equal(detectBedrooms('garsonjera'), 1);
+  // an explicit bedroom mention overrides the small-word heuristic
+  assert.equal(detectBedrooms('мало станче со 2 спални'), 2);
+  assert.equal(detectBedrooms('zdravo'), undefined);
+});
+
 test('detectBudget: currencies, илјади, and no false positives', () => {
   assert.equal(detectBudget('do 80.000 evra'), '80000');
   assert.equal(detectBudget('до 80 000 евра'), '80000');
   assert.equal(detectBudget('80 илјади евра'), '80000');
   assert.equal(detectBudget('do 2500 евра'), '2500');
+  assert.equal(detectBudget('40 KVADRATI, DO 500 EVRA'), '500'); // Latin currency + sqm side by side
   assert.equal(detectBudget('2 spalni vo Centar'), undefined);
   assert.equal(detectBudget('petok vo 18:30'), undefined);
   assert.equal(detectBudget('078/914 196'), undefined);
@@ -42,6 +67,50 @@ test('detectRejection: refusal phrases', () => {
   assert.equal(detectRejection('ne mi se dopaga'), true);
   assert.equal(detectRejection('сакам нешто друго'), true);
   assert.equal(detectRejection('дали е достапен 82?'), false);
+});
+
+test('detectBusiness + detectSqm: commercial spaces are identified without bedrooms', () => {
+  assert.equal(detectBusiness('SAKAM DA IZNAJMAM DELOVEN PROSTOR VO KARPOS'), true);
+  assert.equal(detectBusiness('барам канцеларија во Центар'), true);
+  assert.equal(detectBusiness('имате ли локал за издавање?'), true);
+  assert.equal(detectBusiness('магацин во Гази Баба'), true);
+  assert.equal(detectBusiness('сакам стан во Карпош'), false);
+  assert.equal(detectSqm('40 квадрати'), 40);
+  assert.equal(detectSqm('од 105 м2'), 105);
+  assert.equal(detectSqm('150 kvadrata'), 150);
+  assert.equal(detectSqm('2 spalni'), undefined);
+  assert.equal(detectSqm('zdravo'), undefined);
+});
+
+test('buildEvent: business spaces complete with sqm, not bedrooms', () => {
+  const det = buildEvent('idle', { service: 'rent', location: 'Карпош', business: true, sqm: 40, budget: '500' });
+  assert.equal(det.type, 'SEARCH_REQUESTED');
+  assert.equal(det.business, true);
+  assert.equal(det.sqm, 40);
+  // business WITHOUT sqm stays DETAILS_PROVIDED
+  const partial = buildEvent('idle', { service: 'rent', location: 'Карпош', business: true });
+  assert.equal(partial.type, 'DETAILS_PROVIDED');
+  // residential still needs bedrooms
+  const res = buildEvent('idle', { service: 'rent', location: 'Карпош', bedrooms: 2, budget: '500' });
+  assert.equal(res.type, 'SEARCH_REQUESTED');
+});
+
+test('detectAgreement: exits the exhausted dead-end, never misfires on questions', () => {
+  assert.equal(detectAgreement('ДОБРО'), true);
+  assert.equal(detectAgreement('KONTAKTIRAJ ME'), true);
+  assert.equal(detectAgreement('во ред'), true);
+  assert.equal(detectAgreement('ok'), true);
+  assert.equal(detectAgreement('дали е достапен 82?'), false); // "да" inside "дали"
+  assert.equal(detectAgreement('STO IMAS VO KARPOS ?'), false);
+  assert.equal(detectAgreement('НЕ САКАМ'), false);
+});
+
+test('detectContact: name+phone intake without any LLM', () => {
+  assert.deepEqual(detectContact('ZORAN 078/914 196'), { name: 'Zoran', phone: '078914196' });
+  assert.deepEqual(detectContact('Моето име е Зоран Петровски, тел 078 914 196'),
+    { name: 'Зоран Петровски', phone: '078914196' });
+  assert.deepEqual(detectContact('078 914 196'), { name: undefined, phone: '078914196' });
+  assert.deepEqual(detectContact('zdravo, kako si?'), { name: undefined, phone: undefined });
 });
 
 test('detectLocation: Latin and Cyrillic spellings match feed neighborhoods', () => {
@@ -87,4 +156,18 @@ test('extractSlots: full LLM-free intake from a single Latin message', () => {
   assert.equal(s.bedrooms, 2);
   assert.equal(s.budget, '80000');
   assert.equal(s.rejected, undefined);
+});
+
+test('GORAN scenario: implied buy + location + size -> DETAILS_PROVIDED, never buy/rent re-ask', () => {
+  const s = extractSlots('ZDRAVO, MI TREBA MALO STANCE VO CENTAR ILI KISELA VODA');
+  assert.equal(s.service, 'buy');
+  assert.equal(s.bedrooms, 1);
+  const ev = buildEvent('idle', { ...s, location: 'Центар' });
+  assert.equal(ev.type, 'DETAILS_PROVIDED');
+  assert.equal(ev.service, 'buy');
+  assert.equal(ev.location, 'Центар');
+  assert.equal(ev.bedrooms, 1);
+  // once the budget lands, the set is complete -> straight to presentation
+  const full = buildEvent('idle', { service: 'buy', location: 'Центар', bedrooms: 1, budget: '50000' });
+  assert.equal(full.type, 'SEARCH_REQUESTED');
 });

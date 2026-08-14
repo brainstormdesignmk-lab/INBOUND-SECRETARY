@@ -12,7 +12,9 @@ export interface Property {
   priceLabel?: string;     // optional display label
   location?: string;       // naselba
   bedrooms?: number;       // from tip_na_sobi
+  sqm?: number;            // povrsina_m2 as a number (business spaces have no bedrooms — size matters)
   size?: string;           // povrsina_m2
+  business?: boolean;      // деловен простор/канцеларија/локал — feed marks them by having NO bedroom type
   features?: string[];     // garaza, lift, greenje, dvor, parking, opremenost (per feed napomena)
   details?: string;        // opis
   gmaps?: string;
@@ -44,6 +46,13 @@ function parseBedrooms(raw: unknown): number | undefined {
   if (!m) return undefined;
   const v = parseFloat(`${m[1]}.${m[2] ?? '0'}`);
   return Math.max(1, Math.round(v));
+}
+
+/** A property is COMMERCIAL when it has NO bedroom type — the feed marks
+ *  деловен простор/канцеларија/локал exactly this way ("Нема податок"/empty). */
+function isBusiness(r: Record<string, unknown>): boolean {
+  const tip = str(r.tip_na_sobi).toLowerCase().replace(/\s+/g, ' ');
+  return tip === '' || tip === 'нема податок' || tip === 'нема' || tip === 'не е наведено';
 }
 
 /**
@@ -96,7 +105,9 @@ function mapRow(r: Record<string, unknown>): Property | null {
     price: num(r.cena_eur),
     priceLabel: str(r.cena_label) || undefined,
     location: str(r.naselba) || undefined,
-    bedrooms: parseBedrooms(r.tip_na_sobi),
+    bedrooms: isBusiness(r) ? undefined : parseBedrooms(r.tip_na_sobi),
+    sqm: num(r.povrsina_m2),
+    business: isBusiness(r),
     size: r.povrsina_m2 !== undefined && r.povrsina_m2 !== null && r.povrsina_m2 !== ''
       ? `${r.povrsina_m2} м²` : undefined,
     features: featurePhrases(r),
@@ -180,16 +191,40 @@ export function locMatches(query: string, feedLoc: string): boolean {
   for (const a of qk) {
     for (const b of lk) {
       if (b.includes(a) || a.includes(b)) return true;
+      // Word-level: "sto imas vo karpos" contains the word "karpos", which is
+      // a transliterated word of "Карпош III" — a client naming just the base
+      // neighborhood must still match a multi-word feed location. Only words
+      // >= 5 chars participate (short words like "вода"/"влае" would collide;
+      // short EXACT names already match via the containment check above).
+      const aw = a.split(/\s+/).filter(w => w.length >= 5);
+      const bw = b.split(/\s+/).filter(w => w.length >= 5);
+      if (aw.some(w => bw.includes(w))) return true;
     }
   }
   return false;
 }
 
-/** Display form: Latin-typed locations are transliterated to canonical Cyrillic. */
+/** Display form: Latin-typed locations are transliterated to canonical Cyrillic.
+ *  Only when the string has NO Cyrillic at all — "Карпош III" must never become
+ *  "Карпош иии" (the roman numeral is latin, not a latin spelling of the name). */
 export function normalizeLocation(s: string): string {
   const src = s.trim();
-  const cyr = /[a-z]/i.test(src) ? latToCyr(src) : src;
+  const hasCyr = /[\u0400-\u04FF]/u.test(src);
+  const cyr = hasCyr ? src : latToCyr(src);
   return cyr.charAt(0).toUpperCase() + cyr.slice(1);
+}
+
+/**
+ * Full public URL for a property listing. The feed stores only the relative
+ * path ("/property/<uuid>") — customers need a clickable full link, so we
+ * prepend the public site (currently the Lovable app; Cloudflare later — see
+ * PUBLIC_SITE_URL). Already-absolute URLs pass through untouched.
+ */
+export function publicPropertyUrl(url: string | undefined, base: string): string | undefined {
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith('/')) return `${base.replace(/\/+$/, '')}${url}`;
+  return undefined;
 }
 
 /** Parse a budget string to its maximum euros: "до 80.000" -> 80000, "80-100" -> 100. */
@@ -261,10 +296,12 @@ export class PropertyService {
     return [...set].sort((a, b) => b.length - a.length);
   }
 
-  async search(opts: { location?: string; bedrooms?: number; service?: Service; budget?: string }): Promise<Property[]> {
+  async search(opts: { location?: string; bedrooms?: number; sqm?: number; business?: boolean; service?: Service; budget?: string }): Promise<Property[]> {
     const all = await this.getAll();
     let out = all;
     if (opts.service) out = out.filter(p => !p.service || p.service === opts.service);
+    if (opts.business === true) out = out.filter(p => p.business === true);
+    else if (opts.business === false) out = out.filter(p => !p.business); // a "стан" search never shows offices
     if (opts.location) {
       out = out.filter(p => {
         const loc = (p.location ?? '').trim();
@@ -272,6 +309,7 @@ export class PropertyService {
       });
     }
     if (opts.bedrooms) out = out.filter(p => !p.bedrooms || p.bedrooms >= (opts.bedrooms as number));
+    if (opts.sqm) out = out.filter(p => !p.sqm || p.sqm >= (opts.sqm as number)); // commercial spaces: size instead of bedrooms
     // Budget is a hard filter — the LLM must never be handed above-budget
     // offers (it correctly "finds nothing" and misreports availability).
     if (opts.budget) {
@@ -285,25 +323,33 @@ export class PropertyService {
    * Ordered alternative candidates: requested location FIRST, then the rest of
    * the city; within each group by price-proximity to the budget (cheapest
    * first when no budget). Excludes already-shown EBs so every batch is new.
-   * Never returns "nothing" while the feed has matching offers elsewhere.
+   *
+   * AREA INTEGRITY: while the requested area still has ANY matches, the batch
+   * comes ONLY from that area (even if that means 1 property) — a "во Карпош?"
+   * request must never be answered with a Маџари property just to fill a second
+   * slot. Other areas appear only after the requested area is fully exhausted.
    */
   async candidates(opts: {
-    location?: string; bedrooms?: number; service?: Service; budget?: string; exclude?: number[];
+    location?: string; bedrooms?: number; sqm?: number; business?: boolean;
+    service?: Service; budget?: string; exclude?: number[];
   }): Promise<Property[]> {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
     const max = opts.budget ? parseBudgetMax(opts.budget) : undefined;
-    const scored = all
+    const inLoc = (p: Property): boolean =>
+      opts.location ? locMatches(opts.location, p.location ?? '') : true;
+    const base = all
       .filter(p => !exclude.has(p.eb))
       .filter(p => !opts.service || !p.service || p.service === opts.service)
+      .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
       .filter(p => !opts.bedrooms || !p.bedrooms || p.bedrooms >= (opts.bedrooms as number))
-      .filter(p => max === undefined || p.price === undefined || p.price <= max)
-      .map(p => {
-        const inLoc = opts.location ? locMatches(opts.location, p.location ?? '') : true;
-        const dist = p.price !== undefined ? Math.abs(p.price - (max ?? 0)) : 0;
-        return { p, inLoc, dist };
-      })
-      .sort((a, b) => (Number(b.inLoc) - Number(a.inLoc)) || (a.dist - b.dist) || (a.p.eb - b.p.eb));
-    return scored.map(s => s.p);
+      .filter(p => !opts.sqm || !p.sqm || p.sqm >= (opts.sqm as number))
+      .filter(p => max === undefined || p.price === undefined || p.price <= max);
+    const sameArea = base.filter(inLoc);
+    const pool = sameArea.length > 0 ? sameArea : base;
+    return pool
+      .map(p => ({ p, inLoc: inLoc(p), dist: p.price !== undefined ? Math.abs(p.price - (max ?? 0)) : 0 }))
+      .sort((a, b) => (Number(b.inLoc) - Number(a.inLoc)) || (a.dist - b.dist) || (a.p.eb - b.p.eb))
+      .map(s => s.p);
   }
 }

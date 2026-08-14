@@ -11,6 +11,8 @@ export interface DetectedSlots {
   service?: Service;
   location?: string;   // filled by the caller (needs the feed's neighborhoods)
   bedrooms?: number;
+  sqm?: number;        // commercial spaces: size instead of bedrooms
+  business?: boolean;  // деловен простор / канцеларија / локал
   budget?: string;     // canonical digits, e.g. "80000"
   rejected?: boolean;
 }
@@ -18,6 +20,12 @@ export interface DetectedSlots {
 // Latin spellings included — Macedonian clients type in Latin more often than Cyrillic.
 const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|\bbuy\b|kupuvam|kupam|kupi|kupn|prodazba|prodava)/i;
 const RENT_RE = /(изнајмува|изнајмам|изнајми|изнајм|кирија|под кирија|издава|издад|\brent\b|iznajmuvam|iznajmam|iznajmi|iznajm|kirija|pod kirija|izdava|izdad)/i;
+
+// No explicit buy/rent word, but "ми треба стан" / "барам стан" / "сакам стан"
+// (need/looking-for/want + apartment, no rent marker) is a BUY in Macedonian
+// real estate: renting is always marked (под кирија, изнајмување, за издавање).
+// NOTE: no \b around Cyrillic — JS \b only knows ASCII word chars.
+const NEED_STAN_RE = /((треба|барам|ми треба|потребен ми е|сакам|need|treba|baram|sakam)[\s\S]{0,50}(стан|станче|стани|stan|stance|apartment))/i;
 
 const BED_NUM_RE = /(\d+)[-\s]*(?:спални|спална|соби|соба|спа|собен|собни|sob|sobi|soben|sobni|spalni|spalna)/i;
 const BED_WORDS: Array<[RegExp, number]> = [
@@ -35,8 +43,14 @@ export function detectService(text: string): Service | undefined {
   const r = text.search(RENT_RE);
   if (b >= 0 && (r < 0 || b < r)) return 'buy';
   if (r >= 0) return 'rent';
+  if (NEED_STAN_RE.test(text)) return 'buy';
   return undefined;
 }
+
+// "мало станче" / "гарсоњера" / "студио" is a 1-bedroom request — only when
+// no explicit bedroom was mentioned (explicit numbers/words win). Latin and
+// Cyrillic variants (clients type "MALO STANCE" more often than "мало станче").
+const SMALL_STAN_RE = /(мал[оаи]?\s+(стан|станче|стани)|mal[oa]?\s+(stan|stance|stani)|гарсоњера|garsonjera|студио|studio)/i;
 
 export function detectBedrooms(text: string): number | undefined {
   const m = text.match(BED_NUM_RE);
@@ -47,6 +61,7 @@ export function detectBedrooms(text: string): number | undefined {
   for (const [re, n] of BED_WORDS) {
     if (re.test(text)) return n;
   }
+  if (SMALL_STAN_RE.test(text)) return 1;
   return undefined;
 }
 
@@ -58,7 +73,9 @@ export function detectBedrooms(text: string): number | undefined {
 export function detectBudget(text: string): string | undefined {
   // Strip phone numbers first — "078/914 196" must never glue into "914196".
   const cleaned = text.replace(/\b0\d{1,2}\s*[/.]\s*\d{2,4}(?:\s*\d{2,4})?\b/g, ' ');
-  const re = /\b(\d[\d\s.,]*)\s*(илјади|хилјади)?\s*(евра|евро|eur|€)?/gi;
+  // Cyrillic AND Latin currency spellings — clients type "500 EVRA" in Latin
+  // far more often than "евра"; /i does NOT fold Latin E into Cyrillic е.
+  const re = /\b(\d[\d\s.,]*)\s*(илјади|хилјади)?\s*(евра|евро|evra|evro|eur|€)?/gi;
   let m: RegExpExecArray | null;
   let bestN = 0;
   while ((m = re.exec(cleaned)) !== null) {
@@ -76,6 +93,66 @@ export function detectBudget(text: string): string | undefined {
 
 export function detectRejection(text: string): boolean {
   return REJECT_RE.test(text);
+}
+
+// Commercial-property intent: деловен простор / канцеларија / локал / магацин…
+// ("за стан" searches must never ask or match these — and vice versa).
+const BUSINESS_RE = /(деловен|деловни|деловна|деловно|канцелар|локал|магацин|хала|бизнис|офис|deloven|delovni|delovna|kancelari|kancelariski|lokal|magacin|hala|biznis|ofis|office|business)/i;
+
+export function detectBusiness(text: string): boolean {
+  return BUSINESS_RE.test(text);
+}
+
+/** Square meters for a commercial space: "40 м2", "40 квадрати", "150 kvadrata". */
+export function detectSqm(text: string): number | undefined {
+  const m = text.match(/(\d{2,4})\s*(м2|м²|m2|m²|кв\.?\s*м|квадрат(и)?|kvadrat(a|i)?)/i);
+  if (!m) return undefined;
+  const n = parseInt(m[1], 10);
+  return n >= 10 && n <= 5000 ? n : undefined;
+}
+
+// Agreement/contact-intent phrases — the escape hatch from the exhausted
+// dead-end ("добро", "контактирај ме" after every option was shown).
+const AGREE_PHRASES = ['во ред', 'vo red', 'се согласувам', 'se soglasuvam',
+  'контактирај ме', 'контактирајте ме', 'kontaktiraj me', 'kontaktirajte me',
+  'запиши ме', 'запишете ме', 'prijavete me'];
+const AGREE_WORDS = new Set(['добро', 'ок', 'да', 'може', 'согласен', 'согласна',
+  'согласувам', 'запиши', 'запишете', 'контактирај', 'контактирајте', 'регистрирај',
+  'ok', 'dobro', 'moze', 'da', 'soglasen', 'soglasna', 'kontaktiraj', 'kontaktirajte', 'registriraj']);
+
+export function detectAgreement(text: string): boolean {
+  const low = text.toLowerCase();
+  if (AGREE_PHRASES.some(p => low.includes(p))) return true;
+  const tokens = low.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return tokens.some(t => AGREE_WORDS.has(t));
+}
+
+// Minimal name+phone intake for the LLM-down path (contact_collection).
+const NAME_STOPWORDS = new Set(['моето', 'мое', 'име', 'јас', 'сум', 'се', 'викам',
+  'нарекувам', 'тел', 'телефон', 'телефонот', 'број', 'бројот', 'контакт', 'контактниот',
+  'ми', 'е', 'и', 'на', 'со', 'ве', 'го', 'ги', 'за', 'ова', 'оваа',
+  'evt', 'tel', 'phone', 'broj', 'kontakt', 'moeto', 'ime', 'jas', 'sum', 'vikam',
+  'здраво', 'zdravo', 'како', 'kako', 'добар', 'dobar', 'ден', 'den', 'извинете',
+  'izvinete', 'ве молам', 've molam', 'посакувам', 'posakuvam', 'господине',
+  'gospodine', 'госпоѓа', 'gospogja', 'благодарам', 'blagodaram', 'ова', 'тоа', 'toa']);
+
+export function detectContact(text: string): { name?: string; phone?: string } {
+  let t = text.trim();
+  // 078/914 196, 078 914 196, 078914196, 02 3123 456 — 3 or 4 number groups
+  const phoneRe = /(0\d{1,2})[\s/.-]*(\d{2,4})[\s/.-]*(\d{2,4})(?:[\s/.-]*(\d{2,4}))?/;
+  const m = t.match(phoneRe);
+  let phone: string | undefined;
+  if (m) {
+    phone = m[0].replace(/[\s/.-]+/g, '');
+    t = t.replace(m[0], ' ');
+  }
+  const words = t.split(/[^\p{L}]+/u)
+    .map(w => w.toLowerCase())
+    .filter(w => w.length >= 3 && !NAME_STOPWORDS.has(w));
+  const name = words.length
+    ? words.slice(0, 2).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+    : undefined;
+  return { name, phone };
 }
 
 /**
@@ -99,27 +176,32 @@ export function detectLocation(text: string, feedLocations: string[]): string | 
  * asks for the missing pieces.
  */
 export function buildEvent(state: State, slots: DetectedSlots): Event {
-  const { service, location, bedrooms, budget, rejected } = slots;
-  const has = !!(service || location || bedrooms || budget);
+  const { service, location, bedrooms, sqm, business, budget, rejected } = slots;
+  const has = !!(service || location || bedrooms || budget || sqm);
   if (!has) return { type: 'STAY' };
   if (rejected && ['property_query', 'presentation', 'closing'].includes(state)) {
-    return { type: 'REJECTED', service, location, bedrooms, budget };
+    return { type: 'REJECTED', service, location, bedrooms, sqm, business, budget };
   }
-  if (service && location && bedrooms && budget) {
-    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, budget };
+  // Commercial spaces complete with size (м²) instead of bedrooms.
+  const complete = service && location && (business ? sqm : bedrooms) && budget;
+  if (complete) {
+    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, budget };
   }
-  if (service && !location && !bedrooms && !budget) {
-    return { type: 'INTENT_DECLARED', service };
+  if (service && !location && !bedrooms && !budget && !sqm) {
+    return { type: 'INTENT_DECLARED', service, business };
   }
-  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, budget };
+  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, budget };
 }
 
 export function extractSlots(text: string): DetectedSlots {
   const out: DetectedSlots = {};
   const service = detectService(text);
   if (service) out.service = service;
+  if (detectBusiness(text)) out.business = true;
   const beds = detectBedrooms(text);
   if (beds) out.bedrooms = beds;
+  const sqm = detectSqm(text);
+  if (sqm) out.sqm = sqm;
   const budget = detectBudget(text);
   if (budget) out.budget = budget;
   if (detectRejection(text)) out.rejected = true;

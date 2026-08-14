@@ -21,4 +21,7 @@ test('inferPropertyId: does NOT fire on bedrooms/prices/sizes/times/phones/years
   assert.equal(inferPropertyId('078/914 196'), undefined);
   assert.equal(inferPropertyId('godina 2025 gradba'), undefined);
   assert.equal(inferPropertyId('na 5 kat'), undefined);
+  // Latin bedroom counts must never be misread as an Евидентен број
+  assert.equal(inferPropertyId('1 SPALNA'), undefined);
+  assert.equal(inferPropertyId('12 SPALNI'), undefined);
 });

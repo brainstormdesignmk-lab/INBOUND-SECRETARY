@@ -7,7 +7,8 @@ import {
 import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
+import { detectAgreement, detectLocation } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -21,9 +22,9 @@ import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '.
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import {
   serviceLabel, VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
-  FEE_GRACEFUL_CLOSE, buildVisitConfirmation, feePersuasion, FALLBACKS,
-  NO_MATCH_LINE, PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE,
-  NO_MORE_ALTERNATIVES_LINE,
+  FEE_GRACEFUL_CLOSE, QUEUE_CONTACT_ASK, QUEUED_CONFIRM, buildVisitConfirmation,
+  feePersuasion, FALLBACKS, NO_MATCH_LINE, PROPERTY_NOT_FOUND_LINE,
+  FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
 } from '../llm/prompts';
 
 const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуална порака за да можам да Ви помогнам.';
@@ -168,6 +169,16 @@ export class InboundHandler {
     // 3) Slots + FSM transition
     const ev = classified.event;
     this.applySlots(session, ev);
+    // Did THIS message explicitly name a neighborhood ("што имаш во Карпош?")?
+    // If so, the presentation must stay inside that area — and an area with no
+    // matches gets the honest no-match line, never a silent different-area spill.
+    let areaRequested = false;
+    try {
+      const locs = await this.deps.properties.locations();
+      areaRequested = !!detectLocation(text, locs);
+    } catch {
+      areaRequested = false;
+    }
     const before = session.state;
     let next = transition(before, ev);
 
@@ -205,14 +216,32 @@ export class InboundHandler {
       if (session.slots.negotiationCount >= this.cfg.negotiationCap) next = 'escalated';
     }
 
+    // Exhausted-options agreement: after every matching property was shown, an
+    // agreement ("добро", "контактирај ме") registers the criteria instead of
+    // looping the exhausted line forever ("DOBRO" -> contact collection).
+    if (ev.type === 'CONTACT_PROVIDED' && session.slots.queueAfterContact) {
+      next = 'queued';
+    }
+
     session.state = next;
 
     // Post-transition side effects
-    if (next === 'queued') this.queueCustomer(session, '3x одбиен надомест');
+    if (next === 'queued') {
+      this.queueCustomer(session, session.slots.queueAfterContact ? 'исцрпени опции — регистрирани барања' : '3x одбиен надомест');
+    }
     if (next === 'escalated') this.raiseEscalation(session, text);
 
     // 4) Property context (responder only needs it for LLM-driven states)
-    const props = await this.loadProps(session);
+    const props = await this.loadProps(session, areaRequested);
+
+    // Exhausted dead-end escape: once every option is shown (props empty), an
+    // agreement message must move to contact collection, never loop the same
+    // exhausted line. (Runs after the state transition above.)
+    if (next === 'presentation' && props.length === 0 && detectAgreement(text)) {
+      next = 'contact_collection';
+      session.state = next;
+      session.slots.queueAfterContact = true;
+    }
 
     // 5) Reply strategy — deterministic where exactness matters
     pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -227,7 +256,9 @@ export class InboundHandler {
 
     let reply: string;
     if (next === 'queued') {
-      reply = FEE_GRACEFUL_CLOSE;
+      reply = session.slots.queueAfterContact ? QUEUED_CONFIRM : FEE_GRACEFUL_CLOSE;
+    } else if (session.slots.queueAfterContact && session.state === 'contact_collection') {
+      reply = QUEUE_CONTACT_ASK;
     } else if (before === 'closing' && ev.type === 'FEE_REFUSED') {
       reply = feePersuasion(session.slots.service, session.slots.feeRejections ?? 1);
     } else if (next === 'visit_scheduling') {
@@ -245,12 +276,12 @@ export class InboundHandler {
       reply = QUEUED_STAY_LINE;
     } else if (next === 'presentation' && props.length === 0) {
       // Deterministic empty-result lines — never let the LLM invent properties.
-      // First search with an empty feed -> no-match; follow-up rejections after
-      // every candidate was shown -> honest "exhausted" line.
+      // A search that names an area but has nothing there -> honest no-match;
+      // follow-up rejections after every candidate was shown -> "exhausted" line.
       reply = !this.deps.properties.healthy
         ? FEED_UNAVAILABLE_LINE
-        : (before === 'discovery'
-          ? NO_MATCH_LINE(session.slots.location)
+        : (before === 'discovery' || areaRequested
+          ? NO_MATCH_LINE(session.slots.location ?? ev.location)
           : NO_MORE_ALTERNATIVES_LINE(session.slots.location));
     } else if (next === 'property_query' && props.length === 0) {
       reply = this.deps.properties.healthy
@@ -396,6 +427,8 @@ export class InboundHandler {
     // replies and the deterministic no-match lines read naturally.
     if (ev.location) session.slots.location = normalizeLocation(ev.location);
     if (ev.bedrooms) session.slots.bedrooms = ev.bedrooms;
+    if (ev.sqm) session.slots.sqm = ev.sqm;
+    if (ev.business !== undefined) session.slots.business = ev.business;
     if (ev.budget) session.slots.budget = ev.budget;
     if (ev.propertyId) session.slots.propertyId = ev.propertyId;
     if (ev.visitTime) session.slots.visitTime = ev.visitTime;
@@ -404,10 +437,14 @@ export class InboundHandler {
   }
 
   private slotsComplete(s: ChatSession): boolean {
+    // Commercial spaces complete with size (м²) instead of bedrooms.
+    if (s.slots.business) {
+      return !!s.slots.service && !!s.slots.location && !!s.slots.sqm && !!s.slots.budget;
+    }
     return !!s.slots.service && !!s.slots.location && !!s.slots.bedrooms && !!s.slots.budget;
   }
 
-  private async loadProps(session: ChatSession): Promise<Property[]> {
+  private async loadProps(session: ChatSession, areaRequested = false): Promise<Property[]> {
     const s = session.state;
     if (s === 'property_query') {
       const id = session.slots.propertyId;
@@ -425,11 +462,18 @@ export class InboundHandler {
       const candidates = await this.deps.properties.candidates({
         location: session.slots.location,
         bedrooms: session.slots.bedrooms,
+        sqm: session.slots.sqm,
+        business: session.slots.business,
         service: session.slots.service,
         budget: session.slots.budget,
         exclude: shown,
       });
-      const batch = candidates.slice(0, 2);
+      // An explicit area request ("што имаш во Карпош?") shows ONLY that area:
+      // if it has no matches, return [] so the honest no-match line fires
+      // instead of silently offering a different neighborhood.
+      const batch = areaRequested && session.slots.location
+        ? candidates.filter(p => locMatches(session.slots.location as string, p.location ?? '')).slice(0, 2)
+        : candidates.slice(0, 2);
       session.slots.presentedIds = [...shown, ...batch.map(p => p.id)];
       session.slots.currentBatch = batch.map(p => p.id);
       session.slots.alternativesExhausted = candidates.length === 0;

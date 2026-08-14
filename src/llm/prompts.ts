@@ -1,6 +1,6 @@
 import { State, Service } from '../fsm/machine';
 import { SlotData } from '../fsm/session';
-import { Property } from '../data/properties';
+import { Property, publicPropertyUrl } from '../data/properties';
 
 export const BUY_FEE_MKD = '600 MKD';
 export const RENT_FEE_MKD = '300 MKD';
@@ -18,6 +18,14 @@ export const PATIENCE_LINE =
 export const FEE_GRACEFUL_CLOSE =
   'Целосно Ве разбирам. Ви благодарам на искреноста. Ќе ги забележам Вашите критериуми и штом се појави соодветен имот, ќе Ве контактирам. Ви посакувам пријатен ден!';
 
+// Exhausted-options flow: the client agreed to register criteria / be contacted
+// after every matching option was shown. Code-built, so it never dead-ends.
+export const QUEUE_CONTACT_ASK =
+  'Во ред, ќе ги забележам Вашите барања. За да Ве контактирам штом се појави соодветен имот, ве молам кажете ми го Вашето име и телефонски број за контакт.';
+
+export const QUEUED_CONFIRM =
+  'Ви благодарам! Вашите барања се забележани. Ќе Ве контактирам веднаш штом се појави соодветен имот. Ви посакувам пријатен ден!';
+
 // --- Deterministic empty-result lines: the LLM must NEVER invent properties. ---
 // When a search/property lookup yields no data, the reply is code-built so the
 // model is never given a chance to fabricate listings.
@@ -32,10 +40,83 @@ export const PROPERTY_NOT_FOUND_LINE = (eb: number): string =>
 export const FEED_UNAVAILABLE_LINE =
   'Моментално имам техничка потешкотија со проверката на понудата. Ве молам, обидете се повторно за неколку минути.';
 
+// Closing-question variations — the SAME sentence every presentation reads
+// robotic. The code-built cards rotate through these deterministically, and the
+// LLM task instructs the model to vary its phrasing too.
+export const PRESENTATION_CLOSERS = [
+  'Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?',
+  'Дали некој од овие станови Ви одговара? Ако да, можам веднаш да организирам посета.',
+  'Кој од овие предлози најмногу Ви одговара? Би сакала да Ви организирам посета во термин по Ваш избор.',
+  'Дали некој од овие предлози е тоа што го барате? Доколку е, веднаш ја закажувам посетата.',
+  'Што мислите за овие предлози? Ако некој Ви се допаѓа, ќе организирам посета кога Ви одговара.',
+];
+
+export const PROPERTY_QUERY_CLOSERS = [
+  'Дали би сакале да организираме посета на овој имот?',
+  'Дали овој имот Ви одговара? Доколку сакате, можам да организирам посета.',
+  'Дали би сакале да го разгледате овој стан на лице место? Ќе организирам посета во термин по Ваш избор.',
+  'Дали овој стан е тоа што го барате? Ако е, со задоволство ќе организирам посета.',
+];
+
+function pickCloser(list: string[], index: number): string {
+  return list[((index % list.length) + list.length) % list.length];
+}
+
 export const NO_MORE_ALTERNATIVES_LINE = (location?: string): string =>
   location
     ? `Ги исцрпивме сите расположливи имоти што одговараат на Вашите критериуми${location ? ` во ${location}` : ''}. Можам да ги забележам Вашите барања и да Ве контактирам штом се појави соодветен имот, или да погледнеме во друга населба?`
     : 'Ги исцрпивме сите расположливи имоти што одговараат на Вашите критериуми. Можам да ги забележам Вашите барања и да Ве контактирам штом се појави соодветен имот, или да погледнеме во друга населба?';
+
+function bedroomWord(n: number): string {
+  if (n === 1) return 'една спална соба';
+  if (n === 2) return 'две спални соби';
+  if (n === 3) return 'три спални соби';
+  return `${n} спални соби`;
+}
+
+function formatBudget(b: string): string {
+  const n = Number(b.replace(/[^\d]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n.toLocaleString('mk-MK') : b;
+}
+
+/**
+ * The discovery ask is CODE-BUILT: it only ever asks for what is still
+ * missing (intent -> location -> size -> price) and NEVER re-asks what the
+ * client already gave. Commercial spaces (деловен простор) complete with
+ * square meters instead of bedrooms — a "деловен простор" request must never
+ * be asked "колку спални?". Grammar is hand-written, so it is always correct.
+ */
+export function buildDiscoveryAsk(slots: SlotData): string {
+  const business = !!slots.business;
+  const known: string[] = [];
+  if (business) known.push('деловен простор');
+  if (slots.service) known.push(slots.service === 'buy' ? 'за купување' : 'за изнајмување');
+  if (slots.location) known.push(`во ${slots.location}`);
+  if (business) {
+    if (slots.sqm) known.push(`со ${slots.sqm} м²`);
+  } else if (slots.bedrooms) {
+    known.push(`со ${bedroomWord(slots.bedrooms)}`);
+  }
+  if (slots.budget) known.push(`до ${formatBudget(slots.budget)} евра`);
+  const missing: string[] = [];
+  if (!slots.service) missing.push(business ? 'Дали го барате за купување или за изнајмување?' : 'Дали станот го барате за купување или за изнајмување?');
+  if (slots.service && !slots.location) missing.push(business ? 'Во кој дел од градот го барате?' : 'Во кој дел од градот го барате станот?');
+  if (slots.service && slots.location && business && !slots.sqm) missing.push('Која површина (во м²) ја барате?');
+  if (slots.service && slots.location && !business && !slots.bedrooms) missing.push('Колку спални соби би сакале да има станот?');
+  if (slots.service && slots.location && !slots.budget) {
+    missing.push(business ? 'До која цена го барате?' : 'До која цена го барате станот?');
+  }
+  const intro = known.length
+    ? `Разбрав — барате ${business ? '' : 'стан '}${known.join(', ')}.`
+    : business
+      ? 'Здраво! За да Ви најдам најсоодветен деловен простор, ве молам кажете ми неколку детали.'
+      : 'Здраво! За да Ви најдам најсоодветни станови, ве молам кажете ми неколку детали.';
+  if (missing.length === 0) return intro;
+  const questions = missing.length === 1
+    ? missing[0]
+    : missing.map((q, i) => `${i + 1}. ${q}`).join('\n');
+  return `${intro}\n${questions}`;
+}
 
 /** The confirmation is CODE-BUILT — phones and dates are never LLM-generated. */
 export function buildVisitConfirmation(eb: number, time: string, agentPhone: string): string {
@@ -101,7 +182,7 @@ export const SYSTEM_PROMPT = `
     *   Сценарио В (0 совпаѓања): кажи точно: „За жал, моментално немам слободни имоти во [Локација] што одговараат на Вашите критериуми.“ Само ТОГАШ смееш да предложиш алтернатива или да прашаш дали се отворени за други локации.
     *   НИКОГАШ не прикажувај имот од друга населба, освен ако најпрвин не е искажано Сценарио В.
     *   **ЗАБРАНА:** Во оваа фаза НИКОГАШ не го спомнувај надоместот за разгледување.
-    *   Заврши со: „Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?“
+    *   Заврши со прашање дали им се допаѓа некој од предлозите и дали сакаат да организираш посета — **МЕНУВАЈ го прашањето секој пат** (не го повторувај истото прашање како во претходната порака).
 *   **ФАЗА 4 — ЗАТВОРАЊЕ (НАДОМЕСТ ЗА РАЗГЛЕДУВАЊЕ — само по изразен интерес):**
     *   ИЗНАЈМУВАЊЕ: „Мило ми е. Пред да го повикам сопственикот, мора да Ве известам за политиката на Метрополис. Разгледувањето на имот чини симболични 300 денари (5 евра). Дали се согласувате со овие услови за да можеме да продолжиме?“
     *   КУПУВАЊЕ: „Одличен избор. Бидејќи станува збор за купување, имам одлична вест и еден мал услов за Вас. Кај нас во Metropolis, **Вие како купувач НЕ плаќате агенциска провизија** (0%), за разлика од други места каде би платиле илјадници евра провизија. Единствениот трошок за Вас е симболични 600 денари (10 евра) за организирање на посетата до имотот. Дали се согласувате со овој услов за да можеме да продолжиме?“
@@ -140,15 +221,22 @@ export function stateTask(state: State, slots: SlotData): string {
       const known = [
         slots.service ? `услуга: ${serviceLabel(slots.service)}` : null,
         slots.location ? `локација: ${slots.location}` : null,
+        slots.business ? `деловен простор (size matters, NOT bedrooms)` : null,
+        slots.sqm ? `површина: ${slots.sqm} м²` : null,
         slots.bedrooms ? `спални: ${slots.bedrooms}` : null,
         slots.budget ? `буџет: ${slots.budget}` : null,
       ].filter(Boolean).join(', ');
-      return `The client's intent is known. Ask ONLY for the missing details: location (кој дел од градот), number of bedrooms (колку спални), budget (до која цена). Do not show properties yet. Known so far: ${known || 'none'}.`;
+      return slots.business
+        ? `The client wants a COMMERCIAL space (деловен простор) — NEVER ask about bedrooms. Ask ONLY for the missing details: location (кој дел од градот), square meters (колку м²), budget (до која цена). Do not show properties yet. Known so far: ${known || 'none'}.`
+        : `The client's intent is known. Ask ONLY for the missing details: location (кој дел од градот), number of bedrooms (колку спални), budget (до која цена). Do not show properties yet. Known so far: ${known || 'none'}.`;
     }
     case 'property_query':
-      return `The client asked about a SPECIFIC property: Евидентен број ${slots.propertyId ?? '?'}. Describe ONLY that property from the provided data (layout, size, price). PRICE MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. STRICT: if the RELEVANT PROPERTY DATA is empty ([]), do NOT invent any details — say you could not find that property in the current offer and offer to suggest similar ones. Do NOT mention any viewing fee in this step. End by asking if they would like to visit it (only if the property was found).`;
-    case 'presentation':
-      return `The client wants to ${serviceLabel(slots.service)} in "${slots.location ?? '?'}" with ${slots.bedrooms ?? '?'} спални, budget ${slots.budget ?? '?'}. Present the properties from the provided data (MAX 2). STRICT: never invent properties or details that are not in the provided data. PRICES MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. These are the NEXT available options — if the client rejected earlier offers, briefly acknowledge and present these as the closest alternatives. If none of the provided properties is in the requested location, say there is nothing available exactly in ${slots.location ?? '?'} right now and present these as the closest options from nearby areas. NEVER claim there are no other properties anywhere — only the provided data exists. Do NOT mention viewing fees. Use "Евидентен број N". If a property's data includes a "url" or "gmaps", include that link in your reply so the client can open the listing. End with: "Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?"`;
+      return `The client asked about a SPECIFIC property: Евидентен број ${slots.propertyId ?? '?'}. Describe ONLY that property from the provided data (layout, size, price). PRICE MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. STRICT: if the RELEVANT PROPERTY DATA is empty ([]), do NOT invent any details — say you could not find that property in the current offer and offer to suggest similar ones. Do NOT mention any viewing fee in this step. If the property data includes a "url" (a full https link), include it in your reply as "Повеќе информации: <url>" so the client can open the listing. End by asking if they would like to visit it (only if the property was found) — VARY the phrasing of that question, never repeat the same sentence twice in a row.`;
+    case 'presentation': {
+      const size = slots.business ? `${slots.sqm ?? '?'} м²` : `${slots.bedrooms ?? '?'} спални`;
+      const what = slots.business ? 'COMMERCIAL space (деловен простор)' : 'apartment';
+      return `The client wants to ${serviceLabel(slots.service)} a ${what} in "${slots.location ?? '?'}" with ${size}, budget ${slots.budget ?? '?'}. Present the properties from the provided data (MAX 2). STRICT: never invent properties or details that are not in the provided data. PRICES MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. These are the NEXT available options — if the client rejected earlier offers, briefly acknowledge and present these as the closest alternatives. If none of the provided properties is in the requested location, say there is nothing available exactly in ${slots.location ?? '?'} right now and present these as the closest options from nearby areas. NEVER claim there are no other properties anywhere — only the provided data exists. Do NOT mention viewing fees. Use "Евидентен број N". If a property's data includes a "url" (a full https link), include it in your reply as "Повеќе информации: <url>" so the client can open the listing. End with a natural closing question asking whether they like any of the offers and would like a visit scheduled — VARY the phrasing every time (e.g. "Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?" / "Дали некој од овие станови Ви одговара? Ако да, можам веднаш да организирам посета." / "Кој од овие предлози најмногу Ви одговара?"). NEVER repeat the exact same closing sentence as your previous reply.`;
+    }
     case 'closing': {
       const eb = slots.interestedPropertyId ?? slots.propertyId;
       const rejects = slots.feeRejections ?? 0;
@@ -226,12 +314,14 @@ function joinMk(items: string[]): string {
  * path reads professional instead of robotic. Grammar is hand-written, so it
  * is always correct.
  */
-export function buildPropertyCard(p: Property): string {
-  let s = `Станот под Евидентен број ${p.eb} е ${propertyType(p)}`;
-  s += p.location ? ` во ${p.location}.` : '.';
-  const addr = p.address && p.address !== `Имот ЕБ ${p.eb}` ? p.address : undefined;
+export function buildPropertyCard(p: Property, publicSiteUrl?: string): string {
+  let s = p.business
+    ? `Деловниот простор под Евидентен број ${p.eb}${p.location ? ` е во ${p.location}.` : '.'}`
+    : `Станот под Евидентен број ${p.eb} е ${propertyType(p)}${p.location ? ` во ${p.location}.` : '.'}`;
+  const addr = p.address && p.address !== `Имот ЕБ ${p.eb}` && !/^непознат/i.test(p.address)
+    ? p.address : undefined;
   if (addr) s += ` Се наоѓа на улица ${addr}.`;
-  if (p.size) s += ` Има ${p.size} станбена површина.`;
+  if (p.size) s += ` Има ${p.size} ${p.business ? 'деловна' : 'станбена'} површина.`;
   const feats = p.features ?? [];
   const oprema = feats.filter(f => f.includes('наместен'));
   const others = feats.filter(f => !f.includes('наместен'));
@@ -241,18 +331,21 @@ export function buildPropertyCard(p: Property): string {
     s += o === 'наместен' ? ' Станот е целосно наместен.' : ` Станот е ${o}.`;
   }
   if (p.price !== undefined) s += ` Цената е ${p.price.toLocaleString('mk-MK')} евра.`;
+  const link = publicPropertyUrl(p.url, publicSiteUrl ?? '');
+  if (link) s += ` Повеќе информации: ${link}`;
   return s;
 }
 
-export function buildPropertyCards(properties: Property[], state: State): string {
-  const cards = properties.slice(0, 2).map(buildPropertyCard).join('\n\n');
-  if (state === 'presentation') {
-    return `${cards}\n\nДали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?`;
-  }
-  return `${cards}\n\nДали би сакале да организираме посета на овој имот?`;
+export function buildPropertyCards(properties: Property[], state: State, publicSiteUrl?: string, closerIndex = 0): string {
+  const cards = properties.slice(0, 2)
+    .map(p => buildPropertyCard(p, publicSiteUrl)).join('\n\n');
+  const closer = state === 'presentation'
+    ? pickCloser(PRESENTATION_CLOSERS, closerIndex)
+    : pickCloser(PROPERTY_QUERY_CLOSERS, closerIndex);
+  return `${cards}\n\n${closer}`;
 }
 
-export function buildPropertyContext(properties: Property[]): string {
+export function buildPropertyContext(properties: Property[], publicSiteUrl?: string): string {
   if (!properties.length) return '[]';
   return JSON.stringify(properties.map(p => ({
     eb: p.eb,
@@ -264,6 +357,7 @@ export function buildPropertyContext(properties: Property[]): string {
     features: p.features ?? null,
     details: p.details ?? null,
     gmaps: p.gmaps ?? null,
-    url: p.url ?? null,
+    // ALWAYS a full https link (relative /property/... is useless to a customer)
+    url: publicPropertyUrl(p.url, publicSiteUrl ?? '') ?? null,
   })), null, 2);
 }

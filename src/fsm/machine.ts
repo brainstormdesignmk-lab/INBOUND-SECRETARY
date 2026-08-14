@@ -21,6 +21,8 @@ export interface Event {
   service?: Service;
   location?: string;
   bedrooms?: number;
+  sqm?: number;             // commercial space — size instead of bedrooms
+  business?: boolean;       // деловен простор / канцеларија / локал
   budget?: string;
   propertyId?: number;      // = Евидентен број (EB)
   visitTime?: string;       // free-text time proposed by the client
