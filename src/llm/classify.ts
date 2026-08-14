@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectRejection } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -230,6 +230,14 @@ export class Classifier {
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'visit_scheduling') {
       const t = detectVisitTime(text);
       if (t) parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+    }
+    // LLM-down time_confirm: the owner counter-proposed a time — "во ред, тоа
+    // време е добро" -> TIME_ACCEPTED (pending), "не ми одговара" ->
+    // TIME_REJECTED (back to visit_scheduling, capped by negotiationCap).
+    // Without this, an outage would repeat the counter-time question forever.
+    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'time_confirm') {
+      if (detectRejection(text)) parsed.event = { type: 'TIME_REJECTED' };
+      else if (detectAgreement(text)) parsed.event = { type: 'TIME_ACCEPTED' };
     }
     return parsed;
   }

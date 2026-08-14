@@ -165,6 +165,35 @@ test('ZOKI: "кога може да се погледне" is visit interest too
   assert.ok(!sent[1].includes('телефонски'), sent[1]);
 });
 
+test('owner counter-offer: accept/reject the owner time works with every LLM down', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'bob';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // reach owner_checking (interest -> fee -> agree -> contact -> time)
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA, SE SOGLASUVAM');
+  await send('ZORAN 078/914 196');
+  let s = await send('UTRE POPLADNE POSLE 6');
+  assert.equal(s.state, 'owner_checking');
+
+  // owner counter-proposes a different time -> time_confirm
+  const agent = handler.ownerAgent as unknown as {
+    simulate?: (chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter', ownerTime?: string) => boolean;
+  };
+  assert.ok(agent.simulate?.(chatId, 78, 'counter', 'петок во 17:00'));
+  await new Promise(r => setTimeout(r, 50)); // let the enqueued verdict land
+  s = sessions.get(chatId)!;
+  assert.equal(s.state, 'time_confirm');
+  assert.ok(sent[5].includes('петок во 17:00'), sent[5]);
+
+  // accept the counter-time -> pending (confirmed appointment), LLM down
+  s = await send('VO RED, TOA VREME E DOBRO');
+  assert.equal(s.state, 'pending');
+  assert.ok(sent[6].includes('Договорена посета'), sent[6]);
+});
+
 test('stuck loop: the exhausted line never repeats for contact requests', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'goran2';
