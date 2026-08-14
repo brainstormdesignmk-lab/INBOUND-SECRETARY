@@ -1,6 +1,6 @@
 import { State, Service } from '../fsm/machine';
 import { SlotData } from '../fsm/session';
-import { Property, publicPropertyUrl } from '../data/properties';
+import { Property } from '../data/properties';
 
 export const BUY_FEE_MKD = '600 MKD';
 export const RENT_FEE_MKD = '300 MKD';
@@ -243,11 +243,11 @@ export function stateTask(state: State, slots: SlotData): string {
         : `The client's intent is known. Ask ONLY for the missing details: location (кој дел од градот), number of bedrooms (колку спални), budget (до која цена). Do not show properties yet. Known so far: ${known || 'none'}.`;
     }
     case 'property_query':
-      return `The client asked about a SPECIFIC property: Евидентен број ${slots.propertyId ?? '?'}. Describe ONLY that property from the provided data (layout, size, price). PRICE MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. STRICT: if the RELEVANT PROPERTY DATA is empty ([]), do NOT invent any details — say you could not find that property in the current offer and offer to suggest similar ones. Do NOT mention any viewing fee in this step. If the property data includes a "url" (a full https link), include it in your reply as "Повеќе информации: <url>" so the client can open the listing. If the client asks whether the property is available ("дали е достапен?") or when they could view it ("кога може да се погледне?"), treat it as visit interest: ask if they would like to schedule a visit — NEVER offer to contact the owner or ask for their phone yet (the system discloses the viewing fee first, then contacts the owner after they agree). End by asking if they would like to visit it (only if the property was found) — VARY the phrasing of that question, never repeat the same sentence twice in a row.`;
+      return `The client asked about a SPECIFIC property: Евидентен број ${slots.propertyId ?? '?'}. Describe ONLY that property from the provided data (layout, size, price, location, address, features, description). PRICE MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. STRICT: if the RELEVANT PROPERTY DATA is empty ([]), do NOT invent any details — say you could not find that property in the current offer and offer to suggest similar ones. Do NOT mention any viewing fee in this step. NEVER include a link, "Повеќе информации" or a web address — the client reads everything IN THE CHAT, described with words from the provided data. If a field is null in the data, OMIT it entirely — never write "непозната локација" or "непознат" (only mention what the data really contains). If the client asks whether the property is available ("дали е достапен?") or when they could view it ("кога може да се погледне?"), treat it as visit interest: ask if they would like to schedule a visit — NEVER offer to contact the owner or ask for their phone yet (the system discloses the viewing fee first, then contacts the owner after they agree). End by asking if they would like to visit it (only if the property was found) — VARY the phrasing of that question, never repeat the same sentence twice in a row.`;
     case 'presentation': {
       const size = slots.business ? `${slots.sqm ?? '?'} м²` : `${slots.bedrooms ?? '?'} спални`;
       const what = slots.business ? 'COMMERCIAL space (деловен простор)' : 'apartment';
-      return `The client wants to ${serviceLabel(slots.service)} a ${what} in "${slots.location ?? '?'}" with ${size}, budget ${slots.budget ?? '?'}. Present the properties from the provided data (MAX 2). STRICT: never invent properties or details that are not in the provided data. PRICES MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. These are the NEXT available options — if the client rejected earlier offers, briefly acknowledge and present these as the closest alternatives. If none of the provided properties is in the requested location, say there is nothing available exactly in ${slots.location ?? '?'} right now and present these as the closest options from nearby areas. NEVER claim there are no other properties anywhere — only the provided data exists. Do NOT mention viewing fees. Use "Евидентен број N". If a property's data includes a "url" (a full https link), include it in your reply as "Повеќе информации: <url>" so the client can open the listing. If the client asks whether a property is available or when they could view it, treat it as visit interest — NEVER offer to contact the owner or ask for their phone yet (the fee is disclosed first, the owner is contacted only after they agree). End with a natural closing question asking whether they like any of the offers and would like a visit scheduled — VARY the phrasing every time (e.g. "Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?" / "Дали некој од овие станови Ви одговара? Ако да, можам веднаш да организирам посета." / "Кој од овие предлози најмногу Ви одговара?"). NEVER repeat the exact same closing sentence as your previous reply.`;
+      return `The client wants to ${serviceLabel(slots.service)} a ${what} in "${slots.location ?? '?'}" with ${size}, budget ${slots.budget ?? '?'}. Present the properties from the provided data (MAX 2). STRICT: never invent properties or details that are not in the provided data. PRICES MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. These are the NEXT available options — if the client rejected earlier offers, briefly acknowledge and present these as the closest alternatives. If none of the provided properties is in the requested location, say there is nothing available exactly in ${slots.location ?? '?'} right now and present these as the closest options from nearby areas. NEVER claim there are no other properties anywhere — only the provided data exists. Do NOT mention viewing fees. Use "Евидентен број N". Describe each property IN WORDS using ONLY the provided data: location, address, size, bedrooms, features and description (details). NEVER include a link, "Повеќе информации" or a web address — the client reads everything IN THE CHAT, described with words from the database. If a field is null in the data, OMIT it entirely — never write "непозната локација" or "непознат" (only mention what the data really contains). If the client asks whether a property is available or when they could view it, treat it as visit interest — NEVER offer to contact the owner or ask for their phone yet (the fee is disclosed first, the owner is contacted only after they agree). End with a natural closing question asking whether they like any of the offers and would like a visit scheduled — VARY the phrasing every time (e.g. "Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?" / "Дали некој од овие станови Ви одговара? Ако да, можам веднаш да организирам посета." / "Кој од овие предлози најмногу Ви одговара?"). NEVER repeat the exact same closing sentence as your previous reply.`;
     }
     case 'closing': {
       const eb = slots.interestedPropertyId ?? slots.propertyId;
@@ -326,7 +326,7 @@ function joinMk(items: string[]): string {
  * path reads professional instead of robotic. Grammar is hand-written, so it
  * is always correct.
  */
-export function buildPropertyCard(p: Property, publicSiteUrl?: string): string {
+export function buildPropertyCard(p: Property): string {
   let s = p.business
     ? `Деловниот простор под Евидентен број ${p.eb}${p.location ? ` е во ${p.location}.` : '.'}`
     : `Станот под Евидентен број ${p.eb} е ${propertyType(p)}${p.location ? ` во ${p.location}.` : '.'}`;
@@ -343,21 +343,22 @@ export function buildPropertyCard(p: Property, publicSiteUrl?: string): string {
     s += o === 'наместен' ? ' Станот е целосно наместен.' : ` Станот е ${o}.`;
   }
   if (p.price !== undefined) s += ` Цената е ${p.price.toLocaleString('mk-MK')} евра.`;
-  const link = publicPropertyUrl(p.url, publicSiteUrl ?? '');
-  if (link) s += ` Повеќе информации: ${link}`;
+  // The full DB description is written out in words — the client reads the
+  // property info IN THE CHAT, never on a webpage (no links anywhere).
+  if (p.details) s += ` ${p.details.trim().replace(/\.+$/, '')}.`;
   return s;
 }
 
-export function buildPropertyCards(properties: Property[], state: State, publicSiteUrl?: string, closerIndex = 0): string {
+export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0): string {
   const cards = properties.slice(0, 2)
-    .map(p => buildPropertyCard(p, publicSiteUrl)).join('\n\n');
+    .map(p => buildPropertyCard(p)).join('\n\n');
   const closer = state === 'presentation'
     ? pickCloser(PRESENTATION_CLOSERS, closerIndex)
     : pickCloser(PROPERTY_QUERY_CLOSERS, closerIndex);
   return `${cards}\n\n${closer}`;
 }
 
-export function buildPropertyContext(properties: Property[], publicSiteUrl?: string): string {
+export function buildPropertyContext(properties: Property[]): string {
   if (!properties.length) return '[]';
   return JSON.stringify(properties.map(p => ({
     eb: p.eb,
@@ -369,7 +370,7 @@ export function buildPropertyContext(properties: Property[], publicSiteUrl?: str
     features: p.features ?? null,
     details: p.details ?? null,
     gmaps: p.gmaps ?? null,
-    // ALWAYS a full https link (relative /property/... is useless to a customer)
-    url: publicPropertyUrl(p.url, publicSiteUrl ?? '') ?? null,
+    // NO url field: the client reads the property info in the chat as words,
+    // so the model must never see a link to echo.
   })), null, 2);
 }

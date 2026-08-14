@@ -19,13 +19,21 @@ const OWNER_JUMP_ALLOWED = new Set(['contact_collection', 'visit_scheduling', 'o
 
 export function guardText(state: State, text: string, publicSiteUrl?: string): string {
   let out = text.trim();
-  // Customers need a CLICKABLE link — the feed only has the relative path, and
-  // even with a full URL in context the model sometimes copies the bare path.
-  // Deterministically prepend the public site to any bare /property/... path.
+  // Property info is described IN THE CHAT with words from the database — links
+  // to the public page are NEVER shown. Deterministically strip any link the
+  // model still emits: "Повеќе информации: <url>" phrases (bold or plain),
+  // full /property/ URLs, and bare /property/ paths.
   if (publicSiteUrl) {
-    out = out.replace(/(^|[\s(])\/property\/[0-9a-zA-Z-]{8,}/g,
-      (m: string, pre: string) => `${pre}${publicSiteUrl.replace(/\/+$/, '')}${m.slice(pre.length)}`);
+    const host = publicSiteUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`https?:\\/\\/${host}(?:\\/[^\\s)\\]»]*)?`, 'gi'), '');
   }
+  out = out
+    .replace(/\*{0,2}Повеќе информации:\*{0,2}\s+\S+/gi, '') // label + whatever follows (URL / bare path / domain)
+    .replace(/\*{0,2}Повеќе информации:\*{0,2}/gi, '')          // dangling label alone
+    .replace(/https?:\/\/[^\s)\]»]*\/property\/[^\s)\]»]*/gi, '') // property URL without the label
+    .replace(/\/property\/[0-9a-zA-Z-]{8,}/g, '')               // bare /property/ path
+    .replace(/[ \t]{2,}/g, ' ');
   // Hard rule: the viewing fee must NEVER appear before the client is interested.
   if (!isFeeAllowed(state) && FEE_RE.test(out)) {
     console.warn(`[guard] fee mention blocked in state "${state}"`);
@@ -87,7 +95,7 @@ export class Responder {
       return guardText(session.state, line, this.cfg.publicSiteUrl);
     }
     const task = stateTask(session.state, session.slots);
-    const propCtx = buildPropertyContext(properties, this.cfg.publicSiteUrl);
+    const propCtx = buildPropertyContext(properties);
     const messages = [
       { role: 'system' as const, content: SYSTEM_PROMPT },
       {
@@ -114,7 +122,7 @@ export class Responder {
         // closerIndex = conversation progress -> consecutive presentations get
         // DIFFERENT closing questions (the same one every time reads robotic).
         return guardText(session.state,
-          buildPropertyCards(properties, session.state, this.cfg.publicSiteUrl, session.history.length),
+          buildPropertyCards(properties, session.state, session.history.length),
           this.cfg.publicSiteUrl);
       }
       return FALLBACKS[session.state] ?? FALLBACKS.default;

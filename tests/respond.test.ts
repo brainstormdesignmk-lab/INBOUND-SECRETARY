@@ -81,15 +81,15 @@ test('buildPropertyCards: the closing question rotates — no repeated sentences
   const prop: Property = {
     eb: 63, id: 63, address: 'x', location: 'Центар', price: 36000,
   };
-  const a = buildPropertyCards([prop], 'presentation', undefined, 0);
-  const b = buildPropertyCards([prop], 'presentation', undefined, 1);
+  const a = buildPropertyCards([prop], 'presentation', 0);
+  const b = buildPropertyCards([prop], 'presentation', 1);
   assert.notEqual(a, b);
   assert.equal(a.split('\n\n').pop(), PRESENTATION_CLOSERS[0]);
   assert.equal(b.split('\n\n').pop(), PRESENTATION_CLOSERS[1]);
   assert.equal(new Set(PRESENTATION_CLOSERS).size, PRESENTATION_CLOSERS.length); // all distinct
   assert.equal(new Set(PROPERTY_QUERY_CLOSERS).size, PROPERTY_QUERY_CLOSERS.length);
-  const q0 = buildPropertyCards([prop], 'property_query', undefined, 0);
-  const q1 = buildPropertyCards([prop], 'property_query', undefined, 1);
+  const q0 = buildPropertyCards([prop], 'property_query', 0);
+  const q1 = buildPropertyCards([prop], 'property_query', 1);
   assert.notEqual(q0, q1);
   assert.equal(q0.split('\n\n').pop(), PROPERTY_QUERY_CLOSERS[0]);
   assert.equal(q1.split('\n\n').pop(), PROPERTY_QUERY_CLOSERS[1]);
@@ -112,6 +112,8 @@ test('buildPropertyCards: code-built PROSE card quotes euros and real data (LLM-
   assert.ok(!card.includes('Локација:'));
   assert.ok(!card.includes('Одлики:'));
   assert.ok(!card.includes('денари'));
+  assert.ok(!card.includes('http'));
+  assert.ok(!card.includes('Повеќе информации'));
   const pres = buildPropertyCards([prop], 'presentation');
   assert.ok(pres.includes('организираме посета'));
   const q = buildPropertyCards([prop], 'property_query');
@@ -129,15 +131,21 @@ test('buildPropertyCard: гарсоњера inferred from size when bedrooms are
   assert.ok(card.includes('Цената е 46.000 евра.'), card);
 });
 
-test('guardText: a bare /property/... path becomes a full clickable public link', () => {
-  const s = '**Повеќе информации:** /property/37c5d771-b26c-4993-bebd-9b9f4766d769';
-  const out = guardText('presentation', s, SITE);
-  assert.equal(out, `**Повеќе информации:** ${SITE}/property/37c5d771-b26c-4993-bebd-9b9f4766d769`);
-  // already-full URLs are left untouched
+test('guardText: property links are stripped — info is described in words, never linked', () => {
+  // the exact pattern from the paste: bold label + bare path
+  assert.equal(guardText('presentation', '**Повеќе информации:** /property/37c5d771-b26c-4993-bebd-9b9f4766d769', SITE), '');
+  // full https URL behind the label
   const full = `Повеќе информации: ${SITE}/property/fe3c38df-63cb-4166-a295-0ab8d6831f1d`;
-  assert.equal(guardText('presentation', full, SITE), full);
-  // without a configured site the path stays as-is (nothing to prepend)
-  assert.equal(guardText('presentation', s), s);
+  assert.equal(guardText('presentation', full, SITE), '');
+  // a property URL mid-sentence is removed, the surrounding words survive
+  const mid = `Го најдов станот. ${SITE}/property/fe3c38df-63cb-4166-a295-0ab8d6831f1d Дали Ви се допаѓа?`;
+  const out = guardText('presentation', mid, SITE);
+  assert.ok(!out.includes('property/'), out);
+  assert.ok(out.includes('Го најдов станот.'), out);
+  assert.ok(out.includes('Дали Ви се допаѓа?'), out);
+  // non-property URLs are NOT touched
+  const other = 'Проверете на https://example.com/x';
+  assert.ok(guardText('presentation', other, SITE).includes('https://example.com/x'));
 });
 
 test('buildDiscoveryAsk: business spaces ask location/sqm/price — NEVER bedrooms', () => {
@@ -166,24 +174,40 @@ test('buildPropertyCard: business spaces read as деловен простор, 
   assert.ok(!card.includes('станбена'), card);
 });
 
-test('buildPropertyCard: includes the full public link when the feed has a url', () => {
+test('buildPropertyCard: NEVER includes a link — the DB data is described in words', () => {
   const prop: Property = {
     eb: 63, id: 63, address: 'Црногорска Амбасада', location: 'Центар',
     price: 36000, size: '28 м²', url: '/property/37c5d771-b26c-4993-bebd-9b9f4766d769',
   };
-  const card = buildPropertyCard(prop, SITE);
-  assert.ok(card.includes(`Повеќе информации: ${SITE}/property/37c5d771-b26c-4993-bebd-9b9f4766d769`), card);
-  assert.ok(!card.includes('/property/37c5d771') || card.includes(SITE), card);
+  const card = buildPropertyCard(prop);
+  assert.ok(!card.includes('Повеќе информации'), card);
+  assert.ok(!card.includes('/property/'), card);
+  assert.ok(!card.includes('http'), card);
+  assert.ok(card.includes('Станот под Евидентен број 63 е гарсоњера во Центар.'), card);
+  assert.ok(card.includes('Цената е 36.000 евра.'), card);
 });
 
-test('buildPropertyContext: the LLM receives the FULL url, never the relative path', () => {
+test('buildPropertyCard: the DB description (details) is written out in words', () => {
+  const prop: Property = {
+    eb: 63, id: 63, address: 'Црногорска Амбасада', location: 'Центар',
+    price: 36000, size: '28 м²',
+    details: 'Гарсоњера во сутерен на зграда, комплетно реновирана на одлична локација.',
+  };
+  const card = buildPropertyCard(prop);
+  assert.ok(card.includes('Гарсоњера во сутерен на зграда, комплетно реновирана на одлична локација.'), card);
+  assert.ok(!card.includes('http'), card);
+});
+
+test('buildPropertyContext: no url field — the model cannot echo a link', () => {
   const prop: Property = {
     eb: 63, id: 63, address: 'x', location: 'Центар',
     price: 36000, url: '/property/37c5d771-b26c-4993-bebd-9b9f4766d769',
   };
-  const ctx = buildPropertyContext([prop], SITE);
-  assert.ok(ctx.includes(`${SITE}/property/37c5d771-b26c-4993-bebd-9b9f4766d769`), ctx);
-  assert.ok(!ctx.includes('"url": "/property/'), ctx);
+  const ctx = buildPropertyContext([prop]);
+  assert.ok(!ctx.includes('url'), ctx);
+  assert.ok(!ctx.includes('property/'), ctx);
+  assert.ok(ctx.includes('Центар'), ctx);
+  assert.ok(ctx.includes('price_eur'), ctx);
 });
 
 test('buildDiscoveryAsk: never re-asks known slots, never the generic buy/rent battery', () => {
