@@ -194,6 +194,25 @@ test('owner counter-offer: accept/reject the owner time works with every LLM dow
   assert.ok(sent[6].includes('Договорена посета'), sent[6]);
 });
 
+test('JANE burst: "ZDRAVO / MI TREBA STAN POD KIRIJA / DO 250 EVRA" as ONE turn → one rent-aware reply, never EB 250', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'jane';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // The TUI joins the client's burst into ONE pipeline message (flushClient).
+  const s = await send('ZDRAVO\nMI TREBA STAN POD KIRIJA\nDO 250 EVRA');
+  assert.equal(s.state, 'discovery');
+  assert.equal(s.slots.service, 'rent');
+  assert.equal(s.slots.budget, '250');
+  // ONE reply, rent-respecting: never the buy/rent battery, never EB 250
+  assert.equal(sent.length, 1, sent.join(' | '));
+  assert.ok(sent[0].includes('за изнајмување'), sent[0]);
+  assert.ok(sent[0].includes('до 250 евра'), sent[0]);
+  assert.ok(!sent[0].includes('купување или за изнајмување'), sent[0]);
+  assert.ok(!sent[0].includes('Евидентен број 250'), sent[0]);
+  assert.ok(!sent[0].includes('не можам да го најдам'), sent[0]);
+});
+
 test('stuck loop: the exhausted line never repeats for contact requests', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'goran2';

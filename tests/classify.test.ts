@@ -24,4 +24,12 @@ test('inferPropertyId: does NOT fire on bedrooms/prices/sizes/times/phones/years
   // Latin bedroom counts must never be misread as an Евидентен број
   assert.equal(inferPropertyId('1 SPALNA'), undefined);
   assert.equal(inferPropertyId('12 SPALNI'), undefined);
+  // Latin currency — "DO 250 EVRA" is a RENT BUDGET, never Евидентен број 250
+  // (Cyrillic евра was guarded, Latin EVRA wasn't — same gap as detectBudget)
+  assert.equal(inferPropertyId('DO 250 EVRA'), undefined);
+  assert.equal(inferPropertyId('do 250 evra'), undefined);
+  assert.equal(inferPropertyId('DO 250 EVRO'), undefined);
+  assert.equal(inferPropertyId('до 250 евра'), undefined);
+  // but a genuine bare-number property reference still works
+  assert.equal(inferPropertyId('ZAINTERESIRAN SUM ZA 78'), 78);
 });

@@ -347,18 +347,22 @@ export class TuiApp {
     this.box.screen.render();
   }
 
-  /** The client's queued messages land — process them IN ORDER through the pipeline. */
+  /** The client's queued messages land — processed as ONE turn through the pipeline. */
   private flushClient(): void {
     const cw = this.clientWindow;
     if (!cw) return;
     if (this.clientTimer) { clearTimeout(this.clientTimer); this.clientTimer = null; }
     this.clientWindow = null;
     const lead = this.leads.find(l => l.chatId === cw.chatId);
-    for (const text of cw.queue) {
-      this.runChain(cw.chatId, () =>
-        this.pipeline.handle('viber', cw.chatId, text, { kind: 'text', senderName: lead?.name ?? 'Клиент' })
-      );
-    }
+    // Join the whole burst into ONE message: a client who types 3 rapid
+    // messages is saying one thing ("ZDRAVO / MI TREBA STAN POD KIRIJA / DO
+    // 250 EVRA"), so Lina must answer ONCE with the full context — not 3
+    // half-context replies that fight each other (e.g. the first asks
+    // buy/rent, the third misreads the budget as an Евидентен број).
+    const combined = cw.queue.join('\n');
+    this.runChain(cw.chatId, () =>
+      this.pipeline.handle('viber', cw.chatId, combined, { kind: 'text', senderName: lead?.name ?? 'Клиент' })
+    );
     this.renderStatus();
     this.box.screen.render();
   }

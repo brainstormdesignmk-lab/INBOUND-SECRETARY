@@ -109,7 +109,7 @@ const PROP_INTAKE_STATES = new Set(['idle', 'intent', 'discovery', 'property_que
 export function inferPropertyId(text: string): number | undefined {
   if (/\b\d{1,2}[:.]\d{2}\b/.test(text)) return undefined;           // 18:30 / 18.30 — time
   if (/0\d{1,2}\s*[/.]\s*\d{2,}/.test(text)) return undefined;       // 078/914 196 — phone
-  if (/(спални|соби|евра|евро|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот|spalna|spalni)/i.test(text)) return undefined;
+  if (/(спални|соби|евра|евро|evra|evro|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот|spalna|spalni)/i.test(text)) return undefined;
   const m = text.match(/\b(\d{2,3})\b(?!\s*[.,]\d)/);
   if (!m) return undefined;
   const n = parseInt(m[1], 10);
