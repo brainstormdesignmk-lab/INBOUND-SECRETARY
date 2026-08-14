@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import {
   detectService, detectBedrooms, detectBudget, detectRejection,
   detectLocation, buildEvent, extractSlots, detectAgreement, detectContact,
-  detectBusiness, detectSqm, detectVisitInterest, detectVisitTime,
+  detectBusiness, detectSqm, detectVisitInterest, detectVisitTime, detectWhereIs,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -15,6 +15,24 @@ test('detectService: buy vs rent, first mention wins', () => {
   assert.equal(detectService('pod kirija stan'), 'rent');
   assert.equal(detectService('zdravo, kako si?'), undefined);
   assert.equal(detectService('сакам да купам, не да изнајмам'), 'buy');
+});
+
+test('detectWhereIs: "каде е X?" is a place question, never a search', () => {
+  // the exact paste: named place, Latin, with determiner
+  assert.deepEqual(detectWhereIs('KADE E TOA PALOMA BJANKA ?'), { place: 'PALOMA BJANKA', generic: false });
+  assert.deepEqual(detectWhereIs('каде е Кисела Вода?'), { place: 'Кисела Вода', generic: false });
+  assert.deepEqual(detectWhereIs('kade se naoga toj stan ?'), { place: '', generic: true });
+  assert.deepEqual(detectWhereIs('каде се наоѓа тој стан?'), { place: '', generic: true });
+  assert.deepEqual(detectWhereIs('kade e stanot ?'), { place: '', generic: true });
+  assert.deepEqual(detectWhereIs('каде е деловниот простор?'), { place: '', generic: true });
+  assert.deepEqual(detectWhereIs('KADE ?'), { place: '', generic: true });
+  // not place questions / no where-is at all
+  assert.equal(detectWhereIs('до каде е цената?'), undefined);
+  assert.equal(detectWhereIs('zdravo, kako si?'), undefined);
+  assert.equal(detectWhereIs('каде си?'), undefined);
+  assert.equal(detectWhereIs('колку чини?'), undefined);
+  assert.equal(detectWhereIs('каде е?'), undefined); // no place named
+  assert.equal(detectWhereIs('DALI E SEUSTE DOSTAPEN ?'), undefined); // visit-interest stays intact
 });
 
 test('detectService: "ми треба стан" without rent words implies BUY', () => {

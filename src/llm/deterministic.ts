@@ -215,6 +215,45 @@ export function detectLocation(text: string, feedLocations: string[]): string | 
   return undefined;
 }
 
+export interface WhereIsQuestion {
+  place: string;   // the named place ('' when the client means the last shown property)
+  generic: boolean;
+}
+
+// "каде е X?" — verb list includes Latin + Cyrillic; lookahead keeps the
+// boundary so "каде е?" (no place) still matches and yields an empty rest.
+const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:да\s+)?(?:(?:се|se)\s+)?(?:наоѓа|naogja|naoga|е|e|се|se|is)(?=\s|[?!.]|$)/iu;
+// A bare "каде?" / "kade ?" means "where [is it]?" — the last shown property.
+const WHERE_BARE_RE = /^(?:каде|kade|где|gde|кај|kaj|where)\s*\??\s*$/iu;
+const WHERE_IS_DETERMINER = /^(?:тоа|toa|тој|toj|таа|taa|ова|ova|оваа|ovaa|овој|ovoj|она|ona|онаа|onaa|оној|onoj|the|that|it)\s+/iu;
+// Generic referents = the last shown property, not a named place.
+const WHERE_IS_GENERIC =
+  /^(?:деловниот простор|delovniot prostor|деловен простор|deloven prostor|локалот|lokalot|локал|lokal|станот|stanot|стан|stan|куќата|kukjata|kukata|куќа|kukja|kuka|зградата|zgradata|зграда|zgrada|имотот|imotot|имот|imot|објектот|objektot|објект|objekt)$/iu;
+// Non-place words that happen to follow "каде е" ("до каде е цената?") —
+// those are NOT place questions and must fall through to normal handling.
+const WHERE_IS_BLACKLIST =
+  /^(?:цената|cenata|цена|cena|евра|evra|киријата|kirijata|кирија|kirija|бројот|brojot|број|broj|шифрата|sifrata|шифра|sifra|достапен|dostapen|достапна|dostapna|сместен|smesten|сместена|smestena|паркингот|parkingot|паркинг|parking)$/iu;
+
+/**
+ * "каде е X?" — a question about a PLACE's whereabouts ("каде е Палома
+ * Бјанка?", "каде се наоѓа тој стан?", bare "каде?"). This is NEVER a
+ * search for properties IN X — treating it as one produced the bogus
+ * "exhausted all properties in Палома Бјанка" reply. Returns the extracted
+ * place, or { generic: true } when the client means the last shown property.
+ */
+export function detectWhereIs(text: string): WhereIsQuestion | undefined {
+  if (WHERE_BARE_RE.test(text)) return { place: '', generic: true };
+  const m = text.match(WHERE_IS_RE);
+  if (!m) return undefined;
+  let rest = text.slice((m.index ?? 0) + m[0].length).trim();
+  rest = rest.replace(WHERE_IS_DETERMINER, '').replace(/[?!.]+$/u, '').trim();
+  if (!rest) return undefined;
+  if (WHERE_IS_GENERIC.test(rest)) return { place: '', generic: true };
+  if (WHERE_IS_BLACKLIST.test(rest)) return undefined;
+  if (rest.length < 3) return undefined;
+  return { place: rest, generic: false };
+}
+
 /**
  * Build the classifier event from deterministic slots. STAY when nothing was
  * detected; REJECTED only against shown offers (property states); a full

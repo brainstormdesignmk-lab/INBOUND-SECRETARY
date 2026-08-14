@@ -67,6 +67,28 @@ export const NO_MORE_ALTERNATIVES_LINE = (location?: string): string =>
     ? `Ги исцрпивме сите расположливи имоти што одговараат на Вашите критериуми${location ? ` во ${location}` : ''}. Можам да ги забележам Вашите барања и да Ве контактирам штом се појави соодветен имот, или да погледнеме во друга населба?`
     : 'Ги исцрпивме сите расположливи имоти што одговараат на Вашите критериуми. Можам да ги забележам Вашите барања и да Ве контактирам штом се појави соодветен имот, или да погледнеме во друга населба?';
 
+/**
+ * Answer to a "каде е X?" question — code-built from DB facts (address /
+ * neighborhood) when the place is known, honest line otherwise. NEVER a
+ * search/exhausted reply and never a link; unknown places pivot to a visit
+ * offer instead of inventing geography.
+ */
+export function buildWhereIsAnswer(place: string, found?: { address?: string; location?: string; eb?: number; business?: boolean }): string {
+  const addr = found?.address;
+  const loc = found?.location;
+  const eb = found?.eb;
+  const realAddr = addr && (!eb || addr !== `Имот ЕБ ${eb}`) ? addr : undefined;
+  if (realAddr && loc) return `Тоа се наоѓа на адресата ${realAddr}, во населбата ${loc}.`;
+  if (realAddr) {
+    const what = found?.business ? 'деловниот простор' : 'станот';
+    return `Тоа е адресата на ${what} под Евидентен број ${eb ?? '?'}. За точната локација, можам да Ви организирам посета — сакате ли?`;
+  }
+  if (loc && eb) return `Тоа се наоѓа во населбата ${loc}.`;
+  if (loc) return `${place || 'Тоа'} е населба во Скопје.`;
+  if (place) return `Тоа место не ми е познато во нашата база. Ако сакате, можам да Ви организирам посета за да го погледнете на лице место.`;
+  return 'За точната локација, можам да Ви организирам посета — сакате ли?';
+}
+
 function bedroomWord(n: number): string {
   if (n === 1) return 'една спална соба';
   if (n === 2) return 'две спални соби';

@@ -43,7 +43,7 @@ const ROWS: Property[] = [
   { eb: 63, id: 63, location: 'Центар', price: 36000, service: 'buy' },
   { eb: 48, id: 48, location: 'Карпош III', price: 250, service: 'rent' },
   { eb: 56, id: 56, location: undefined, price: 500, service: 'rent', business: true, sqm: 40 },
-  { eb: 59, id: 59, location: 'Центар', price: 950, service: 'rent', business: true, sqm: 105 },
+  { eb: 59, id: 59, location: 'Центар', address: 'Палома Бјанка', price: 950, service: 'rent', business: true, sqm: 105 },
 ];
 
 function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent: string[] } {
@@ -248,6 +248,30 @@ test('"A NESTO POSKAPO DO 1000 EVRA": a hallucinated EB-0 property query stays i
   assert.ok(sent[2].includes('до 1.000 евра'), sent[2]);
   assert.ok(!sent[2].includes('Евидентен број 0'), sent[2]);
   assert.ok(!sent[2].includes('не можам да го најдам'), sent[2]);
+});
+
+test('"KADE E TOA PALOMA BJANKA ?" — a place question is answered from the DB, never a search/exhausted reply', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'kade';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // the exact paste: "каде е X?" must be ANSWERED (EB 59's address is in the
+  // feed), never misread as a search in Палома Бјанка with zero matches.
+  let s = await send('KADE E TOA PALOMA BJANKA ?');
+  assert.equal(s.state, 'idle'); // the where-answer does not change the funnel
+  assert.ok(sent[0].includes('Палома Бјанка'), sent[0]);
+  assert.ok(sent[0].includes('Центар'), sent[0]);
+  assert.ok(!sent[0].includes('исцрпивме'), sent[0]);
+  assert.ok(!sent[0].includes('немам слободни'), sent[0]);
+
+  // generic referent: "каде се наоѓа тој стан?" right after a presentation
+  // answers with the SHOWN property's location, not a new search.
+  await send('SAKAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA');
+  assert.ok(sent[1].includes('Евидентен број 63'), sent[1]);
+  s = await send('KADE SE NAOGA TOJ STAN ?');
+  assert.equal(s.state, 'presentation'); // state untouched
+  assert.ok(sent[2].includes('Центар'), sent[2]);
+  assert.ok(!sent[2].includes('исцрпивме'), sent[2]);
 });
 
 test('stuck loop: the exhausted line never repeats for contact requests', async () => {

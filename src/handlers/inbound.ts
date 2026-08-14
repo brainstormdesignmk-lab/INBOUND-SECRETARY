@@ -8,7 +8,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectLocation } from '../llm/deterministic';
+import { detectAgreement, detectLocation, detectWhereIs } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -23,7 +23,7 @@ import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import {
   serviceLabel, VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   FEE_GRACEFUL_CLOSE, QUEUE_CONTACT_ASK, QUEUED_CONFIRM, buildVisitConfirmation,
-  feePersuasion, FALLBACKS, NO_MATCH_LINE, PROPERTY_NOT_FOUND_LINE,
+  buildWhereIsAnswer, feePersuasion, FALLBACKS, NO_MATCH_LINE, PROPERTY_NOT_FOUND_LINE,
   FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
 } from '../llm/prompts';
 
@@ -142,6 +142,43 @@ export class InboundHandler {
       pushHistory(session, { role: 'assistant', text: NON_TEXT_REPLY }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, NON_TEXT_REPLY);
+      return;
+    }
+
+    // "каде е X?" — a question about a PLACE's whereabouts ("каде е Палома
+    // Бјанка?", "каде се наоѓа тој стан?"), NEVER a search for properties IN X.
+    // Answer code-built from DB facts (address/neighborhood) so it can never
+    // derail into a bogus "exhausted all properties in X" reply — the classifier
+    // never even sees it, so the LLM can't misread the place as a location.
+    const whereIs = detectWhereIs(text);
+    if (whereIs) {
+      const all = await this.deps.properties.getAll();
+      const shownIds = new Set(session.slots.presentedIds ?? []);
+      const shown = all.filter(p => shownIds.has(p.id));
+      let hit: Property | undefined;
+      if (whereIs.generic) {
+        hit = shown[shown.length - 1];
+      } else {
+        const p = whereIs.place;
+        hit = [...shown, ...all].find(pr =>
+          (!!pr.address && locMatches(p, pr.address)) || (!!pr.location && locMatches(p, pr.location)));
+      }
+      let answer: string;
+      if (hit) {
+        answer = buildWhereIsAnswer(whereIs.place, {
+          address: hit.address, location: hit.location, eb: hit.eb, business: hit.business,
+        });
+      } else if (whereIs.place) {
+        const locs = await this.deps.properties.locations();
+        const loc = detectLocation(whereIs.place, locs);
+        answer = buildWhereIsAnswer(whereIs.place, loc ? { location: loc } : undefined);
+      } else {
+        answer = buildWhereIsAnswer('');
+      }
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, answer);
       return;
     }
 
