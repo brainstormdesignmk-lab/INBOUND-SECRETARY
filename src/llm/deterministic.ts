@@ -123,12 +123,31 @@ export function detectVisitTime(text: string): string | undefined {
   return text.trim().slice(0, 80);
 }
 
-// Commercial-property intent: деловен простор / канцеларија / локал / магацин…
-// ("за стан" searches must never ask or match these — and vice versa).
-const BUSINESS_RE = /(деловен|деловни|деловна|деловно|канцелар|локал|магацин|хала|бизнис|офис|deloven|delovni|delovna|kancelari|kancelariski|lokal|magacin|hala|biznis|ofis|office|business)/i;
+// Commercial-property intent: деловен простор / канцеларија / локал / магацин /
+// дуќан / продавница… ("за стан" searches must never ask or match these — and
+// vice versa). The vocabulary mirrors Ana's proven COMMERCIAL_TITLE_RE
+// (outbound project). STRONG terms (unambiguous property types) match bare;
+// WEAK terms (кафе/ресторан/салон/хотел are often LANDMARKS — "сакам стан до
+// кафе") require a need/transaction context so a landmark mention never
+// flips a residential search into a business one.
+const BUSINESS_STRONG_RE = /(деловен|деловни|деловна|деловно|канцелар|локал|магацин|склад|хала|бизнис|офис|дукјан|дукан|дуќан|продавниц|ателје|deloven|delovni|delovna|kancelari|kancelariski|lokal|magacin|sklad|hala|biznis|ofis|dukjan|dukan|prodavnic|atelje|posloven|poslovn|office|business|commercial)/i;
+const BUSINESS_WEAK_RE = /(ресторан|кафуле|кафич|кафе|салон|хотел|restoran|kafule|kafic|kafe|salon|hotel)/i;
+const BUSINESS_NEED_RE = /(ми треба|барам|сакам|треба|потребен|потребна|need|treba|baram|sakam|за изнајмување|за издавање|под кирија|за изнајмува|za iznajmuvanje|za izdavanje|pod kirija|za iznajmuv|rent|изнајмувам)/i;
+// An explicit RESIDENTIAL word (стан/куќа/гаража стамбен) means the weak
+// term is a LANDMARK, not the property type: "сакам стан до кафе" is an
+// apartment search, "барам локал до кафе" is a business search.
+const RESIDENTIAL_WORD_RE = /(стан|стани|станче|куќ|кука|house|stan|stance|apartment|гаража|garaza|стамбен|stamben)/i;
 
 export function detectBusiness(text: string): boolean {
-  return BUSINESS_RE.test(text);
+  // An explicit residential word ("стан", "куќа") wins over EVERY business
+  // term: "стан до кафе" and "стан со дуќан" are residential searches — the
+  // business word is a landmark/feature, not the property type.
+  if (RESIDENTIAL_WORD_RE.test(text)) return false;
+  if (BUSINESS_STRONG_RE.test(text)) return true;
+  if (!BUSINESS_WEAK_RE.test(text)) return false;
+  // Weak term (кафе/ресторан/салон) is business only WITH a need context:
+  // "барам ресторан под кирија" = business; bare "кафе" = nothing.
+  return BUSINESS_NEED_RE.test(text);
 }
 
 /** Square meters for a commercial space: "40 м2", "40 квадрати", "150 kvadrata". */

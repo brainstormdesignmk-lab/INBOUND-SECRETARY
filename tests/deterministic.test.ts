@@ -82,6 +82,24 @@ test('detectBusiness + detectSqm: commercial spaces are identified without bedro
   assert.equal(detectSqm('zdravo'), undefined);
 });
 
+test('detectBusiness: дуќан/дукјан/продавница/ресторан are business — never answered as стан', () => {
+  assert.equal(detectBusiness('ZDRAVO, MI TREBA DUKJAN POD KIRIJA'), true);
+  assert.equal(detectBusiness('барам дуќан под кирија'), true);
+  assert.equal(detectBusiness('sakam dukjan pod kirija'), true);
+  assert.equal(detectBusiness('треба ми продавница'), true);
+  assert.equal(detectBusiness('ресторан за изнајмување во Центар'), true);
+  assert.equal(detectBusiness('sakam lokal pod kirija'), true);
+});
+
+test('detectBusiness: an explicit стан/куќа makes business words landmarks, not the property', () => {
+  assert.equal(detectBusiness('sakam stan do kafe'), false);
+  assert.equal(detectBusiness('сакам стан до ресторан'), false);
+  assert.equal(detectBusiness('стан со дуќан во приземје'), false);
+  assert.equal(detectBusiness('куќа со локал'), false);
+  // bare weak term without need-context is not a business search either
+  assert.equal(detectBusiness('дали имате кафе во близина?'), false);
+});
+
 test('buildEvent: business spaces complete with sqm, not bedrooms', () => {
   const det = buildEvent('idle', { service: 'rent', location: 'Карпош', business: true, sqm: 40, budget: '500' });
   assert.equal(det.type, 'SEARCH_REQUESTED');
