@@ -15,6 +15,19 @@ export const OWNER_CHECK_ACK =
 export const PATIENCE_LINE =
   'Моментално го контактирам сопственикот за достапноста. Ќе Ве известам веднаш штом добијам одговор.';
 
+// --- Owner ping-pong: the question Lina asks the OWNER (not the client) -----
+// When the client proposes a visit time, Lina proactively asks the owner if the
+// property is still available AND whether he accepts the proposed time. The
+// owner's plain-text answer is parsed deterministically (detectOwnerVerdict)
+// and relayed back to the client — loop until the visit is arranged.
+export function buildOwnerAsk(eb: number, proposedTime: string): string {
+  return `Евидентен број ${eb} — дали имотот е сè уште достапен во моментов? Клиентот сака посета: ${proposedTime}. Дали се согласувате на овој термин, или имате друг предлог?`;
+}
+
+export function buildOwnerAskAgain(eb: number): string {
+  return `Не разбрав. Евидентен број ${eb} — дали имотот е достапен и дали го прифаќате предложениот термин за посета?`;
+}
+
 export const FEE_GRACEFUL_CLOSE =
   'Целосно Ве разбирам. Ви благодарам на искреноста. Ќе ги забележам Вашите критериуми и штом се појави соодветен имот, ќе Ве контактирам. Ви посакувам пријатен ден!';
 

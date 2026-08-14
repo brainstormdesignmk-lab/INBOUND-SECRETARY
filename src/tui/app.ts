@@ -14,6 +14,8 @@ import { ChannelRegistry } from '../channels/types';
 import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
 import { buildLayout, esc, hhmm } from './layout';
+import { detectOwnerVerdict } from '../llm/deterministic';
+import { buildOwnerAskAgain } from '../llm/prompts';
 
 type Role = 'user' | 'assistant' | 'system' | 'error';
 interface Msg { role: Role; text: string; at: number; }
@@ -25,10 +27,11 @@ interface Lead {
   strikes: number;
   outbound: number;
   msgs: Msg[];
+  ownerMsgs: Msg[]; // the owner's conversation with Lina (ping-pong panel)
 }
 type Mode = 'chat' | 'naming' | 'menu';
 
-const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/owner <eb> ok|sold|rented|counter <time>] одговори на сопственик · [/agents] квоти · [/customers] редица · [C-q] излез`;
+const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/owner <eb> ok|sold|rented|counter <time>] одговори на сопственик · [/agents] квоти · [/customers] редица · [C-q] излез`;
 
 export class TuiApp {
   private box: any;
@@ -43,6 +46,7 @@ export class TuiApp {
   private inputBuf = '';
   private nameBuf = '';
   private mode: Mode = 'chat';
+  private ownerMode = false; // true = the input writes as the OWNER (ping-pong)
   private menuIndex = 0;
   private menuBox: any = null;
   private chatFollow = true; // false once the user scrolls up — new messages no longer yank to bottom
@@ -98,6 +102,16 @@ export class TuiApp {
       properties: propertyService,
       appointments, escalations, meta, channels,
     });
+
+    // The owner ping-pong: when the client proposes a visit time, Lina asks the
+    // OWNER (here — the user simulating him) whether the property is available
+    // now and whether he accepts the time. His plain-text answer resolves the
+    // check and Lina relays it to the client, looping until the visit is set.
+    this.pipeline.onOwnerAsk = (chatId, _eb, question) => {
+      this.appendOwnerMsg(chatId, { role: 'assistant', text: question, at: Date.now() });
+      this.renderOwner();
+      this.box.screen.render();
+    };
 
     this.box = buildLayout('METROPOLIS · ЛИНА · TUI');
   }
@@ -161,16 +175,27 @@ export class TuiApp {
       case 'down': this.move(1); return;
       case 'f1': this.startNewClient(); return;
       case 'f2': this.openMenu(); return;
+      case 'f3':
+        this.ownerMode = !this.ownerMode;
+        this.renderInput();
+        this.renderStatus();
+        this.box.screen.render();
+        return;
       case 'pageup': this.scrollChat(-1); return;
       case 'pagedown': this.scrollChat(1); return;
       case 'home': this.box.chatBox.scrollTo(0); this.chatFollow = false; this.box.screen.render(); return;
       case 'end': this.box.chatBox.setScrollPerc(100); this.chatFollow = true; this.box.screen.render(); return;
       case 'enter':
-        // Text typed + Enter = SEND it. (This is also what makes the OWNER
-        // follow-up work: a second /owner while the window is open goes through
-        // sendInput, which replaces the pending answer and resets the timer —
-        // it must NOT be swallowed by the bypass below.)
-        if (this.inputBuf.trim().length > 0) { this.sendInput(); return; }
+        // Text typed + Enter = SEND it. In owner mode it answers as the OWNER
+        // (plain text parsed into a verdict); otherwise it is the client's
+        // message. (The OWNER follow-up: a second /owner while the window is
+        // open goes through sendInput, replacing the pending answer and
+        // resetting the timer — it must NOT be swallowed by the bypass below.)
+        if (this.inputBuf.trim().length > 0) {
+          if (this.ownerMode) { this.ownerInput(); return; }
+          this.sendInput();
+          return;
+        }
         // Pure Enter (empty buffer) = bypass whatever is pending.
         if (this.ownerTyping && this.ownerTyping.chatId === this.activeLead()?.chatId) {
           this.ownerAnswer(); // Enter = skip the owner's typing delay
@@ -246,6 +271,7 @@ export class TuiApp {
       createdAt: Date.now(),
       state: '—', strikes: 0, outbound: 0,
       msgs: [{ role: 'system', text: `нов клиент: ${name} — чека прва порака од клиентот`, at: Date.now() }],
+      ownerMsgs: [],
     };
     this.leads.push(lead);
     this.selected = this.leads.length - 1;
@@ -296,6 +322,17 @@ export class TuiApp {
       this.appendMsg(lead.chatId, {
         role: 'system',
         text: `[owner] EB ${eb} → ${action}${ownerTime ? ` (${ownerTime})` : ''} — одговор примен`,
+        at: Date.now(),
+      });
+      // Mirror the answer into the owner panel so both sides stay visible.
+      this.appendOwnerMsg(lead.chatId, {
+        role: 'user',
+        text: `/owner ${eb} ${action}${ownerTime ? ` ${ownerTime}` : ''}`,
+        at: Date.now(),
+      });
+      this.appendOwnerMsg(lead.chatId, {
+        role: 'system',
+        text: `одговор примен: ${action}${ownerTime ? ` (${ownerTime})` : ''} — Лина го пренесува на клиентот`,
         at: Date.now(),
       });
       // The owner "types" within a window (default 30s — they may send a
@@ -390,6 +427,53 @@ export class TuiApp {
         this.renderAll();
       });
     this.chains.set(chatId, next);
+  }
+
+  /**
+   * The user answers as the OWNER in plain text ("да, може", "само во петок
+   * во 11", "продаден е"). The reply is parsed deterministically into a
+   * verdict and resolves the pending check — Lina relays it to the client and
+   * the ping-pong loops until the visit date+time are arranged.
+   */
+  private ownerInput(): void {
+    const lead = this.activeLead();
+    const text = this.inputBuf.trim();
+    if (!lead || !text) return;
+    this.inputBuf = '';
+    const agent = this.pipeline.ownerAgent as unknown as {
+      pendingEb?: (chatId: string) => number | null;
+    };
+    const pending = agent.pendingEb?.(lead.chatId) ?? null;
+    if (pending == null) {
+      this.appendOwnerMsg(lead.chatId, { role: 'system', text: 'нема активна проверка за овој клиент', at: Date.now() });
+      this.renderAll();
+      return;
+    }
+    this.appendOwnerMsg(lead.chatId, { role: 'user', text, at: Date.now() });
+    const proposed = this.sessions.get(lead.chatId)?.slots.visitTime ?? '';
+    const verdict = detectOwnerVerdict(text, proposed);
+    if (!verdict) {
+      // didn't understand the owner — Lina repeats the question
+      this.appendOwnerMsg(lead.chatId, { role: 'assistant', text: buildOwnerAskAgain(pending), at: Date.now() });
+      this.renderAll();
+      return;
+    }
+    const applied = this.pipeline.ownerAnswer(lead.chatId, pending, verdict);
+    this.appendOwnerMsg(lead.chatId, {
+      role: 'system',
+      text: applied
+        ? `одговор примен: ${verdict.status}${verdict.ownerTime ? ` (${verdict.ownerTime})` : ''} — Лина го пренесува на клиентот`
+        : 'одговорот не е примен (нема чекање или погрешен ЕБ)',
+      at: Date.now(),
+    });
+    this.renderAll();
+  }
+
+  private appendOwnerMsg(chatId: string, msg: Msg): void {
+    const lead = this.leads.find(l => l.chatId === chatId);
+    if (!lead) return;
+    lead.ownerMsgs.push(msg);
+    this.renderOwner();
   }
 
   /** The owner's typed answer lands — resolve the pending check so Lina relays it. */
@@ -522,11 +606,40 @@ export class TuiApp {
     else chatBox.setScrollPerc(perc);
   }
 
+  private renderOwner(): void {
+    const { ownerBox } = this.box;
+    const lead = this.activeLead();
+    if (!lead || !lead.ownerMsgs.length) {
+      ownerBox.setContent('{gray-fg}Тука Лина ќе го праша сопственикот дали имотот е достапен и дали го прифаќа терминот за посета. Одговорете со [F3].{/gray-fg}');
+      return;
+    }
+    const lines = lead.ownerMsgs.map(m => {
+      const t = hhmm(m.at);
+      switch (m.role) {
+        case 'user':
+          return `{cyan-fg}[${t}] СОПСТВЕНИК: ${esc(m.text)}{/cyan-fg}`;
+        case 'assistant':
+          return `[${t}] {white-fg}ЛИНА:{/white-fg} ${esc(m.text)}`;
+        case 'system':
+          return `{yellow-fg}[${t}] — ${esc(m.text)} —{/yellow-fg}`;
+        case 'error':
+          return `{red-fg}[${t}] ✗ ${esc(m.text)}{/red-fg}`;
+      }
+    });
+    ownerBox.setContent(lines.join('\n\n'));
+    ownerBox.setScrollPerc(100);
+  }
+
   private renderInput(): void {
     const { inputBox } = this.box;
     if (this.mode === 'naming') {
       inputBox.setLabel(' НОВ КЛИЕНТ — име (Enter=ок, Esc=откажи) ');
       inputBox.setContent(`{green-fg}Име: {/green-fg}${esc(this.nameBuf)}█`);
+      return;
+    }
+    if (this.ownerMode) {
+      inputBox.setLabel(' СОПСТВЕНИК — одговор до Лина (F3 = клиент) ');
+      inputBox.setContent(`{yellow-fg}› {/yellow-fg}${esc(this.inputBuf)}█`);
       return;
     }
     inputBox.setLabel(' ПОРАКА ');
@@ -537,6 +650,9 @@ export class TuiApp {
     const { statusBar } = this.box;
     const lead = this.activeLead();
     let s = '';
+    if (this.ownerMode) {
+      s += '{white-bg}{black-fg} ⌨ СОПСТВЕНИК режим — пишувате како сопственик {/black-fg}{/white-bg} · ';
+    }
     if (this.ownerTyping) {
       const rem = Math.max(0, this.ownerTyping.until - Date.now()) / 1000;
       const who = this.ownerTyping.chatId === lead?.chatId ? '' : ` (${this.ownerTyping.chatId})`;
@@ -558,7 +674,7 @@ export class TuiApp {
       s += '{white-bg}{black-fg} ▲ нови пораки — PgDn за долу {/black-fg}{/white-bg} · ';
     }
     s += 'antiban: 9/s бакет · 100/час по клиент';
-    s += ' · [Space] нов клиент · [↑/↓] префрли · [Enter] испрати/bypass · [F2] брз почеток · [PgUp/PgDn] скрол · [/reset] · [/owner] · [C-q] излез';
+    s += ' · [Space] нов клиент · [↑/↓] префрли · [Enter] испрати/bypass · [F2] брз почеток · [F3] сопственик · [PgUp/PgDn] скрол · [/reset] · [/owner] · [C-q] излез';
     statusBar.setContent(s);
   }
 
@@ -566,6 +682,7 @@ export class TuiApp {
     this.renderTop();
     this.renderLeads();
     this.renderChat();
+    this.renderOwner();
     this.renderInput();
     this.renderStatus();
     this.forceFullInputRedraw();

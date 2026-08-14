@@ -8,6 +8,7 @@ export interface TuiBoxes {
   topBar: any;
   leadsBox: any;
   chatBox: any;
+  ownerBox: any;
   inputBox: any;
   statusBar: any;
 }
@@ -40,9 +41,9 @@ export function buildLayout(title: string): TuiBoxes {
     style: { fg: 'white', border: { fg: 'cyan' } },
   } as any);
 
-  // RIGHT TWO-THIRDS — the active chat
+  // RIGHT TWO-THIRDS — the active chat (client ↔ Lina)
   const chatBox: any = blessed.box({
-    parent: screen, top: 1, left: '33%', right: 0, bottom: 4,
+    parent: screen, top: 1, left: '33%', right: 0, bottom: 12,
     tags: true,
     wrap: true,
     scrollable: true, alwaysScroll: true,
@@ -50,6 +51,20 @@ export function buildLayout(title: string): TuiBoxes {
     border: { type: 'line', fg: 'magenta' },
     label: ' РАЗГОВОР ',
     style: { fg: 'white', border: { fg: 'magenta' } },
+  } as any);
+
+  // OWNER PANEL — Lina's questions to the owner + the owner's answers (the
+  // ping-pong that arranges the visit time). [F3] switches the input to the
+  // owner's side; the answer is parsed into a verdict and relayed to the client.
+  const ownerBox: any = blessed.box({
+    parent: screen, left: '33%', right: 0, bottom: 4, height: 8,
+    tags: true,
+    wrap: true,
+    scrollable: true, alwaysScroll: true,
+    scrollbar: { ch: '│', style: { fg: 'yellow' } },
+    border: { type: 'line', fg: 'yellow' },
+    label: ' СОПСТВЕНИК — [F3] пишувај како сопственик ',
+    style: { fg: 'white', border: { fg: 'yellow' } },
   } as any);
 
   // Input line
@@ -68,7 +83,7 @@ export function buildLayout(title: string): TuiBoxes {
     style: { bg: 'black', fg: 'yellow' },
   } as any);
 
-  return { screen, topBar, leadsBox, chatBox, inputBox, statusBar };
+  return { screen, topBar, leadsBox, chatBox, ownerBox, inputBox, statusBar };
 }
 
 // Escape blessed tag characters in user/LLM text.

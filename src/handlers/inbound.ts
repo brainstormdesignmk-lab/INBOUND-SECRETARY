@@ -23,8 +23,8 @@ import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import {
   serviceLabel, VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   FEE_GRACEFUL_CLOSE, QUEUE_CONTACT_ASK, QUEUED_CONFIRM, buildVisitConfirmation,
-  buildWhereIsAnswer, feePersuasion, FALLBACKS, NO_MATCH_LINE, PROPERTY_NOT_FOUND_LINE,
-  FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
+  buildOwnerAsk, buildWhereIsAnswer, feePersuasion, FALLBACKS, NO_MATCH_LINE,
+  PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
 } from '../llm/prompts';
 
 const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуална порака за да можам да Ви помогнам.';
@@ -58,6 +58,11 @@ export class InboundHandler {
   readonly customers: CustomerStore;
   readonly events: EventStore;
   readonly dispatcher: AgentDispatcher;
+
+  /** Fired when Lina asks the OWNER about availability (owner_checking). The
+   *  TUI renders this in the owner panel; Hermes consumes the same question
+   *  from the owner_check_requested event in phase 2. */
+  onOwnerAsk?: (chatId: string, eb: number, question: string) => void;
 
   private chains = new Map<string, Promise<void>>();
 
@@ -335,8 +340,22 @@ export class InboundHandler {
 
   // ---------------- owner check continuation ----------------
 
+  /** Resolve a pending owner check with a verdict (plain-text owner reply or
+   *  the TUI /owner command — the same seam Hermes will use). */
+  ownerAnswer(chatId: string, eb: number, verdict: OwnerVerdict): boolean {
+    const agent = this.ownerAgent as unknown as {
+      answer?: (c: string, e: number, v: OwnerVerdict) => boolean;
+    };
+    return agent.answer?.(chatId, eb, verdict) ?? false;
+  }
+
   private async runOwnerCheck(session: ChatSession, eb: number, proposedTime: string): Promise<void> {
     try {
+      // The ping-pong starts HERE: Lina asks the owner whether the property is
+      // available right now and whether he accepts the client's proposed time.
+      // The answer (ok/counter/gone) is relayed to the client; a counter loops
+      // back until the visit date+time are arranged.
+      this.onOwnerAsk?.(session.chatId, eb, buildOwnerAsk(eb, proposedTime));
       const verdict = await this.ownerAgent.check(session.chatId, eb, proposedTime);
       this.enqueue(session.chatId, () => this.applyOwnerVerdict(session.chatId, eb, verdict));
     } catch (e) {

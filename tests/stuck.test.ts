@@ -12,6 +12,7 @@ import { MetaStore } from '../src/store/meta';
 import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
+import { detectOwnerVerdict } from '../src/llm/deterministic';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
@@ -22,6 +23,21 @@ class FailingLlm implements LlmClient {
 class HallucinatingLlm implements LlmClient {
   async complete(): Promise<string> {
     return JSON.stringify({ event: 'PROPERTY_ID_REQUESTED', propertyId: null, reason: 'neshto poskapo' });
+  }
+}
+
+// An LLM that is UP but MISREADS the visit-time message as DETAILS_PROVIDED
+// ("MOZAM UTRE POSLE 18:00" → criteria, not a time). The deterministic
+// visit-time override must still start the owner ping-pong.
+class MisreadTimeLlm implements LlmClient {
+  async complete(args: { role: string; messages: { role: string; content: string }[] }): Promise<string> {
+    const last = args.messages[args.messages.length - 1].content;
+    if (args.role === 'respond') return 'Еве ги деталите за имотот.';
+    if (/DALI E SEUSTE|кога може|KOGA BI/i.test(last)) return JSON.stringify({ event: 'INTERESTED', propertyId: 78 });
+    if (/SOGLASUVAM/i.test(last)) return JSON.stringify({ event: 'FEE_AGREED' });
+    if (/ZORAN/i.test(last)) return JSON.stringify({ event: 'CONTACT_PROVIDED', name: 'Zoran', phone: '078914196' });
+    if (/UTRE|MOZAM/i.test(last)) return JSON.stringify({ event: 'DETAILS_PROVIDED', reason: 'misread the time as criteria' });
+    return JSON.stringify({ event: 'PROPERTY_ID_REQUESTED', propertyId: 78 });
   }
 }
 
@@ -171,6 +187,102 @@ test('ZOKI: "кога може да се погледне" is visit interest too
   assert.equal(s.state, 'closing');
   assert.ok(sent[1].includes('600 денари'), sent[1]);
   assert.ok(!sent[1].includes('телефонски'), sent[1]);
+});
+
+test('visit time survives an LLM misread: "MOZAM UTRE POSLE 18:00" as DETAILS_PROVIDED still starts the owner ping-pong', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new MisreadTimeLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  const ownerAsks: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels });
+  handler.onOwnerAsk = (_c, eb, q) => { ownerAsks.push(`${eb}: ${q}`); };
+  const chatId = 'misread';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA, SE SOGLASUVAM');
+  await send('ZORAN 078/914 196');
+  let s = await send('MOZAM UTRE POSLE 18:00'); // the user's paste wording
+  assert.equal(s.state, 'owner_checking'); // NOT stuck re-asking the time
+  assert.ok(s.slots.visitTime?.includes('UTRE'), JSON.stringify(s.slots));
+  assert.equal(ownerAsks.length, 1);
+  assert.ok(ownerAsks[0].includes('78') && ownerAsks[0].includes('достапен'), ownerAsks[0]);
+  assert.ok(sent[4].includes('потврдам'), sent[4]); // to the client: waiting
+});
+
+test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed — ok / counter / gone', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_chatId, eb, q) => { ownerAsks.push(`${eb}: ${q}`); };
+  const tick = () => new Promise(r => setTimeout(r, 50));
+  const toOwner = (chatId: string, eb: number, t: string) =>
+    handler.ownerAnswer(chatId, eb, detectOwnerVerdict(t, 'UTRE POPLADNE POSLE 6')!);
+  const last = () => sent[sent.length - 1];
+
+  // --- scenario 1: owner says OK -> the visit is confirmed at the client's time
+  const c1 = 'ping1';
+  const s1 = async (m: string) => { await handler.handle('test', c1, m); return sessions.get(c1)!; };
+  await s1('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await s1('DALI E SEUSTE DOSTAPEN ?');
+  await s1('DA, SE SOGLASUVAM');
+  await s1('ZORAN 078/914 196');
+  let s = await s1('UTRE POPLADNE POSLE 6');
+  assert.equal(s.state, 'owner_checking');
+  assert.ok(last().includes('потврдам'), last()); // to the client: waiting
+  // the ping-pong QUESTION reached the owner (available now? agree to the time?)
+  assert.equal(ownerAsks.length, 1);
+  assert.ok(ownerAsks[0].includes('78') && ownerAsks[0].includes('достапен'), ownerAsks[0]);
+  assert.ok(ownerAsks[0].includes('UTRE POPLADNE POSLE 6'), ownerAsks[0]);
+  // owner: "да, може" (plain text) -> ok -> confirmed at the proposed time
+  toOwner(c1, 78, 'da, moze');
+  await tick();
+  s = sessions.get(c1)!;
+  assert.equal(s.state, 'pending');
+  assert.ok(last().includes('Договорена посета'), last());
+
+  // --- scenario 2: owner COUNTERS with петок во 11 -> relayed -> client accepts
+  const c2 = 'ping2';
+  const s2 = async (m: string) => { await handler.handle('test', c2, m); return sessions.get(c2)!; };
+  await s2('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await s2('DALI E SEUSTE DOSTAPEN ?');
+  await s2('DA, SE SOGLASUVAM');
+  await s2('ZORAN 078/914 196');
+  s = await s2('UTRE POPLADNE POSLE 6');
+  assert.equal(ownerAsks.length, 2);
+  toOwner(c2, 78, 'ne, samo vo petok vo 11');
+  await tick();
+  s = sessions.get(c2)!;
+  assert.equal(s.state, 'time_confirm');
+  assert.ok(last().toLowerCase().includes('петок во 11'), last()); // relayed to the client
+  s = await s2('VO RED, TOA VREME E DOBRO');
+  assert.equal(s.state, 'pending');
+  assert.ok(last().includes('Договорена посета'), last());
+
+  // --- scenario 3: owner says GONE -> honest message, no fake confirmation
+  const c3 = 'ping3';
+  const s3 = async (m: string) => { await handler.handle('test', c3, m); return sessions.get(c3)!; };
+  await s3('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await s3('DALI E SEUSTE DOSTAPEN ?');
+  await s3('DA, SE SOGLASUVAM');
+  await s3('ZORAN 078/914 196');
+  s = await s3('UTRE POPLADNE POSLE 6');
+  assert.equal(ownerAsks.length, 3);
+  toOwner(c3, 78, 'prodaden e');
+  await tick();
+  s = sessions.get(c3)!;
+  assert.equal(s.state, 'presentation');
+  assert.ok(last().includes('продаден'), last());
+  assert.ok(!last().includes('Договорена'), last());
 });
 
 test('owner counter-offer: accept/reject the owner time works with every LLM down', async () => {

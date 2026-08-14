@@ -1,5 +1,6 @@
 import { Service, State, Event } from '../fsm/machine';
-import { locMatches } from '../data/properties';
+import { locMatches, normalizeLocation } from '../data/properties';
+import { OwnerVerdict } from '../backoffice/ownerAgent';
 
 // LLM-independent intent/slot extraction. When every LLM is down (or the model
 // says STAY), these deterministic rules still pull service, bedrooms and budget
@@ -212,6 +213,69 @@ export function detectLocation(text: string, feedLocations: string[]): string | 
   for (const loc of feedLocations) {
     if (locMatches(text, loc)) return loc;
   }
+  return undefined;
+}
+
+// ---------------- owner ping-pong (plain-text verdict parsing) --------------
+// The owner answers Lina's question in natural language ("da, moze", "ne, samo
+// vo petok vo 11", "prodaden e"). This parses the answer deterministically so
+// the owner check resolves and Lina relays it to the client — with or without
+// LLMs, and without forcing the TUI user to learn slash commands.
+const OWNER_GONE_RE = /(продаден|продадена|издаден|издадена|под опција|повеќе не е достапен|веќе не е|немам имот|нема повеќе|нема да може|sold|rented|prodaden|prodadena|izdaden|izdadena|prodan|pod opcija)/i;
+// Short words (да/ок/ok) need explicit boundaries — "ок" inside "kako" or
+// "да" inside "дава" must never count as agreement. Long words match bare.
+const OWNER_AGREE_RE =
+  /(?:^|[\s,.;:!?])(?:да|da|ок|ok|okay)(?:$|[\s,.;:!?])|(?:може|можам|можеш|во ред|okej|слободен|слободна|слободно|достапен|достапна|достапно|прифаќам|прифатено|прифатен|прифатена|се согласувам|согласен|согласна|зелено|moze|mozam|vo red|sloboden|slobodna|slobodno|dostapen|dostapna|dostapno|prihaka|prihakat|soglasen|soglasna)/i;
+const OWNER_DISAGREE_RE = /(не можам|не ми одговара|не ми е згодно|не одговара|не е достапен|не е достапна|нема да можам|не тој термин|не тогаш|не сакам|не ми се допаѓа|ne mozam|ne mi odgovara|ne e dostapen|ne e dostapna|ne toj termin)/i;
+// "не можам" must NOT count as agreement via the bare "можам" word.
+const OWNER_CANT_RE = /(не\s+можам|не\s+може|не\s+можеш|ne\s+mozam|ne\s+moze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да)/i;
+const OWNER_DAY_RE = /утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|вечер|викенд|понеделник|вторник|среда|четврток|петок|сабота|недела|utre|zadutre|denes|deneska|vecer|popladne|napladne|utrovo|vikend|ponedelnik|vtornik|sreda|cetvrtok|petok|sabota|nedela/i;
+const OWNER_CLOCK_RE = /((?:во|по|после|околу|vo|po|posle|okolu)\s*\d{1,2}(?:[.:]\d{2})?)/i;
+const OWNER_DAY_PART_RE = /(попладне|напладне|претпладне|утрово|наутро|вечерва|вечер|навечер|popladne|napladne|preтpladne|utrovo|nautro|vecer|navecer)/i;
+
+/** The time phrase in the owner's reply ("петок во 11", "сабота попладне", "утре по 18:00"). */
+function extractOwnerTime(text: string): string | undefined {
+  const day = text.match(OWNER_DAY_RE);
+  if (day) {
+    const tail = text.slice((day.index ?? 0) + day[0].length);
+    const clock = tail.match(OWNER_CLOCK_RE);
+    if (clock) return `${day[0]} ${clock[1]}`.trim();
+    const part = tail.match(OWNER_DAY_PART_RE);
+    if (part) return `${day[0]} ${part[0]}`.trim();
+    return day[0];
+  }
+  const clock = text.match(OWNER_CLOCK_RE);
+  return clock ? clock[1].trim() : undefined;
+}
+
+/**
+ * Parse the OWNER's plain-text answer into a verdict. undefined = not
+ * understood (the question must be repeated). Same-time confirmations and
+ * agreement without a new time resolve to 'ok'; a different time is a
+ * counter-proposal; sold/rented words are 'gone'.
+ */
+export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVerdict | undefined {
+  const t = text.toLowerCase();
+  if (OWNER_GONE_RE.test(t)) {
+    const note = /продад|prodad/.test(t) ? 'продаден' : /издад|izdad/.test(t) ? 'издаден' : undefined;
+    return { status: 'gone', note };
+  }
+  const cant = OWNER_CANT_RE.test(t);
+  const time = extractOwnerTime(text);
+  const agree = !cant && OWNER_AGREE_RE.test(t);
+  const disagree = cant || OWNER_DISAGREE_RE.test(t);
+  // Same-time confirmation or plain agreement → ok (accept the client's time).
+  // locMatches is transliteration-aware: "utre po 18:00" === "утре по 18:00".
+  if (agree && (!time || (proposedTime && locMatches(time, proposedTime)))) {
+    return { status: 'ok', ownerTime: proposedTime };
+  }
+  // A positively proposed different time → counter-proposal. The owner often
+  // types Latin ("petok vo 11") — the client-facing relay must read Cyrillic.
+  if (time && !disagree) return { status: 'counter', ownerTime: normalizeLocation(time) };
+  // Can't do the proposed time (no alternative given) → counter; the client
+  // proposes another time and the owner is asked again.
+  if (disagree) return { status: 'counter' };
+  if (agree) return { status: 'ok', ownerTime: proposedTime };
   return undefined;
 }
 

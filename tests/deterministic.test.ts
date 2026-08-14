@@ -4,6 +4,7 @@ import {
   detectService, detectBedrooms, detectBudget, detectRejection,
   detectLocation, buildEvent, extractSlots, detectAgreement, detectContact,
   detectBusiness, detectSqm, detectVisitInterest, detectVisitTime, detectWhereIs,
+  detectOwnerVerdict,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -15,6 +16,28 @@ test('detectService: buy vs rent, first mention wins', () => {
   assert.equal(detectService('pod kirija stan'), 'rent');
   assert.equal(detectService('zdravo, kako si?'), undefined);
   assert.equal(detectService('сакам да купам, не да изнајмам'), 'buy');
+});
+
+test('detectOwnerVerdict: plain-text owner answers → ok / counter / gone', () => {
+  const proposed = 'утре по 18:00';
+  // agreement (plain, or confirming the SAME time) -> ok
+  assert.deepEqual(detectOwnerVerdict('да, може', proposed), { status: 'ok', ownerTime: proposed });
+  assert.deepEqual(detectOwnerVerdict('dostapen e, utre po 18:00 e okej', proposed), { status: 'ok', ownerTime: proposed });
+  assert.deepEqual(detectOwnerVerdict('во ред, го прифаќам терминот', proposed), { status: 'ok', ownerTime: proposed });
+  // a positively proposed DIFFERENT time -> counter with that time
+  assert.deepEqual(detectOwnerVerdict('не, само во петок во 11', proposed), { status: 'counter', ownerTime: 'Петок во 11' });
+  assert.deepEqual(detectOwnerVerdict('можам само сабота попладне', proposed), { status: 'counter', ownerTime: 'Сабота попладне' });
+  // can't do it, no alternative -> counter without time (client proposes another)
+  assert.deepEqual(detectOwnerVerdict('не можам тогаш', proposed), { status: 'counter' });
+  // gone
+  assert.deepEqual(detectOwnerVerdict('продаден е', proposed), { status: 'gone', note: 'продаден' });
+  assert.deepEqual(detectOwnerVerdict('веќе издаден', proposed), { status: 'gone', note: 'издаден' });
+  // not understood -> undefined (Lina repeats the question)
+  assert.equal(detectOwnerVerdict('kako si?', proposed), undefined);
+  assert.equal(detectOwnerVerdict('blabla 123', proposed), undefined);
+  // false-positive guards: "ок" inside "kako", "да" inside "дава"
+  assert.equal(detectOwnerVerdict('kako si, kako okolu?', proposed), undefined);
+  assert.equal(detectOwnerVerdict('давам под кирија?', proposed), undefined);
 });
 
 test('detectWhereIs: "каде е X?" is a place question, never a search', () => {

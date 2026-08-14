@@ -232,9 +232,16 @@ export class Classifier {
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing' && detectAgreement(text)) {
       parsed.event = { type: 'FEE_AGREED' };
     }
-    // LLM-down visit time in visit_scheduling -> VISIT_TIME_PROVIDED, so the
-    // owner check starts even with every LLM down ("утре на пладне").
-    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'visit_scheduling') {
+    // Visit time in visit_scheduling -> VISIT_TIME_PROVIDED, so the owner
+    // ping-pong starts ("утре на пладне", "после 6"). The override is
+    // event-independent: a time-bearing message in this state is a time
+    // proposal, whatever event the model happened to pick (STAY, but also
+    // DETAILS_PROVIDED/SEARCH_REQUESTED misreads). Only deliberate events
+    // (rejection, escalation) are exempt.
+    if (session.state === 'visit_scheduling'
+      && parsed.event.type !== 'VISIT_TIME_PROVIDED'
+      && parsed.event.type !== 'ESCALATE'
+      && parsed.event.type !== 'REJECTED') {
       const t = detectVisitTime(text);
       if (t) parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
     }
