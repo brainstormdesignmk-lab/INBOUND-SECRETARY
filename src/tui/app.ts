@@ -160,7 +160,14 @@ export class TuiApp {
       notifyOperator: (text) => {
         events.insert('operator_log', '', null, { text });
         console.log(text);
-        const lead = this.activeLead();
+        // Route the log to the CLIENT whose appointment this is (extract
+        // the chatId from the log line), not the currently active panel —
+        // otherwise visit logs for one client appear on another's panel.
+        const chatMatch = text.match(/CLIENT:.*?\((\d+)\)/);
+        const targetChatId = chatMatch?.[1];
+        const lead = targetChatId
+          ? this.leads.find(l => l.chatId === targetChatId)
+          : this.activeLead();
         if (lead) {
           this.appendMsg(lead.chatId, { role: 'system', text: `[лог] ${text}`, at: Date.now() });
           this.renderAll();
