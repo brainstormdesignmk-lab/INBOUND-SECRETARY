@@ -15,6 +15,7 @@ import { ViberAdapter } from './channels/viber';
 import { TelegramAdapter } from './channels/telegram';
 import { WhatsAppAdapter } from './channels/whatsapp';
 import { LandmarkService } from './geo/landmarks';
+import { OfflineMapStore } from './geo/offlineMap';
 import { VisitScheduler } from './visits/scheduler';
 import { EventStore } from './store/events';
 import { OwnerStore } from './store/owners';
@@ -41,11 +42,17 @@ async function main(): Promise<void> {
   const events = new EventStore(db);
   const owners = new OwnerStore(db);
 
-  // Approximate locations (address privacy): deterministic table -> Google (if
-  // key) -> OSM -> Hermes event. Cached in the DB, so live lookups happen once
-  // per address ever.
+  // Approximate locations (address privacy): deterministic table -> offline
+  // map (local POIs, zero network) -> Google (if key) -> OSM -> Hermes event.
+  // Cached in the DB, so live lookups happen once per address ever.
+  const offlineMap = new OfflineMapStore(cfg.skopjePoisDb);
+  if (offlineMap.available) {
+    const s = offlineMap.stats();
+    console.log(`[offline-map] ${s?.pois ?? 0} POIs / ${s?.addresses ?? 0} addresses — ${cfg.skopjePoisDb}`);
+  }
   const landmarks = new LandmarkService(db, {
     googleKey: cfg.googleMapsApiKey,
+    offlineMap,
     onHermesRequest: ({ address, location }) => {
       // Phase 2: Hermes (its own LLM via NVIDIA) answers landmark_result.
       events.insert('landmark_requested', '', null, { address: address ?? null, location: location ?? null });

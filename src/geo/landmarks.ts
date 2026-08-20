@@ -24,6 +24,7 @@
 import { Db } from '../store/db';
 import { tableLandmark } from './landmarkTable';
 import { FeedLandmark } from '../data/properties';
+import { OfflineMapStore } from './offlineMap';
 
 export interface Landmark {
   landmark: string;
@@ -41,6 +42,11 @@ export interface LandmarkOpts {
   /** Enable the free OSM layer (Nominatim + Overpass). ON by default for
    *  production; tests turn it off so the suite never hits the network. */
   osm?: boolean;
+  /** Local OSM map (named POIs + addresses) — the zero-network landmark
+   *  layer for Skopje. Geocodes the address locally, finds the nearest
+   *  named POI, returns it as the landmark. Falls through when the map
+   *  is unavailable or the address can't be geocoded. */
+  offlineMap?: OfflineMapStore;
   /** called when no layer produced a landmark — the Hermes contract */
   onHermesRequest?: (opts: { address?: string; location?: string }) => void;
 }
@@ -281,9 +287,36 @@ export class LandmarkService {
       if (hit) return hit;
     }
 
-    // LIVE layers FIRST — the client wants the TRUE nearest landmark ("во
-    // близина на Кафе бар Ван Гог"), never a whole-neighborhood label ("ГТЦ
-    // за целиот Центар"). Google when a key exists, else the free OSM layer.
+    // OFFLINE MAP — the local OSM engine: geocode the address, find the
+    // nearest named POI. Zero network, works in the LLM-free state, and
+    // covers the same Skopje POIs that the Hermes resolver uses. Runs
+    // BEFORE Google/OSM so the free tier is never burned on Skopje lookups.
+    if (this.opts.offlineMap?.available) {
+      try {
+        // 1) Try the address as a POI name first ("Кај Бранка", "Палома Бјанка")
+        if (p.address) {
+          const poi = this.opts.offlineMap.findPoiByName(p.address);
+          if (poi) {
+            const l = publicPlace({ landmark: poi.name, type: 'poi', source: 'osm' as const });
+            if (l) { this.store.put(key, l); return l; }
+          }
+        }
+        // 2) Geocode the address to get coordinates, then find nearest POI
+        const geo = p.address ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
+        if (geo) {
+          const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
+          const best = pois.find(po => po.name.length >= 3);
+          if (best) {
+            const l = publicPlace({ landmark: best.name, type: best.type, source: 'osm' as const });
+            if (l) { this.store.put(key, l); return l; }
+          }
+        }
+      } catch (e) {
+        console.warn('[landmark] offline map failed:', (e as Error).message);
+      }
+    }
+
+    // LIVE layers — Google when a key exists, else the free OSM layer.
 
     // 1) Google (only with a key — free tier covers this scale)
     if (this.opts.googleKey) {
