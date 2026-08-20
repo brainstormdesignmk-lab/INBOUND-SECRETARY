@@ -699,6 +699,14 @@ export class InboundHandler {
     } else if (detectSchedulingFlex(text) && ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state)) {
       reply = pickVariant('scheduling.flex', { recent: assistantTexts(session) })
         ?? SCHED_FLEX_ANSWER;
+    } else if (next === 'presentation' && props.length > 0
+        && (ev.type === 'DETAILS_PROVIDED' || ev.type === 'SEARCH_REQUESTED')) {
+      // LLM-free: the client refined criteria mid-presentation ("една спална",
+      // "гарсоњера", "во Карпош") — re-present with the updated filters using
+      // the code-built cards. The LLM would just wrap the same cards in a
+      // conversational shell at the cost of a Gemini call.
+      reply = buildPropertyCards(props, 'presentation', session.history.length,
+        assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget });
     } else {
       const r = await this.deps.responder.respond(session, props, text);
       reply = r.text;
