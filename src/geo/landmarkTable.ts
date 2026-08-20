@@ -66,6 +66,54 @@ export const NEIGHBORHOOD_LANDMARKS: Record<string, TableLandmark[]> = {
     { landmark: 'Хотел „Парк“', type: 'hotel' },
     { landmark: 'Плоштад „Македонија“', type: 'square' },
   ],
+  'водно': [
+    { landmark: 'Државна болница', type: 'hospital' },
+    { landmark: 'Паркот Водно', type: 'park' },
+    { landmark: 'Телевизиска кула', type: 'landmark' },
+    { landmark: 'Манастир Свети Пантелеимон', type: 'culture' },
+  ],
+  'скопје север': [
+    { landmark: 'ТЦ Скопје Север', type: 'mall' },
+  ],
+  'тафталиџе': [
+    { landmark: 'Олимпико ТЦ', type: 'mall' },
+    { landmark: 'Паркот Тафталиџе', type: 'park' },
+  ],
+  'маџари': [
+    { landmark: 'Пазар Маџари', type: 'market' },
+    { landmark: 'ОУ „Крсте Мисирков"', type: 'school' },
+  ],
+  'ново лисиче': [
+    { landmark: 'Паркот Ново Лисиче', type: 'park' },
+    { landmark: 'Стадионот Борис Трајковски', type: 'stadium' },
+  ],
+  'капиштец': [
+    { landmark: 'Паркот Капиштец', type: 'park' },
+    { landmark: 'Клиничкиот центар', type: 'hospital' },
+  ],
+  'козле': [
+    { landmark: 'Паркот Козле', type: 'park' },
+    { landmark: 'Плоштад Македонија', type: 'square' },
+  ],
+  'автокоманда': [
+    { landmark: 'Паркот Автокоманда', type: 'park' },
+    { landmark: 'Автобуската станица', type: 'transit' },
+  ],
+  'дебар маало': [
+    { landmark: 'Дебарскиот пазар', type: 'market' },
+    { landmark: 'Паркот Жена Борец', type: 'park' },
+  ],
+  'влае': [
+    { landmark: 'Паркот Водно', type: 'park' },
+    { landmark: 'Манастир Свети Пантелеимон', type: 'culture' },
+  ],
+  'визбегово': [
+    { landmark: 'Паркот Визбегово', type: 'park' },
+  ],
+  'железара': [
+    { landmark: 'Паркот Железара', type: 'park' },
+    { landmark: 'Фабриката Железара', type: 'industrial' },
+  ],
 };
 
 /** Normalize a feed/query location for table matching: lowercase, latin ->
