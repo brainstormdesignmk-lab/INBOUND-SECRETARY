@@ -97,11 +97,24 @@ export function toCyrillic(s: string): string {
 
 /** Canonical key for a street: strip the ул./бул./street prefixes and the house
  *  number, collapse spaces, fold to Latin lowercase. "ул. Борис Трајковски 12"
- *  and "Boris Trajkovski" both → "boris trajkovski". */
+ *  and "Boris Trajkovski" both → "boris trajkovski".
+ *
+ *  Handles: Бул. АСНОМ Бр.134 → asnom, Јане Сандански 25 - 17 → jane sandanski,
+ *  Кузман Јосифовски Питу 19/5 → kuzman josifovski pitu, Рузвелтова 51 2-10
+ *  → ruzveltova, Тоне Томшиќ Бр.25 → tone tomsikj. */
 export function normalizeStreet(s: string): string {
   return s.toLowerCase()
+    // Street-type prefixes
     .replace(/^(?:ул\.?|улица|бул\.?|булевар|пат|street|st\.?|boulevard|blvd|ave\.?|avenue)\s+/i, '')
-    .replace(/\s+\d+[a-zа-я]*\s*$/i, '')   // trailing house number
+    // "Бр." / "Бр" (Број = number) prefix before house number
+    // Note: \b doesn't work with Cyrillic in Node 18, so match after space/start
+    .replace(/(?:^|\s)бр\.?\s*/i, ' ')
+    // Trailing house number: ranges (25 - 17, 86 - 1, 51 2-10, 26-2),
+    // slash fractions (19/5), compound numbers (51 2-10), and simple numbers.
+    // Strategy: strip everything from the FIRST trailing number pattern onward,
+    // but only if it's preceded by a space (so street names with numbers like
+    // "11 Октомври" aren't touched).
+    .replace(/\s+\d+(?:[\s.\-/]*(?:\d+|[а-яa-z]+))*\s*$/i, '')
     .replace(/[.,]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -153,7 +166,7 @@ export class OfflineMapStore {
   }
 
   /** The named POIs within radiusM of a point, nearest first. */
-  nearestPois(lat: number, lon: number, radiusM = 1000, limit = 10): LocalPoi[] {
+  nearestPois(lat: number, lon: number, radiusM = 2000, limit = 10): LocalPoi[] {
     if (!this.db) return [];
     const dLat = radiusM / 111320;
     const dLon = radiusM / (111320 * Math.cos((lat * Math.PI) / 180));
@@ -169,19 +182,52 @@ export class OfflineMapStore {
     return out.slice(0, limit);
   }
 
-  /** Local address → coordinates. Any building on the street is a fine
-   *  approximation (prefer one WITH a house number). Live Nominatim is the
-   *  fallback when this misses. */
+  /** Local address → coordinates. When the address includes a house number
+   *  ("Јане Сандански 25"), we prefer the EXACT building at that number so
+   *  the POI radius is centred on the right spot (not the whole boulevard).
+   *  Falls back to any building on the street when the number isn't in the DB. */
   geocodeAddress(street: string): GeocodeHit | undefined {
     if (!this.db || !street) return undefined;
     const key = streetKey(street);
     if (!key) return undefined;
+    // Extract the house number from the original address: the first number
+    // after the street name ("Јане Сандански 25 - 17" → "25", "Бр.134" → "134").
+    const numMatch = street.match(/\b(\d+[а-яa-z]?)\b/i);
+    const houseNum = numMatch ? numMatch[1] : '';
+    // Try exact house number first, then fall back to any building on the street.
+    if (houseNum) {
+      const exact = this.db.prepare(
+        `SELECT street, lat, lon FROM addresses WHERE key = ? AND housenumber = ?
+         OR (key = ? AND housenumber = ? COLLATE NOCASE) LIMIT 1`
+      ).get(key, houseNum, key, houseNum) as { street: string; lat: number; lon: number } | undefined;
+      if (exact) return { lat: exact.lat, lon: exact.lon, street: exact.street };
+    }
     const row = this.db.prepare(
       `SELECT street, lat, lon FROM addresses WHERE key = ?
        ORDER BY CASE WHEN housenumber != '' THEN 0 ELSE 1 END LIMIT 1`
     ).get(key) as { street: string; lat: number; lon: number } | undefined;
     if (!row) return undefined;
     return { lat: row.lat, lon: row.lon, street: row.street };
+  }
+
+  /** Search POIs by name — for landmark-style addresses like "Кај Бранка"
+   *  or "Палома Бјанка" where the address IS the landmark, not a street.
+   *  Returns the best match (exact > starts-with > contains). */
+  findPoiByName(name: string): { lat: number; lon: number; name: string } | undefined {
+    if (!this.db || !name) return undefined;
+    const clean = name.replace(/^(?:кај|спроти|кај штипски|кај скопски)\s+/i, '').trim();
+    if (!clean || clean.length < 2) return undefined;
+    // Try exact match first, then starts-with, then contains
+    const patterns = [
+      { q: clean, sql: 'SELECT name, type, lat, lon FROM pois WHERE name = ? COLLATE NOCASE LIMIT 1' },
+      { q: clean + '%', sql: 'SELECT name, type, lat, lon FROM pois WHERE name LIKE ? COLLATE NOCASE LIMIT 1' },
+      { q: '%' + clean + '%', sql: 'SELECT name, type, lat, lon FROM pois WHERE name LIKE ? COLLATE NOCASE LIMIT 1' },
+    ];
+    for (const { q, sql } of patterns) {
+      const row = this.db.prepare(sql).get(q) as { name: string; type: string; lat: number; lon: number } | undefined;
+      if (row) return { lat: row.lat, lon: row.lon, name: row.name };
+    }
+    return undefined;
   }
 }
 
@@ -252,24 +298,31 @@ function tiles(): Array<[number, number, number, number]> {
   ];
 }
 
-/** Named POIs (amenity/shop/leisure/tourism/office) in the Skopje bbox. */
+/** Named POIs (amenity/shop/leisure/tourism/office/healthcare/historic/building) in the Skopje bbox. */
 async function fetchPois(): Promise<Array<{ name: string; type: string; lat: number; lon: number }>> {
   const out: Array<{ name: string; type: string; lat: number; lon: number }> = [];
   const seen = new Set<string>();
   for (const bbox of tiles()) {
-    const q = `[out:json][timeout:60];(
+    // Comprehensive query: pulls ALL named POIs that could be landmarks.
+    // Added: healthcare (hospitals/clinics), historic (monuments), building
+    // (named hotels/buildings without amenity tag), man_made (towers).
+    const q = `[out:json][timeout:90];(
       nwr["name"]["amenity"](${bbox.join(',')});
       nwr["name"]["shop"](${bbox.join(',')});
       nwr["name"]["leisure"](${bbox.join(',')});
       nwr["name"]["tourism"](${bbox.join(',')});
       nwr["name"]["office"](${bbox.join(',')});
+      nwr["name"]["healthcare"](${bbox.join(',')});
+      nwr["name"]["historic"](${bbox.join(',')});
+      nwr["name"]["building"]["building"!="yes"](${bbox.join(',')});
+      nwr["name"]["man_made"](${bbox.join(',')});
     );out center tags;`;
     const { elements } = await overpass(q);
     for (const e of elements) {
       const name = (e.tags?.name ?? '').trim();
       const c = coordsOf(e);
       if (!name || !c) continue;
-      const type = e.tags?.amenity ?? e.tags?.shop ?? e.tags?.leisure ?? e.tags?.tourism ?? e.tags?.office ?? 'place';
+      const type = e.tags?.amenity ?? e.tags?.shop ?? e.tags?.leisure ?? e.tags?.tourism ?? e.tags?.office ?? e.tags?.healthcare ?? e.tags?.historic ?? e.tags?.building ?? e.tags?.man_made ?? 'place';
       const k = `${name}|${c.lat.toFixed(5)}|${c.lon.toFixed(5)}`;
       if (seen.has(k)) continue; // tile borders can double-return a POI
       seen.add(k);
