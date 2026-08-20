@@ -5,7 +5,10 @@ export type EventType =
   | 'owner_check_result'
   | 'agent_assigned'
   | 'visit_confirmed'
-  | 'customer_reengage';
+  | 'customer_reengage'
+  | 'price_changed'
+  | 'landmark_requested'
+  | 'operator_log';
 
 export interface EventRow {
   id: number;

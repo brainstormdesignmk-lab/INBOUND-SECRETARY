@@ -10,6 +10,7 @@ export interface AppointmentRow {
   viewingFee: string;
   status: 'pending' | 'finalized';
   time: string | null;
+  agentPhone: string | null;
   createdAt: number;
 }
 
@@ -18,11 +19,11 @@ export class AppointmentStore {
 
   insert(a: Omit<AppointmentRow, 'id' | 'createdAt' | 'status'>): number {
     const info = this.db.db.prepare(
-      `INSERT INTO appointments (chat_id, client_name, client_phone, property_id, service, viewing_fee, time, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO appointments (chat_id, client_name, client_phone, property_id, service, viewing_fee, time, agent_phone, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       a.chatId, a.clientName, a.clientPhone, a.propertyId, a.service, a.viewingFee,
-      a.time ?? null, Date.now()
+      a.time ?? null, a.agentPhone ?? null, Date.now()
     );
     return Number(info.lastInsertRowid);
   }
@@ -30,7 +31,7 @@ export class AppointmentStore {
   listByChat(chatId: string): AppointmentRow[] {
     return this.db.db.prepare(
       `SELECT id, chat_id as chatId, client_name as clientName, client_phone as clientPhone,
-              property_id as propertyId, service, viewing_fee as viewingFee, status, time, created_at as createdAt
+              property_id as propertyId, service, viewing_fee as viewingFee, status, time, agent_phone as agentPhone, created_at as createdAt
        FROM appointments WHERE chat_id = ? ORDER BY created_at DESC`
     ).all(chatId) as AppointmentRow[];
   }
@@ -38,7 +39,7 @@ export class AppointmentStore {
   listAll(): AppointmentRow[] {
     return this.db.db.prepare(
       `SELECT id, chat_id as chatId, client_name as clientName, client_phone as clientPhone,
-              property_id as propertyId, service, viewing_fee as viewingFee, status, time, created_at as createdAt
+              property_id as propertyId, service, viewing_fee as viewingFee, status, time, agent_phone as agentPhone, created_at as createdAt
        FROM appointments ORDER BY created_at DESC`
     ).all() as AppointmentRow[];
   }

@@ -67,6 +67,9 @@ export class GeminiClient implements LlmClient {
     private model: string,
     private classifyModel: string,
     private timeoutMs = 60_000,
+    /** Stable identity reported via CompleteOpts.onProvider (factory labels the
+     *  three keys 'gemini:1'/'gemini:2'/'gemini:3'). */
+    private provider = 'gemini',
   ) {}
 
   /** True while the key is on a 429 quota cooldown — RotatingClient skips it. */
@@ -107,6 +110,7 @@ export class GeminiClient implements LlmClient {
         const data = (await res.json()) as { choices?: GeminiChoice[] };
         const text = data.choices?.[0]?.message?.content?.trim() ?? '';
         if (!text) throw new Error('empty completion');
+        o.onProvider?.(this.provider);
         return text;
       } catch (e) {
         lastErr = e;

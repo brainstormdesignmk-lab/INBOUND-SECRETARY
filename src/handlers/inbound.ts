@@ -2,13 +2,14 @@ import { AppConfig } from '../config';
 import { Db } from '../store/db';
 import {
   ChatSession, SessionStore, freshSession, isExpired, resetToIdle,
-  touchInbound, touchOutbound, canSend, pushHistory, buildGreeting,
+  touchInbound, touchOutbound, canSend, pushHistory, buildGreeting, assistantTexts,
 } from '../fsm/session';
+import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant } from '../data/responseBank';
 import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectLocation, detectWhereIs } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectSchedulingFlex, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -16,21 +17,40 @@ import { OwnerStore } from '../store/owners';
 import { AgentStore } from '../store/agents';
 import { CustomerStore } from '../store/customers';
 import { EventStore } from '../store/events';
+import { PriceChangeStore } from '../store/priceChanges';
+import { BlocklistStore } from '../store/blocklist';
 import { ChannelRegistry } from '../channels/types';
-import { applyStrike, OFFENSE_WARNINGS } from '../antiabuse/strikes';
+import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/strikes';
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
+import { LandmarkService } from '../geo/landmarks';
+import { VisitScheduler } from '../visits/scheduler';
 import {
-  serviceLabel, VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
+  serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
   buildOwnerAsk, buildWhereIsAnswer, feePersuasion, FALLBACKS, NO_MATCH_LINE,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
+  LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
+  LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, buildLocateMatches,
+  AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy,
+  buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, PRESENTATION_CLOSERS_ALL,
+  buildExactAddressAnswer,
+  OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
+  SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER,
+  NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER,
 } from '../llm/prompts';
 
 const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуална порака за да можам да Ви помогнам.';
 const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветен имот.';
 const OWNER_COUNTER_RELAY = (t: string) =>
   `Сопственикот е достапен, но предложи поинаков термин: ${t}. Дали овој термин Ви одговара?`;
+// The owner CAN'T do the client's proposed time and gave NO alternative. Lina
+// must never fabricate a term ("по договор со сопственикот" was relayed as a
+// fake proposal the client was asked to accept — and an accept then fell back
+// to the REFUSED time). Relay the refusal honestly and ask for another time;
+// the new time re-asks the owner (the healthy ping-pong keeps looping).
+const OWNER_CANT_TIME_RELAY = (t: string) =>
+  `Сопственикот не може во тој термин (${t}). ${VISIT_TIME_QUESTION}`;
 const OWNER_GONE_REPLY = (eb: number, note: string) =>
   `За жал, имотот со Евидентен број ${eb} ${note}. Дозволете ми да проверам што друго имаме што одговара на Вашите критериуми.`;
 
@@ -50,6 +70,15 @@ export interface HandlerDeps {
   escalations: EscalationStore;
   meta: MetaStore;
   channels: ChannelRegistry;
+  /** Approximate-location resolver (address privacy). Defaults to the DB-only
+   *  service (deterministic table layer) when not supplied. */
+  landmarks?: LandmarkService;
+  /** Visit-protocol scheduler (turns 2+3). Optional: without it the arranged
+   *  message is skipped and only the client confirmation goes out. */
+  visits?: VisitScheduler;
+  /** Enrichment queue — stores LLM-backed responses for the midnight cron
+   *  that generates bank variants. Optional: without it, the queue is silent. */
+  enrichment?: import('../store/enrichment').EnrichmentStore;
 }
 
 export class InboundHandler {
@@ -57,7 +86,13 @@ export class InboundHandler {
   readonly agents: AgentStore;
   readonly customers: CustomerStore;
   readonly events: EventStore;
+  readonly priceChanges: PriceChangeStore;
+  readonly appointments: AppointmentStore;
   readonly dispatcher: AgentDispatcher;
+  readonly landmarks: LandmarkService;
+  readonly visits?: VisitScheduler;
+  readonly owners: OwnerStore;
+  readonly blocklist: BlocklistStore;
 
   /** Fired when Lina asks the OWNER about availability (owner_checking). The
    *  TUI renders this in the owner panel; Hermes consumes the same question
@@ -71,11 +106,16 @@ export class InboundHandler {
     this.agents.ensureDefault(deps.cfg.agentDefaultPhone);
     this.customers = new CustomerStore(deps.db);
     this.events = new EventStore(deps.db);
-    const owners = new OwnerStore(deps.db);
+    this.blocklist = new BlocklistStore(deps.db);
+    this.priceChanges = new PriceChangeStore(deps.db);
+    this.appointments = deps.appointments;
+    this.owners = new OwnerStore(deps.db);
     this.dispatcher = new AgentDispatcher(this.agents);
+    this.landmarks = deps.landmarks ?? new LandmarkService(deps.db);
+    this.visits = deps.visits;
     this.ownerAgent = deps.cfg.ownerAgentMode === 'local'
-      ? new LocalOwnerAgent(owners, this.events)
-      : new DeferredOwnerAgent(owners, this.events, deps.cfg.ownerCheckTimeoutMinutes * 60_000);
+      ? new LocalOwnerAgent(this.owners, this.events)
+      : new DeferredOwnerAgent(this.owners, this.events, deps.cfg.ownerCheckTimeoutMinutes * 60_000, deps.cfg.ownerBusPollMs);
   }
 
   private get cfg(): AppConfig {
@@ -106,6 +146,7 @@ export class InboundHandler {
         void senderName;
         let session = this.deps.sessions.get(chatId);
         if (session && session.history.length > 0) return; // already chatting — stay silent
+        if (this.blocklist.isBlocked(chatId)) return;       // strike-3 blocked — no greeting either
         if (!session) session = freshSession(channel, chatId);
         session.channel = channel;
         this.prefillViberPhone(session, channel, chatId);
@@ -138,6 +179,11 @@ export class InboundHandler {
       return; // absolute silence
     }
 
+    // Persistent blocklist (strike-3, ANA parity): checked BEFORE the TTL reset
+    // so a blocked chat can never be resurrected by expiry. Phone-backed only —
+    // synthetic TUI/sim chatIds block nothing.
+    if (this.blocklist.isBlocked(chatId, session.slots.phone)) return;
+
     if (isExpired(session, this.cfg.chatTtlMinutes)) resetToIdle(session);
 
     if (session.resetGreeting) {
@@ -161,6 +207,51 @@ export class InboundHandler {
       return;
     }
 
+    // 0) Insult protocol (3 strikes, ANA parity): the DETERMINISTIC lexicon
+    // scan runs BEFORE any other processing — an insult is a strike no matter
+    // which brain is live (even the LLM-free path, where "DA SE EBETE VO
+    // GAZOT" used to slip through as an agreement and close the deal). All
+    // offenses escalate equally: 1 = warning, 2 = final warning, 3 = terminate
+    // + permanent blocklist. Strike 1 decays on the next clean message; strike
+    // 2 never decays. applyStrike is called on EVERY message (offenses strike,
+    // clean messages decay).
+    const offense = detectOffensive(text);
+    const outcome = applyStrike(session, offense);
+    if (outcome !== 'none') {
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      if (outcome === 'terminate') {
+        this.blocklist.add(chatId, offense.category ?? 'offensive_behavior', session.slots.phone);
+        session.state = 'terminated';
+        session.terminatedAt = Date.now();
+        this.deps.sessions.set(session);
+        console.error(`[EVENT] TERMINATE_SESSION ${JSON.stringify({ chatId, channel, strikes: session.strikes, reason: offense.reason })}`);
+        return; // ZERO OUTPUT — the sim asserts this
+      }
+      // Bank-backed warnings (warn.1/warn.2): same 3-strike protocol, varied
+      // wording. Falls back to the exact code-built lines.
+      const warning = pickVariant(`warn.${session.strikes}`, { recent: assistantTexts(session) })
+        ?? OFFENSE_WARNINGS[session.strikes] ?? OFFENSE_WARNINGS[2];
+      pushHistory(session, { role: 'assistant', text: warning }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, warning);
+      return;
+    }
+
+    // The client asks for the EXACT street/address ("потoчно која улица?",
+    // "точно која адреса?", "на која адреса е?") — address PRIVACY is
+    // absolute: answered deterministically (bank-backed address.exact: "Точната
+    // адреса ќе ја добиете 2 часа пред посетата"), NEVER with the street. Must
+    // run BEFORE detectWhereIs so "каде точно" doesn't get the landmark answer
+    // — the client explicitly asked past the landmark.
+    if (detectExactAddressAsk(text)) {
+      const answer = buildExactAddressAnswer(assistantTexts(session));
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, answer);
+      return;
+    }
+
     // "каде е X?" — a question about a PLACE's whereabouts ("каде е Палома
     // Бјанка?", "каде се наоѓа тој стан?"), NEVER a search for properties IN X.
     // Answer code-built from DB facts (address/neighborhood) so it can never
@@ -181,8 +272,11 @@ export class InboundHandler {
       }
       let answer: string;
       if (hit) {
+        // Address privacy: "каде е X?" is answered with the nearest PUBLIC
+        // landmark ("во близина на City Mall"), never the street.
+        await this.landmarks.enrich([hit]);
         answer = buildWhereIsAnswer(whereIs.place, {
-          address: hit.address, location: hit.location, eb: hit.eb, business: hit.business,
+          location: hit.location, eb: hit.eb, business: hit.business, landmark: hit.landmark,
         });
       } else if (whereIs.place) {
         const locs = await this.deps.properties.locations();
@@ -201,25 +295,7 @@ export class InboundHandler {
     // 1) Cold-brained intent extraction (Groq, JSON mode)
     const classified = await this.deps.classifier.classify(session, text);
 
-    // 2) 3-strikes protocol
-    const outcome = applyStrike(session, classified);
-    if (outcome !== 'none') {
-      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
-      if (outcome === 'terminate') {
-        session.state = 'terminated';
-        session.terminatedAt = Date.now();
-        this.deps.sessions.set(session);
-        console.error(`[EVENT] TERMINATE_SESSION ${JSON.stringify({ chatId, channel, strikes: session.strikes })}`);
-        return; // ZERO OUTPUT — the sim asserts this
-      }
-      const warning = OFFENSE_WARNINGS[session.strikes] ?? OFFENSE_WARNINGS[2];
-      pushHistory(session, { role: 'assistant', text: warning }, this.cfg.maxHistory);
-      this.deps.sessions.set(session);
-      await this.sendRaw(session, warning);
-      return;
-    }
-
-    // 3) Slots + FSM transition
+    // 2) Slots + FSM transition
     const ev = classified.event;
     this.applySlots(session, ev);
     // Did THIS message explicitly name a neighborhood ("што имаш во Карпош?")?
@@ -235,10 +311,26 @@ export class InboundHandler {
     const before = session.state;
     let next = transition(before, ev);
 
+    // Mid-discovery the client asks to SEE current offers before the criteria
+    // are complete ("што имате во понуда?", "помало нешто", "покажи ми") —
+    // Lina ANSWERS with real DB offers (smallest м² first, area-locked) instead
+    // of repeating the missing question. The classifier routes this to
+    // SEARCH_REQUESTED; the incomplete-criteria guard is bypassed so the offers
+    // are presented, and an area with nothing gets the honest no-match line.
+    const seeOffers = before === 'discovery' && detectSeeOffers(text);
+    if (seeOffers) next = 'presentation';
+
     if (before === 'discovery' && ev.type === 'DETAILS_PROVIDED' && this.slotsComplete(session)) {
       next = 'presentation';
     }
-    if (before === 'discovery' && ev.type === 'SEARCH_REQUESTED' && !this.slotsComplete(session)) {
+    // property_locate: the client saw a specific property but has no number.
+    // Details keep coming while Lina tries to identify it; once the remembered
+    // criteria are complete, the closest DB matches are presented (the reply
+    // strategy below decides ask vs. present based on what is known).
+    if (before === 'property_locate' && ev.type === 'SEARCH_REQUESTED') {
+      next = 'property_locate';
+    }
+    if (before === 'discovery' && ev.type === 'SEARCH_REQUESTED' && !this.slotsComplete(session) && !seeOffers) {
       next = 'discovery';
     }
     // A FIRST message with the full criteria set (service+location+bedrooms+budget)
@@ -257,11 +349,21 @@ export class InboundHandler {
     }
     if (ev.type === 'FEE_AGREED') session.slots.viewingFeeAgreed = true;
 
-    // Fee refusal ladder (deterministic, in closing only)
-    if (ev.type === 'FEE_REFUSED' && before === 'closing') {
+    // Fee refusal ladder (deterministic, in closing only). A WHY question
+    // ("зошто наплаќате посета?", "никој не го прави тоа") is NOT a refusal —
+    // Lina answers it with the agency's rationale (the fee is a filter for real
+    // clients) and the funnel STAYS at the fee question: no persuasion rung is
+    // burned, and a classifier misread (closing + REJECTED would exit to
+    // presentation) is corrected back to closing.
+    // Fee-why can appear in ANY state after the fee was disclosed (closing)
+    // or even mid-property-viewing ("nikoj ne naplakja za poseti" in
+    // property_query). Widen the check so the pivot always fires.
+    const feeWhyQuestion = detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before);
+    if (ev.type === 'FEE_REFUSED' && before === 'closing' && !feeWhyQuestion) {
       session.slots.feeRejections = (session.slots.feeRejections ?? 0) + 1;
       next = (session.slots.feeRejections ?? 0) >= 3 ? 'queued' : 'closing';
     }
+    if (feeWhyQuestion) next = 'closing';
 
     // Negotiation loop bound (deterministic, in time_confirm only)
     if (ev.type === 'TIME_REJECTED' && before === 'time_confirm') {
@@ -272,19 +374,34 @@ export class InboundHandler {
     // Exhausted-options agreement: after every matching property was shown, an
     // agreement ("добро", "контактирај ме") registers the criteria instead of
     // looping the exhausted line forever ("DOBRO" -> contact collection).
-    if (ev.type === 'CONTACT_PROVIDED' && session.slots.queueAfterContact) {
+    // BUT: if the client IS interested in a specific property (propertyId /
+    // interestedPropertyId), the flow must proceed to visit_scheduling — the
+    // queue is only for "no specific property, register my criteria".
+    const hasProperty = !!(session.slots.propertyId || session.slots.interestedPropertyId);
+    if (ev.type === 'CONTACT_PROVIDED' && session.slots.queueAfterContact && !hasProperty) {
       next = 'queued';
     }
 
     session.state = next;
 
+    // Suggest-alternatives pivot from a FAILED EB lookup: the client answered
+    // the not-found line ("predlozi mi", "drugi lokaciii") and the funnel moved
+    // to presentation — the bad propertyId must be cleared so a later INTERESTED
+    // ("sakam da ja vidam") never grabs the non-existent EB.
+    if (before === 'property_query' && next === 'presentation'
+      && session.slots.propertyId !== undefined && detectSuggestAlternatives(text)) {
+      session.slots.propertyId = undefined;
+    }
+
     // Contact complete when the phone is already known (Viber sender id) and
     // the client gave their name — deterministic, no LLM needed: "GORAN MOZE NA
     // OVOJ BROJ" means name + the number he is writing from.
+    // Also fire when queueAfterContact is set BUT a specific property was shown:
+    // the client wants to VISIT it, not queue criteria.
     if (session.state === 'contact_collection'
-      && !session.slots.queueAfterContact
       && session.slots.name
-      && session.slots.phone) {
+      && session.slots.phone
+      && (!session.slots.queueAfterContact || hasProperty)) {
       next = 'visit_scheduling';
       session.state = next;
     }
@@ -296,7 +413,30 @@ export class InboundHandler {
     if (next === 'escalated') this.raiseEscalation(session, text);
 
     // 4) Property context (responder only needs it for LLM-driven states)
-    const props = await this.loadProps(session, areaRequested);
+    let props = await this.loadProps(session, areaRequested, seeOffers);
+
+    // Service pinning: a client who jumps straight to an Евидентен број
+    // ("zainteresiran sum za sifra 62") never declared buy/rent — the property's
+    // OWN service is the truth. Pinning it here makes the whole downstream flow
+    // consistent: the fee script (300 vs 500 денари), the agent pool, the
+    // stored appointment fee and the visit protocol all follow the property's
+    // market, never a missing slot.
+    if (!session.slots.service && props[0]?.service) {
+      session.slots.service = props[0].service;
+    }
+
+    // Exhausted-area pivot: the selected area(s) are drained and Lina just asked
+    // whether to widen ("…или да погледнеме во друга населба?"). A pure
+    // agreement (no register/contact intent, no NEW area named in the same
+    // message) releases the area lock and presents the next batch from the REST
+    // of the city — options come only AFTER the ask, never silently. Register
+    // intents ("контактирај ме") fall through to the queue escape below.
+    if (next === 'presentation' && props.length === 0
+      && session.slots.areaExhausted && detectWidenIntent(text) && !ev.location) {
+      session.slots.areaExhausted = false;
+      session.slots.location = undefined;
+      props = await this.loadProps(session, false, false);
+    }
 
     // Exhausted dead-end escape: once every option is shown (props empty), an
     // agreement message must move to contact collection, never loop the same
@@ -319,12 +459,124 @@ export class InboundHandler {
     }
 
     let reply: string;
-    if (next === 'queued') {
+    // Which brain produced the reply — default deterministic; only the
+    // responder path can be LLM-driven ('gemini:1..3' / 'groq' / 'fallback').
+    let replySource = 'deterministic';
+    // Locate-a-seen-property funnel (deterministic, like the no-match lines):
+    // the client saw a specific property but has no Евидентен број. First ask
+    // for the number (known -> easy property_query lookup); then collect
+    // identifying details (населба / цена / квадрати) and present the CLOSEST
+    // DB matches code-built — the LLM must never invent them. "не е тој" pulls
+    // the next closest batch; only when every match was shown do we ask for
+    // more details.
+    if (next === 'property_locate') {
+      const price = session.slots.budget ? Number(session.slots.budget.replace(/[^\d]/g, '')) : undefined;
+      const locateOpts = {
+        location: session.slots.location,
+        price,
+        sqm: session.slots.sqm,
+        business: session.slots.business,
+        house: session.slots.house,
+        service: session.slots.service,
+      };
+      const present = (matches: Property[]): string => {
+        // Mark the batch as shown ONLY when it is actually presented, so the
+        // next "не е тој" pulls the NEXT closest ones (never re-shows).
+        session.slots.presentedIds = [...(session.slots.presentedIds ?? []), ...matches.map(p => p.id)];
+        session.slots.currentBatch = matches.map(p => p.id);
+        return buildLocateMatches(matches, session.history.length);
+      };
+      if (before !== 'property_locate') {
+        // Just entered — ask the number first (the easy path when known).
+        reply = LOCATE_FIRST_ASK;
+      } else if (/го\s+знам|знам\s+го|znam\s+go|го\s+знам\s+бројот/i.test(text)) {
+        // "да, го знам" — the client knows the number; prompt for it instead
+        // of looping the first ask (the number itself routes to property_query).
+        reply = LOCATE_NUMBER_PROMPT;
+      } else if (ev.type === 'REJECTED') {
+        // "не е тој" — pull the NEXT closest batch (never re-show what was
+        // just rejected); ask for more details when the DB is exhausted.
+        const nextBatch = (await this.deps.properties.closestMatches({
+          ...locateOpts, exclude: session.slots.presentedIds ?? [],
+        })).slice(0, 2);
+        reply = nextBatch.length > 0 ? present(nextBatch) : LOCATE_REFINE_ASK;
+      } else if (session.slots.location || session.slots.sqm || session.slots.budget) {
+        // A NEW identifying detail (населба / цена / квадрати) re-ranks the
+        // WHOLE candidate pool — excluding already-shown matches here would
+        // hide the property the client is actually narrowing toward.
+        const matches = (await this.deps.properties.closestMatches(locateOpts)).slice(0, 2);
+        reply = matches.length > 0 ? present(matches) : LOCATE_REFINE_ASK;
+      } else {
+        // No identifying details yet — collect населба / цена / квадрати.
+        reply = LOCATE_DETAILS_ASK;
+      }
+    } else if (next === 'queued') {
       reply = session.slots.queueAfterContact ? QUEUED_CONFIRM : FEE_GRACEFUL_CLOSE;
     } else if (session.slots.queueAfterContact && session.state === 'contact_collection') {
-      reply = buildContactAsk(session.slots);
-    } else if (before === 'closing' && ev.type === 'FEE_REFUSED') {
-      reply = feePersuasion(session.slots.service, session.slots.feeRejections ?? 1);
+      // Same once-per-funnel rule as the regular contact ask: the first one
+      // carries "Одлично, уште последниве информации и завршуваме.", retries stay plain.
+      const n = session.slots.contactAsks ?? 0;
+      session.slots.contactAsks = n + 1;
+      reply = (n === 0 ? `${LAST_INFO_PREFIX} ` : '') + buildContactAsk(session.slots, assistantTexts(session));
+    } else if ((next === 'closing' || detectFeeWhy(text))
+        && (ev.type === 'FEE_REFUSED' || detectFeeWhy(text))) {
+      // Fee-resistance pivot ("зошто наплаќате посета?", "никoj не го прави
+      // тоа", "не сакам да платам"): instead of pushing the fee on a client
+      // who questions it, Lina OFFERS the remaining properties in OTHER
+      // neighborhoods — a bank-backed offer line (fee.pivot.neighborhood,
+      // Gemini variants) followed by the code-built cards and the pick-closer,
+      // so the alternatives are REAL and never LLM-invented. Only when nothing
+      // else is available ("if available") does she stay at the fee question:
+      // the filter rationale (fee.why) for why-questions, the persuasion
+      // ladder for refusals. The funnel moves to presentation so the client
+      // can reject / pick the alternatives normally.
+      const cur = props[0];
+      const shown = [...(session.slots.presentedIds ?? [])];
+      if (cur) shown.push(cur.id);
+      if (session.slots.soldEb) shown.push(session.slots.soldEb);
+      const all = await this.deps.properties.candidates({
+        // Same service as the resisted property: a client interested in a BUY
+        // property is never offered rent alternatives (an EB lookup may never
+        // have filled slots.service — the property's own service is the truth).
+        service: session.slots.service ?? cur?.service,
+        business: session.slots.business,
+        house: session.slots.house,
+        bedrooms: session.slots.bedrooms,
+        sqm: session.slots.sqm,
+        budget: session.slots.budget,
+        exclude: shown,
+      });
+      // DIFFERENT neighbourhoods: the current property's own area is never
+      // re-offered — only other neighborhoods count as alternatives.
+      const curLoc = cur?.location;
+      const pool = curLoc
+        ? all.filter(p => !locMatches(curLoc, p.location ?? ''))
+        : all;
+      const batch = pool.slice(0, 2);
+      if (batch.length > 0) {
+        session.slots.presentedIds = [...shown, ...batch.map(p => p.id)];
+        session.slots.currentBatch = batch.map(p => p.id);
+        session.slots.alternativesExhausted = pool.length === 0;
+        session.slots.feeRejections = undefined; // fresh property -> fresh fee disclosure
+        // Pin the service from the resisted property: an EB lookup may never
+        // have filled slots.service, and the later presentation batches must
+        // stay in the same market (never offer rent after a buy resistance).
+        session.slots.service = session.slots.service ?? cur?.service;
+        session.state = 'presentation';
+        await this.landmarks.enrich(batch); // cards name a landmark, never a street
+        reply = `${pickVariant('fee.pivot.neighborhood', { recent: assistantTexts(session) })
+          ?? buildFeePivotNeighborhood()}\n\n${batch.map(p => buildPropertyCard(p)).join('\n\n')}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
+      } else {
+        // No other-neighborhood options anywhere — stay at the fee question.
+        reply = detectFeeWhy(text)
+          ? pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy()
+          : feePersuasion(session.slots.service, session.slots.feeRejections ?? 1);
+      }
+    } else if (ev.type === 'REJECTED' && ['idle', 'intent', 'discovery'].includes(before)) {
+      // The client denies the current direction ("не барам стан", "нешто
+      // друго") before anything was shown — pivot to what they DO want
+      // instead of re-asking the same discovery question.
+      reply = DIRECTION_PIVOT_LINE;
     } else if (next === 'visit_scheduling') {
       reply = VISIT_TIME_QUESTION;
     } else if (next === 'owner_checking') {
@@ -342,37 +594,144 @@ export class InboundHandler {
         reply = OWNER_CHECK_ACK;
         if (eb && t) void this.runOwnerCheck(session, eb, t);
       } else if (before === 'owner_checking') {
-        reply = PATIENCE_LINE; // chit-chat while the check is pending — no re-ask
+        // Bank-backed: patience variants rotate, never the same sentence twice.
+        reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
       } else {
         reply = OWNER_CHECK_ACK; // first transition into owner_checking
         if (eb && t) void this.runOwnerCheck(session, eb, t);
       }
     } else if (next === 'escalated') {
-      reply = FALLBACKS.escalated ?? 'Ќе Ве контактира менаџер.';
+      reply = fallbackVariant('escalated', assistantTexts(session))
+        ?? FALLBACKS.escalated ?? 'Ќе Ве контактира менаџер.';
     } else if (session.state === 'owner_checking') {
-      reply = PATIENCE_LINE; // client wrote while owner check is in flight
+      // client wrote while the owner check is in flight — bank-backed patience line
+      reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
     } else if (session.state === 'queued') {
       reply = QUEUED_STAY_LINE;
     } else if (next === 'presentation' && props.length === 0) {
       // Deterministic empty-result lines — never let the LLM invent properties.
       // A search that names an area but has nothing there -> honest no-match;
       // follow-up rejections after every candidate was shown -> "exhausted" line.
+      // Either way the area lock is marked drained: the client's next pure
+      // agreement widens the search to the rest of the city (options come only
+      // AFTER the ask), while register/contact intents go to the queue.
+      // The exhausted line is bank-backed (exhausted.location/plain) so the
+      // widen question varies like the other protocol lines; the code-built
+      // line stays the fallback.
+      session.slots.areaExhausted = true;
       reply = !this.deps.properties.healthy
         ? FEED_UNAVAILABLE_LINE
         : (before === 'discovery' || areaRequested
-          ? NO_MATCH_LINE(session.slots.location ?? ev.location)
-          : NO_MORE_ALTERNATIVES_LINE(session.slots.location));
+          ? noMatchLine(session.slots.location ?? ev.location, assistantTexts(session))
+            ?? NO_MATCH_LINE(session.slots.location ?? ev.location)
+          : exhaustedLine(session.slots.location, assistantTexts(session))
+            ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location));
     } else if (next === 'property_query' && props.length === 0) {
-      reply = this.deps.properties.healthy
-        ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId ?? 0)
-        : FEED_UNAVAILABLE_LINE;
+      // The EB doesn't exist. The not-found line itself asks whether the
+      // client wants similar properties from other locations — an agreement
+      // ("да") or an alternatives request ("predlozi mi", "drugi lokaciii")
+      // must PIVOT to a REAL city-wide presentation instead of repeating the
+      // not-found line forever (the stuck loop: every follow-up re-rendered
+      // "не можам да го најдам имотот со Евидентен број 250"). The bad EB is
+      // cleared so a later INTERESTED ("sakam da ja vidam") never grabs it.
+      const pivot = detectAgreement(text) || detectSuggestAlternatives(text);
+      if (pivot && this.deps.properties.healthy) {
+        session.slots.propertyId = undefined;
+        session.state = 'presentation';
+        props = await this.loadProps(session, false, false);
+      }
+      reply = props.length > 0
+        ? buildPropertyCards(props, 'presentation', session.history.length,
+            assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget })
+        : this.deps.properties.healthy
+          ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId ?? 0)
+          : FEED_UNAVAILABLE_LINE;
+    } else if (detectAvailabilityAsk(text)
+      && (next === 'property_query' || next === 'closing')
+      && (session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb)) {
+      // Availability question about a KNOWN property ("дали е сеуште достапен?",
+      // "dali e seuste dostapen?"): the client saw the ad on the website and
+      // knows the details — Lina does NOT re-describe it. She answers that it
+      // should still be available and that she will check with the owner (the
+      // availability AND price are the owner's truth), then asks the fee — on
+      // agreement the owner ping-pong starts. The ack and the fee ask are
+      // bank-backed (varied), with the code-built lines as fallback.
+      const eb = session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb!;
+      session.state = 'closing';
+      session.slots.interestedPropertyId = eb;
+      const service = session.slots.service ?? props[0]?.service ?? 'buy';
+      const ack = pickVariant('availability.ack', { recent: assistantTexts(session) })
+        ?? AVAILABILITY_ACK;
+      // Address privacy: the availability check carries the APPROXIMATE
+      // location (nearest public landmark) — the client knows the details from
+      // the ad, but the exact street stays hidden until the visit is arranged.
+      const locLine = props[0]?.landmark
+        ? `\n\nСе наоѓа во близина на ${props[0].landmark}.`
+        : '';
+      const fee = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
+        ?? buildFeeAsk(service);
+      reply = `${ack}${locLine}\n\n${fee}`;
+    } else if (detectOfftopic(text) && !['owner_checking', 'pending'].includes(session.state)) {
+      reply = pickVariant('offtopic.redirect', { recent: assistantTexts(session) })
+        ?? OFFTOPIC_REDIRECT;
+    } else if (detectDefer(text) && ['closing', 'presentation', 'property_query', 'property_locate'].includes(session.state)) {
+      reply = pickVariant('followup.defer', { recent: assistantTexts(session) })
+        ?? FOLLOWUP_DEFER;
+    } else if (detectNegotiate(text) && ['closing', 'presentation', 'property_query'].includes(session.state)) {
+      reply = pickVariant('price.negotiate', { recent: assistantTexts(session) })
+        ?? PRICE_NEGOTIATE;
+    } else if (detectProvisionAsk(text) && ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(session.state)) {
+      reply = pickVariant('provision.ask', { recent: assistantTexts(session) })
+        ?? PROVISION_ANSWER;
+    } else if (detectEscalation(text)) {
+      reply = pickVariant('escalation.polite', { recent: assistantTexts(session) })
+        ?? ESCALATION_ANSWER;
+    } else if (detectDocumentsAsk(text) && ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(session.state)) {
+      reply = pickVariant('documents.info', { recent: assistantTexts(session) })
+        ?? DOCUMENTS_ANSWER;
+    } else if (detectMortgageAsk(text) && ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(session.state)) {
+      reply = pickVariant('mortgage.info', { recent: assistantTexts(session) })
+        ?? MORTGAGE_ANSWER;
+    } else if (detectNeighborhoodAsk(text) && ['idle', 'intent', 'discovery'].includes(session.state)) {
+      reply = pickVariant('neighborhood.general', { recent: assistantTexts(session) })
+        ?? NEIGHBORHOOD_ANSWER;
+    } else if (detectComparison(text) && ['presentation', 'property_query'].includes(session.state)) {
+      reply = pickVariant('comparison.help', { recent: assistantTexts(session) })
+        ?? COMPARISON_ANSWER;
+    } else if (detectFeatureAsk(text) && ['property_query', 'presentation', 'closing'].includes(session.state)) {
+      reply = pickVariant('feature.after.show', { recent: assistantTexts(session) })
+        ?? FEATURE_ANSWER;
+    } else if (detectSchedulingFlex(text) && ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state)) {
+      reply = pickVariant('scheduling.flex', { recent: assistantTexts(session) })
+        ?? SCHED_FLEX_ANSWER;
     } else {
-      reply = await this.deps.responder.respond(session, props, text);
+      const r = await this.deps.responder.respond(session, props, text);
+      reply = r.text;
+      replySource = r.source;
     }
 
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
-    await this.sendRaw(session, reply);
+
+    // Enrichment queue: log LLM-backed responses for the midnight cron job.
+    // Only logs when the enrichment store is configured AND the reply came
+    // from an LLM (not deterministic/fallback — those are already bank-backed).
+    if (this.deps.enrichment && replySource !== 'deterministic' && replySource !== 'fallback') {
+      try {
+        this.deps.enrichment.insert({
+          chatId: session.chatId,
+          state: before,
+          eventType: ev.type,
+          userMsg: text,
+          replyText: reply,
+          replySource,
+        });
+      } catch (e) {
+        console.error('[enrichment] log failed:', (e as Error).message);
+      }
+    }
+
+    await this.sendRaw(session, reply, replySource);
   }
 
   // ---------------- owner check continuation ----------------
@@ -404,17 +763,50 @@ export class InboundHandler {
     const session = this.deps.sessions.get(chatId);
     if (!session || session.state !== 'owner_checking') return; // stale/reset — drop
 
+    // The owner dictates the CURRENT price ("цената е променета на 60.000") —
+    // the owner is the source of truth and the price can change. Store it so
+    // Hermes corrects the public app (Lovable/Cloudflare) AND relay the change
+    // to the client (our price must follow the owner's word).
+    let priceRelay = '';
+    if (verdict.price !== undefined) {
+      const old = (await this.deps.properties.getById(eb))?.price;
+      this.priceChanges.insert({ eb, oldPrice: old ?? null, newPrice: verdict.price, chatId, source: 'owner' });
+      this.events.insert('price_changed', chatId, eb, { oldPrice: old ?? null, newPrice: verdict.price, source: 'owner' });
+      console.log(`[EVENT] PRICE_CHANGED ${JSON.stringify({ eb, oldPrice: old ?? null, newPrice: verdict.price })}`);
+      priceRelay = buildPriceRelay(eb, verdict.price, old);
+    }
+
     if (verdict.status === 'ok') {
       session.state = 'pending';
       session.slots.ownerTime = verdict.ownerTime ?? session.slots.visitTime;
+      // The price relay goes FIRST (if any), then the confirmation — the client
+      // must hear the new price before the visit is locked in.
+      if (priceRelay) {
+        pushHistory(session, { role: 'assistant', text: priceRelay }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, priceRelay);
+      }
       await this.confirmVisit(session, eb, session.slots.ownerTime ?? '');
       return;
     }
 
     if (verdict.status === 'counter') {
+      // Bare counter = the owner can't do the proposed time, NO alternative
+      // given. There is no term for the client to accept — routing to
+      // time_confirm fabricated "по договор со сопственикот" (and accepting
+      // it fell back to the REFUSED time). Ask the client for another time;
+      // the new proposal re-asks the owner.
+      if (!verdict.ownerTime) {
+        session.state = 'visit_scheduling';
+        const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_CANT_TIME_RELAY(session.slots.visitTime ?? '')}`;
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, reply);
+        return;
+      }
       session.state = 'time_confirm';
       session.slots.ownerTime = verdict.ownerTime;
-      const reply = OWNER_COUNTER_RELAY(verdict.ownerTime ?? 'по договор со сопственикот');
+      const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_COUNTER_RELAY(verdict.ownerTime)}`;
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, reply);
@@ -444,7 +836,10 @@ export class InboundHandler {
     this.deps.sessions.set(session);
 
     if (agent) this.dispatcher.recordVisit(agent.id, session.slots.service ?? 'buy');
-    const apptId = this.finalizeAppointment(session, time);
+    const apptId = this.finalizeAppointment(session, time, agentPhone);
+    // The visit is LOCKED IN (owner ok'd, client accepted) — the appointment is
+    // finalized so the visit protocol's timed turns can schedule against it.
+    this.deps.appointments.markFinalized(apptId, time);
     this.events.insert('agent_assigned', session.chatId, eb, {
       agentId: agent?.id ?? null, agentPhone, time,
     });
@@ -455,11 +850,31 @@ export class InboundHandler {
     this.promoteCustomer(session);
 
     await this.sendRaw(session, reply);
+
+    // The visit protocol, turn 1: the moment the visit is confirmed, BOTH the
+    // owner and the client get ДОГОВОРЕНА ПОСЕТА, the operator gets the
+    // ARRANGED log line, and turns 2+3 (morning confirmation / exact location)
+    // are scheduled by the VisitScheduler.
+    if (this.visits) {
+      const owner = this.owners.get(eb);
+      await this.visits.arrange({
+        appointmentId: apptId,
+        chatId: session.chatId,
+        eb,
+        time,
+        agentPhone,
+        clientName: session.slots.name ?? 'Непознат клиент',
+        clientPhone: session.slots.phone ?? 'Непознат телефон',
+        owner: owner && (owner.name || owner.phone)
+          ? { name: owner.name || 'Сопственик', phone: owner.phone || '?' }
+          : undefined,
+      });
+    }
   }
 
   // ---------------- side-effect helpers ----------------
 
-  private finalizeAppointment(session: ChatSession, time?: string): number {
+  private finalizeAppointment(session: ChatSession, time?: string, agentPhone = ''): number {
     const fee = session.slots.service === 'rent' ? '300 MKD' : '500 MKD';
     const propertyId = session.slots.interestedPropertyId ?? session.slots.propertyId ?? 0;
     const rowId = this.deps.appointments.insert({
@@ -470,6 +885,7 @@ export class InboundHandler {
       service: serviceLabel(session.slots.service),
       viewingFee: fee,
       time: time ?? null,
+      agentPhone,
     });
     console.log(`[EVENT] APPOINTMENT_PENDING ${JSON.stringify({
       id: rowId, chatId: session.chatId,
@@ -524,6 +940,7 @@ export class InboundHandler {
     if (ev.business !== undefined) session.slots.business = ev.business;
     if (ev.house !== undefined) session.slots.house = ev.house;
     if (ev.budget) session.slots.budget = ev.budget;
+    if (ev.anywhere) session.slots.anywhere = true;
     if (ev.propertyId) session.slots.propertyId = ev.propertyId;
     if (ev.visitTime) session.slots.visitTime = ev.visitTime;
     if (ev.name) session.slots.name = ev.name;
@@ -531,20 +948,27 @@ export class InboundHandler {
   }
 
   private slotsComplete(s: ChatSession): boolean {
+    // "Било каде" (anywhere) satisfies the location criterion AND waives the
+    // bedroom requirement — a flexible client gets the budget-driven city-wide
+    // presentation ("bilo kade do 250" → rent options till 250) instead of a
+    // location/bedrooms loop they explicitly didn't care about.
+    const loc = !!s.slots.location || !!s.slots.anywhere;
     // Commercial spaces complete with size (м²) instead of bedrooms.
     if (s.slots.business) {
-      return !!s.slots.service && !!s.slots.location && !!s.slots.sqm && !!s.slots.budget;
+      return !!s.slots.service && loc && !!s.slots.sqm && !!s.slots.budget;
     }
-    return !!s.slots.service && !!s.slots.location && !!s.slots.bedrooms && !!s.slots.budget;
+    return !!s.slots.service && loc && (!!s.slots.bedrooms || !!s.slots.anywhere) && !!s.slots.budget;
   }
 
-  private async loadProps(session: ChatSession, areaRequested = false): Promise<Property[]> {
+  private async loadProps(session: ChatSession, areaRequested = false, seeOffers = false): Promise<Property[]> {
     const s = session.state;
     if (s === 'property_query') {
       const id = session.slots.propertyId;
       if (!id) return [];
       const p = await this.deps.properties.getById(id);
-      return p ? [p] : [];
+      if (!p) return [];
+      await this.landmarks.enrich([p]); // approximate location, never the street
+      return [p];
     }
     if (s === 'presentation') {
       // Alternatives engine: every presentation shows the NEXT 2 candidates —
@@ -562,30 +986,38 @@ export class InboundHandler {
         service: session.slots.service,
         budget: session.slots.budget,
         exclude: shown,
+        // see-offers ("помало нешто"): SMALLEST м² first, going up — Lina
+        // answers the "what do you have?" question with the smallest offer,
+        // then progressively larger ones, instead of re-asking the missing sqm.
+        sortBySqm: seeOffers,
+        // "било каде": city-wide presentation starts from the most popular
+        // neighborhoods (Центар, Капиштец, Карпош, Аеродром, …), then the rest.
+        sortByPopularity: !!session.slots.anywhere && !session.slots.location,
       });
-      // An explicit area request ("што имаш во Карпош?") shows ONLY that area:
-      // if it has no matches, return [] so the honest no-match line fires
-      // instead of silently offering a different neighborhood.
-      const batch = areaRequested && session.slots.location
-        ? candidates.filter(p => locMatches(session.slots.location as string, p.location ?? '')).slice(0, 2)
-        : candidates.slice(0, 2);
+      // candidates() already locks to the selected area(s) and never spills —
+      // an exhausted area returns [] here, which routes to the "different area?"
+      // ask instead of silently offering another neighborhood.
+      const batch = candidates.slice(0, 2);
       session.slots.presentedIds = [...shown, ...batch.map(p => p.id)];
       session.slots.currentBatch = batch.map(p => p.id);
       session.slots.alternativesExhausted = candidates.length === 0;
+      await this.landmarks.enrich(batch); // cards name a landmark, never a street
       return batch;
     }
     if (['closing', 'contact_collection', 'visit_scheduling', 'owner_checking', 'time_confirm'].includes(s)) {
       const id = session.slots.interestedPropertyId ?? session.slots.propertyId;
       if (!id) return [];
       const p = await this.deps.properties.getById(id);
-      return p ? [p] : [];
+      if (!p) return [];
+      await this.landmarks.enrich([p]);
+      return [p];
     }
     return [];
   }
 
   // ---------------- outbound ----------------
 
-  private async sendRaw(session: ChatSession, text: string): Promise<void> {
+  private async sendRaw(session: ChatSession, text: string, source = 'deterministic'): Promise<void> {
     if (!canSend(session)) {
       console.error(`[budget] ${session.channel} 100/hr per-chat limit reached for ${session.chatId} — send dropped`);
       return;
@@ -596,6 +1028,6 @@ export class InboundHandler {
     }
     touchOutbound(session);
     this.deps.meta.increment('monthly_initiated');
-    await this.deps.channels.send(session.channel, session.chatId, text);
+    await this.deps.channels.send(session.channel, session.chatId, text, source);
   }
 }

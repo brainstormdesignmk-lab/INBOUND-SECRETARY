@@ -15,6 +15,9 @@ test('inferPropertyId: bare 2-3 digit numbers are Евидентен број re
 test('inferPropertyId: does NOT fire on bedrooms/prices/sizes/times/phones/years', () => {
   assert.equal(inferPropertyId('2 spalni vo Centar'), undefined);
   assert.equal(inferPropertyId('do 80.000 evra'), undefined);
+  assert.equal(inferPropertyId('bilo kade do 250'), undefined); // rent budget, never EB 250
+  assert.equal(inferPropertyId('bilo kade до 250'), undefined); // Cyrillic cap word too
+  assert.equal(inferPropertyId('околу 250'), undefined);
   assert.equal(inferPropertyId('sakam stan 78 m2'), undefined);
   assert.equal(inferPropertyId('sakam stan 78 м2'), undefined);
   assert.equal(inferPropertyId('petok vo 18:30'), undefined);
@@ -64,10 +67,44 @@ test('parseClassified: budget is canonicalized — garbage without digits is dro
   assert.equal(words.event.budget, '80000');
 });
 
+test('parseClassified: name/phone/visitTime garbage is dropped, real values survive', () => {
+  // name: LLM fills it with a sentence — never stored
+  const nameG = parseClassified('{"event":"CONTACT_PROVIDED","name":"кукја пофтина","phone":"078914196"}');
+  assert.equal(nameG.event.name, undefined);
+  assert.equal(nameG.event.type, 'STAY'); // required payload missing -> hallucination
+  const nameOk = parseClassified('{"event":"CONTACT_PROVIDED","name":"Горан Петровски","phone":"078914196"}');
+  assert.equal(nameOk.event.name, 'Горан Петровски');
+  assert.equal(nameOk.event.type, 'CONTACT_PROVIDED');
+  // phone: letter soup is rejected outright (and drops the whole event)
+  const phoneG = parseClassified('{"event":"CONTACT_PROVIDED","name":"Горан","phone":"кукја пофтина"}');
+  assert.equal(phoneG.event.phone, undefined);
+  assert.equal(phoneG.event.type, 'STAY');
+  const phoneOk = parseClassified('{"event":"CONTACT_PROVIDED","name":"Горан","phone":"078/914 196"}');
+  assert.equal(phoneOk.event.phone, '078914196');
+  assert.equal(phoneOk.event.type, 'CONTACT_PROVIDED');
+  // visitTime: garbage is dropped (event -> STAY), a bare time survives
+  const tG = parseClassified('{"event":"VISIT_TIME_PROVIDED","visitTime":"кукја пофтина"}');
+  assert.equal(tG.event.visitTime, undefined);
+  assert.equal(tG.event.type, 'STAY');
+  const tOk = parseClassified('{"event":"VISIT_TIME_PROVIDED","visitTime":"19:00"}');
+  assert.equal(tOk.event.visitTime, '19:00');
+  assert.equal(tOk.event.type, 'VISIT_TIME_PROVIDED');
+  const tOk2 = parseClassified('{"event":"VISIT_TIME_PROVIDED","visitTime":"утре на пладне"}');
+  assert.equal(tOk2.event.visitTime, 'утре на пладне');
+  assert.equal(tOk2.event.type, 'VISIT_TIME_PROVIDED');
+});
+
 test('parseClassified: a PROPERTY_ID_REQUESTED with NO number is a hallucination', () => {
   // "A NESTO POSKAPO DO 1000 EVRA" — the LLM sometimes answers
   // PROPERTY_ID_REQUESTED with no propertyId; there is no EB to look up.
   const c = parseClassified('{"event":"PROPERTY_ID_REQUESTED","propertyId":null,"reason":"neshto"}');
   assert.equal(c.event.type, 'PROPERTY_ID_REQUESTED');
   assert.equal(c.event.propertyId, undefined); // no number survived parsing
+});
+
+test('parseClassified: SEEN_PROPERTY is a valid event carrying the remembered details', () => {
+  const c = parseClassified('{"event":"SEEN_PROPERTY","location":"Карпош","budget":"70000"}');
+  assert.equal(c.event.type, 'SEEN_PROPERTY');
+  assert.equal(c.event.location, 'Карпош');
+  assert.equal(c.event.budget, '70000');
 });

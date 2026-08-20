@@ -19,6 +19,17 @@ export interface Property {
   features?: string[];     // garaza, lift, greenje, dvor, parking, opremenost (per feed napomena)
   details?: string;        // opis
   gmaps?: string;
+  /** Approximate public location ("во близина на Градежен Факултет") — the
+   *  resolver's answer, stamped onto the property before it reaches any reply
+   *  builder. The EXACT street must never be shown to the client. */
+  landmark?: string;
+  /** RANKED approximate-location list, resolved ONCE at ANA's import and stored
+   *  next to the property in Supabase (a `landmarks` JSONB column). Each entry
+   *  is a PUBLIC place with its distance from the address — the 100m…1000m
+   *  rings are just the distances, not separate lookups. Lina picks the
+   *  nearest VALID entry (rotating by EB hash for variety) and falls back to
+   *  the deterministic table when the field is empty. Never a street name. */
+  landmarks?: FeedLandmark[];
   url?: string;
   service?: Service;       // Продава -> buy, Издава -> rent
   landlordName?: string;
@@ -29,6 +40,36 @@ function num(v: unknown): number | undefined {
   if (v === undefined || v === null) return undefined;
   const n = Number(String(v).replace(/\s/g, ''));
   return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/** One entry of the feed's ranked landmark list (Supabase `landmarks` JSONB). */
+export interface FeedLandmark {
+  landmark: string;
+  type?: string;
+  distance_m?: number;
+  maps_url?: string;
+}
+
+/** Parse the feed's `landmarks` column defensively — garbage rows are dropped,
+ *  not thrown. The street-name guard runs later at pick time (defense in
+ *  depth); here we only keep well-shaped entries. */
+function parseFeedLandmarks(v: unknown): FeedLandmark[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: FeedLandmark[] = [];
+  for (const e of v) {
+    if (!e || typeof e !== 'object') continue;
+    const o = e as Record<string, unknown>;
+    const name = str(o.landmark);
+    if (!name || name.length > 80) continue;
+    const d = Number(o.distance_m);
+    out.push({
+      landmark: name,
+      type: str(o.type) || undefined,
+      distance_m: Number.isFinite(d) && d >= 0 ? d : undefined,
+      maps_url: str(o.maps_url) || undefined,
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function str(v: unknown): string {
@@ -180,6 +221,7 @@ function mapRow(r: Record<string, unknown>): Property | null {
     features: featurePhrases(r),
     details: cleanMacedonian(str(r.opis)) || undefined,
     gmaps: str(r.gmaps) || undefined,
+    landmarks: parseFeedLandmarks(r.landmarks),
     url: str(r.url) || undefined,
     service: parseService(r.servis),
     raw: r,
@@ -204,6 +246,18 @@ const MK_LAT2CYR: Array<[string, string]> = [
   ['u', 'у'], ['f', 'ф'], ['h', 'х'], ['c', 'ц'], ['y', 'ј'],
 ];
 
+// Loose Latin→Cyrillic: "dj" → "џ" (Skopje informal Latin uses "dj" for both ѓ
+// and џ — "madjari" = Маџари, not Маѓари). Used alongside MK_LAT2CYR in
+// locKeys so both interpretations are tried.
+const MK_LAT2CYR_LOOSE: Array<[string, string]> = [
+  ['lj', 'љ'], ['nj', 'њ'], ['dj', 'џ'], ['gj', 'ѓ'], ['kj', 'ќ'],
+  ['zh', 'ж'], ['ch', 'ч'], ['dz', 'џ'], ['sh', 'ш'],
+  ['a', 'а'], ['b', 'б'], ['v', 'в'], ['g', 'г'], ['d', 'д'], ['e', 'е'],
+  ['z', 'з'], ['i', 'и'], ['j', 'ј'], ['k', 'к'], ['l', 'л'], ['m', 'м'],
+  ['n', 'н'], ['o', 'о'], ['p', 'п'], ['r', 'р'], ['s', 'с'], ['t', 'т'],
+  ['u', 'у'], ['f', 'ф'], ['h', 'х'], ['c', 'ц'], ['y', 'ј'],
+];
+
 const MK_CYR2LAT: Record<string, string> = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', ѓ: 'gj', е: 'e', ж: 'zh', з: 'z',
   ѕ: 'dz', и: 'i', ј: 'j', к: 'k', л: 'l', љ: 'lj', м: 'm', н: 'n', њ: 'nj',
@@ -219,15 +273,15 @@ const MK_LOOSE: Record<string, string> = {
   ц: 'c', ч: 'c', џ: 'dz', ш: 's',
 };
 
-function latToCyr(s: string): string {
+function latToCyr(s: string, table: Array<[string, string]> = MK_LAT2CYR): string {
   const low = s.toLowerCase();
   let out = '';
   let i = 0;
   while (i < low.length) {
     const pair = low.slice(i, i + 2);
-    const hit = MK_LAT2CYR.find(([k]) => k === pair);
+    const hit = table.find(([k]) => k === pair);
     if (hit) { out += hit[1]; i += 2; continue; }
-    const single = MK_LAT2CYR.find(([k]) => k === low[i]);
+    const single = table.find(([k]) => k === low[i]);
     out += single ? single[1] : low[i];
     i += 1;
   }
@@ -240,14 +294,110 @@ function cyrToLat(s: string, table: Record<string, string>): string {
   return out;
 }
 
+// Common Latin misspellings / Skopje typing confusions → canonical Cyrillic.
+// "u" vs "v" (у/в), "dj" vs "dz" (ѓ/џ), informal abbreviations.
+// Comprehensive Latin → Cyrillic aliases for ALL Skopje neighborhoods.
+// Covers: standard transliteration, informal variants, u/v confusion, dj/dz confusion,
+// short forms, common misspellings, and TYPED TYPOS (missing/extra/wrong letters).
+// Comprehensive Latin → Cyrillic aliases for ALL Skopje neighborhoods.
+// Covers: standard transliteration, informal variants, u/v confusion, dj/dz confusion,
+// short forms, common misspellings, and TYPED TYPOS (missing/extra/wrong letters).
+const LAT_ALIASES: Record<string, string> = {
+  'centar': 'центар', 'tsentar': 'центар', 'center': 'центар',
+  'cenar': 'центар', 'cntar': 'центар', 'cnetar': 'центар',
+  'cenatar': 'центар', 'sentar': 'центар', 'zentar': 'центар',
+  'karpos': 'карпош', 'karposh': 'карпош', 'karpossh': 'карпош',
+  'karpos III': 'карпош iii', 'karpos3': 'карпош iii', 'karpos ii': 'карпош ii',
+  'karps': 'карпош', 'karpoo': 'карпош', 'karpso': 'карпош',
+  'karposhe': 'карпош', 'krapos': 'карпош', 'karpossho': 'карпош',
+  'aerodrom': 'аеродром', 'aerodrom skopje': 'аеродром', 'aerdrom': 'аеродром',
+  'aerodr': 'аеродром', 'aerodromm': 'аеродром', 'aerodroom': 'аеродром',
+  'kisela voda': 'кисела вода', 'kisela': 'кисела вода', 'kisela-voda': 'кисела вода',
+  'kiselavoda': 'кисела вода', 'kisla voda': 'кисела вода', 'kisela vod': 'кисела вода',
+  'kissela': 'кисела вода', 'kisella': 'кисела вода', 'kapishtec': 'капиштец',
+  'kapistec': 'капиштец', 'kapishtets': 'капиштец', 'kapistets': 'капиштец',
+  'kapishtez': 'капиштец', 'kapistez': 'капиштец', 'kapishtezc': 'капиштец',
+  'kappishtec': 'капиштец', 'cair': 'чаир', 'chair': 'чаир',
+  'chayir': 'чаир', 'cahir': 'чаир', 'chayr': 'чаир',
+  'cairr': 'чаир', 'chayri': 'чаир', 'caeri': 'чаир',
+  'taftalidze': 'тафталиџе', 'taftalidje': 'тафталиџе', 'taftalidge': 'тафталиџе',
+  'taftaldze': 'тафталиџе', 'taftalide': 'тафталиџе', 'taftalizhe': 'тафталиџе',
+  'taftalidzhe': 'тафталиџе', 'madjari': 'маџари', 'madzhari': 'маџари',
+  'madzari': 'маџари', 'majiari': 'маџари', 'madari': 'маџари',
+  'madiari': 'маџари', 'madjri': 'маџари', 'majari': 'маџари',
+  'madjarii': 'маџари', 'mdjari': 'маџари', 'vlae': 'влае',
+  'vlae skopje': 'влае', 'vlaje': 'влае', 'vlajе': 'влае',
+  'vlaj': 'влае', 'vlaee': 'влае', 'novo lisice': 'ново лисиче',
+  'novo lisitche': 'ново лисиче', 'novo-lisice': 'ново лисиче', 'novo lisiche': 'ново лисиче',
+  'novo lissice': 'ново лисиче', 'lisice': 'лисиче', 'lisitche': 'лисиче',
+  'lisiche': 'лисиче', 'lissice': 'лисиче', 'lisicee': 'лисиче',
+  'vodno': 'водно', 'vodno skopje': 'водно', 'vodnoo': 'водно',
+  'vodnno': 'водно', 'kozle': 'козле', 'kozle skopje': 'козле',
+  'kozzle': 'козле', 'kozlee': 'козле', 'kozlе': 'козле',
+  'skopje sever': 'скопје север', 'skopje-sever': 'скопје север', 'sever': 'скопје север',
+  'skopje severr': 'скопје север', 'skopjee sever': 'скопје север', 'skopje svr': 'скопје север',
+  'debar maalo': 'дебар маало', 'debar-maalo': 'дебар маало', 'debar': 'дебар маало',
+  'debaar': 'дебар маало', 'debar malo': 'дебар маало', 'debar maallo': 'дебар маало',
+  'debar maalо': 'дебар маало', 'debar maao': 'дебар маало', 'gazi baba': 'гази баба',
+  'gazi-baba': 'гази баба', 'gazii baba': 'гази баба', 'gazi babа': 'гази баба',
+  'gazibaba': 'гази баба', 'gazi babbа': 'гази баба', 'butel': 'бутел',
+  'butel skopje': 'бутел', 'buutel': 'бутел', 'butell': 'бутел',
+  'buttel': 'бутел', 'ilinden': 'илинден', 'ilindenn': 'илинден',
+  'ilindan': 'илинден', 'iliden': 'илинден', 'saraj': 'сарай',
+  'saray': 'сарай', 'sarrai': 'сарай', 'saraaj': 'сарай',
+  'saraji': 'сарай', 'djorce petrov': 'ѓорче петров', 'gorce petrov': 'ѓорче петров',
+  'dorce petrov': 'ѓорче петров', 'djorce': 'ѓорче петров', 'gorce': 'ѓорче петров',
+  'djorcepetrov': 'ѓорче петров', 'djorcee petrov': 'ѓорче петров', 'djorche petrov': 'ѓорче петров',
+  'gorche petrov': 'ѓорче петров', 'djorce petrovv': 'ѓорче петров', 'dordje petrov': 'ѓорче петров',
+  'dorce petrovv': 'ѓорче петров', 'djorce pertov': 'ѓорче петров', 'djorcee': 'ѓорче петров',
+  'gorche': 'ѓорче петров', 'dorce': 'ѓорче петров', 'autokomanda': 'автокоманда',
+  'autokomnada': 'автокоманда', 'avtokomanda': 'автокоманда', 'auto komanda': 'автокоманда',
+  'avtokmmanda': 'автокоманда', 'avtokomannda': 'автокоманда', 'autokomanada': 'автокоманда',
+  'avtokmanda': 'автокоманда', 'autokomandaa': 'автокоманда', 'avtokomandaa': 'автокоманда',
+  'auto-komanda': 'автокоманда', 'autokkomanda': 'автокоманда', 'crnice': 'црниче',
+  'crnise': 'црниче', 'crnishe': 'црниче', 'crnicee': 'црниче',
+  'crnnice': 'црниче', 'crnisee': 'црниче', 'crniche': 'црниче',
+  'crniice': 'црниче', 'radishani': 'радишани', 'radisani': 'радишани',
+  'radishanii': 'радишани', 'radishany': 'радишани', 'hrom': 'хром',
+  'hroom': 'хром', 'hromm': 'хром', 'hrom skopje': 'хром',
+  'zelezara': 'железара', 'zelezara skopje': 'железара', 'zelezarra': 'железара',
+  'zeleezara': 'железара', 'zelezaraa': 'железара', 'zelezzara': 'железара',
+  'shuto orizari': 'шуто оризари', 'shuto-orizari': 'шуто оризари', 'shuto': 'шуто оризари',
+  'shuto orizarii': 'шуто оризари', 'shuto orizarri': 'шуто оризари', 'shutoo orizari': 'шуто оризари',
+  'przhino': 'пржино', 'przino': 'пржино', 'przhno': 'пржино',
+  'przhinno': 'пржино', 'momin potok': 'момин поток', 'momin-potok': 'момин поток',
+  'momin potokk': 'момин поток', 'momin pootok': 'момин поток', 'mominn potok': 'момин поток',
+  'beg': 'бег', 'beg skopje': 'бег', 'beeg': 'бег',
+  'begg': 'бег', 'zlokukani': 'злокуќани', 'zlokutcani': 'злокуќани',
+  'zlokuqani': 'злокуќани', 'vizbegovo': 'визбегово', 'vizbeg': 'визбегово',
+  'vizbeegovo': 'визбегово', 'vizbeggovo': 'визбегово', 'dracevo': 'драчево',
+  'drachevo': 'драчево', 'drachevо': 'драчево', 'draceevо': 'драчево',
+  'dracevо': 'драчево', 'drachevoo': 'драчево', 'dracevvo': 'драчево',
+  'dracevoo': 'драчево', 'singelik': 'сингелиќ', 'singelic': 'сингелиќ',
+  'singelik skopje': 'сингелиќ', 'singellik': 'сингелиќ', 'singelikk': 'сингелиќ',
+  'novo madjari': 'ново маџари', 'novo madzhari': 'ново маџари', 'novo-madjari': 'ново маџари',
+  'novo madari': 'ново маџари', 'novo madjri': 'ново маџари', 'novo madjarii': 'ново маџари',
+  'novo majari': 'ново маџари',
+};
+
 /** Canonical matching keys: raw + transliterations, lowercased, single-spaced. */
 function locKeys(s: string): Set<string> {
   const low = s.toLowerCase().trim().replace(/\s+/g, ' ');
   const keys = new Set<string>([low]);
   keys.add(cyrToLat(low, MK_CYR2LAT));   // "капиштец" -> "kapishtec"
   keys.add(cyrToLat(low, MK_LOOSE));     // "капиштец" -> "kapistec"
-  const fromLat = latToCyr(low);         // "centar" -> "центар"
+  const fromLat = latToCyr(low);              // "centar" -> "центар"
   if (fromLat !== low) keys.add(fromLat);
+  const fromLatLoose = latToCyr(low, MK_LAT2CYR_LOOSE); // "madjari" -> "маџари"
+  if (fromLatLoose !== low && fromLatLoose !== fromLat) keys.add(fromLatLoose);
+  // Explicit alias: "autokomanda" → "автокоманда" (u/v confusion)
+  // Check both the full string AND individual words ("madjari ili autokomanda")
+  const alias = LAT_ALIASES[low];
+  if (alias) keys.add(alias);
+  for (const word of low.split(/\s+/)) {
+    const wAlias = LAT_ALIASES[word];
+    if (wAlias) keys.add(wAlias);
+  }
   return keys;
 }
 
@@ -263,8 +413,10 @@ export function locMatches(query: string, feedLoc: string): boolean {
       // neighborhood must still match a multi-word feed location. Only words
       // >= 5 chars participate (short words like "вода"/"влае" would collide;
       // short EXACT names already match via the containment check above).
-      const aw = a.split(/\s+/).filter(w => w.length >= 5);
-      const bw = b.split(/\s+/).filter(w => w.length >= 5);
+      // Split on punctuation too: "centar, kisela voda" must yield the word
+      // "centar" (a trailing comma used to break the match entirely).
+      const aw = a.split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 5);
+      const bw = b.split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 5);
       if (aw.some(w => bw.includes(w))) return true;
     }
   }
@@ -306,6 +458,23 @@ function parseBudgetMax(s: string): number | undefined {
   }
   if (!nums.length) return undefined;
   return Math.max(...nums);
+}
+
+// The most-sought neighborhoods, in the order the agency presents city-wide
+// ("било каде") searches: Центар, Капиштец, Карпош, Аеродром, Кисела Вода,
+// Влае, Ѓорче Петров — then everything else. Matched against each property's
+// feed location ("Карпош III" → Карпош) with the same containment-aware
+// matcher as the search.
+export const NEIGHBORHOOD_POPULARITY = [
+  'Центар', 'Капиштец', 'Карпош', 'Аеродром', 'Кисела Вода', 'Влае', 'Ѓорче Петров',
+];
+
+function popularityRank(loc: string | undefined): number {
+  if (!loc) return NEIGHBORHOOD_POPULARITY.length;
+  for (let i = 0; i < NEIGHBORHOOD_POPULARITY.length; i++) {
+    if (locMatches(NEIGHBORHOOD_POPULARITY[i], loc)) return i;
+  }
+  return NEIGHBORHOOD_POPULARITY.length;
 }
 
 export class PropertyService {
@@ -389,18 +558,53 @@ export class PropertyService {
   }
 
   /**
-   * Ordered alternative candidates: requested location FIRST, then the rest of
-   * the city; within each group by price-proximity to the budget (cheapest
-   * first when no budget). Excludes already-shown EBs so every batch is new.
+   * Closest matches for a SEEN property the client can't number: ranked by
+   * how close each property is to what the client REMEMBERS (населба, цена,
+   * квадрати) — approximate, never hard filters ("околу 70.000 евра" must not
+   * exclude a 72.000 match). Same-area first, then price distance, then sqm
+   * distance; within ties by EB. Excludes already-shown EBs so every round
+   * presents fresh candidates.
+   */
+  async closestMatches(opts: {
+    location?: string; price?: number; sqm?: number;
+    business?: boolean; house?: boolean; service?: Service; exclude?: number[];
+  }): Promise<Property[]> {
+    const all = await this.getAll();
+    const exclude = new Set(opts.exclude ?? []);
+    const inLoc = (p: Property): boolean =>
+      opts.location ? locMatches(opts.location, p.location ?? '') : true;
+    const priceDist = (p: Property): number =>
+      opts.price !== undefined && p.price !== undefined ? Math.abs(p.price - opts.price) : 0;
+    const sqmDist = (p: Property): number =>
+      opts.sqm !== undefined && p.sqm !== undefined ? Math.abs(p.sqm - opts.sqm) : 0;
+    return all
+      .filter(p => !exclude.has(p.eb))
+      .filter(p => !opts.service || !p.service || p.service === opts.service)
+      .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
+      .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
+      .map(p => ({
+        p,
+        score: (inLoc(p) ? 0 : 1_000_000) + priceDist(p) + sqmDist(p) * 500, // м² → €-ish weight
+      }))
+      .sort((a, b) => a.score - b.score || a.p.eb - b.p.eb)
+      .map(s => s.p);
+  }
+
+  /**
+   * Ordered alternative candidates: requested location FIRST, then within it by
+   * price-proximity to the budget (cheapest first when no budget). Excludes
+   * already-shown EBs so every batch is new.
    *
-   * AREA INTEGRITY: while the requested area still has ANY matches, the batch
-   * comes ONLY from that area (even if that means 1 property) — a "во Карпош?"
-   * request must never be answered with a Маџари property just to fill a second
-   * slot. Other areas appear only after the requested area is fully exhausted.
+   * AREA INTEGRITY: an area-naming request NEVER spills to other areas — the
+   * offers stay inside the selected area(s), and an area with nothing returns []
+   * so the funnel ASKS whether to look elsewhere before presenting anything
+   * else ("Ги исцрпивме… или да погледнеме во друга населба?"). A "во Карпош?"
+   * request is never answered with a Маџари property to fill a slot.
    */
   async candidates(opts: {
     location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean;
-    service?: Service; budget?: string; exclude?: number[];
+    service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
+    sortByPopularity?: boolean; // "било каде" — most popular neighborhoods first
   }): Promise<Property[]> {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
@@ -416,10 +620,25 @@ export class PropertyService {
       .filter(p => !opts.sqm || !p.sqm || p.sqm >= (opts.sqm as number))
       .filter(p => max === undefined || p.price === undefined || p.price <= max);
     const sameArea = base.filter(inLoc);
-    const pool = sameArea.length > 0 ? sameArea : base;
+    // No spill: with a location, the pool IS the area (possibly empty); without
+    // one, the whole city. The funnel decides what to do when the area is empty.
+    const pool = opts.location ? sameArea : base;
     return pool
-      .map(p => ({ p, inLoc: inLoc(p), dist: p.price !== undefined ? Math.abs(p.price - (max ?? 0)) : 0 }))
-      .sort((a, b) => (Number(b.inLoc) - Number(a.inLoc)) || (a.dist - b.dist) || (a.p.eb - b.p.eb))
+      .map(p => ({ p, inLoc: inLoc(p), dist: p.price !== undefined ? Math.abs(p.price - (max ?? 0)) : 0, rank: popularityRank(p.location) }))
+      // sortBySqm: "помало нешто" mid-discovery — SMALLEST м² first, going up
+      // (undefined-sqm rows last, then by price like the default).
+      // sortByPopularity: "било каде" — most popular neighborhoods FIRST
+      // (Центар, Капиштец, Карпош, Аеродром, Кисела Вода, Влае, Ѓорче Петров,
+      // then the rest), within each neighborhood by price.
+      .sort((a, b) => opts.sortBySqm
+        ? (Number(b.inLoc) - Number(a.inLoc))
+          || ((a.p.sqm ?? Infinity) - (b.p.sqm ?? Infinity))
+          || (a.dist - b.dist)
+          || (a.p.eb - b.p.eb)
+        : (Number(b.inLoc) - Number(a.inLoc))
+          || (opts.sortByPopularity ? (a.rank - b.rank) : 0)
+          || (a.dist - b.dist)
+          || (a.p.eb - b.p.eb))
       .map(s => s.p);
   }
 }

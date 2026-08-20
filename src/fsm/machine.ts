@@ -4,12 +4,12 @@
 export type Service = 'buy' | 'rent';
 
 export type State =
-  | 'idle' | 'intent' | 'discovery' | 'property_query' | 'presentation'
+  | 'idle' | 'intent' | 'discovery' | 'property_locate' | 'property_query' | 'presentation'
   | 'closing' | 'contact_collection' | 'visit_scheduling' | 'owner_checking'
   | 'time_confirm' | 'pending' | 'queued' | 'escalated' | 'terminated';
 
 export type EventType =
-  | 'INTENT_DECLARED' | 'PROPERTY_ID_REQUESTED' | 'DETAILS_PROVIDED'
+  | 'INTENT_DECLARED' | 'PROPERTY_ID_REQUESTED' | 'SEEN_PROPERTY' | 'DETAILS_PROVIDED'
   | 'SEARCH_REQUESTED' | 'INTERESTED' | 'REJECTED' | 'FEE_AGREED'
   | 'FEE_REFUSED' | 'VISIT_TIME_PROVIDED' | 'OWNER_OK' | 'OWNER_COUNTER'
   | 'OWNER_UNAVAILABLE' | 'TIME_ACCEPTED' | 'TIME_REJECTED'
@@ -25,6 +25,7 @@ export interface Event {
   business?: boolean;       // деловен простор / канцеларија / локал
   house?: boolean;          // куќа — a residential request that is NOT a стан
   budget?: string;
+  anywhere?: boolean;       // "било каде" — no location preference (satisfies location)
   propertyId?: number;      // = Евидентен број (EB)
   visitTime?: string;       // free-text time proposed by the client
   name?: string;
@@ -44,15 +45,19 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
   idle: {
     INTENT_DECLARED: 'discovery',
     PROPERTY_ID_REQUESTED: 'property_query',
+    SEEN_PROPERTY: 'property_locate',
     SEARCH_REQUESTED: 'discovery',
     DETAILS_PROVIDED: 'discovery',
+    REJECTED: 'discovery', // "не барам стан" -> pivot: ask what they DO want
     STAY: 'idle',
   },
   intent: {
     INTENT_DECLARED: 'discovery',
     PROPERTY_ID_REQUESTED: 'property_query',
+    SEEN_PROPERTY: 'property_locate',
     SEARCH_REQUESTED: 'discovery',
     DETAILS_PROVIDED: 'discovery',
+    REJECTED: 'discovery',
     STAY: 'intent',
   },
   // ESCALATE is legal from every conversational state: a client can ask for a
@@ -61,8 +66,25 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
     DETAILS_PROVIDED: 'discovery',
     SEARCH_REQUESTED: 'presentation',
     PROPERTY_ID_REQUESTED: 'property_query',
+    SEEN_PROPERTY: 'property_locate',
+    REJECTED: 'discovery', // denial of the current direction — pivot, don't re-ask
     ESCALATE: 'escalated',
     STAY: 'discovery',
+  },
+  // The client SAW a specific property (an ad, on the internet) but does NOT
+  // know its Евидентен број: Lina asks for the number first (known -> easy
+  // property_query lookup), otherwise collects identifying details (населба /
+  // цена / квадрати) and presents the CLOSEST matches from the DB so the
+  // client can pick the right one. INTERESTED on a presented match -> closing
+  // (the fee is disclosed exactly like a normal visit interest).
+  property_locate: {
+    PROPERTY_ID_REQUESTED: 'property_query', // the client now gives the number
+    DETAILS_PROVIDED: 'property_locate',     // collecting населба/цена/квадрати
+    SEARCH_REQUESTED: 'property_locate',
+    INTERESTED: 'closing',                   // picked one of the closest matches
+    REJECTED: 'property_locate',             // "не е тој" -> refine / next matches
+    ESCALATE: 'escalated',
+    STAY: 'property_locate',
   },
   // Rejections never restart discovery — they pull the NEXT batch of
   // alternatives (same area first, then other areas), always 2 at a time.
@@ -72,6 +94,7 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
     SEARCH_REQUESTED: 'presentation',  // "што има во X?" -> alternatives for X
     DETAILS_PROVIDED: 'presentation',  // "друго помало во X" -> alternatives for X
     PROPERTY_ID_REQUESTED: 'property_query',
+    SEEN_PROPERTY: 'property_locate',
     ESCALATE: 'escalated',
     STAY: 'property_query',
   },
@@ -79,6 +102,7 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
     INTERESTED: 'closing',
     REJECTED: 'presentation',          // next batch of 2 (until exhausted)
     PROPERTY_ID_REQUESTED: 'property_query',
+    SEEN_PROPERTY: 'property_locate',
     ESCALATE: 'escalated',
     STAY: 'presentation',
   },
@@ -128,6 +152,7 @@ export const LEGAL: Record<State, { fee: boolean; maxProps: number }> = {
   idle: { fee: false, maxProps: 0 },
   intent: { fee: false, maxProps: 0 },
   discovery: { fee: false, maxProps: 0 },
+  property_locate: { fee: false, maxProps: 2 }, // closest matches, like a presentation
   property_query: { fee: false, maxProps: 1 },
   presentation: { fee: false, maxProps: 2 },
   closing: { fee: true, maxProps: 1 },
@@ -156,7 +181,7 @@ export function maxProperties(s: State): number {
 }
 
 export function isValidEvent(t: string): t is EventType {
-  return ['INTENT_DECLARED','PROPERTY_ID_REQUESTED','DETAILS_PROVIDED','SEARCH_REQUESTED',
+  return ['INTENT_DECLARED','PROPERTY_ID_REQUESTED','SEEN_PROPERTY','DETAILS_PROVIDED','SEARCH_REQUESTED',
           'INTERESTED','REJECTED','FEE_AGREED','FEE_REFUSED','VISIT_TIME_PROVIDED',
           'OWNER_OK','OWNER_COUNTER','OWNER_UNAVAILABLE','TIME_ACCEPTED','TIME_REJECTED',
           'CONTACT_PROVIDED','CONTACT_INCOMPLETE','ESCALATE','RESOLVED','TIMEOUT','RESET','STAY']

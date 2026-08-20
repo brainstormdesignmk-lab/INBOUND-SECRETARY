@@ -10,11 +10,14 @@ export interface SlotData {
   business?: boolean;           // commercial property intent
   house?: boolean;              // куќа — a residential request that is NOT a стан
   budget?: string;
+  anywhere?: boolean;           // "било каде" — no location preference (satisfies location)
   propertyId?: number;          // EB of the property currently discussed
   interestedPropertyId?: number;
   presentedIds?: number[];      // ALL EBs shown so far (excluded from later batches)
   currentBatch?: number[];      // EBs in the CURRENT presentation batch
   alternativesExhausted?: boolean;
+  areaExhausted?: boolean;      // the selected area(s) are drained and Lina ASKED
+                                // whether to widen — agreement releases the lock
   name?: string;
   phone?: string;
   viewingFeeAgreed?: boolean;
@@ -23,6 +26,12 @@ export interface SlotData {
   ownerTime?: string;           // owner's counter-proposal (from OwnerAgent)
   feeRejections?: number;       // 1..3; 3 = graceful close + customer queued
   negotiationCount?: number;    // owner counter-proposals so far (cap)
+  // Question-prefix counters ("once per funnel"): discoveryAsks counts criteria
+  // questions actually asked, contactAsks counts contact asks sent. The first of
+  // each carries its prefix (FIRST_QUESTIONS_PREFIX / LAST_INFO_PREFIX); retries
+  // and later questions stay plain so the flourishes are never repeated.
+  discoveryAsks?: number;
+  contactAsks?: number;
   agentName?: string;           // assigned by AgentDispatcher (code, never LLM)
   agentPhone?: string;
   soldEb?: number;              // property known to be gone — excluded from alternatives
@@ -95,8 +104,14 @@ export function pushHistory(s: ChatSession, msg: HistoryMsg, max: number): void 
   if (s.history.length > max) s.history = s.history.slice(s.history.length - max);
 }
 
+/** Assistant texts already sent in this session — the response bank uses these
+ *  to avoid repeating a sentence that was just used. */
+export function assistantTexts(s: ChatSession): string[] {
+  return s.history.filter(m => m.role === 'assistant').map(m => m.text);
+}
+
 export function buildGreeting(s: ChatSession): string {
-  return randomGreeting();
+  return randomGreeting(assistantTexts(s));
 }
 
 export class SessionStore {

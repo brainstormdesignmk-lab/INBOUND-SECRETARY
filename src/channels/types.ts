@@ -1,6 +1,8 @@
 export interface Channel {
   name: string;
-  send(chatId: string, text: string): Promise<void>;
+  /** source: which brain produced the reply ('gemini:1', 'groq',
+   *  'deterministic', 'fallback') — real adapters ignore it, the TUI shows it. */
+  send(chatId: string, text: string, source?: string): Promise<void>;
 }
 
 export class ChannelRegistry {
@@ -14,12 +16,12 @@ export class ChannelRegistry {
     return this.channels.get(name);
   }
 
-  async send(name: string, chatId: string, text: string): Promise<void> {
+  async send(name: string, chatId: string, text: string, source?: string): Promise<void> {
     const ch = this.channels.get(name);
     if (!ch) {
       console.warn(`[channels] unknown channel "${name}" — message dropped`);
       return;
     }
-    await ch.send(chatId, text);
+    await ch.send(chatId, text, source);
   }
 }

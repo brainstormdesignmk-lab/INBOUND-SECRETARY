@@ -14,17 +14,19 @@ import { RotatingClient } from './rotatingClient';
  * - 'groq'             → Groq only
  */
 export function createLlm(cfg: AppConfig): LlmClient {
-  const groq = new GroqClient(cfg.groqApiKey, cfg.groqModel, cfg.groqModelClassify);
+  const groq = new GroqClient(cfg.groqApiKey, cfg.groqModel, cfg.groqModelClassify, 'groq');
 
+  // Each Gemini key is labeled 'gemini:N' so the TUI can show WHICH key served
+  // every reply (each project key has its own quota — useful for measuring).
   const pool: LlmClient[] = [];
   if (cfg.geminiApiKey) {
-    pool.push(new GeminiClient(cfg.geminiApiKey, cfg.geminiModel, cfg.geminiModelClassify));
+    pool.push(new GeminiClient(cfg.geminiApiKey, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:1'));
   }
   if (cfg.geminiApiKey2) {
-    pool.push(new GeminiClient(cfg.geminiApiKey2, cfg.geminiModel, cfg.geminiModelClassify));
+    pool.push(new GeminiClient(cfg.geminiApiKey2, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:2'));
   }
   if (cfg.geminiApiKey3) {
-    pool.push(new GeminiClient(cfg.geminiApiKey3, cfg.geminiModel, cfg.geminiModelClassify));
+    pool.push(new GeminiClient(cfg.geminiApiKey3, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:3'));
   }
   const primary = pool.length > 1 ? new RotatingClient(pool) : (pool[0] ?? null);
 

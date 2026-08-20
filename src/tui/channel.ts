@@ -19,7 +19,7 @@ export class TuiChannel implements Channel {
   private pending: { chatId: string; resolve: () => void; timer: NodeJS.Timeout; until: number } | null = null;
 
   onTyping?: (chatId: string, remainingMs: number) => void;
-  onMessage?: (chatId: string, text: string) => void;
+  onMessage?: (chatId: string, text: string, source?: string) => void;
 
   constructor(private cfg: AppConfig) {}
 
@@ -28,7 +28,7 @@ export class TuiChannel implements Channel {
     return { chatId: this.pending.chatId, until: this.pending.until };
   }
 
-  async send(chatId: string, text: string): Promise<void> {
+  async send(chatId: string, text: string, source?: string): Promise<void> {
     await this.bucket.take(1); // antiban: <=9 sends/sec even with parallel chats
     const delay = rand(this.cfg.minDelayMs, this.cfg.maxDelayMs);
     this.onTyping?.(chatId, delay);
@@ -42,7 +42,7 @@ export class TuiChannel implements Channel {
     });
     this.onTyping?.(chatId, 0);
     this.sends += 1;
-    this.onMessage?.(chatId, text);
+    this.onMessage?.(chatId, text, source);
   }
 
   bypass(): boolean {

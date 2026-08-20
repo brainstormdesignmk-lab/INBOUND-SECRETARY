@@ -11,14 +11,21 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { InboundHandler } from '../handlers/inbound';
 import { ChannelRegistry } from '../channels/types';
+import { LlmClient } from '../llm/types';
 import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
 import { buildLayout, esc, hhmm } from './layout';
 import { detectOwnerVerdict } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
+import { LandmarkService } from '../geo/landmarks';
+import { VisitScheduler } from '../visits/scheduler';
+import { EventStore } from '../store/events';
+import { OwnerStore } from '../store/owners';
 
 type Role = 'user' | 'assistant' | 'system' | 'error';
-interface Msg { role: Role; text: string; at: number; }
+// source = which brain produced the reply ('gemini:1..3', 'groq',
+// 'deterministic', 'fallback') — shown as a tag next to ЛИНА in the chat.
+interface Msg { role: Role; text: string; at: number; source?: string; }
 interface Lead {
   chatId: string;
   name: string;
@@ -28,10 +35,23 @@ interface Lead {
   outbound: number;
   msgs: Msg[];
   ownerMsgs: Msg[]; // the owner's conversation with Lina (ping-pong panel)
+  brain: string; // source of the LATEST ЛИНА reply — which brain answered last
 }
 type Mode = 'chat' | 'naming' | 'menu';
 
-const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/owner <eb> ok|sold|rented|counter <time>] одговори на сопственик · [/agents] квоти · [/customers] редица · [C-q] излез`;
+const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [C-q] излез`;
+
+// The brain chooser: 'hybrid' = Gemini pool -> Groq fallback (production),
+// 'gemini' = the 3 rotating keys only, 'groq' = Groq only, 'free' = always-throw
+// client so the classifier/responder run their deterministic/fallback paths
+// (the exact LLM-free state the tests exercise with FailingLlm).
+type BrainMode = 'hybrid' | 'gemini' | 'groq' | 'free';
+
+class NoLlm implements LlmClient {
+  async complete(): Promise<string> {
+    throw new Error('LLM-free mode');
+  }
+}
 
 export class TuiApp {
   private box: any;
@@ -56,7 +76,7 @@ export class TuiApp {
   private typing: { chatId: string; until: number } | null = null;
   private ownerTyping: {
     chatId: string; until: number;
-    eb: number; action: 'ok' | 'sold' | 'rented' | 'counter'; ownerTime?: string;
+    eb: number; action: 'ok' | 'sold' | 'rented' | 'counter' | 'price'; ownerTime?: string;
   } | null = null;
   private ownerTimer: NodeJS.Timeout | null = null;
   // Client "typing" window — mirror of the owner's: after the client sends a
@@ -70,19 +90,37 @@ export class TuiApp {
   private quitting = false;
 
   private cfg: AppConfig;
+  private brainSummary = '';
+  private brains: Partial<Record<BrainMode, LlmClient>> = {};
+  private brainMode: BrainMode = 'hybrid';
+  private classifier: Classifier;
+  private responder: Responder;
+  private visits?: VisitScheduler;
 
   constructor(cfg: AppConfig) {
     this.cfg = cfg;
+    // All four brains are built once and swapped via /brain — switching must
+    // never re-read the env or rebuild the clients (Gemini cooldowns survive
+    // the swap because the same instances stay alive).
+    this.brains.hybrid = createLlm(cfg);
+    this.brains.free = new NoLlm();
+    if (cfg.geminiApiKey || cfg.geminiApiKey2 || cfg.geminiApiKey3) {
+      this.brains.gemini = createLlm({ ...cfg, llmProvider: 'gemini' });
+    }
+    if (cfg.groqApiKey) {
+      this.brains.groq = createLlm({ ...cfg, llmProvider: 'groq' });
+    }
+    const start = this.brains.hybrid!;
+    this.brainSummary = `мозок: hybrid`;
     this.db = new Db('data/tui.db'); // separate DB — never pollutes production counters
     this.sessions = new SessionStore(this.db);
     const appointments = new AppointmentStore(this.db);
     const escalations = new EscalationStore(this.db);
     const meta = new MetaStore(this.db);
 
-    const llm = createLlm(cfg);
     const propertyService = new PropertyService(cfg.propertyDataUrl); // REAL Supabase feed
-    const classifier = new Classifier(llm, cfg, propertyService);
-    const responder = new Responder(llm, cfg);
+    this.classifier = new Classifier(start, cfg, propertyService);
+    this.responder = new Responder(start, cfg);
 
     this.channel = new TuiChannel(cfg);
     this.channel.onTyping = (chatId, ms) => {
@@ -90,17 +128,52 @@ export class TuiApp {
       this.renderStatus();
       this.box.screen.render();
     };
-    this.channel.onMessage = (chatId, text) => {
-      this.appendMsg(chatId, { role: 'assistant', text, at: Date.now() });
+    this.channel.onMessage = (chatId, text, source) => {
+      this.appendMsg(chatId, { role: 'assistant', text, source, at: Date.now() });
     };
 
     const channels = new ChannelRegistry();
     channels.register(this.channel);
 
+    const events = new EventStore(this.db);
+    const owners = new OwnerStore(this.db);
+    const landmarks = new LandmarkService(this.db, {
+      googleKey: cfg.googleMapsApiKey,
+      onHermesRequest: ({ address, location }) => {
+        events.insert('landmark_requested', '', null, { address: address ?? null, location: location ?? null });
+      },
+    });
+    this.visits = new VisitScheduler({
+      db: this.db,
+      events,
+      owners,
+      properties: propertyService,
+      notifyClient: (chatId, text) => this.channel.send(chatId, text),
+      // Owner notifications land in the owner panel of that client (the TUI
+      // operator plays the owner) — production sends to the owner's phone.
+      notifyOwner: (chatId, _eb, text) => {
+        this.appendOwnerMsg(chatId, { role: 'system', text, at: Date.now() });
+        this.renderOwner();
+        this.box.screen.render();
+        return Promise.resolve();
+      },
+      notifyOperator: (text) => {
+        events.insert('operator_log', '', null, { text });
+        console.log(text);
+        const lead = this.activeLead();
+        if (lead) {
+          this.appendMsg(lead.chatId, { role: 'system', text: `[лог] ${text}`, at: Date.now() });
+          this.renderAll();
+        }
+        return Promise.resolve();
+      },
+    });
+
     this.pipeline = new InboundHandler({
-      cfg, db: this.db, sessions: this.sessions, classifier, responder,
+      cfg, db: this.db, sessions: this.sessions, classifier: this.classifier, responder: this.responder,
       properties: propertyService,
       appointments, escalations, meta, channels,
+      landmarks, visits: this.visits,
     });
 
     // The owner ping-pong: when the client proposes a visit time, Lina asks the
@@ -131,6 +204,9 @@ export class TuiApp {
         screen.render();
       }
     }, 100);
+    // The visit protocol's timed turns (morning confirmation / location 2h
+    // before) fire from here too — every 30s, like production's 60s.
+    this.visits?.start(30_000);
 
     screen.render();
   }
@@ -272,6 +348,7 @@ export class TuiApp {
       state: '—', strikes: 0, outbound: 0,
       msgs: [{ role: 'system', text: `нов клиент: ${name} — чека прва порака од клиентот`, at: Date.now() }],
       ownerMsgs: [],
+      brain: '—',
     };
     this.leads.push(lead);
     this.selected = this.leads.length - 1;
@@ -281,7 +358,7 @@ export class TuiApp {
     this.renderAll();
   }
 
-  private sendInput(): void {
+  private async sendInput(): Promise<void> {
     const lead = this.activeLead();
     const text = this.inputBuf.trim();
     if (!lead || !text) return;
@@ -299,15 +376,55 @@ export class TuiApp {
       this.renderAll();
       return;
     }
+    // --- brain chooser: swap which LLM (or none) answers ---
+    const brainMatch = text.match(/^\/brain(?:\s+(hybrid|gemini|groq|free))?$/i);
+    if (brainMatch) {
+      const mode = (brainMatch[1] ?? '').toLowerCase() as BrainMode;
+      if (!mode) {
+        const available = (['hybrid', 'gemini', 'groq', 'free'] as BrainMode[])
+          .filter(m => this.brains[m]).join(' / ');
+        this.appendMsg(lead.chatId, {
+          role: 'system',
+          text: `мозок: ${this.brainMode} · достапни: ${available}`,
+          at: Date.now(),
+        });
+        this.renderAll();
+        return;
+      }
+      const client = this.brains[mode];
+      if (!client) {
+        this.appendMsg(lead.chatId, {
+          role: 'system',
+          text: `мозок: ${mode} — нема конфигуриран клуч во ~/.lina/lina.env (останува: ${this.brainMode})`,
+          at: Date.now(),
+        });
+        this.renderAll();
+        return;
+      }
+      this.brainMode = mode;
+      this.classifier.setLlm(client);
+      this.responder.setLlm(client);
+      this.brainSummary = `мозок: ${mode}`;
+      const label = mode === 'free'
+        ? 'без LLM — се одговара детерминистички'
+        : mode === 'hybrid' ? 'gemini → groq' : mode;
+      this.appendMsg(lead.chatId, {
+        role: 'system',
+        text: `мозок: ${mode} (${label}) — префрлен. Следната порака ја одговара новиот мозок.`,
+        at: Date.now(),
+      });
+      this.renderAll();
+      return;
+    }
     // --- v3 owner sim commands ---
-    const ownerMatch = text.match(/^\/owner\s+(\d+)\s+(ok|sold|rented|counter)(?:\s+(.+))?$/i);
+    const ownerMatch = text.match(/^\/owner\s+(\d+)\s+(ok|sold|rented|counter|price)(?:\s+(.+))?$/i);
     if (ownerMatch) {
       const eb = parseInt(ownerMatch[1], 10);
-      const action = ownerMatch[2].toLowerCase() as 'ok' | 'sold' | 'rented' | 'counter';
+      const action = ownerMatch[2].toLowerCase() as 'ok' | 'sold' | 'rented' | 'counter' | 'price';
       const ownerTime = ownerMatch[3] ?? undefined;
       const agent = this.pipeline.ownerAgent as unknown as {
         pendingEb?: (chatId: string) => number | null;
-        simulate?: (chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter', ownerTime?: string) => boolean;
+        simulate?: (chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string) => boolean;
       };
       const pending = agent.pendingEb?.(lead.chatId) ?? null;
       if (pending !== eb) {
@@ -361,6 +478,28 @@ export class TuiApp {
         `${c.name || '(без име)'} · ${c.phone || '(без тел)'} · ${c.service || '?'} · ${c.location || '?'} · EB ${c.refusedEb ?? '-'} · ${c.reason}`
       ).join('\n');
       this.appendMsg(lead.chatId, { role: 'system', text: `РЕДИЦА КЛИЕНТИ:\n${rows || '(празно)'}`, at: Date.now() });
+      this.renderAll();
+      return;
+    }
+    if (text === '/visits') {
+      const rows = this.pipeline.appointments.listAll()
+        .filter(a => a.status === 'finalized')
+        .map(a => `#${a.id} EB ${a.propertyId} · ${a.time ?? '?'} · ${a.clientName} (${a.clientPhone})`).join('\n');
+      this.appendMsg(lead.chatId, { role: 'system', text: `ЗАКАЖАНИ ПОСЕТИ:\n${rows || '(нема)'}`, at: Date.now() });
+      this.renderAll();
+      return;
+    }
+    const visitCmd = text.match(/^\/visit\s+(\d+)\s+(confirm|location)$/);
+    if (visitCmd && this.visits) {
+      const id = Number(visitCmd[1]);
+      const turn = visitCmd[2] as 'confirm' | 'location';
+      const fired = await this.visits.forceTurn(id, turn);
+      this.appendMsg(lead.chatId, {
+        role: 'system',
+        text: fired ? `[протокол] термин "${turn}" за посета #${id} е испратен (сопственик + клиент + лог).`
+          : `[протокол] посета #${id}: термин "${turn}" не може да се испали (веќе испратен, нема термин или нема посета).`,
+        at: Date.now(),
+      });
       this.renderAll();
       return;
     }
@@ -483,7 +622,7 @@ export class TuiApp {
     if (this.ownerTimer) { clearTimeout(this.ownerTimer); this.ownerTimer = null; }
     this.ownerTyping = null;
     const agent = this.pipeline.ownerAgent as unknown as {
-      simulate?: (chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter', ownerTime?: string) => boolean;
+      simulate?: (chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string) => boolean;
     };
     agent.simulate?.(ot.chatId, ot.eb, ot.action, ot.ownerTime);
     this.renderStatus();
@@ -494,7 +633,18 @@ export class TuiApp {
     const lead = this.leads.find(l => l.chatId === chatId);
     if (!lead) return;
     lead.msgs.push(msg);
+    if (msg.role === 'assistant' && msg.source) lead.brain = msg.source;
     this.renderChat();
+  }
+
+  /** Color-coded tag for the brain that produced a ЛИНА reply. */
+  private srcTag(src?: string): string {
+    if (!src) return '';
+    if (src.startsWith('gemini')) return ` {green-fg}[${src}]{/green-fg}`;
+    if (src === 'groq') return ` {cyan-fg}[${src}]{/cyan-fg}`;
+    if (src === 'deterministic') return ` {yellow-fg}[без LLM]{/yellow-fg}`;
+    if (src === 'fallback') return ` {red-fg}[fallback]{/red-fg}`;
+    return ` {gray-fg}[${src}]{/gray-fg}`;
   }
 
   private refreshLeadState(chatId: string): void {
@@ -559,7 +709,7 @@ export class TuiApp {
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
     const banner = this.banner ? ` · ${this.banner}` : '';
     this.box.topBar.setContent(
-      ` METROPOLIS · ЛИНА · TUI   ${time}   клиенти: ${this.leads.length}   активен: ${lead ? lead.name : '—'}   испратено: ${this.channel.sends}${banner}`
+      ` METROPOLIS · ЛИНА · TUI   ${time}   клиенти: ${this.leads.length}   активен: ${lead ? lead.name : '—'}   испратено: ${this.channel.sends}   ${this.brainSummary}${banner}`
     );
   }
 
@@ -573,7 +723,7 @@ export class TuiApp {
       const sel = i === this.selected;
       const busyMark = this.busy.has(l.chatId) ? ' …' : '';
       const strikes = l.strikes > 0 ? ` ⚑${l.strikes}` : '';
-      const row = `${sel ? '▸' : ' '} ${l.name}${busyMark}\n   ${l.chatId} · ${l.state}${strikes} · ${l.outbound}/100`;
+      const row = `${sel ? '▸' : ' '} ${l.name}${busyMark}\n   ${l.chatId} · ${l.state}${strikes} · ${l.outbound}/100 · мозок: ${l.brain}`;
       return sel ? `{inverse}${esc(row)}{/inverse}` : esc(row);
     });
     leadsBox.setContent(lines.join('\n') + '\n');
@@ -593,7 +743,7 @@ export class TuiApp {
         case 'user':
           return `{cyan-fg}[${t}] ${esc(m.text)}{/cyan-fg}`;
         case 'assistant':
-          return `[${t}] {white-fg}ЛИНА:{/white-fg} ${esc(m.text)}`;
+          return `[${t}] {white-fg}ЛИНА{/white-fg}${this.srcTag(m.source)}: ${esc(m.text)}`;
         case 'system':
           return `{yellow-fg}[${t}] — ${esc(m.text)} —{/yellow-fg}`;
         case 'error':
@@ -674,7 +824,8 @@ export class TuiApp {
       s += '{white-bg}{black-fg} ▲ нови пораки — PgDn за долу {/black-fg}{/white-bg} · ';
     }
     s += 'antiban: 9/s бакет · 100/час по клиент';
-    s += ' · [Space] нов клиент · [↑/↓] префрли · [Enter] испрати/bypass · [F2] брз почеток · [F3] сопственик · [PgUp/PgDn] скрол · [/reset] · [/owner] · [C-q] излез';
+    s += ` · мозок: ${this.brainMode}`;
+    s += ' · [Space] нов клиент · [↑/↓] префрли · [Enter] испрати/bypass · [F2] брз почеток · [F3] сопственик · [PgUp/PgDn] скрол · [/reset] · [/brain] · [/owner] · [C-q] излез';
     statusBar.setContent(s);
   }
 

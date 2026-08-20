@@ -8,6 +8,10 @@ export interface OwnerVerdict {
   status: 'ok' | 'counter' | 'gone';
   ownerTime?: string; // counter-proposal, e.g. 'Петок 11.06.2026 во 18:30'
   note?: string;
+  /** New price the owner dictates (EUR) — the price can change, the owner is
+   *  the source of truth. The handler stores it so Hermes corrects the public
+   *  app (Lovable/Cloudflare) and relays the change to the client. */
+  price?: number;
 }
 
 export interface OwnerAgent {
@@ -56,13 +60,33 @@ export class DeferredOwnerAgent implements OwnerAgent {
   readonly name = 'deferred';
   private pending = new Map<string, { eb: number; resolve: (v: OwnerVerdict) => void }>();
 
-  constructor(private owners: OwnerStore, private events: EventStore, private timeoutMs: number) {}
+  constructor(private owners: OwnerStore, private events: EventStore, private timeoutMs: number, private pollMs = 2000) {}
 
   check(chatId: string, eb: number, proposedTime: string): Promise<OwnerVerdict> {
     this.events.insert('owner_check_requested', chatId, eb, { proposedTime });
     return new Promise<OwnerVerdict>(resolve => {
       this.pending.set(chatId, { eb, resolve });
+      // Cross-process: Hermes (machine B) answers through the /hermes/v1 API,
+      // which writes an owner_check_result event on the shared bus. Poll the
+      // bus so the answer resolves from ANY process holding this check — the
+      // events table, not the process memory, is the real bus.
+      const poll = setInterval(() => {
+        const p = this.pending.get(chatId);
+        if (!p || p.eb !== eb) {
+          clearInterval(poll);
+          return;
+        }
+        const hit = this.events.listPending('owner_check_result')
+          .find(r => r.chatId === chatId && r.eb === eb);
+        if (!hit) return;
+        clearInterval(poll);
+        this.pending.delete(chatId);
+        this.events.resolve(hit.id);
+        p.resolve(JSON.parse(hit.payload) as OwnerVerdict);
+      }, this.pollMs);
+      poll.unref();
       const timer = setTimeout(() => {
+        clearInterval(poll);
         if (this.pending.has(chatId)) {
           console.error(`[owner] no answer within ${this.timeoutMs}ms for EB ${eb} — check stays pending (event remains in bus)`);
         }
@@ -75,7 +99,7 @@ export class DeferredOwnerAgent implements OwnerAgent {
     return this.pending.get(chatId)?.eb ?? null;
   }
 
-  /** The answer arrives (TUI /owner today, Hermes phase 2). */
+  /** The answer arrives (TUI /owner today, Hermes phase 2 via the API). */
   answer(chatId: string, eb: number, verdict: OwnerVerdict): boolean {
     const p = this.pending.get(chatId);
     if (!p || p.eb !== eb) return false;
@@ -85,8 +109,10 @@ export class DeferredOwnerAgent implements OwnerAgent {
     return true;
   }
 
-  /** TUI debug: set the truth in the store AND resolve a pending check if one exists. */
-  simulate(chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter', ownerTime?: string): boolean {
+  /** TUI debug: set the truth in the store AND resolve a pending check if one exists.
+   *  action 'price' = the owner is available but dictates a NEW price (the arg
+   *  is the amount in EUR) — stored so Hermes corrects the public app. */
+  simulate(chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string): boolean {
     let verdict: OwnerVerdict;
     switch (action) {
       case 'ok':
@@ -101,8 +127,18 @@ export class DeferredOwnerAgent implements OwnerAgent {
         verdict = { status: 'gone', note: 'имотот е издаден' };
         this.owners.setStatus(eb, 'rented', 'издаден');
         break;
+      case 'price': {
+        const n = Number((ownerTime ?? '').replace(/[^\d]/g, ''));
+        verdict = { status: 'ok', ownerTime, price: Number.isFinite(n) && n > 0 ? n : undefined };
+        this.owners.setStatus(eb, 'available', ownerTime ? `нова цена: ${ownerTime}` : 'нова цена');
+        break;
+      }
       case 'counter':
-        verdict = { status: 'counter', ownerTime: ownerTime ?? 'по договор со сопственикот' };
+        // NO fabricated default: a counter without a time means the owner can't
+        // do the proposed time (no alternative) — the handler relays the honest
+        // refusal and asks the client for another time, never "по договор со
+        // сопственикот" (a fake term whose accept confirmed the REFUSED time).
+        verdict = { status: 'counter', ownerTime };
         this.owners.setStatus(eb, 'available', `counter: ${ownerTime ?? '?'}`);
         break;
     }

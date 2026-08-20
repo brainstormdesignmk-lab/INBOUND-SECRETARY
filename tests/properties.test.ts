@@ -36,9 +36,10 @@ test('candidates: a "во Карпош?" request never mixes in unrelated areas'
   // Карпош has exactly ONE buy property -> batch is that one alone, NO Маџари
   const batch = await ps.candidates({ location: 'Карпош', service: 'buy' });
   assert.deepEqual(batch.map(p => p.eb), [54]);
-  // only AFTER the area is exhausted does the spillover start (cheapest first)
+  // the area is DRAINED -> [] — the funnel asks about other areas FIRST
+  // ("Ги исцрпивме… или да погледнеме во друга населба?"), never spills
   const next = await ps.candidates({ location: 'Карпош', service: 'buy', exclude: [54] });
-  assert.deepEqual(next.slice(0, 2).map(p => p.eb), [63, 80]);
+  assert.deepEqual(next, []);
 });
 
 test('candidates: business searches match by size, never residential (and vice versa)', async () => {
@@ -53,13 +54,51 @@ test('candidates: business searches match by size, never residential (and vice v
   assert.deepEqual(centarBiz.map(p => p.eb), [59]);
 });
 
+test('candidates: sortBySqm orders SMALLEST м² first ("помало нешто")', async () => {
+  const ps = new FakeProps([
+    { eb: 71, id: 71, location: 'Центар', price: 450, service: 'rent', business: true, sqm: 90 },
+    { eb: 72, id: 72, location: 'Центар', price: 300, service: 'rent', business: true, sqm: 35 },
+    { eb: 73, id: 73, location: 'Центар', price: 350, service: 'rent', business: true, sqm: 60 },
+  ]);
+  const asc = await ps.candidates({ location: 'Центар', business: true, sortBySqm: true });
+  assert.deepEqual(asc.map(p => p.eb), [72, 73, 71]); // 35 -> 60 -> 90 м²
+  // the default sort keeps price-proximity behavior
+  const def = await ps.candidates({ location: 'Центар', business: true });
+  assert.deepEqual(def.map(p => p.eb), [72, 73, 71]); // prices 300, 350, 450 -> same order here
+  // budget still filters even with sortBySqm
+  const filtered = await ps.candidates({ location: 'Центар', business: true, budget: '400', sortBySqm: true });
+  assert.deepEqual(filtered.map(p => p.eb), [72, 73]); // EB 71 (450) over budget
+});
+
+test('candidates: sortByPopularity orders city-wide searches from the most popular neighborhoods', async () => {
+  const ps = new FakeProps([
+    { eb: 81, id: 81, location: 'Маџари', price: 150, service: 'rent' },      // rest
+    { eb: 63, id: 63, location: 'Центар', price: 200, service: 'rent' },      // rank 0
+    { eb: 78, id: 78, location: 'Капиштец', price: 180, service: 'rent' },    // rank 1
+    { eb: 54, id: 54, location: 'Карпош III', price: 230, service: 'rent' },  // rank 2
+    { eb: 53, id: 53, location: 'Аеродром', price: 220, service: 'rent' },    // rank 3
+    { eb: 80, id: 80, location: 'Кисела Вода', price: 210, service: 'rent' }, // rank 4
+    { eb: 55, id: 55, location: 'Влае', price: 190, service: 'rent' },        // rank 5
+    { eb: 48, id: 48, location: 'Карпош III', price: 250, service: 'rent' },  // rank 2 (after 54 by price)
+    { eb: 90, id: 90, location: 'Центар', price: 300, service: 'rent' },      // over budget 250
+  ]);
+  const ordered = await ps.candidates({ service: 'rent', budget: '250', sortByPopularity: true });
+  assert.deepEqual(ordered.map(p => p.eb),
+    [63, 78, 48, 54, 53, 80, 55, 81]); // Центар → Капиштец → Карпош (48 price-closest to 250) → Аеродром → Кисела Вода → Влае → rest
+  // without the flag the ordering stays price-distance-based (no surprise):
+  // closest to the 250 budget first (48=250, 54=230, 53=220, … 81=150)
+  const byPrice = await ps.candidates({ service: 'rent', budget: '250' });
+  assert.deepEqual(byPrice.map(p => p.eb), [48, 54, 53, 80, 63, 55, 78, 81]);
+});
+
 test('candidates: batches stay inside the requested area while it has matches', async () => {
   const ps = new FakeProps(ROWS);
   const b1 = await ps.candidates({ location: 'Кисела Вода' });
   assert.deepEqual(b1.map(p => p.eb), [80, 46]); // both Кисела Вода
-  // an area with zero matches spills immediately (cheapest first)
+  // an area with zero matches stays EMPTY — no silent spill; the funnel asks
+  // whether to look elsewhere before offering anything else
   const spill = await ps.candidates({ location: 'Дебар Маало' });
-  assert.deepEqual(spill.map(p => p.eb), [48, 56, 59, 63, 80, 43, 54, 46]);
+  assert.deepEqual(spill, []);
 });
 
 test('titleCase: feed ALL-CAPS addresses become proper Macedonian titles', () => {
