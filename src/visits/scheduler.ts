@@ -119,8 +119,16 @@ export class VisitScheduler {
       return;
     }
 
-    this.upsertTurn(input.appointmentId, 'confirm', this.confirmTime(visit).getTime(), false);
-    this.upsertTurn(input.appointmentId, 'location', visit.getTime() - 2 * 3600_000, false);
+    // Skip turns whose scheduled time is already past — firing a morning
+    // confirmation at 23:17 for a 17:00 visit is pointless and would flood
+    // the client with stale messages.
+    const confirmAt = this.confirmTime(visit).getTime();
+    const locationAt = visit.getTime() - 2 * 3600_000;
+    const skipGraceMs = 30 * 60_000; // 30-min grace: if the turn is ≤30 min past, still fire it (server just restarted)
+    this.upsertTurn(input.appointmentId, 'confirm', confirmAt,
+      confirmAt < this.now.getTime() - skipGraceMs);
+    this.upsertTurn(input.appointmentId, 'location', locationAt,
+      locationAt < this.now.getTime() - skipGraceMs);
   }
 
   /** Send one text to owner AND client; returns the per-party statuses. */
@@ -164,11 +172,24 @@ export class VisitScheduler {
     for (const row of rows) {
       const visit = this.visitFor(row);
       if (!visit) continue; // already marked skipped at arrange
+      // Defense-in-depth: never fire turns for a visit that already happened.
+      // The arrange() skip handles the normal case; this catches stale rows
+      // from before the fix or clock skew.
+      const visitEnded = visit.getTime() + 2 * 3600_000 < this.now.getTime();
       for (const turn of ['confirm', 'location'] as TurnName[]) {
         const t = this.lookupTurn(row.id, turn);
         if (!t || t.status !== 'pending') continue;
         const at = turn === 'confirm' ? this.confirmTime(visit) : new Date(visit.getTime() - 2 * 3600_000);
-        if (at.getTime() <= this.now.getTime()) due.push({ row, turn, visit });
+        if (at.getTime() <= this.now.getTime()) {
+          if (visitEnded) {
+            // Mark stale turns as skipped so they never fire again.
+            this.db.db.prepare(
+              `UPDATE visit_turns SET status = 'skipped' WHERE appointment_id = ? AND turn = ? AND status = 'pending'`
+            ).run(row.id, turn);
+            continue;
+          }
+          due.push({ row, turn, visit });
+        }
       }
     }
     due.sort((a, b) =>
