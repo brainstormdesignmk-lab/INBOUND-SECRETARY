@@ -325,16 +325,23 @@ test('fee resistance PIVOTS to other neighborhoods when alternatives exist ("zos
   await reachClosing(send);
   assert.ok(sent[1].includes('500 денари'), sent[1]); // the fee disclosure came first
 
-  // the exact live transcript question — instead of repeating the fee (or
-  // pushing the persuasion ladder), Lina OFFERS the remaining properties in
-  // OTHER neighborhoods: offer line + code-built cards + pick-closer. The
-  // current property's OWN area (Капиштец) is never re-offered.
+  // "зощо наплаќате?" is a WHY question, not a refusal — Lina answers
+  // with the agency rationale (fee.why) and stays at closing. The pivot to
+  // alternatives only fires for actual refusals (FEE_REFUSED), not questions.
   let s = await send('zosto naplatuvate poseta ?');
-  assert.equal(s.state, 'presentation');
+  assert.equal(s.state, 'closing', JSON.stringify(s)); // stays at closing — not a refusal
   assert.equal(s.slots.feeRejections, undefined, JSON.stringify(s.slots)); // a question, not a refusal
-  const pivot = sent[2];
+  const why = sent[2];
+  assert.ok(/(?:филтер|филтрираме|препознава|издвојуваме|селекци)/iu.test(why), why); // the filter rationale
+  assert.ok(!why.includes('500 денари'), why); // never a disclosure repeat
+  assert.ok(!/Евидентен број/.test(why), why); // no property cards in a why-answer
+
+  // NOW a genuine refusal — the pivot fires (alternatives exist in other areas)
+  s = await send('не сакам да платам');
+  assert.equal(s.state, 'presentation'); // pivoted
+  const pivot = sent[3];
   assert.ok(PIVOT_OFFER.test(pivot), pivot); // the other-neighborhoods offer
-  assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(pivot), pivot); // price-closest alternatives (Центар/Влае)
+  assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(pivot), pivot); // price-closest alternatives
   assert.ok(!/(?:Евидентен број 78)/.test(pivot), pivot); // the current property is NOT re-offered
   assert.ok(!/Капиштец/.test(pivot), pivot); // its neighborhood is NOT re-offered
   assert.ok(!pivot.includes('500 денари'), pivot); // never a fee disclosure repeat

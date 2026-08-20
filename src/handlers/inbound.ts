@@ -518,26 +518,29 @@ export class InboundHandler {
       const n = session.slots.contactAsks ?? 0;
       session.slots.contactAsks = n + 1;
       reply = (n === 0 ? `${LAST_INFO_PREFIX} ` : '') + buildContactAsk(session.slots, assistantTexts(session));
-    } else if ((next === 'closing' || detectFeeWhy(text))
-        && (ev.type === 'FEE_REFUSED' || detectFeeWhy(text))) {
-      // Fee-resistance pivot ("зошто наплаќате посета?", "никoj не го прави
-      // тоа", "не сакам да платам"): instead of pushing the fee on a client
-      // who questions it, Lina OFFERS the remaining properties in OTHER
-      // neighborhoods — a bank-backed offer line (fee.pivot.neighborhood,
-      // Gemini variants) followed by the code-built cards and the pick-closer,
-      // so the alternatives are REAL and never LLM-invented. Only when nothing
-      // else is available ("if available") does she stay at the fee question:
-      // the filter rationale (fee.why) for why-questions, the persuasion
-      // ladder for refusals. The funnel moves to presentation so the client
-      // can reject / pick the alternatives normally.
+    } else if (detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)) {
+      // "Зошто наплаќате?" / "Никој не наплаќа за посета" / "Како тоа да платам?"
+      // — the client QUESTIONS the fee, they don't REFUSE it. Always answer
+      // with the agency rationale (fee.why) and stay at closing. The pivot
+      // to alternatives is only for actual fee REFUSALS (FEE_REFUSED below),
+      // not for why-questions. Answering WHY first, then re-asking the fee,
+      // lets the client make an informed decision.
+      reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
+    } else if ((next === 'closing')
+        && ev.type === 'FEE_REFUSED') {
+      // Fee RESISTANCE pivot ("не сакам да платам", "никjој не го прави тоа"):
+      // instead of pushing the fee on a client who refuses it, Lina OFFERS
+      // the remaining properties in OTHER neighborhoods — a bank-backed offer
+      // line (fee.pivot.neighborhood) followed by the code-built cards and
+      // the pick-closer, so the alternatives are REAL and never LLM-invented.
+      // Only when nothing else is available does she stay at the fee question:
+      // the persuasion ladder for refusals. The funnel moves to presentation
+      // so the client can reject / pick the alternatives normally.
       const cur = props[0];
       const shown = [...(session.slots.presentedIds ?? [])];
       if (cur) shown.push(cur.id);
       if (session.slots.soldEb) shown.push(session.slots.soldEb);
       const all = await this.deps.properties.candidates({
-        // Same service as the resisted property: a client interested in a BUY
-        // property is never offered rent alternatives (an EB lookup may never
-        // have filled slots.service — the property's own service is the truth).
         service: session.slots.service ?? cur?.service,
         business: session.slots.business,
         house: session.slots.house,
@@ -546,8 +549,6 @@ export class InboundHandler {
         budget: session.slots.budget,
         exclude: shown,
       });
-      // DIFFERENT neighbourhoods: the current property's own area is never
-      // re-offered — only other neighborhoods count as alternatives.
       const curLoc = cur?.location;
       const pool = curLoc
         ? all.filter(p => !locMatches(curLoc, p.location ?? ''))
@@ -557,20 +558,14 @@ export class InboundHandler {
         session.slots.presentedIds = [...shown, ...batch.map(p => p.id)];
         session.slots.currentBatch = batch.map(p => p.id);
         session.slots.alternativesExhausted = pool.length === 0;
-        session.slots.feeRejections = undefined; // fresh property -> fresh fee disclosure
-        // Pin the service from the resisted property: an EB lookup may never
-        // have filled slots.service, and the later presentation batches must
-        // stay in the same market (never offer rent after a buy resistance).
+        session.slots.feeRejections = undefined;
         session.slots.service = session.slots.service ?? cur?.service;
         session.state = 'presentation';
-        await this.landmarks.enrich(batch); // cards name a landmark, never a street
+        await this.landmarks.enrich(batch);
         reply = `${pickVariant('fee.pivot.neighborhood', { recent: assistantTexts(session) })
           ?? buildFeePivotNeighborhood()}\n\n${batch.map(p => buildPropertyCard(p)).join('\n\n')}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
       } else {
-        // No other-neighborhood options anywhere — stay at the fee question.
-        reply = detectFeeWhy(text)
-          ? pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy()
-          : feePersuasion(session.slots.service, session.slots.feeRejections ?? 1);
+        reply = feePersuasion(session.slots.service, session.slots.feeRejections ?? 1);
       }
     } else if (ev.type === 'REJECTED' && ['idle', 'intent', 'discovery'].includes(before)) {
       // The client denies the current direction ("не барам стан", "нешто
