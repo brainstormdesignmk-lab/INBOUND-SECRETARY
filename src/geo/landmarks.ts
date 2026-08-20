@@ -10,14 +10,14 @@
 //
 // Resolution layers, cheapest first (each hit is cached in the `landmarks`
 // table so live APIs are called at most ONCE per address ever):
-//   1. deterministic table  — per-neighborhood Skopje landmarks, zero cost,
-//      offline, works in the LLM-free state.
-//   2. Google Maps          — Geocoding + Places Nearby Search when
-//      GOOGLE_MAPS_API_KEY is set (free tier covers this scale forever).
-//   3. OSM                  — Nominatim geocode + Overpass nearest amenity,
-//      free, no key, no billing.
-//   4. Hermes event         — `landmark_requested` on the events bus; Hermes
-//      (its own LLM via NVIDIA) answers in phase 2. Nothing consumes it yet.
+//   1. feed landmarks     — ANA's import-time ranked list (Supabase).
+//   2. details extraction — parse "спроти X", "кај X", "близина на X" from
+//      the property's own description text. Zero cost, always available.
+//   3. deterministic table — per-neighborhood Skopje landmarks, zero cost.
+//   4. offline map        — local OSM POIs, zero network.
+//   5. Google Maps        — Geocoding + Places Nearby Search.
+//   6. OSM                — Nominatim + Overpass.
+//   7. Hermes event       — async LLM resolver (phase 2).
 // If everything fails → { source: 'none' } and the caller falls back to the
 // neighborhood alone — the street is never revealed.
 
@@ -196,6 +196,32 @@ export function landmarkCacheKey(p: { address?: string; location?: string }): st
 }
 
 /**
+ * Extract a landmark name from the property's description text. Real estate
+ * listings almost always mention nearby landmarks: "спроти ОУ Димитар
+ * Миладинов", "кај ТЦ Олимпико", "близина на Црногорска Амбасада",
+ * "до Клинички центар". This layer is FREE (no geocoding, no network),
+ * always available, and gives the MOST ACCURATE landmark because it comes
+ * from the person who created the listing.
+ *
+ * Returns the first valid match ( спроти > кај > близина > до ), cleaned
+ * and length-guarded. Undefined when the details have no landmark phrase.
+ */
+const LANDMARK_DETAIL_RE = /(?:спроти|спротив|кај|близина\s+на|близу\s+на|до)\s+(.{3,50}?)(?:\.\s|,\s|\s+и\s|\s+се\s|\s+во\s|\s+на\s|\s+е\s|\s+има\s|$)/iu;
+
+export function extractDetailsLandmark(details: string | undefined): string | undefined {
+  if (!details || details.length < 10) return undefined;
+  const m = details.match(LANDMARK_DETAIL_RE);
+  if (!m) return undefined;
+  let name = m[1].trim();
+  // Strip trailing junk: quotes, parens, trailing prepositions
+  name = name.replace(/[{}`\[\]()"„‟«»'']+$/g, '').trim();
+  // Remove leading articles: "на" etc.
+  name = name.replace(/^на\s+/i, '').trim();
+  if (name.length < 3 || name.length > 60) return undefined;
+  return name;
+}
+
+/**
  * Clean + guard an LLM-provided landmark name. The whole point of the address
  * privacy rule is that the STREET never leaks — so any answer containing the
  * street name (case/space-insensitive) is rejected. Also strips markdown,
@@ -244,7 +270,7 @@ export class LandmarkService {
 
   /** Resolve the approximate location for a property. Cached in the DB after
    *  the first successful layer — later calls cost nothing. */
-  async resolve(p: { eb: number; address?: string; location?: string; landmarks?: FeedLandmark[] }): Promise<Landmark> {
+  async resolve(p: { eb: number; address?: string; location?: string; details?: string; landmarks?: FeedLandmark[] }): Promise<Landmark> {
     // 0) FEED layer — ANA's import-time resolution, stored next to the property
     //    in Supabase. The ranked list IS the answer: pick the nearest VALID
     //    PUBLIC place, rotating among the top few by EB hash for variety (two
@@ -263,6 +289,21 @@ export class LandmarkService {
         return top[Math.abs(p.eb * 2654435761) % top.length].hit;
       }
     }
+
+    // 1) DETAILS extraction — parse landmark names from the property's own
+    //    description text ("спроти ОУ Димитар Миладинов", "кај ТЦ Олимпико",
+    //    "близина на Црногорска Амбасада"). Zero cost, always available, and
+    //    the most accurate because it comes from the listing creator.
+    const detailsLandmark = extractDetailsLandmark(p.details);
+    if (detailsLandmark) {
+      const l = publicPlace({ landmark: detailsLandmark, type: 'details', source: 'table' as const });
+      if (l) {
+        const key = landmarkCacheKey(p);
+        this.store.put(key, l);
+        return l;
+      }
+    }
+
     const key = landmarkCacheKey(p);
 
     const cached = this.store.get(key);
@@ -359,7 +400,7 @@ export class LandmarkService {
 
   /** Batch stamp: enriches properties with `landmark` before they reach any
    *  reply builder (cards, LLM context, where-is, availability). */
-  async enrich(props: Array<{ eb: number; address?: string; location?: string; landmark?: string; landmarks?: FeedLandmark[] }>): Promise<void> {
+  async enrich(props: Array<{ eb: number; address?: string; location?: string; details?: string; landmark?: string; landmarks?: FeedLandmark[] }>): Promise<void> {
     await Promise.all(props.map(async pr => {
       if (pr.landmark) return;
       const l = await this.resolve(pr);
