@@ -43,6 +43,18 @@ export interface AppConfig {
   ownerCheckTimeoutMinutes: number;
   negotiationCap: number;
   ownerAgentMode: 'local' | 'deferred'; // local = instant verdicts (sim), deferred = wait for /owner or Hermes
+  hermesWriteUrl: string;  // private Supabase edge function that updates the price (Lovable)
+  hermesLandmarksWriteUrl: string; // edge function that writes the RANKED landmark list per property
+  hermesToken: string;     // shared admin token the function checks (x-admin-token by default)
+  hermesAuthHeader: string; // request header carrying the token
+  googleMapsApiKey: string; // Google Geocoding + Places key — landmark resolution (free tier suffices)
+  viberOperatorId: string;  // agency operator's Viber id — visit-protocol logs go here
+  hermesLlmBaseUrl: string; // Hermes' own reasoning LLM (NVIDIA NIM, OpenAI-compatible)
+  hermesLlmApiKey: string;
+  hermesLlmModel: string;
+  skopjePoisDb: string;    // offline OSM map (named POIs + addresses) — the resolver's local geo engine
+  linaApiUrl: string;      // public base URL of Lina's /hermes/v1 API (Hermes on another machine)
+  ownerBusPollMs: number;  // how often the owner agent polls the events bus for answers
 }
 
 const num = (v: string | undefined, d: number): number => {
@@ -54,8 +66,8 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const cfg: AppConfig = {
     port: num(process.env.PORT, 8080),
     groqApiKey: process.env.GROQ_API_KEY || '',
-    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-    groqModelClassify: process.env.GROQ_MODEL_CLASSIFY || 'llama-3.1-8b-instant',
+    groqModel: process.env.GROQ_MODEL || 'qwen/qwen3.6-27b',
+    groqModelClassify: process.env.GROQ_MODEL_CLASSIFY || 'openai/gpt-oss-20b',
     personaTemp: num(process.env.PERSONA_TEMP, 0.8),
     ownerTypingDelayMs: num(process.env.OWNER_TYPING_DELAY_MS, 30_000),
     clientTypingDelayMs: num(process.env.CLIENT_TYPING_DELAY_MS, 30_000),
@@ -87,8 +99,22 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ownerCheckTimeoutMinutes: num(process.env.OWNER_CHECK_TIMEOUT_MINUTES, 30),
     negotiationCap: num(process.env.NEGOTIATION_CAP, 3),
     ownerAgentMode: (process.env.OWNER_AGENT_MODE as AppConfig['ownerAgentMode']) || 'deferred',
+    hermesWriteUrl: process.env.HERMES_WRITE_URL || '',
+    hermesLandmarksWriteUrl: process.env.HERMES_LANDMARKS_WRITE_URL || '',
+    hermesToken: process.env.HERMES_TOKEN || '',
+    hermesAuthHeader: process.env.HERMES_AUTH_HEADER || 'x-admin-token',
+    googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '',
+    viberOperatorId: process.env.VIBER_OPERATOR_ID || '',
+    hermesLlmBaseUrl: process.env.HERMES_LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+    hermesLlmApiKey: process.env.HERMES_LLM_API_KEY || '',
+    hermesLlmModel: process.env.HERMES_LLM_MODEL || 'nvidia/nvidia-nemotron-nano-9b-v2',
+    skopjePoisDb: process.env.SKOPJE_POIS_DB || path.join(process.cwd(), 'data', 'skopje-pois.db'),
+    linaApiUrl: process.env.LINA_API_URL || '',
+    ownerBusPollMs: num(process.env.OWNER_BUS_POLL_MS, 2000),
   };
-  if (overrides.simFast) cfg.simFast = true;
+  // All explicit overrides win over env (simFast was the only one honored
+  // before — tests now override e.g. hermesToken / ownerBusPollMs too).
+  Object.assign(cfg, overrides);
   if (!cfg.groqApiKey && cfg.llmProvider !== 'gemini') {
     console.warn('[config] GROQ_API_KEY missing — Groq unavailable (fallback only).');
   }
