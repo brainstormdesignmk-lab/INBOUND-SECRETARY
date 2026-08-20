@@ -8,16 +8,18 @@
 // link with the real address) is revealed ONLY in the visit protocol, 2 hours
 // before the visit, when the visit is already arranged.
 //
-// Resolution layers, cheapest first (each hit is cached in the `landmarks`
+// Resolution layers, quality-first (each hit is cached in the `landmarks`
 // table so live APIs are called at most ONCE per address ever):
-//   1. feed landmarks     — ANA's import-time ranked list (Supabase).
-//   2. details extraction — parse "спроти X", "кај X", "близина на X" from
+//   1. feed landmarks      — ANA's import-time ranked list (Supabase).
+//   2. DB cache            — previous resolution (any source).
+//   3. Google Maps         — Geocoding + Places Nearby Search (professional
+//      quality, the primary layer when a key is available).
+//   4. details extraction  — parse "спроти X", "кај X", "близина на X" from
 //      the property's own description text. Zero cost, always available.
-//   3. deterministic table — per-neighborhood Skopje landmarks, zero cost.
-//   4. offline map        — local OSM POIs, zero network.
-//   5. Google Maps        — Geocoding + Places Nearby Search.
-//   6. OSM                — Nominatim + Overpass.
-//   7. Hermes event       — async LLM resolver (phase 2).
+//   5. offline map         — local OSM POIs, zero network (Skopje only).
+//   6. OSM                 — Nominatim + Overpass (free fallback).
+//   7. deterministic table — per-neighborhood Skopje landmarks (last resort).
+//   8. Hermes event        — async LLM resolver (phase 2).
 // If everything fails → { source: 'none' } and the caller falls back to the
 // neighborhood alone — the street is never revealed.
 
@@ -101,7 +103,16 @@ export function googleMapsLink(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
-async function googleLandmark(address: string | undefined, location: string | undefined, key: string): Promise<Landmark | undefined> {
+// Priority POI types: well-known public places that people use for navigation.
+// Ranked by how recognizable they are as landmarks (hospital > school > mall > etc).
+const GOOGLE_POI_TYPES = 'hospital|school|university|shopping_mall|stadium|pharmacy|bank|tourist_attraction|church|mosque|museum|library|fire_station|police|city_hall';
+
+async function googleLandmark(
+  address: string | undefined,
+  location: string | undefined,
+  key: string,
+  eb?: number,
+): Promise<Landmark | undefined> {
   const q = [address, location, 'Скопје'].filter(Boolean).join(', ');
   const geo = await fetchJson(
     `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`
@@ -109,15 +120,28 @@ async function googleLandmark(address: string | undefined, location: string | un
   const gres = geo?.results?.[0];
   if (!gres?.geometry?.location) return undefined;
   const { lat, lng } = gres.geometry.location;
+  // 1500m radius — wide enough to find a recognizable landmark, narrow enough
+  // to be relevant ("во близина на" implies walking distance).
   const nearby = await fetchJson(
-    `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=800&type=tourist_attraction|shopping_mall|hospital|university|school|hotel|stadium&key=${encodeURIComponent(key)}`
+    `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=1500&type=${GOOGLE_POI_TYPES}&key=${encodeURIComponent(key)}`
   );
-  const place = nearby?.results?.[0];
-  if (!place?.name) return undefined;
+  const results: Array<{ name: string; type: string; dist: number }> = (nearby?.results ?? [])
+    .filter((r: any) => r.name && r.name.length >= 3)
+    .map((r: any) => {
+      const dlat = ((r.geometry?.location?.lat ?? lat) - lat) * 111320;
+      const dlng = ((r.geometry?.location?.lng ?? lng) - lng) * 111320 * Math.cos((lat * Math.PI) / 180);
+      return { name: r.name as string, type: (r.types?.[0] ?? 'place') as string, dist: Math.sqrt(dlat ** 2 + dlng ** 2) };
+    })
+    .sort((a: { dist: number }, b: { dist: number }) => a.dist - b.dist);
+  if (results.length === 0) return undefined;
+  // Rotate among the top 3 by EB hash (like the feed layer) so two
+  // properties on the same street don't get the same landmark.
+  const top = results.slice(0, 3);
+  const pick = eb !== undefined ? top[Math.abs(eb * 2654435761) % top.length] : top[0];
   return {
-    landmark: place.name,
-    type: place.types?.[0] ?? 'place',
-    mapsUrl: googleMapsLink(place.name),
+    landmark: pick.name,
+    type: pick.type,
+    mapsUrl: googleMapsLink(pick.name),
     source: 'google',
   };
 }
@@ -290,30 +314,11 @@ export class LandmarkService {
       }
     }
 
-    // 1) DETAILS extraction — parse landmark names from the property's own
-    //    description text ("спроти ОУ Димитар Миладинов", "кај ТЦ Олимпико",
-    //    "близина на Црногорска Амбасада"). Zero cost, always available, and
-    //    the most accurate because it comes from the listing creator.
-    const detailsLandmark = extractDetailsLandmark(p.details);
-    if (detailsLandmark) {
-      const l = publicPlace({ landmark: detailsLandmark, type: 'details', source: 'table' as const });
-      if (l) {
-        const key = landmarkCacheKey(p);
-        this.store.put(key, l);
-        return l;
-      }
-    }
-
     const key = landmarkCacheKey(p);
 
+    // 2) DB cache — previous resolution (any source). Served unless stale.
     const cached = this.store.get(key);
     if (cached) {
-      // Two reasons a cached row must NOT be served:
-      //  1. It was written BEFORE the street-name guard existed (e.g. a table
-      //     row "Булеварот Партизански Одреди") — never serve one.
-      //  2. It is table-sourced but the TABLE no longer lists it (landmarks
-      //     get replaced — "Универзалната сала" → Плоштад „Македонија“) —
-      //     the stale landmark would point the client at the wrong place.
       const stale = cached.source === 'table' && p.location
         ? (() => {
             const t = tableLandmark(p.eb, p.location);
@@ -328,13 +333,35 @@ export class LandmarkService {
       if (hit) return hit;
     }
 
-    // OFFLINE MAP — the local OSM engine: geocode the address, find the
-    // nearest named POI. Zero network, works in the LLM-free state, and
-    // covers the same Skopje POIs that the Hermes resolver uses. Runs
-    // BEFORE Google/OSM so the free tier is never burned on Skopje lookups.
+    // 3) Google Maps — the PRIMARY professional layer. Geocodes the exact
+    //    address to coordinates, finds the nearest named POI (hospital,
+    //    school, mall, etc.). Quality is far above OSM/offline. Free tier
+    //    (10K geocode + 5K nearby/month) covers this scale permanently.
+    //    Results are cached so Google is called ONCE per address ever.
+    if (this.opts.googleKey) {
+      try {
+        const g = publicPlace(await googleLandmark(p.address, p.location, this.opts.googleKey, p.eb));
+        if (g) { this.store.put(key, g); return g; }
+      } catch (e) {
+        console.warn('[landmark] google failed:', (e as Error).message);
+      }
+    }
+
+    // 4) DETAILS extraction — parse landmark names from the property's own
+    //    description text ("спроти ОУ Димитар Миладинов", "кај ТЦ Олимпико").
+    //    Zero cost, always available. Fallback when Google is unavailable.
+    const detailsLandmark = extractDetailsLandmark(p.details);
+    if (detailsLandmark) {
+      const l = publicPlace({ landmark: detailsLandmark, type: 'details', source: 'table' as const });
+      if (l) {
+        this.store.put(key, l);
+        return l;
+      }
+    }
+
+    // 5) OFFLINE MAP — local OSM POIs. Zero network, Skopje only.
     if (this.opts.offlineMap?.available) {
       try {
-        // 1) Try the address as a POI name first ("Кај Бранка", "Палома Бјанка")
         if (p.address) {
           const poi = this.opts.offlineMap.findPoiByName(p.address);
           if (poi) {
@@ -342,7 +369,6 @@ export class LandmarkService {
             if (l) { this.store.put(key, l); return l; }
           }
         }
-        // 2) Geocode the address to get coordinates, then find nearest POI
         const geo = p.address ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
         if (geo) {
           const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
@@ -357,19 +383,7 @@ export class LandmarkService {
       }
     }
 
-    // LIVE layers — Google when a key exists, else the free OSM layer.
-
-    // 1) Google (only with a key — free tier covers this scale)
-    if (this.opts.googleKey) {
-      try {
-        const g = publicPlace(await googleLandmark(p.address, p.location, this.opts.googleKey));
-        if (g) { this.store.put(key, g); return g; }
-      } catch (e) {
-        console.warn('[landmark] google failed:', (e as Error).message);
-      }
-    }
-
-    // 2) OSM — free, no key (opt-in: tests keep the suite offline)
+    // 6) OSM network — Nominatim + Overpass (free, no key)
     if (this.opts.osm !== false) {
       try {
         const o = publicPlace(await osmLandmark(p.address, p.location));
@@ -379,10 +393,7 @@ export class LandmarkService {
       }
     }
 
-    // 3) deterministic table — the OFFLINE fallback (network down, LLM-free
-    // state, ungeocodable address). Coarse on purpose; Hermes upgrades it.
-    // The table's own entries are vetted, but the street-name guard still runs
-    // (defense in depth — a bad entry must never leak the exact location).
+    // 7) Deterministic table — per-neighborhood, offline, coarse
     if (p.location) {
       const t = tableLandmark(p.eb, p.location);
       if (t) {
@@ -391,9 +402,7 @@ export class LandmarkService {
       }
     }
 
-    // 4) Hermes contract — the reasoning-LLM resolver (npm run hermes:landmarks)
-    // answers via its own NVIDIA LLM. Emitted every time until answered; the
-    // caller falls back to the neighborhood alone.
+    // 8) Hermes contract — async LLM resolver (phase 2)
     this.opts.onHermesRequest?.({ address: p.address, location: p.location });
     return { landmark: '', type: '', source: 'none' };
   }
