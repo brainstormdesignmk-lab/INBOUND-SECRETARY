@@ -26,7 +26,11 @@
     "enrich:status": "tsx src/scripts/enrichBank.ts --status",
     "test": "node --import tsx --test tests/*.test.ts",
     "tui": "tsx src/tui/run.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "backup": "tsx scripts/backup.ts",
+    "backup:to": "tsx scripts/backup.ts",
+    "restore": "tsx scripts/restore.ts",
+    "restore:to": "tsx scripts/restore.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",
