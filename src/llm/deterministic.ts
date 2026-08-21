@@ -664,7 +664,10 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   if (!m) return undefined;
   let rest = text.slice((m.index ?? 0) + m[0].length).trim();
   rest = rest.replace(WHERE_IS_DETERMINER, '').replace(/[?!.]+$/u, '').trim();
-  if (!rest) return undefined;
+  // "каде се наоѓа?" / "where is it?" — no named place, means the last
+  // shown property (same as bare "каде?"). Without this, the verb form
+  // falls through to the classifier and re-shows the property card.
+  if (!rest) return { place: '', generic: true };
   if (WHERE_IS_GENERIC.test(rest)) return { place: '', generic: true };
   if (WHERE_IS_BLACKLIST.test(rest)) return undefined;
   if (rest.length < 3) return undefined;

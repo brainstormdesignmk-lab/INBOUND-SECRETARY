@@ -131,7 +131,10 @@ test('detectWhereIs: "каде е X?" is a place question, never a search', () =
   assert.equal(detectWhereIs('zdravo, kako si?'), undefined);
   assert.equal(detectWhereIs('каде си?'), undefined);
   assert.equal(detectWhereIs('колку чини?'), undefined);
-  assert.equal(detectWhereIs('каде е?'), undefined); // no place named
+  // "каде е?" / "каде се наоѓа?" — no place named, means the last shown property
+  assert.deepEqual(detectWhereIs('каде е?'), { place: '', generic: true });
+  assert.deepEqual(detectWhereIs('каде се наоѓа?'), { place: '', generic: true });
+  assert.deepEqual(detectWhereIs('kade se naogja?'), { place: '', generic: true });
   assert.equal(detectWhereIs('DALI E SEUSTE DOSTAPEN ?'), undefined); // visit-interest stays intact
 });
 
