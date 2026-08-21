@@ -18,6 +18,7 @@ import { buildLayout, esc, hhmm } from './layout';
 import { detectOwnerVerdict } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
 import { LandmarkService } from '../geo/landmarks';
+import { OfflineMapStore } from '../geo/offlineMap';
 import { VisitScheduler } from '../visits/scheduler';
 import { EventStore } from '../store/events';
 import { OwnerStore } from '../store/owners';
@@ -137,8 +138,14 @@ export class TuiApp {
 
     const events = new EventStore(this.db);
     const owners = new OwnerStore(this.db);
+    const offlineMap = new OfflineMapStore(cfg.skopjePoisDb);
+    if (offlineMap.available) {
+      const s = offlineMap.stats();
+      console.log(`[offline-map] ${s?.pois ?? 0} POIs / ${s?.addresses ?? 0} addresses`);
+    }
     const landmarks = new LandmarkService(this.db, {
       googleKey: cfg.googleMapsApiKey,
+      offlineMap,
       onHermesRequest: ({ address, location }) => {
         events.insert('landmark_requested', '', null, { address: address ?? null, location: location ?? null });
       },
