@@ -268,9 +268,16 @@ export class OfflineMapStore {
       ).get(key, houseNum) as { street: string; lat: number; lon: number } | undefined;
       if (compound) return { lat: compound.lat, lon: compound.lon, street: compound.street };
     }
+    // "ББ" (без број / no number) represents the street centroid — prefer it
+    // over a random single building when the specific house number isn't mapped.
+    // Without this, Јордан Мијалков 64 resolves to building #18 (wrong end of
+    // the street, 646m off) instead of the ББ entry near the actual location.
     const row = this.db.prepare(
       `SELECT street, lat, lon FROM addresses WHERE key = ?
-       ORDER BY CASE WHEN housenumber != '' THEN 0 ELSE 1 END LIMIT 1`
+       ORDER BY CASE WHEN housenumber = 'ББ' THEN 0
+                    WHEN housenumber = '' THEN 0
+                    ELSE 1 END,
+              housenumber ASC LIMIT 1`
     ).get(key) as { street: string; lat: number; lon: number } | undefined;
     if (!row) return undefined;
     return { lat: row.lat, lon: row.lon, street: row.street };
