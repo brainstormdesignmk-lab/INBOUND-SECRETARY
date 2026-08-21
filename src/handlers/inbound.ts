@@ -289,9 +289,11 @@ export class InboundHandler {
         const idx = session.slots.landmarkIndex ?? 0;
         const landmark = lm?.[idx] ?? hit.landmark;
         if (lm && idx < lm.length - 1) session.slots.landmarkIndex = idx + 1;
-        // Google Maps link from the POI coordinates.
+        // Google Maps link: only on the 2nd+ "каде?" ask ("каде поточно?",
+        // "прати ми линк", "а друго што?") — the first ask gets just the
+        // name, like a human agent would. More precision on demand.
         const coords = session.slots.nearbyLandmarkCoords?.[idx];
-        const gmapsLine = coords
+        const gmapsLine = (idx > 0) && coords
           ? `\nhttps://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lon}`
           : '';
         answer = `${buildWhereIsAnswer(whereIs.place, {
@@ -655,7 +657,7 @@ export class InboundHandler {
       // "каде поточно?" → second, …) + Google Maps links. Cached on the
       // session so repeated asks don't re-geocode.
       if (!session.slots.nearbyLandmarks?.length && props[0]) {
-        const nearby = await this.landmarks.nearbyLandmarks(props[0]);
+        const nearby = this.landmarks.nearbyLandmarks(props[0]);
         if (nearby.length > 0) {
           session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
           session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
@@ -698,7 +700,7 @@ export class InboundHandler {
       session.slots.ownerContactPending = true;
       // Pre-resolve nearby landmarks for when the client asks "каде се наоѓа?"
       if (!session.slots.nearbyLandmarks?.length && props[0]) {
-        const nearby = await this.landmarks.nearbyLandmarks(props[0]);
+        const nearby = this.landmarks.nearbyLandmarks(props[0]);
         if (nearby.length > 0) {
           session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
           session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
@@ -707,9 +709,13 @@ export class InboundHandler {
       }
       const ack = pickVariant('availability.ack', { recent: assistantTexts(session) })
         ?? AVAILABILITY_ACK;
-      // NO landmark here — the location is only given when the client ASKS
-      // ("каде се наоѓа?"). The ack focuses on permission to contact the owner.
-      reply = ack;
+      // Include the approximate location (nearest landmark) — the client
+      // knows the details from the ad but the exact street stays hidden.
+      // Google Maps link is NOT added here — only on explicit precision asks.
+      const locLine = props[0]?.landmark
+        ? `\n\nСе наоѓа во близина на ${props[0].landmark}.`
+        : '';
+      reply = `${ack}${locLine}`;
     } else if ((next === 'closing' || before === 'closing')
         && session.slots.ownerContactPending
         && detectAgreement(text)) {

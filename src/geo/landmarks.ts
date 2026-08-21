@@ -448,13 +448,13 @@ export class LandmarkService {
 
   /** Returns the top 3 nearby landmarks with coordinates for rotation
    *  ("каде?" → first, "каде поточно?" → second, …) and Google Maps links.
-   *  Uses the same geocoding + nearestPois chain as resolve() but returns
-   *  the full ranked list instead of just the best one. */
-  async nearbyLandmarks(p: { eb: number; address?: string; location?: string }): Promise<Array<{ landmark: string; lat: number; lon: number }>> {
+   *  Uses ONLY the offline map (zero network) — if the local geocode fails,
+   *  returns empty (no live API fallback for bulk POI queries). */
+  nearbyLandmarks(p: { eb: number; address?: string; location?: string }): Array<{ landmark: string; lat: number; lon: number }> {
     try {
-      let geo = p.address ? this.opts.offlineMap?.geocodeAddress(p.address) : undefined;
-      if (!geo && p.address) geo = await photonGeocode(p.address, p.location ?? '');
-      if (!geo || !this.opts.offlineMap) return [];
+      if (!this.opts.offlineMap || !p.address) return [];
+      const geo = this.opts.offlineMap.geocodeAddress(p.address);
+      if (!geo) return [];
       const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
       return pois
         .filter(po => po.name.length >= 3 && po.lat != null && po.lon != null)
