@@ -102,7 +102,9 @@ const LEXICON: LexiconEntry[] = [
   // ---------- SEXUAL (severity 3) ----------
   { id: 'S0a', category: 'sexual', severity: 3, confidence: 0.98, stems: ['seks'], reason: 'seks' },
   { id: 'S0b', category: 'sexual', severity: 3, confidence: 0.95, stems: ['sisa', 'cici'], reason: 'body objectification (sisa/cici)' },
-  { id: 'S0b2', category: 'sexual', severity: 3, confidence: 0.95, stems: ['gradi'], boundary: true, reason: 'gradi (letter-bounded so "izgradi"=built stays clean)' },
+  { id: 'S0b2', category: 'sexual', severity: 3, confidence: 0.95, stems: ['gradi'], boundary: true,
+    excludeAfter: ['se', 'si', 'ime', 'ite', 'aat', 'eme', 'ot', 'ata'],
+    reason: 'gradi (letter-bounded so "izgradi"=built stays clean; reflexive forms excluded)' },
   { id: 'S0c', category: 'sexual', severity: 3, confidence: 0.98, stems: ['picka'], reason: 'picka (picka/pichka/pi4ka/пичка all normalize here)' },
   { id: 'S0d', category: 'sexual', severity: 3, confidence: 0.98, stems: ['kur', 'kuro', 'kura', 'cura', 'penis'], reason: 'kur/penis' },
   { id: 'S0e', category: 'sexual', severity: 3, confidence: 0.98, stems: ['vagin', 'vulv'], reason: 'vagina/vulva' },
@@ -152,6 +154,27 @@ const LEXICON: LexiconEntry[] = [
       'da ti pusam', 'kje ti pusam', 'ke ti pusam',
       'da go pusis', 'pusi go',
       'pusenje kur', 'pusis kur',
+      // 'take it in your mouth' family — zemi/stavi go na usta
+      'zemi go na usta', 'stavi go na usta', 'zemi ga na usta',
+      'zemi go v usta', 'stavi ga na usta', 'zemi na usta',
+      'zemi gi na usta', 'stavi gi na usta', 'zemi gi v usta',
+      // 'zemi go u usta' (without preposition fusion)
+      'zemi go u usta', 'stavi go u usta', 'zemi ga u usta',
+      'zemi gi u usta', 'stavi ga u usta', 'stavi gi u usta',
+      // lapni/swallow — 'lapni go', 'lapaj go'
+      'lapni go', 'lapaj go', 'lapni ga', 'lapaj ga',
+      'lapni gi', 'lapaj gi', 'lapni mi go', 'lapaj mi go',
+      // lizi/lick — 'lizi go', 'lijzi go'
+      'lizi go', 'lijzi go', 'lizi ga', 'lijzi ga',
+      'lizi gi', 'lijzi gi', 'lizi mi go', 'lijzi mi go',
+      // 'go sakash odpozadi' / 'odpozadi' (from behind)
+      'go sakas odpozadi', 'go saka odpozadi', 'go sakas odpozadi',
+      'odpozadi',
+      // 'da ti go turam' / 'turam ti go' (shove it in)
+      'da ti go turam', 'turam ti go', 'ti go turam',
+      'da ti ga turam', 'turam ti ga', 'ti ga turam',
+      'da ti go vmetnam', 'vmetnam ti go',
+      'da ti go stavam', 'stavam ti go',
     ],
     exclude: ['cigar', 'dozvoleno', 'zabran', 'smee', 'balkon', 'ventilac', 'pusac'],
     reason: 'oral-sex (pusenje/pusi mi family — smoking contexts excluded)' },

@@ -48,6 +48,22 @@ test('classify: violence and threats are severity 3', () => {
   }
 });
 
+test('classify: oral-sex variants (zemi/lapni/lizi/turam/go sakas) are caught', () => {
+  const dirty = [
+    'ZEMI GO NA USTA',
+    'ZEMI GO U USTA',
+    'lapni go',
+    'lizi go',
+    'go sakas odpozadi',
+    'da ti go turam',
+  ];
+  for (const t of dirty) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t));
+    assert.equal(d.severity, 3, JSON.stringify(t));
+  }
+});
+
 test('classify: normal real-estate talk is never offensive', () => {
   const clean = [
     'Здраво, сакам стан под кирија.',
@@ -68,6 +84,10 @@ test('classify: normal real-estate talk is never offensive', () => {
     'ne sum vraboten, kako funkcionira cela procedura?',
     'sakam da ja vidam 74',
     'dali moze da se vidi ovaa nedela?',
+    'turam se kon tebe, ne me cekaj',     // 'turam' in construction/colloquial context
+    'gradi se zgradata',                  // 'gradi se' = being built, not sexual
+    'odzadi e stanot',                    // 'odzadi' = in the back — real estate
+    'lapa supa',                          // 'lapa' = eats (soup) — not oral-sex
   ];
   for (const t of clean) {
     const d = classifyOffensive(t);
