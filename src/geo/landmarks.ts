@@ -338,14 +338,7 @@ export class LandmarkService {
   /** Resolve the approximate location for a property. Cached in the DB after
    *  the first successful layer — later calls cost nothing. */
   async resolve(p: { eb: number; address?: string; location?: string; details?: string; landmarks?: FeedLandmark[] }): Promise<Landmark> {
-    // 0) FEED layer — ANA's import-time resolution, stored next to the property
-    //    in Supabase. The ranked list IS the answer: pick the nearest VALID
-    //    PUBLIC place, rotating among the top few by EB hash for variety (two
-    //    properties in one neighborhood must not parrot the same landmark, the
-    //    same spirit as the table pick). Street-name entries are rejected by
-    //    the shared guard (defense in depth — the edge function validates too).
-    //    NOT cached in the local DB: the feed is the source of truth and the
-    //    property cache already refreshes it.
+    // 0) FEED layer
     if (p.landmarks && p.landmarks.length > 0) {
       const ranked = p.landmarks
         .map(l => ({ l, hit: publicPlace({ landmark: l.landmark, type: l.type ?? 'place', mapsUrl: l.maps_url, source: 'feed' as const }) }))
@@ -468,7 +461,6 @@ export class LandmarkService {
       // other cases: the DB cache (sub-ms) handles performance, and skipping
       // based on pr.landmark causes stale results when the PropertyService
       // caches a mutated property object for 5 minutes.
-      if (pr.landmarks && pr.landmarks.length > 0) return;
       const l = await this.resolve(pr);
       if (l.source !== 'none') pr.landmark = l.landmark;
     }));

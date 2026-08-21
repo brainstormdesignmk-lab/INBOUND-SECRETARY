@@ -650,6 +650,10 @@ export interface WhereIsQuestion {
 const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:да\s+)?(?:(?:се|se)\s+)?(?:наоѓа|naogja|naoga|е|e|се|se|is)(?=\s|[?!.]|$)/iu;
 // A bare "каде?" / "kade ?" means "where [is it]?" — the last shown property.
 const WHERE_BARE_RE = /^(?:каде|kade|где|gde|кај|kaj|where)\s*\??\s*$/iu;
+// "што има во близина?" / "what's nearby?" — NEARBY questions about the last shown property.
+// "blizina/близина" MUST be preceded by a preposition (во/в/near) to avoid
+// matching "има близина" (there's a closeness) or random mentions.
+const NEARBY_RE = /(?:што|shto|shto|what|koj|koe|кој|кое)\s+(?:има|ima|have|imate)\s+(?:во|vo|v|near)\s+(?:близина|blizina|vicinity)|(?:во|vo|v|near)\s+(?:близина|blizina|vicinity)(?:\s*\?|$)|what\s+(?:is\s+)?nearby|co\s+je\s+(?:v\s+)?blizini/iu;
 const WHERE_IS_DETERMINER = /^(?:тоа|toa|тој|toj|таа|taa|ова|ova|оваа|ovaa|овој|ovoj|она|ona|онаа|onaa|оној|onoj|the|that|it)\s+/iu;
 // Generic referents = the last shown property, not a named place.
 const WHERE_IS_GENERIC =
@@ -668,6 +672,8 @@ const WHERE_IS_BLACKLIST =
  */
 export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   if (WHERE_BARE_RE.test(text)) return { place: '', generic: true };
+  // "што има во близина?" / "what's nearby?" — treated as "where is it?" for the last shown property.
+  if (NEARBY_RE.test(text)) return { place: '', generic: true };
   const m = text.match(WHERE_IS_RE);
   if (!m) return undefined;
   let rest = text.slice((m.index ?? 0) + m[0].length).trim();
