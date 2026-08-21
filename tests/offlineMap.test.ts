@@ -44,13 +44,14 @@ test('nearestPois: nearest first, radius respected, limit honored', () => {
 
   const near = store.nearestPois(42.0, 21.43, 1000, 10);
   assert.equal(near.length, 2); // City Mall (>1.4km) is outside the 1000m ring
-  assert.equal(near[0].name, 'Кафе бар Ван Гог');
-  assert.equal(near[1].name, 'Градежен факултет');
-  assert.ok(near[0].distance_m < near[1].distance_m);
+  // Type-priority ranking: university (priority 2) beats cafe (priority ~20)
+  // even though the cafe is closer (14m vs 280m).
+  assert.equal(near[0].name, 'Градежен факултет');
+  assert.equal(near[1].name, 'Кафе бар Ван Гог');
 
   // 100m ring = only the cafe (the "rings" are just distances, one query)
   const tight = store.nearestPois(42.0, 21.43, 100, 10);
-  assert.deepEqual(tight.map(p => p.name), ['Кафе бар Ван Гог']);
+  assert.deepEqual(tight.map(p => p.name), ['Кафе бар Ван Гог']); // only one within 100m
 
   // limit
   assert.equal(store.nearestPois(42.0, 21.43, 1000, 1).length, 1);

@@ -621,6 +621,14 @@ export class InboundHandler {
             ?? NO_MATCH_LINE(session.slots.location ?? ev.location)
           : exhaustedLine(session.slots.location, assistantTexts(session))
             ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location));
+    } else if (next === 'property_query' && props.length > 0
+        && !detectAvailabilityAsk(text)) {
+      // The client asked about a known EB ("кажи ми нешто за 57", "што е со
+      // 62?"): show the property card deterministically. No LLM needed — the
+      // card is code-built with all the property details + landmark.
+      // Availability asks ("дали е сеуште достапен?") are excluded — they
+      // route to the closing/fee path below.
+      reply = buildPropertyCard(props[0]);
     } else if (next === 'property_query' && props.length === 0) {
       // The EB doesn't exist. The not-found line itself asks whether the
       // client wants similar properties from other locations — an agreement

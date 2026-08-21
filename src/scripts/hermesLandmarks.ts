@@ -55,6 +55,21 @@ function sleep(ms: number): Promise<void> { return new Promise(r => setTimeout(r
 const LLM_DELAY_MS = 5_000;
 const MAX_LLM_RETRIES = 3;
 
+/** Addresses that are garbage, placeholder, or unresolvable — skip silently. */
+const JUNK_ADDRESS_RE = /^(непозната|непознато|unknown|.test|keyboard mash)$/i;
+//.keyboard mash: 3+ repeating Cyrillic consonants with no vowels (хфг, фгх, etc.)
+const KEYBOARD_MASH_RE = /^(?:[бвгджзклмнпрстфхцчшщ]{3,})+$/i;
+
+function isJunkAddress(addr: string): boolean {
+  const a = addr.trim();
+  if (!a || a.length < 3) return true;
+  if (JUNK_ADDRESS_RE.test(a)) return true;
+  if (KEYBOARD_MASH_RE.test(a)) return true;
+  // "Оу" prefix without a real street name
+  if (/^оу\s+/.test(a) && a.split(/\s+/).length <= 2) return true;
+  return false;
+}
+
 /** Fetch with exponential backoff on 429 (rate limit). NVIDIA NIM free tier
  *  is strict (~1-2 req/s). The Retry-After header (seconds) is honored when
  *  present; otherwise we back off 4s → 8s → 16s. Returns the Response on
@@ -91,11 +106,11 @@ interface Poi {
   distance_m: number;
 }
 
-/** ONE Overpass query, radius 1000m, collecting ALL named amenity POIs with
+/** ONE Overpass query, radius 2000m, collecting ALL named amenity POIs with
  *  their distances — the 100m…1000m rings are the distances, no 10 queries. */
 async function osmPoisNear(lat: number, lon: number): Promise<Poi[]> {
   const AMENITIES = 'school|university|hospital|clinic|mall|hotel|theatre|cinema|stadium|library|cafe|restaurant|bar|bank|pharmacy|supermarket|park|townhall';
-  const q = `[out:json][timeout:10];(node["amenity"~"^(${AMENITIES})$"](around:1000,${lat},${lon});way["amenity"~"^(${AMENITIES})$"](around:1000,${lat},${lon}););out center tags;`;
+  const q = `[out:json][timeout:10];(node["amenity"~"^(${AMENITIES})$"](around:2000,${lat},${lon});way["amenity"~"^(${AMENITIES})$"](around:2000,${lat},${lon}););out center tags;`;
   const res = await fetchWithRetry(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`, {
     headers: { 'User-Agent': 'metropolis-hermes/1.0' },
   });
@@ -124,7 +139,7 @@ async function llmPickLandmarks(
     body: JSON.stringify({
       model: cfg.hermesLlmModel,
       temperature: 0.1,
-      max_tokens: 120,
+      max_tokens: 1024,
       messages: [
         { role: 'system', content: RANKED_SYSTEM_PROMPT },
         {
@@ -135,8 +150,12 @@ async function llmPickLandmarks(
     }),
   });
   if (!res.ok) throw new Error(`LLM HTTP ${res.status}`);
-  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const raw = data.choices?.[0]?.message?.content?.trim() || '';
+  const data = await res.json() as { choices?: Array<{ message?: { content?: string | null; reasoning_content?: string } }> };
+  const msg = data.choices?.[0]?.message;
+  // Reasoning models (nemotron-nano, deepseek-r1) put the answer in content
+  // after thinking in reasoning_content. If content is null, fall back to
+  // reasoning_content (the answer is embedded there).
+  const raw = (msg?.content?.trim() || msg?.reasoning_content?.trim() || '').replace(/^\n+/, '');
   // JSON object {"landmarks": [...]} — extract every quoted string as a fallback.
   const m = raw.match(/\{[\s\S]*?\}/);
   if (m) {
@@ -161,7 +180,7 @@ async function rankedLandmarks(
   offline?: OfflineMapStore,
 ): Promise<FeedLandmark[]> {
   const pois = offline?.available
-    ? offline.nearestPois(geo.lat, geo.lon, 1000, 10)
+    ? offline.nearestPois(geo.lat, geo.lon, 2000, 10)
     : await osmPoisNear(geo.lat, geo.lon);
   if (pois.length === 0) return [];
   const picked = await llmPickLandmarks(cfg, { ...c, lat: geo.lat, lon: geo.lon }, pois);
@@ -195,7 +214,7 @@ async function llmLandmark(
     body: JSON.stringify({
       model: cfg.hermesLlmModel,
       temperature: 0.2,
-      max_tokens: 60,
+      max_tokens: 512,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         {
@@ -206,8 +225,9 @@ async function llmLandmark(
     }),
   });
   if (!res.ok) throw new Error(`LLM HTTP ${res.status}`);
-  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-  return data.choices?.[0]?.message?.content?.trim() || undefined;
+  const data = await res.json() as { choices?: Array<{ message?: { content?: string | null; reasoning_content?: string } }> };
+  const msg2 = data.choices?.[0]?.message;
+  return (msg2?.content?.trim() || msg2?.reasoning_content?.trim() || '').replace(/^\n+/, '') || undefined;
 }
 
 /** Candidates in LOCAL mode: feed addresses without a precise row + the
@@ -221,10 +241,12 @@ async function localCandidates(db: Db): Promise<Array<{ address?: string; locati
     const key = landmarkCacheKey(p);
     if (store.get(key) && store.get(key)!.source !== 'table') continue;
     if (!p.address && !p.location) continue;
+    if (p.address && isJunkAddress(p.address)) continue;
     candidates.push({ address: p.address, location: p.location });
   }
   for (const ev of events.listPending('landmark_requested')) {
     const payload = JSON.parse(ev.payload) as { address?: string; location?: string };
+    if (payload.address && isJunkAddress(payload.address)) continue;
     if (!store.get(landmarkCacheKey(payload))) candidates.push(payload);
   }
   return candidates;
@@ -247,7 +269,7 @@ async function main(): Promise<void> {
     const props = new PropertyService(cfg.propertyDataUrl);
     const all = await props.getAll();
     // The property row itself is the job: address present + no landmark list yet.
-    const candidates = all.filter(p => !!p.address && (!p.landmarks || p.landmarks.length === 0));
+    const candidates = all.filter(p => !!p.address && !isJunkAddress(p.address) && (!p.landmarks || p.landmarks.length === 0));
     // Local OSM map (T60 plan): geocode + POIs come from SQLite when present;
     // live Nominatim/Overpass remain the fallback (missing map, unmatched
     // street, empty POI ring).
@@ -266,9 +288,15 @@ async function main(): Promise<void> {
       }
       try {
         // Local geocode first (Latin↔Cyrillic street match), live Nominatim fallback.
-        const geo = offline.available
+        // Landmark-style addresses ("Кај Бранка", "Палома Бјанка") are looked up
+        // directly in the POI table — they aren't streets.
+        let geo = offline.available
           ? offline.geocodeAddress(c.address) ?? await geocodeOsm(c.address, c.location)
           : await geocodeOsm(c.address, c.location);
+        if (!geo && offline.available) {
+          const poi = offline.findPoiByName(c.address);
+          if (poi) geo = { lat: poi.lat, lon: poi.lon, street: poi.name } as any;
+        }
         if (!geo) {
           console.log(`  ✗ ${label} — не може да се геокодира (останува табелата)`);
           failed++;
@@ -278,7 +306,7 @@ async function main(): Promise<void> {
         // Rate-limit: 2s between LLM calls to avoid 429 on NIM free tier.
         await sleep(LLM_DELAY_MS);
         if (list.length === 0) {
-          console.log(`  ✗ ${label} — нема јавни места во радиус 1 км (останува табелата)`);
+          console.log(`  ✗ ${label} — нема јавни места во радиус 2 км (останува табелата)`);
           failed++;
           continue;
         }
@@ -320,6 +348,7 @@ async function main(): Promise<void> {
   let db: Db | null = null;
   let store: LandmarkStore | null = null;
   let events: EventStore | null = null;
+  const offlineLocal = new OfflineMapStore(cfg.skopjePoisDb);
   if (remote) {
     if (configured && !dryRun) {
       candidates = (await pullWork(cfg.linaApiUrl, cfg.hermesToken)).landmarks;
@@ -345,7 +374,13 @@ async function main(): Promise<void> {
       continue;
     }
     try {
-      const geo = await geocodeOsm(c.address, c.location);
+      let geo = offlineLocal.available
+        ? offlineLocal.geocodeAddress(c.address ?? '') ?? await geocodeOsm(c.address, c.location)
+        : await geocodeOsm(c.address, c.location);
+      if (!geo && offlineLocal.available && c.address) {
+        const poi = offlineLocal.findPoiByName(c.address);
+        if (poi) geo = { lat: poi.lat, lon: poi.lon, street: poi.name } as any;
+      }
       if (!geo) {
         console.log(`  ✗ ${[c.address, c.location].filter(Boolean).join(', ')} — не може да се геокодира (останува табелата)`);
         failed++;
