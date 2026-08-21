@@ -94,6 +94,26 @@ function meters(a: { lat: number; lon: number }, b: { lat: number; lon: number }
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
+// --- Photon layer (Komoot) --------------------------------------------------
+// Free, fast, no key, no rate limits. Better than Nominatim for forward
+// geocoding (address → coordinates). Used to center the offline map POI search.
+const PHOTON_URL = 'https://photon.komoot.io/api/';
+
+async function photonGeocode(address: string, location: string): Promise<{ lat: number; lon: number; street: string } | undefined> {
+  const q = [address, location, 'Skopje'].filter(Boolean).join(' ');
+  try {
+    const data = await fetchJson(
+      `${PHOTON_URL}?q=${encodeURIComponent(q)}&limit=1&osm_tag=building`
+    );
+    const f = data?.features?.[0];
+    if (!f?.geometry?.coordinates) return undefined;
+    const street = f.properties?.street ?? f.properties?.name ?? '';
+    return { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], street };
+  } catch {
+    return undefined;
+  }
+}
+
 // --- Google layer -----------------------------------------------------------
 /** Google Maps link for a query (real address or landmark name) — the ONLY
  *  link format that may ever reach a customer: "everyone uses Google Maps".
@@ -359,9 +379,13 @@ export class LandmarkService {
       }
     }
 
-    // 5) OFFLINE MAP — local OSM POIs. Zero network, Skopje only.
+    // 5) OFFLINE MAP + PHOTON — local OSM POIs with Photon geocoding.
+    //    The offline map has 3,796 named POIs. When the local geocoder can't
+    //    match the address, Photon (free, no key) provides coordinates so the
+    //    POI search still works. This eliminates flaky Nominatim/Overpass calls.
     if (this.opts.offlineMap?.available) {
       try {
+        // 5a) Try the address as a POI name first ("Кај Бранка", "Палома Бјанка")
         if (p.address) {
           const poi = this.opts.offlineMap.findPoiByName(p.address);
           if (poi) {
@@ -369,7 +393,12 @@ export class LandmarkService {
             if (l) { this.store.put(key, l); return l; }
           }
         }
-        const geo = p.address ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
+        // 5b) Local geocode → nearest POI
+        let geo = p.address ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
+        // 5c) If local geocode fails, try Photon (free, fast, no key)
+        if (!geo && p.address) {
+          geo = await photonGeocode(p.address, p.location ?? '');
+        }
         if (geo) {
           const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
           const best = pois.find(po => po.name.length >= 3);
