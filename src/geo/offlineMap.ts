@@ -252,13 +252,21 @@ export class OfflineMapStore {
     // after the street name ("Јане Сандански 25 - 17" → "25", "Бр.134" → "134").
     const numMatch = street.match(/\b(\d+[а-яa-z]?)\b/i);
     const houseNum = numMatch ? numMatch[1] : '';
-    // Try exact house number first, then fall back to any building on the street.
+    // Try exact house number first, then compound match ("134" → "16/134"),
+    // then fall back to any building on the street.
     if (houseNum) {
       const exact = this.db.prepare(
         `SELECT street, lat, lon FROM addresses WHERE key = ? AND housenumber = ?
          OR (key = ? AND housenumber = ? COLLATE NOCASE) LIMIT 1`
       ).get(key, houseNum, key, houseNum) as { street: string; lat: number; lon: number } | undefined;
       if (exact) return { lat: exact.lat, lon: exact.lon, street: exact.street };
+      // Compound match: "Бр.134" → "16/134" (the /134 part is the door number)
+      const compound = this.db.prepare(
+        `SELECT street, lat, lon FROM addresses
+         WHERE key = ? AND housenumber LIKE '%' || ? || '%'
+         ORDER BY LENGTH(housenumber) ASC LIMIT 1`
+      ).get(key, houseNum) as { street: string; lat: number; lon: number } | undefined;
+      if (compound) return { lat: compound.lat, lon: compound.lon, street: compound.street };
     }
     const row = this.db.prepare(
       `SELECT street, lat, lon FROM addresses WHERE key = ?

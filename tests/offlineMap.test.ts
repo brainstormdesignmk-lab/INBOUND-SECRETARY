@@ -78,6 +78,21 @@ test('geocodeAddress: matches the feed street locally, both scripts', () => {
   store.close();
 });
 
+test('geocodeAddress: compound house numbers ("134" → "16/134")', () => {
+  const dbPath = tmpDb();
+  writeMap(dbPath, POIS, [
+    // "Бул. Асном 16/134" — compound number, the 134 is the door
+    { street: 'Бул. Асном', housenumber: '24', lat: 42.010, lon: 21.440 },
+    { street: 'Бул. Асном', housenumber: '16/134', lat: 42.001, lon: 21.431 },
+  ]);
+  const store = new OfflineMapStore(dbPath);
+  // "Бр.134" should match "16/134", not "24"
+  const hit = store.geocodeAddress('Бул. Асном бр.134');
+  assert.ok(hit, 'compound number must match');
+  assert.ok(Math.abs(hit!.lat - 42.001) < 1e-3, 'should resolve to 16/134 location, not 24');
+  store.close();
+});
+
 test('no map file → unavailable, everything falls back to live APIs', () => {
   const store = new OfflineMapStore(path.join(os.tmpdir(), 'does-not-exist-surely.db'));
   assert.equal(store.available, false);
