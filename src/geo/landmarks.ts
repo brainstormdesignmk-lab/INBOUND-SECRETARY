@@ -279,6 +279,8 @@ export function extractDetailsLandmark(details: string | undefined): string | un
   // Remove leading articles: "на" etc.
   name = name.replace(/^на\s+/i, '').trim();
   if (name.length < 3 || name.length > 60) return undefined;
+  // Reject time expressions: "пред 2 месеци", "до јануари", etc.
+  if (/пред\s+\d|\bмесец|\bден|\bгодин|\bнедел|januar|februar|mart|april|maj|juni|juli|avgust|septembar|oktombar|noembar|deke(mbar|c)/iu.test(name)) return undefined;
   return name;
 }
 
@@ -295,11 +297,15 @@ export function extractDetailsLandmark(details: string | undefined): string | un
 // ("фаКУЛтет", "ПАТека") unless bounded on both sides.
 const STREET_NAME_RE = /(?<![А-Яа-яA-Za-z])(?:улиц(?:а|и|ата|ите)|булевар(?:от|и)?|бул\.?|ул\.?|пат(?:от|и)?|street|boulevard)(?![А-Яа-яA-Za-z])/i;
 const isStreetName = (s: string): boolean => STREET_NAME_RE.test(s);
+// Time expressions that are NOT landmarks: "пред 2 месеци", "до јануари", etc.
+const IS_TIME_EXPR = /пред\s+\d|\bмесец|\bден|\bгодин|\bнедел|\bjanuar|\bfebruar|\bmart|\bapril|\bmaj|\bjuni|\bjuli|\bavgust|\bseptembar|\boktombar|\bnoembar|\bdeke(mbar|c)/iu;
 
-/** Drop a landmark that is actually a street — every layer is checked. */
+/** Drop a landmark that is actually a street or time expression — every layer is checked. */
 function publicPlace(l: Landmark | undefined): Landmark | undefined {
   if (!l) return undefined;
-  return isStreetName(l.landmark) ? undefined : l;
+  if (isStreetName(l.landmark)) return undefined;
+  if (IS_TIME_EXPR.test(l.landmark)) return undefined;
+  return l;
 }
 
 export function sanitizeLandmarkAnswer(raw: string, street?: string): string | undefined {
