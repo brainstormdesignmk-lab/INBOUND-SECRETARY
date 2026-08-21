@@ -136,6 +136,29 @@ function meters(a: { lat: number; lon: number }, b: { lat: number; lon: number }
 
 // --- The read store -----------------------------------------------------------
 
+/** POI type priority for landmark selection. Lower = better landmark.
+ *  Institutional places (hospitals, schools, government) are universally
+ *  recognized navigation anchors. Shops and cafes are only useful when
+ *  very close. People say "кај болницата", never "кај фурната". */
+const POI_PRIORITY: Record<string, number> = {
+  hospital: 1, clinic: 1, healthcare: 1,
+  school: 2, university: 2, college: 2,
+  government: 3, townhall: 3, embassy: 3, diplomatic: 3,
+  stadium: 4, sports_centre: 4, swimming_pool: 4,
+  place_of_worship: 5, church: 5, mosque: 5, synagogue: 5,
+  museum: 6, gallery: 6, theatre: 6, cinema: 6, library: 6,
+  hotel: 7, motel: 7, hostel: 7,
+  shopping_mall: 8, department_store: 8,
+  bank: 9, atm: 9, bureau_de_change: 9,
+  pharmacy: 10, chemist: 10,
+  police: 11, fire_station: 11, ambulance_station: 11,
+  park: 12, garden: 12, playground: 12, nature_reserve: 12,
+  supermarket: 15, convenience: 15,
+  restaurant: 20, cafe: 20, fast_food: 20, bar: 20, pub: 20,
+  bakery: 25, clothes: 25, jewelry: 25, books: 25,
+  fuel: 30, parking: 30,
+};
+
 export class OfflineMapStore {
   private db: Database.Database | null = null;
 
@@ -178,7 +201,15 @@ export class OfflineMapStore {
       const d = meters({ lat, lon }, { lat: r.lat, lon: r.lon });
       if (d <= radiusM) out.push({ name: r.name, type: r.type, distance_m: Math.round(d) });
     }
-    out.sort((a, b) => a.distance_m - b.distance_m);
+    // Sort by RECOGNIZABILITY, not just distance. A hospital at 800m is a
+    // better landmark than a bakery at 15m — people navigate by "кај болницата",
+    // not "кај фурната". Type priority: institutional > commercial > other.
+    out.sort((a, b) => {
+      const pa = POI_PRIORITY[a.type] ?? 50;
+      const pb = POI_PRIORITY[b.type] ?? 50;
+      if (pa !== pb) return pa - pb; // higher priority first
+      return a.distance_m - b.distance_m; // then closer first
+    });
     return out.slice(0, limit);
   }
 
