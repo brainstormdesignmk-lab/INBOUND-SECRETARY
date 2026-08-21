@@ -231,6 +231,23 @@ export class LandmarkStore {
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(addressKey, l.landmark, l.type, l.mapsUrl ?? null, l.source, Date.now());
   }
+
+  getNearby(addressKey: string): Array<{ landmark: string; lat: number; lon: number }> | undefined {
+    const row = this.db.db.prepare(
+      `SELECT nearby FROM landmarks WHERE address_key = ? AND nearby IS NOT NULL`
+    ).get(addressKey) as { nearby: string } | undefined;
+    if (!row) return undefined;
+    try { return JSON.parse(row.nearby); } catch { return undefined; }
+  }
+
+  putNearby(addressKey: string, nearby: Array<{ landmark: string; lat: number; lon: number }>): void {
+    if (nearby.length === 0) return;
+    // UPDATE only — the row must already exist from put(); never create a
+    // row with only nearby (no landmark) to avoid partial entries.
+    this.db.db.prepare(
+      `UPDATE landmarks SET nearby = ? WHERE address_key = ?`
+    ).run(JSON.stringify(nearby), addressKey);
+  }
 }
 
 /** Canonical cache key — a property is identified by location + street, so a
@@ -449,17 +466,27 @@ export class LandmarkService {
   /** Returns the top 3 nearby landmarks with coordinates for rotation
    *  ("каде?" → first, "каде поточно?" → second, …) and Google Maps links.
    *  Uses ONLY the offline map (zero network) — if the local geocode fails,
-   *  returns empty (no live API fallback for bulk POI queries). */
+   *  returns empty (no live API fallback for bulk POI queries).
+   *  Results are cached in the landmarks table so the geocode+POI query
+   *  runs at most ONCE per unique address. */
   nearbyLandmarks(p: { eb: number; address?: string; location?: string }): Array<{ landmark: string; lat: number; lon: number }> {
+    const key = landmarkCacheKey(p);
+    // 1) Check DB cache
+    const cached = this.store.getNearby(key);
+    if (cached) return cached;
+    // 2) Compute from offline map
     try {
       if (!this.opts.offlineMap || !p.address) return [];
       const geo = this.opts.offlineMap.geocodeAddress(p.address);
       if (!geo) return [];
       const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
-      return pois
+      const nearby = pois
         .filter(po => po.name.length >= 3 && po.lat != null && po.lon != null)
         .slice(0, 3)
         .map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
+      // 3) Cache for next time
+      if (nearby.length > 0) this.store.putNearby(key, nearby);
+      return nearby;
     } catch (e) {
       console.warn('[landmarks] nearbyLandmarks failed:', (e as Error).message);
       return [];

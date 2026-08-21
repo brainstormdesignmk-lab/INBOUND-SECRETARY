@@ -122,7 +122,8 @@ export class Db {
         type         TEXT NOT NULL DEFAULT '',
         maps_url     TEXT,
         source       TEXT NOT NULL DEFAULT 'table',
-        resolved_at  INTEGER NOT NULL
+        resolved_at  INTEGER NOT NULL,
+        nearby       TEXT  -- JSON array of top-3 nearby landmarks with coords
       );
       -- v4: scheduled visit notifications (turns 2+3 of the visit protocol;
       -- turn 1 "arranged" is sent inline at confirmation). status per party
@@ -170,6 +171,11 @@ export class Db {
       CREATE INDEX IF NOT EXISTS idx_enrichment_pending
         ON enrichment_queue(enriched, created_at);
     `);
+    // v4 migration: nearby landmarks cache column — safe no-op if already present
+    const lmCols = this.db.prepare(`PRAGMA table_info(landmarks)`).all() as Array<{ name: string }>;
+    if (!lmCols.some(c => c.name === 'nearby')) {
+      this.db.exec(`ALTER TABLE landmarks ADD COLUMN nearby TEXT`);
+    }
     // v4 migration: the assigned agent's phone rides the appointment so the
     // visit protocol (turns 2+3) can name the agent without re-picking.
     const cols = this.db.prepare(`PRAGMA table_info(appointments)`).all() as Array<{ name: string }>;
