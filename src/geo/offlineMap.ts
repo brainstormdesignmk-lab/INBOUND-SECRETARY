@@ -270,17 +270,70 @@ export class OfflineMapStore {
     }
     // "ББ" (без број / no number) represents the street centroid — prefer it
     // over a random single building when the specific house number isn't mapped.
-    // Without this, Јордан Мијалков 64 resolves to building #18 (wrong end of
-    // the street, 646m off) instead of the ББ entry near the actual location.
-    const row = this.db.prepare(
+    const bbRow = this.db.prepare(
       `SELECT street, lat, lon FROM addresses WHERE key = ?
-       ORDER BY CASE WHEN housenumber = 'ББ' THEN 0
-                    WHEN housenumber = '' THEN 0
-                    ELSE 1 END,
-              housenumber ASC LIMIT 1`
+       AND (housenumber = 'ББ' OR housenumber = '') LIMIT 1`
     ).get(key) as { street: string; lat: number; lon: number } | undefined;
-    if (!row) return undefined;
-    return { lat: row.lat, lon: row.lon, street: row.street };
+    if (bbRow) return { lat: bbRow.lat, lon: bbRow.lon, street: bbRow.street };
+
+    // LINEAR INTERPOLATION: when the exact number is missing, find the two
+    // adjacent numbered buildings and interpolate their coordinates.
+    // E.g. Народен Фронт 23 → between #19A (41.9937, 21.4163) and #25
+    // (41.9940, 21.4146) → interpolated near Beverly Hills Center.
+    if (houseNum && this.db) {
+      const allBuildings = this.db.prepare(
+        `SELECT street, housenumber, lat, lon FROM addresses
+         WHERE key = ? AND housenumber != '' AND housenumber != 'ББ'
+         ORDER BY housenumber`
+      ).all(key) as Array<{ street: string; housenumber: string; lat: number; lon: number }>;
+      if (allBuildings.length >= 2) {
+        // Parse each house number to a numeric value for comparison.
+        // "19A" → 19.5, "29/3" → 29, "16/134" → 16
+        const parseNum = (h: string): number | null => {
+          const m = h.match(/^(\d+)/);
+          if (!m) return null;
+          const base = parseInt(m[1], 10);
+          // Letter suffix (19A, 5B) → +0.5
+          if (/^\d+[a-zа-я]$/i.test(h)) return base + 0.5;
+          return base;
+        };
+        const target = parseNum(houseNum);
+        if (target !== null) {
+          const parsed = allBuildings
+            .map(b => ({ ...b, num: parseNum(b.housenumber) }))
+            .filter(b => b.num !== null) as Array<{ street: string; housenumber: string; lat: number; lon: number; num: number }>;
+          parsed.sort((a, b) => a.num - b.num);
+          // Find the two neighbors: largest <= target and smallest > target
+          let lo: typeof parsed[0] | null = null;
+          let hi: typeof parsed[0] | null = null;
+          for (const b of parsed) {
+            if (b.num <= target) lo = b;
+          }
+          for (let i = parsed.length - 1; i >= 0; i--) {
+            if (parsed[i].num > target) { hi = parsed[i]; break; }
+          }
+          if (lo && hi && lo.num !== hi.num) {
+            const t = (target - lo.num) / (hi.num - lo.num);
+            return {
+              lat: lo.lat + t * (hi.lat - lo.lat),
+              lon: lo.lon + t * (hi.lon - lo.lon),
+              street: lo.street,
+            };
+          }
+          // Target is outside the range — use the nearest endpoint
+          if (lo && !hi) return { lat: lo.lat, lon: lo.lon, street: lo.street };
+          if (hi && !lo) return { lat: hi.lat, lon: hi.lon, street: hi.street };
+        }
+      }
+    }
+
+    // Absolute last resort: first building on the street (sorted by housenumber)
+    const fallback = this.db.prepare(
+      `SELECT street, lat, lon FROM addresses WHERE key = ?
+       ORDER BY housenumber ASC LIMIT 1`
+    ).get(key) as { street: string; lat: number; lon: number } | undefined;
+    if (!fallback) return undefined;
+    return { lat: fallback.lat, lon: fallback.lon, street: fallback.street };
   }
 
   /** Search POIs by name — for landmark-style addresses like "Кај Бранка"

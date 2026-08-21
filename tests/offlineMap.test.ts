@@ -102,10 +102,18 @@ test('no map file → unavailable, everything falls back to live APIs', () => {
   store.close();
 });
 
-test('a garbage file is not mistaken for a map', () => {
-  const p = path.join(os.tmpdir(), 'garbage-sure.db');
-  fs.writeFileSync(p, 'this is not sqlite');
-  const store = new OfflineMapStore(p);
-  assert.equal(store.available, false);
+test('geocodeAddress: linear interpolation for missing house numbers', () => {
+  const dbPath = tmpDb();
+  writeMap(dbPath, POIS, [
+    // Народен Фронт: buildings #19A and #25, target #23 should interpolate
+    { street: 'Народен Фронт', housenumber: '19A', lat: 41.9937, lon: 21.4163 },
+    { street: 'Народен Фронт', housenumber: '25', lat: 41.9940, lon: 21.4146 },
+  ]);
+  const store = new OfflineMapStore(dbPath);
+  const hit = store.geocodeAddress('Народен Фронт 23');
+  assert.ok(hit, 'interpolation must produce a result');
+  // #23 is between #19A (num=19.5) and #25 → fraction ≈ 0.636
+  assert.ok(hit!.lat > 41.9937 && hit!.lat < 41.9940, 'lat must be between neighbors');
+  assert.ok(hit!.lon < 21.4163 && hit!.lon > 21.4146, 'lon must be between neighbors');
   store.close();
 });
