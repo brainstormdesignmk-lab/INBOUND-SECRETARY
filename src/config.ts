@@ -107,7 +107,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     viberOperatorId: process.env.VIBER_OPERATOR_ID || '',
     hermesLlmBaseUrl: process.env.HERMES_LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1',
     hermesLlmApiKey: process.env.HERMES_LLM_API_KEY || '',
-    hermesLlmModel: process.env.HERMES_LLM_MODEL || 'nvidia/nvidia-nemotron-nano-9b-v2',
+    hermesLlmModel: process.env.HERMES_LLM_MODEL || 'meta/llama-3.3-70b-instruct',
     skopjePoisDb: process.env.SKOPJE_POIS_DB || path.join(process.cwd(), 'data', 'skopje-pois.db'),
     linaApiUrl: process.env.LINA_API_URL || '',
     ownerBusPollMs: num(process.env.OWNER_BUS_POLL_MS, 2000),
