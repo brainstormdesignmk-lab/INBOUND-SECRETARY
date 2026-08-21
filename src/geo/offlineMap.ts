@@ -141,8 +141,11 @@ function meters(a: { lat: number; lon: number }, b: { lat: number; lon: number }
  *  recognized navigation anchors. Shops and cafes are only useful when
  *  very close. People say "кај болницата", never "кај фурната". */
 const POI_PRIORITY: Record<string, number> = {
-  // place types — squares and neighborhoods are the BEST Skopje landmarks
-  square: 0, plaza: 0, neighbourhood: 0, locality: 0, suburb: 0,
+  // place types — squares are the BEST Skopje landmarks
+  square: 0, plaza: 0,
+  // neighbourhood/locality/suburb are geographic LABELS, not landmarks.
+  // 'во близина на Центар' is meaningless when you ARE in Центар.
+  neighbourhood: 40, locality: 40, suburb: 40,
   // institutional
   hospital: 1, clinic: 1, healthcare: 1,
   school: 2, university: 2, college: 2,
