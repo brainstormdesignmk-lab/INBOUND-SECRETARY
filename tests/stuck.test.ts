@@ -230,33 +230,37 @@ test('ZOKI: visit interest ("дали е достапен?") -> fee disclosed ->
   assert.equal(s.state, 'property_query');
   assert.ok(sent[0].includes('Евидентен број 78'), sent[0]);
 
-  // 2) "DALI E SEUSTE DOSTAPEN ?" -> INTERESTED (visit interest), NOT owner contact.
-  //    Lina answers the availability ACK (bank-backed: still available, will
-  //    check with the owner) and discloses the FEE first — never a phone ask
-  //    before agreement. The ack legitimately mentions contacting the owner to
-  //    CHECK availability; asking for the client's PHONE is what's forbidden.
+  // 2) "DALI E SEUSTE DOSTAPEN ?" -> availability ACK asks permission to contact
+  //    owner. NO fee yet — the client must confirm they WANT the owner contacted.
   s = await send('DALI E SEUSTE DOSTAPEN ?');
   assert.equal(s.state, 'closing');
-  assert.ok(/(?:достапен|постои|база|сопственик)/i.test(sent[1]), sent[1]); // availability ack
-  assert.ok(sent[1].includes('500 денари'), sent[1]); // buy fee disclosed
-  assert.ok(!sent[1].includes('телефонски'), sent[1]); // no phone ask before agreement
-  assert.ok(!sent[1].includes('кажете ми го вашиот телефон'), sent[1]);
+  assert.ok(/(?:достапен|постои|база|слободен|достапн)/i.test(sent[1]), sent[1]); // availability ack
+  assert.ok(sent[1].includes('?'), sent[1]); // must be a QUESTION (permission ask)
+  assert.ok(!sent[1].includes('500 денари'), sent[1]); // fee NOT yet disclosed
+  assert.ok(!sent[1].includes('телефонски'), sent[1]); // no phone ask
+  assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
 
-  // 3) "DA, SE SOGLASUVAM" -> FEE_AGREED -> contact_collection (name+phone now)
+  // 3) "DA" -> client confirms they want the owner contacted -> NOW the fee
+  s = await send('DA');
+  assert.equal(s.state, 'closing');
+  assert.ok(sent[2].includes('500 денари'), sent[2]); // buy fee disclosed
+  assert.ok(!s.slots.ownerContactPending, 'ownerContactPending should be cleared');
+
+  // 4) "DA, SE SOGLASUVAM" -> FEE_AGREED -> contact_collection (name+phone now)
   s = await send('DA, SE SOGLASUVAM');
   assert.equal(s.state, 'contact_collection');
-  assert.ok(sent[2].includes('име'), sent[2]);
+  assert.ok(sent[3].includes('име'), sent[3]);
 
-  // 4) name + phone -> visit_scheduling -> preferred time question
+  // 5) name + phone -> visit_scheduling -> preferred time question
   s = await send('ZORAN 078/914 196');
   assert.equal(s.state, 'visit_scheduling');
-  assert.ok(sent[3].includes('Кој термин'), sent[3]);
+  assert.ok(sent[4].includes('Кој термин'), sent[4]);
 
-  // 5) proposed time -> owner_checking (the owner ping-pong starts)
+  // 6) proposed time -> owner_checking (the owner ping-pong starts)
   s = await send('UTRE POPLADNE POSLE 6');
   assert.equal(s.state, 'owner_checking');
   assert.ok(s.slots.visitTime?.includes('UTRE'), JSON.stringify(s.slots));
-  assert.ok(sent[4].includes('потврдам'), sent[4]); // OWNER_CHECK_ACK
+  assert.ok(sent[5].includes('потврдам'), sent[5]); // OWNER_CHECK_ACK
 });
 
 test('ZOKI: "кога може да се погледне" is visit interest too — same fee funnel', async () => {
@@ -562,14 +566,15 @@ test('Viber: the contacting number (sender id) is known and stored — contact c
 
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   let s = await send('GORAN MOZE NA OVOJ BROJ');
   assert.equal(s.state, 'visit_scheduling'); // name alone completes the contact
   assert.equal(s.slots.phone, '38970123456'); // THE contacting number is stored
   assert.ok(s.slots.name === 'Goran' || s.slots.name === 'Горан', JSON.stringify(s.slots));
   // the contact ask was name-only — Lina never asks for a number she already has
-  assert.ok(sent[2].includes('име и презиме'), sent[2]);
-  assert.ok(!sent[2].includes('телефонски'), sent[2]);
+  assert.ok(sent[3].includes('име и презиме'), sent[3]);
+  assert.ok(!sent[3].includes('телефонски'), sent[3]);
 });
 
 test('LLM-free: "lile" then "078914198" — the phone is never eaten as a budget, and the re-ask never repeats the known name', async () => {
@@ -577,9 +582,10 @@ test('LLM-free: "lile" then "078914198" — the phone is never eaten as a budget
   const chatId = 'lile';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
-  // reach contact_collection (LLM-down, the transcript flow: EB -> availability -> fee -> agree)
+  // reach contact_collection (LLM-down, the transcript flow: EB -> availability -> confirm contact -> fee -> agree)
   await send('ve kontaktiram vo vrska so oglasot so evidenten broj 53');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   let s = await send('lile');
   assert.equal(s.state, 'contact_collection');
@@ -605,6 +611,7 @@ test('LLM-free: "па ти ги напишав" never overwrites the stored name
 
   await send('ve kontaktiram vo vrska so oglasot so evidenten broj 53');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   let s = await send('lile');
   assert.equal(s.slots.name, 'Lile');
@@ -648,6 +655,7 @@ test('garbage name/phone/visitTime from the LLM never reach the appointment reco
 
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   let s = await send('ZORAN PETROVSKI 078/914 196');
   // the garbage name/phone were dropped -> deterministic detectContact filled
@@ -682,6 +690,7 @@ test('owner_checking: the client rejects the proposed time -> new time collected
 
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
   let s = await send('UTRE POPLADNE POSLE 6');
@@ -693,7 +702,7 @@ test('owner_checking: the client rejects the proposed time -> new time collected
   // the patience line, and no new owner ask for a time the client rejected
   s = await send('NE MOZAM VO 18:00 DALI MOZE POKASNO');
   assert.equal(s.state, 'visit_scheduling');
-  assert.ok(sent[5].includes('Кој термин'), sent[5]);
+  assert.ok(sent[6].includes('Кој термин'), sent[6]);
   assert.equal(ownerAsks.length, 1);
 
   // a NEW concrete time -> owner_checking again, owner re-asked WITH it
@@ -725,6 +734,7 @@ test('visit time survives an LLM misread: "MOZAM UTRE POSLE 18:00" as DETAILS_PR
 
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
   let s = await send('MOZAM UTRE POSLE 18:00'); // the user's paste wording
@@ -732,7 +742,7 @@ test('visit time survives an LLM misread: "MOZAM UTRE POSLE 18:00" as DETAILS_PR
   assert.ok(s.slots.visitTime?.includes('UTRE'), JSON.stringify(s.slots));
   assert.equal(ownerAsks.length, 1);
   assert.ok(ownerAsks[0].includes('78') && ownerAsks[0].includes('достапен'), ownerAsks[0]);
-  assert.ok(sent[4].includes('потврдам'), sent[4]); // to the client: waiting
+  assert.ok(sent[5].includes('потврдам'), sent[5]); // to the client: waiting
 });
 
 test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed — ok / counter / gone', async () => {
@@ -749,6 +759,7 @@ test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed —
   const s1 = async (m: string) => { await handler.handle('test', c1, m); return sessions.get(c1)!; };
   await s1('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await s1('DALI E SEUSTE DOSTAPEN ?');
+  await s1('DA'); // confirm owner contact
   await s1('DA, SE SOGLASUVAM');
   await s1('ZORAN 078/914 196');
   let s = await s1('UTRE POPLADNE POSLE 6');
@@ -770,6 +781,7 @@ test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed —
   const s2 = async (m: string) => { await handler.handle('test', c2, m); return sessions.get(c2)!; };
   await s2('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await s2('DALI E SEUSTE DOSTAPEN ?');
+  await s2('DA'); // confirm owner contact
   await s2('DA, SE SOGLASUVAM');
   await s2('ZORAN 078/914 196');
   s = await s2('UTRE POPLADNE POSLE 6');
@@ -788,6 +800,7 @@ test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed —
   const s3 = async (m: string) => { await handler.handle('test', c3, m); return sessions.get(c3)!; };
   await s3('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await s3('DALI E SEUSTE DOSTAPEN ?');
+  await s3('DA'); // confirm owner contact
   await s3('DA, SE SOGLASUVAM');
   await s3('ZORAN 078/914 196');
   s = await s3('UTRE POPLADNE POSLE 6');
@@ -808,6 +821,7 @@ test('owner counter-offer: accept/reject the owner time works with every LLM dow
   // reach owner_checking (interest -> fee -> agree -> contact -> time)
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
   let s = await send('UTRE POPLADNE POSLE 6');
@@ -821,12 +835,12 @@ test('owner counter-offer: accept/reject the owner time works with every LLM dow
   await new Promise(r => setTimeout(r, 50)); // let the enqueued verdict land
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'time_confirm');
-  assert.ok(sent[5].includes('петок во 17:00'), sent[5]);
+  assert.ok(sent[6].includes('петок во 17:00'), sent[6]);
 
   // accept the counter-time -> pending (confirmed appointment), LLM down
   s = await send('VO RED, TOA VREME E DOBRO');
   assert.equal(s.state, 'pending');
-  assert.ok(sent[6].includes('Договорена посета'), sent[6]);
+  assert.ok(sent[7].includes('Договорена посета'), sent[7]);
 });
 
 test('owner refusal "denes nema da mozam" is a COUNTER — the visit is never confirmed, the owner text never stored as the time', async () => {
@@ -837,6 +851,7 @@ test('owner refusal "denes nema da mozam" is a COUNTER — the visit is never co
   // reach owner_checking (interest -> fee -> agree -> contact -> time)
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
   let s = await send('deneska vo 18:00');
@@ -871,6 +886,7 @@ test('owner BARE refusal (no alternative time): no fabricated "по догово
 
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
   let s = await send('UTRE VO 18:00');
@@ -902,6 +918,7 @@ test('TUI /owner counter WITHOUT a time = bare refusal: same honest path, never 
 
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
   let s = await send('UTRE VO 18:00');
@@ -1195,17 +1212,18 @@ test('discovery asks are ALWAYS plain (no recap, no flourish); the contact ask c
 
   // 6) interest -> closing (fee) -> contact_collection
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   // the FIRST contact ask carries the last-info prefix ONCE
-  assert.ok(sent[6].includes('Одлично, уште последниве информации и завршуваме.'), sent[6]);
-  assert.ok(sent[6].includes('име и презиме'), sent[6]);
-  assert.ok(/телефон/.test(sent[6]), sent[6]);
+  assert.ok(sent[7].includes('Одлично, уште последниве информации и завршуваме.'), sent[7]);
+  assert.ok(sent[7].includes('име и презиме'), sent[7]);
+  assert.ok(/телефон/.test(sent[7]), sent[7]);
 
   // 7) a retry (garbage instead of a name) repeats the PLAIN ask — no prefix
   s = await send('NE ZNAM');
   assert.equal(s.state, 'contact_collection');
-  assert.ok(sent[7].includes('име и презиме'), sent[7]);
-  assert.ok(!sent[7].includes('Одлично, уште последниве информации и завршуваме.'), sent[7]);
+  assert.ok(sent[8].includes('име и презиме'), sent[8]);
+  assert.ok(!sent[8].includes('Одлично, уште последниве информации и завршуваме.'), sent[8]);
 });
 
 test('rent EB without declared intent: the fee is the RENT script (300 денари), never the buy 500 — the property service is pinned', async () => {
@@ -1432,27 +1450,34 @@ test('seen property without a number: Lina asks for Евидентен број 
   assert.ok(sent[4].includes('500 денари'), sent[4]);
 });
 
-test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" → ack + fee, NEVER a re-description', async () => {
+test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" → ack (permission) → fee, NEVER a re-description', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'lidija';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   // The exact transcript: the client knows the property from the website and
   // asks about AVAILABILITY — Lina must NOT re-describe it. She answers the
-  // availability ack (still available, will check with the owner) and asks the
-  // fee; the property card never appears.
+  // availability ack (still available) and ASKS PERMISSION to contact the owner.
+  // The fee comes only after the client confirms.
   let s = await send('ve kontaktiram vo vrska so oglasot so evidenten broj 53\ndali e seuste dostapen?');
-  assert.equal(s.state, 'closing'); // fee disclosure — the owner ping-pong follows
+  assert.equal(s.state, 'closing');
   assert.equal(s.slots.interestedPropertyId, 53);
   // availability ack anchor (bank-backed, all variants carry one)
-  assert.ok(/(?:достапен|постои|база|слободен|активен|сопственик)/i.test(sent[0]), sent[0]);
-  assert.ok(sent[0].includes('500 денари'), sent[0]); // buy fee disclosed (EB 53 is buy)
+  assert.ok(/(?:достапен|постои|база|слободен|активен)/i.test(sent[0]), sent[0]);
+  assert.ok(sent[0].includes('?'), sent[0]); // must be a QUESTION (permission ask)
+  assert.ok(!sent[0].includes('500 денари'), sent[0]); // fee NOT yet disclosed
   assert.ok(!sent[0].includes('Станот под Евидентен'), sent[0]); // never the card
   // The availability check DOES carry the approximate location (a landmark,
   // per the agency protocol) — but never the street and never the card prose.
   assert.ok(sent[0].includes('во близина на'), sent[0]);
   assert.ok(!sent[0].includes('Бисер'), sent[0]); // the street stays hidden
-  assert.ok(!sent[0].includes('Дали овој имот Ви одговара'), sent[0]);
+  assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
+
+  // client confirms they want owner contacted -> NOW the fee
+  await send('DA');
+  s = sessions.get(chatId)!; // re-read session after send
+  assert.ok(sent[1].includes('500 денари'), sent[1]); // buy fee disclosed (EB 53 is buy)
+  assert.ok(!s.slots.ownerContactPending, 'ownerContactPending should be cleared');
 
   // fee ok -> contact -> time -> the owner ping-pong starts
   await send('DA, SE SOGLASUVAM');
@@ -1463,21 +1488,23 @@ test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" 
   assert.equal(s.slots.interestedPropertyId, 53);
 });
 
-test('availability ask: the client asks about a SHOWN property → ack + fee, not the card again', async () => {
+test('availability ask: the client asks about a SHOWN property → ack (permission), no card again', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'avail2';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   // the property was already shown in property_query ("кој е 78?") — now the
-  // client asks availability; Lina answers ack + fee, no re-description
+  // client asks availability; Lina answers ack (permission ask), no re-description
   let s = await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   assert.equal(s.state, 'property_query');
   assert.ok(sent[0].includes('Евидентен број 78'), sent[0]);
   s = await send('dali e seuste dostapen?');
   assert.equal(s.state, 'closing');
-  assert.ok(/(?:достапен|постои|база|слободен|активен|сопственик)/i.test(sent[1]), sent[1]);
-  assert.ok(sent[1].includes('500 денари'), sent[1]);
+  assert.ok(/(?:достапен|постои|база|слободен|активен)/i.test(sent[1]), sent[1]);
+  assert.ok(sent[1].includes('?'), sent[1]); // must be a QUESTION (permission ask)
+  assert.ok(!sent[1].includes('500 денари'), sent[1]); // fee NOT yet disclosed
   assert.ok(!sent[1].includes('Станот под Евидентен'), sent[1]);
+  assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
 });
 
 test('owner dictates a NEW price: stored for Hermes + relayed to the client before the confirmation', async () => {
@@ -1491,6 +1518,7 @@ test('owner dictates a NEW price: stored for Hermes + relayed to the client befo
   // reach owner_checking (interest -> fee -> agree -> contact -> time)
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
   let s = await send('UTRE POPLADNE POSLE 6');
@@ -1529,11 +1557,15 @@ test('seen property: the client KNOWS the number — easy property_query lookup,
   assert.equal(s.slots.propertyId, 78);
   assert.ok(sent[0].includes('Евидентен број 78'), sent[0]);
 
-  // then the normal flow: interest -> closing (LLM-down fallback cards)
+  // then the normal flow: availability ack (permission) -> fee -> agree
   s = await send('DALI E SEUSTE DOSTAPEN ?');
   assert.equal(s.state, 'closing');
   assert.equal(s.slots.interestedPropertyId, 78);
-  assert.ok(sent[1].includes('500 денари'), sent[1]);
+  assert.ok(sent[1].includes('?'), sent[1]); // permission question
+  assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
+  // confirm owner contact -> fee
+  await send('DA');
+  assert.ok(sent[2].includes('500 денари'), sent[2]);
 });
 
 test('the recap NEVER appears on any discovery ask — only the missing question', async () => {
@@ -1707,11 +1739,16 @@ test('contact with property interest: even if queueAfterContact was set, a speci
   assert.equal(s.state, 'property_query');
   assert.ok(sent[0].includes('Евидентен број 53'), sent[0]);
 
-  // 2) availability ask → INTERESTED → closing, fee disclosed
+  // 2) availability ask → closing (permission ask)
   await send('dali e dostapen?');
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'closing');
-  assert.ok(/(?:500|300|надомест|провизија)/i.test(sent[1]), sent[1]); // fee disclosed
+  assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
+  assert.ok(!/500/.test(sent[1]), sent[1]); // fee NOT yet disclosed
+
+  // 2b) confirm owner contact → fee disclosed
+  await send('da');
+  assert.ok(/(?:500|300|надомест|провизија)/i.test(sent[2]), sent[2]); // fee disclosed
 
   // 3) fee agreement → contact_collection
   await send('da, soglasuvam');

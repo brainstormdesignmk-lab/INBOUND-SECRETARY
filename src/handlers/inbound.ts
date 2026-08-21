@@ -622,12 +622,15 @@ export class InboundHandler {
           : exhaustedLine(session.slots.location, assistantTexts(session))
             ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location));
     } else if (next === 'property_query' && props.length > 0
-        && !detectAvailabilityAsk(text)) {
+        && !detectAvailabilityAsk(text)
+        && !session.slots.ownerContactPending) {
       // The client asked about a known EB ("кажи ми нешто за 57", "што е со
       // 62?"): show the property card deterministically. No LLM needed — the
       // card is code-built with all the property details + landmark.
       // Availability asks ("дали е сеуште достапен?") are excluded — they
-      // route to the closing/fee path below.
+      // route to the closing/fee path below. Also excluded when
+      // ownerContactPending ("да" after availability ack) — the agreement
+      // handler below shows the fee instead of re-showing the card.
       reply = buildPropertyCard(props[0]);
     } else if (next === 'property_query' && props.length === 0) {
       // The EB doesn't exist. The not-found line itself asks whether the
@@ -655,14 +658,14 @@ export class InboundHandler {
       // Availability question about a KNOWN property ("дали е сеуште достапен?",
       // "dali e seuste dostapen?"): the client saw the ad on the website and
       // knows the details — Lina does NOT re-describe it. She answers that it
-      // should still be available and that she will check with the owner (the
-      // availability AND price are the owner's truth), then asks the fee — on
-      // agreement the owner ping-pong starts. The ack and the fee ask are
-      // bank-backed (varied), with the code-built lines as fallback.
+      // should still be available and ASKS if the client wants her to contact
+      // the owner. The fee is NOT disclosed yet — it comes AFTER the client
+      // confirms they want to proceed. The ack is bank-backed (varied), with
+      // the code-built line as fallback.
       const eb = session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb!;
       session.state = 'closing';
       session.slots.interestedPropertyId = eb;
-      const service = session.slots.service ?? props[0]?.service ?? 'buy';
+      session.slots.ownerContactPending = true;
       const ack = pickVariant('availability.ack', { recent: assistantTexts(session) })
         ?? AVAILABILITY_ACK;
       // Address privacy: the availability check carries the APPROXIMATE
@@ -671,9 +674,22 @@ export class InboundHandler {
       const locLine = props[0]?.landmark
         ? `\n\nСе наоѓа во близина на ${props[0].landmark}.`
         : '';
+      reply = `${ack}${locLine}`;
+    } else if ((next === 'closing' || before === 'closing')
+        && session.slots.ownerContactPending
+        && detectAgreement(text)) {
+      // Client confirmed they WANT the owner contacted ("да" / "согласен" after
+      // the availability ack). NOW disclose the fee — the client knows the
+      // property, wants it checked, and the fee is the last gate before the
+      // owner ping-pong starts. Override next AND state to stay in closing —
+      // the fee has not been agreed yet, only the permission to contact.
+      next = 'closing';
+      session.state = 'closing';
+      session.slots.ownerContactPending = false;
+      const service = session.slots.service ?? props[0]?.service ?? 'buy';
       const fee = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
         ?? buildFeeAsk(service);
-      reply = `${ack}${locLine}\n\n${fee}`;
+      reply = fee;
     } else if (detectOfftopic(text) && !['owner_checking', 'pending'].includes(session.state)) {
       reply = pickVariant('offtopic.redirect', { recent: assistantTexts(session) })
         ?? OFFTOPIC_REDIRECT;

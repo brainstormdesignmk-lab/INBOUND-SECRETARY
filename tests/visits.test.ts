@@ -317,6 +317,7 @@ test('e2e: arranged visit fires ДОГОВОРЕНА ПОСЕТА to owner + cli
 
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 53');
   await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('MARKO 078/914 196');
   let s = await send('UTRE POPLADNE');

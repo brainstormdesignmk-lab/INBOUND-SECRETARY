@@ -158,6 +158,7 @@ test('hermes API: owner answer via the events BUS resolves the pending check (cr
     const send = async (m: string) => { await env.handler.handle('test', chatId, m); return env.sessions.get(chatId)!; };
     await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 53');
     await send('DALI E SEUSTE DOSTAPEN ?');
+    await send('DA'); // confirm owner contact
     await send('DA, SE SOGLASUVAM');
     await send('ZORAN 078/914 196');
     let s = await send('UTRE POPLADNE');
@@ -179,6 +180,7 @@ test('hermes API: owner answer via the events BUS resolves the pending check (cr
     const send2 = async (m: string) => { await env.handler.handle('test', chatId2, m); return env.sessions.get(chatId2)!; };
     await send2('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 53');
     await send2('DALI E SEUSTE DOSTAPEN ?');
+    await send2('DA'); // confirm owner contact
     await send2('DA, SE SOGLASUVAM');
     await send2('ZORAN 078/914 196');
     let s2 = await send2('UTRE POPLADNE');
@@ -199,6 +201,7 @@ test('hermes API: the API endpoint matches the deterministic owner verdict flow'
     const send = async (m: string) => { await env.handler.handle('test', chatId, m); return env.sessions.get(chatId)!; };
     await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 53');
     await send('DALI E SEUSTE DOSTAPEN ?');
+    await send('DA'); // confirm owner contact
     await send('DA, SE SOGLASUVAM');
     await send('ZORAN 078/914 196');
     let s = await send('UTRE POPLADNE');

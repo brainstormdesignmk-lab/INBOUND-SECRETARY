@@ -36,6 +36,7 @@ export interface SlotData {
   agentPhone?: string;
   soldEb?: number;              // property known to be gone — excluded from alternatives
   queueAfterContact?: boolean;  // exhausted-options flow: collect contact, then queue
+  ownerContactPending?: boolean; // availability ack sent — waiting for client to confirm they WANT owner contact (fee comes AFTER this)
 }
 
 export type HistoryMsg = { role: 'user' | 'assistant'; text: string };

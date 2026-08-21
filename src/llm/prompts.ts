@@ -29,11 +29,11 @@ export const PATIENCE_LINE =
 // Availability question about a KNOWN property ("дали е сеуште достапен?"):
 // the client saw the ad on the website and knows the details — Lina does NOT
 // re-describe the property. She answers that it should still be available and
-// that she will contact the owner to confirm the CURRENT state (availability +
-// price — the owner dictates the price). Bank-backed (availability.ack) with
-// this exact line as the code-built fallback.
+// ASKS if the client wants her to contact the owner. The fee is disclosed ONLY
+// after the client confirms they want to proceed. Bank-backed (availability.ack)
+// with this exact line as the code-built fallback.
 export const AVAILABILITY_ACK =
-  'Би требало да е сеуште достапен. Ќе го контактирам сопственикот и ќе ја проверам моменталната состојба.';
+  'Би требало да е сеуште достапен. Дали сакате да Ве поврзам со сопственикот за да ги потврдиме моменталната достапност и цената?';
 
 /** The owner dictated a NEW price — relayed to the client (code-built, exact). */
 export function buildPriceRelay(eb: number, newPrice: number, oldPrice?: number): string {
