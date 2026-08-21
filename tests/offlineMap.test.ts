@@ -44,10 +44,11 @@ test('nearestPois: nearest first, radius respected, limit honored', () => {
 
   const near = store.nearestPois(42.0, 21.43, 1000, 10);
   assert.equal(near.length, 2); // City Mall (>1.4km) is outside the 1000m ring
-  // Type-priority ranking: university (priority 2) beats cafe (priority ~20)
-  // even though the cafe is closer (14m vs 280m).
-  assert.equal(near[0].name, 'Градежен факултет');
-  assert.equal(near[1].name, 'Кафе бар Ван Гог');
+  // Score-based ranking: cafe at 14m (score ~42) beats university at 280m
+  // (score ~336) because the distance is so small the priority penalty can't
+  // overcome it. At 14m the cafe IS a valid landmark.
+  assert.equal(near[0].name, 'Кафе бар Ван Гог');
+  assert.equal(near[1].name, 'Градежен факултет');
 
   // 100m ring = only the cafe (the "rings" are just distances, one query)
   const tight = store.nearestPois(42.0, 21.43, 100, 10);

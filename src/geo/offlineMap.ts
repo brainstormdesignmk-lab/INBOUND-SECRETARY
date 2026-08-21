@@ -141,14 +141,17 @@ function meters(a: { lat: number; lon: number }, b: { lat: number; lon: number }
  *  recognized navigation anchors. Shops and cafes are only useful when
  *  very close. People say "кај болницата", never "кај фурната". */
 const POI_PRIORITY: Record<string, number> = {
+  // place types — squares and neighborhoods are the BEST Skopje landmarks
+  square: 0, plaza: 0, neighbourhood: 0, locality: 0, suburb: 0,
+  // institutional
   hospital: 1, clinic: 1, healthcare: 1,
   school: 2, university: 2, college: 2,
-  government: 3, townhall: 3, embassy: 3, diplomatic: 3,
+  government: 3, townhall: 3, embassy: 3, diplomatic: 3, political_party: 3,
   stadium: 4, sports_centre: 4, swimming_pool: 4,
   place_of_worship: 5, church: 5, mosque: 5, synagogue: 5,
   museum: 6, gallery: 6, theatre: 6, cinema: 6, library: 6,
   hotel: 7, motel: 7, hostel: 7,
-  shopping_mall: 8, department_store: 8,
+  mall: 8, shopping_mall: 8, department_store: 8,
   bank: 9, atm: 9, bureau_de_change: 9,
   pharmacy: 10, chemist: 10,
   police: 11, fire_station: 11, ambulance_station: 11,
@@ -157,7 +160,15 @@ const POI_PRIORITY: Record<string, number> = {
   restaurant: 20, cafe: 20, fast_food: 20, bar: 20, pub: 20,
   bakery: 25, clothes: 25, jewelry: 25, books: 25,
   fuel: 30, parking: 30,
+  parking_landmark: 7, // named garages ("Катна гаража Беко") — hotel-level landmark
 };
+
+/** Named parking garages ("Катна гаража Беко") are Skopje landmarks — boost
+ *  them from parking (30) to hotel level (7). Generic "Parking" stays at 30. */
+function boostNamedLandmark(type: string, name: string): string {
+  if (type === 'parking' && /каража|гараж|garage/i.test(name)) return 'parking_landmark';
+  return type;
+}
 
 export class OfflineMapStore {
   private db: Database.Database | null = null;
@@ -199,18 +210,29 @@ export class OfflineMapStore {
     const out: LocalPoi[] = [];
     for (const r of rows) {
       const d = meters({ lat, lon }, { lat: r.lat, lon: r.lon });
-      if (d <= radiusM) out.push({ name: r.name, type: r.type, distance_m: Math.round(d) });
+      if (d <= radiusM) out.push({ name: r.name, type: boostNamedLandmark(r.type, r.name), distance_m: Math.round(d) });
     }
-    // Sort by RECOGNIZABILITY, not just distance. A hospital at 800m is a
-    // better landmark than a bakery at 15m — people navigate by "кај болницата",
-    // not "кај фурната". Type priority: institutional > commercial > other.
+    // SCORE-BASED ranking: blends distance and type recognizability.
+    // A government building at 82m (score 107) beats a hospital at 216m (score 238)
+    // — because 'кај Министерството' is a real Skopje navigation phrase.
+    // score = distance_m * (1 + priority/10). Lower = better landmark.
+    // Cap: max 3 results per type to prevent flooding.
     out.sort((a, b) => {
-      const pa = POI_PRIORITY[a.type] ?? 50;
-      const pb = POI_PRIORITY[b.type] ?? 50;
-      if (pa !== pb) return pa - pb; // higher priority first
-      return a.distance_m - b.distance_m; // then closer first
+      const sa = a.distance_m * (1 + (POI_PRIORITY[a.type] ?? 50) / 10);
+      const sb = b.distance_m * (1 + (POI_PRIORITY[b.type] ?? 50) / 10);
+      return sa - sb;
     });
-    return out.slice(0, limit);
+    // Cap per-type: no more than 3 of any single type so diverse landmarks surface
+    const MAX_PER_TYPE = 3;
+    const typeCounts = new Map<string, number>();
+    const capped: LocalPoi[] = [];
+    for (const p of out) {
+      const count = typeCounts.get(p.type) ?? 0;
+      if (count >= MAX_PER_TYPE) continue;
+      typeCounts.set(p.type, count + 1);
+      capped.push(p);
+    }
+    return capped.slice(0, limit);
   }
 
   /** Local address → coordinates. When the address includes a house number
@@ -335,8 +357,7 @@ async function fetchPois(): Promise<Array<{ name: string; type: string; lat: num
   const seen = new Set<string>();
   for (const bbox of tiles()) {
     // Comprehensive query: pulls ALL named POIs that could be landmarks.
-    // Added: healthcare (hospitals/clinics), historic (monuments), building
-    // (named hotels/buildings without amenity tag), man_made (towers).
+    // place = squares, neighborhoods, localities (Плоштад ВМРО, etc.)
     const q = `[out:json][timeout:90];(
       nwr["name"]["amenity"](${bbox.join(',')});
       nwr["name"]["shop"](${bbox.join(',')});
@@ -347,13 +368,14 @@ async function fetchPois(): Promise<Array<{ name: string; type: string; lat: num
       nwr["name"]["historic"](${bbox.join(',')});
       nwr["name"]["building"]["building"!="yes"](${bbox.join(',')});
       nwr["name"]["man_made"](${bbox.join(',')});
+      nwr["name"]["place"](${bbox.join(',')});
     );out center tags;`;
     const { elements } = await overpass(q);
     for (const e of elements) {
       const name = (e.tags?.name ?? '').trim();
       const c = coordsOf(e);
       if (!name || !c) continue;
-      const type = e.tags?.amenity ?? e.tags?.shop ?? e.tags?.leisure ?? e.tags?.tourism ?? e.tags?.office ?? e.tags?.healthcare ?? e.tags?.historic ?? e.tags?.building ?? e.tags?.man_made ?? 'place';
+      const type = e.tags?.amenity ?? e.tags?.shop ?? e.tags?.leisure ?? e.tags?.tourism ?? e.tags?.office ?? e.tags?.healthcare ?? e.tags?.historic ?? e.tags?.building ?? e.tags?.man_made ?? e.tags?.place ?? 'other';
       const k = `${name}|${c.lat.toFixed(5)}|${c.lon.toFixed(5)}`;
       if (seen.has(k)) continue; // tile borders can double-return a POI
       seen.add(k);
