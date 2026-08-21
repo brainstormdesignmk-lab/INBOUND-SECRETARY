@@ -13,7 +13,7 @@ import { join } from 'path';
 import Database from 'better-sqlite3';
 
 const PROJECT_REF = process.env.SUPABASE_PROJECT_REF || 'euuaycmxfqiruspwjxhd';
-const BACKUP_DIR = process.argv[2] || process.env.BACKUP_DIR || '/home/metropolis2/Documents/NEKRETNINI/backup';
+const BACKUP_DIR = process.argv[2] || process.env.BACKUP_DIR || '/home/metropolis2/Documents/NEKRETNINI_BACKUP/backup';
 const REST_URL = `https://${PROJECT_REF}.supabase.co/rest/v1`;
 const STORAGE_URL = `https://${PROJECT_REF}.supabase.co/storage/v1/object/public/property-images`;
 const DATE = new Date().toISOString();
