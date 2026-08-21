@@ -94,9 +94,17 @@ export function detectAvailabilityAsk(text: string): boolean {
 // fee/надомест/посета/платам anchors count.
 const FEE_WHY_RE =
   /(зошто|зашто|зоштo|zosto|zashto)[^.!?\n]{0,40}(наплаќате|наплатувате|наплаќа|наплатува|се наплаќа|се наплатува|надомест|надоместок|посетата|посета|naplakjate|naplakate|naplatuvate|naplakja|naplatuva|nadomest|nadomestok|posetata|poseta)|(ником|никому|никој|nikoj|nikomu)[^.!?\n]{0,30}(не го прави|не го прават|го прават|не наплаќа|не наплаќаат|ne go pravi|ne go pravat|ne naplakja|ne naplakjaat)|(зошто|зашто|zosto|zashto)[^.!?\n]{0,30}(треба да платам|треба да плаќам|мора да платам|да плаќам|да платам|плаќам|plakjam|plakam|da plakam|da platam)|(како|kako)( тоа| toa)?[^.\n]{0,40}(да платам|да плаќам|плаќам|платам|plakam|platam|plakjam|надомест|надоместок|nadomest|nadomestok|наплаќате|наплаќа|наплатувате|наплатува|се наплаќа|се наплатува|naplakjate|naplakate|naplatuvate|naplakja|naplatuva|se naplakja|se naplatuva)|(првпат|prv\s*pat|prvi\s*pat)[^.!?\n]{0,40}(слушам|чујам|чул|чуш|slusam|cuvam|cul|slusnal|chuvam)/iu;
+// "за што/za sto" — the client asks what the fee is FOR, not why it exists.
+// This is a WHY question ("за што ми е потребно ова?") not a refusal.
+const FEE_FOR_WHAT_RE = /(?:за\s+(?:што|stо|sto|stó)|za\s+sto|za\s+what|for\s+what)/iu;
+// "kako 500 den" — client questions a specific fee amount. Any combination
+// of како/кoа + number + den/denari/euro/evra is a WHY question.
+const FEE_AMOUNT_RE = /(?:како|kako|која|koja)[^.!?\n]{0,30}\d[^.!?\n]{0,20}(?:den|denar|евр|eur|din|dinari|евра|euro)/iu;
 
 export function detectFeeWhy(text: string): boolean {
-  return FEE_WHY_RE.test(text);
+  // Normalize: join multi-line bursts into one line so cross-line patterns work
+  const flat = text.replace(/\n/g, ' ');
+  return FEE_WHY_RE.test(flat) || FEE_FOR_WHAT_RE.test(flat) || FEE_AMOUNT_RE.test(flat);
 }
 
 // A position pick among the presented closest matches: "првиот" / "вториот"
