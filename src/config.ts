@@ -55,6 +55,7 @@ export interface AppConfig {
   skopjePoisDb: string;    // offline OSM map (named POIs + addresses) — the resolver's local geo engine
   linaApiUrl: string;      // public base URL of Lina's /hermes/v1 API (Hermes on another machine)
   ownerBusPollMs: number;  // how often the owner agent polls the events bus for answers
+  localBackupUrl: string;  // local fallback REST server (HP620) — when Supabase is down, edge functions read from here
 }
 
 const num = (v: string | undefined, d: number): number => {
@@ -111,6 +112,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     skopjePoisDb: process.env.SKOPJE_POIS_DB || path.join(process.cwd(), 'data', 'skopje-pois.db'),
     linaApiUrl: process.env.LINA_API_URL || '',
     ownerBusPollMs: num(process.env.OWNER_BUS_POLL_MS, 2000),
+    localBackupUrl: process.env.LOCAL_BACKUP_URL || '',
   };
   // All explicit overrides win over env (simFast was the only one honored
   // before — tests now override e.g. hermesToken / ownerBusPollMs too).

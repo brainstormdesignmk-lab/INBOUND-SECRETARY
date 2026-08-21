@@ -54,10 +54,45 @@ function restHeaders(extra: Record<string, string> = {}) {
   };
 }
 
+const LOCAL_BACKUP_URL = Deno.env.get("LOCAL_BACKUP_URL") ?? "";
+const FETCH_TIMEOUT_MS = 8000;
+
+/** fetch with timeout — prevents edge functions from hanging when Supabase is unreachable. */
+async function fetchWithTimeout(url: string, opts: RequestInit & { timeout?: number } = {}): Promise<Response> {
+  const timeout = opts.timeout ?? FETCH_TIMEOUT_MS;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeout);
+  try {
+    return await fetch(url, { ...opts, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Try Supabase first; if it times out or returns 5xx, fall back to the local backup server. */
 export async function restGet(path: string): Promise<any[]> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, { headers: restHeaders() });
-  if (!res.ok) throw new Error(`REST ${res.status}: ${await res.text()}`);
-  return res.json();
+  try {
+    const res = await fetchWithTimeout(`${SUPABASE_URL}/rest/v1${path}`, {
+      headers: restHeaders(),
+      timeout: FETCH_TIMEOUT_MS,
+    });
+    if (res.ok) return res.json();
+    // 5xx on Supabase → fall back; 4xx (bad query) → throw immediately
+    if (res.status < 500) throw new Error(`REST ${res.status}: ${await res.text()}`);
+    console.warn(`[hermes] Supabase returned ${res.status}, trying local backup...`);
+  } catch (err) {
+    // Network error or timeout → fall back
+    console.warn(`[hermes] Supabase unreachable: ${err instanceof Error ? err.message : err}`);
+  }
+  // --- Local fallback ---
+  if (!LOCAL_BACKUP_URL) throw new Error(`Supabase failed and no LOCAL_BACKUP_URL configured`);
+  const fallbackRes = await fetchWithTimeout(`${LOCAL_BACKUP_URL}${path}`, {
+    headers: restHeaders(),
+    timeout: FETCH_TIMEOUT_MS,
+  });
+  if (!fallbackRes.ok) throw new Error(`Local backup REST ${fallbackRes.status}: ${await fallbackRes.text()}`);
+  console.log(`[hermes] Served from local backup: ${path}`);
+  return fallbackRes.json();
 }
 
 export async function restPost(table: string, body: unknown): Promise<any[]> {

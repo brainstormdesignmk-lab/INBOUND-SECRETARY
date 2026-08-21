@@ -1,20 +1,52 @@
 // Version: 2025-02-02-v7 - Added available_from filtering
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 
-const DEPLOY_VERSION = "v7-20250202";
+const DEPLOY_VERSION = "v7-20250202-fallback";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "https://qkgioqotxjxffiaufgwd.supabase.co";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZ2lvcW90eGp4ZmZpYXVmZ3dkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxMTU0NjUsImV4cCI6MjA3MDY5MTQ2NX0.WVno6c6_rvFqFwj1fN8UWHYmlit0C-6J_h57P8d5eOI";
+const LOCAL_BACKUP_URL = Deno.env.get("LOCAL_BACKUP_URL") ?? "";
+const FETCH_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string, opts: RequestInit & { timeout?: number } = {}): Promise<Response> {
+  const timeout = opts.timeout ?? FETCH_TIMEOUT_MS;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeout);
+  try {
+    return await fetch(url, { ...opts, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function fetchJSON(path: string) {
-  const res = await fetch(`${SUPABASE_URL}${path}`, {
+  try {
+    const res = await fetchWithTimeout(`${SUPABASE_URL}${path}`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      timeout: FETCH_TIMEOUT_MS,
+    });
+    if (res.ok) return res.json();
+    if (res.status < 500) throw new Error(`Supabase REST error ${res.status}: ${await res.text()}`);
+    console.warn(`[public-properties] Supabase returned ${res.status}, trying local backup...`);
+  } catch (err) {
+    console.warn(`[public-properties] Supabase unreachable: ${err instanceof Error ? err.message : err}`);
+  }
+  // --- Local fallback ---
+  if (!LOCAL_BACKUP_URL) throw new Error(`Supabase failed and no LOCAL_BACKUP_URL configured`);
+  const fallbackRes = await fetchWithTimeout(`${LOCAL_BACKUP_URL}${path}`, {
     headers: {
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       "Content-Type": "application/json",
     },
+    timeout: FETCH_TIMEOUT_MS,
   });
-  if (!res.ok) throw new Error(`Supabase REST error ${res.status}: ${await res.text()}`);
-  return res.json();
+  if (!fallbackRes.ok) throw new Error(`Local backup error ${fallbackRes.status}: ${await fallbackRes.text()}`);
+  console.log(`[public-properties] Served from local backup: ${path}`);
+  return fallbackRes.json();
 }
 
 serve(async (req) => {
