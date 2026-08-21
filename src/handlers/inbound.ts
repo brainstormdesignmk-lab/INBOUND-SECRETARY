@@ -275,9 +275,28 @@ export class InboundHandler {
         // Address privacy: "каде е X?" is answered with the nearest PUBLIC
         // landmark ("во близина на City Mall"), never the street.
         await this.landmarks.enrich([hit]);
-        answer = buildWhereIsAnswer(whereIs.place, {
-          location: hit.location, eb: hit.eb, business: hit.business, landmark: hit.landmark,
-        });
+        // Pre-resolve nearby landmarks for rotation if not yet done.
+        if (!session.slots.nearbyLandmarks?.length) {
+          const nearby = await this.landmarks.nearbyLandmarks(hit);
+          if (nearby.length > 0) {
+            session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+            session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+            session.slots.landmarkIndex = 0;
+          }
+        }
+        // Rotate through the pre-resolved landmarks.
+        const lm = session.slots.nearbyLandmarks;
+        const idx = session.slots.landmarkIndex ?? 0;
+        const landmark = lm?.[idx] ?? hit.landmark;
+        if (lm && idx < lm.length - 1) session.slots.landmarkIndex = idx + 1;
+        // Google Maps link from the POI coordinates.
+        const coords = session.slots.nearbyLandmarkCoords?.[idx];
+        const gmapsLine = coords
+          ? `\nhttps://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lon}`
+          : '';
+        answer = `${buildWhereIsAnswer(whereIs.place, {
+          location: hit.location, eb: hit.eb, business: hit.business, landmark,
+        })}${gmapsLine}`;
       } else if (whereIs.place) {
         const locs = await this.deps.properties.locations();
         const loc = detectLocation(whereIs.place, locs);
@@ -632,6 +651,17 @@ export class InboundHandler {
       // ownerContactPending ("да" after availability ack) — the agreement
       // handler below shows the fee instead of re-showing the card.
       reply = buildPropertyCard(props[0]);
+      // Pre-resolve top-3 nearby landmarks for rotation ("каде?" → first,
+      // "каде поточно?" → second, …) + Google Maps links. Cached on the
+      // session so repeated asks don't re-geocode.
+      if (!session.slots.nearbyLandmarks?.length && props[0]) {
+        const nearby = await this.landmarks.nearbyLandmarks(props[0]);
+        if (nearby.length > 0) {
+          session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+          session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+          session.slots.landmarkIndex = 0;
+        }
+      }
     } else if (next === 'property_query' && props.length === 0) {
       // The EB doesn't exist. The not-found line itself asks whether the
       // client wants similar properties from other locations — an agreement
@@ -666,15 +696,20 @@ export class InboundHandler {
       session.state = 'closing';
       session.slots.interestedPropertyId = eb;
       session.slots.ownerContactPending = true;
+      // Pre-resolve nearby landmarks for when the client asks "каде се наоѓа?"
+      if (!session.slots.nearbyLandmarks?.length && props[0]) {
+        const nearby = await this.landmarks.nearbyLandmarks(props[0]);
+        if (nearby.length > 0) {
+          session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+          session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+          session.slots.landmarkIndex = 0;
+        }
+      }
       const ack = pickVariant('availability.ack', { recent: assistantTexts(session) })
         ?? AVAILABILITY_ACK;
-      // Address privacy: the availability check carries the APPROXIMATE
-      // location (nearest public landmark) — the client knows the details from
-      // the ad, but the exact street stays hidden until the visit is arranged.
-      const locLine = props[0]?.landmark
-        ? `\n\nСе наоѓа во близина на ${props[0].landmark}.`
-        : '';
-      reply = `${ack}${locLine}`;
+      // NO landmark here — the location is only given when the client ASKS
+      // ("каде се наоѓа?"). The ack focuses on permission to contact the owner.
+      reply = ack;
     } else if ((next === 'closing' || before === 'closing')
         && session.slots.ownerContactPending
         && detectAgreement(text)) {

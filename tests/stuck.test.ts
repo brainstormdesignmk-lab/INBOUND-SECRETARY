@@ -1467,9 +1467,9 @@ test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" 
   assert.ok(sent[0].includes('?'), sent[0]); // must be a QUESTION (permission ask)
   assert.ok(!sent[0].includes('500 денари'), sent[0]); // fee NOT yet disclosed
   assert.ok(!sent[0].includes('Станот под Евидентен'), sent[0]); // never the card
-  // The availability check DOES carry the approximate location (a landmark,
-  // per the agency protocol) — but never the street and never the card prose.
-  assert.ok(sent[0].includes('во близина на'), sent[0]);
+  // The ack does NOT carry the landmark — location is only given when the
+  // client ASKS ("каде се наоѓа?"). The ack focuses on permission.
+  assert.ok(!sent[0].includes('во близина на'), sent[0]);
   assert.ok(!sent[0].includes('Бисер'), sent[0]); // the street stays hidden
   assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
 

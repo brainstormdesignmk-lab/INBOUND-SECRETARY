@@ -37,6 +37,9 @@ export interface SlotData {
   soldEb?: number;              // property known to be gone — excluded from alternatives
   queueAfterContact?: boolean;  // exhausted-options flow: collect contact, then queue
   ownerContactPending?: boolean; // availability ack sent — waiting for client to confirm they WANT owner contact (fee comes AFTER this)
+  nearbyLandmarks?: string[];     // top-3 nearby landmark names for rotation ("каде?" → first, "каде поточно?" → second, …)
+  nearbyLandmarkCoords?: Array<{ lat: number; lon: number }>; // parallel coords for Google Maps links
+  landmarkIndex?: number;         // how many landmarks have been revealed so far
 }
 
 export type HistoryMsg = { role: 'user' | 'assistant'; text: string };

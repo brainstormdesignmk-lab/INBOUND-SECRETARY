@@ -445,4 +445,24 @@ export class LandmarkService {
       if (l.source !== 'none') pr.landmark = l.landmark;
     }));
   }
+
+  /** Returns the top 3 nearby landmarks with coordinates for rotation
+   *  ("каде?" → first, "каде поточно?" → second, …) and Google Maps links.
+   *  Uses the same geocoding + nearestPois chain as resolve() but returns
+   *  the full ranked list instead of just the best one. */
+  async nearbyLandmarks(p: { eb: number; address?: string; location?: string }): Promise<Array<{ landmark: string; lat: number; lon: number }>> {
+    try {
+      let geo = p.address ? this.opts.offlineMap?.geocodeAddress(p.address) : undefined;
+      if (!geo && p.address) geo = await photonGeocode(p.address, p.location ?? '');
+      if (!geo || !this.opts.offlineMap) return [];
+      const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
+      return pois
+        .filter(po => po.name.length >= 3 && po.lat != null && po.lon != null)
+        .slice(0, 3)
+        .map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
+    } catch (e) {
+      console.warn('[landmarks] nearbyLandmarks failed:', (e as Error).message);
+      return [];
+    }
+  }
 }

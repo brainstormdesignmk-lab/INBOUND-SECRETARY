@@ -35,6 +35,8 @@ export interface LocalPoi {
   name: string;
   type: string;
   distance_m: number;
+  lat?: number;
+  lon?: number;
 }
 
 export interface GeocodeHit {
@@ -213,7 +215,7 @@ export class OfflineMapStore {
     const out: LocalPoi[] = [];
     for (const r of rows) {
       const d = meters({ lat, lon }, { lat: r.lat, lon: r.lon });
-      if (d <= radiusM) out.push({ name: r.name, type: boostNamedLandmark(r.type, r.name), distance_m: Math.round(d) });
+      if (d <= radiusM) out.push({ name: r.name, type: boostNamedLandmark(r.type, r.name), distance_m: Math.round(d), lat: r.lat, lon: r.lon });
     }
     // SCORE-BASED ranking: blends distance and type recognizability.
     // A government building at 82m (score 107) beats a hospital at 216m (score 238)
