@@ -463,7 +463,12 @@ export class LandmarkService {
    *  reply builder (cards, LLM context, where-is, availability). */
   async enrich(props: Array<{ eb: number; address?: string; location?: string; details?: string; landmark?: string; landmarks?: FeedLandmark[] }>): Promise<void> {
     await Promise.all(props.map(async pr => {
-      if (pr.landmark) return;
+      // Feed landmarks from Supabase (ANA's import-time resolution) are
+      // authoritative — never override them. But ALWAYS re-resolve for all
+      // other cases: the DB cache (sub-ms) handles performance, and skipping
+      // based on pr.landmark causes stale results when the PropertyService
+      // caches a mutated property object for 5 minutes.
+      if (pr.landmarks && pr.landmarks.length > 0) return;
       const l = await this.resolve(pr);
       if (l.source !== 'none') pr.landmark = l.landmark;
     }));
