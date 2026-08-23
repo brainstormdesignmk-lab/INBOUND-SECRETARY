@@ -314,12 +314,13 @@ export class InboundHandler {
             session.slots.landmarkIndex = 0;
           }
         }
-        // Rotation: L1 → Protocol → L2 → L3 → Protocol → Protocol → ...
-        // idx=0→L1, idx=1→Protocol, idx=2→L2, idx=3→L3, idx≥4→Protocol
+        // Rotation: L1 → Protocol → L2 → Protocol → L3 → Protocol → Protocol → ...
+        // idx=0→L1, idx=1→P, idx=2→L2, idx=3→P, idx=4→L3, idx≥5→P
         const lm = session.slots.nearbyLandmarks;
         const idx = session.slots.landmarkIndex ?? 0;
         const hasLandmarks = lm && lm.length > 0;
-        const isProtocolTurn = hasLandmarks && (idx === 1 || idx >= 4);
+        // Protocol on odd indices (after each landmark) and after all 3 landmarks exhausted
+        const isProtocolTurn = hasLandmarks && (idx % 2 === 1 || idx >= 5);
         if (isProtocolTurn) {
           const protoIdx = session.slots.addressProtocolIndex ?? 0;
           const protoLines = [
@@ -337,9 +338,9 @@ export class InboundHandler {
           await this.sendRaw(session, answer);
           return;
         }
-        // Landmark turns: idx=0→L1, idx=2→L2, idx=3→L3. If no landmarks resolved,
+        // Landmark turns: idx=0→L1, idx=2→L2, idx=4→L3. If no landmarks resolved,
         // just use hit.landmark (the pre-resolved one from the table/feed).
-        const lmSlot = idx === 0 ? 0 : idx === 2 ? 1 : idx === 3 ? 2 : 0;
+        const lmSlot = idx === 0 ? 0 : idx === 2 ? 1 : idx === 4 ? 2 : 0;
         const landmark = lm?.[lmSlot] ?? hit.landmark;
         session.slots.landmarkIndex = idx + 1;
         // Google Maps link: always included so the client never needs a
