@@ -175,6 +175,37 @@ function boostNamedLandmark(type: string, name: string): string {
   return type;
 }
 
+/** Permanence multiplier: permanent landmarks (parks, churches, schools,
+ *  monuments) should beat temporary ones (shops, cafes) even when farther,
+ *  because the street reference "кај паркот" will be valid in 10 years;
+ *  "кај Алка-У" might not. Multiplier < 1 = lower score = better pick.
+ *  A park at ~180m (score ≈ 275) beats a supermarket at 117m (score ≈ 293).
+ *  A shop at ≤65m still wins over any permanent landmark (score ≤ 163). */
+const PERMANENCE: Record<string, number> = {
+  // Permanent — never relocate, decades-long
+  park: 0.55, garden: 0.55, playground: 0.55, nature_reserve: 0.55,
+  place_of_worship: 0.55, church: 0.55, mosque: 0.55, synagogue: 0.55,
+  school: 0.55, university: 0.55, college: 0.55,
+  hospital: 0.55, clinic: 0.55, healthcare: 0.55,
+  government: 0.55, townhall: 0.55, embassy: 0.55, diplomatic: 0.55, political_party: 0.55,
+  stadium: 0.55, sports_centre: 0.55, swimming_pool: 0.55,
+  museum: 0.55, gallery: 0.55, theatre: 0.55, cinema: 0.55, library: 0.55,
+  police: 0.55, fire_station: 0.55, ambulance_station: 0.55,
+  square: 0.55, plaza: 0.55,
+  parking_landmark: 0.55, // named garages are permanent landmarks
+  // Semi-permanent — usually stable but can change
+  hotel: 0.75, motel: 0.75, hostel: 0.75,
+  mall: 0.75, shopping_mall: 0.75, department_store: 0.75,
+  bank: 0.75, atm: 0.75, bureau_de_change: 0.75,
+  pharmacy: 0.75, chemist: 0.75,
+  fuel: 0.75,
+  // Temporary — can open/close within months
+  supermarket: 1.0, convenience: 1.0,
+  restaurant: 1.0, cafe: 1.0, fast_food: 1.0, bar: 1.0, pub: 1.0,
+  bakery: 1.0, clothes: 1.0, jewelry: 1.0, books: 1.0,
+  parking: 1.0, // generic parking, not a named garage
+};
+
 export class OfflineMapStore {
   private db: Database.Database | null = null;
 
@@ -217,14 +248,17 @@ export class OfflineMapStore {
       const d = meters({ lat, lon }, { lat: r.lat, lon: r.lon });
       if (d <= radiusM) out.push({ name: r.name, type: boostNamedLandmark(r.type, r.name), distance_m: Math.round(d), lat: r.lat, lon: r.lon });
     }
-    // SCORE-BASED ranking: blends distance and type recognizability.
-    // A government building at 82m (score 107) beats a hospital at 216m (score 238)
-    // — because 'кај Министерството' is a real Skopje navigation phrase.
-    // score = distance_m * (1 + priority/10). Lower = better landmark.
-    // Cap: max 3 results per type to prevent flooding.
+    // SCORE-BASED ranking: blends distance, type recognizability, and permanence.
+    // Permanent landmarks (parks, churches, schools) beat temporary ones (shops,
+    // cafes) even when farther — "кај паркот" is valid forever;
+    // "кај Алка-У" might not be tomorrow.
+    // score = distance_m * (1 + priority/10) * permanence.
+    // Lower = better landmark. Cap: max 3 results per type to prevent flooding.
     out.sort((a, b) => {
-      const sa = a.distance_m * (1 + (POI_PRIORITY[a.type] ?? 50) / 10);
-      const sb = b.distance_m * (1 + (POI_PRIORITY[b.type] ?? 50) / 10);
+      const pa = PERMANENCE[a.type] ?? 1.0;
+      const pb = PERMANENCE[b.type] ?? 1.0;
+      const sa = a.distance_m * (1 + (POI_PRIORITY[a.type] ?? 50) / 10) * pa;
+      const sb = b.distance_m * (1 + (POI_PRIORITY[b.type] ?? 50) / 10) * pb;
       return sa - sb;
     });
     // Cap per-type: no more than 3 of any single type so diverse landmarks surface
@@ -343,15 +377,21 @@ export class OfflineMapStore {
     if (!this.db || !name) return undefined;
     const clean = name.replace(/^(?:кај|спроти|кај штипски|кај скопски)\s+/i, '').trim();
     if (!clean || clean.length < 2) return undefined;
-    // Try exact match first, then starts-with, then contains
-    const patterns = [
-      { q: clean, sql: 'SELECT name, type, lat, lon FROM pois WHERE name = ? COLLATE NOCASE LIMIT 1' },
-      { q: clean + '%', sql: 'SELECT name, type, lat, lon FROM pois WHERE name LIKE ? COLLATE NOCASE LIMIT 1' },
-      { q: '%' + clean + '%', sql: 'SELECT name, type, lat, lon FROM pois WHERE name LIKE ? COLLATE NOCASE LIMIT 1' },
-    ];
-    for (const { q, sql } of patterns) {
-      const row = this.db.prepare(sql).get(q) as { name: string; type: string; lat: number; lon: number } | undefined;
-      if (row) return { lat: row.lat, lon: row.lon, name: row.name };
+    // Try exact match first, then starts-with, then contains.
+    // For contains: prefer SHORTER names ("ТЦ Бисер" > "Бисер Травел"
+    // because the shorter name is a more precise landmark reference).
+    // Contains: pick the shortest match (most precise landmark).
+    // "Бисер" → "ТЦ Бисер" (8 chars) wins over "Бисер Травел" (12 chars)
+    // because the shorter name is the actual landmark, not a random business.
+    const rows = this.db.prepare(
+      'SELECT name, type, lat, lon FROM pois WHERE name LIKE ? COLLATE NOCASE'
+    ).all('%' + clean + '%') as Array<{ name: string; type: string; lat: number; lon: number }>;
+    if (rows.length > 0) {
+      rows.sort((a, b) => a.name.length - b.name.length);
+      const best = rows[0];
+      try { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] findPoiByName(${clean}): ${rows.length} matches → ${best.name} (${best.name.length} chars)\n`); } catch {}
+      return { lat: best.lat, lon: best.lon, name: best.name };
     }
     return undefined;
   }

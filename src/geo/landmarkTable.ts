@@ -34,6 +34,8 @@ export const NEIGHBORHOOD_LANDMARKS: Record<string, TableLandmark[]> = {
     { landmark: 'Трговскиот центар „Веро Центар“', type: 'mall' },
     { landmark: 'Паркот Аеродром', type: 'park' },
     { landmark: 'Автобуската станица на Аеродром', type: 'transit' },
+    { landmark: 'Трговскиот центар „Бисер“', type: 'mall' },
+    { landmark: 'Паркот Авионче', type: 'park' },
   ],
   'кисела вода': [
     { landmark: 'Стадионот „Борис Трајковски“', type: 'stadium' },

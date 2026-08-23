@@ -7,7 +7,7 @@ import {
   detectVisitTime, detectTimeRejection, detectWhereIs, detectOwnerVerdict,
   detectApartmentNeed, detectSeenProperty, detectLocatePick, detectSeeOffers,
   detectAvailabilityAsk, detectFeeWhy, detectExactAddressAsk, detectAnywhere,
-  detectSuggestAlternatives,
+  detectSuggestAlternatives, detectPropertyInterest,
   isPlausibleName, isValidPhone, isValidVisitTime,
 } from '../src/llm/deterministic';
 
@@ -136,6 +136,19 @@ test('detectWhereIs: "каде е X?" is a place question, never a search', () =
   assert.deepEqual(detectWhereIs('каде се наоѓа?'), { place: '', generic: true });
   assert.deepEqual(detectWhereIs('kade se naogja?'), { place: '', generic: true });
   assert.equal(detectWhereIs('DALI E SEUSTE DOSTAPEN ?'), undefined); // visit-interest stays intact
+  // EB number: "каде е 89?" / "каде е број 89" — resolved by getByEb in the handler
+  assert.deepEqual(detectWhereIs('каде се наоѓа 89'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('каде е 89'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('каде се наоѓа 89?'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('КАДЕ Е 89'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('kade e 89'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('kade se naogja 89'), { place: '89', generic: false });
+  // with prefixes: "број", "евидентен број", "еб"
+  assert.deepEqual(detectWhereIs('каде е број 89'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('каде е евидентен број 89'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('каде се наоѓа евидентен број 89'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('kade e broj 89'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('каде е еб 89'), { place: '89', generic: false });
 });
 
 test('detectExactAddressAsk: exact-address questions get the privacy answer, not a landmark', () => {
@@ -474,6 +487,11 @@ test('detectFeeWhy: "зошто наплаќате посета?" is a why-quest
   assert.equal(detectFeeWhy('nikoj ne go pravi toa'), true);
   assert.equal(detectFeeWhy('никој не го прави тоа'), true);
   assert.equal(detectFeeWhy('никому не наплаќаат посета'), true);
+  // nikoj + naplatuva: "никoj не наплатува за посети" is a fee question,
+  // NOT a refusal — must stay at fee.why, not pivot to alternatives.
+  assert.equal(detectFeeWhy('nikoj ne naplatuva za poseti'), true);
+  assert.equal(detectFeeWhy('никој не наплатува за посети'), true);
+  assert.equal(detectFeeWhy('НИКОЈ НЕ НАПЛАТУВА ЗА ПОСЕТИ'), true);
   // the "како тоа?" form — the exact live transcript that was misread as
   // agreement (the bare "da" in "da platam") and closed the deal
   assert.equal(detectFeeWhy('KAKO TOA ? DA PLATAM ZA POSETA ?'), true);
@@ -719,4 +737,100 @@ test('GORAN scenario: "ми треба станче" without a marker stays UNKN
   // is complete -> straight to presentation
   const full = buildEvent('idle', { service: 'buy', location: 'Центар', bedrooms: 1, budget: '50000' });
   assert.equal(full.type, 'SEARCH_REQUESTED');
+});
+
+test('detectPropertyInterest: general interest (I like / I am interested) — NOT scheduling or availability', () => {
+  // ── POSITIVE: general interest phrases ──
+  // Latin
+  assert.equal(detectPropertyInterest('mi se svigja 89'), true);
+  assert.equal(detectPropertyInterest('MI SE SVIGJA'), true);
+  assert.equal(detectPropertyInterest('mi se sviga 89'), true);
+  assert.equal(detectPropertyInterest('MI SE SVIDUVA STANOT'), true);
+  assert.equal(detectPropertyInterest('zaInteresiran sum za 89'), true);
+  assert.equal(detectPropertyInterest('ZAINTERESIRAN SUM ZA 78'), true);
+  assert.equal(detectPropertyInterest('zainteresiran sum'), true);
+  assert.equal(detectPropertyInterest('zaInteresirana e'), true);
+  assert.equal(detectPropertyInterest('zaInteresirano e'), true);
+  assert.equal(detectPropertyInterest('go sakam ovaj stan'), true);
+  assert.equal(detectPropertyInterest('GO SAKAM'), true);
+  assert.equal(detectPropertyInterest('go sakaam stanot'), true);
+  assert.equal(detectPropertyInterest('ke zemam'), true);
+  assert.equal(detectPropertyInterest('ЌЕ ЗЕМАМ'), true);
+  // Cyrillic
+  assert.equal(detectPropertyInterest('ми се свиѓа 89'), true);
+  assert.equal(detectPropertyInterest('МИ СЕ СВИЃА'), true);
+  assert.equal(detectPropertyInterest('ми се допаѓа'), true);
+  assert.equal(detectPropertyInterest('ми се допага'), true);
+  assert.equal(detectPropertyInterest('заинтересиран сум за 89'), true);
+  assert.equal(detectPropertyInterest('ЗАИНТЕРЕСИРАН СУМ ЗА 78'), true);
+  assert.equal(detectPropertyInterest('заинтересирана сум'), true);
+  assert.equal(detectPropertyInterest('заинтересирано е'), true);
+  assert.equal(detectPropertyInterest('го сакам овој стан'), true);
+  assert.equal(detectPropertyInterest('ГО САКАМ'), true);
+  assert.equal(detectPropertyInterest('ќе земам'), true);
+  assert.equal(detectPropertyInterest('ЌЕ ЗЕМАМ'), true);
+  // Mixed: Cyrillic word + Latin digits
+  assert.equal(detectPropertyInterest('заинтересиран сум за 89'), true);
+  assert.equal(detectPropertyInterest('ми се свиѓа овој'), true);
+  // Lowercase / casual
+  // Reversed word order (verb before mi se) is NOT standard — the regex
+  // expects the canonical 'mi se svigja' order.
+  assert.equal(detectPropertyInterest('svigja mi se'), false);
+  assert.equal(detectPropertyInterest('mi se dopaga stanot'), true);
+  // Adjective + copula: "ubav e", "dobar stan", "prekrasen"
+  assert.equal(detectPropertyInterest('ubav e 89'), true);
+  assert.equal(detectPropertyInterest('UBAV E 89'), true);
+  assert.equal(detectPropertyInterest('убав е 89'), true);
+  assert.equal(detectPropertyInterest('89 e dobar stan'), true);
+  assert.equal(detectPropertyInterest('89 е добар стан'), true);
+  assert.equal(detectPropertyInterest('89 e prekrasen'), true);
+  assert.equal(detectPropertyInterest('89 е прекрасен'), true);
+  assert.equal(detectPropertyInterest('najubav mi e'), true);
+  assert.equal(detectPropertyInterest('најубав ми е'), true);
+  // Copula + adjective: "е убав", "е добар"
+  assert.equal(detectPropertyInterest('е убав'), true);
+  assert.equal(detectPropertyInterest('е добар'), true);
+  assert.equal(detectPropertyInterest('е прекрасен'), true);
+  // Subject + copula + adjective: "stanot e ubav", "ова е убав"
+  assert.equal(detectPropertyInterest('stanot e ubav'), true);
+  assert.equal(detectPropertyInterest('станот е убав'), true);
+  assert.equal(detectPropertyInterest('ова е убав'), true);
+  assert.equal(detectPropertyInterest('ovoj e dobar'), true);
+  // Interessen variant (double-s typo)
+  assert.equal(detectPropertyInterest('interessen mi e 89'), true);
+
+  // ── NEGATIVE: NOT property interest ──
+  // Explicit visit scheduling → should NOT match (goes to fee funnel)
+  assert.equal(detectPropertyInterest('кога може да се погледне'), false);
+  assert.equal(detectPropertyInterest('KOGA BI MOZELO DA SE POGLEDNE'), false);
+  assert.equal(detectPropertyInterest('dogovori mi za ovoj so broj 89'), false);
+  assert.equal(detectPropertyInterest('ДОГОВОРИ МИ'), false);
+  assert.equal(detectPropertyInterest('zakazi mi poseta'), false);
+  assert.equal(detectPropertyInterest('ЗАКАЖИ МИ ПОСЕТА'), false);
+  assert.equal(detectPropertyInterest('organiziraj poseta'), false);
+  assert.equal(detectPropertyInterest('ОРГАНИЗИРАЈ ПОСЕТА'), false);
+  // Availability → should NOT match (goes to availability ack)
+  assert.equal(detectPropertyInterest('дали е достапен?'), false);
+  assert.equal(detectPropertyInterest('DALI E DOSTAPEN?'), false);
+  assert.equal(detectPropertyInterest('дали е достапна?'), false);
+  assert.equal(detectPropertyInterest('daali e dostapen'), false);
+  // Negation → should NEVER match
+  assert.equal(detectPropertyInterest('не ми се свиѓа'), false);
+  assert.equal(detectPropertyInterest('NE MI SE SVIGJA'), false);
+  assert.equal(detectPropertyInterest('не ми се допаѓа'), false);
+  assert.equal(detectPropertyInterest('ne mi se dopaga'), false);
+  assert.equal(detectPropertyInterest('не сум заинтересиран'), false);
+  assert.equal(detectPropertyInterest('NE SUM ZAINTERESIRAN'), false);
+  assert.equal(detectPropertyInterest('не сум заинтересирана'), false);
+  assert.equal(detectPropertyInterest('не сакам да го земам'), false);
+  assert.equal(detectPropertyInterest('NE SAKAM DA GO ZEMAM'), false);
+  // Unrelated chat
+  assert.equal(detectPropertyInterest('zdravo'), false);
+  assert.equal(detectPropertyInterest('здраво, како си?'), false);
+  assert.equal(detectPropertyInterest('STO IMAS VO KARPOS ?'), false);
+  assert.equal(detectPropertyInterest('kade mu e lokacijata'), false);
+  assert.equal(detectPropertyInterest('kazi mi kade e'), false);
+  assert.equal(detectPropertyInterest('дај ми цена'), false);
+  assert.equal(detectPropertyInterest('NE MOZAM'), false);
+  assert.equal(detectPropertyInterest('cancel'), false);
 });

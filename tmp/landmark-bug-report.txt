@@ -1,0 +1,177 @@
+======================================================================
+  LANDMARK BUG REPORT: EB 89 shows "Златна Вилушка" instead of
+  the actual nearest POI
+======================================================================
+
+CONTEXT
+-------
+The Lina chatbot shows a property card saying:
+  "Се наоѓа во близина на Златна вилушка."
+for EB 89 (Бул. АСНОМ Бр.134, Аеродром). This is WRONG.
+
+Google Maps shows:
+  - EB 89 is at ASNOM Blvd 134 (41.988, 21.477)
+  - Zlatna Vilushka restaurant is ~1 km away (41.991, 21.466)
+  - There are much closer landmarks: Alka-U B supermarket (117m),
+    Парк Авионче (174m), churches (271m)
+
+For comparison, EB 90 (Локов 5, Кисела Вода) resolves correctly
+to "Дом за слепи" at 164m — the offline map works fine for that one.
+
+======================================================================
+  EB 89: Бул. АСНОМ Бр.134 (Аеродром)
+======================================================================
+
+Address:     Бул. АСНОМ Бр.134
+Location:    Аеродром
+Feed landmarks (from Supabase): NONE
+Current landmark on property:  UNDEFINED
+Details text: Станот е стар и се е функционално. Во него се живееше до пред 2 месеци.. Одлична локација со убав поглед од балконите кон Мерцедес и авиончето. Многу простор пред зградата. Чист имотен лист..58м2 + 12м2 балкони +4м2 подиум..
+
+[Layer 0] Feed landmarks (ANA import-time):
+  UNDEFINED → layer skipped
+
+[Layer 2] DB cache (previous resolution):
+  CACHED: "Парк Авионче" (source=offline)
+  ⚠ This is the stale value causing the bug!
+
+[Layer 3] Google Maps:
+  NO KEY → layer skipped
+
+[Layer 4] Details text extraction:
+  No match → layer skipped
+
+[Layer 5] Offline map (local OSM POIs, zero network):
+  Geocode OK: lat=41.987890, lon=21.476493 ("Булевар Асном")
+  15 POIs found within 2km:
+     1.   174m  Парк Авионче                             (park                )  score=383
+     2.   271m  Св. Јован Крстител                       (place_of_worship    )  score=1626
+     3.   294m  Црква Рождество на Пресвета Богородица   (place_of_worship    )  score=1764
+     4.   342m  Тренинг Центар Петар Милошевски          (sports_centre       )  score=2052
+     5.   117m  Alka-U B                                 (supermarket         )  score=293
+     6.   595m  ФОН Универзитет                          (university          )  score=3570
+     7.   612m  ООУ Лазо Ангеловски                      (school              )  score=3672
+     8.   351m  Полициска Станица - Аеродром             (police              )  score=2106
+     9.   547m  Јуниор                                   (sports_centre       )  score=3282
+    10.   201m  Gala Fruit                               (supermarket         )  score=503
+    11.   398m  DoubleTree by Hilton Skopje              (hotel               )  score=2388
+    12.   617m  Црква Свети Никола                       (place_of_worship    )  score=3702
+    13.   181m  Кафе Мамбо                               (cafe                )  score=1086
+    14.   786m  Општина Аеродром                         (townhall            )  score=4716
+    15.   189m  КФЦ - Ново Лисиче                        (fast_food           )  score=1134
+  → OFFLINE MAP PICK: "Парк Авионче" (score=383)
+
+[Layer 6] OSM (Nominatim + Overpass, network):
+  (skipped in this debug — but this is the layer that wrote "Златна вилушка" to cache)
+
+[Layer 7] Deterministic table (neighborhood):
+  Автобуската станица на Аеродром (transit)
+
+======================================================================
+  EB 90: Локов 5 (Кисела Вода)
+======================================================================
+
+Address:     Локов 5
+Location:    Кисела Вода
+Feed landmarks (from Supabase): NONE
+Current landmark on property:  UNDEFINED
+Details text: Се продава. Стар стан во кисела вода со Одличен распоред на први спрат.Градско Парно . Со можност за изведба на уште една соба. За Комплетно Реновирање.
+
+[Layer 0] Feed landmarks (ANA import-time):
+  UNDEFINED → layer skipped
+
+[Layer 2] DB cache (previous resolution):
+  CACHED: "Дом за слепи" (source=offline)
+  ⚠ This is the stale value causing the bug!
+
+[Layer 3] Google Maps:
+  NO KEY → layer skipped
+
+[Layer 4] Details text extraction:
+  No match → layer skipped
+
+[Layer 5] Offline map (local OSM POIs, zero network):
+  Geocode OK: lat=41.974462, lon=21.440288 ("Локов")
+  15 POIs found within 2km:
+     1.   164m  Дом за слепи                             (school              )  score=984
+     2.   387m  ООУ Круме Кепески                        (school              )  score=2322
+     3.   479m  Болница за зависности                    (hospital            )  score=2874
+     4.   350m  Кино Кисела Вода                         (cinema              )  score=2100
+     5.   224m  Еурофарм                                 (pharmacy            )  score=1344
+     6.   529m  Kiril Pejchinovik                        (school              )  score=3174
+     7.   309m  Парк Кино Кисела Вода                    (park                )  score=680
+     8.   530m  Расадник                                 (sports_centre       )  score=3180
+     9.   197m  Томи                                     (convenience         )  score=1182
+    10.   390m  Sun Hotel                                (hotel               )  score=2340
+    11.   417m  Hotel Imperial                           (hotel               )  score=2502
+    12.   214m  Тобако Томи                              (convenience         )  score=1284
+    13.   795m  Општина Кисела Вода                      (townhall            )  score=4770
+    14.   708m  Црква Света Петка                        (place_of_worship    )  score=4248
+    15.   171m  Фарина                                   (bakery              )  score=1026
+  → OFFLINE MAP PICK: "Дом за слепи" (score=984)
+
+[Layer 6] OSM (Nominatim + Overpass, network):
+  (skipped in this debug — but this is the layer that wrote "Златна вилушка" to cache)
+
+[Layer 7] Deterministic table (neighborhood):
+  Паркот „Жена Борец“ (park)
+
+======================================================================
+  KEY DIFFERENCE: EB 89 vs EB 90
+======================================================================
+
+EB 90 works correctly because:
+  - No stale cache entry
+  - Offline map geocodes OK → returns "Дом за слепи" at 164m
+  - The DB cache is populated with the correct offline-map result
+
+EB 89 is BROKEN because:
+  - A previous run of the OSM layer (layer 6) called Nominatim and got
+    "Златна вилушка" as the nearest landmark. This is actually ~1 km away.
+  - This result was cached in the landmarks table under the key
+    "аеродром | бул. асном бр.134"
+  - On subsequent calls, resolve() checks the DB cache FIRST (layer 2)
+    and finds "Златна вилушка". The cache is NOT marked as stale
+    (staleness only checks "table" source). So the cached value is
+    returned IMMEDIATELY — layers 3-7 (including the offline map) are
+    NEVER reached.
+
+  The offline map (layer 5) DOES work correctly for EB 89:
+    - Geocode: Булевар Асном → (41.988, 21.476)
+    - Nearest: Alka-U B supermarket at 117m, Парк Авионче at 174m
+    - But it never gets a chance to run because the cache short-circuits.
+
+ROOT CAUSE CHAIN:
+  1. OSM layer (Nominatim) returns a WRONG/BAD result for ASNOM 134
+  2. This bad result is cached in the landmarks table
+  3. The DB cache layer runs BEFORE the offline map layer
+  4. The cache is not invalidated for non-"table" sources
+  5. So the stale OSM result is served forever
+
+FIX APPLIED:
+  - Added missing `import fs from "fs"` at the top of landmarks.ts
+  - Removed broken `const fs = require("fs")` in catch blocks (ESM compat)
+  - This fixes the offline map layer crashing silently on debug logging
+  - BUT: the DB cache still has the stale "Златна вилушка" entry
+
+REMAINING FIX NEEDED:
+  - Clear the stale DB cache entry for EB 89
+  - OR: add a staleness check for OSM/offline sources (not just "table")
+  - OR: make the cache only store "table" and "google" sources (high quality)
+
+======================================================================
+  DEBUG LOG (/tmp/landmark-debug.log)
+======================================================================
+[2026-08-22T06:21:06.392Z] EB 89: RETURN-OFFLINE-MAP Alka-U B [offline]
+[2026-08-22T18:24:28.398Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm] key=аеродром | бул. асном бр.134
+[2026-08-22T18:24:28.399Z] EB 89: resolved=Златна вилушка source=osm addr="Бул. АСНОМ Бр.134"
+[2026-08-22T18:25:41.039Z] EB 90: RETURN-OFFLINE-MAP Дом за слепи [offline]
+[2026-08-22T18:25:41.049Z] EB 90: resolved=Дом за слепи source=offline addr="Локов 5"
+[2026-08-22T18:34:59.383Z] EB 89: RETURN-OFFLINE-MAP Alka-U B [offline]
+[2026-08-22T18:34:59.396Z] EB 90: RETURN-OFFLINE-MAP Дом за слепи [offline]
+[2026-08-22T18:35:04.861Z] EB 89: RETURN-OFFLINE-MAP Alka-U B [offline]
+[2026-08-22T18:35:04.875Z] EB 90: RETURN-OFFLINE-MAP Дом за слепи [offline]
+[2026-08-22T18:48:05.162Z] EB 89: RETURN-OFFLINE-MAP Парк Авионче [offline]
+[2026-08-22T18:48:05.174Z] EB 90: RETURN-OFFLINE-MAP Дом за слепи [offline]
+[2026-08-22T18:56:06.322Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm] key=аеродром | бул. асном бр.134
+[2026-08-22T18:56:06.323Z] EB 89: resolved=Златна вилушка source=osm addr="Бул. АСНОМ Бр.134"

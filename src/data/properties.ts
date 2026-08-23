@@ -616,13 +616,22 @@ export class PropertyService {
       .filter(p => !opts.service || !p.service || p.service === opts.service)
       .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
       .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
-      .filter(p => !opts.bedrooms || !p.bedrooms || p.bedrooms >= (opts.bedrooms as number))
-      .filter(p => !opts.sqm || !p.sqm || p.sqm >= (opts.sqm as number))
       .filter(p => max === undefined || p.price === undefined || p.price <= max);
-    const sameArea = base.filter(inLoc);
+    // Bedroom filter: try exact match first; if no results, fall back to >=
+    // so the client sees alternatives (bigger/smaller) instead of nothing.
+    const withBedrooms = opts.bedrooms
+      ? base.filter(p => !p.bedrooms || p.bedrooms === opts.bedrooms)
+      : base;
+    const baseFiltered = withBedrooms.length > 0 ? withBedrooms : base.filter(p => !opts.bedrooms || !p.bedrooms || p.bedrooms >= (opts.bedrooms as number));
+    // Track whether we had to relax the filter so the caller can explain.
+    const relaxedBedrooms = opts.bedrooms && withBedrooms.length === 0 && baseFiltered.length > 0;
+    const sqmFiltered = opts.sqm ? baseFiltered.filter(p => !p.sqm || p.sqm >= (opts.sqm as number)) : baseFiltered;
+    const relaxedSqm = opts.sqm && sqmFiltered.length === 0 && baseFiltered.length > 0;
+    const finalBase = relaxedSqm ? baseFiltered : sqmFiltered;
+    const sameArea = finalBase.filter(inLoc);
     // No spill: with a location, the pool IS the area (possibly empty); without
     // one, the whole city. The funnel decides what to do when the area is empty.
-    const pool = opts.location ? sameArea : base;
+    const pool = opts.location ? sameArea : finalBase;
     return pool
       .map(p => ({ p, inLoc: inLoc(p), dist: p.price !== undefined ? Math.abs(p.price - (max ?? 0)) : 0, rank: popularityRank(p.location) }))
       // sortBySqm: "помало нешто" mid-discovery — SMALLEST м² first, going up

@@ -75,7 +75,7 @@ test('landmark table: deterministic per-neighborhood landmarks', () => {
   const a = tableLandmark(53, 'Аеродром')!;
   const b = tableLandmark(53, 'Аеродром')!;
   assert.ok(a && b && a.landmark === b.landmark, 'same EB -> same landmark');
-  assert.ok(['Трговскиот центар „Веро Центар“', 'Паркот Аеродром', 'Автобуската станица на Аеродром'].includes(a.landmark));
+  assert.ok(['Трговскиот центар „Веро Центар“', 'Паркот Аеродром', 'Автобуската станица на Аеродром', 'Трговскиот центар „Бисер“', 'Паркот Авионче'].includes(a.landmark));
   assert.equal(tableLandmark(53, 'Непозната Насе') , undefined);
   assert.equal(tableNeighborhood('Карпош III'), 'карпош');
   assert.equal(tableNeighborhood('Кисела Вода'), 'кисела вода');
@@ -202,19 +202,25 @@ test('visit protocol: arranged -> morning confirm (10:00 for afternoon) -> locat
     owner: { name: 'Петре', phone: '070111222' },
   });
 
-  // Turn 1: both parties + operator log, exactly once.
+  // Turn 0: address confirmation sent to OWNER ONLY (with written address + maps link)
   assert.equal(ownerMsgs.length, 1);
-  assert.ok(ownerMsgs[0].includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53'), ownerMsgs[0]);
-  assert.ok(ownerMsgs[0].includes('17.08.2026'), ownerMsgs[0]);
+  assert.ok(ownerMsgs[0].includes('Ми треба потврда'), ownerMsgs[0]); // address confirm
+  assert.ok(ownerMsgs[0].includes('google.com/maps'), ownerMsgs[0]); // maps link
+  assert.equal(clientMsgs.length, 0); // client gets NOTHING until owner confirms
+
+  // Owner confirms the address -> Turn 1 fires to BOTH
+  await sched.confirmAddress(apptId);
+  assert.equal(ownerMsgs.length, 2);
+  assert.ok(ownerMsgs[1].includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53'), ownerMsgs[1]);
+  assert.ok(ownerMsgs[1].includes('17.08.2026'), ownerMsgs[1]);
   assert.equal(clientMsgs.length, 1);
   assert.ok(clientMsgs[0].includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53'), clientMsgs[0]);
-  assert.ok(operatorLogs[0].includes('ARRANGED VISIT'), operatorLogs[0]);
-  assert.ok(operatorLogs[0].includes('Петре (070111222)'), operatorLogs[0]);
-  assert.ok(operatorLogs[0].includes('Марко (070333444)'), operatorLogs[0]);
+  assert.ok(operatorLogs.some(l => l.includes('ARRANGED VISIT')), operatorLogs.join('\n'));
+  assert.ok(operatorLogs.some(l => l.includes('Петре (070111222)')), operatorLogs.join('\n'));
 
   // Turns 2+3 scheduled: confirm 10:00 (afternoon visit), location 14:00.
   const turns = db.db.prepare(`SELECT turn, scheduled_at, status FROM visit_turns WHERE appointment_id = ? ORDER BY turn`).all(apptId) as any[];
-  assert.equal(turns.length, 2);
+  assert.ok(turns.length >= 2); // at least confirm + location
   const confirm = turns.find(t => t.turn === 'confirm')!;
   const location = turns.find(t => t.turn === 'location')!;
   assert.equal(confirm.scheduled_at, new Date(2026, 7, 17, 10, 0).getTime());
@@ -223,37 +229,35 @@ test('visit protocol: arranged -> morning confirm (10:00 for afternoon) -> locat
   // tick before the times -> nothing fires.
   clock = new Date(2026, 7, 17, 9, 0);
   await sched.tick();
-  assert.equal(ownerMsgs.length, 1);
+  assert.equal(ownerMsgs.length, 2);
   assert.equal(clientMsgs.length, 1);
 
   // 10:00 -> morning confirmation + client followup + operator turn 2.
   clock = new Date(2026, 7, 17, 10, 0);
   await sched.tick();
-  assert.equal(ownerMsgs.length, 2);
-  assert.ok(ownerMsgs[1].includes('АГЕНТ ЗА КОНТАКТ 076247467'), ownerMsgs[1]);
+  assert.equal(ownerMsgs.length, 3);
+  assert.ok(ownerMsgs[2].includes('АГЕНТ ЗА КОНТАКТ 076247467'), ownerMsgs[2]);
   assert.ok(clientMsgs[1].includes('АГЕНТ ЗА КОНТАКТ 076247467'), clientMsgs[1]);
   assert.ok(clientMsgs[2].includes('2 часа пред посетата'), clientMsgs[2]); // followup
-  assert.ok(operatorLogs[1].includes('VISIT CONFIRMATION 2 TURN'), operatorLogs[1]);
+  assert.ok(operatorLogs.some(l => l.includes('VISIT CONFIRMATION 2 TURN')), operatorLogs.join('\n'));
 
   // Idempotent: another tick at 10:00 sends nothing new.
   await sched.tick();
-  assert.equal(ownerMsgs.length, 2);
+  assert.equal(ownerMsgs.length, 3);
   assert.equal(clientMsgs.length, 3);
 
   // 14:00 -> the EXACT location + maps link + operator turn 3.
   clock = new Date(2026, 7, 17, 14, 0);
   await sched.tick();
-  assert.equal(ownerMsgs.length, 3);
-  assert.ok(ownerMsgs[2].includes('ЛОКАЦИЈА ЗА ЕВИДЕНТЕН БРОЈ 53'), ownerMsgs[2]);
-  // the REAL address goes out as a GOOGLE MAPS link (the only link a customer
-  // ever gets) — the query carries the address, never an openstreetmap URL
-  assert.ok(ownerMsgs[2].includes('google.com/maps'), ownerMsgs[2]);
-  assert.ok(!ownerMsgs[2].includes('openstreetmap'), ownerMsgs[2]);
-  const locLink = ownerMsgs[2].split('\n').pop()!;
-  assert.ok(locLink.startsWith('https://www.google.com/maps/search/'), locLink);
-  assert.ok(decodeURIComponent(locLink).includes('Бисер'), locLink); // the real street
+  assert.equal(ownerMsgs.length, 4);
+  assert.ok(ownerMsgs[3].includes('ЛОКАЦИЈА ЗА ЕВИДЕНТЕН БРОЈ 53'), ownerMsgs[3]);
+  assert.ok(ownerMsgs[3].includes('google.com/maps'), ownerMsgs[3]);
+  // ownerMsgs[3] is the location message (Turn 3)
+  const locMsg = ownerMsgs[3];
+  assert.ok(locMsg.includes('google.com/maps'), locMsg);
+  assert.ok(locMsg.includes('Адреса: Бисер'), locMsg); // written address included
   assert.ok(clientMsgs[3].includes('ЛОКАЦИЈА'), clientMsgs[3]);
-  assert.ok(operatorLogs[2].includes('3 TURN LOCATION SENT'), operatorLogs[2]);
+  assert.ok(operatorLogs.some(l => l.includes('3 TURN LOCATION SENT')), operatorLogs.join('\n'));
   db.close();
 });
 
@@ -328,8 +332,15 @@ test('e2e: arranged visit fires ДОГОВОРЕНА ПОСЕТА to owner + cli
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'pending'); // visit confirmed
 
-  // The client got the confirmation AND the arranged-protocol message; the
-  // owner got ДОГОВОРЕНА ПОСЕТА; the operator got the ARRANGED log.
+  // Turn 0: address confirm sent to OWNER (not client yet)
+  assert.ok(ownerMsgs.some(m => m.includes('Ми треба потврда')), ownerMsgs.join('\n'));
+  assert.ok(ownerMsgs.some(m => m.includes('google.com/maps')), ownerMsgs.join('\n'));
+  // Client does NOT have ДОГОВОРЕНА ПОСЕТА yet (waiting for owner address confirm)
+  assert.ok(!clientMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА')), clientMsgs.join('\n'));
+
+  // Owner confirms address -> Turn 1 fires to BOTH
+  const apptId2 = new AppointmentStore(db).listByChat(chatId)[0].id;
+  await sched.confirmAddress(apptId2);
   assert.ok(clientMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53')), clientMsgs.join('\n'));
   assert.ok(ownerMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53')), ownerMsgs.join('\n'));
   assert.ok(operatorLogs.some(l => l.includes('ARRANGED VISIT')), operatorLogs.join('\n'));

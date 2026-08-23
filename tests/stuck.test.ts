@@ -340,10 +340,15 @@ test('fee resistance PIVOTS to other neighborhoods when alternatives exist ("zos
   assert.ok(!why.includes('500 денари'), why); // never a disclosure repeat
   assert.ok(!/Евидентен број/.test(why), why); // no property cards in a why-answer
 
-  // NOW a genuine refusal — the pivot fires (alternatives exist in other areas)
+  // 1st genuine refusal → persuasion (stays at closing, no pivot yet)
+  s = await send('не сакам да платам');
+  assert.equal(s.state, 'closing'); // persuasion, not pivot
+  assert.equal(s.slots.feeRejections, 1); // 1st refusal counted
+
+  // 2nd refusal → NOW the pivot fires (alternatives exist in other areas)
   s = await send('не сакам да платам');
   assert.equal(s.state, 'presentation'); // pivoted
-  const pivot = sent[3];
+  const pivot = sent[4];
   assert.ok(PIVOT_OFFER.test(pivot), pivot); // the other-neighborhoods offer
   assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(pivot), pivot); // price-closest alternatives
   assert.ok(!/(?:Евидентен број 78)/.test(pivot), pivot); // the current property is NOT re-offered
@@ -365,11 +370,14 @@ test('a fee REFUSAL with alternatives also pivots — and the refusal rung reset
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   await reachClosing(send);
-  let s = await send('не сакам да платам'); // a genuine refusal
+  let s = await send('не сакам да платам'); // 1st refusal → persuasion
+  assert.equal(s.state, 'closing'); // persuasion, not pivot
+  assert.equal(s.slots.feeRejections, 1);
+  s = await send('не сакам да платам'); // 2nd refusal → pivot
   assert.equal(s.state, 'presentation'); // pivoted — alternatives exist
   assert.equal(s.slots.feeRejections, undefined, JSON.stringify(s.slots)); // reset: the new property gets a fresh fee ask
-  assert.ok(PIVOT_OFFER.test(sent[2]), sent[2]);
-  assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(sent[2]), sent[2]);
+  assert.ok(PIVOT_OFFER.test(sent[3]), sent[3]);
+  assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(sent[3]), sent[3]);
 });
 
 test('no alternatives anywhere: the fee question stays — filter rationale for why, persuasion ladder for refusals', async () => {
@@ -1467,9 +1475,8 @@ test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" 
   assert.ok(sent[0].includes('?'), sent[0]); // must be a QUESTION (permission ask)
   assert.ok(!sent[0].includes('500 денари'), sent[0]); // fee NOT yet disclosed
   assert.ok(!sent[0].includes('Станот под Евидентен'), sent[0]); // never the card
-  // The ack carries the approximate landmark — human-like, natural.
-  // Google Maps link is NOT included (only on precision asks).
-  assert.ok(sent[0].includes('во близина на'), sent[0]);
+  // Location is NOT in the ack — revealed only on explicit "каде?" ask.
+  assert.ok(!sent[0].includes('во близина на'), sent[0]); // no landmark in ack
   assert.ok(!sent[0].includes('Бисер'), sent[0]); // the street stays hidden
   assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
 
@@ -1500,7 +1507,7 @@ test('availability ask: the client asks about a SHOWN property → ack (permissi
   assert.ok(sent[0].includes('Евидентен број 78'), sent[0]);
   s = await send('dali e seuste dostapen?');
   assert.equal(s.state, 'closing');
-  assert.ok(/(?:достапен|постои|база|слободен|активен)/i.test(sent[1]), sent[1]);
+  assert.ok(/(?:достапен|достапна|постои|база|слободен|слободна|активен|активна|води)/i.test(sent[1]), sent[1]);
   assert.ok(sent[1].includes('?'), sent[1]); // must be a QUESTION (permission ask)
   assert.ok(!sent[1].includes('500 денари'), sent[1]); // fee NOT yet disclosed
   assert.ok(!sent[1].includes('Станот под Евидентен'), sent[1]);
@@ -1768,4 +1775,156 @@ test('contact with property interest: even if queueAfterContact was set, a speci
   assert.ok(sent[sent.length - 1].includes('термин'), sent[sent.length - 1]);
   // The goodbye (QUEUED_CONFIRM) must NOT appear
   assert.ok(!sent[sent.length - 1].includes('забележани'), sent[sent.length - 1]);
+});
+
+test('"каде се наоѓа 89" — EB number lookup gives a deterministic landmark answer, NOT a property card', async () => {
+  // EB 89 lives in Аеродром with an address — the where-is handler must
+  // find it by EB number and answer with a landmark or neighborhood, never
+  // with the full property card (price, bedrooms, etc.) that Gemini used to
+  // spill.
+  const eb89Rows: Property[] = [
+    { eb: 89, id: 89, location: 'Аеродром', address: 'Парк Авионче', price: 110000, service: 'buy', bedrooms: 2, size: '70 м²' },
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(eb89Rows);
+  const llm = new FailingLlm(); // must NEVER be called — deterministic path
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+  });
+  const chatId = 'eb89-test';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  const s = await send('КАДЕ СЕ НАОЃА 89 ?');
+  const reply = sent[0];
+
+  // The handler must NOT call the LLM — FailingLlm would throw 429.
+  // If we got here, the deterministic path handled it.
+
+  // The reply must be a short deterministic answer (landmark or neighborhood),
+  // NOT the full property card Gemini was sending.
+  assert.ok(reply, 'must get a reply');
+  assert.ok(!reply.includes('110.000'), `reply must NOT include price: ${reply}`);
+  assert.ok(!reply.includes('70 м²'), `reply must NOT include size: ${reply}`);
+  assert.ok(!reply.includes('2 спални'), `reply must NOT include bedrooms: ${reply}`);
+  assert.ok(!reply.includes('наместен'), `reply must NOT include features: ${reply}`);
+
+  // The reply should contain a location reference (landmark or neighborhood)
+  assert.ok(/(наоѓа|населб|близина)/iu.test(reply), `reply should mention location: ${reply}`);
+});
+
+test('burst: "go gledav ova 89" then "kaj se naogja" — where-is after seen-property never crashes (TDZ bug)', async () => {
+  // Regression: props[0] was referenced before `let props` was declared —
+  // a ReferenceError when detectWhereIs(generic) fires before loadProps.
+  const eb89Rows: Property[] = [
+    { eb: 89, id: 89, location: 'Аеродром', address: 'Парк Авионче', price: 110000, service: 'buy', bedrooms: 2, size: '70 м²' },
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(eb89Rows);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+  });
+  const chatId = 'burst-test';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // 1) Start the funnel
+  await send('ZDRAVO');
+  // 2) Declare intent
+  await send('SAKM DA KUPAM STANCE');
+  // 3) Reference a property (seen-property → property_locate)
+  await send('GO GLEDAV OVA 89');
+  const s3 = sessions.get(chatId)!;
+  assert.ok(s3.state === 'property_query' || s3.state === 'property_locate', `state after seen-property: ${s3.state}`);
+
+  // 4) Where-is question — must NOT crash and must reply
+  await send('KAJ SE NAOGJA');
+  const s4 = sessions.get(chatId)!;
+  assert.ok(sent[3], 'must get a reply for where-is after seen-property');
+  assert.ok(!sent[3].includes('110.000'), `no price card: ${sent[3]}`);
+});
+
+test('bedroom mismatch: 2-bedroom requested but only 3-bedroom available → explanation prefix', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  // Only 3-bedroom in Кисела Вода under 100k, one 2-bedroom over budget
+  const props = new FakeProps([
+    { eb: 101, id: 101, location: 'Кисела Вода', price: 100000, service: 'buy', bedrooms: 3, size: '80 м²' },
+    { eb: 102, id: 102, location: 'Кисела Вода', price: 90000, service: 'buy', bedrooms: 3, size: '70 м²' },
+    { eb: 103, id: 103, location: 'Кисела Вода', price: 110000, service: 'buy', bedrooms: 2, size: '55 м²' },
+  ]);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, props);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties: props,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }) });
+  const chatId = 'bedroom-test';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Full discovery: buy + Кисела Вода + 2-bedroom + budget
+  await send('SAKAM DA KUPAM DVOSOBEN STAN');
+  await send('VO KISELA VODA');
+  await send('DVЕ SPALNI');
+  await send('DO 100000');
+  // Properties presented — should include explanation about no 2-bedroom
+  const reply = sent[sent.length - 1];
+  assert.ok(reply, 'must get a reply');
+  assert.ok(reply.includes('нема стан со две спални') || reply.includes('нема') || reply.includes('две спални'),
+    `should explain bedroom mismatch: ${reply.substring(0, 200)}`);
+  assert.ok(reply.includes('101') || reply.includes('102'),
+    `should show available 3-bedroom properties: ${reply.substring(0, 200)}`);
+});
+
+test('bedroom match: 3-bedroom requested and 3-bedroom available → NO explanation prefix', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const props = new FakeProps([
+    { eb: 201, id: 201, location: 'Кисела Вода', price: 100000, service: 'buy', bedrooms: 3, size: '80 м²' },
+    { eb: 202, id: 202, location: 'Кисела Вода', price: 90000, service: 'buy', bedrooms: 3, size: '70 м²' },
+  ]);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, props);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties: props,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }) });
+  const chatId = 'bedroom-match-test';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM TROSOBEN STAN');
+  await send('VO KISELA VODA');
+  await send('TRI SPALNI');
+  await send('DO 100000');
+  const reply = sent[sent.length - 1];
+  assert.ok(reply, 'must get a reply');
+  assert.ok(!reply.includes('нема стан со'),
+    `should NOT explain mismatch when exact match exists: ${reply.substring(0, 200)}`);
+  assert.ok(reply.includes('201') || reply.includes('202'),
+    `should show available properties: ${reply.substring(0, 200)}`);
 });

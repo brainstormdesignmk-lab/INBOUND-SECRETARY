@@ -1,0 +1,2140 @@
+======================================================================
+  FULL BUG REPORT: "Златна вилушка" LANDMARK BUG
+  Share this with any LLM to get help debugging
+======================================================================
+
+PROBLEM
+-------
+EB 89 (Бул. АСНОМ Бр.134, Аеродром) always shows "Се наоѓа во близина на 
+Златна вилушка" in the property card. The real nearest landmark is 
+"Парк Авионче" at 174m (a permanent park). "Златна вилушка" is a 
+restaurant ~1 km away.
+
+The bug persists across TUI and PM2 server restarts.
+
+RESOLUTION LAYERS (src/geo/landmarks.ts resolve() function)
+-------------------------------------------------------------
+0. Feed landmarks (Supabase) — EB 89 has none → SKIP
+2. DB cache (SQLite landmarks table) — this is where "Златна вилушка" 
+   keeps getting written and served from
+3. Google Maps — no API key → SKIP
+4. Details extraction — no match in property text → SKIP
+5. Offline map (local OSM POIs, zero network) — WORKS CORRECTLY:
+   - Geocodes "Бул. АСНОМ Бр.134" → (41.987890, 21.476493)
+   - Finds Парк Авионче at 174m (park, score=209 with permanence)
+   - BUT: the result is never cached because something fails first
+6. OSM network (Nominatim) — returns "Златна вилушка" (WRONG, ~1km away)
+   and writes it to the DB cache
+7. Deterministic table — "Автобуската станица на Аеродром" (last resort)
+
+FOR COMPARISON: EB 90 (Локов 5, Кисела Вода) works correctly:
+- Offline map finds "Дом за слепи" at 164m → cached → served correctly
+- Never hits the OSM layer
+
+FIX #1: Missing fs import (src/geo/landmarks.ts line 26)
+---------------------------------------------------------
+ADDED: import fs from 'fs';
+
+PROBLEM: The file used fs.appendFileSync() for debug logging in every 
+resolution layer (lines 350, 371, 383, 396, 425, 429, 437, 469) but 
+NEVER imported fs at module level. Every time a layer succeeded and 
+tried to write the debug log, it threw ReferenceError: fs is not defined.
+The catch block caught it, the layer's result was lost, and the function 
+fell through to the next layer (OSM).
+
+REMOVED: All `const fs = require('fs')` inside catch blocks (ESM incompatible)
+
+FIX #2: OSM results polluting the DB cache (src/geo/landmarks.ts)
+------------------------------------------------------------------
+PROBLEM: The OSM layer (Nominatim) returns wrong/unreliable landmarks 
+and writes them to the DB cache. Once cached, the DB cache serves them 
+on every subsequent call (layers 3-7 never execute). The staleness check 
+only invalidates "table" source, not "osm" source.
+
+ATTEMPTED FIX: Added staleness check for OSM-sourced cache entries
+IF the cached source is 'osm' AND the offline map is available,
+re-resolve via offline map instead of serving the stale OSM result.
+
+FIX #3: Permanence multiplier (src/geo/offlineMap.ts)
+------------------------------------------------------
+ADDED a PERMANENCE table and multiplied it into the scoring formula:
+
+OLD formula: score = distance_m * (1 + priority/10)
+NEW formula: score = distance_m * (1 + priority/10) * permanence
+
+Permanent landmarks (parks, churches, schools): permanence = 0.55
+Semi-permanent (hotels, malls, banks): permanence = 0.75
+Temporary (shops, cafes, restaurants): permanence = 1.0
+
+RESULT: Парк Авионче at 174m (score=209) beats Alka-U B at 117m (score=293)
+
+FIX #4: Google Maps links for all nearby landmarks (src/handlers/inbound.ts)
+----------------------------------------------------------------------------
+CHANGED: Google Maps link now shows on ALL "каде?" asks (was 2nd+ only)
+BEFORE: idx > 0 && coords
+AFTER:  coords (always show link)
+
+======================================================================
+KEY CODE SECTIONS
+======================================================================
+
+--- src/geo/landmarks.ts resolve() function (simplified) ---
+
+async resolve(p) {
+  // 0) FEED layer
+  if (p.landmarks?.length > 0) { /* ... return feed landmark */ }
+  
+  const key = landmarkCacheKey(p);
+  
+  // 2) DB cache
+  const cached = this.store.get(key);
+  if (cached) {
+    const stale = cached.source === 'table' && p.location ? /* ... */ : false;
+    const hit = stale ? undefined : publicPlace({ landmark: cached.landmark, ... });
+    if (hit) return hit;  // ← THIS IS WHERE "Златна вилушка" COMES FROM
+  }
+  
+  // 3) Google Maps (skipped — no key)
+  // 4) Details extraction (no match)
+  
+  // 5) Offline map — WORKS but result not cached (crashes before put())
+  if (this.opts.offlineMap?.available) {
+    try {
+      let geo = offlineMap.geocodeAddress(p.address);
+      if (geo) {
+        const pois = offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
+        const best = pois.find(po => po.name.length >= 3);
+        if (best) {
+          const l = publicPlace({ landmark: best.name, source: 'offline' });
+          if (l) { this.store.put(key, l); return l; }  // ← should return Парк Авионче
+        }
+      }
+    } catch (e) { /* used to crash here due to missing fs import */ }
+  }
+  
+  // 6) OSM network — WRITES "Златна вилушка" TO CACHE
+  if (this.opts.osm !== false) {
+    const o = publicPlace(await osmLandmark(p.address, p.location));
+    if (o) { this.store.put(key, o); return o; }  // ← caches wrong result
+  }
+  
+  // 7) Deterministic table (last resort)
+}
+
+--- src/geo/offlineMap.ts scoring (simplified) ---
+
+const PERMANENCE = {
+  park: 0.55, garden: 0.55, church: 0.55, school: 0.55, hospital: 0.55,
+  government: 0.55, stadium: 0.55, museum: 0.55, police: 0.55,
+  // ... more permanent types at 0.55
+  hotel: 0.75, mall: 0.75, bank: 0.75, pharmacy: 0.75, fuel: 0.75,
+  // ... more semi-permanent at 0.75
+  supermarket: 1.0, convenience: 1.0, restaurant: 1.0, cafe: 1.0,
+  // ... more temporary at 1.0
+};
+
+// In nearestPois():
+out.sort((a, b) => {
+  const pa = PERMANENCE[a.type] ?? 1.0;
+  const pb = PERMANENCE[b.type] ?? 1.0;
+  const sa = a.distance_m * (1 + (POI_PRIORITY[a.type] ?? 50) / 10) * pa;
+  const sb = b.distance_m * (1 + (POI_PRIORITY[b.type] ?? 50) / 10) * pb;
+  return sa - sb;
+});
+
+--- Debug log (/tmp/landmark-debug.log) showing the pattern ---
+
+[2026-08-22T19:00:02.986Z] EB 89: RETURN-OFFLINE-MAP Парк Авионче [offline]
+[2026-08-22T19:00:02.987Z] EB 89: RETURN-DB-CACHE Парк Авионче [offline]
+  ↑ My test script correctly resolves to Парк Авионче
+
+[2026-08-22T19:07:02.890Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm]
+  ↑ PM2 server (old code) reads stale OSM result from cache
+
+[2026-08-22T19:28:21.860Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm]
+  ↑ Even after restart, old tsx cache serves stale compiled code
+
+======================================================================
+WHAT STILL NEEDS TO BE FIXED
+======================================================================
+
+1. THE DB CACHE IS THE MAIN PROBLEM:
+   - OSM layer writes "Златна вилушка" to cache
+   - Once cached, it's served forever (no staleness check for OSM source)
+   - Even after fixing the code, the stale cache entry persists
+
+2. PM2 RUNS COMPILED dist/ — NOT source ts/:
+   - PM2 runs dist/index.js (compiled once, stale until npm run build)
+   - npm run build fails due to TS errors in generateResponses.ts
+   - tsc still emits files despite errors, but this is fragile
+
+3. TSX CACHES COMPILED MODULES in /tmp/tsx-1000/:
+   - Old cached code persists across TUI restarts
+   - Must clear /tmp/tsx-1000/ manually after code changes
+   - This is why "restart TUI" never fixed the bug
+
+4. TWO PROCESSES SHARE THE SAME DB:
+   - PM2 server (production, runs dist/) and TUI (dev, runs src/)
+   - Both write to the same landmarks table
+   - Old PM2 process (Aug 16 code) kept re-writing stale values
+   - PM2 auto-restarts via pm2 daemon → old code persists
+
+======================================================================
+STEPS TO REPRODUCE
+======================================================================
+
+1. Start TUI: npm run tui
+2. Send: "me interesira 89"
+3. Observe: Card shows "Се наоѓа во близина на Златна вилушка"
+4. Expected: "Се наоѓа во близина на Парк Авионче"
+
+For comparison:
+1. Send: "me interesira 90"  
+2. Observe: Card shows "Се наоѓа во близина на Дом за слепи" ← CORRECT
+
+======================================================================
+ENVIRONMENT
+======================================================================
+
+- OS: Linux (Ubuntu)
+- Node.js: v18.20.8
+- tsx: used for both TUI and scripts
+- PM2: v7.0.3 (auto-restarts metropolis-lina)
+- DB: data/lina.db (SQLite via better-sqlite3)
+- Offline map: data/skopje-pois.db (3,796 POIs, 7,647 addresses)
+- Feed: Supabase (property data URL)
+
+======================================================================
+ACTUAL SOURCE CODE: src/geo/landmarks.ts (resolve function)
+======================================================================
+
+  constructor(private db: Db, private opts: LandmarkOpts = {}) {
+    this.store = new LandmarkStore(db);
+  }
+
+  /** Resolve the approximate location for a property. Cached in the DB after
+   *  the first successful layer — later calls cost nothing. */
+  async resolve(p: { eb: number; address?: string; location?: string; details?: string; landmarks?: FeedLandmark[] }): Promise<Landmark> {
+    // 0) FEED layer
+    if (p.landmarks && p.landmarks.length > 0) {
+      const ranked = p.landmarks
+        .map(l => ({ l, hit: publicPlace({ landmark: l.landmark, type: l.type ?? 'place', mapsUrl: l.maps_url, source: 'feed' as const }) }))
+        .filter((x): x is { l: FeedLandmark; hit: Landmark } => !!x.hit)
+        .sort((a, b) => (a.l.distance_m ?? Infinity) - (b.l.distance_m ?? Infinity));
+      if (ranked.length > 0) {
+        const top = ranked.slice(0, 3);
+        const _r = top[Math.abs(p.eb * 2654435761) % top.length].hit; fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-FEED ${_r.landmark} [${_r.source}]\n`); return _r;
+      }
+    }
+
+    const key = landmarkCacheKey(p);
+
+    // 2) DB cache — previous resolution (any source). Served unless stale.
+    const cached = this.store.get(key);
+    if (cached) {
+      const stale = cached.source === 'table' && p.location
+        ? (() => {
+            const t = tableLandmark(p.eb, p.location);
+            return !t || t.landmark !== cached.landmark;
+          })()
+        : false;
+      const hit = stale ? undefined : publicPlace({
+        landmark: cached.landmark, type: cached.type,
+        mapsUrl: cached.mapsUrl ?? undefined,
+        source: cached.source as Landmark['source'],
+      });
+      if (hit) { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DB-CACHE ${hit.landmark} [${hit.source}] key=${key}\n`); return hit; }
+    }
+
+    // 3) Google Maps — the PRIMARY professional layer. Geocodes the exact
+    //    address to coordinates, finds the nearest named POI (hospital,
+    //    school, mall, etc.). Quality is far above OSM/offline. Free tier
+    //    (10K geocode + 5K nearby/month) covers this scale permanently.
+    //    Results are cached so Google is called ONCE per address ever.
+    if (this.opts.googleKey) {
+      try {
+        const g = publicPlace(await googleLandmark(p.address, p.location, this.opts.googleKey, p.eb));
+        if (g) { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-GOOGLE ${g.landmark} [${g.source}]\n`); this.store.put(key, g); return g; }
+      } catch (e) {
+        console.warn('[landmark] google failed:', (e as Error).message);
+      }
+    }
+
+    // 4) DETAILS extraction — parse landmark names from the property's own
+    //    description text ("спроти ОУ Димитар Миладинов", "кај ТЦ Олимпико").
+    //    Zero cost, always available. Fallback when Google is unavailable.
+    const detailsLandmark = extractDetailsLandmark(p.details);
+    if (detailsLandmark) {
+      const l = publicPlace({ landmark: detailsLandmark, type: 'details', source: 'table' as const });
+      if (l) { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DETAILS ${l.landmark} [${l.source}]\n`); this.store.put(key, l); return l; }
+    }
+
+    // 5) OFFLINE MAP + PHOTON — local OSM POIs with Photon geocoding.
+    //    The offline map has 3,796 named POIs. When the local geocoder can't
+    //    match the address, Photon (free, no key) provides coordinates so the
+    //    POI search still works. This eliminates flaky Nominatim/Overpass calls.
+    if (this.opts.offlineMap?.available) {
+      try {
+        // 5a) Try the address as a POI name first ("Кај Бранка", "Палома Бјанка")
+        if (p.address) {
+          const poi = this.opts.offlineMap.findPoiByName(p.address);
+          if (poi) {
+            const l = publicPlace({ landmark: poi.name, type: 'poi', source: 'osm' as const });
+            if (l) { this.store.put(key, l); return l; }
+          }
+        }
+        // 5b) Local geocode → nearest POI
+        let geo = p.address ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
+        // 5c) If local geocode fails, try Photon (free, fast, no key)
+        if (!geo && p.address) {
+          geo = await photonGeocode(p.address, p.location ?? '');
+        }
+        if (geo) {
+          const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
+          const best = pois.find(po => po.name.length >= 3);
+          if (best) {
+            const l = publicPlace({ landmark: best.name, type: best.type, source: 'offline' as const });
+            if (l) { fs.appendFileSync('/tmp/landmark-debug.log',
+            `[${new Date().toISOString()}] EB ${p.eb}: RETURN-OFFLINE-MAP ${l.landmark} [${l.source}]\n`); this.store.put(key, l); return l; }
+          }
+        }
+      } catch (e) { try { fs.appendFileSync('/tmp/landmark-debug.log',
+          `[${new Date().toISOString()}] EB ${p.eb}: OFFLINE-MAP-FAILED: ${(e as Error).message}\n`); } catch {} }
+    }
+
+    // 6) OSM network — Nominatim + Overpass (free, no key)
+    if (this.opts.osm !== false) {
+      try {
+        const o = publicPlace(await osmLandmark(p.address, p.location));
+        if (o) { try { fs.appendFileSync('/tmp/landmark-debug.log',
+          `[${new Date().toISOString()}] EB ${p.eb}: LAYER6-OSM gave ${o.landmark} addr=${JSON.stringify(p.address?.substring(0, 40))}\n`); } catch {} this.store.put(key, o); return o; }
+      } catch (e) {
+        console.warn('[landmark] osm failed:', (e as Error).message);
+      }
+    }
+
+    // 7) Deterministic table — per-neighborhood, offline, coarse
+    if (p.location) {
+      const t = tableLandmark(p.eb, p.location);
+      if (t) {
+        const hit = publicPlace({ landmark: t.landmark, type: t.type, source: 'table' });
+        if (hit) { this.store.put(key, hit); return hit; }
+      }
+    }
+
+    // 8) Hermes contract — async LLM resolver (phase 2)
+    this.opts.onHermesRequest?.({ address: p.address, location: p.location });
+    return { landmark: '', type: '', source: 'none' };
+  }
+
+  /** Batch stamp: enriches properties with `landmark` before they reach any
+   *  reply builder (cards, LLM context, where-is, availability). */
+  async enrich(props: Array<{ eb: number; address?: string; location?: string; details?: string; landmark?: string; landmarks?: FeedLandmark[] }>): Promise<void> {
+    await Promise.all(props.map(async pr => {
+      // Feed landmarks from Supabase (ANA's import-time resolution) are
+      // authoritative — never override them. But ALWAYS re-resolve for all
+      // other cases: the DB cache (sub-ms) handles performance, and skipping
+      // based on pr.landmark causes stale results when the PropertyService
+      // caches a mutated property object for 5 minutes.
+      const l = await this.resolve(pr);
+      if (l.source !== 'none') pr.landmark = l.landmark;
+      try { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${pr.eb}: resolved=${l.landmark} source=${l.source} addr=${JSON.stringify(pr.address?.substring(0, 40))}\n`); } catch {}
+
+======================================================================
+ACTUAL SOURCE CODE: src/geo/landmarks.ts (enrich function + cache)
+======================================================================
+export class LandmarkStore {
+  constructor(private db: Db) {}
+
+  get(addressKey: string): { landmark: string; type: string; mapsUrl: string | null; source: string } | undefined {
+    return this.db.db.prepare(
+      `SELECT landmark, type, maps_url as mapsUrl, source FROM landmarks WHERE address_key = ?`
+    ).get(addressKey) as any;
+  }
+
+  put(addressKey: string, l: { landmark: string; type: string; mapsUrl?: string; source: string }): void {
+    this.db.db.prepare(
+      `INSERT OR REPLACE INTO landmarks (address_key, landmark, type, maps_url, source, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(addressKey, l.landmark, l.type, l.mapsUrl ?? null, l.source, Date.now());
+  }
+
+  getNearby(addressKey: string): Array<{ landmark: string; lat: number; lon: number }> | undefined {
+    const row = this.db.db.prepare(
+      `SELECT nearby FROM landmarks WHERE address_key = ? AND nearby IS NOT NULL`
+    ).get(addressKey) as { nearby: string } | undefined;
+    if (!row) return undefined;
+    try { return JSON.parse(row.nearby); } catch { return undefined; }
+  }
+
+  putNearby(addressKey: string, nearby: Array<{ landmark: string; lat: number; lon: number }>): void {
+    if (nearby.length === 0) return;
+    // UPDATE only — the row must already exist from put(); never create a
+    // row with only nearby (no landmark) to avoid partial entries.
+    this.db.db.prepare(
+      `UPDATE landmarks SET nearby = ? WHERE address_key = ?`
+    ).run(JSON.stringify(nearby), addressKey);
+  }
+}
+
+/** Canonical cache key — a property is identified by location + street, so a
+ *  price update or EB change never needs a new lookup. */
+export function landmarkCacheKey(p: { address?: string; location?: string }): string {
+  return `${p.location ?? ''} | ${p.address ?? ''}`.toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+
+  /** Batch stamp: enriches properties with `landmark` before they reach any
+   *  reply builder (cards, LLM context, where-is, availability). */
+  async enrich(props: Array<{ eb: number; address?: string; location?: string; details?: string; landmark?: string; landmarks?: FeedLandmark[] }>): Promise<void> {
+    await Promise.all(props.map(async pr => {
+      // Feed landmarks from Supabase (ANA's import-time resolution) are
+      // authoritative — never override them. But ALWAYS re-resolve for all
+      // other cases: the DB cache (sub-ms) handles performance, and skipping
+      // based on pr.landmark causes stale results when the PropertyService
+      // caches a mutated property object for 5 minutes.
+      const l = await this.resolve(pr);
+      if (l.source !== 'none') pr.landmark = l.landmark;
+      try { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${pr.eb}: resolved=${l.landmark} source=${l.source} addr=${JSON.stringify(pr.address?.substring(0, 40))}\n`); } catch {}
+    }));
+  }
+
+======================================================================
+ACTUAL SOURCE CODE: src/geo/offlineMap.ts (PERMANENCE + scoring)
+======================================================================
+/** POI type priority for landmark selection. Lower = better landmark.
+ *  Institutional places (hospitals, schools, government) are universally
+ *  recognized navigation anchors. Shops and cafes are only useful when
+ *  very close. People say "кај болницата", never "кај фурната". */
+const POI_PRIORITY: Record<string, number> = {
+  // place types — squares are the BEST Skopje landmarks
+  square: 0, plaza: 0,
+  // neighbourhood/locality/suburb are geographic LABELS, not landmarks.
+  // 'во близина на Центар' is meaningless when you ARE in Центар.
+  neighbourhood: 40, locality: 40, suburb: 40,
+  // institutional
+  hospital: 1, clinic: 1, healthcare: 1,
+  school: 2, university: 2, college: 2,
+  government: 3, townhall: 3, embassy: 3, diplomatic: 3, political_party: 3,
+  stadium: 4, sports_centre: 4, swimming_pool: 4,
+  place_of_worship: 5, church: 5, mosque: 5, synagogue: 5,
+  museum: 6, gallery: 6, theatre: 6, cinema: 6, library: 6,
+  hotel: 7, motel: 7, hostel: 7,
+  mall: 8, shopping_mall: 8, department_store: 8,
+  bank: 9, atm: 9, bureau_de_change: 9,
+  pharmacy: 10, chemist: 10,
+  police: 11, fire_station: 11, ambulance_station: 11,
+  park: 12, garden: 12, playground: 12, nature_reserve: 12,
+  supermarket: 15, convenience: 15,
+  restaurant: 20, cafe: 20, fast_food: 20, bar: 20, pub: 20,
+  bakery: 25, clothes: 25, jewelry: 25, books: 25,
+  fuel: 30, parking: 30,
+  parking_landmark: 7, // named garages ("Катна гаража Беко") — hotel-level landmark
+};
+
+/** Named parking garages ("Катна гаража Беко") are Skopje landmarks — boost
+ *  them from parking (30) to hotel level (7). Generic "Parking" stays at 30. */
+function boostNamedLandmark(type: string, name: string): string {
+  if (type === 'parking' && /каража|гараж|garage/i.test(name)) return 'parking_landmark';
+  return type;
+}
+
+/** Permanence multiplier: permanent landmarks (parks, churches, schools,
+ *  monuments) should beat temporary ones (shops, cafes) even when farther,
+ *  because the street reference "кај паркот" will be valid in 10 years;
+
+
+  stats(): MapStats | null {
+    if (!this.db) return null;
+    const pois = (this.db.prepare('SELECT COUNT(*) as c FROM pois').get() as { c: number }).c;
+    const addresses = (this.db.prepare('SELECT COUNT(*) as c FROM addresses').get() as { c: number }).c;
+    return { pois, addresses, bytes: 0 };
+  }
+
+  /** The named POIs within radiusM of a point, nearest first. */
+  nearestPois(lat: number, lon: number, radiusM = 2000, limit = 10): LocalPoi[] {
+    if (!this.db) return [];
+    const dLat = radiusM / 111320;
+    const dLon = radiusM / (111320 * Math.cos((lat * Math.PI) / 180));
+    const rows = this.db.prepare(
+      `SELECT name, type, lat, lon FROM pois WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?`
+    ).all(lat - dLat, lat + dLat, lon - dLon, lon + dLon) as Array<{ name: string; type: string; lat: number; lon: number }>;
+    const out: LocalPoi[] = [];
+    for (const r of rows) {
+      const d = meters({ lat, lon }, { lat: r.lat, lon: r.lon });
+
+======================================================================
+ACTUAL SOURCE CODE: src/handlers/inbound.ts (where-is handler)
+======================================================================
+        // Address privacy: "каде е X?" is answered with the nearest PUBLIC
+        // landmark ("во близина на City Mall"), never the street.
+        await this.landmarks.enrich([hit]);
+        // Pre-resolve nearby landmarks for rotation if not yet done.
+        if (!session.slots.nearbyLandmarks?.length) {
+          const nearby = await this.landmarks.nearbyLandmarks(hit);
+          if (nearby.length > 0) {
+            session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+            session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+            session.slots.landmarkIndex = 0;
+          }
+        }
+        // Rotate through the pre-resolved landmarks.
+        const lm = session.slots.nearbyLandmarks;
+        const idx = session.slots.landmarkIndex ?? 0;
+        const landmark = lm?.[idx] ?? hit.landmark;
+        if (lm && idx < lm.length - 1) session.slots.landmarkIndex = idx + 1;
+        // Google Maps link: always included so the client never needs a
+        // follow-up asking for directions.
+        const coords = session.slots.nearbyLandmarkCoords?.[idx];
+        const gmapsLine = coords
+          ? `\nhttps://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lon}`
+          : '';
+        answer = `${buildWhereIsAnswer(whereIs.place, {
+          location: hit.location, eb: hit.eb, business: hit.business, landmark,
+        })}${gmapsLine}`;
+
+======================================================================
+FULL DEBUG LOG (/tmp/landmark-debug.log)
+======================================================================
+[2026-08-22T06:21:06.392Z] EB 89: RETURN-OFFLINE-MAP Alka-U B [offline]
+[2026-08-22T18:24:28.398Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm] key=аеродром | бул. асном бр.134
+[2026-08-22T18:24:28.399Z] EB 89: resolved=Златна вилушка source=osm addr="Бул. АСНОМ Бр.134"
+[2026-08-22T18:25:41.039Z] EB 90: RETURN-OFFLINE-MAP Дом за слепи [offline]
+[2026-08-22T18:25:41.049Z] EB 90: resolved=Дом за слепи source=offline addr="Локов 5"
+[2026-08-22T18:34:59.383Z] EB 89: RETURN-OFFLINE-MAP Alka-U B [offline]
+[2026-08-22T18:34:59.396Z] EB 90: RETURN-OFFLINE-MAP Дом за слепи [offline]
+[2026-08-22T18:35:04.861Z] EB 89: RETURN-OFFLINE-MAP Alka-U B [offline]
+[2026-08-22T18:35:04.875Z] EB 90: RETURN-OFFLINE-MAP Дом за слепи [offline]
+[2026-08-22T18:45:05.487Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:45:05.488Z] EB 49: RETURN-FEED Градежен факултет [feed]
+[2026-08-22T18:45:05.496Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:45:05.497Z] EB 48: resolved=Кафе бар Ван Гог source=feed addr="ул. Пример 5"
+[2026-08-22T18:45:07.378Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:45:07.475Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:07.475Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:45:07.497Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:45:07.556Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:45:07.556Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:45:07.569Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:07.569Z] EB 46: resolved=Паркот „Жена Борец“ source=table addr=undefined
+[2026-08-22T18:45:07.614Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:07.625Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:07.625Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:07.631Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:07.631Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:07.641Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:07.641Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:07.647Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:07.647Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:07.655Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:07.655Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:07.670Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:07.681Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:07.681Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:07.796Z] EB 54: RETURN-DB-CACHE Македонската опера и балет [table] key=карпош iii | партизанска
+[2026-08-22T18:45:07.810Z] EB 63: RETURN-DB-CACHE Кафе бар Ван Гог [hermes] key=центар (населба) | македонија
+[2026-08-22T18:45:07.856Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:07.900Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:07.900Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:07.911Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:07.911Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:07.919Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:07.920Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:07.940Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:07.940Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:07.949Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:07.949Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:08.987Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:08.992Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:08.993Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:09.003Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:09.003Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:09.011Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:09.011Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:09.470Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:45:09.536Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:45:10.073Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:45:11.312Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:11.636Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:11.644Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:11.644Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:11.649Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:11.649Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:11.769Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:45:11.945Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:45:13.290Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:45:13.297Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:45:13.297Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:45:13.302Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:45:13.302Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:45:13.306Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:45:13.306Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:45:13.326Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:13.351Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.647Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:20.656Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:20.657Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:20.661Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:20.661Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:20.669Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:20.669Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:20.675Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:20.675Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:20.685Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.694Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.694Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.698Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.698Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.706Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.706Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.709Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.709Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.712Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.712Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.723Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.732Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.732Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.736Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.736Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.744Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.744Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.748Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.748Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.755Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:20.755Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:20.799Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:20.844Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:20.844Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:20.855Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:20.856Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:20.866Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:20.866Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:20.878Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:20.878Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:20.887Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:20.887Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:20.990Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:20.990Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:21.001Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:21.001Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:21.007Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:21.007Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:21.014Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:21.014Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:21.022Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:21.022Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:21.028Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:21.028Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:24.045Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.050Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.050Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.053Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.053Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.058Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.058Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.064Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.065Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.073Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.074Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.138Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.146Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.146Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.150Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.150Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.157Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.157Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.162Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.162Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.169Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.169Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.179Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.179Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.186Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.186Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.488Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.492Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.492Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.495Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.495Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.499Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.499Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.504Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.504Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.511Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.511Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.519Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.528Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.528Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.532Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.532Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.538Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.538Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.543Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.543Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.550Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.550Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.609Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.609Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.617Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.617Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.621Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.621Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.627Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.627Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.631Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.631Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.639Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.639Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.710Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.710Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.718Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.718Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.725Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.725Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.737Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.737Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.741Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.742Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.749Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.749Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.807Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.815Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.815Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.819Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.819Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.825Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.826Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.830Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.830Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.837Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.837Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.905Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.914Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.914Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.918Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.918Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.926Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.926Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.931Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.931Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:24.937Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:24.937Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.010Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.018Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.018Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.022Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.022Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.029Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.029Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.034Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.034Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.040Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.040Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.096Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.097Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.106Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.114Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.114Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.118Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.118Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.125Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.125Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.129Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.129Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.135Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.135Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.277Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:45:25.291Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:45:25.292Z] EB 63: RETURN-DB-CACHE Хотел „Парк“ [table] key=центар | 
+[2026-08-22T18:45:25.292Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:45:25.308Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:45:25.327Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:45:25.404Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.412Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:25.412Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.416Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:25.417Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.424Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:25.424Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.428Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:25.428Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.436Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.442Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:45:25.442Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.459Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.466Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:45:25.466Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.471Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:45:25.471Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.490Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.515Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.522Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:45:25.522Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.532Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:45:25.532Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.539Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:45:25.539Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.558Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.578Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:45:25.579Z] EB 56: resolved= source=none addr=undefined
+[2026-08-22T18:45:25.585Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:45:25.643Z] EB 54: resolved=Македонската опера и балет source=table addr=undefined
+[2026-08-22T18:45:25.660Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.665Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:25.665Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.671Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:25.671Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.676Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:25.676Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.682Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:25.682Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:25.692Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.700Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.700Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.709Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.718Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.718Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.722Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.722Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.730Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.730Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.734Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.734Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.741Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.741Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.809Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.822Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.823Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.827Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:45:25.827Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:45:25.907Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:25.916Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:25.916Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:25.921Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:25.921Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:25.928Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:25.928Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:25.932Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:25.933Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:25.938Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:45:25.938Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:45:26.890Z] EB 91: resolved=Стадионот Борис Трајковски source=table addr=undefined
+[2026-08-22T18:45:27.359Z] EB 72: resolved=Плоштад „Македонија“ source=table addr=undefined
+[2026-08-22T18:45:27.582Z] EB 73: resolved=Градскиот трговски центар (ГТЦ) source=table addr=undefined
+[2026-08-22T18:45:28.712Z] EB 71: resolved=Универзална сала source=table addr=undefined
+[2026-08-22T18:45:28.718Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:28.725Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:28.725Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:28.729Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:28.729Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:28.735Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:28.736Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:45:28.741Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:45:28.741Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:48:05.162Z] EB 89: RETURN-OFFLINE-MAP Парк Авионче [offline]
+[2026-08-22T18:48:05.174Z] EB 90: RETURN-OFFLINE-MAP Дом за слепи [offline]
+[2026-08-22T18:51:42.898Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:51:42.899Z] EB 49: RETURN-FEED Градежен факултет [feed]
+[2026-08-22T18:51:42.905Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:51:42.906Z] EB 48: resolved=Кафе бар Ван Гог source=feed addr="ул. Пример 5"
+[2026-08-22T18:51:44.827Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:51:44.917Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:44.917Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:51:44.942Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:51:44.992Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:51:44.992Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:51:45.009Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:45.009Z] EB 46: resolved=Паркот „Жена Борец“ source=table addr=undefined
+[2026-08-22T18:51:45.048Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.059Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.059Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.064Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.064Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.071Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.071Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.078Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.078Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.087Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.087Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.098Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.109Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.109Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.159Z] EB 54: RETURN-DB-CACHE Македонската опера и балет [table] key=карпош iii | партизанска
+[2026-08-22T18:51:45.170Z] EB 63: RETURN-DB-CACHE Кафе бар Ван Гог [hermes] key=центар (населба) | македонија
+[2026-08-22T18:51:45.219Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:45.273Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:45.273Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:45.284Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:45.285Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:45.294Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:45.294Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:45.305Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:45.305Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:45.312Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:45.312Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:45.458Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.469Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.470Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.480Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.480Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.488Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:45.489Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:45.881Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:51:48.680Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:51:48.799Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:48.979Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:51:52.202Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:52.210Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:52.210Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:52.215Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:52.215Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:52.325Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:51:52.510Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:51:52.624Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:51:52.629Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:51:52.629Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:51:52.633Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:51:52.633Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:51:52.638Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:51:52.638Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:51:52.659Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.683Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.844Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:52.852Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:52.852Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:52.856Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:52.857Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:52.864Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:52.864Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:52.869Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:52.869Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:52.879Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.886Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.887Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.891Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.891Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.898Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.898Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.901Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.901Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.904Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.904Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.914Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.922Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.922Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.926Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.926Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.933Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.933Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.936Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.936Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:52.943Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:52.943Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:54.121Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.125Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.125Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.128Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.128Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.132Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.132Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.138Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.138Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.148Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.148Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.211Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.219Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.219Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.224Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.224Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.231Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.231Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.235Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.235Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.244Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.244Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.256Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.256Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:54.262Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:54.262Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.400Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.405Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.405Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.407Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.407Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.411Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.411Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.415Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.415Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.425Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.425Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.433Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.443Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.443Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.448Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.448Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.455Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.455Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.460Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.460Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.467Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.467Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.524Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.524Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.533Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.533Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.537Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.537Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.544Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.544Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.549Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.549Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.557Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.557Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.626Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.626Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.633Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.633Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.641Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.641Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.652Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.652Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.656Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.656Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.664Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.664Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.723Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.731Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.731Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.735Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.735Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.742Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.742Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.746Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.746Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.753Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.753Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.821Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.828Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.828Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.833Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.833Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.840Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.840Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.844Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.844Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.850Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.850Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.917Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.925Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.925Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.929Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.929Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.936Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.937Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.941Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.941Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:55.948Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:55.948Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.005Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.005Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.013Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.021Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.021Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.025Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.025Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.032Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.032Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.036Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.036Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.044Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.044Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.183Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:51:56.198Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:51:56.199Z] EB 63: RETURN-DB-CACHE Хотел „Парк“ [table] key=центар | 
+[2026-08-22T18:51:56.199Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:51:56.216Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:51:56.235Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:51:56.309Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.318Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:56.318Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.322Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:56.322Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.329Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:56.329Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.334Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:56.334Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.345Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.351Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:51:56.352Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.369Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.376Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:51:56.376Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.380Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:51:56.380Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.400Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.425Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.432Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:51:56.432Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.441Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:51:56.441Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.448Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:51:56.448Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.466Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.486Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:51:56.486Z] EB 56: resolved= source=none addr=undefined
+[2026-08-22T18:51:56.492Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:51:56.557Z] EB 54: resolved=Македонската опера и балет source=table addr=undefined
+[2026-08-22T18:51:56.575Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.579Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:56.579Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.586Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:56.586Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.590Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:56.590Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.595Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:51:56.596Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:51:56.604Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.611Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.611Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.650Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.659Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.659Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.665Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.665Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.677Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.677Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.681Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.682Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.689Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.689Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.750Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.760Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.760Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:56.764Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:51:56.764Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:51:57.107Z] EB 91: resolved=Стадионот Борис Трајковски source=table addr=undefined
+[2026-08-22T18:51:57.578Z] EB 73: resolved=Градскиот трговски центар (ГТЦ) source=table addr=undefined
+[2026-08-22T18:51:58.178Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.226Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.226Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.238Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.238Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.248Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.249Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.260Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.260Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.269Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.269Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.372Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.372Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.383Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.384Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.389Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.389Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.399Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.399Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.409Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.409Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:51:58.418Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:51:58.419Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:03.288Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:03.298Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:03.298Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:03.305Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:03.305Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:03.313Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:03.313Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:03.318Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:03.318Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:03.325Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:03.325Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:05.207Z] EB 72: resolved=Плоштад „Македонија“ source=table addr=undefined
+[2026-08-22T18:52:05.635Z] EB 71: resolved=Универзална сала source=table addr=undefined
+[2026-08-22T18:52:05.643Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:05.652Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:05.652Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:05.657Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:05.657Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:05.665Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:05.665Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:05.670Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:05.670Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:19.615Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:52:19.616Z] EB 49: RETURN-FEED Градежен факултет [feed]
+[2026-08-22T18:52:19.624Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:52:19.624Z] EB 48: resolved=Кафе бар Ван Гог source=feed addr="ул. Пример 5"
+[2026-08-22T18:52:21.526Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:52:21.613Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:21.614Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:52:21.634Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:21.700Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:21.701Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:52:21.712Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:21.712Z] EB 46: resolved=Паркот „Жена Борец“ source=table addr=undefined
+[2026-08-22T18:52:21.755Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:21.765Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:21.765Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:21.770Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:21.770Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:21.777Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:21.777Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:21.783Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:21.783Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:21.792Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:21.792Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:21.804Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:21.818Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:21.818Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:21.902Z] EB 54: RETURN-DB-CACHE Македонската опера и балет [table] key=карпош iii | партизанска
+[2026-08-22T18:52:21.912Z] EB 63: RETURN-DB-CACHE Кафе бар Ван Гог [hermes] key=центар (населба) | македонија
+[2026-08-22T18:52:21.963Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:22.011Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:22.011Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:22.023Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:22.024Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:22.032Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:22.032Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:22.043Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:22.043Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:22.052Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:22.052Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:22.213Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:22.220Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:22.220Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:22.230Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:22.230Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:22.240Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:22.240Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:23.368Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:29.704Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:52:30.108Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:30.116Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:52:31.241Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:31.249Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:31.249Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:31.255Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:31.255Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:34.440Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:34.441Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:52:34.709Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.753Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.753Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.764Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.765Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.774Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.774Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.786Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.787Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.796Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.796Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.898Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.898Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.909Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.909Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.914Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.914Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.921Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.921Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.929Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.929Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:34.935Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:34.935Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:35.052Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:52:35.058Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:52:35.058Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:52:35.063Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:52:35.063Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:52:35.068Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:52:35.068Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:52:35.089Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.114Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.467Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.478Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.478Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.483Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.483Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.491Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.491Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.497Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.497Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.507Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.517Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.517Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.521Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.521Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.528Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.528Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.531Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.531Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.534Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.534Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.544Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.553Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.553Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.557Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.557Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.564Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.564Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.567Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.567Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.574Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:35.574Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:35.707Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.712Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.712Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.715Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.715Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.719Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.719Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.726Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.726Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.735Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.736Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.799Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.808Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.808Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.812Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.812Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.820Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.820Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.824Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.824Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.833Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.833Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.844Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.844Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:35.850Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:35.850Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.032Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.037Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.037Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.039Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.039Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.044Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.044Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.049Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.050Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.059Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.059Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.068Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.077Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.077Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.081Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.081Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.091Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.091Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.096Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.096Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.104Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.104Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.162Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.162Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.170Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.170Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.175Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.175Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.182Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.182Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.186Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.186Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.194Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.194Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.261Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.261Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.271Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.271Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.278Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.278Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.290Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.290Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.294Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.294Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.304Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.305Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.363Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.371Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.371Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.375Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.376Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.383Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.383Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.387Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.387Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.395Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.395Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.463Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.471Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.471Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.475Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.475Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.483Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.483Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.487Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.487Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.494Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.494Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.564Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.573Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.573Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.577Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.578Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.585Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.585Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.591Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.591Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.597Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.598Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.661Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.661Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.670Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.678Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.678Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.682Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.682Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.689Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.689Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.694Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.694Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.702Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:37.702Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:37.844Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:52:37.860Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:37.861Z] EB 63: RETURN-DB-CACHE Хотел „Парк“ [table] key=центар | 
+[2026-08-22T18:52:37.862Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:37.879Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:37.899Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:52:37.975Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:37.983Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:37.983Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:37.987Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:37.987Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:37.994Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:37.995Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:38.000Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:38.000Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:38.008Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.016Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:52:38.016Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.034Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.041Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:52:38.041Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.046Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:52:38.046Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.066Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.090Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.097Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:52:38.098Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.107Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:52:38.108Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.115Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:52:38.115Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.132Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.152Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:52:38.153Z] EB 56: resolved= source=none addr=undefined
+[2026-08-22T18:52:38.159Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:52:38.220Z] EB 54: resolved=Македонската опера и балет source=table addr=undefined
+[2026-08-22T18:52:38.238Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:38.242Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:38.242Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:38.249Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:38.249Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:38.253Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:38.254Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:38.259Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:38.260Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:38.267Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.276Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:38.276Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.284Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.292Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:38.292Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.299Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:38.299Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.306Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:38.306Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.310Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:38.310Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.318Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:38.318Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.379Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.387Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:38.387Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:38.392Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:38.392Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:39.560Z] EB 91: resolved=Стадионот Борис Трајковски source=table addr=undefined
+[2026-08-22T18:52:39.815Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:39.819Z] EB 73: resolved=Градскиот трговски центар (ГТЦ) source=table addr=undefined
+[2026-08-22T18:52:39.824Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:39.824Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:39.828Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:39.828Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:39.836Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:39.836Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:39.841Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:39.841Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:39.848Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:39.848Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:40.807Z] EB 72: resolved=Плоштад „Македонија“ source=table addr=undefined
+[2026-08-22T18:52:41.927Z] EB 71: resolved=Универзална сала source=table addr=undefined
+[2026-08-22T18:52:41.934Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:41.940Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:41.940Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:41.945Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:41.945Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:41.951Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:41.951Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:41.956Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:52:41.956Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:54.591Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:52:54.591Z] EB 49: RETURN-FEED Градежен факултет [feed]
+[2026-08-22T18:52:54.599Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:52:54.599Z] EB 48: resolved=Кафе бар Ван Гог source=feed addr="ул. Пример 5"
+[2026-08-22T18:52:56.518Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:52:56.621Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:56.621Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:52:56.643Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:56.696Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:52:56.696Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:52:56.712Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:52:56.712Z] EB 46: resolved=Паркот „Жена Борец“ source=table addr=undefined
+[2026-08-22T18:52:56.747Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:56.757Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:56.757Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:56.762Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:56.762Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:56.769Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:56.769Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:56.774Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:56.775Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:56.784Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:56.784Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:56.797Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:56.813Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:56.813Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:56.855Z] EB 54: RETURN-DB-CACHE Македонската опера и балет [table] key=карпош iii | партизанска
+[2026-08-22T18:52:56.866Z] EB 63: RETURN-DB-CACHE Кафе бар Ван Гог [hermes] key=центар (населба) | македонија
+[2026-08-22T18:52:56.922Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:56.983Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:56.983Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:56.999Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:57.000Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:57.011Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:57.011Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:57.025Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:57.025Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:57.032Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:52:57.032Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:52:58.504Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:58.510Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:58.510Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:58.520Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:58.520Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:58.528Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:52:58.529Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:52:58.752Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:53:01.705Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:01.853Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:04.936Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:53:08.168Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:08.173Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:08.173Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:08.183Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:08.183Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:08.320Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:08.387Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:53:09.544Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:53:09.551Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:53:09.551Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:53:09.556Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:53:09.556Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:53:09.561Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:53:09.561Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:53:09.583Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:09.606Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:09.711Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.761Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.762Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.774Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.775Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.784Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.784Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.794Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.795Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.803Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.804Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.906Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.906Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.917Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.917Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.922Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.922Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.929Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.929Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.937Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.937Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:09.943Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:09.943Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:12.873Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:12.883Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:12.883Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:12.888Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:12.888Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:12.895Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:12.896Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:12.901Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:12.901Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:12.911Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.919Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.919Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.923Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.923Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.931Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.931Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.933Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.934Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.937Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.937Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.947Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.955Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.956Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.960Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.960Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.967Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.967Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.970Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.970Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:12.977Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:12.977Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:13.118Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.125Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.125Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.130Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.130Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.134Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.134Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.141Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.141Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.150Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.151Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.214Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.222Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.223Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.227Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.227Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.234Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.234Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.239Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.239Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.246Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.247Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.257Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.257Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.264Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.264Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.401Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.405Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.405Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.408Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.408Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.412Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.412Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.417Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.417Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.425Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.425Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.433Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.442Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.442Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.446Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.446Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.452Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.453Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.457Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.457Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.464Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.465Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.522Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.522Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.530Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.530Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.535Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.535Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.542Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.542Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.546Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.546Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.554Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.554Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.619Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.619Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.627Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.628Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.632Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.632Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.639Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.639Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.644Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.644Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.652Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.652Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.711Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.719Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.719Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.724Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.724Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.731Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.731Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.735Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.735Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.743Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.743Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.810Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.819Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.819Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.824Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.824Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.831Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.831Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.836Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.836Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.843Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.844Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.916Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.924Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.924Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.928Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.929Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.935Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.935Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.940Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.940Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:13.946Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:13.946Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.004Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.004Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.013Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.021Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.022Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.026Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.026Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.034Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.034Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.039Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.039Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.045Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.046Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.187Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:53:14.202Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:14.203Z] EB 63: RETURN-DB-CACHE Хотел „Парк“ [table] key=центар | 
+[2026-08-22T18:53:14.203Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:14.220Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:14.240Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:53:14.316Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:14.325Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:14.325Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:14.330Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:14.330Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:14.337Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:14.337Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:14.342Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:14.342Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:14.350Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.356Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:14.356Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.375Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.382Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:14.382Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.387Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:14.387Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.407Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.433Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.440Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:14.440Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.450Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:14.450Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.458Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:14.458Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.477Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.499Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:14.499Z] EB 56: resolved= source=none addr=undefined
+[2026-08-22T18:53:14.506Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:53:14.569Z] EB 54: resolved=Македонската опера и балет source=table addr=undefined
+[2026-08-22T18:53:14.588Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:14.629Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.638Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.639Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.671Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.679Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.679Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.684Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.684Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.690Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.691Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.695Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.695Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.702Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.702Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.762Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.771Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.771Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.776Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:14.776Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:14.828Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:14.839Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:14.839Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:14.846Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:14.846Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:14.854Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:14.854Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:14.862Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:14.862Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:14.869Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:14.869Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:22.056Z] EB 91: resolved=Стадионот Борис Трајковски source=table addr=undefined
+[2026-08-22T18:53:28.080Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:53:28.081Z] EB 49: RETURN-FEED Градежен факултет [feed]
+[2026-08-22T18:53:28.088Z] EB 48: RETURN-FEED Кафе бар Ван Гог [feed]
+[2026-08-22T18:53:28.088Z] EB 48: resolved=Кафе бар Ван Гог source=feed addr="ул. Пример 5"
+[2026-08-22T18:53:29.953Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:53:30.047Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:30.048Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:53:30.074Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:30.127Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:30.127Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:53:30.143Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:30.143Z] EB 46: resolved=Паркот „Жена Борец“ source=table addr=undefined
+[2026-08-22T18:53:30.177Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:30.187Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:30.187Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:30.192Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:30.192Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:30.198Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:30.199Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:30.204Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:30.205Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:30.213Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:30.213Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:30.226Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:30.237Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:30.237Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:30.288Z] EB 54: RETURN-DB-CACHE Македонската опера и балет [table] key=карпош iii | партизанска
+[2026-08-22T18:53:30.299Z] EB 63: RETURN-DB-CACHE Кафе бар Ван Гог [hermes] key=центар (населба) | македонија
+[2026-08-22T18:53:30.354Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:30.414Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:30.414Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:30.424Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:30.425Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:30.435Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:30.435Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:30.447Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:30.447Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:30.454Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:30.454Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:37.772Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:37.782Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:37.782Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:37.796Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:37.796Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:37.804Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:37.804Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:38.044Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:53:38.050Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:38.204Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:53:39.240Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:39.356Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:39.364Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:39.364Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:39.369Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:39.369Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:39.508Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:42.535Z] EB 55: resolved=Манастир Свети Пантелеимон source=table addr=undefined
+[2026-08-22T18:53:42.777Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:53:42.786Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:53:42.786Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:53:42.791Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:53:42.791Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:53:42.795Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | 
+[2026-08-22T18:53:42.795Z] EB 78: resolved=Паркот Капиштец source=table addr=undefined
+[2026-08-22T18:53:42.816Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:42.838Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:43.188Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.236Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.237Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.249Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.249Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.260Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.260Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.272Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.272Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.281Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.281Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.379Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.379Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.393Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.394Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.399Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.399Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.407Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.407Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.415Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.415Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:43.421Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:43.422Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:44.266Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:44.274Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:44.274Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:44.278Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:44.278Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:44.286Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:44.286Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:44.291Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:44.291Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:44.301Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.309Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.309Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.313Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.313Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.320Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.320Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.323Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.323Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.326Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.326Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.336Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.344Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.344Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.348Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.348Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.355Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.355Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.358Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.358Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:44.364Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:44.365Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:45.479Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.484Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.484Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.487Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.487Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.491Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.491Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.497Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.498Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.508Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.508Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.571Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.579Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.579Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.583Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.583Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.590Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.590Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.594Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.594Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.601Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.601Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.612Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.612Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:45.618Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:45.618Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.296Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:48.303Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:48.304Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:48.308Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:48.308Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:48.315Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:48.315Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:48.319Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:48.319Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:48.325Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | бисер
+[2026-08-22T18:53:48.325Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr="Бисер"
+[2026-08-22T18:53:48.843Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.848Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.848Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.850Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.850Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.854Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.854Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.859Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.859Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.868Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.868Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.876Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.885Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.885Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.889Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.889Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.896Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.896Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.900Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.900Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.907Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.908Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.965Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.965Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.973Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.973Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.976Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.977Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.983Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.983Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.988Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.988Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:48.995Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:48.995Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.060Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.061Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.068Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.068Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.073Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.073Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.079Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.079Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.084Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.084Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.091Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.091Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.150Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.158Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.158Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.161Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.161Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.168Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.168Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.172Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.173Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.180Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.180Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.247Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.255Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.256Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.260Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.261Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.267Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.267Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.271Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.271Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.277Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.277Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.345Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.354Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.354Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.357Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.358Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.364Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.364Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.368Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.368Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.375Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.375Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.432Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.432Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.440Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.448Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.448Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.453Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.453Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.460Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.460Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.464Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.464Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.472Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:49.472Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:49.612Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:53:49.626Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:49.628Z] EB 63: RETURN-DB-CACHE Хотел „Парк“ [table] key=центар | 
+[2026-08-22T18:53:49.628Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:49.645Z] EB 63: resolved=Хотел „Парк“ source=table addr=undefined
+[2026-08-22T18:53:49.664Z] EB 80: resolved=Стадионот „Борис Трајковски“ source=table addr=undefined
+[2026-08-22T18:53:49.741Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:49.750Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:49.750Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:49.754Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:49.754Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:49.760Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:49.760Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:49.765Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:49.765Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:49.772Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.779Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:49.779Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.796Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.803Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:49.803Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.807Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:49.807Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.828Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.855Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.862Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:49.862Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.871Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:49.871Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.878Z] EB 48: RETURN-DB-CACHE Градежниот факултет [table] key=карпош iii | 
+[2026-08-22T18:53:49.878Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.896Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.916Z] EB 48: resolved=Градежниот факултет source=table addr=undefined
+[2026-08-22T18:53:49.916Z] EB 56: resolved= source=none addr=undefined
+[2026-08-22T18:53:49.922Z] EB 59: resolved=Универзална сала source=table addr="Палома Бјанка"
+[2026-08-22T18:53:49.979Z] EB 54: resolved=Македонската опера и балет source=table addr=undefined
+[2026-08-22T18:53:49.997Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:50.002Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:50.002Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:50.009Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:50.009Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:50.013Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:50.013Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:50.019Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:50.019Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:50.027Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.036Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:50.036Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.044Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.053Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:50.053Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.056Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:50.057Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.063Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:50.063Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.067Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:50.067Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.075Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:50.075Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.136Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.146Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:50.146Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.152Z] EB 78: RETURN-DB-CACHE Паркот Капиштец [table] key=капиштец | народен фронт
+[2026-08-22T18:53:50.152Z] EB 78: resolved=Паркот Капиштец source=table addr="Народен Фронт"
+[2026-08-22T18:53:50.398Z] EB 91: resolved=Стадионот Борис Трајковски source=table addr=undefined
+[2026-08-22T18:53:50.654Z] EB 73: resolved=Градскиот трговски центар (ГТЦ) source=table addr=undefined
+[2026-08-22T18:53:53.703Z] EB 72: resolved=Плоштад „Македонија“ source=table addr=undefined
+[2026-08-22T18:53:53.808Z] EB 71: resolved=Универзална сала source=table addr=undefined
+[2026-08-22T18:53:53.814Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:53.820Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:53.820Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:53.826Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:53.826Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:53.834Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:53.834Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:53:53.838Z] EB 53: RETURN-DB-CACHE Автобуската станица на Аеродром [table] key=аеродром | 
+[2026-08-22T18:53:53.838Z] EB 53: resolved=Автобуската станица на Аеродром source=table addr=undefined
+[2026-08-22T18:56:06.322Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm] key=аеродром | бул. асном бр.134
+[2026-08-22T18:56:06.323Z] EB 89: resolved=Златна вилушка source=osm addr="Бул. АСНОМ Бр.134"
+[2026-08-22T19:00:02.986Z] EB 89: RETURN-OFFLINE-MAP Парк Авионче [offline]
+[2026-08-22T19:00:02.987Z] EB 89: resolved=Парк Авионче source=offline addr="Бул. АСНОМ Бр.134"
+[2026-08-22T19:00:02.987Z] EB 89: RETURN-DB-CACHE Парк Авионче [offline] key=аеродром | бул. асном бр.134
+[2026-08-22T19:00:02.987Z] EB 89: resolved=Парк Авионче source=offline addr="Бул. АСНОМ Бр.134"
+[2026-08-22T19:07:02.890Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm] key=аеродром | бул. асном бр.134
+[2026-08-22T19:07:02.890Z] EB 89: resolved=Златна вилушка source=osm addr="Бул. АСНОМ Бр.134"
+[2026-08-22T19:14:20.095Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm] key=аеродром | бул. асном бр.134
+[2026-08-22T19:14:20.095Z] EB 89: resolved=Златна вилушка source=osm addr="Бул. АСНОМ Бр.134"
+[2026-08-22T19:19:40.563Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm] key=аеродром | бул. асном бр.134
+[2026-08-22T19:19:40.563Z] EB 89: resolved=Златна вилушка source=osm addr="Бул. АСНОМ Бр.134"
+[2026-08-22T19:28:21.860Z] EB 89: RETURN-DB-CACHE Златна вилушка [osm] key=аеродром | бул. асном бр.134
+[2026-08-22T19:28:21.861Z] EB 89: resolved=Златна вилушка source=osm addr="Бул. АСНОМ Бр.134"

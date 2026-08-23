@@ -22,16 +22,17 @@ export class Db {
         updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS appointments (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        chat_id      TEXT NOT NULL,
-        client_name  TEXT NOT NULL,
-        client_phone TEXT NOT NULL,
-        property_id  INTEGER NOT NULL,
-        service      TEXT NOT NULL,
-        viewing_fee  TEXT NOT NULL,
-        status       TEXT NOT NULL DEFAULT 'pending',
-        time         TEXT,
-        created_at   INTEGER NOT NULL
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id          TEXT NOT NULL,
+        client_name      TEXT NOT NULL,
+        client_phone     TEXT NOT NULL,
+        property_id      INTEGER NOT NULL,
+        service          TEXT NOT NULL,
+        viewing_fee      TEXT NOT NULL,
+        status           TEXT NOT NULL DEFAULT 'pending',
+        time             TEXT,
+        corrected_address TEXT,  -- owner-corrected address (overrides feed address for turns 2+3)
+        created_at       INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS escalations (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,6 +187,10 @@ export class Db {
     // visit protocol must not re-parse free text later ("утре" drifts).
     if (!cols.some(c => c.name === 'visit_at')) {
       this.db.exec(`ALTER TABLE appointments ADD COLUMN visit_at INTEGER`);
+    }
+    // v5: owner-corrected address (overrides feed address for turns 2+3).
+    if (!cols.some(c => c.name === 'corrected_address')) {
+      this.db.exec(`ALTER TABLE appointments ADD COLUMN corrected_address TEXT`);
     }
   }
 

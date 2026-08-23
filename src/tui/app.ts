@@ -22,6 +22,7 @@ import { OfflineMapStore } from '../geo/offlineMap';
 import { VisitScheduler } from '../visits/scheduler';
 import { EventStore } from '../store/events';
 import { OwnerStore } from '../store/owners';
+import { EnrichmentStore } from '../store/enrichment';
 
 type Role = 'user' | 'assistant' | 'system' | 'error';
 // source = which brain produced the reply ('gemini:1..3', 'groq',
@@ -142,6 +143,8 @@ export class TuiApp {
     if (offlineMap.available) {
       const s = offlineMap.stats();
       console.log(`[offline-map] ${s?.pois ?? 0} POIs / ${s?.addresses ?? 0} addresses`);
+    } else {
+      console.error(`[offline-map] NOT AVAILABLE — db=${cfg.skopjePoisDb} — landmarks will use live OSM (slower, less accurate)`);
     }
     const landmarks = new LandmarkService(this.db, {
       googleKey: cfg.googleMapsApiKey,
@@ -188,6 +191,7 @@ export class TuiApp {
       properties: propertyService,
       appointments, escalations, meta, channels,
       landmarks, visits: this.visits,
+      enrichment: new EnrichmentStore(this.db),
     });
 
     // The owner ping-pong: when the client proposes a visit time, Lina asks the

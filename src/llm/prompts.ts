@@ -153,7 +153,7 @@ export const FEED_UNAVAILABLE_LINE =
 // LLM task instructs the model to vary its phrasing too.
 export const PRESENTATION_CLOSERS = [
   'Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?',
-  'Дали некој од овие станови Ви одговара? Ако да, можам веднаш да организирам посета.',
+  'Дали некој од овие предлози Ви одговара? Ако да, можам веднаш да организирам посета.',
   'Кој од овие предлози најмногу Ви одговара? Би сакала да Ви организирам посета во термин по Ваш избор.',
   'Дали некој од овие предлози е тоа што го барате? Доколку е, веднаш ја закажувам посетата.',
   'Што мислите за овие предлози? Ако некој Ви се допаѓа, ќе организирам посета кога Ви одговара.',
@@ -298,10 +298,12 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
     const rent = slots.service === 'rent' && !business;
     missing.push(askQuestion(
       business ? 'discovery.ask.budget.business'
+        : (rent && house) ? 'discovery.ask.budget.house'
         : rent ? 'discovery.ask.budget.rent'
         : house ? 'discovery.ask.budget.house'
         : 'discovery.ask.budget.stan',
       business ? 'До која цена го барате?'
+        : (rent && house) ? 'До колку евра месечна кирија би Ви одговарала за куќата?'
         : rent ? 'До колку евра месечна кирија би Ви одговарала?'
         : house ? 'До која цена ја барате куќата?'
         : 'До која цена го барате станот?',

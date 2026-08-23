@@ -23,6 +23,7 @@
 // If everything fails → { source: 'none' } and the caller falls back to the
 // neighborhood alone — the street is never revealed.
 
+import fs from 'fs';
 import { Db } from '../store/db';
 import { tableLandmark } from './landmarkTable';
 import { FeedLandmark } from '../data/properties';
@@ -346,14 +347,21 @@ export class LandmarkService {
         .sort((a, b) => (a.l.distance_m ?? Infinity) - (b.l.distance_m ?? Infinity));
       if (ranked.length > 0) {
         const top = ranked.slice(0, 3);
-        return top[Math.abs(p.eb * 2654435761) % top.length].hit;
+        const _r = top[Math.abs(p.eb * 2654435761) % top.length].hit; fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-FEED ${_r.landmark} [${_r.source}]\n`); return _r;
       }
     }
 
     const key = landmarkCacheKey(p);
 
-    // 2) DB cache — previous resolution (any source). Served unless stale.
+    // 2) DB cache — previous resolution. High-quality sources (feed,
+    //    google, offline, details, table) are served immediately. OSM-sourced
+    //    entries are SUSPECT: Nominatim returns unreliable landmarks for some
+    //    addresses (e.g. 'Златна вилушка' at ~1km for ASNOM 134). When the
+    //    offline map is available, skip the OSM cache and let it re-resolve —
+    //    the offline map has 3,796 local POIs and is far more accurate.
     const cached = this.store.get(key);
+    const HIGH_QUALITY = new Set(['feed', 'google', 'offline', 'details']);
     if (cached) {
       const stale = cached.source === 'table' && p.location
         ? (() => {
@@ -361,12 +369,22 @@ export class LandmarkService {
             return !t || t.landmark !== cached.landmark;
           })()
         : false;
-      const hit = stale ? undefined : publicPlace({
+      // OSM cache is suspect: skip if offline map can re-resolve
+      // TABLE cache is also suspect: neighborhood-level hash-picked landmarks
+      // (e.g. 'Хотел Парк' for EB 69) are coarse — re-resolve when a
+      // higher-quality layer (offline map, Google) is available.
+      const betterAvailable = this.opts.offlineMap?.available || !!this.opts.googleKey;
+      const suspect = cached.source === 'osm' && betterAvailable
+        || cached.source === 'table' && betterAvailable;
+      const hit = (stale || suspect) ? undefined : publicPlace({
         landmark: cached.landmark, type: cached.type,
         mapsUrl: cached.mapsUrl ?? undefined,
         source: cached.source as Landmark['source'],
       });
-      if (hit) return hit;
+      if (hit) { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DB-CACHE ${hit.landmark} [${hit.source}] key=${key}\n`); return hit; }
+      if (suspect) { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: SKIP-SUSPECT-CACHE ${cached.landmark} [${cached.source}] → re-resolving via higher-quality layer\n`); }
     }
 
     // 3) Google Maps — the PRIMARY professional layer. Geocodes the exact
@@ -377,7 +395,8 @@ export class LandmarkService {
     if (this.opts.googleKey) {
       try {
         const g = publicPlace(await googleLandmark(p.address, p.location, this.opts.googleKey, p.eb));
-        if (g) { this.store.put(key, g); return g; }
+        if (g) { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-GOOGLE ${g.landmark} [${g.source}]\n`); this.store.put(key, g); return g; }
       } catch (e) {
         console.warn('[landmark] google failed:', (e as Error).message);
       }
@@ -389,10 +408,8 @@ export class LandmarkService {
     const detailsLandmark = extractDetailsLandmark(p.details);
     if (detailsLandmark) {
       const l = publicPlace({ landmark: detailsLandmark, type: 'details', source: 'table' as const });
-      if (l) {
-        this.store.put(key, l);
-        return l;
-      }
+      if (l) { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DETAILS ${l.landmark} [${l.source}]\n`); this.store.put(key, l); return l; }
     }
 
     // 5) OFFLINE MAP + PHOTON — local OSM POIs with Photon geocoding.
@@ -419,20 +436,21 @@ export class LandmarkService {
           const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
           const best = pois.find(po => po.name.length >= 3);
           if (best) {
-            const l = publicPlace({ landmark: best.name, type: best.type, source: 'osm' as const });
-            if (l) { this.store.put(key, l); return l; }
+            const l = publicPlace({ landmark: best.name, type: best.type, source: 'offline' as const });
+            if (l) { fs.appendFileSync('/tmp/landmark-debug.log',
+            `[${new Date().toISOString()}] EB ${p.eb}: RETURN-OFFLINE-MAP ${l.landmark} [${l.source}]\n`); this.store.put(key, l); return l; }
           }
         }
-      } catch (e) {
-        console.warn('[landmark] offline map failed:', (e as Error).message);
-      }
+      } catch (e) { try { fs.appendFileSync('/tmp/landmark-debug.log',
+          `[${new Date().toISOString()}] EB ${p.eb}: OFFLINE-MAP-FAILED: ${(e as Error).message}\n`); } catch {} }
     }
 
     // 6) OSM network — Nominatim + Overpass (free, no key)
     if (this.opts.osm !== false) {
       try {
         const o = publicPlace(await osmLandmark(p.address, p.location));
-        if (o) { this.store.put(key, o); return o; }
+        if (o) { try { fs.appendFileSync('/tmp/landmark-debug.log',
+          `[${new Date().toISOString()}] EB ${p.eb}: LAYER6-OSM gave ${o.landmark} addr=${JSON.stringify(p.address?.substring(0, 40))}\n`); } catch {} this.store.put(key, o); return o; }
       } catch (e) {
         console.warn('[landmark] osm failed:', (e as Error).message);
       }
@@ -463,6 +481,8 @@ export class LandmarkService {
       // caches a mutated property object for 5 minutes.
       const l = await this.resolve(pr);
       if (l.source !== 'none') pr.landmark = l.landmark;
+      try { fs.appendFileSync('/tmp/landmark-debug.log',
+        `[${new Date().toISOString()}] EB ${pr.eb}: resolved=${l.landmark} source=${l.source} addr=${JSON.stringify(pr.address?.substring(0, 40))}\n`); } catch {}
     }));
   }
 

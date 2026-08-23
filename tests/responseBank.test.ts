@@ -13,6 +13,8 @@ test('response bank: every entry is non-empty and placeholders live only where e
         assert.equal(v.match(/\{location\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else if (key === 'presentation.open.anywhere') {
         assert.equal(v.match(/\{budget\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+      } else if (key === 'both.ask.service') {
+        assert.equal(v.match(/\{type\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else {
         assert.ok(!v.includes('{'), `${key}: unexpected placeholder: "${v}"`);
       }
