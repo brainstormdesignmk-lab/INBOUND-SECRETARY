@@ -1928,3 +1928,85 @@ test('bedroom match: 3-bedroom requested and 3-bedroom available → NO explanat
   assert.ok(reply.includes('201') || reply.includes('202'),
     `should show available properties: ${reply.substring(0, 200)}`);
 });
+
+test('owner contact refusal: "може ли контакт од сопственикот" never reveals phone', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'owner-contact-test';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Client asks about EB 53 (exists in ROWS)
+  await send('GO GLEDAV OVOJ 53');
+  await send('MOZE LI KONTAKT OD SOPSTVENIKOT?');
+  const reply = sent[sent.length - 1];
+  assert.ok(reply, 'must get a reply');
+  // The reply must NOT contain any phone number
+  assert.ok(!reply.match(/\d{7,}/), `reply must not contain a phone number: ${reply}`);
+  // It must mention the agency policy or redirect to a visit
+  assert.ok(
+    reply.includes('Контакт') || reply.includes('контакт') || reply.includes('политика') ||
+    reply.includes('посета') || reply.includes('сопственик') || reply.includes('средба') ||
+    reply.includes('организирам'),
+    `reply must refuse owner contact and redirect: ${reply.substring(0, 200)}`
+  );
+});
+
+test('owner contact refusal: Cyrillic "дади ми го бројот на сопственикот" is also blocked', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'owner-contact-cyrillic';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ЗДРАВО');
+  await send('САКАМ ДА КУПАМ СТАН');
+  await send('ДАДИ МИ ГО БРОЈОТ НА СОПСТВЕНИКОТ');
+  const reply = sent[sent.length - 1];
+  assert.ok(reply, 'must get a reply');
+  assert.ok(!reply.match(/\d{7,}/), `reply must not contain a phone: ${reply}`);
+  assert.ok(
+    reply.includes('Контакт') || reply.includes('контакт') || reply.includes('политика') ||
+    reply.includes('посета') || reply.includes('сопственик') || reply.includes('средба'),
+    `reply must refuse: ${reply.substring(0, 200)}`
+  );
+});
+
+test('"каде точно се наоѓа" bypasses exact-address protocol — gives nearby landmark instead', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'kade-tocno-test';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Look up EB 53 (Аеродром) — exists in ROWS
+  await send('GO GLEDAV OVOJ 53');
+  // State should be property_query now
+  const s1 = sessions.get(chatId)!;
+  assert.equal(s1.state, 'property_query');
+
+  // Ask "каде точно се наоѓа" — should NOT give the privacy protocol
+  await send('КАДЕ ТОЧНО СЕ НАОЃА?');
+  const reply = sent[sent.length - 1];
+  assert.ok(reply, 'must get a reply');
+  // Must NOT be the privacy protocol
+  assert.ok(!reply.includes('два часа пред'), `must not give privacy protocol: ${reply.substring(0, 200)}`);
+  // Must be a landmark answer
+  assert.ok(
+    reply.includes('наоѓа') || reply.includes('близина') || reply.includes('Евидентен') ||
+    reply.includes('Аеродром') || reply.includes('Парк') || reply.includes('УЈП') ||
+    reply.includes('Бисер') || reply.includes('Авионче'),
+    `must give a landmark, not a protocol: ${reply.substring(0, 200)}`
+  );
+});
+
+test('"кажи ми точно адреса" triggers the privacy protocol (not a landmark)', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'kazi-adresa-test';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('GO GLEDAV OVOJ 53');
+  // Explicit address demand → protocol
+  await send('КАЖИ МИ ТОЧНО АДРЕСА');
+  const reply = sent[sent.length - 1];
+  assert.ok(reply, 'must get a reply');
+  assert.ok(
+    reply.includes('два часа') || reply.includes('посета') || reply.includes('политика') ||
+    reply.includes('средба') || reply.includes('договориме'),
+    `must give privacy protocol: ${reply.substring(0, 200)}`
+  );
+});

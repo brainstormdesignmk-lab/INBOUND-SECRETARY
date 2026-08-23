@@ -7,7 +7,7 @@ import {
   detectVisitTime, detectTimeRejection, detectWhereIs, detectOwnerVerdict,
   detectApartmentNeed, detectSeenProperty, detectLocatePick, detectSeeOffers,
   detectAvailabilityAsk, detectFeeWhy, detectExactAddressAsk, detectAnywhere,
-  detectSuggestAlternatives, detectPropertyInterest,
+  detectSuggestAlternatives, detectPropertyInterest, detectOwnerContact,
   isPlausibleName, isValidPhone, isValidVisitTime,
 } from '../src/llm/deterministic';
 
@@ -833,4 +833,63 @@ test('detectPropertyInterest: general interest (I like / I am interested) — NO
   assert.equal(detectPropertyInterest('дај ми цена'), false);
   assert.equal(detectPropertyInterest('NE MOZAM'), false);
   assert.equal(detectPropertyInterest('cancel'), false);
+});
+
+test('detectOwnerContact: owner phone/contact requests — agency NEVER shares', () => {
+  // ── POSITIVE: client wants the owner's phone/contact ──
+  // Cyrillic
+  assert.equal(detectOwnerContact('контакт од сопственикот'), true);
+  assert.equal(detectOwnerContact('може ли контакт од сопственикот?'), true);
+  assert.equal(detectOwnerContact('број на сопственик'), true);
+  assert.equal(detectOwnerContact('телефон на сопственикот'), true);
+  assert.equal(detectOwnerContact('емаил на сопственик'), true);
+  assert.equal(detectOwnerContact('сопственикот телефон'), true);
+  assert.equal(detectOwnerContact('сопственикот број'), true);
+  assert.equal(detectOwnerContact('власник телефон'), true);
+  assert.equal(detectOwnerContact('власник контакт'), true);
+  assert.equal(detectOwnerContact('дади ми го бројот на сопственикот'), true);
+  assert.equal(detectOwnerContact('дадете ми телефонот на власникот'), true);
+  assert.equal(detectOwnerContact('сакам да зборувам со сопственикот'), true);
+  assert.equal(detectOwnerContact('сакам да контактирам со сопственикот'), true);
+  assert.equal(detectOwnerContact('имам ли можност да звам сопственик'), true);
+  // Latin
+  assert.equal(detectOwnerContact('kontakt od sopstvenikot'), true);
+  assert.equal(detectOwnerContact('mozhe li kontakt od sopstvenik?'), true);
+  assert.equal(detectOwnerContact('broj na sopstvenik'), true);
+  assert.equal(detectOwnerContact('telefon na sopstvenikot'), true);
+  assert.equal(detectOwnerContact('dadi mi go brojot na sopstvenikot'), true);
+  assert.equal(detectOwnerContact('sakam da razgovaram so sopstvenik'), true);
+  assert.equal(detectOwnerContact('sakam da kontaktiram so vlasnik'), true);
+  assert.equal(detectOwnerContact('imam li mozhnost da zvam sopstvenik'), true);
+  assert.equal(detectOwnerContact('moze li kontakt od vlasnik'), true);
+  // Mixed scripts
+  assert.equal(detectOwnerContact('контакт od sopstvenikot'), true);
+  assert.equal(detectOwnerContact('broj на сопственикот'), true);
+  // Edge cases with extra words
+  assert.equal(detectOwnerContact('ќе можам ли да добијам контакт од сопственикот?'), true);
+  assert.equal(detectOwnerContact('ДАЛИ МОЖЕ КОНТАКТ ОТ ВЛАСНИКОТ'), true);
+  assert.equal(detectOwnerContact('INTERESIRA ME TELEFON NA SOPSTVENIK'), true);
+  assert.equal(detectOwnerContact('КЕ МОЗЕ ЛИ КОНТАКТ ОД СОПСТВЕНИКОТ'), true);
+
+  // ── NEGATIVE: NOT owner contact requests ──
+  // Fee-related
+  assert.equal(detectOwnerContact('како е 500 денари?'), false);
+  assert.equal(detectOwnerContact('за што е цената?'), false);
+  assert.equal(detectOwnerContact('колку чини?'), false);
+  // Where-is
+  assert.equal(detectOwnerContact('каде се наоѓа?'), false);
+  assert.equal(detectOwnerContact('каде е?'), false);
+  // Availability
+  assert.equal(detectOwnerContact('дали е достапен?'), false);
+  // Visit scheduling
+  assert.equal(detectOwnerContact('кога може да се погледне?'), false);
+  assert.equal(detectOwnerContact('dogovori mi poseta'), false);
+  // Property interest
+  assert.equal(detectOwnerContact('ми се свиѓа 89'), false);
+  assert.equal(detectOwnerContact('заинтересиран сум'), false);
+  // Unrelated chat
+  assert.equal(detectOwnerContact('zdravo'), false);
+  assert.equal(detectOwnerContact('здраво, како си?'), false);
+  assert.equal(detectOwnerContact('cancel'), false);
+  assert.equal(detectOwnerContact('не можам'), false);
 });
