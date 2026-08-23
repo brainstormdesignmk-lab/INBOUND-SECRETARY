@@ -314,11 +314,13 @@ export class InboundHandler {
             session.slots.landmarkIndex = 0;
           }
         }
-        // Rotate through the pre-resolved landmarks, then protocol variants.
+        // Rotation: L1 → Protocol → L2 → L3 → Protocol → Protocol → ...
+        // idx=0→L1, idx=1→Protocol, idx=2→L2, idx=3→L3, idx≥4→Protocol
         const lm = session.slots.nearbyLandmarks;
         const idx = session.slots.landmarkIndex ?? 0;
-        // After all landmarks exhausted, give agency policy variants.
-        if (lm && idx >= lm.length) {
+        const hasLandmarks = lm && lm.length > 0;
+        const isProtocolTurn = hasLandmarks && (idx === 1 || idx >= 4);
+        if (isProtocolTurn) {
           const protoIdx = session.slots.addressProtocolIndex ?? 0;
           const protoLines = [
             'Адресата на имотот ќе ја споделам со Вас два часа пред нашата средба, согласно политиките на Агенцијата.',
@@ -328,14 +330,18 @@ export class InboundHandler {
           ];
           answer = protoLines[protoIdx % protoLines.length];
           session.slots.addressProtocolIndex = protoIdx + 1;
+          session.slots.landmarkIndex = idx + 1;
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
           this.deps.sessions.set(session);
           await this.sendRaw(session, answer);
           return;
         }
-        const landmark = lm?.[idx] ?? hit.landmark;
-        if (lm && idx < lm.length - 1) session.slots.landmarkIndex = idx + 1;
+        // Landmark turns: idx=0→L1, idx=2→L2, idx=3→L3. If no landmarks resolved,
+        // just use hit.landmark (the pre-resolved one from the table/feed).
+        const lmSlot = idx === 0 ? 0 : idx === 2 ? 1 : idx === 3 ? 2 : 0;
+        const landmark = lm?.[lmSlot] ?? hit.landmark;
+        session.slots.landmarkIndex = idx + 1;
         // Google Maps link: always included so the client never needs a
         // follow-up asking for directions.
         const coords = session.slots.nearbyLandmarkCoords?.[idx];
