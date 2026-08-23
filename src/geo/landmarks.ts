@@ -268,7 +268,7 @@ export function landmarkCacheKey(p: { address?: string; location?: string }): st
  * Returns the first valid match ( спроти > кај > близина > до ), cleaned
  * and length-guarded. Undefined when the details have no landmark phrase.
  */
-const LANDMARK_DETAIL_RE = /(?:спроти|спротив|кај|близина\s+на|близу\s+на|до)\s+(.{3,50}?)(?:\.\s|,\s|\s+и\s|\s+се\s|\s+во\s|\s+на\s|\s+е\s|\s+има\s|$)/iu;
+const LANDMARK_DETAIL_RE = /(?:спроти|спротив|кај|близина\s+на|близу\s+на|до|на\s+\d+\s*(?:м|метри|метар|meter|m)\s+од)\s+(.{3,50}?)(?:\.|,\s|\s+и\s|\s+се\s|\s+во\s|\s+на\s|\s+е\s|\s+има\s|$)/iu;
 
 export function extractDetailsLandmark(details: string | undefined): string | undefined {
   if (!details || details.length < 10) return undefined;
