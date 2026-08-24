@@ -525,11 +525,22 @@ export class LandmarkService {
       if (!this.opts.offlineMap || !p.address) return [];
       const geo = this.opts.offlineMap.geocodeAddress(p.address);
       if (!geo) return [];
-      const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
-      const nearby = pois
-        .filter(po => po.name.length >= 3 && po.lat != null && po.lon != null)
-        .slice(0, 3)
-        .map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
+      const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 25);
+      // Same 3-tier preference as the resolve() offline map layer:
+      // malls first, then landmarks, then any POI.
+      const isMall = (t: string) => t === 'mall' || t === 'shopping_mall';
+      const isLandmark = (t: string) => [
+        'school', 'university', 'college', 'government', 'townhall',
+        'diplomatic', 'embassy', 'hospital', 'clinic', 'healthcare',
+        'place_of_worship', 'church', 'mosque', 'stadium', 'sports_centre',
+        'museum', 'theatre', 'cinema', 'library', 'park', 'garden',
+        'playground', 'hotel', 'hostel', 'motel', 'department_store',
+      ].includes(t);
+      const mall = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null && isMall(po.type));
+      const landmarks = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null && isLandmark(po.type));
+      const all = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null);
+      const picked = mall.length > 0 ? mall : landmarks.length > 0 ? landmarks : all;
+      const nearby = picked.slice(0, 3).map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
       // 3) Cache for next time
       if (nearby.length > 0) this.store.putNearby(key, nearby);
       return nearby;
