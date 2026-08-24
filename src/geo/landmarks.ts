@@ -535,35 +535,12 @@ export class LandmarkService {
         if (poi) geo = { lat: poi.lat, lon: poi.lon };
       }
       if (!geo) return [];
-      const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 25);
-      // Diverse rotation: pick the top POI from each tier (mall, landmark, other)
-      // so the client gets 3 different nearby places, not 3 of the same type.
-      const isMall = (t: string) => t === 'mall' || t === 'shopping_mall';
-      const isLandmark = (t: string) => [
-        'school', 'university', 'college', 'government', 'townhall',
-        'diplomatic', 'embassy', 'hospital', 'clinic', 'healthcare',
-        'place_of_worship', 'church', 'mosque', 'stadium', 'sports_centre',
-        'museum', 'theatre', 'cinema', 'library', 'park', 'garden',
-        'playground', 'hotel', 'hostel', 'motel', 'department_store',
-      ].includes(t);
+      const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 50);
+      // nearestPois scores by distance × effective priority × permanence.
+      // Malls and big chains under 100m get boosted to priority 1-2.
+      // Exclude the primary POI (distance < 10m).
       const valid = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null);
-      const mall = valid.filter(po => isMall(po.type));
-      const landmarks = valid.filter(po => isLandmark(po.type));
-      const others = valid.filter(po => !isMall(po.type) && !isLandmark(po.type));
-      // Take top from each tier for diversity, then fill remaining slots
-      const picked: typeof valid = [];
-      if (mall.length > 0) picked.push(mall[0]);
-      if (landmarks.length > 0) picked.push(landmarks[0]);
-      for (const po of others) {
-        if (picked.length >= 3) break;
-        picked.push(po);
-      }
-      // Fill remaining from any tier if needed
-      for (const po of valid) {
-        if (picked.length >= 3) break;
-        if (!picked.includes(po)) picked.push(po);
-      }
-      const nearby = picked.slice(0, 3).map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
+      const nearby = valid.slice(0, 3).map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
       // 3) Cache for next time
       if (nearby.length > 0) this.store.putNearby(key, nearby);
       return nearby;

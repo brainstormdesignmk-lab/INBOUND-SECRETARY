@@ -175,6 +175,28 @@ function boostNamedLandmark(type: string, name: string): string {
   return type;
 }
 
+/** Big chain supermarkets in Skopje — recognized as landmarks when close.
+ *  "кај КАМ", "кај Веро", "кај Рамstor" are real navigation phrases. */
+const BIG_CHAIN_RE = /kam|kam\s+market|vero|stokomak|tinex|reptil|kipper|ramstor/i;
+function isBigChain(name: string): boolean {
+  return BIG_CHAIN_RE.test(name);
+}
+
+/** Distance-based priority: malls and big chains nearby are excellent
+ *  landmarks — "кај Беверли Хилс" or "кај КАМ Маркет" are what people
+ *  actually say. Closer = better priority, with a floor for distant POIs. */
+function effectivePriority(type: string, name: string, distanceM: number): number {
+  const isMall = type === 'mall' || type === 'shopping_mall';
+  // Tier 1-4: malls and big chains (proximity matters most for these)
+  if (isMall && distanceM <= 150) return 1;
+  if (isBigChain(name) && distanceM <= 150) return 2;
+  if (isMall) return 3;
+  if (isBigChain(name)) return 4;
+  // Tier 5+: everything else — shift POI_PRIORITY up so malls/chains always win
+  const base = POI_PRIORITY[type] ?? 50;
+  return base + 10; // squares go from 0→10, hospitals from 1→11, etc.
+}
+
 /** Permanence multiplier: permanent landmarks (parks, churches, schools,
  *  monuments) should beat temporary ones (shops, cafes) even when farther,
  *  because the street reference "кај паркот" will be valid in 10 years;
@@ -236,7 +258,7 @@ export class OfflineMapStore {
   }
 
   /** The named POIs within radiusM of a point, nearest first. */
-  nearestPois(lat: number, lon: number, radiusM = 2000, limit = 10): LocalPoi[] {
+  nearestPois(lat: number, lon: number, radiusM = 2000, limit = 10, opts?: { distanceOnly?: boolean }): LocalPoi[] {
     if (!this.db) return [];
     const dLat = radiusM / 111320;
     const dLon = radiusM / (111320 * Math.cos((lat * Math.PI) / 180));
@@ -248,18 +270,25 @@ export class OfflineMapStore {
       const d = meters({ lat, lon }, { lat: r.lat, lon: r.lon });
       if (d <= radiusM) out.push({ name: r.name, type: boostNamedLandmark(r.type, r.name), distance_m: Math.round(d), lat: r.lat, lon: r.lon });
     }
+    if (opts?.distanceOnly) {
+      // PURE DISTANCE: skip scoring, just return closest POIs.
+      // Used by nearbyLandmarks() for rotation — distance matters more than type.
+      out.sort((a, b) => a.distance_m - b.distance_m);
+      return out.slice(0, limit);
+    }
     // SCORE-BASED ranking: blends distance, type recognizability, and permanence.
     // Permanent landmarks (parks, churches, schools) beat temporary ones (shops,
     // cafes) even when farther — "кај паркот" is valid forever;
     // "кај Алка-У" might not be tomorrow.
     // score = distance_m * (1 + priority/10) * permanence.
     // Lower = better landmark. Cap: max 3 results per type to prevent flooding.
+    // TWO-LEVEL SORT: relevance first (malls > chains > landmarks > others),
+    // then distance as tiebreaker within the same relevance tier.
     out.sort((a, b) => {
-      const pa = PERMANENCE[a.type] ?? 1.0;
-      const pb = PERMANENCE[b.type] ?? 1.0;
-      const sa = a.distance_m * (1 + (POI_PRIORITY[a.type] ?? 50) / 10) * pa;
-      const sb = b.distance_m * (1 + (POI_PRIORITY[b.type] ?? 50) / 10) * pb;
-      return sa - sb;
+      const priA = effectivePriority(a.type, a.name, a.distance_m);
+      const priB = effectivePriority(b.type, b.name, b.distance_m);
+      if (priA !== priB) return priA - priB; // relevance first
+      return a.distance_m - b.distance_m;     // then distance
     });
     // Cap per-type: no more than 3 of any single type so diverse landmarks surface
     const MAX_PER_TYPE = 3;
