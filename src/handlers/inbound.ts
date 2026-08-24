@@ -244,7 +244,10 @@ export class InboundHandler {
     // Explicit address demands ("кажи ми точно адреса", "дај ми ја точната адреса")
     // go to the privacy protocol. But "каде точно се наоѓа?" is a WHERE_IS question
     // that should get a nearby landmark first — only protocol if the client persists.
-    if (detectExactAddressAsk(text) && !isKadeTocno(text)) {
+    // Also: "каде му е адресата?" matches EXACT_ADDRESS but is really a WHERE_IS
+    // question — the client wants to know WHERE it is, not the exact address.
+    // WHERE_IS takes priority: landmark rotation first, protocol on follow-ups.
+    if (detectExactAddressAsk(text) && !isKadeTocno(text) && !detectWhereIs(text)) {
       const answer = buildExactAddressAnswer(assistantTexts(session));
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
