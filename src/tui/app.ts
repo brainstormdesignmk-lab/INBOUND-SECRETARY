@@ -148,6 +148,8 @@ export class TuiApp {
     }
     const landmarks = new LandmarkService(this.db, {
       googleKey: cfg.googleMapsApiKey,
+      googleEnabled: cfg.googleMapsEnabled,
+      osmEnabled: cfg.osmEnabled,
       offlineMap,
       onHermesRequest: ({ address, location }) => {
         events.insert('landmark_requested', '', null, { address: address ?? null, location: location ?? null });

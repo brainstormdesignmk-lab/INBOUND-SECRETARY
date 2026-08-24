@@ -48,6 +48,8 @@ export interface AppConfig {
   hermesToken: string;     // shared admin token the function checks (x-admin-token by default)
   hermesAuthHeader: string; // request header carrying the token
   googleMapsApiKey: string; // Google Geocoding + Places key — landmark resolution (free tier suffices)
+  googleMapsEnabled: boolean; // false = skip Google Maps layer (use offline map instead)
+  osmEnabled: boolean; // false = skip live OSM layer (Nominatim + Overpass)
   viberOperatorId: string;  // agency operator's Viber id — visit-protocol logs go here
   hermesLlmBaseUrl: string; // Hermes' own reasoning LLM (NVIDIA NIM, OpenAI-compatible)
   hermesLlmApiKey: string;
@@ -105,6 +107,8 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     hermesToken: process.env.HERMES_TOKEN || '',
     hermesAuthHeader: process.env.HERMES_AUTH_HEADER || 'x-admin-token',
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '',
+    googleMapsEnabled: process.env.GOOGLE_MAPS_ENABLED !== 'false', // default: enabled
+    osmEnabled: process.env.OSM_ENABLED !== 'false', // default: enabled
     viberOperatorId: process.env.VIBER_OPERATOR_ID || '',
     hermesLlmBaseUrl: process.env.HERMES_LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1',
     hermesLlmApiKey: process.env.HERMES_LLM_API_KEY || '',

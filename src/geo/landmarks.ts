@@ -42,9 +42,13 @@ export interface LandmarkOpts {
   location?: string;
   /** Google Places API key, or '' to skip the Google layer */
   googleKey?: string;
+  /** false = skip Google Maps layer (use offline map instead) */
+  googleEnabled?: boolean;
   /** Enable the free OSM layer (Nominatim + Overpass). ON by default for
    *  production; tests turn it off so the suite never hits the network. */
   osm?: boolean;
+  /** false = skip live OSM layer (Nominatim + Overpass) */
+  osmEnabled?: boolean;
   /** Local OSM map (named POIs + addresses) — the zero-network landmark
    *  layer for Skopje. Geocodes the address locally, finds the nearest
    *  named POI, returns it as the landmark. Falls through when the map
@@ -399,7 +403,7 @@ export class LandmarkService {
     //    school, mall, etc.). Quality is far above OSM/offline. Free tier
     //    (10K geocode + 5K nearby/month) covers this scale permanently.
     //    Results are cached so Google is called ONCE per address ever.
-    if (this.opts.googleKey) {
+    if (this.opts.googleKey && this.opts.googleEnabled !== false) {
       try {
         const g = publicPlace(await googleLandmark(p.address, p.location, this.opts.googleKey, p.eb));
         if (g) { fs.appendFileSync('/tmp/landmark-debug.log',
@@ -469,7 +473,7 @@ export class LandmarkService {
     }
 
     // 6) OSM network — Nominatim + Overpass (free, no key)
-    if (this.opts.osm !== false) {
+    if (this.opts.osm !== false && this.opts.osmEnabled !== false) {
       try {
         const o = publicPlace(await osmLandmark(p.address, p.location));
         if (o) { try { fs.appendFileSync('/tmp/landmark-debug.log',
