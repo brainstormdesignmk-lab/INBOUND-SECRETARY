@@ -146,6 +146,11 @@ export class TuiApp {
     } else {
       console.error(`[offline-map] NOT AVAILABLE — db=${cfg.skopjePoisDb} — landmarks will use live OSM (slower, less accurate)`);
     }
+    // Clear stale landmark cache on startup so properties re-resolve
+    // with the latest offline map data and 3-tier preference logic.
+    this.db.db.prepare('DELETE FROM landmarks').run();
+    console.log('[startup] landmark cache cleared');
+
     const landmarks = new LandmarkService(this.db, {
       googleKey: cfg.googleMapsApiKey,
       googleEnabled: cfg.googleMapsEnabled,
