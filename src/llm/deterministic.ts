@@ -703,6 +703,57 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   // "каде точно се наоѓа?" / "where exactly is it?" — a generic where-is
   // that should get a nearby landmark, not the privacy protocol.
   if (isKadeTocno(text)) return { place: '', generic: true };
+
+  // ===== SECONDARY CHECK: Missing patterns not caught by WHERE_IS_RE =====
+  // These cover property-type variants ("каде е вилата?"), smesten variants,
+  // typos, and follow-up phrases ("да ама која улица") that the main regex
+  // misses because they lack a "каде" prefix or have unexpected structures.
+  const lower = text.toLowerCase();
+  const whereIsSecondary = [
+    // Property type variants
+    'каде е имотот', 'kade e imotot',
+    'каде е станот', 'kade e stanot',
+    'каде е куќата', 'kade e kukata',
+    'каде е вилата', 'kade e vilata',
+    'каде е локалот', 'kade e lokalot',
+    // NOTE: 'каде е тоа' intentionally OMITTED — the main WHERE_IS_RE handles
+    // "каде е тоа X?" by stripping "тоа" via WHERE_IS_DETERMINER and
+    // extracting X as the place. Adding it here would break place extraction.
+    // Smeten variants (blacklisted in WHERE_IS_BLACKLIST but valid WHERE_IS)
+    'каде е сместен', 'kade e smeten',
+    'каде е сместена', 'kade e smetena',
+    'каде е сместено', 'kade e smeteno',
+    // Formal location variants
+    'каде се наоѓа имотот', 'kade se naogja imotot',
+    'каде се наоѓа станот', 'kade se naogja stanot',
+    'каде се наоѓа куќата', 'kade se naogja kukata',
+    // Typo variants
+    'каде му е адерасата', 'kade mu e aderasa',
+    'каде се наога имотот', 'kade se naoga imotot',
+    'каде се наога станот', 'kade se naoga stanot',
+    'каде се наога куќата', 'kade se naoga kukata',
+    // FOLLOW-UP PHRASES (trigger landmark rotation, not protocol)
+    'да ама која улица', 'da ama koja ulica',
+    'да ама кој број', 'da ama koj broj',
+    'да ама каде точно', 'da ama kade tocno',
+    'да ама каде поточно', 'da ama kade potocno',
+    'добро ама каде е', 'dobro ama kade e',
+    'добро ама која улица', 'dobro ama koja ulica',
+    'добро ама кој број', 'dobro ama koj broj',
+    'се согласувам ама адресата', 'se soglasuvam ama adresata',
+    'а која е адресата', 'a koja e adresata',
+    'а улица и број', 'a ulica i broj',
+    'а точно каде', 'a tocno kade',
+    'а поточно каде', 'a potocno kade',
+    'а која е точната локација', 'a koja e tocnata lokacija',
+    'добро а каде е', 'dobro a kade e',
+    'да а каде е', 'da a kade e',
+  ];
+  if (whereIsSecondary.some(p => lower.includes(p))) {
+    return { place: '', generic: true };
+  }
+  // ===== END SECONDARY CHECK =====
+
   const m = text.match(WHERE_IS_RE);
   if (!m) return undefined;
   let rest = text.slice((m.index ?? 0) + m[0].length).trim();
@@ -732,7 +783,45 @@ const EXACT_ADDRESS_RE =
 
 /** True when the client asks for the EXACT street/address of a property. */
 export function detectExactAddressAsk(text: string): boolean {
-  return EXACT_ADDRESS_RE.test(text);
+  // Main regex check
+  if (EXACT_ADDRESS_RE.test(text)) return true;
+
+  // ===== SECONDARY CHECK: Missing patterns not caught by EXACT_ADDRESS_RE =====
+  const lower = text.toLowerCase();
+  const exactAddressSecondary = [
+    // Cadastral queries
+    'кој катастар', 'koj katastar',
+    'кој катастарски број', 'koj katastarski broj',
+    'катастарска општина', 'katastarska opshtina',
+    // Short demands
+    'адреса сега', 'adresa sega',
+    'дај адреса', 'daj adresa',
+    'кажи адреса', 'kazi adresa',
+    'дај адреса сега', 'daj adresa sega',
+    'кажи адреса сега', 'kazi adresa sega',
+    // Formal street queries
+    'во која улица е', 'vo koja ulica e',
+    'во која улица се наоѓа', 'vo koja ulica se naogja',
+    'која е точната адреса', 'koja e tocnata adresa',
+    // "What is the address?" variants
+    'што е адресата', 'sto e adresata',
+    'што е точната адреса', 'sto e tocnata adresa',
+    // Precision demands
+    'прецизна адреса', 'precizna adresa',
+    'прецизна локација', 'precizna lokacija',
+    // Priority requests (only those NOT already in EXACT_ADDRESS_RE)
+    'прво локација', 'prvo lokacija',
+    'прво точно каде', 'prvo tocno kade',
+    'прво поточно каде', 'prvo potocno kade',
+    // Additional formal variants
+    'точна адреса', 'tocna adresa',
+    'точна локација', 'tocna lokacija',
+    'целосна адреса', 'celosna adresa',
+  ];
+  if (exactAddressSecondary.some(p => lower.includes(p))) return true;
+  // ===== END SECONDARY CHECK =====
+
+  return false;
 }
 
 // "каде точно" patterns — these are WHERE_IS questions that should get
