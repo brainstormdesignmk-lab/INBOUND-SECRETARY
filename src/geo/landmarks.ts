@@ -527,11 +527,17 @@ export class LandmarkService {
     // 2) Compute from offline map
     try {
       if (!this.opts.offlineMap || !p.address) return [];
-      const geo = this.opts.offlineMap.geocodeAddress(p.address);
+      let geo = this.opts.offlineMap.geocodeAddress(p.address);
+      // FALLBACK: address may be a landmark name ("Беверли Хилс") not a street.
+      // Look it up in the POIs table to get coordinates for nearby-POI queries.
+      if (!geo && p.address) {
+        const poi = this.opts.offlineMap.findPoiByName(p.address);
+        if (poi) geo = { lat: poi.lat, lon: poi.lon };
+      }
       if (!geo) return [];
       const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 25);
-      // Same 3-tier preference as the resolve() offline map layer:
-      // malls first, then landmarks, then any POI.
+      // Diverse rotation: pick the top POI from each tier (mall, landmark, other)
+      // so the client gets 3 different nearby places, not 3 of the same type.
       const isMall = (t: string) => t === 'mall' || t === 'shopping_mall';
       const isLandmark = (t: string) => [
         'school', 'university', 'college', 'government', 'townhall',
@@ -540,10 +546,23 @@ export class LandmarkService {
         'museum', 'theatre', 'cinema', 'library', 'park', 'garden',
         'playground', 'hotel', 'hostel', 'motel', 'department_store',
       ].includes(t);
-      const mall = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null && isMall(po.type));
-      const landmarks = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null && isLandmark(po.type));
-      const all = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null);
-      const picked = mall.length > 0 ? mall : landmarks.length > 0 ? landmarks : all;
+      const valid = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null);
+      const mall = valid.filter(po => isMall(po.type));
+      const landmarks = valid.filter(po => isLandmark(po.type));
+      const others = valid.filter(po => !isMall(po.type) && !isLandmark(po.type));
+      // Take top from each tier for diversity, then fill remaining slots
+      const picked: typeof valid = [];
+      if (mall.length > 0) picked.push(mall[0]);
+      if (landmarks.length > 0) picked.push(landmarks[0]);
+      for (const po of others) {
+        if (picked.length >= 3) break;
+        picked.push(po);
+      }
+      // Fill remaining from any tier if needed
+      for (const po of valid) {
+        if (picked.length >= 3) break;
+        if (!picked.includes(po)) picked.push(po);
+      }
       const nearby = picked.slice(0, 3).map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
       // 3) Cache for next time
       if (nearby.length > 0) this.store.putNearby(key, nearby);
