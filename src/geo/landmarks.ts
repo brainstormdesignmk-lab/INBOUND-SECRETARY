@@ -519,7 +519,7 @@ export class LandmarkService {
    *  returns empty (no live API fallback for bulk POI queries).
    *  Results are cached in the landmarks table so the geocode+POI query
    *  runs at most ONCE per unique address. */
-  nearbyLandmarks(p: { eb: number; address?: string; location?: string }): Array<{ landmark: string; lat: number; lon: number }> {
+  nearbyLandmarks(p: { eb: number; address?: string; location?: string; landmark?: string }): Array<{ landmark: string; lat: number; lon: number }> {
     const key = landmarkCacheKey(p);
     // 1) Check DB cache
     const cached = this.store.getNearby(key);
@@ -528,10 +528,14 @@ export class LandmarkService {
     try {
       if (!this.opts.offlineMap || !p.address) return [];
       let geo = this.opts.offlineMap.geocodeAddress(p.address);
-      // FALLBACK: address may be a landmark name ("Беверли Хилс") not a street.
-      // Look it up in the POIs table to get coordinates for nearby-POI queries.
+      // FALLBACK 1: address may be a landmark name ("Беверли Хилс") not a street.
       if (!geo && p.address) {
         const poi = this.opts.offlineMap.findPoiByName(p.address);
+        if (poi) geo = { lat: poi.lat, lon: poi.lon };
+      }
+      // FALLBACK 2: use the already-resolved landmark name ("Католичка црква...")
+      if (!geo && p.landmark) {
+        const poi = this.opts.offlineMap.findPoiByName(p.landmark);
         if (poi) geo = { lat: poi.lat, lon: poi.lon };
       }
       if (!geo) return [];
