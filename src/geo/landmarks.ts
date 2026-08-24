@@ -535,7 +535,7 @@ export class LandmarkService {
         if (poi) geo = { lat: poi.lat, lon: poi.lon };
       }
       if (!geo) return [];
-      const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 50);
+      const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 300, 50);
       // nearestPois scores by distance × effective priority × permanence.
       // Malls and big chains under 100m get boosted to priority 1-2.
       // Exclude the primary POI (distance < 10m).
