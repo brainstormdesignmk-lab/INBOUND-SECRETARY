@@ -669,7 +669,7 @@ export interface WhereIsQuestion {
 
 // "каде е X?" — verb list includes Latin + Cyrillic; lookahead keeps the
 // boundary so "каде е?" (no place) still matches and yields an empty rest.
-const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:да\s+)?(?:(?:се|se)\s+)?(?:наоѓа|naogja|naoga|е|e|се|se|is)(?=\s|[?!.]|$)/iu;
+const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:поточно|потoчno|potocno|точно|tocno|tochno|ориентино|ориентирно|приближно)?\s*(?:(?:се|se)\s+)?(?:наоѓа|наоjа|naogja|naoga|е|e|се|se|is)(?=\s|[?!.]|$)/iu; // wo+se: removed 'да\s+' from modifier to avoid backtracking issues
 // A bare "каде?" / "kade ?" means "where [is it]?" — the last shown property.
 const WHERE_BARE_RE = /^(?:каде|kade|где|gde|кај|kaj|where)\s*\??\s*$/iu;
 // "што има во близина?" / "what's nearby?" — NEARBY questions about the last shown property.
