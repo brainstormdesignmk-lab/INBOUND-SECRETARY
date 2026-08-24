@@ -9,7 +9,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectSchedulingFlex, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectPropertyInterest, detectVisitInterest, detectBothServices } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectSchedulingFlex, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, extractSlots } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -367,6 +367,39 @@ export class InboundHandler {
       this.deps.sessions.set(session);
       await this.sendRaw(session, answer);
       return;
+    }
+
+    // 0) Property DESCRIPTION without service type: the client remembers a
+    // specific property they saw ("гарсоњерата кaj crnogorska ambasada") but
+    // doesn't know the EB number. Route to property_locate for guided search.
+    // Must come BEFORE the classifier so the FSM doesn't go to discovery.
+    // Exclude service intents ("sakam da kupam/iznajmam") — those go to discovery.
+    if (detectPropertyDescription(text) && !session.slots.service
+        && !detectService(text) && !detectBothServices(text)) {
+      const slots = extractSlots(text);
+      if (!slots.service) {
+        // No service declared — route to property_locate for guided search
+        // extractSlots doesn't resolve feed neighborhoods — use detectLocation
+        let loc = slots.location;
+        if (!loc) {
+          try {
+            const locs = await this.deps.properties.locations();
+            loc = detectLocation(text, locs) ?? undefined;
+          } catch { /* ignore */ }
+        }
+        if (loc) session.slots.location = loc;
+        if (slots.bedrooms) session.slots.bedrooms = slots.bedrooms;
+        if (slots.sqm) session.slots.sqm = slots.sqm;
+        if (slots.budget) session.slots.budget = slots.budget;
+        session.state = 'property_locate';
+        const answer = LOCATE_FIRST_ASK;
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer);
+        return;
+      }
+      // Service declared — fall through to classifier/discovery
     }
 
     // 1) Cold-brained intent extraction (Groq, JSON mode)

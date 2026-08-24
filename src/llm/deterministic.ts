@@ -273,6 +273,17 @@ export function detectPropertyInterest(text: string): boolean {
   return PROPERTY_INTEREST_RE.test(text);
 }
 
+// Property DESCRIPTION without service type: the client remembers a specific
+// property they saw ("гарсоњерата кaj crnogorska ambasada", "станот во центар")
+// but doesn't know the EB number. Definite article + location preposition =
+// specific property reference, NOT a general search.
+const PROPERTY_DESC_RE =
+  /(?:гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a|е|и)|стан(?:от)?|stan(?:ot)?|куќ(?:ата|а)|kuk(?:ata|a|i)|лок(?:алот?|ал)|lokal(?:ot?|a?)|vilata|vila|deloven(?:\s+prostor)?)(?:\s+(?:кај|кaj|kaj|во|vo|near|close|околу|okolu))/iu;
+/** True when the client describes a specific property they remember. */
+export function detectPropertyDescription(text: string): boolean {
+  return PROPERTY_DESC_RE.test(text);
+}
+
 // A proposed visit time (LLM-down path for visit_scheduling -> owner check).
 // Anything with a time/date reference: "утре на пладне", "после 6", "петок
 // во 17:30", "сабота попладне". Returns the raw phrase (used verbatim in the
