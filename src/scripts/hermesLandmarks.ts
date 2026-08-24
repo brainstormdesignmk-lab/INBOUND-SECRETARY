@@ -180,7 +180,7 @@ async function rankedLandmarks(
   offline?: OfflineMapStore,
 ): Promise<FeedLandmark[]> {
   const pois = offline?.available
-    ? offline.nearestPois(geo.lat, geo.lon, 2000, 10)
+    ? offline.nearestPois(geo.lat, geo.lon, 2000, 25)
     : await osmPoisNear(geo.lat, geo.lon);
   if (pois.length === 0) return [];
   const picked = await llmPickLandmarks(cfg, { ...c, lat: geo.lat, lon: geo.lon }, pois);

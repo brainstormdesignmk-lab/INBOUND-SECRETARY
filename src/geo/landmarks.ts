@@ -344,7 +344,14 @@ export class LandmarkService {
       const ranked = p.landmarks
         .map(l => ({ l, hit: publicPlace({ landmark: l.landmark, type: l.type ?? 'place', mapsUrl: l.maps_url, source: 'feed' as const }) }))
         .filter((x): x is { l: FeedLandmark; hit: Landmark } => !!x.hit)
-        .sort((a, b) => (a.l.distance_m ?? Infinity) - (b.l.distance_m ?? Infinity));
+        .sort((a, b) => {
+          // Prefer malls first ("Беверли Хилс" / "ТЦ Бисер" / "Рамстор"),
+          // then by distance. People navigate by malls, not by kiosks.
+          const aMall = a.l.type === 'mall' || a.l.type === 'shopping_mall' ? 0 : 1;
+          const bMall = b.l.type === 'mall' || b.l.type === 'shopping_mall' ? 0 : 1;
+          if (aMall !== bMall) return aMall - bMall;
+          return (a.l.distance_m ?? Infinity) - (b.l.distance_m ?? Infinity);
+        });
       if (ranked.length > 0) {
         const top = ranked.slice(0, 3);
         const _r = top[Math.abs(p.eb * 2654435761) % top.length].hit; fs.appendFileSync('/tmp/landmark-debug.log',
@@ -433,8 +440,24 @@ export class LandmarkService {
           geo = await photonGeocode(p.address, p.location ?? '');
         }
         if (geo) {
-          const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 5);
-          const best = pois.find(po => po.name.length >= 3);
+          const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 25);
+          // Three-tier landmark preference:
+          //   1. Malls — everyone knows "Беверли Хилс" / "ТЦ Бисер" / "Рамстор"
+          //   2. Government, schools, hospitals, parks, hotels — permanent structures
+          //   3. Any POI with name >= 3 chars (fallback)
+          const isMall = (t: string) => t === 'mall' || t === 'shopping_mall';
+          const isLandmark = (t: string) => [
+            'school', 'university', 'college',
+            'government', 'townhall', 'diplomatic', 'embassy',
+            'hospital', 'clinic', 'healthcare',
+            'place_of_worship', 'church', 'mosque',
+            'stadium', 'sports_centre', 'museum', 'theatre', 'cinema', 'library',
+            'park', 'garden', 'playground',
+            'hotel', 'hostel', 'motel', 'department_store',
+          ].includes(t);
+          const best = pois.find(po => po.name.length >= 3 && isMall(po.type))
+            ?? pois.find(po => po.name.length >= 3 && isLandmark(po.type))
+            ?? pois.find(po => po.name.length >= 3);
           if (best) {
             const l = publicPlace({ landmark: best.name, type: best.type, source: 'offline' as const });
             if (l) { fs.appendFileSync('/tmp/landmark-debug.log',
