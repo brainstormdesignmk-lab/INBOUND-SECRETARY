@@ -580,7 +580,10 @@ async function fetchPois(): Promise<Array<{ name: string; type: string; lat: num
   return out;
 }
 
-/** Address rows (addr:street) — the local geocoding layer. */
+/** Address rows (addr:street) — the local geocoding layer. Also expands
+ *  addr:interpolation ways ("numbers 15-21 along this segment") into
+ *  individual house-number rows, and captures addr:place addressing used in
+ *  villages/settlements without street names ("Визбегово 12"). */
 async function fetchAddresses(): Promise<Array<{ street: string; housenumber: string; lat: number; lon: number }>> {
   const out: Array<{ street: string; housenumber: string; lat: number; lon: number }> = [];
   const seen = new Set<string>();
@@ -598,7 +601,107 @@ async function fetchAddresses(): Promise<Array<{ street: string; housenumber: st
     }
     console.log(`[skopje-map] address tile ${bbox.join(',')} → ${elements.length} raw elements`);
   }
+
+  // --- addr:interpolation ways → individual numbered houses --------------
+  // A way tagged addr:interpolation=odd/even/all carries a number range in
+  // addr:housenumber ("15-21" or "15;19") and geometry covering exactly those
+  // plots. Expanding gives us house numbers OSM never maps as separate
+  // buildings — the main source of NUMBER_GAP failures.
+  for (const bbox of tiles()) {
+    try {
+      const q = `[out:json][timeout:90];way["addr:interpolation"]["addr:housenumber"](${bbox.join(',')});out geom tags;`;
+      const { elements } = await overpass(q);
+      let expanded = 0;
+      for (const e of elements) {
+        const street = (e.tags?.['addr:street'] ?? '').trim();
+        const geom = (e as unknown as { geometry?: Array<{ lat: number; lon: number }> }).geometry;
+        if (!street || !geom || geom.length < 2) continue;
+        for (const pt of expandInterpolation(e.tags ?? {}, geom)) {
+          const k = `${street.toLowerCase()}|${pt.lat.toFixed(6)}|${pt.lon.toFixed(6)}|${pt.housenumber}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          out.push({ street, housenumber: pt.housenumber, lat: pt.lat, lon: pt.lon });
+          expanded++;
+        }
+      }
+      console.log(`[skopje-map] interpolation tile ${bbox.join(',')} → +${expanded} house numbers`);
+    } catch (err) {
+      console.warn(`[skopje-map] interpolation tile failed (continuing): ${(err as Error).message}`);
+    }
+  }
+
+  // --- addr:place — settlements addressed by place name, not street -------
+  for (const bbox of tiles()) {
+    try {
+      const q = `[out:json][timeout:60];nwr["addr:place"]["addr:housenumber"](${bbox.join(',')});out center tags;`;
+      const { elements } = await overpass(q);
+      let added = 0;
+      for (const e of elements) {
+        const place = (e.tags?.['addr:place'] ?? '').trim();
+        const hn = (e.tags?.['addr:housenumber'] ?? '').trim();
+        const c = coordsOf(e);
+        if (!place || !hn || !c) continue;
+        const k = `${place.toLowerCase()}|${c.lat.toFixed(5)}|${c.lon.toFixed(5)}|${hn}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ street: place, housenumber: hn, lat: c.lat, lon: c.lon });
+        added++;
+      }
+      console.log(`[skopje-map] place-address tile ${bbox.join(',')} → +${added}`);
+    } catch (err) {
+      console.warn(`[skopje-map] place-address tile failed (continuing): ${(err as Error).message}`);
+    }
+  }
   return out;
+}
+
+/** Expand an addr:interpolation way's tags into individual positioned house
+ *  numbers along its geometry. Supports explicit lists ("15;19"), ranges
+ *  ("15-21"), and parity from the interpolation value (odd/even/all/alternate). */
+function expandInterpolation(
+  tags: Record<string, string>,
+  geom: Array<{ lat: number; lon: number }>,
+): Array<{ housenumber: string; lat: number; lon: number }> {
+  const mode = (tags['addr:interpolation'] ?? 'all').toLowerCase();
+  const raw = (tags['addr:housenumber'] ?? '').replace(/\s+/g, '');
+  // Collect the numbers this way covers.
+  let numbers: number[];
+  const list = raw.split(';').map(Number).filter(n => Number.isFinite(n) && n >= 0);
+  if (list.length > 1 && !raw.includes('-')) {
+    numbers = list; // explicit enumeration "15;17;19"
+  } else {
+    const m = raw.match(/^(\d+)-(\d+)$/);
+    if (!m) return [];
+    let lo = parseInt(m[1], 10);
+    const hi = parseInt(m[2], 10);
+    const step = mode === 'even' || mode === 'odd' ? 2 : 1;
+    if (mode !== 'even' && lo % 2 === 0 && hi % 2 === 1 && step === 2) lo += 1;
+    numbers = [];
+    for (let n = lo; n <= hi; n += step) numbers.push(n);
+  }
+  if (numbers.length === 0 || numbers.length > 200) return []; // sanity cap
+  // Cumulative segment lengths for position-along-way interpolation.
+  const cum: number[] = [0];
+  for (let i = 1; i < geom.length; i++) {
+    const dLat = geom[i].lat - geom[i - 1].lat;
+    const dLon = geom[i].lon - geom[i - 1].lon;
+    cum.push(cum[i - 1] + Math.hypot(dLat, dLon));
+  }
+  const total = cum[cum.length - 1] || 1;
+  return numbers.map((n, idx) => {
+    // Evenly distribute the numbers between way start and end.
+    const t = numbers.length === 1 ? 0.5 : idx / (numbers.length - 1);
+    const target = t * total;
+    let seg = 1;
+    while (seg < cum.length - 1 && cum[seg] < target) seg++;
+    const segLen = cum[seg] - cum[seg - 1] || 1;
+    const f = (target - cum[seg - 1]) / segLen;
+    return {
+      housenumber: String(n),
+      lat: geom[seg - 1].lat + f * (geom[seg].lat - geom[seg - 1].lat),
+      lon: geom[seg - 1].lon + f * (geom[seg].lon - geom[seg - 1].lon),
+    };
+  });
 }
 
 /** Write the map tables from given data (atomic: temp file + rename). Exported
