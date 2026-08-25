@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadConfig } from '../config';
+import { bootChecks, checkFeed, printChecks } from '../boot_check';
 import { TuiApp } from './app';
 
 // The LLM clients log every backend failure via console.error — Gemini 429
@@ -28,6 +29,14 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   redirectConsole();
+  // Boot self-check — every dependency failure must be LOUD here, not
+  // discovered weeks later as a silent [без LLM] / wrong-landmark symptom.
+  const checks = [...bootChecks(cfg), await checkFeed(cfg.propertyDataUrl)];
+  printChecks(checks);
+  if (!checks.find(c => c.name === 'llm')?.ok) {
+    console.error('[tui] no LLM key in .env (GROQ_API_KEY / GEMINI_API_KEY) — the TUI needs a real brain.');
+    process.exit(2);
+  }
   const app = new TuiApp(cfg);
   app.start();
 }

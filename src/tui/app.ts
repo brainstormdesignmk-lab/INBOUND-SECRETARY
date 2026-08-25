@@ -41,7 +41,7 @@ interface Lead {
 }
 type Mode = 'chat' | 'naming' | 'menu';
 
-const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [C-q] излез`;
+const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/status] здравствена проверка (клучеви, мапа, фид, мозок) · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [C-q] излез`;
 
 // The brain chooser: 'hybrid' = Gemini pool -> Groq fallback (production),
 // 'gemini' = the 3 rotating keys only, 'groq' = Groq only, 'free' = always-throw
@@ -93,6 +93,9 @@ export class TuiApp {
 
   private cfg: AppConfig;
   private brainSummary = '';
+  /** Assistant replies answered by the deterministic brain this session —
+   *  surfaced by /status so silent degradation becomes visible. */
+  private detFallbackCount = 0;
   private brains: Partial<Record<BrainMode, LlmClient>> = {};
   private brainMode: BrainMode = 'hybrid';
   private classifier: Classifier;
@@ -393,6 +396,19 @@ export class TuiApp {
       this.renderAll();
       return;
     }
+    if (text === '/status') {
+      const { bootChecks, checkFeed } = await import('../boot_check');
+      const checks = [...bootChecks(this.cfg), await checkFeed(this.cfg.propertyDataUrl)];
+      const lines = checks.map(c => `${c.ok ? '✅' : '❌'} ${c.name}: ${c.detail}`);
+      const available = (['hybrid', 'gemini', 'groq', 'free'] as BrainMode[]).filter(m => this.brains[m]).join(' / ');
+      lines.push(`—`);
+      lines.push(`мозок: ${this.brainMode} (достапни: ${available})`);
+      const warn = this.detFallbackCount >= 10 ? '  ⚠ ВИСОКО — провери ги LLM клучите!' : '';
+      lines.push(`детерминистички одговори оваа сесија: ${this.detFallbackCount}${warn}`);
+      this.appendMsg(lead.chatId, { role: 'system', text: `СТАТУС:\n${lines.join('\n')}`, at: Date.now() });
+      this.renderAll();
+      return;
+    }
     if (text === '/reset') {
       const s = this.sessions.get(lead.chatId);
       if (s) { resetToIdle(s); this.sessions.set(s); }
@@ -658,7 +674,13 @@ export class TuiApp {
     const lead = this.leads.find(l => l.chatId === chatId);
     if (!lead) return;
     lead.msgs.push(msg);
-    if (msg.role === 'assistant' && msg.source) lead.brain = msg.source;
+    if (msg.role === 'assistant' && msg.source) {
+      lead.brain = msg.source;
+      // Loud degradation counter — /status surfaces this. A high number means
+      // the LLM path is dead (missing keys, quota, network) and the
+      // deterministic brain is carrying everything silently.
+      if (msg.source === 'deterministic') this.detFallbackCount++;
+    }
     this.renderChat();
   }
 
