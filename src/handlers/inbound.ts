@@ -24,6 +24,7 @@ import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/str
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, approxCoordsLink } from '../geo/landmarks';
+import { routeLog, resolveIntent } from './router';
 import { VisitScheduler } from '../visits/scheduler';
 import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
@@ -217,6 +218,13 @@ export class InboundHandler {
     // clean messages decay).
     const offense = detectOffensive(text);
     const outcome = applyStrike(session, offense);
+    if (outcome === 'none') {
+      // Routing prediction log — the mirror in router.ts resolves which intent
+      // WOULD fire; branch points below log the ACTUAL intent. Divergence
+      // between [route?] and [route] in data/tui.log = the mirror drifted
+      // from the real chain and needs updating.
+      routeLog(chatId, text, resolveIntent(text, session.state), 'predict');
+    }
     if (outcome !== 'none') {
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       if (outcome === 'terminate') {
@@ -248,6 +256,7 @@ export class InboundHandler {
     // question — the client wants to know WHERE it is, not the exact address.
     // WHERE_IS takes priority: landmark rotation first, protocol on follow-ups.
     if (detectExactAddressAsk(text) && !isKadeTocno(text) && !detectWhereIs(text)) {
+      routeLog(chatId, text, 'EXACT_ADDRESS');
       const answer = buildExactAddressAnswer(assistantTexts(session));
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
@@ -259,6 +268,7 @@ export class InboundHandler {
     // Owner contact refusal: the client asks for the owner's phone/contact.
     // The agency NEVER shares owner contacts before a visit is arranged.
     if (detectOwnerContact(text)) {
+      routeLog(chatId, text, 'OWNER_CONTACT');
       const answer = pickVariant('owner.contact.refusal', { recent: assistantTexts(session) })
         ?? 'Контактот на сопственикот не се споделува директно. Можам да организирам посета каде ќе се сретнете со сопственикот. Дали би сакале да закажеме термин?';
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -275,6 +285,7 @@ export class InboundHandler {
     // never even sees it, so the LLM can't misread the place as a location.
     const whereIs = detectWhereIs(text);
     if (whereIs) {
+      routeLog(chatId, text, 'WHERE_IS');
       const all = await this.deps.properties.getAll();
       const shownIds = new Set(session.slots.presentedIds ?? []);
       const shown = all.filter(p => shownIds.has(p.id));
@@ -399,6 +410,7 @@ export class InboundHandler {
     // Exclude service intents ("sakam da kupam/iznajmam") — those go to discovery.
     if (detectPropertyDescription(text) && !session.slots.service
         && !detectService(text) && !detectBothServices(text)) {
+      routeLog(chatId, text, 'PROPERTY_DESCRIPTION');
       const slots = extractSlots(text);
       if (!slots.service) {
         // No service declared — route to property_locate for guided search
@@ -549,6 +561,7 @@ export class InboundHandler {
     // Works in visit_scheduling, owner_checking, time_confirm, pending.
     const visitStates = ['visit_scheduling', 'owner_checking', 'time_confirm', 'pending', 'queued'];
     if (detectVisitCancellation(text) && visitStates.includes(session.state)) {
+      routeLog(chatId, text, `VISIT_CANCEL:${session.state}`);
       // Find the active appointment for this chat
       const appts = this.deps.appointments.listByChat(session.chatId)
         .filter(a => a.status === 'finalized');
