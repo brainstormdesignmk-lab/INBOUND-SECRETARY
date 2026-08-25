@@ -715,6 +715,19 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   // that should get a nearby landmark, not the privacy protocol.
   if (isKadeTocno(text)) return { place: '', generic: true };
 
+  // ===== GRAMMAR RULE: the whole "каде … адресата/локацијата" family =======
+  // Macedonian location questions are combinatorial:
+  //   каде × [точно|поточно] × [ми|му|и] × [е|би|ке|се наоѓа] × [адресата|локацијата]
+  // Enumerating phrases always lags real speech — this filler-token loop
+  // covers EVERY combination, including phrasings nobody predicted
+  // ("kade mu e lokacijata", "каде адресата?", "kade samo e adresata").
+  // Any каде-prefixed question whose object is an address/location noun
+  // gets landmark rotation. Explicit demands WITHOUT каде ("дај ми ја
+  // адресата", "улица и број") still hit EXACT_ADDRESS.
+  // NOTE: улиц(ата) deliberately excluded — "каде е улицата Партизанска?"
+  // is a named-place query, not a generic where-is about THE property.
+  if (KADE_ADDR_NOUN_RE.test(text)) return { place: '', generic: true };
+
   // ===== SECONDARY CHECK: Missing patterns not caught by WHERE_IS_RE =====
   // These cover property-type variants ("каде е вилата?"), smesten variants,
   // typos, and follow-up phrases ("да ама која улица") that the main regex
@@ -801,6 +814,18 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
 const EXACT_ADDRESS_RE =
   /(?:улица|ulica|улицата|ulicata)\s+(?:и|i)\s+(?:број|broj|бројот|brojot)|(?:moram|mora|treba|морам|мора|треба)\s+(?:(?:да|da)\s+)?(?:(?:ја|ja)\s+)?(?:знам|znam|znaam|знаам)\s+(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)|(?:prvo|прво|first)\s+(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata|адреса|adresa|address)|(?:moram|mora|treba|морам|мора|треба)\s+(?:(?:да|da)\s+)?(?:(?:ја|ja)\s+)?(?:знам|znam)\s+(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)|(?:prvo|прво|first)\s+(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata|адреса|adresa)|(?:пото?чно|potocno|pokazete|покажете)\s+(?:која|koja)\s+(?:улица|ulica|адреса|adresa|локација|lokacija)|(?:точно|tochno|tocno)\s+(?:која|koja)\s+(?:улица|ulica|адреса|adresa|локација|lokacija)|(?:кажи|kazi)\s+(?:ми\s+|mi\s+)?точно\s+(?:адресата|adresata|адреса|adresa|улицата|ulicata|улица|ulica|локацијата|lokacijata|lokacija)|(?:потoчно|поточната)\s+(?:која|koja)\s+(?:улица|ulica|адреса|adresa)|(?:кажи|kazi)\s+(?:ми\s+|mi\s+)?точно\s+(?:адресата|adresata|адреса|adresa|улицата|ulicata|улица|ulica|локацијата|lokacijata|lokacija)|(?:(?:која|koja|кое|koe)\s+(?:му\s+|mu\s+)?(?:е|e)\s+(?:адресата|adresata|адреса|adresa|улицата|ulicata|улица|ulica|локацијата|lokacijata|lokacija)|(?:каде|kade|кај|kaj)\s+(?:му\s+|mu\s+)?(?:е|e)\s+(?:адресата|adresata|адреса|adresa|улицата|ulicata|улица|ulica|локацијата|lokacijata|lokacija)|(?:точна|точната|tochna|tocnata|tochnata|točna|preciznata|прецизната)\s+(?:адресата|adresata|адреса|adresa|улицата|ulicata|улица|ulica|локацијата|lokacijata|lokacija)|(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)\s*[-–]?\s*(?:точна|точната|tochna|tocnata|tochnata|točна)|(?:кажи|kazi)\s+(?:ми\s+|mi\s+)?(?:ја|ja)\s+(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)|(?:дај|daj)\s+ми\s+ја\s+(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)|(?:дај|daj)\s+mi\s+ja\s+(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)|(?:дад(?:и|ете|иј)|dadi(?:te)?)\s+(?:ми\s+|mi\s+)(?:ја\s+|ja\s+)?(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)|точно\s+(?:каде|kade)\s+(?:е|e)|каде\s+точно|kade\s+tocno|kade\s+tochno|(?:preciznata|прецизната)\s+(?:lokacija|локација)|(?:moram|mora|treba|морам|мора|треба)\s+(?:(?:да|da)\s+)?(?:знам|znam)\s+(?:каде|kade)\s+(?:е|e|се\s+нао[гѓ]а|se\s+naogja|се|se)|za\s+da\s+se\s+odlu(?:cam|čam)|за\s+да\s+се\s+одлу(?:чам|кам)|(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)\s+(?:ќе|ke|да)\s+(?:ја|ja)\s+(?:доби|dobij|dobam|знам|znam|кажи|kazi)|(?:адресата|adresata)\s+(?:ќе|ke|да)\s+(?:ја|ja)\s+(?:доби|dobij|dobam|знам|znam)\s+кога|(?:на\s+која|na\s+koja)\s+(?:адресата|adresata|адреса|adresa|улицата|ulicata|улица|ulica|локацијата|lokacijata|lokacija)|(?:која|koja)\s+(?:е|e)\s+(?:адреса|adresa)\s+(?:на|na)\s+(?:стан|stanot|sopstvenik)|(?:која|koja)\s+(?:му\s+|mu\s+)?(?:е|e)\s+(?:точната|точн|tochnata|tocnata|tochn|tocn|preciznata|прецизната)\s+(?:локација|lokacija|адреса|adresa|улица|ulica)|(?:покажете|pokazete)\s+(?:ми\s+|mi\s+)?(?:ја|ja)?\s*(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)|(?:адресата|adresata|улицата|ulicata|локацијата|lokacijata)\s*\?)/iu;
 
+// Filler tokens allowed between "каде" and the address/location noun.
+// Anything outside this set (e.g. a place name) stops the match so named
+// queries like "каде се наоѓа Рамстор?" keep their place extraction.
+const KADE_ADDR_NOUN_RE = new RegExp(
+  '(?:каде|kade)' +
+  '(?:\\s+(?:точно|tocno|tochno|поточно|potocno|ми|mi|му|mu|и|i|е|e|се|se|нао[ѓг]а|nao[gj]a|би|bi|било|bilo|била|bila|биле|bile|биде|bide|бидат|bidat|ке|ke|ќе|само|samo))*' +
+  '\\s*' +
+  '(?:адрес(?:ата|а)|adres(?:ata|a)|локациј(?:ата|а)|lokacij(?:ata|a))' +
+  '(?![а-яa-z])',
+  'iu',
+);
+
 /** True when the client asks for the EXACT street/address of a property. */
 export function detectExactAddressAsk(text: string): boolean {
   // Main regex check
@@ -837,6 +862,16 @@ export function detectExactAddressAsk(text: string): boolean {
     'точна адреса', 'tocna adresa',
     'точна локација', 'tocna lokacija',
     'целосна адреса', 'celosna adresa',
+    // Polite requests (no demand verb — "please" family)
+    'молам адресата', 'molam adresata',
+    'молам ја адресата', 'molam ja adresata',
+    'адресата ве молам', 'adresata ve molam',
+    'молам локацијата', 'molam lokacijata',
+    // Want-to-know family
+    'сакам да знам адресата', 'sakam da znam adresata',
+    'сакам да знам локацијата', 'sakam da znam lokacijata',
+    'би сакал адресата', 'bi sakal adresata',
+    'би сакала адресата', 'bi sakala adresata',
   ];
   if (exactAddressSecondary.some(p => lower.includes(p))) return true;
   // ===== END SECONDARY CHECK =====
