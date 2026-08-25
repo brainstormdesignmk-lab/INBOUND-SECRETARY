@@ -686,6 +686,21 @@ const WHERE_BARE_RE = /^(?:каде|kade|где|gde|кај|kaj|where)\s*\??\s*$/
 // "што има во близина?" / "what's nearby?" — NEARBY questions about the last shown property.
 // "blizina/близина" MUST be preceded by a preposition (во/в/near) to avoid
 // matching "има близина" (there's a closeness) or random mentions.
+// "something else (well-known)?" family — client wants a MORE RECOGNIZABLE
+// nearby landmark than the one just given. Grammar:
+//   [drugo/druго] × [nesto] × [poznato]   |   nesto × poznato   |   poznato × mesto
+// Word-boundary guarded so "запознаен" (contains "познат") never triggers.
+const NEARBY_ALT_RE = new RegExp(
+  '(?<![\\p{L}])' +
+  '(?:' +
+  '(?:друго|drugo)\\s+(?:нешто|nesto)(?:\\s+(?:познат[ао]|poznat[ao]?))?' +
+  '|' +
+  '(?:нешто|nesto)\\s+(?:познат[ао]|poznat[ao]?)' +
+  '|' +
+  '(?:познат[ао]|poznat[ao]?)\\s+(?:место|mesto)' +
+  ')',
+  'iu');
+
 const NEARBY_RE = /(?:што|shto|shto|what|koj|koe|кој|кое)\s+(?:има|ima|have|imate)\s+(?:во|vo|v|near)\s+(?:близина|blizina|vicinity)|(?:во|vo|v|near)\s+(?:близина|blizina|vicinity)(?:\s*\?|$)|what\s+(?:is\s+)?nearby|co\s+je\s+(?:v\s+)?blizini/iu;
 const WHERE_IS_DETERMINER = /^(?:тоа|toa|тој|toj|таа|taa|ова|ova|оваа|ovaa|овој|ovoj|она|ona|онаа|onaa|оној|onoj|the|that|it)\s+/iu;
 // Generic referents = the last shown property, not a named place.
@@ -711,6 +726,9 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   if (WHERE_BARE_RE.test(text)) return { place: '', generic: true };
   // "што има во близина?" / "what's nearby?" — treated as "where is it?" for the last shown property.
   if (NEARBY_RE.test(text)) return { place: '', generic: true };
+  // "drugo nesto poznato?" / "nesto poznato?" / "poznato mesto?" — the client
+  // wants the NEXT recognizable nearby landmark: advance the rotation.
+  if (NEARBY_ALT_RE.test(text)) return { place: '', generic: true };
   // "каде точно се наоѓа?" / "where exactly is it?" — a generic where-is
   // that should get a nearby landmark, not the privacy protocol.
   if (isKadeTocno(text)) return { place: '', generic: true };

@@ -356,9 +356,32 @@ export class InboundHandler {
           location: hit.location, eb: hit.eb, business: hit.business, landmark,
         })}${gmapsLine}`;
       } else if (whereIs.place) {
-        const locs = await this.deps.properties.locations();
-        const loc = detectLocation(whereIs.place, locs);
-        answer = buildWhereIsAnswer(whereIs.place, loc ? { location: loc } : undefined);
+        // (a) The client asks about a landmark WE just gave ("kade e toa
+        // Helen Doron?") — match against the rotation slots before anything
+        // else; claiming ignorance of our own answer is worse than any miss.
+        const q = whereIs.place.toLowerCase();
+        const lmList = session.slots.nearbyLandmarks ?? [];
+        let givenIdx = -1;
+        for (let i = 0; i < lmList.length; i++) {
+          const n = lmList[i].toLowerCase();
+          if ((n.includes(q) || q.includes(n)) && Math.min(n.length, q.length) >= 4) { givenIdx = i; break; }
+        }
+        if (givenIdx >= 0) {
+          const nm = lmList[givenIdx];
+          const c = session.slots.nearbyLandmarkCoords?.[givenIdx];
+          answer = `Ова е местото што Ви го спомнав — ${nm}.${c ? `\nhttps://www.google.com/maps/search/?api=1&query=${c.lat},${c.lon}` : ''}`;
+        } else {
+          // (b) Any known POI ("kade e Ramstor?") — answer from the offline map.
+          const poi = this.landmarks.findPlace(whereIs.place);
+          if (poi) {
+            answer = `${poi.name}:\nhttps://www.google.com/maps/search/?api=1&query=${poi.lat},${poi.lon}`;
+          } else {
+            // (c) Neighborhood / unknown — property-neighborhood or honest miss.
+            const locs = await this.deps.properties.locations();
+            const loc = detectLocation(whereIs.place, locs);
+            answer = buildWhereIsAnswer(whereIs.place, loc ? { location: loc } : undefined);
+          }
+        }
       } else {
         answer = buildWhereIsAnswer('');
       }

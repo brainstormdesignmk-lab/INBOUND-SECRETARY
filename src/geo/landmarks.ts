@@ -340,6 +340,14 @@ export class LandmarkService {
     this.store = new LandmarkStore(db);
   }
 
+  /** Public passthrough: resolve a place name against the offline POI table
+   *  ("kade e toa Helen Doron?"). Undefined when the map is unavailable or
+   *  nothing matches. */
+  findPlace(name: string): { name: string; lat: number; lon: number } | undefined {
+    if (!this.opts.offlineMap?.available) return undefined;
+    return this.opts.offlineMap.findPoiByName(name);
+  }
+
   /** Resolve the approximate location for a property. Cached in the DB after
    *  the first successful layer — later calls cost nothing. */
   async resolve(p: { eb: number; address?: string; location?: string; details?: string; landmarks?: FeedLandmark[] }): Promise<Landmark> {

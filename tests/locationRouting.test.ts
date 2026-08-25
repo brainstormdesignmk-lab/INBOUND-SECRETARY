@@ -69,3 +69,16 @@ test('the original bug phrases route to LANDMARK', () => {
   assert.equal(routesTo('KADE MU E LOKACIJATA ?'), 'LANDMARK');
   assert.equal(routesTo('kade mu e adresata'), 'LANDMARK');
 });
+
+test('"something else well-known?" family advances the rotation (LANDMARK)', () => {
+  const cases = [
+    'DRUGO NESTO POZNATO ?', 'drugo nesto?', 'nesto poznato?',
+    'dali ima nesto poznato', 'друго нешто познато?', 'нешто познато?',
+    'познато место?',
+  ];
+  for (const t of cases) {
+    assert.equal(routesTo(t), 'LANDMARK', `expected LANDMARK for ${JSON.stringify(t)}`);
+  }
+  // "запознаен" contains "познат" — must NOT trigger.
+  assert.notEqual(routesTo('ne sum zapoznaen so gradot'), 'LANDMARK');
+});
