@@ -1,6 +1,16 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation } from '../data/properties';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
+import { normalizeMc } from './normalize';
+
+/** Dual-chance regex test: the raw text first, then the normalized
+ *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
+ *  every Latin phrasing — no dual-script alternations needed anymore.
+ *  Raw text keeps priority so place-name extraction stays in the client's
+ *  original script (POI names are often Latin-scripted). */
+function matchesBoth(re: RegExp, text: string): boolean {
+  return re.test(text) || re.test(normalizeMc(text));
+}
 
 // LLM-independent intent/slot extraction. When every LLM is down (or the model
 // says STAY), these deterministic rules still pull service, bedrooms and budget
@@ -723,12 +733,12 @@ const PROPERTY_TYPE_END_RE = /(?:гарсоњер(?:ата|та|а)|garsonjer(?:
 const WHERE_IS_BLACKLIST_START = /^(?:цената|cenata|cienata|цена|cena|ciena|колк[ао]|kolko|колку|kolku|бројот|brojot|број|broj|шифрата|sifrata|шифра|sifra|достапен|dostapen|достапна|dostapna|сместен|smesten|сместена|smestena)/iu;
 
 export function detectWhereIs(text: string): WhereIsQuestion | undefined {
-  if (WHERE_BARE_RE.test(text)) return { place: '', generic: true };
+  if (matchesBoth(WHERE_BARE_RE, text)) return { place: '', generic: true };
   // "што има во близина?" / "what's nearby?" — treated as "where is it?" for the last shown property.
-  if (NEARBY_RE.test(text)) return { place: '', generic: true };
+  if (matchesBoth(NEARBY_RE, text)) return { place: '', generic: true };
   // "drugo nesto poznato?" / "nesto poznato?" / "poznato mesto?" — the client
   // wants the NEXT recognizable nearby landmark: advance the rotation.
-  if (NEARBY_ALT_RE.test(text)) return { place: '', generic: true };
+  if (matchesBoth(NEARBY_ALT_RE, text)) return { place: '', generic: true };
   // "каде точно се наоѓа?" / "where exactly is it?" — a generic where-is
   // that should get a nearby landmark, not the privacy protocol.
   if (isKadeTocno(text)) return { place: '', generic: true };
@@ -744,13 +754,14 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   // адресата", "улица и број") still hit EXACT_ADDRESS.
   // NOTE: улиц(ата) deliberately excluded — "каде е улицата Партизанска?"
   // is a named-place query, not a generic where-is about THE property.
-  if (KADE_ADDR_NOUN_RE.test(text)) return { place: '', generic: true };
+  if (matchesBoth(KADE_ADDR_NOUN_RE, text)) return { place: '', generic: true };
 
   // ===== SECONDARY CHECK: Missing patterns not caught by WHERE_IS_RE =====
   // These cover property-type variants ("каде е вилата?"), smesten variants,
   // typos, and follow-up phrases ("да ама која улица") that the main regex
   // misses because they lack a "каде" prefix or have unexpected structures.
   const lower = text.toLowerCase();
+  const norm = normalizeMc(text); // Cyrillic-canonical — covers Latin inputs via Cyrillic entries
   const whereIsSecondary = [
     // Property type variants
     'каде е имотот', 'kade e imotot',
@@ -800,7 +811,7 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
     'добро а каде е', 'dobro a kade e',
     'да а каде е', 'da a kade e',
   ];
-  if (whereIsSecondary.some(p => lower.includes(p))) {
+  if (whereIsSecondary.some(p => lower.includes(p) || norm.includes(p))) {
     return { place: '', generic: true };
   }
   // ===== END SECONDARY CHECK =====
@@ -846,8 +857,8 @@ const KADE_ADDR_NOUN_RE = new RegExp(
 
 /** True when the client asks for the EXACT street/address of a property. */
 export function detectExactAddressAsk(text: string): boolean {
-  // Main regex check
-  if (EXACT_ADDRESS_RE.test(text)) return true;
+  // Main regex check (raw + normalized so Cyrillic-only branches cover Latin)
+  if (matchesBoth(EXACT_ADDRESS_RE, text)) return true;
 
   // ===== SECONDARY CHECK: Missing patterns not caught by EXACT_ADDRESS_RE =====
   const lower = text.toLowerCase();
@@ -891,7 +902,7 @@ export function detectExactAddressAsk(text: string): boolean {
     'би сакал адресата', 'bi sakal adresata',
     'би сакала адресата', 'bi sakala adresata',
   ];
-  if (exactAddressSecondary.some(p => lower.includes(p))) return true;
+  if (exactAddressSecondary.some(p => lower.includes(p) || normalizeMc(text).includes(p))) return true;
   // ===== END SECONDARY CHECK =====
 
   return false;
@@ -902,7 +913,7 @@ export function detectExactAddressAsk(text: string): boolean {
 const KADE_TOCNO_RE = /(?:каде|kade)\s+(?:точно|tocno|tochno)|(?:точно|tocno|tochno)\s+(?:каде|kade)/iu;
 /** True when the text is a "where exactly" question (not an explicit address demand). */
 export function isKadeTocno(text: string): boolean {
-  return KADE_TOCNO_RE.test(text);
+  return matchesBoth(KADE_TOCNO_RE, text);
 }
 
 // =========================================================================
@@ -935,7 +946,7 @@ const DEFER_GRAMMAR_RE = new RegExp(
 
 /** True when the client wants to defer the decision. */
 export function detectDefer(text: string): boolean {
-  return DEFER_RE.test(text) || DEFER_GRAMMAR_RE.test(text);
+  return matchesBoth(DEFER_RE, text) || matchesBoth(DEFER_GRAMMAR_RE, text);
 }
 
 // Price negotiation: the client asks to lower the price or requests a discount.
@@ -955,7 +966,7 @@ const NEGOTIATE_GRAMMAR_RE = new RegExp(
 
 /** True when the client wants to negotiate the price. */
 export function detectNegotiate(text: string): boolean {
-  return NEGOTIATE_RE.test(text) || NEGOTIATE_GRAMMAR_RE.test(text);
+  return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text);
 }
 
 // Provision / commission ask.
@@ -985,7 +996,7 @@ const SCHED_FLEX_GRAMMAR_RE = new RegExp(
 
 /** True when the client specifies a scheduling window. */
 export function detectSchedulingFlex(text: string): boolean {
-  return SCHED_FLEX_RE.test(text) || SCHED_FLEX_GRAMMAR_RE.test(text);
+  return matchesBoth(SCHED_FLEX_RE, text) || matchesBoth(SCHED_FLEX_GRAMMAR_RE, text);
 }
 
 // Escalation polite: the client asks to speak with a manager.
@@ -1010,7 +1021,7 @@ const ESCALATION_GRAMMAR_RE = new RegExp(
 
 /** True when the client asks for a manager / escalation. */
 export function detectEscalation(text: string): boolean {
-  return ESCALATION_RE.test(text) || ESCALATION_GRAMMAR_RE.test(text);
+  return matchesBoth(ESCALATION_RE, text) || matchesBoth(ESCALATION_GRAMMAR_RE, text);
 }
 // Documents info: the client asks what documents they need.
 const DOCUMENTS_RE =
