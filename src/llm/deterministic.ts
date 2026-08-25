@@ -739,6 +739,15 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
     'каде се наоѓа станот', 'kade se naogja stanot',
     'каде се наоѓа куќата', 'kade se naogja kukata',
     // Typo variants
+    // "каде му е адресата/локацијата" — CORRECT spellings. These MUST live
+    // here (not just in EXACT_ADDRESS_RE): any phrase starting with каде/kade
+    // is a where-is question and gets Landmark #1. Without this, the
+    // EXACT_ADDRESS_RE branch '(?:каде)...(?:му\s+)?(?:е)\s+(?:адресата|локацијата)'
+    // captures them and the client gets the privacy protocol instead of the
+    // landmark — same question, different phrasing, different answer.
+    'каде му е адресата', 'kade mu e adresata',
+    'каде му е локацијата', 'kade mu e lokacijata',
+    'каде му е локација', 'kade mu e lokacija',
     'каде му е адерасата', 'kade mu e aderasa',
     'каде се наога имотот', 'kade se naoga imotot',
     'каде се наога станот', 'kade se naoga stanot',
