@@ -236,10 +236,22 @@ async function osmLandmark(address: string | undefined, location: string | undef
 export class LandmarkStore {
   constructor(private db: Db) {}
 
+  /** Cache freshness window. Stale-forever caches served wrong answers for
+   *  weeks when feed addresses changed under an existing key; after this TTL
+   *  an entry re-resolves from current data (cheap: offline map, no network). */
+  static readonly CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+  private fresh(resolvedAt: number | undefined): boolean {
+    return typeof resolvedAt === 'number' && Date.now() - resolvedAt < LandmarkStore.CACHE_TTL_MS;
+  }
+
   get(addressKey: string): { landmark: string; type: string; mapsUrl: string | null; source: string } | undefined {
-    return this.db.db.prepare(
-      `SELECT landmark, type, maps_url as mapsUrl, source FROM landmarks WHERE address_key = ?`
+    const row = this.db.db.prepare(
+      `SELECT landmark, type, maps_url as mapsUrl, source, resolved_at as resolvedAt FROM landmarks WHERE address_key = ?`
     ).get(addressKey) as any;
+    if (!row) return undefined;
+    if (!this.fresh(row.resolvedAt)) return undefined; // expired → caller re-resolves
+    return row;
   }
 
   put(addressKey: string, l: { landmark: string; type: string; mapsUrl?: string; source: string }): void {
@@ -251,9 +263,9 @@ export class LandmarkStore {
 
   getNearby(addressKey: string): Array<{ landmark: string; lat: number; lon: number }> | undefined {
     const row = this.db.db.prepare(
-      `SELECT nearby FROM landmarks WHERE address_key = ? AND nearby IS NOT NULL`
-    ).get(addressKey) as { nearby: string } | undefined;
-    if (!row) return undefined;
+      `SELECT nearby, resolved_at as resolvedAt FROM landmarks WHERE address_key = ? AND nearby IS NOT NULL`
+    ).get(addressKey) as { nearby: string; resolvedAt?: number } | undefined;
+    if (!row || !this.fresh(row.resolvedAt)) return undefined;
     try { return JSON.parse(row.nearby); } catch { return undefined; }
   }
 

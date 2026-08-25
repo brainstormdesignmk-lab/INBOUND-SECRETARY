@@ -6,7 +6,19 @@
 // second, not discovered weeks later. /status (TUI) re-runs the same checks.
 
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { AppConfig } from './config';
+
+/** Short content hash of a file — printed at boot so map-DB drift between
+ *  machines ("production has the old POIs db") is visible instantly. */
+export function fileChecksum(path: string, len = 8): string {
+  try {
+    const h = crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
+    return h.slice(0, len);
+  } catch {
+    return 'unavailable';
+  }
+}
 
 export interface CheckResult {
   name: string;
@@ -46,8 +58,9 @@ export function bootChecks(cfg: AppConfig): CheckResult[] {
     const map = new OfflineMapStore(cfg.skopjePoisDb);
     if (map.available) {
       const s = map.stats();
+      const sum = fileChecksum(cfg.skopjePoisDb);
       out.push({ name: 'map', ok: true, critical: false,
-        detail: `${s?.pois ?? 0} POIs / ${s?.addresses ?? 0} addresses (${cfg.skopjePoisDb})` });
+        detail: `${s?.pois ?? 0} POIs / ${s?.addresses ?? 0} addresses [db:${sum}] (${cfg.skopjePoisDb})` });
     } else {
       out.push({ name: 'map', ok: false, critical: true,
         detail: `cannot open ${cfg.skopjePoisDb} — landmarks fall back to live OSM (slow, less accurate). Run: npm run map:pull` });
