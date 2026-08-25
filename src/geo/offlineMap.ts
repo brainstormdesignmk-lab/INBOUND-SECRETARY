@@ -126,6 +126,24 @@ export function streetKey(s: string): string {
   return toLatin(normalizeStreet(s));
 }
 
+/** True when a and b differ by at most one edit (insert/delete/substitute).
+ *  Used for the typo-tolerant geocoder: feed writes "Ефтим", OSM has "Евтим". */
+function withinOneEdit(a: string, b: string): boolean {
+  if (a === b) return true;
+  const la = a.length, lb = b.length;
+  if (Math.abs(la - lb) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < la && j < lb) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (la > lb) i++;
+    else if (la < lb) j++;
+    else { i++; j++; }
+  }
+  if (i < la || j < lb) edits++;
+  return edits <= 1;
+}
+
 /** Distance in meters (haversine). */
 function meters(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
   const R = 6371000;
@@ -230,6 +248,8 @@ const PERMANENCE: Record<string, number> = {
 
 export class OfflineMapStore {
   private db: Database.Database | null = null;
+  /** Lazy cache of all distinct address keys for the fuzzy matcher. */
+  private keyCache: string[] | null = null;
 
   constructor(dbPath: string) {
     try {
@@ -307,10 +327,42 @@ export class OfflineMapStore {
    *  ("Јане Сандански 25"), we prefer the EXACT building at that number so
    *  the POI radius is centred on the right spot (not the whole boulevard).
    *  Falls back to any building on the street when the number isn't in the DB. */
+  /** All distinct street keys (loaded once per process). */
+  private allKeys(): string[] {
+    if (!this.keyCache) {
+      this.keyCache = this.db
+        ? (this.db.prepare('SELECT DISTINCT key FROM addresses').all() as Array<{ key: string }>).map(r => r.key)
+        : [];
+    }
+    return this.keyCache;
+  }
+
+  /** Unambiguous 1-edit match for a missing street key, if any.
+   *  Conservative: only accepts when exactly ONE known key is within one
+   *  edit — ambiguous matches fail rather than guess. Keys shorter than
+   *  6 chars are never fuzzy-matched (too risky). */
+  private fuzzyKey(key: string): string | undefined {
+    if (key.length < 6) return undefined;
+    let match: string | undefined;
+    for (const k of this.allKeys()) {
+      if (withinOneEdit(key, k)) {
+        if (match !== undefined) return undefined; // ambiguous → no guess
+        match = k;
+      }
+    }
+    return match;
+  }
+
   geocodeAddress(street: string): GeocodeHit | undefined {
     if (!this.db || !street) return undefined;
-    const key = streetKey(street);
-    if (!key) return undefined;
+    const rawKey = streetKey(street);
+    if (!rawKey) return undefined;
+    // FUZZY FALLBACK: feed addresses sometimes misspell the OSM street name
+    // by one letter ("Ефтим Спространов" feed vs "Евтим Спространов" OSM).
+    // When the exact key has no rows at all, try an unambiguous 1-edit match
+    // before giving up — this makes typo'd future properties just work.
+    const exactRows = this.db.prepare('SELECT COUNT(*) AS n FROM addresses WHERE key = ?').get(rawKey) as { n: number };
+    const key = exactRows.n > 0 ? rawKey : (this.fuzzyKey(rawKey) ?? rawKey);
     // Extract the house number from the original address: the first number
     // after the street name ("Јане Сандански 25 - 17" → "25", "Бр.134" → "134").
     const numMatch = street.match(/\b(\d+[а-яa-z]?)\b/i);
