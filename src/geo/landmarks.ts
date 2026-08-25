@@ -344,10 +344,37 @@ export class LandmarkService {
    *  the first successful layer — later calls cost nothing. */
   async resolve(p: { eb: number; address?: string; location?: string; details?: string; landmarks?: FeedLandmark[] }): Promise<Landmark> {
     // 0) FEED layer
+    //    PROXIMITY GUARD (same contract as the table layer below): a
+    //    feed-authored landmark can be wrong upstream — an earlier enrichment
+    //    wrote a theater ~750 m off onto EB 78's Supabase record, and this
+    //    layer is trusted blindly by everything downstream. When both the
+    //    property position and the landmark position are computable, reject
+    //    any entry too far to honestly be called "blizina".
     if (p.landmarks && p.landmarks.length > 0) {
-      const ranked = p.landmarks
-        .map(l => ({ l, hit: publicPlace({ landmark: l.landmark, type: l.type ?? 'place', mapsUrl: l.maps_url, source: 'feed' as const }) }))
+      let propGeo: { lat: number; lon: number } | undefined;
+      try {
+        propGeo = p.address && this.opts.offlineMap?.available
+          ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
+      } catch { propGeo = undefined; }
+      const FEED_MAX_DISTANCE_M = 800;
+      const guarded = p.landmarks.map(l => ({ l, hit: publicPlace({ landmark: l.landmark, type: l.type ?? 'place', mapsUrl: l.maps_url, source: 'feed' as const }) }))
         .filter((x): x is { l: FeedLandmark; hit: Landmark } => !!x.hit)
+        .filter(x => {
+          if ((x.l.distance_m ?? 0) > FEED_MAX_DISTANCE_M) return false;
+          if (!propGeo || !this.opts.offlineMap) return true;
+          try {
+            const poi = this.opts.offlineMap.findPoiByName(x.l.landmark);
+            if (!poi) return true; // cannot measure — give it the benefit of the doubt
+            const d = meters(propGeo, { lat: poi.lat, lon: poi.lon });
+            if (d > FEED_MAX_DISTANCE_M) {
+              try { fs.appendFileSync('/tmp/landmark-debug.log',
+                `[${new Date().toISOString()}] EB ${p.eb}: REJECT-FEED ${x.l.landmark} — ${Math.round(d)}m > ${FEED_MAX_DISTANCE_M}m\n`); } catch {}
+              return false;
+            }
+          } catch { /* measurement failure is not grounds for rejection */ }
+          return true;
+        });
+      const ranked = guarded
         .sort((a, b) => {
           // Prefer malls first ("Беверли Хилс" / "ТЦ Бисер" / "Рамстор"),
           // then by distance. People navigate by malls, not by kiosks.
@@ -568,13 +595,22 @@ export class LandmarkService {
       // ADAPTIVE WIDENING: dense city blocks have plenty of POIs within
       // 150m; sparse suburbs don't. Widen until we have 3 candidates for
       // the rotation so clients always get the full 3-step drill-down.
-      // Dedupe by name — wider radii re-report the same POIs.
-      const seen = new Set<string>();
+      // Dedupe by name AND by coordinates — alias POIs (e.g. "Црногорска
+      // Амбасада" vs "Амбасада на Црна Гора") can share the exact same point;
+      // wider radii also re-report the same POIs.
+      const seenNames = new Set<string>();
+      const seenCoords = new Set<string>();
       let pois: typeof validPois = [];
       const validPois: Array<{ name: string; type: string; distance_m: number; lat?: number; lon?: number }> = [];
       for (const radius of [150, 300, 600]) {
         for (const po of this.opts.offlineMap.nearestPois(geo.lat, geo.lon, radius, 50)) {
-          if (!seen.has(po.name)) { seen.add(po.name); validPois.push(po); }
+          const coordKey = po.lat != null && po.lon != null
+            ? `${po.lat.toFixed(4)}|${po.lon.toFixed(4)}` : null;
+          if (seenNames.has(po.name)) continue;
+          if (coordKey && seenCoords.has(coordKey)) continue;
+          seenNames.add(po.name);
+          if (coordKey) seenCoords.add(coordKey);
+          validPois.push(po);
         }
         const good = validPois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null);
         if (good.length >= 3) break;

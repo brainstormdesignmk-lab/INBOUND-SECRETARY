@@ -456,17 +456,36 @@ export class OfflineMapStore {
    *  Returns the best match (exact > starts-with > contains). */
   findPoiByName(name: string): { lat: number; lon: number; name: string } | undefined {
     if (!this.db || !name) return undefined;
-    const clean = name.replace(/^(?:кај|спроти|кај штипски|кај скопски)\s+/i, '').trim();
+    // Strip location prepositions AND feed typos of them ("как" for "кај").
+    const clean = name.replace(/^(?:кај|спроти|как|кај штипски|кај скопски)\s+/i, '').trim();
     if (!clean || clean.length < 2) return undefined;
-    // Try exact match first, then starts-with, then contains.
-    // For contains: prefer SHORTER names ("ТЦ Бисер" > "Бисер Травел"
-    // because the shorter name is a more precise landmark reference).
-    // Contains: pick the shortest match (most precise landmark).
-    // "Бисер" → "ТЦ Бисер" (8 chars) wins over "Бисер Травел" (12 chars)
-    // because the shorter name is the actual landmark, not a random business.
-    const rows = this.db.prepare(
-      'SELECT name, type, lat, lon FROM pois WHERE name LIKE ? COLLATE NOCASE'
-    ).all('%' + clean + '%') as Array<{ name: string; type: string; lat: number; lon: number }>;
+    // Prefer SHORTER names ("ТЦ Бисер" > "Бисер Травел") — the shorter name
+    // is the more precise landmark reference.
+    // NOTE: SQL LIKE ... COLLATE NOCASE does NOT fold non-ASCII case, so
+    // "тц олимпико" would never match "ТЦ Олимпико". Do the contains-test in
+    // JS where toLowerCase() is Unicode-aware. Table is ~4k rows — trivial.
+    const needle = clean.toLowerCase();
+    let rows = (this.db.prepare(
+      'SELECT name, type, lat, lon FROM pois'
+    ).all() as Array<{ name: string; type: string; lat: number; lon: number }>)
+      .filter(r => r.name.toLowerCase().includes(needle));
+    // Progressive shortening: "Сити Мол ' Руските Згради" → "Сити Мол"
+    // (head) and "Шампионче Как Кипер Маркет" → "кипер маркет" (tail).
+    // Never fall to a SINGLE word — "народен" would match
+    // "Македонски народен театар" for an unrelated address.
+    const words = clean.split(/\s+/);
+    if (rows.length === 0 && words.length > 2) {
+      const candidates = [words.slice(0, 2).join(' '), words.slice(-2).join(' ')]
+        .map(w => w.toLowerCase())
+        .filter(w => w.length >= 3);
+      for (const short of candidates) {
+        rows = (this.db.prepare(
+          'SELECT name, type, lat, lon FROM pois'
+        ).all() as Array<{ name: string; type: string; lat: number; lon: number }>)
+          .filter(r => r.name.toLowerCase().includes(short));
+        if (rows.length > 0) break;
+      }
+    }
     if (rows.length > 0) {
       rows.sort((a, b) => a.name.length - b.name.length);
       const best = rows[0];
