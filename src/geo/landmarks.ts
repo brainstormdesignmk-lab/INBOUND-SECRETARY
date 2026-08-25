@@ -444,7 +444,13 @@ export class LandmarkService {
           geo = await photonGeocode(p.address, p.location ?? '');
         }
         if (geo) {
-          const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1500, 25);
+          // ADAPTIVE RADIUS — same philosophy as the rotation: a landmark
+          // 150m away is a real reference ("кај Тинекс"); "близина на ТЦ
+          // Џевахир" 1.1km away is not. Start tight at 150m, widen only when
+          // the area is genuinely sparse.
+          let pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 150, 25);
+          if (pois.length === 0) pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 400, 25);
+          if (pois.length === 0) pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1000, 25);
           // Three-tier landmark preference:
           //   1. Malls — everyone knows "Беверли Хилс" / "ТЦ Бисер" / "Рамстор"
           //   2. Government, schools, hospitals, parks, hotels — permanent structures
@@ -483,11 +489,31 @@ export class LandmarkService {
       }
     }
 
-    // 7) Deterministic table — per-neighborhood, offline, coarse
+    // 7) Deterministic table — per-neighborhood, offline, coarse.
+    //    PROXIMITY GUARD: static table entries are neighborhood-level guesses
+    //    and can be kilometers off (Кисела Вода → „Стадион Борис Трајковски“
+    //    is 4.9 km from properties on Ефтим Спространов). If we can measure
+    //    the real distance and it exceeds TABLE_MAX_DISTANCE_M, reject the
+    //    entry — better no landmark than a misleading one.
     if (p.location) {
       const t = tableLandmark(p.eb, p.location);
       if (t) {
-        const hit = publicPlace({ landmark: t.landmark, type: t.type, source: 'table' });
+        const TABLE_MAX_DISTANCE_M = 800;
+        let tooFar = false;
+        try {
+          const propGeo = p.address && this.opts.offlineMap?.available
+            ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
+          const lmPoi = this.opts.offlineMap?.findPoiByName(t.landmark);
+          if (propGeo && lmPoi) {
+            const d = meters(propGeo, { lat: lmPoi.lat, lon: lmPoi.lon });
+            if (d > TABLE_MAX_DISTANCE_M) {
+              tooFar = true;
+              try { fs.appendFileSync('/tmp/landmark-debug.log',
+                `[${new Date().toISOString()}] EB ${p.eb}: REJECT-TABLE ${t.landmark} — ${Math.round(d)}m > ${TABLE_MAX_DISTANCE_M}m\n`); } catch {}
+            }
+          }
+        } catch {}
+        const hit = tooFar ? undefined : publicPlace({ landmark: t.landmark, type: t.type, source: 'table' });
         if (hit) { this.store.put(key, hit); return hit; }
       }
     }
@@ -539,12 +565,25 @@ export class LandmarkService {
         if (poi) geo = { lat: poi.lat, lon: poi.lon };
       }
       if (!geo) return [];
-      const pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 150, 50);
+      // ADAPTIVE WIDENING: dense city blocks have plenty of POIs within
+      // 150m; sparse suburbs don't. Widen until we have 3 candidates for
+      // the rotation so clients always get the full 3-step drill-down.
+      // Dedupe by name — wider radii re-report the same POIs.
+      const seen = new Set<string>();
+      let pois: typeof validPois = [];
+      const validPois: Array<{ name: string; type: string; distance_m: number; lat?: number; lon?: number }> = [];
+      for (const radius of [150, 300, 600]) {
+        for (const po of this.opts.offlineMap.nearestPois(geo.lat, geo.lon, radius, 50)) {
+          if (!seen.has(po.name)) { seen.add(po.name); validPois.push(po); }
+        }
+        const good = validPois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null);
+        if (good.length >= 3) break;
+      }
+      pois.push(...validPois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null));
       // nearestPois scores by distance × effective priority × permanence.
       // Malls and big chains under 100m get boosted to priority 1-2.
       // Exclude the primary POI (distance < 10m).
-      const valid = pois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null);
-      const nearby = valid.slice(0, 3).map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
+      const nearby = pois.slice(0, 3).map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
       // 3) Cache for next time
       if (nearby.length > 0) this.store.putNearby(key, nearby);
       return nearby;
