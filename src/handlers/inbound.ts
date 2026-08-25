@@ -23,7 +23,7 @@ import { ChannelRegistry } from '../channels/types';
 import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/strikes';
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
-import { LandmarkService } from '../geo/landmarks';
+import { LandmarkService, approxCoordsLink } from '../geo/landmarks';
 import { VisitScheduler } from '../visits/scheduler';
 import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
@@ -350,7 +350,7 @@ export class InboundHandler {
         // follow-up asking for directions.
         const coords = session.slots.nearbyLandmarkCoords?.[lmSlot];
         const gmapsLine = coords
-          ? `\nhttps://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lon}`
+          ? `\n${approxCoordsLink(coords.lat, coords.lon)}`
           : '';
         answer = `${buildWhereIsAnswer(whereIs.place, {
           location: hit.location, eb: hit.eb, business: hit.business, landmark,
@@ -369,12 +369,12 @@ export class InboundHandler {
         if (givenIdx >= 0) {
           const nm = lmList[givenIdx];
           const c = session.slots.nearbyLandmarkCoords?.[givenIdx];
-          answer = `Ова е местото што Ви го спомнав — ${nm}.${c ? `\nhttps://www.google.com/maps/search/?api=1&query=${c.lat},${c.lon}` : ''}`;
+          answer = `Ова е местото што Ви го спомнав — ${nm}.${c ? `\n${approxCoordsLink(c.lat, c.lon)}` : ''}`;
         } else {
           // (b) Any known POI ("kade e Ramstor?") — answer from the offline map.
           const poi = this.landmarks.findPlace(whereIs.place);
           if (poi) {
-            answer = `${poi.name}:\nhttps://www.google.com/maps/search/?api=1&query=${poi.lat},${poi.lon}`;
+            answer = `${poi.name}:\n${approxCoordsLink(poi.lat, poi.lon)}`;
           } else {
             // (c) Neighborhood / unknown — property-neighborhood or honest miss.
             const locs = await this.deps.properties.locations();

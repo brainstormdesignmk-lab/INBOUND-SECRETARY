@@ -128,6 +128,18 @@ export function googleMapsLink(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+/** Pre-visit coordinate link, PRIVACY-ROUNDED to 3 decimals (~100 m — one
+ *  city block). Full 7-decimal coords pin the building entrance to ~1 cm,
+ *  which defeats the whole "address only 2 h before the visit" protocol:
+ *  the maps link IS the exact address. Rounding keeps the link useful for
+ *  orientation (right block / right POI) without leaking the building.
+ *  The visit-time unlock (visits/messages.ts mapsLinkFor) stays full-precision
+ *  by design — it sends the street address itself anyway. */
+export function approxCoordsLink(lat: number, lon: number): string {
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  return `https://www.google.com/maps/search/?api=1&query=${r3(lat)},${r3(lon)}`;
+}
+
 // Priority POI types: well-known public places that people use for navigation.
 // Ranked by how recognizable they are as landmarks (hospital > school > mall > etc).
 const GOOGLE_POI_TYPES = 'hospital|school|university|shopping_mall|stadium|pharmacy|bank|tourist_attraction|church|mosque|museum|library|fire_station|police|city_hall';
