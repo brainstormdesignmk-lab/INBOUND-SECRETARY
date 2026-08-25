@@ -905,18 +905,39 @@ export function detectOfftopic(text: string): boolean {
 const DEFER_RE =
   /(?:ќе\s+размислам|ќе\s+размислувам|ќе\s+се\s+јавам|ќе\s+се\s+техам|подоцна\s+ќе|не\s+сега|не\s+сум\s+сигурен|сега\s+не\s+сум|sakam\s+da\s+razmislam|ke\s+se\s+javam|podocna\s+ke|sakam\s+pa\s+razmislam|ke\s+razmislam|podocna\s+ke\s+se|ne\s+sum\s+siguran|ne\s+e\s+segas|sega\s+ne\s+sum|not\s+now|later|maybe\s+later|i.ll\s+(?:think|call|contact)|let\s+me\s+(?:think|check)|give\s+me\s+(?:a\s+)?(?:day|time|sec)|zapisete\s+me|запишете\s+ме|запиши\s+ме|евидентирај\s+ме|регистрирај\s+ме)/iu;
 
+// GRAMMAR RULE for the same family: future-marker (ќе/би/подоцна) followed by
+// up to two filler words then a decision-delay verb — covers every conjugation
+// and word-order variation ("ќе размислам", "би се јавел подоцна", "ke ve
+// povikam potoa", "подоцна ќе пишам") without enumerating phrases.
+const DEFER_GRAMMAR_RE = new RegExp(
+  '(?:ќе|ke|би|bi|подоцна|podocna|потоа|potoa|после|posle)' +
+  '(?:\\s+[а-яa-z]+){0,3}?' +
+  '\\s+(?:размисл|razmisl|јав|jav|повик|povik|вид|vid|пиш|pish|pis|тех|teh|контакт|kontakt)',
+  'iu');
+
 /** True when the client wants to defer the decision. */
 export function detectDefer(text: string): boolean {
-  return DEFER_RE.test(text);
+  return DEFER_RE.test(text) || DEFER_GRAMMAR_RE.test(text);
 }
 
 // Price negotiation: the client asks to lower the price or requests a discount.
 const NEGOTIATE_RE =
-  /(?:може\s+ли\s+(?:помала|пониска|поевтина|поевтин|помал)|помала\s+(?:цена|евра|евро)|пониска\s+(?:цена|евра)|поевтин\s+(?:стан|нешто)|дали\s+(?:има|постои|ќе\s+има)\s+попуст|попуст|намалување|може\s+ли\s+да\s+се\s+договориме\s+за\s+цена|дали\s+е\s+(?:фиксна|финална|конечна)\s+цена|can\s+(?:you|we)\s+(?:lower|reduce|drop|negotiate|cut)\s+(?:the\s+)?(?:price|cost)|discount|cheaper|lower\s+price|price\s+(?:reduction|cut|drop|negotiat)|any\s+(?:wiggle|flexibility|room)\s+(?:on\s+the\s+)?price|is\s+(?:the\s+)?(?:price|cost)\s+(?:fixed|firm|final|negotiable)|negotiate)/iu;
+  /(?:може\s+ли\s+(?:помала|пониска|поевтина|поевтин|помал)|може\s+ли\s+(?:нешто|nesto)?\s*поевтин[оа]|moze\s+li\s+(?:nesto\s+)?poevtin[oа]|помала\s+(?:цена|евра|евро)|пониска\s+(?:цена|евра)|поевтин\s+(?:стан|нешто)|дали\s+(?:има|постои|ќе\s+има)\s+попуст|попуст|popust|намалување|namaluvanje|појефтинување|pojeftinuvanje|може\s+ли\s+да\s+се\s+договориме\s+за\s+цена|дали\s+е\s+(?:фиксна|финална|конечна)\s+цена|can\s+(?:you|we)\s+(?:lower|reduce|drop|negotiate|cut)\s+(?:the\s+)?(?:price|cost)|discount|cheaper|lower\s+price|price\s+(?:reduction|cut|drop|negotiat)|any\s+(?:wiggle|flexibility|room)\s+(?:on\s+the\s+)?price|is\s+(?:the\s+)?(?:price|cost)\s+(?:fixed|firm|final|negotiable)|negotiate)/iu;
+
+// GRAMMAR RULE for negotiation: price-adjective + price-noun in either order,
+// with optional fillers — covers "цена малку помала", "po evtina cena?",
+// "дали цената е конечна тука" without enumerating each phrase.
+const NEGOTIATE_GRAMMAR_RE = new RegExp(
+  '(?:помал[ао]|пониск[ао]|поевтин[ао]?|фиксн[ао]|финалн[ао]|конечн[ао]|pomal[ao]|ponisk[ao]|poevtin[ao]?|fiksn[ao]|finaln[ao]|konechn[ao])' +
+  '(?:\\s+(?:тука|tukа|овде|ovde|малку|malku|доста|dosta|многу|mnogu))*' +
+  '\\s+(?:цена|цена\\s+е|цената|cena|cenata|евра|евро|evra|evro)' +
+  '|' +
+  '(?:цена|цената|cena|cenata)\\s+(?:да\\s+)?(?:се\\s+)?(?:намали|намалува|smale|spushti|договори|dogovori)',
+  'iu');
 
 /** True when the client wants to negotiate the price. */
 export function detectNegotiate(text: string): boolean {
-  return NEGOTIATE_RE.test(text);
+  return NEGOTIATE_RE.test(text) || NEGOTIATE_GRAMMAR_RE.test(text);
 }
 
 // Provision / commission ask.
@@ -932,20 +953,47 @@ export function detectProvisionAsk(text: string): boolean {
 const SCHED_FLEX_RE =
   /(?:може\s+ли\s+(?:викенд|сабота|недела|sabota|nedela|weekend|saturday|sunday)|само\s+(?:попладне|утрово|вечер|popladne|napladne|utro|vecher|afternoon|morning|evening)|само\s+претпладне|утро\s+само|afternoon\s+only|morning\s+only|evening\s+only|weekend\s+only)/iu;
 
+// GRAMMAR RULE: [само|може ли|bi sakal] × time-window word, and the reversed
+// order (window first, "само/only" after). Covers "samo vo utro moze?",
+// "popladne samo", "може викендот?" without enumeration.
+const SCHED_FLEX_GRAMMAR_RE = new RegExp(
+  '(?:само|samo|може\\s+ли|moze\\s+li|bi\\s+sakal[аи]?)' +
+  '(?:\\s+(?:во|vo|на|na|okolu|околу))*' +
+  '\\s*(?:утро|утрово|претпладне|попладне|напладне|вечер|вечерво|викенд|weekend|сабота|саботите|недела|nedela|utro|pretpladne|popladne|vecher|vecer|vikend|sabota)' +
+  '|' +
+  '(?:утро|утрово|претпладне|попладне|напладне|вечер|вечерво|викенд|weekend|сабота|недела|utro|popladne|vecher|vecer|vikend|sabota)' +
+  '\\s+(?:само|samo|only)',
+  'iu');
+
 /** True when the client specifies a scheduling window. */
 export function detectSchedulingFlex(text: string): boolean {
-  return SCHED_FLEX_RE.test(text);
+  return SCHED_FLEX_RE.test(text) || SCHED_FLEX_GRAMMAR_RE.test(text);
 }
 
 // Escalation polite: the client asks to speak with a manager.
 const ESCALATION_RE =
   /(?:сакам\s+(?:да\s+)?(?:разговарам|зборувам|контактирам|пишувам)\s+(?:со|кај)\s+(?:менаџер|управител|шеф|директор)|sakam\s+(?:manager|менаџер|supervisor|управител)|разговара[јите]?\s+со\s+(?:менаџер|управител|директор|шеф)|talk\s+(?:to|with)\s+(?:a\s+)?(?:manager|supervisor|boss|director|owner)|speak\s+(?:to|with)\s+(?:a\s+)?(?:manager|supervisor|boss)|сакам\s+(?:надзор|одговорни|погоре)|не\s+ми\s+е\s+јасно\s+со\s+(?:вас|ти))/iu;
 
+// Escalation grammar: [request verb] × [authority noun] — covers every
+// combination without enumerating full phrases.
+const ESCALATION_GRAMMAR_RE = new RegExp(
+  '(?:сакам|sakam|треба|treba|нека|neka|дали\\s+можам|dali\\s+mozham|барам|baram)' +
+  '\\s+(?:(?:да|da)\\s+)?((?:разговарам?|разговарај|зборувам?|зборувај|контактирам?|контактирај|јавам?|пишувам?)' +
+  '|(?:razgovaram?|razgovaraj|zboruvam?|zboruvaj|kontaktiram?|kontaktiraj|javam?|pisuvam?))?' +
+  '(?:\\s+(?:со|so|кај|kaj))?\\s*' +
+  '(?:менаџер(?:от|[аи])?|menadzer(?:ot|[аи])?|шеф(?:от|а)?|shef(?:ot|a)?|управител(?:от|[аи])?|upravitel(?:ot|a)?|директор(?:от|[аи])?|direktor(?:ot|a)?|раководител(?:от|[аи])?|rakovoditel(?:ot|a)?|надзорен?|nadzoren?)' +  '|' +
+  // Bare imperative: "зборувај со шефот", "razgovarajte so direktorot"
+  '(?:разговарајте?|зборувајте?|razgovarajte?|zboruvajte?)\\s+(?:со|so|кај|kaj)\\s+' +
+  '(?:менаџер(?:от|[аи])?|menadzer(?:ot|[аи])?|шеф(?:от|а)?|shef(?:ot|a)?|управител(?:от|[аи])?|upravitel(?:ot|a)?|директор(?:от|[аи])?|direktor(?:ot|a)?|раководител(?:от|[аи])?|rakovoditel(?:ot|a)?)' +
+  '|' +
+  '(?:менаџер(?:от|[аи])?|menadzer(?:ot|[аи])?|шеф(?:от|а)?|shef(?:ot|a)?|управител(?:от|[аи])?|upravitel(?:ot|a)?|директор(?:от|[аи])?|direktor(?:ot|a)?|раководител(?:от|[аи])?|rakovoditel(?:ot|a)?)' +
+  '\\s+(?:нека|neka|треба\\s+да|treba\\s+da)\\s+(?:(?:се|se)\\s+)?(?:јави|javi|контактира|kontaktira|(?:се|se)\\s+обади|obadi)',
+  'iu');
+
 /** True when the client asks for a manager / escalation. */
 export function detectEscalation(text: string): boolean {
-  return ESCALATION_RE.test(text);
+  return ESCALATION_RE.test(text) || ESCALATION_GRAMMAR_RE.test(text);
 }
-
 // Documents info: the client asks what documents they need.
 const DOCUMENTS_RE =
   /(?:какви\s+документи|кои\s+документи|документи\s+(?:ми\s+требаат|треба\s+да\s+имам|ќе\s+ми\s+требаат)|what\s+(?:doc|paper|form)|need\s+(?:i\s+)?(?:any|some)?\s*(?:doc|paper|form)|што\s+треба\s+за\s+(?:купување|изнајмување)|документација\s+за)/iu;
