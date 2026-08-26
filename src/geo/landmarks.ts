@@ -40,7 +40,7 @@ export interface Landmark {
   landmark: string;
   type: string;
   mapsUrl?: string;
-  source: 'feed' | 'table' | 'google' | 'osm' | 'hermes' | 'none';
+  source: 'feed' | 'table' | 'google' | 'osm' | 'hermes' | 'none' | 'offline';
 }
 
 export interface LandmarkOpts {
@@ -623,12 +623,12 @@ export class LandmarkService {
       // FALLBACK 1: address may be a landmark name ("Беверли Хилс") not a street.
       if (!geo && p.address) {
         const poi = this.opts.offlineMap.findPoiByName(p.address);
-        if (poi) geo = { lat: poi.lat, lon: poi.lon };
+        if (poi) geo = { lat: poi.lat, lon: poi.lon, street: poi.name };
       }
       // FALLBACK 2: use the already-resolved landmark name ("Католичка црква...")
       if (!geo && p.landmark) {
         const poi = this.opts.offlineMap.findPoiByName(p.landmark);
-        if (poi) geo = { lat: poi.lat, lon: poi.lon };
+        if (poi) geo = { lat: poi.lat, lon: poi.lon, street: p.landmark };
       }
       if (!geo) return [];
       // ADAPTIVE WIDENING: dense city blocks have plenty of POIs within

@@ -11,8 +11,9 @@
 // pure-text precedences so any future detector insertion that breaks an
 // ordering constraint fails a test instead of shipping silently.
 
+import { classifyOffensive } from '../antiabuse/offensive';
 import {
-  detectExactAddressAsk, detectWhereIs, detectOwnerContact, detectOffensive,
+  detectExactAddressAsk, detectWhereIs, detectOwnerContact,
   isKadeTocno, detectPropertyDescription, detectService, detectBothServices,
   detectVisitCancellation, detectOfftopic, detectDefer, detectNegotiate,
   detectProvisionAsk, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
@@ -30,7 +31,7 @@ export interface RouteRule {
 // ORDER IS SEMANTIC — do not reorder without reading the notes.
 export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'OFFENSIVE', note: 'zero-output policy wins over everything',
-    fires: t => detectOffensive(t) },
+    fires: t => classifyOffensive(t).isOffensive },
   { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT каде → privacy protocol. Must sit before WHERE_IS only via the !whereIs guard — каде-prefixed questions fall through',
     fires: (t) => detectExactAddressAsk(t) && !isKadeTocno(t) && !detectWhereIs(t) },
   { intent: 'OWNER_CONTACT', note: 'client leaves name/phone — captured before any other reply',

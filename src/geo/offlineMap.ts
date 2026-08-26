@@ -15,9 +15,9 @@
 // No map file yet → `available` is false and callers fall back to live APIs.
 
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
+import * as fs from 'fs';
 import * as path from 'path';
-import { renameSync, rmSync, statSync } from 'fs';
+import { appendFileSync, renameSync, rmSync, statSync } from 'fs';
 
 /** Skopje metro bbox (south, west, north, east) — Центар, Карпош, Аеродром,
  *  Кисела Вода, Влае, Ѓорче Петров, Чаир, Бутел, Гази Баба. */
@@ -731,7 +731,7 @@ export function writeMap(
   pois: Array<{ name: string; type: string; lat: number; lon: number }>,
   addresses: Array<{ street: string; housenumber: string; lat: number; lon: number }>,
 ): MapStats {
-  mkdirSync(path.dirname(dbPath), { recursive: true });
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   const tmp = `${dbPath}.tmp`;
 

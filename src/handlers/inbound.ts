@@ -9,7 +9,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectSchedulingFlex, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectEyeCatch, extractSlots } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectSchedulingFlex, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, extractSlots } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -557,6 +557,13 @@ export class InboundHandler {
     }
     if (next === 'escalated') this.raiseEscalation(session, text);
 
+    // Reply accumulators — declared BEFORE the first branch that assigns them
+    // (visit cancellation below), otherwise the block uses them pre-declaration.
+    let reply: string = '';
+    // Which brain produced the reply — default deterministic; only the
+    // responder path can be LLM-driven ('gemini:1..3' / 'groq' / 'fallback').
+    let replySource = 'deterministic';
+
     // Visit cancellation: client or owner says they can't make it.
     // Works in visit_scheduling, owner_checking, time_confirm, pending.
     const visitStates = ['visit_scheduling', 'owner_checking', 'time_confirm', 'pending', 'queued'];
@@ -623,10 +630,7 @@ export class InboundHandler {
       return;
     }
 
-    let reply: string;
-    // Which brain produced the reply — default deterministic; only the
-    // responder path can be LLM-driven ('gemini:1..3' / 'groq' / 'fallback').
-    let replySource = 'deterministic';
+
     // Locate-a-seen-property funnel (deterministic, like the no-match lines):
     // the client saw a specific property but has no Евидентен број. First ask
     // for the number (known -> easy property_query lookup); then collect

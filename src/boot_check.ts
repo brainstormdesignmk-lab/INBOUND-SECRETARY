@@ -97,7 +97,7 @@ export async function checkFeed(url: string): Promise<CheckResult> {
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
+    const body = await res.json() as { properties?: unknown[] };
     const rows = Array.isArray(body) ? body : (body.properties ?? []);
     return { name: 'feed', ok: true, critical: true, detail: `${rows.length} properties from feed` };
   } catch (e) {
