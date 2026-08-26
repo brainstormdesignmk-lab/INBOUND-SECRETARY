@@ -168,7 +168,7 @@ const POI_PRIORITY: Record<string, number> = {
   neighbourhood: 40, locality: 40, suburb: 40,
   // institutional
   hospital: 1, clinic: 1, healthcare: 1,
-  school: 2, university: 2, college: 2,
+  school: 2, university: 2, college: 2, dormitory: 2,
   government: 3, townhall: 3, embassy: 3, diplomatic: 3, political_party: 3,
   stadium: 4, sports_centre: 4, swimming_pool: 4,
   place_of_worship: 5, church: 5, mosque: 5, synagogue: 5,
