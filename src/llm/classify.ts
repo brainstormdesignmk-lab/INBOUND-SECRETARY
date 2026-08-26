@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectFeeWhy, isPlausibleName, isValidPhone, isValidVisitTime } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectFeeWhy, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -160,7 +160,10 @@ export function inferPropertyId(text: string): number | undefined {
   // budget, and treating the 250 as an EB produced the bogus "не можам да го
   // најдам имотот со Евидентен број 250". "sifra 250" / "број 250" still
   // name an EB — the cap word is what disambiguates.
-  if (/(спални|соби|евра|евро|evra|evro|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот|spalna|spalni|(?:до|околу|под|do|okolu|oko|pod)\s*\d{2,3}\b)/i.test(text)) return undefined;
+  // EXCEPTION: the eye-catch idiom ("mi fati oko 94") contains "око" as part
+  // of "caught my EYE", not "approximately" — there the number IS the EB.
+  if (!detectEyeCatch(text)
+    && /(спални|соби|евра|евро|evra|evro|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот|spalna|spalni|(?:до|околу|под|do|okolu|oko|pod)\s*\d{2,3}\b)/i.test(text)) return undefined;
   const m = text.match(/\b(\d{2,3})\b(?!\s*[.,]\d)/);
   if (!m) return undefined;
   const n = parseInt(m[1], 10);

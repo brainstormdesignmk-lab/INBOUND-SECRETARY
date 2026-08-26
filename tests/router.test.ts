@@ -5,6 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveIntent, ROUTING_ORDER } from '../src/handlers/router';
+import { inferPropertyId } from '../src/llm/classify';
+import { detectEyeCatch } from '../src/llm/deterministic';
 
 test('routing order has unique intents', () => {
   const names = ROUTING_ORDER.map(r => r.intent);
@@ -50,4 +52,16 @@ test('ESCALATION has no state gate and fires anywhere late in the chain', () => 
 test('state-gated intents do not fire in wrong states', () => {
   assert.notEqual(resolveIntent('moze li pomala cena', 'visit_scheduling'), 'NEGOTIATE');
   assert.notEqual(resolveIntent('samo popladne', 'closing'), 'SCHEDULING_FLEX');
+});
+
+test('eye-catch idiom supplies the EB ("mi fati oko 94" bug)', () => {
+  // The idiom's "око" must NOT read as a price cap ("околу 250") — the
+  // number is the Евидентен број and the client gets the visit-offer ack.
+  for (const t of ['MI FATI OKO 94 ?', 'ми фати окото 94', 'MI PADNA VO OKO 76']) {
+    assert.equal(inferPropertyId(t) !== undefined, true, `eb expected: ${t}`);
+    assert.equal(detectEyeCatch(t), true, `eyecatch expected: ${t}`);
+  }
+  // Genuine budget caps still guard against EB hallucination.
+  assert.equal(inferPropertyId('bilo kade do 250'), undefined);
+  assert.equal(detectEyeCatch('bilo kade do 250'), false);
 });

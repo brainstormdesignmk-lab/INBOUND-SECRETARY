@@ -9,7 +9,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectSchedulingFlex, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, extractSlots } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectSchedulingFlex, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectEyeCatch, extractSlots } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -837,7 +837,28 @@ export class InboundHandler {
       // route to the closing/fee path below. Also excluded when
       // ownerContactPending ("да" after availability ack) — the agreement
       // handler below shows the fee instead of re-showing the card.
-      reply = buildPropertyCard(props[0]);
+      // Eye-catch phrasing ("mi fati oko 94", "ми фати окото") — the client
+      // saw the ad and the number IS the EB: answer with the enthusiasm ack
+      // + visit offer (bank-backed 'property.liked' variants), NOT the full
+      // card. Landmarks are pre-resolved so an immediate "каде се наоѓа?"
+      // rotates correctly.
+      if (detectEyeCatch(text)) {
+        session.slots.interestedPropertyId = props[0].eb;
+        session.slots.ownerContactPending = true;
+        session.state = 'closing';
+        if (!session.slots.nearbyLandmarks?.length) {
+          const nearby = this.landmarks.nearbyLandmarks(props[0]);
+          if (nearby.length > 0) {
+            session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+            session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+            session.slots.landmarkIndex = 0;
+          }
+        }
+        reply = pickVariant('property.liked', { recent: assistantTexts(session) })
+          ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
+      } else {
+        reply = buildPropertyCard(props[0]);
+      }
       // Pre-resolve top-3 nearby landmarks for rotation ("каде?" → first,
       // "каде поточно?" → second, …) + Google Maps links. Cached on the
       // session so repeated asks don't re-geocode.

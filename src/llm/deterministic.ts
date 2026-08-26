@@ -283,6 +283,17 @@ export function detectPropertyInterest(text: string): boolean {
   return PROPERTY_INTEREST_RE.test(text);
 }
 
+// "MI FATI OKO 94" / "ми фати окото" — the property CAUGHT THE CLIENT'S EYE
+// (they saw the ad on the site). Written Cyrillic-only: matchesBoth() folds
+// Latin input through normalizeMc, so "mi fati oko" resolves to "ми фати око".
+// The idiom matters for inferPropertyId(): its "око 94" looks like a price cap
+// ("околу 250") but here it is an Евидентен број.
+const EYE_CATCH_RE =
+  /ми\s+(?:го\s+|ги\s+)?фат[иј](?:\s+(?:окото|око))?|ми\s+падна(?:\s+во\s+око|а\s+во\s+очи)|(?:ми\s+)?привлече\s+(?:моето\s+)?внимани(?:ето|е)|забележав\s+(?:еден\s+)?(?:имот|стан|куќа|оглас)(?![^\p{L}\p{N}])/iu;
+export function detectEyeCatch(text: string): boolean {
+  return matchesBoth(EYE_CATCH_RE, text);
+}
+
 // Property DESCRIPTION without service type: the client remembers a specific
 // property they saw ("гарсоњерата кaj crnogorska ambasada", "станот во центар")
 // but doesn't know the EB number. Definite article + location preposition =
