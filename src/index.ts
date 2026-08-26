@@ -66,6 +66,7 @@ async function main(): Promise<void> {
     events,
     owners,
     properties,
+    offlineMap,
     notifyClient: (chatId, text) => channels.send('viber', chatId, text),
     notifyOwner: (_clientChatId, eb, text) => {
       const phone = owners.get(eb)?.phone;

@@ -64,8 +64,13 @@ export function buildLocationMsg(eb: number, when: Date, agentPhone: string, add
 
 /** Google Maps link for the REAL address (visit day) — built through the
  *  shared googleMapsLink so the customer always lands on Google Maps, never
- *  OSM. No API key needed. */
-export function mapsLinkFor(address: string | undefined, location: string | undefined): string {
+ *  OSM. No API key needed.
+ *  When precise coordinates are available they are PREFERRED: a raw Cyrillic
+ *  address percent-encodes into an unreadable %D0%A2… wall of junk, while
+ *  `query=lat,lon` is short, clean, and lands on the exact building (full
+ *  precision is ALLOWED here — the visit-day unlock sends the street anyway). */
+export function mapsLinkFor(address: string | undefined, location: string | undefined, coords?: { lat: number; lon: number }): string {
+  if (coords) return googleMapsLink(`${coords.lat},${coords.lon}`);
   return googleMapsLink([address, location, 'Скопје'].filter(Boolean).join(', '));
 }
 

@@ -168,6 +168,7 @@ export class TuiApp {
       events,
       owners,
       properties: propertyService,
+      offlineMap,
       notifyClient: (chatId, text) => this.channel.send(chatId, text),
       // Owner notifications land in the owner panel of that client (the TUI
       // operator plays the owner) — production sends to the owner's phone.

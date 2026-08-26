@@ -17,6 +17,7 @@ import { Db } from '../store/db';
 import { EventStore } from '../store/events';
 import { OwnerStore } from '../store/owners';
 import { PropertyService } from '../data/properties';
+import type { OfflineMapStore } from '../geo/offlineMap';
 import { parseVisitDateTime } from './time';
 import { buildArrangedVisit, buildMorningConfirm, CLIENT_LOCATION_FOLLOWUP, buildLocationMsg, mapsLinkFor, buildOperatorLog, buildAddressConfirm, ADDRESS_CONFIRM_BUMP, buildCancelledByClient, buildCancelledByOwner, Party } from './messages';
 
@@ -38,6 +39,11 @@ export interface SchedulerDeps {
   events: EventStore;
   owners: OwnerStore;
   properties: PropertyService;
+  /** Local OSM map — geocodes the visit address to precise coordinates so
+   *  the visit-day maps link is a clean `query=lat,lon` instead of a wall of
+   *  percent-encoded Cyrillic. Optional: without it links fall back to the
+   *  encoded-address form (still functional, just ugly). */
+  offlineMap?: OfflineMapStore;
   notifyClient: (chatId: string, text: string) => Promise<void>;
   /** TUI shows owner messages in the owner panel (clientChatId); production
    *  sends to the owner's phone via the channel. */
@@ -59,6 +65,16 @@ interface TurnRow {
 
 export class VisitScheduler {
   constructor(private deps: SchedulerDeps) {}
+
+  /** Visit-day maps link: precise coordinates when the address geocodes
+   *  locally (clean link, exact building), encoded-address fallback otherwise. */
+  private visitMapsLink(address: string | undefined, location: string | undefined): string {
+    let coords: { lat: number; lon: number } | undefined;
+    if (address && this.deps.offlineMap?.available) {
+      try { coords = this.deps.offlineMap.geocodeAddress(address) ?? undefined; } catch {}
+    }
+    return mapsLinkFor(address, location, coords);
+  }
 
   private get now(): Date {
     return this.deps.now ? this.deps.now() : new Date();
@@ -121,7 +137,7 @@ export class VisitScheduler {
     // The client does NOT get Turn 1 until the owner confirms the address.
     const prop = await this.deps.properties.getById(input.eb);
     const address = prop?.address ?? '';
-    const mapsUrl = mapsLinkFor(address, prop?.location);
+    const mapsUrl = this.visitMapsLink(address, prop?.location);
     const addrConfirm = buildAddressConfirm(input.eb, visit, address, mapsUrl);
     try {
       await this.deps.notifyOwner(input.chatId, input.eb, addrConfirm);
@@ -182,7 +198,7 @@ export class VisitScheduler {
     // Build the corrected address line and Google Maps link for Turn 1
     const prop = await this.deps.properties.getById(eb);
     const finalAddress = newAddress || prop?.address || '';
-    const mapsUrl = mapsLinkFor(finalAddress, prop?.location);
+    const mapsUrl = this.visitMapsLink(finalAddress, prop?.location);
     const addrLine = finalAddress ? `\nАдреса: ${finalAddress}\n${mapsUrl}` : '';
     const arranged = buildArrangedVisit(eb, visit, finalAddress);
 
@@ -372,7 +388,7 @@ export class VisitScheduler {
       const prop = await this.deps.properties.getById(eb);
       // Use owner-corrected address if available; fall back to feed address
       const addr = row.correctedAddress || (prop?.address ?? '');
-      text = buildLocationMsg(eb, d.visit, row.agentPhone ?? '', addr, mapsLinkFor(addr, prop?.location));
+      text = buildLocationMsg(eb, d.visit, row.agentPhone ?? '', addr, this.visitMapsLink(addr, prop?.location));
     }
 
     let status;
