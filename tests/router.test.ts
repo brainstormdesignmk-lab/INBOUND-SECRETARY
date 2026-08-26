@@ -15,6 +15,7 @@ test('WHERE_IS beats EXACT_ADDRESS for каде-prefixed questions (the lokacija
   for (const t of [
     'kade mu e lokacijata ?', 'kade mu e adresata', 'Каде адресата?',
     'KADE TOCNO SE NAOGJA ?', 'kade tocno',
+    'KADE PO TOCNO ?', 'kade potocno ?',
   ]) {
     assert.notEqual(resolveIntent(t, 'closing'), 'EXACT_ADDRESS',
       `"${t}" must not route to privacy protocol`);

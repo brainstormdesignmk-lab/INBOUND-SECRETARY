@@ -810,6 +810,11 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
     'а која е точната локација', 'a koja e tocnata lokacija',
     'добро а каде е', 'dobro a kade e',
     'да а каде е', 'da a kade e',
+    // "каде по точно" — the 'по' between каде and точно defeats the main regex
+    'каде по точно', 'kade po tocno',
+    'каде по поточно', 'kade po potocno',
+    // bare "каде поточно / kade potocno?" with no verb after
+    'каде поточно ?', 'каде поточно?', 'kade potocno ?', 'kade potocno?',
   ];
   if (whereIsSecondary.some(p => lower.includes(p) || norm.includes(p))) {
     return { place: '', generic: true };
