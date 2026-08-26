@@ -855,6 +855,38 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
     'што уште е во близина', 'sto uste e vo blizina',
     'кој е во близина', 'koj e vo blizina',
     'кои се во близина', 'koi se vo blizina',
+    // ── кои/какви објекти се/има (which/what objects are/has) ──
+    'кои објекти се тука', 'koi objekti se tuka',
+    'какви објекти се тука', 'kakvi objekti se tuka',
+    'кои објекти се околу', 'koi objekti se okolu',
+    'какви објекти се околу', 'kakvi objekti se okolu',
+    'кои објекти се близу', 'koi objekti se blizu',
+    'какви објекти се близу', 'kakvi objekti se blizu',
+    'кои објекти има тука', 'koi objekti ima tuka',
+    'какви објекти има тука', 'kakvi objekti ima tuka',
+    'кои објекти има околу', 'koi objekti ima okolu',
+    'какви објекти има околу', 'kakvi objekti ima okolu',
+    'кои објекти има близу', 'koi objekti ima blizu',
+    'какви објекти има близу', 'kakvi objekti ima blizu',
+    // ── кои/какви други објекти (which/what other objects) ──
+    'кои други објекти се тука', 'koi drugi objekti se tuka',
+    'кои други објекти има', 'koi drugi objekti ima',
+    'кои други објекти има околу', 'koi drugi objekti ima okolu',
+    'какви други објекти се тука', 'kakvi drugi objekti se tuka',
+    'какви други објекти има', 'kakvi drugi objekti ima',
+    // ── што + се наоѓа (what is located) ──
+    'што се наоѓа околу', 'sto se naogja okolu',
+    'што се наоѓа тука', 'sto se naogja tuka',
+    'што е тука', 'sto e tuka',
+    // ── уште/друго што (more/other what) ──
+    'уште што има', 'ste sto ima',
+    'друго што има', 'drugo sto ima',
+    'уште што има околу', 'ste sto ima okolu',
+    'околу што има', 'okolu sto ima',
+    'околу што се наоѓа', 'okolu sto se naogja',
+    // ── има ли нешто (is there something) ──
+    'има ли нешто тука', 'ima li nesto tuka',
+    'има ли нешто друго тука', 'ima li nesto drugo tuka',
   ];
   if (whereIsSecondary.some(p => lower.includes(p) || norm.includes(p))) {
     return { place: '', generic: true };
