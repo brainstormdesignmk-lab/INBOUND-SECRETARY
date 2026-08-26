@@ -2,6 +2,7 @@ import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation } from '../data/properties';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc } from './normalize';
+import { AVAILABILITY_LEXICON, toRegexAlt } from './morphology';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -90,8 +91,23 @@ export function detectSeeOffers(text: string): boolean {
 const AVAILABILITY_ASK_RE =
   /(дали[^.!?\n]{0,40}(?:достапен|достапна|достапно|остапен|остапна|слободен|слободна|слободно|слободна|слободно|продаден|продадена|издаден|издадена|на продажба|на prodazba|постои|го имате уште|ја имате уште)|достапен\s+ли\s+е|достапна\s+ли\s+е|слободен\s+ли\s+е|слободна\s+ли\s+е|продаден\s+ли\s+е|издаден\s+ли\s+е|сеуште\s+(?:ли\s+)?(?:е\s+)?(?:достапен|достапна|слободен|на продажба)|(?:е|е\s+ли)\s+(?:слободен|слободна|слободно|достапен|достапна|достапно)|(?:го|ја)\s+имате\s+(?:ли\s+)?(?:уште|сеуште)|(?:go|ja)\s+imate\s+(?:li\s+)?(?:uste|seuste)|daa?[il][il][^.!?\n]{0,40}(?:dostapen|dostapna|dostapno|ostapen|ostapna|sloboden|slobodna|slobodno|prodaden|prodadena|izdaden|izdadena|na prodazba|postoi|go imate uste|ja imate uste|za prodavanje|za prodazba|na prodazba|se prodava|prodavate|prodava li)|dostapen\s+li\s+e|dostapna\s+li\s+e|sloboden\s+li\s+e|slobodna\s+li\s+e|prodaden\s+li\s+e|izdaden\s+li\s+e|seuste\s+(?:li\s+)?(?:e\s+)?(?:dostapen|dostapna|sloboden|na prodazba)|(?:e|e\s+li)\s+(?:sloboden|slobodna|slobodno|dostapen|dostapna|dostapno))|остапен\s+ли\s+е|остапна\s+ли\s+е|ostapen\s+li\s+e|ostapna\s+li\s+e|на\s+продажба\s+ли\s+е|се\s+продава\s+ли|продава\s+ли\s+е|на\s+prodazba\s+li\s+e|se\s+prodava\s+li|prodava\s+li\s+e|za\s+prodazba\s+li\s+e/iu;
 
+// Morphology-generated availability forms — catches inflected variants
+// the main regex doesn't enumerate (достапниот, продадена, продавање, ...)
+const _morphAlt = toRegexAlt(AVAILABILITY_LEXICON);
+const AVAILABILITY_MORPH_RE = new RegExp(
+  // "дали е достапниот?" — dali + filler + morphology form
+  '(?:дали[^.!?\\n]{0,40}(?:' + _morphAlt + '))'
+  // "е достапниот ли?" — standalone "е X" or "е X ли"
+  + '|(?:е|е\\s+ли)\\s+(?:' + _morphAlt + ')'
+  // "го имате достапниот?" — "го/ја + word + (ли +) form"
+  + '|(?:го|ја)\\s+\\w+(?:\\s+ли)?\\s+(?:' + _morphAlt + ')',
+  'iu',
+);
+
 export function detectAvailabilityAsk(text: string): boolean {
-  return AVAILABILITY_ASK_RE.test(text);
+  if (AVAILABILITY_ASK_RE.test(text)) return true;
+  // Morphology secondary check: expanded verb/adjective forms not in the main regex
+  return AVAILABILITY_MORPH_RE.test(text);
 }
 
 // "Why do you charge for a visit?" — "зошто наплаќате посета?", "зошто
