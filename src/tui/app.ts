@@ -97,6 +97,8 @@ export class TuiApp {
    *  surfaced by /status so silent degradation becomes visible. */
   private detFallbackCount = 0;
   private brains: Partial<Record<BrainMode, LlmClient>> = {};
+  private offlineMap: OfflineMapStore;
+  private propertyService: PropertyService;
   private brainMode: BrainMode = 'hybrid';
   private classifier: Classifier;
   private responder: Responder;
@@ -123,8 +125,8 @@ export class TuiApp {
     const escalations = new EscalationStore(this.db);
     const meta = new MetaStore(this.db);
 
-    const propertyService = new PropertyService(cfg.propertyDataUrl); // REAL Supabase feed
-    this.classifier = new Classifier(start, cfg, propertyService);
+    this.propertyService = new PropertyService(cfg.propertyDataUrl);
+    this.classifier = new Classifier(start, cfg, this.propertyService);
     this.responder = new Responder(start, cfg);
 
     this.channel = new TuiChannel(cfg);
@@ -142,9 +144,9 @@ export class TuiApp {
 
     const events = new EventStore(this.db);
     const owners = new OwnerStore(this.db);
-    const offlineMap = new OfflineMapStore(cfg.skopjePoisDb);
-    if (offlineMap.available) {
-      const s = offlineMap.stats();
+    this.offlineMap = new OfflineMapStore(cfg.skopjePoisDb);
+    if (this.offlineMap.available) {
+      const s = this.offlineMap.stats();
       console.log(`[offline-map] ${s?.pois ?? 0} POIs / ${s?.addresses ?? 0} addresses`);
     } else {
       console.error(`[offline-map] NOT AVAILABLE — db=${cfg.skopjePoisDb} — landmarks will use live OSM (slower, less accurate)`);
@@ -158,7 +160,7 @@ export class TuiApp {
       googleKey: cfg.googleMapsApiKey,
       googleEnabled: cfg.googleMapsEnabled,
       osmEnabled: cfg.osmEnabled,
-      offlineMap,
+      offlineMap: this.offlineMap,
       onHermesRequest: ({ address, location }) => {
         events.insert('landmark_requested', '', null, { address: address ?? null, location: location ?? null });
       },
@@ -167,8 +169,8 @@ export class TuiApp {
       db: this.db,
       events,
       owners,
-      properties: propertyService,
-      offlineMap,
+      properties: this.propertyService,
+      offlineMap: this.offlineMap,
       notifyClient: (chatId, text) => this.channel.send(chatId, text),
       // Owner notifications land in the owner panel of that client (the TUI
       // operator plays the owner) — production sends to the owner's phone.
@@ -199,7 +201,7 @@ export class TuiApp {
 
     this.pipeline = new InboundHandler({
       cfg, db: this.db, sessions: this.sessions, classifier: this.classifier, responder: this.responder,
-      properties: propertyService,
+      properties: this.propertyService,
       appointments, escalations, meta, channels,
       landmarks, visits: this.visits,
       enrichment: new EnrichmentStore(this.db),
@@ -426,6 +428,21 @@ export class TuiApp {
         });
         this.appendMsg(lead.chatId, { role: 'system', text: `РУТИРАЊЕ (последни ${rows.length}):\n${lines.join('\n')}`, at: Date.now() });
       }
+      this.renderAll();
+      return;
+    }
+    if (text === '/audit') {
+      const { auditProperties, auditSummary } = await import('../audit');
+      const props = await this.propertyService.getAll();
+      const results = auditProperties(props, this.offlineMap);
+      const summary = auditSummary(results);
+      const problems = results.filter(r => r.category !== 'GEOCODED' && r.category !== 'POI_MATCHED');
+      let text = `АДИТИВ:\n${summary}`;
+      if (problems.length > 0) {
+        const lines = problems.map(p => `  EB ${p.eb}: ${p.category} — ${p.detail}`);
+        text += `\n\nПОТРЕБНИ ПОПРАВКИ (${problems.length}):\n${lines.join('\n')}`;
+      }
+      this.appendMsg(lead.chatId, { role: 'system', text, at: Date.now() });
       this.renderAll();
       return;
     }

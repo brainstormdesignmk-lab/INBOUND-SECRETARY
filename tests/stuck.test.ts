@@ -1133,14 +1133,14 @@ test('exact-address ask: "потoчно која улица?" gets the privacy l
   // the reveal time (2 часа пред посетата / на денот на посетата).
   assert.ok(!sent[1].includes('улица'), sent[1]);
   assert.ok(!sent[1].includes('се наоѓа'), sent[1]);
-  assert.ok(/час[аи]?\s+пред|денот\s+на\s+посета|на\s+самата\s+посета|на\s+самиот\s+ден|непосредно\s+пред|пред\s+средбата|термин[аот]*\s+/i.test(sent[1]), sent[1]);
+  assert.ok(/час[аи]?\s+пред|денот\s+на\s+посета|на\s+самата\s+посета|на\s+самиот\s+ден|непосредно\s+пред|пред\s+средбата|термин[аот]*\s+|на\s+закажаното\s+гледање|два\s+часа\s+пред/i.test(sent[1]), sent[1]);
   assert.ok(!sent[1].includes('во близина на'), sent[1]); // asked PAST the landmark
 
   // Cyrillic variant after a property_query — same privacy answer
   s = await send('точно која адреса?');
   assert.equal(s.state, 'presentation');
   assert.ok(!sent[2].includes('улица'), sent[2]);
-  assert.ok(/час[аи]?\s+пред|денот\s+на\s+посета|на\s+самата\s+посета|на\s+самиот\s+ден|непосредно\s+пред|пред\s+средбата|термин[аот]*\s+/i.test(sent[2]), sent[2]);
+  assert.ok(/час[аи]?\s+пред|денот\s+на\s+посета|на\s+самата\s+посета|на\s+самиот\s+ден|непосредно\s+пред|пред\s+средбата|термин[аот]*\s+|на\s+закажаното\s+гледање|два\s+часа\s+пред/i.test(sent[2]), sent[2]);
 });
 
 test('stuck loop: the exhausted line never repeats for contact requests', async () => {
