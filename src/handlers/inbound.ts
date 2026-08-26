@@ -24,7 +24,7 @@ import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/str
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, approxCoordsLink } from '../geo/landmarks';
-import { routeLog, resolveIntent } from './router';
+import { routeLog, resolveIntent, dispatchSimple } from './router';
 import { VisitScheduler } from '../visits/scheduler';
 import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
@@ -965,39 +965,11 @@ export class InboundHandler {
       //   forward instead of re-showing the fee or falling to the LLM.
       next = 'visit_scheduling';
       session.state = 'visit_scheduling';
-    } else if (detectOfftopic(text) && !['owner_checking', 'pending'].includes(session.state)) {
-      reply = pickVariant('offtopic.redirect', { recent: assistantTexts(session) })
-        ?? OFFTOPIC_REDIRECT;
-    } else if (detectDefer(text) && ['closing', 'presentation', 'property_query', 'property_locate'].includes(session.state)) {
-      reply = pickVariant('followup.defer', { recent: assistantTexts(session) })
-        ?? FOLLOWUP_DEFER;
-    } else if (detectNegotiate(text) && ['closing', 'presentation', 'property_query'].includes(session.state)) {
-      reply = pickVariant('price.negotiate', { recent: assistantTexts(session) })
-        ?? PRICE_NEGOTIATE;
-    } else if (detectProvisionAsk(text) && ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(session.state)) {
-      reply = pickVariant('provision.ask', { recent: assistantTexts(session) })
-        ?? PROVISION_ANSWER;
-    } else if (detectEscalation(text)) {
-      reply = pickVariant('escalation.polite', { recent: assistantTexts(session) })
-        ?? ESCALATION_ANSWER;
-    } else if (detectDocumentsAsk(text) && ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(session.state)) {
-      reply = pickVariant('documents.info', { recent: assistantTexts(session) })
-        ?? DOCUMENTS_ANSWER;
-    } else if (detectMortgageAsk(text) && ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(session.state)) {
-      reply = pickVariant('mortgage.info', { recent: assistantTexts(session) })
-        ?? MORTGAGE_ANSWER;
-    } else if (detectNeighborhoodAsk(text) && ['idle', 'intent', 'discovery'].includes(session.state)) {
-      reply = pickVariant('neighborhood.general', { recent: assistantTexts(session) })
-        ?? NEIGHBORHOOD_ANSWER;
-    } else if (detectComparison(text) && ['presentation', 'property_query'].includes(session.state)) {
-      reply = pickVariant('comparison.help', { recent: assistantTexts(session) })
-        ?? COMPARISON_ANSWER;
-    } else if (detectFeatureAsk(text) && ['property_query', 'presentation', 'closing'].includes(session.state)) {
-      reply = pickVariant('feature.after.show', { recent: assistantTexts(session) })
-        ?? FEATURE_ANSWER;
-    } else if (detectSchedulingFlex(text) && ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state)) {
-      reply = pickVariant('scheduling.flex', { recent: assistantTexts(session) })
-        ?? SCHED_FLEX_ANSWER;
+    // NOTE: OFFTOPIC, DEFER, NEGOTIATE, PROVISION_ASK, ESCALATION,
+    // DOCUMENTS_ASK, MORTGAGE_ASK, NEIGHBORHOOD_ASK, COMPARISON,
+    // FEATURE_ASK, SCHEDULING_FLEX — now handled by dispatchSimple()
+    // in the final else block below.  Order matters: the table in
+    // router.ts SIMPLE_DETECTORS encodes the same precedence.
     } else if (next === 'presentation' && props.length > 0
         && (ev.type === 'DETAILS_PROVIDED' || ev.type === 'SEARCH_REQUESTED')) {
       // LLM-free: the client refined criteria mid-presentation ("една спална",
@@ -1064,9 +1036,20 @@ export class InboundHandler {
       reply = pickVariant('both.ask.type', { recent: assistantTexts(session) })
         ?? 'Ќе ми треба типот на недвижност што Ве интересира, за да Ви понудам соодветни опции — стан, куќа, деловен простор или плац?';
     } else {
-      const r = await this.deps.responder.respond(session, props, text);
-      reply = r.text;
-      replySource = r.source;
+      // Table-driven deterministic dispatch: the 15 simple detectors
+      // (OFFTOPIC, DEFER, NEGOTIATE, etc.) are encoded as data in
+      // SIMPLE_DETECTORS — first match wins, order mirrors the old chain.
+      const simple = dispatchSimple(text, session.state);
+      if (simple) {
+        routeLog(chatId, text, simple.intent);
+        reply = pickVariant(simple.bankKey, { recent: assistantTexts(session) })
+          ?? simple.fallback;
+      } else {
+        // LLM responder — the cold-brained fallback for unmatched intents
+        const r = await this.deps.responder.respond(session, props, text);
+        reply = r.text;
+        replySource = r.source;
+      }
     }
 
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);

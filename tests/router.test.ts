@@ -4,7 +4,7 @@
 // it ships a wrong answer to a client.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveIntent, ROUTING_ORDER } from '../src/handlers/router';
+import { resolveIntent, ROUTING_ORDER, dispatchSimple } from '../src/handlers/router';
 import { inferPropertyId } from '../src/llm/classify';
 import { detectEyeCatch } from '../src/llm/deterministic';
 
@@ -64,4 +64,58 @@ test('eye-catch idiom supplies the EB ("mi fati oko 94" bug)', () => {
   // Genuine budget caps still guard against EB hallucination.
   assert.equal(inferPropertyId('bilo kade do 250'), undefined);
   assert.equal(detectEyeCatch('bilo kade do 250'), false);
+});
+
+// --- dispatchSimple table tests ---
+
+test('dispatchSimple: OFFTOPIC fires in idle state', () => {
+  const r = dispatchSimple('како си', 'idle');
+  assert.equal(r?.intent, 'OFFTOPIC');
+});
+
+test('dispatchSimple: OFFTOPIC does NOT fire in owner_checking', () => {
+  const r = dispatchSimple('како си', 'owner_checking');
+  assert.equal(r, undefined);
+});
+
+test('dispatchSimple: DEFER fires in closing', () => {
+  const r = dispatchSimple('ќе размислам', 'closing');
+  assert.equal(r?.intent, 'DEFER');
+});
+
+test('dispatchSimple: DEFER does NOT fire in idle', () => {
+  const r = dispatchSimple('ќе размислам', 'idle');
+  assert.equal(r, undefined);
+});
+
+test('dispatchSimple: ESCALATION fires in any state', () => {
+  for (const st of ['idle', 'closing', 'discovery', 'presentation']) {
+    const r = dispatchSimple('сакам менаџер', st);
+    assert.equal(r?.intent, 'ESCALATION', st);
+  }
+});
+
+test('dispatchSimple: NEGOTIATE fires in presentation', () => {
+  const r = dispatchSimple('popust', 'presentation');
+  assert.equal(r?.intent, 'NEGOTIATE');
+});
+
+test('dispatchSimple: NEGOTIATE does NOT fire in idle', () => {
+  const r = dispatchSimple('popust', 'idle');
+  assert.equal(r, undefined);
+});
+
+test('dispatchSimple: SCHEDULING_FLEX fires in visit_scheduling', () => {
+  const r = dispatchSimple('само попладне', 'visit_scheduling');
+  assert.equal(r?.intent, 'SCHEDULING_FLEX');
+});
+
+test('dispatchSimple: returns undefined for unrecognized text', () => {
+  const r = dispatchSimple('јаболко', 'idle');
+  assert.equal(r, undefined);
+});
+
+test('dispatchSimple: order matters — DEFER before NEGOTIATE', () => {
+  const r = dispatchSimple('ќе размислам за цената', 'closing');
+  assert.equal(r?.intent, 'DEFER');
 });

@@ -17,7 +17,7 @@ import {
   isKadeTocno, detectPropertyDescription, detectService, detectBothServices,
   detectVisitCancellation, detectOfftopic, detectDefer, detectNegotiate,
   detectProvisionAsk, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
-  detectNeighborhoodAsk, detectSchedulingFlex,
+  detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -97,4 +97,136 @@ export function routeLog(chatId: string, text: string, intent: string, kind: 'ac
 
 export function recentRoutes(n = 50): RouteEntry[] {
   return ROUTE_LOG.slice(-n);
+}
+
+// --- simple deterministic dispatch table -------------------------------------
+//
+// The 15 terminal detector branches in inbound.ts (OFFTOPIC, DEFER, NEGOTIATE,
+// etc.) all share one shape:
+//   detectX(text) && stateGate(state) → bankKey || fallback
+//
+// This table encodes them as DATA so a new detector is one array entry —
+// no if/else editing, no ordering accident.
+//
+// IMPORTANCE: order matters — first match wins.  The order mirrors the
+// current if/else chain in inbound.ts exactly.
+
+export interface SimpleDetector {
+  intent: string;
+  bankKey: string;
+  fallback: string;
+  detect: (text: string) => boolean;
+  /** If omitted, fires in every state. */
+  allowedStates?: string[];
+}
+
+export const SIMPLE_DETECTORS: SimpleDetector[] = [
+  {
+    intent: 'OFFTOPIC',
+    bankKey: 'offtopic.redirect',
+    fallback: 'Одете на темата, ве молам — како можам да Ви помогнам со имотите?',
+    detect: detectOfftopic,
+    allowedStates: undefined, // every state except owner_checking/pending — handled by stateGate below
+  },
+  {
+    intent: 'DEFER',
+    bankKey: 'followup.defer',
+    fallback: 'Се разбира. Кога ќе се јавите, ќе бидам тука за Вас.',
+    detect: detectDefer,
+    allowedStates: ['closing', 'presentation', 'property_query', 'property_locate'],
+  },
+  {
+    intent: 'NEGOTIATE',
+    bankKey: 'price.negotiate',
+    fallback: 'Цената е фиксна, но ако сакате можам да го контактам сопственикот за да видам дали има простор за преговарање.',
+    detect: detectNegotiate,
+    allowedStates: ['closing', 'presentation', 'property_query'],
+  },
+  {
+    intent: 'PROVISION_ASK',
+    bankKey: 'provision.ask',
+    fallback: 'Агенциската провизија изнесува 500 денари (10 евра) и се плаќа при организација на посетата.',
+    detect: detectProvisionAsk,
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'],
+  },
+  {
+    intent: 'ESCALATION',
+    bankKey: 'escalation.polite',
+    fallback: 'Ќе Ве контактира менаџер за дополнителни информации.',
+    detect: detectEscalation,
+    allowedStates: undefined,
+  },
+  {
+    intent: 'DOCUMENTS_ASK',
+    bankKey: 'documents.info',
+    fallback: 'За документите ќе добиете информации при посетата на имотот.',
+    detect: detectDocumentsAsk,
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'],
+  },
+  {
+    intent: 'MORTGAGE_ASK',
+    bankKey: 'mortgage.info',
+    fallback: 'Можам да Ви помогнам со информации за финансирање. Кажете ми кој банкарски производ Ве интересира.',
+    detect: detectMortgageAsk,
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'],
+  },
+  {
+    intent: 'NEIGHBORHOOD_ASK',
+    bankKey: 'neighborhood.general',
+    fallback: 'Имаме понуди во повеќе населби. Во која област Ве интересира?',
+    detect: detectNeighborhoodAsk,
+    allowedStates: ['idle', 'intent', 'discovery'],
+  },
+  {
+    intent: 'COMPARISON',
+    bankKey: 'comparison.help',
+    fallback: 'Можам да ги споредам имотите за Вас. Кои карактеристики Ви се најважни?',
+    detect: detectComparison,
+    allowedStates: ['presentation', 'property_query'],
+  },
+  {
+    intent: 'FEATURE_ASK',
+    bankKey: 'feature.after.show',
+    fallback: 'Ќе Ви ги кажам сите детали за имотот. Што конкретно Ве интересира?',
+    detect: detectFeatureAsk,
+    allowedStates: ['property_query', 'presentation', 'closing'],
+  },
+  {
+    intent: 'SCHEDULING_FLEX',
+    bankKey: 'scheduling.flex',
+    fallback: 'Разбрано. Кажете ми кога Ви одговара и ќе се обидеме да го прилагодиме терминот.',
+    detect: detectSchedulingFlex,
+    allowedStates: ['visit_scheduling', 'owner_checking', 'time_confirm'],
+  },
+];
+
+/**
+ * Try the simple deterministic detectors in order.
+ * Returns { intent, bankKey, fallback } for the first match, or undefined.
+ *
+ * NOTE: OFFTOPIC has a special state gate (NOT owner_checking/pending)
+ * that differs from the normal "allowedStates includes" check — handled
+ * explicitly below.
+ */
+export function dispatchSimple(
+  text: string,
+  state: string,
+): { intent: string; bankKey: string; fallback: string } | undefined {
+  for (const d of SIMPLE_DETECTORS) {
+    try {
+      if (!d.detect(text)) continue;
+
+      // OFFTOPIC special gate: fires everywhere EXCEPT owner_checking/pending
+      if (d.intent === 'OFFTOPIC') {
+        if (['owner_checking', 'pending'].includes(state)) continue;
+        return d;
+      }
+
+      // Standard gate: allowedStates must include current state
+      if (d.allowedStates && !d.allowedStates.includes(state)) continue;
+
+      return d;
+    } catch { /* detector must never crash the dispatch */ }
+  }
+  return undefined;
 }
