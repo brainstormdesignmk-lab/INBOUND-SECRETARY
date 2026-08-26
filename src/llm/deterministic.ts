@@ -106,15 +106,15 @@ const FEE_WHY_RE =
   /(зошто|зашто|зоштo|zosto|zashto)[^.!?\n]{0,40}(наплаќате|наплатувате|наплаќа|наплатува|се наплаќа|се наплатува|надомест|надоместок|посетата|посета|naplakjate|naplakate|naplatuvate|naplakja|naplatuva|nadomest|nadomestok|posetata|poseta)|(ником|никому|никој|nikoj|nikomu)[^.!?\n]{0,30}(не го прави|не го прават|го прават|не наплаќа|не наплаќаат|не наплатува|не наплатуваат|ne go pravi|ne go pravat|ne naplakja|ne naplakjaat|ne naplatuva|ne naplatuvaat)|(зошто|зашто|zosto|zashto)[^.!?\n]{0,30}(треба да платам|треба да плаќам|мора да платам|да плаќам|да платам|плаќам|plakjam|plakam|da plakam|da platam)|(како|kako)( тоа| toa)?[^.\n]{0,40}(да платам|да плаќам|плаќам|платам|plakam|platam|plakjam|надомест|надоместок|nadomest|nadomestok|наплаќате|наплаќа|наплатувате|наплатува|се наплаќа|се наплатува|naplakjate|naplakate|naplatuvate|naplakja|naplatuva|se naplakja|se naplatuva)|(првпат|prv\s*pat|prvi\s*pat)[^.!?\n]{0,40}(слушам|чујам|чул|чуш|slusam|cuvam|cul|slusnal|chuvam)/iu;
 // "за што/za sto" — the client asks what the fee is FOR, not why it exists.
 // This is a WHY question ("за што ми е потребно ова?") not a refusal.
-const FEE_FOR_WHAT_RE = /(?:за\s+(?:што|stо|sto|stó)|za\s+sto|za\s+what|for\s+what)/iu;
+const FEE_FOR_WHAT_RE = /(?:за\s+(?:што|сто|сто|стó)|за\s+сто|за\s+wхат|фор\s+wхат)/iu;
 // "kako 500 den" — client questions a specific fee amount. Any combination
 // of како/кoа + number + den/denari/euro/evra is a WHY question.
-const FEE_AMOUNT_RE = /(?:како|kako|која|koja)[^.!?\n]{0,30}\d[^.!?\n]{0,20}(?:den|denar|евр|eur|din|dinari|евра|euro)/iu;
+const FEE_AMOUNT_RE = /(?:како|како|која|која)[^.!?\n]{0,30}\d[^.!?\n]{0,20}(?:ден|денар|евр|еур|дин|динари|евра|еуро)/iu;
 
 export function detectFeeWhy(text: string): boolean {
   // Normalize: join multi-line bursts into one line so cross-line patterns work
   const flat = text.replace(/\n/g, ' ');
-  return FEE_WHY_RE.test(flat) || FEE_FOR_WHAT_RE.test(flat) || FEE_AMOUNT_RE.test(flat);
+  return FEE_WHY_RE.test(flat) || matchesBoth(FEE_FOR_WHAT_RE, flat) || matchesBoth(FEE_AMOUNT_RE, flat);
 }
 
 // A position pick among the presented closest matches: "првиот" / "вториот"
@@ -138,10 +138,10 @@ export function detectLocatePick(text: string): number | undefined {
 // стан") are NOT a need.
 const NEED_STAN_RE =
   /(ми\s+треба|треба\s+ми|mi\s+treba|treba\s+mi|барам|baram|сакам|sakam|имаш\s+ли|imas\s+li|требаат|trebaat|need)[^.!?\n]{0,30}(стан|станче|стани|stan|stance|stani|куќа|кука|kukja|kuka|апартман|apartment)/i;
-const NEED_NEGATION_RE = /(не|ne)\s+(ми\s+треба|треба\s+ми|барам|baram|сакам|sakam|имаш\s+ли|imas\s+li)/i;
+const NEED_NEGATION_RE = /(не|не)\s+(ми\s+треба|треба\s+ми|барам|барам|сакам|сакам|имаш\s+ли|имас\s+ли)/i;
 
 export function detectApartmentNeed(text: string): boolean {
-  if (NEED_NEGATION_RE.test(text)) return false;
+  if (matchesBoth(NEED_NEGATION_RE, text)) return false;
   return NEED_STAN_RE.test(text);
 }
 
@@ -160,7 +160,7 @@ export function detectService(text: string): Service | undefined {
 // "мало станче" / "гарсоњера" / "студио" is a 1-bedroom request — only when
 // no explicit bedroom was mentioned (explicit numbers/words win). Latin and
 // Cyrillic variants (clients type "MALO STANCE" more often than "мало станче").
-const SMALL_STAN_RE = /(мал[оаи]?\s+(стан|станче|стани)|mal[oa]?\s+(stan|stance|stani)|гарсоњера|garsonjera|студио|studio)/i;
+const SMALL_STAN_RE = /(мал[оаи]?\s+(стан|станче|стани)|мал[оа]?\s+(стан|станце|стани)|гарсоњера|гарсоњера|студио|студио)/i;
 
 export function detectBedrooms(text: string): number | undefined {
   const m = text.match(BED_NUM_RE);
@@ -171,7 +171,7 @@ export function detectBedrooms(text: string): number | undefined {
   for (const [re, n] of BED_WORDS) {
     if (re.test(text)) return n;
   }
-  if (SMALL_STAN_RE.test(text)) return 1;
+  if (matchesBoth(SMALL_STAN_RE, text)) return 1;
   return undefined;
 }
 
@@ -217,11 +217,11 @@ export function detectBudget(text: string): string | undefined {
 // the whole city, ordered from the most popular neighborhoods (Центар,
 // Капиштец, Карпош, Аеродром, Кисела Вода, Влае, Ѓорче Петров, then the
 // rest). Latin + Cyrillic.
-const ANYWHERE_RE = /(било\s+каде|било\s+кај|било\s+где|каде\s+било|кај\s+било|где\s+да\s+е|каде\s+да\s+е|секаде|не\s+е\s+битно\s+каде|не\s+е\s+важно\s+каде|није\s+битно\s+где|није\s+важно\s+где|не\s+ми\s+е\s+битно|не\s+ми\s+е\s+важно|не\s+ми\s+е\s+гајле|bilo\s+kade|bilo\s+kaj|bilo\s+gde|kade\s+bilo|kaj\s+bilo|kade\s+da\s+e|gde\s+da\s+e|sekade|ne\s+e\s+bitno\s+kade|ne\s+e\s+vazhno\s+kade|nie\s+je\s+bitno\s+gde|nie\s+je\s+vazhno\s+gde|ne\s+mi\s+e\s+bitno|ne\s+mi\s+e\s+vazhno|ne\s+mi\s+e\s+gajle|anywhere)/iu;
+const ANYWHERE_RE = /(било\s+каде|било\s+кај|било\s+где|каде\s+било|кај\s+било|где\s+да\s+е|каде\s+да\s+е|секаде|не\s+е\s+битно\s+каде|не\s+е\s+важно\s+каде|није\s+битно\s+где|није\s+важно\s+где|не\s+ми\s+е\s+битно|не\s+ми\s+е\s+важно|не\s+ми\s+е\s+гајле|било\s+каде|било\s+кај|било\s+где|каде\s+било|кај\s+било|каде\s+да\s+e|где\s+да\s+e|секаде|не\s+e\s+битно\s+каде|не\s+e\s+важно\s+каде|ние\s+је\s+битно\s+где|ние\s+је\s+важно\s+где|не\s+ми\s+e\s+битно|не\s+ми\s+e\s+важно|не\s+ми\s+e\s+гајле|анywхере)/iu;
 
 /** True when the client says "anywhere" — no location preference. */
 export function detectAnywhere(text: string): boolean {
-  return ANYWHERE_RE.test(text);
+  return matchesBoth(ANYWHERE_RE, text);
 }
 
 // The client asks for ALTERNATIVE suggestions — "predlozi mi", "drugi
@@ -254,10 +254,10 @@ export function detectRejection(text: string): boolean {
 const VISIT_INTEREST_RE =
   /(кога[^.!?\n]{0,40}(може|би можело|би можела)[^.!?\n]{0,25}(погледн|видам|разгледам|посета)|(сакам|би сакал|би сакала|посакувам)[^.!?\n]{0,40}(погледн|видам|разгледам|посета)|организира(ј|јте)?(?:\s+посета)?|закаж(и|е)(те)?(?:\s+посета)?|дали[^.!?\n]{0,30}достапен|дали[^.!?\n]{0,30}достапна|koga[^.!?\n]{0,40}(moze|bi mozelo|bi mozela)[^.!?\n]{0,25}(pogledn|vidam|razgledam|poseta)|sakam[^.!?\n]{0,40}(da ja vidam|da go vidam|da go poglednam|da go razgledam|poseta)|organiziraj(te)?(?:\s+poseta)?|zakaz(e|i)(te)?(?:\s+poseta)?|da[il][il][^.!?\n]{0,30}dostapen|da[il][il][^.!?\n]{0,30}dostapna|(?<![\p{L}\p{N}])(?:договори|dogovori)(?![\p{L}\p{N}])(?:\s+ми(?:\s+(?:ја|го))?)?|(?<![\p{L}\p{N}])(?:закажи|zakazi)(?![\p{L}\p{N}])(?:\s+ми)?)/iu;
 
-const VISIT_NEGATION_RE = /(не\s+(сакам|сакаме|би сакал|би сакала|посакувам|организира)|ne\s+(sakam|sakame|bi sakal|bi sakala|posakuvam|organizira))/i;
+const VISIT_NEGATION_RE = /(не\s+(сакам|сакаме|би сакал|би сакала|посакувам|организира)|не\s+(сакам|сакаме|би сакал|би сакала|посакувам|организира))/i;
 
 export function detectVisitInterest(text: string): boolean {
-  if (VISIT_NEGATION_RE.test(text)) return false;
+  if (matchesBoth(VISIT_NEGATION_RE, text)) return false;
   return VISIT_INTEREST_RE.test(text);
 }
 
@@ -277,9 +277,9 @@ const PROPERTY_INTEREST_RE = new RegExp(
   "|(?:stanot?|\u0441\u0442\u0430\u043D\u043E\u0442?|\u043E\u0432\u043E\u0458|\u043E\u0432aa|\u043E\u0432\u0430|ovoj|ovaa|ova)\\s+(?:\u0435|e)\\s+(?:\u0443\u0431\u0430\u0432\u0430?|\u0434\u043E\u0431\u0430\u0440|\u043F\u0440\u0435\u043A\u0440\u0430\u0441\u0435\u043D|prekrasen|dobar|ubav[aeo]?)", "iu");
 
 /** True when the client expresses interest in a specific property. */
-const PROPERTY_NEGATION_RE = /(?:не|ne)\s+(?:ми\s+се|mi\s+se)\s+(?:сви[ѓг]а|свига|допа[ѓг]а|допага|svigj|dopag)|(?:не|ne)\s+(?:го|go)\s+(?:сакам|sakam)|(?:не|ne)\s+(?:сум|sum)\s+(?:заинтересиран|zainteresiran)/i;
+const PROPERTY_NEGATION_RE = /(?:не|не)\s+(?:ми\s+се|ми\s+се)\s+(?:сви[ѓг]а|свига|допа[ѓг]а|допага|свиѓ|допаг)|(?:не|не)\s+(?:го|го)\s+(?:сакам|сакам)|(?:не|не)\s+(?:сум|сум)\s+(?:заинтересиран|заинтересиран)/i;
 export function detectPropertyInterest(text: string): boolean {
-  if (VISIT_NEGATION_RE.test(text) || PROPERTY_NEGATION_RE.test(text)) return false;
+  if (matchesBoth(VISIT_NEGATION_RE, text) || matchesBoth(PROPERTY_NEGATION_RE, text)) return false;
   return PROPERTY_INTEREST_RE.test(text);
 }
 
@@ -311,10 +311,10 @@ export function detectVisitTime(text: string): string | undefined {
 // negotiation back to collecting a NEW concrete time — Lina must never confirm
 // (or keep asking the owner about) a time the client already rejected. The
 // "не"-anchored forms keep "MOZAM VO 19:00" (a new proposal) out.
-const TIME_REJECT_RE = /(не можам|не може|не можев|не можел|не ми одговара|не ми е згодно|не одговара|не тој термин|не тогаш|подоцна|покасно|друг термин|поинаков|поинаку|ne mozam|ne moze|ne mozev|ne mi odgovara|ne mi e zgodno|ne odgovara|ne toj termin|ne togas|podocna|pokasno|drug termin|poinakov|poinaku|nema da mozam|nema da moze|nema da mozeme|нема да можам|нема да може|нема да можеме)/i;
+const TIME_REJECT_RE = /(не можам|не може|не можев|не можел|не ми одговара|не ми е згодно|не одговара|не тој термин|не тогаш|подоцна|покасно|друг термин|поинаков|поинаку|не мозам|не мозе|не мозев|не ми одговара|не ми e згодно|не одговара|не тој термин|не тогас|подоцна|покасно|друг термин|поинаков|поинаку|нема да мозам|нема да мозе|нема да моземе|нема да можам|нема да може|нема да можеме)/i;
 
 export function detectTimeRejection(text: string): boolean {
-  return TIME_REJECT_RE.test(text);
+  return matchesBoth(TIME_REJECT_RE, text);
 }
 
 // Commercial-property intent: деловен простор / канцеларија / локал / магацин /
@@ -324,31 +324,31 @@ export function detectTimeRejection(text: string): boolean {
 // WEAK terms (кафе/ресторан/салон/хотел are often LANDMARKS — "сакам стан до
 // кафе") require a need/transaction context so a landmark mention never
 // flips a residential search into a business one.
-const BUSINESS_STRONG_RE = /(деловен|деловни|деловна|деловно|канцелар|локал|магацин|склад|хала|бизнис|офис|дукјан|дукан|дуќан|продавниц|ателје|deloven|delovni|delovna|kancelari|kancelariski|lokal|magacin|sklad|hala|biznis|ofis|dukjan|dukan|prodavnic|atelje|posloven|poslovn|office|business|commercial)/i;
-const BUSINESS_WEAK_RE = /(ресторан|кафуле|кафич|кафе|салон|хотел|restoran|kafule|kafic|kafe|salon|hotel)/i;
-const BUSINESS_NEED_RE = /(ми треба|барам|сакам|треба|потребен|потребна|need|treba|baram|sakam|за изнајмување|за издавање|под кирија|за изнајмува|za iznajmuvanje|za izdavanje|pod kirija|za iznajmuv|rent|изнајмувам)/i;
+const BUSINESS_STRONG_RE = /(деловен|деловни|деловна|деловно|канцелар|локал|магацин|склад|хала|бизнис|офис|дукјан|дукан|дуќан|продавниц|ателје|деловен|деловни|деловна|канцелари|канцелариски|локал|магацин|склад|хала|бизнис|офис|дуќан|дукан|продавниц|атеље|пословен|пословн|оффице|бусинесс|цоммерциал)/i;
+const BUSINESS_WEAK_RE = /(ресторан|кафуле|кафич|кафе|салон|хотел|ресторан|кафуле|кафиц|кафе|салон|хотел)/i;
+const BUSINESS_NEED_RE = /(ми треба|барам|сакам|треба|потребен|потребна|неед|треба|барам|сакам|за изнајмување|за издавање|под кирија|за изнајмува|за изнајмување|за издавање|под кирија|за изнајмув|рент|изнајмувам)/i;
 // An explicit RESIDENTIAL word (стан/куќа/гаража стамбен) means the weak
 // term is a LANDMARK, not the property type: "сакам стан до кафе" is an
 // apartment search, "барам локал до кафе" is a business search.
-const RESIDENTIAL_WORD_RE = /(стан|стани|станче|куќ|кука|house|stan|stance|apartment|гаража|garaza|стамбен|stamben)/i;
+const RESIDENTIAL_WORD_RE = /(стан|стани|станче|куќ|кука|хоусе|стан|станце|апартмент|гаража|гараза|стамбен|стамбен)/i;
 
 export function detectBusiness(text: string): boolean {
   // An explicit residential word ("стан", "куќа") wins over EVERY business
   // term: "стан до кафе" and "стан со дуќан" are residential searches — the
   // business word is a landmark/feature, not the property type.
-  if (RESIDENTIAL_WORD_RE.test(text)) return false;
-  if (BUSINESS_STRONG_RE.test(text)) return true;
-  if (!BUSINESS_WEAK_RE.test(text)) return false;
+  if (matchesBoth(RESIDENTIAL_WORD_RE, text)) return false;
+  if (matchesBoth(BUSINESS_STRONG_RE, text)) return true;
+  if (!matchesBoth(BUSINESS_WEAK_RE, text)) return false;
   // Weak term (кафе/ресторан/салон) is business only WITH a need context:
   // "барам ресторан под кирија" = business; bare "кафе" = nothing.
-  return BUSINESS_NEED_RE.test(text);
+  return matchesBoth(BUSINESS_NEED_RE, text);
 }
 
 // House intent: куќа / кука / house / kukja / kuka / вила (both scripts). An
 // explicit apartment word (стан/станче/stan/stance) wins — "сакам куќа или
 // стан" is ambiguous and stays an apartment request.
-const HOUSE_RE = /(куќ|кука|house|kukja|kuka|вила|vila)/i;
-const APARTMENT_RE = /(стан|стани|станче|stan|stance|apartment|apartman)/i;
+const HOUSE_RE = /(куќ|кука|хоусе|куќа|кука|вила|вила)/i;
+const APARTMENT_RE = /(стан|стани|станче|стан|станце|апартмент|апартман)/i;
 
 /**
  * House intent: true = куќа, false = explicit стан, UNDEFINED when the message
@@ -358,8 +358,8 @@ const APARTMENT_RE = /(стан|стани|станче|stan|stance|apartment|ap
  * куќа buyer to стан — Lina then presented an apartment).
  */
 export function detectHouse(text: string): boolean | undefined {
-  const house = HOUSE_RE.test(text);
-  const apartment = APARTMENT_RE.test(text);
+  const house = matchesBoth(HOUSE_RE, text);
+  const apartment = matchesBoth(APARTMENT_RE, text);
   if (!house && !apartment) return undefined; // no property-type word
   return house && !apartment;
 }
@@ -406,19 +406,19 @@ const AGREE_WORDS = new Set(['добро', 'ок', 'да', 'може', 'согл
 // When followed by ANYTHING ELSE it means "can/may" — a criteria modifier
 // ("moze i pogolem" = "can be bigger too", "moze 2 spalni" = "can be 2
 // bedrooms").  The pattern matches "moze/може" followed by a non-da token.
-const MOZE_NOT_AGREEMENT_RE = /(?:може|moze)(?:\s+|[^\p{L}\p{N}])+(?!\s*(?:да|da)\b)/iu;
+const MOZE_NOT_AGREEMENT_RE = /(?:може|мозе)(?:\s+|[^\p{L}\p{N}])+(?!\s*(?:да|да)(?![\p{L}\p{N}]))/iu;
 // ... but we also need to check it's NOT just standalone "moze" with nothing
 // after it (or only punctuation).  Simplest: check if there's a real word
 // token AFTER "moze" that isn't "да/da".
-const MOZE_HAS_NON_DA_AFTER = /(?:може|moze)\s+(?!да\b|da\b)([\p{L}\p{N}]+)/iu;
+const MOZE_HAS_NON_DA_AFTER = /(?:може|мозе)\s+(?!да(?![\p{L}\p{N}])|da\b)([\p{L}\p{N}]+)/iu;
 
 // "da/да" preceded by a verb/modal is NOT agreement: "mora da imas" (you
 // must have), "treba da bidat" (they should be), "sakam da vidam" (I want
 // to see).  Only standalone "da" or "da" at the start of the message is
 // agreement ("да, согласувам", "да, во ред").
-const DA_AFTER_VERB_RE = /(?:\S+\s+)(?:да|da)\s/iu;
+const DA_AFTER_VERB_RE = /(?:\S+\s+)(?:да|да)\s/iu;
 // Verb/modal stems that precede "da" to form "must/should/want to" phrases
-const DA_NOT_AGREEMENT_RE = /(?:мора|mora|treba|sakam|sakas|sakate|sakame|imas|ima|imate|imame|bides|bide|ќе|ke|bi\s|би\s|can\s|moram|morat|има|имаш|имаме|имате|сакаш|сакаме|сакате|би\b|ќе\b)(?:\s+[^\s]+)?\s+(?:да|da)\b/iu;
+const DA_NOT_AGREEMENT_RE = /(?:мора|мора|треба|сакам|сакас|сакате|сакаме|имас|има|имате|имаме|бидес|биде|ќе|ке|би\s|би\s|цан\s|морам|морат|има|имаш|имаме|имате|сакаш|сакаме|сакате|би(?![\p{L}\p{N}])|ќе(?![\p{L}\p{N}]))(?:\s+[^\s]+)?\s+(?:да|да)(?![\p{L}\p{N}])/iu;
 
 export function detectAgreement(text: string): boolean {
   const low = text.toLowerCase();
@@ -427,10 +427,10 @@ export function detectAgreement(text: string): boolean {
   // "moze i pogolem" / "moze 2 spalni" — "moze" here means "can/may"
   // (criteria modifier), NOT agreement.  Skip the "moze/може" token when
   // it's followed by a non-da word (criteria refinement).
-  const mozeIsCriteria = MOZE_HAS_NON_DA_AFTER.test(low);
+  const mozeIsCriteria = matchesBoth(MOZE_HAS_NON_DA_AFTER, low);
   // "mora da imas" / "treba da bidat" — "da" here is part of a
   // verb phrase ("must/should have to"), NOT agreement.
-  const daIsVerbPhrase = DA_NOT_AGREEMENT_RE.test(low);
+  const daIsVerbPhrase = matchesBoth(DA_NOT_AGREEMENT_RE, low);
   return tokens.some(t => AGREE_WORDS.has(t)
     && !(mozeIsCriteria && (t === 'moze' || t === 'може'))
     && !(daIsVerbPhrase && (t === 'da' || t === 'да')));
@@ -438,9 +438,9 @@ export function detectAgreement(text: string): boolean {
 
 // A pure "yes, show me more" — agreement WITHOUT an explicit register/contact
 // intent ("контактирај ме", "запиши ме" choose the queue, not a wider search).
-const WIDEN_EXCLUDE_RE = /(контактирај|контактирајте|запиши|запишете|забележи|регистрирај|prijavi|kontaktiraj|kontaktirajte|registriraj|zapishi|zabelezi)/i;
+const WIDEN_EXCLUDE_RE = /(контактирај|контактирајте|запиши|запишете|забележи|регистрирај|пријави|контактирај|контактирајте|регистрирај|запиши|забелези)/i;
 export function detectWidenIntent(text: string): boolean {
-  return detectAgreement(text) && !WIDEN_EXCLUDE_RE.test(text);
+  return detectAgreement(text) && !matchesBoth(WIDEN_EXCLUDE_RE, text);
 }
 
 // Minimal name+phone intake for the LLM-down path (contact_collection).
@@ -564,12 +564,12 @@ export function detectLocation(text: string, feedLocations: string[]): string | 
 // vo petok vo 11", "prodaden e"). This parses the answer deterministically so
 // the owner check resolves and Lina relays it to the client — with or without
 // LLMs, and without forcing the TUI user to learn slash commands.
-const OWNER_GONE_RE = /(продаден|продадена|издаден|издадена|под опција|повеќе не е достапен|веќе не е|немам имот|нема повеќе|нема да може|sold|rented|prodaden|prodadena|izdaden|izdadena|prodan|pod opcija)/i;
+const OWNER_GONE_RE = /(продаден|продадена|издаден|издадена|под опција|повеќе не е достапен|веќе не е|немам имот|нема повеќе|нема да може|солд|рентед|продаден|продадена|издаден|издадена|продан|под опција)/i;
 // Short words (да/ок/ok) need explicit boundaries — "ок" inside "kako" or
 // "да" inside "дава" must never count as agreement. Long words match bare.
 const OWNER_AGREE_RE =
   /(?:^|[\s,.;:!?])(?:да|da|ок|ok|okay)(?:$|[\s,.;:!?])|(?:може|можам|можеш|во ред|okej|слободен|слободна|слободно|достапен|достапна|достапно|прифаќам|прифатено|прифатен|прифатена|се согласувам|согласен|согласна|зелено|moze|mozam|vo red|sloboden|slobodna|slobodno|dostapen|dostapna|dostapno|prihaka|prihakat|soglasen|soglasna)/i;
-const OWNER_DISAGREE_RE = /(не можам|не ми одговара|не ми е згодно|не одговара|не е достапен|не е достапна|нема да можам|не тој термин|не тогаш|не сакам|не ми се допаѓа|ne mozam|ne mi odgovara|ne e dostapen|ne e dostapna|ne toj termin)/i;
+const OWNER_DISAGREE_RE = /(не можам|не ми одговара|не ми е згодно|не одговара|не е достапен|не е достапна|нема да можам|не тој термин|не тогаш|не сакам|не ми се допаѓа|не мозам|не ми одговара|не e достапен|не e достапна|не тој термин)/i;
 // "не можам" must NOT count as agreement via the bare "можам" word. The
 // negated "nema da mozam" / "нема да можам" ("won't be able to") is the
 // MOST common owner refusal — it contains the bare "mozam" that would
@@ -653,7 +653,7 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   const price = extractOwnerPrice(text);
   const withPrice = (v: OwnerVerdict): OwnerVerdict =>
     price !== undefined ? { ...v, price } : v;
-  if (OWNER_GONE_RE.test(t)) {
+  if (matchesBoth(OWNER_GONE_RE, t)) {
     const note = /продад|prodad/.test(t) ? 'продаден' : /издад|izdad/.test(t) ? 'издаден' : undefined;
     return withPrice({ status: 'gone', note });
   }
@@ -661,7 +661,7 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   const time = extractOwnerTime(text);
   const hasClock = OWNER_CLOCK_RE.test(text);
   const agree = !cant && OWNER_AGREE_RE.test(t);
-  const disagree = cant || OWNER_DISAGREE_RE.test(t);
+  const disagree = cant || matchesBoth(OWNER_DISAGREE_RE, t);
   // Same-time confirmation or plain agreement → ok (accept the client's time).
   // locMatches is transliteration-aware: "utre po 18:00" === "утре по 18:00".
   if (agree && (!time || (proposedTime && locMatches(time, proposedTime)))) {
@@ -692,7 +692,7 @@ export interface WhereIsQuestion {
 // boundary so "каде е?" (no place) still matches and yields an empty rest.
 const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:поточно|потoчno|potocno|точно|tocno|tochno|ориентино|ориентирно|приближно)?\s*(?:(?:се|se)\s+)?(?:наоѓа|наоjа|naogja|naoga|е|e|се|se|is)(?=\s|[?!.]|$)/iu; // wo+se: removed 'да\s+' from modifier to avoid backtracking issues
 // A bare "каде?" / "kade ?" means "where [is it]?" — the last shown property.
-const WHERE_BARE_RE = /^(?:каде|kade|где|gde|кај|kaj|where)\s*\??\s*$/iu;
+const WHERE_BARE_RE = /^(?:каде|каде|где|где|кај|кај|wхере)\s*\??\s*$/iu;
 // "што има во близина?" / "what's nearby?" — NEARBY questions about the last shown property.
 // "blizina/близина" MUST be preceded by a preposition (во/в/near) to avoid
 // matching "има близина" (there's a closeness) or random mentions.
@@ -703,15 +703,15 @@ const WHERE_BARE_RE = /^(?:каде|kade|где|gde|кај|kaj|where)\s*\??\s*$/
 const NEARBY_ALT_RE = new RegExp(
   '(?<![\\p{L}])' +
   '(?:' +
-  '(?:друго|drugo)\\s+(?:нешто|nesto)(?:\\s+(?:познат[ао]|poznat[ao]?))?' +
+  '(?:друго|друго)\\s+(?:нешто|несто)(?:\\s+(?:познат[ао]|познат[ао]?))?' +
   '|' +
-  '(?:нешто|nesto)\\s+(?:познат[ао]|poznat[ao]?)' +
+  '(?:нешто|несто)\\s+(?:познат[ао]|познат[ао]?)' +
   '|' +
-  '(?:познат[ао]|poznat[ao]?)\\s+(?:место|mesto)' +
+  '(?:познат[ао]|познат[ао]?)\\s+(?:место|место)' +
   ')',
   'iu');
 
-const NEARBY_RE = /(?:што|shto|shto|what|koj|koe|кој|кое)\s+(?:има|ima|have|imate)\s+(?:во|vo|v|near)\s+(?:близина|blizina|vicinity)|(?:во|vo|v|near)\s+(?:близина|blizina|vicinity)(?:\s*\?|$)|what\s+(?:is\s+)?nearby|co\s+je\s+(?:v\s+)?blizini/iu;
+const NEARBY_RE = /(?:што|што|што|wхат|кој|кое|кој|кое)\s+(?:има|има|хаве|имате)\s+(?:во|во|v|неар)\s+(?:близина|близина|вицинитy)|(?:во|во|v|неар)\s+(?:близина|близина|вицинитy)(?:\s*\?|$)|wхат\s+(?:ис\s+)?неарбy|цо\s+је\s+(?:v\s+)?близини/iu;
 const WHERE_IS_DETERMINER = /^(?:тоа|toa|тој|toj|таа|taa|ова|ova|оваа|ovaa|овој|ovoj|она|ona|онаа|onaa|оној|onoj|the|that|it)\s+/iu;
 // Generic referents = the last shown property, not a named place.
 const WHERE_IS_GENERIC =
@@ -729,8 +729,8 @@ const WHERE_IS_BLACKLIST =
  * place, or { generic: true } when the client means the last shown property.
  */
 
-const PROPERTY_TYPE_END_RE = /(?:гарсоњер(?:ата|та|а)|garsonjer(?:а|a|ata|та)|стан(?:от)?|stan(?:ot)?|куќ(?:ата|а)|kukj(?:ata|a|e)|дуќ(?:анот?|ан)|dukdjan(?:ot?|а?)|лок(?:алот?|ал)|lokal(?:ot?|а?)|делов(?:ниот|ниот|ен)|deloven(?:\s+prostor)?|објект(?:от)?|objekt(?:ot)?|зград(?:ата|а)|zgrad(?:ata|а?)|имот(?:от)?|imot(?:ot)?|плац(?:от)?|plac(?:ot)?)$/iu;
-const WHERE_IS_BLACKLIST_START = /^(?:цената|cenata|cienata|цена|cena|ciena|колк[ао]|kolko|колку|kolku|бројот|brojot|број|broj|шифрата|sifrata|шифра|sifra|достапен|dostapen|достапна|dostapna|сместен|smesten|сместена|smestena)/iu;
+const PROPERTY_TYPE_END_RE = /(?:гарсоњер(?:ата|та|а)|гарсоњер(?:а|a|ата|та)|стан(?:от)?|стан(?:от)?|куќ(?:ата|а)|куќ(?:ата|a|e)|дуќ(?:анот?|ан)|дукѓан(?:от?|а?)|лок(?:алот?|ал)|локал(?:от?|а?)|делов(?:ниот|ниот|ен)|деловен(?:\s+простор)?|објект(?:от)?|објект(?:от)?|зград(?:ата|а)|зград(?:ата|а?)|имот(?:от)?|имот(?:от)?|плац(?:от)?|плац(?:от)?)$/iu;
+const WHERE_IS_BLACKLIST_START = /^(?:цената|цената|циената|цена|цена|циена|колк[ао]|колко|колку|колку|бројот|бројот|број|број|шифрата|сифрата|шифра|сифра|достапен|достапен|достапна|достапна|сместен|сместен|сместена|сместена)/iu;
 
 export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   if (matchesBoth(WHERE_BARE_RE, text)) return { place: '', generic: true };
@@ -852,10 +852,10 @@ const EXACT_ADDRESS_RE =
 // Anything outside this set (e.g. a place name) stops the match so named
 // queries like "каде се наоѓа Рамстор?" keep their place extraction.
 const KADE_ADDR_NOUN_RE = new RegExp(
-  '(?:каде|kade)' +
-  '(?:\\s+(?:точно|tocno|tochno|поточно|potocno|ми|mi|му|mu|и|i|е|e|се|se|нао[ѓг]а|nao[gj]a|би|bi|било|bilo|била|bila|биле|bile|биде|bide|бидат|bidat|ке|ke|ќе|само|samo))*' +
+  '(?:каде|каде)' +
+  '(?:\\s+(?:точно|тоцно|точно|поточно|потоцно|ми|ми|му|му|и|i|е|e|се|се|нао[ѓг]а|нао[ѓ]a|би|би|било|било|била|била|биле|биле|биде|биде|бидат|бидат|ке|ке|ќе|само|само))*' +
   '\\s*' +
-  '(?:адрес(?:ата|а)|adres(?:ata|a)|локациј(?:ата|а)|lokacij(?:ata|a))' +
+  '(?:адрес(?:ата|а)|адрес(?:ата|a)|локациј(?:ата|а)|локациј(?:ата|a))' +
   '(?![а-яa-z])',
   'iu',
 );
@@ -915,7 +915,7 @@ export function detectExactAddressAsk(text: string): boolean {
 
 // "каде точно" patterns — these are WHERE_IS questions that should get
 // a nearby landmark first, NOT the privacy protocol.
-const KADE_TOCNO_RE = /(?:каде|kade)\s+(?:точно|tocno|tochno)|(?:точно|tocno|tochno)\s+(?:каде|kade)/iu;
+const KADE_TOCNO_RE = /(?:каде|каде)\s+(?:точно|тоцно|точно)|(?:точно|тоцно|точно)\s+(?:каде|каде)/iu;
 /** True when the text is a "where exactly" question (not an explicit address demand). */
 export function isKadeTocno(text: string): boolean {
   return matchesBoth(KADE_TOCNO_RE, text);
@@ -944,9 +944,9 @@ const DEFER_RE =
 // and word-order variation ("ќе размислам", "би се јавел подоцна", "ke ve
 // povikam potoa", "подоцна ќе пишам") without enumerating phrases.
 const DEFER_GRAMMAR_RE = new RegExp(
-  '(?:ќе|ke|би|bi|подоцна|podocna|потоа|potoa|после|posle)' +
+  '(?:ќе|ке|би|би|подоцна|подоцна|потоа|потоа|после|после)' +
   '(?:\\s+[а-яa-z]+){0,3}?' +
-  '\\s+(?:размисл|razmisl|јав|jav|повик|povik|вид|vid|пиш|pish|pis|тех|teh|контакт|kontakt)',
+  '\\s+(?:размисл|размисл|јав|јав|повик|повик|вид|вид|пиш|пиш|пис|тех|тех|контакт|контакт)',
   'iu');
 
 /** True when the client wants to defer the decision. */
@@ -962,11 +962,11 @@ const NEGOTIATE_RE =
 // with optional fillers — covers "цена малку помала", "po evtina cena?",
 // "дали цената е конечна тука" without enumerating each phrase.
 const NEGOTIATE_GRAMMAR_RE = new RegExp(
-  '(?:помал[ао]|пониск[ао]|поевтин[ао]?|фиксн[ао]|финалн[ао]|конечн[ао]|pomal[ao]|ponisk[ao]|poevtin[ao]?|fiksn[ao]|finaln[ao]|konechn[ao])' +
-  '(?:\\s+(?:тука|tukа|овде|ovde|малку|malku|доста|dosta|многу|mnogu))*' +
-  '\\s+(?:цена|цена\\s+е|цената|cena|cenata|евра|евро|evra|evro)' +
+  '(?:помал[ао]|пониск[ао]|поевтин[ао]?|фиксн[ао]|финалн[ао]|конечн[ао]|помал[ао]|пониск[ао]|поевтин[ао]?|фиксн[ао]|финалн[ао]|конечн[ао])' +
+  '(?:\\s+(?:тука|тука|овде|овде|малку|малку|доста|доста|многу|многу))*' +
+  '\\s+(?:цена|цена\\s+е|цената|цена|цената|евра|евро|евра|евро)' +
   '|' +
-  '(?:цена|цената|cena|cenata)\\s+(?:да\\s+)?(?:се\\s+)?(?:намали|намалува|smale|spushti|договори|dogovori)',
+  '(?:цена|цената|цена|цената)\\s+(?:да\\s+)?(?:се\\s+)?(?:намали|намалува|смале|спушти|договори|договори)',
   'iu');
 
 /** True when the client wants to negotiate the price. */
@@ -991,12 +991,12 @@ const SCHED_FLEX_RE =
 // order (window first, "само/only" after). Covers "samo vo utro moze?",
 // "popladne samo", "може викендот?" without enumeration.
 const SCHED_FLEX_GRAMMAR_RE = new RegExp(
-  '(?:само|samo|може\\s+ли|moze\\s+li|bi\\s+sakal[аи]?)' +
-  '(?:\\s+(?:во|vo|на|na|okolu|околу))*' +
-  '\\s*(?:утро|утрово|претпладне|попладне|напладне|вечер|вечерво|викенд|weekend|сабота|саботите|недела|nedela|utro|pretpladne|popladne|vecher|vecer|vikend|sabota)' +
+  '(?:само|само|може\\s+ли|мозе\\s+ли|би\\s+сакал[аи]?)' +
+  '(?:\\s+(?:во|во|на|на|околу|околу))*' +
+  '\\s*(?:утро|утрово|претпладне|попладне|напладне|вечер|вечерво|викенд|wеекенд|сабота|саботите|недела|недела|утро|претпладне|попладне|вечер|вецер|викенд|сабота)' +
   '|' +
-  '(?:утро|утрово|претпладне|попладне|напладне|вечер|вечерво|викенд|weekend|сабота|недела|utro|popladne|vecher|vecer|vikend|sabota)' +
-  '\\s+(?:само|samo|only)',
+  '(?:утро|утрово|претпладне|попладне|напладне|вечер|вечерво|викенд|wеекенд|сабота|недела|утро|попладне|вечер|вецер|викенд|сабота)' +
+  '\\s+(?:само|само|онлy)',
   'iu');
 
 /** True when the client specifies a scheduling window. */
@@ -1011,17 +1011,17 @@ const ESCALATION_RE =
 // Escalation grammar: [request verb] × [authority noun] — covers every
 // combination without enumerating full phrases.
 const ESCALATION_GRAMMAR_RE = new RegExp(
-  '(?:сакам|sakam|треба|treba|нека|neka|дали\\s+можам|dali\\s+mozham|барам|baram)' +
-  '\\s+(?:(?:да|da)\\s+)?((?:разговарам?|разговарај|зборувам?|зборувај|контактирам?|контактирај|јавам?|пишувам?)' +
-  '|(?:razgovaram?|razgovaraj|zboruvam?|zboruvaj|kontaktiram?|kontaktiraj|javam?|pisuvam?))?' +
-  '(?:\\s+(?:со|so|кај|kaj))?\\s*' +
-  '(?:менаџер(?:от|[аи])?|menadzer(?:ot|[аи])?|шеф(?:от|а)?|shef(?:ot|a)?|управител(?:от|[аи])?|upravitel(?:ot|a)?|директор(?:от|[аи])?|direktor(?:ot|a)?|раководител(?:от|[аи])?|rakovoditel(?:ot|a)?|надзорен?|nadzoren?)' +  '|' +
+  '(?:сакам|сакам|треба|треба|нека|нека|дали\\s+можам|дали\\s+можам|барам|барам)' +
+  '\\s+(?:(?:да|да)\\s+)?((?:разговарам?|разговарај|зборувам?|зборувај|контактирам?|контактирај|јавам?|пишувам?)' +
+  '|(?:разговарам?|разговарај|зборувам?|зборувај|контактирам?|контактирај|јавам?|писувам?))?' +
+  '(?:\\s+(?:со|со|кај|кај))?\\s*' +
+  '(?:менаџер(?:от|[аи])?|менадзер(?:от|[аи])?|шеф(?:от|а)?|шеф(?:от|a)?|управител(?:от|[аи])?|управител(?:от|a)?|директор(?:от|[аи])?|директор(?:от|a)?|раководител(?:от|[аи])?|раководител(?:от|a)?|надзорен?|надзорен?)' +  '|' +
   // Bare imperative: "зборувај со шефот", "razgovarajte so direktorot"
-  '(?:разговарајте?|зборувајте?|razgovarajte?|zboruvajte?)\\s+(?:со|so|кај|kaj)\\s+' +
-  '(?:менаџер(?:от|[аи])?|menadzer(?:ot|[аи])?|шеф(?:от|а)?|shef(?:ot|a)?|управител(?:от|[аи])?|upravitel(?:ot|a)?|директор(?:от|[аи])?|direktor(?:ot|a)?|раководител(?:от|[аи])?|rakovoditel(?:ot|a)?)' +
+  '(?:разговарајте?|зборувајте?|разговарајте?|зборувајте?)\\s+(?:со|со|кај|кај)\\s+' +
+  '(?:менаџер(?:от|[аи])?|менадзер(?:от|[аи])?|шеф(?:от|а)?|шеф(?:от|a)?|управител(?:от|[аи])?|управител(?:от|a)?|директор(?:от|[аи])?|директор(?:от|a)?|раководител(?:от|[аи])?|раководител(?:от|a)?)' +
   '|' +
-  '(?:менаџер(?:от|[аи])?|menadzer(?:ot|[аи])?|шеф(?:от|а)?|shef(?:ot|a)?|управител(?:от|[аи])?|upravitel(?:ot|a)?|директор(?:от|[аи])?|direktor(?:ot|a)?|раководител(?:от|[аи])?|rakovoditel(?:ot|a)?)' +
-  '\\s+(?:нека|neka|треба\\s+да|treba\\s+da)\\s+(?:(?:се|se)\\s+)?(?:јави|javi|контактира|kontaktira|(?:се|se)\\s+обади|obadi)',
+  '(?:менаџер(?:от|[аи])?|менадзер(?:от|[аи])?|шеф(?:от|а)?|шеф(?:от|a)?|управител(?:от|[аи])?|управител(?:от|a)?|директор(?:от|[аи])?|директор(?:от|a)?|раководител(?:от|[аи])?|раководител(?:от|a)?)' +
+  '\\s+(?:нека|нека|треба\\s+да|треба\\s+да)\\s+(?:(?:се|се)\\s+)?(?:јави|јави|контактира|контактира|(?:се|се)\\s+обади|обади)',
   'iu');
 
 /** True when the client asks for a manager / escalation. */
@@ -1122,15 +1122,15 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
 
 
 // Both services: client wants BOTH buy and rent.
-const BOTH_SERVICES_RE = /(?:^|\s)(?:i\s+toa\s+i\s+toa|i\s+za\s+dvete|za\s+dvete|и\s+тоа\s+и\s+тоа|и\s+за\s+двете|за\s+двете|i\s+kupam\s+i\s+kirijam|и\s+купам\s+и\s+кирија|kedeto|каде[^т]|ke\s+treba(?:at)?|ќе\s+треба(?:ат)?|sakam\s+(?:i\s+)?(?:kupam|kirijam)|сакам\s+(?:и\s+)?(?:купам|кирија)|dve\s+raboti|две\s+работи|kupuvanje\s+i\s+iznajmuvanje|купување\s+и\s+изнајмување|i\s+kupuvam\s+i\s+iznajmuvam|и\s+купувам\s+и\s+изнајмувам|ke\s+kupam\s+i\s+kirijam|ќе\s+купам\s+и\s+кирија|moz(?:e|am|he|hhe?|zze?)\s+da\s+kup(?:am|uvam).*?moz(?:e|am|he|hhe?|zze?)\s+(?:i\s+)?da\s+izn(?:ajm(?:uvam|am|at)|ajm(?:uvanje))|може\s+да\s+куп(?:ам|увам).*?може\s+(?:и\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајмување))/iu;
+const BOTH_SERVICES_RE = /(?:^|\s)(?:i\s+тоа\s+i\s+тоа|i\s+за\s+двете|за\s+двете|и\s+тоа\s+и\s+тоа|и\s+за\s+двете|за\s+двете|i\s+купам\s+i\s+киријам|и\s+купам\s+и\s+кирија|кедето|ке\s+треба(?:ат)?|ќе\s+треба(?:ат)?|сакам\s+(?:i\s+)?(?:купам|киријам)|сакам\s+(?:и\s+)?(?:купам|кирија)|две\s+работи|две\s+работи|купување\s+i\s+изнајмување|купување\s+и\s+изнајмување|i\s+купувам\s+i\s+изнајмувам|и\s+купувам\s+и\s+изнајмувам|ке\s+купам\s+i\s+киријам|ќе\s+купам\s+и\s+кирија|моз(?:e|ам|хе|ххе?|ззе?)\s+да\s+куп(?:ам|увам).*?моз(?:e|ам|хе|ххе?|ззе?)\s+(?:i\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајм(?:ување))|може\s+да\s+куп(?:ам|увам).*?може\s+(?:и\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајмување))/iu;
 export function detectBothServices(text: string): boolean {
-  return BOTH_SERVICES_RE.test(text);
+  return matchesBoth(BOTH_SERVICES_RE, text);
 }
 
 // Visit cancellation: the client or owner says they can't make it.
-const CANCEL_RE = /(?:не\s+можам|nemozham|ne\s+mozam|не\s+сум|ne\s+sum|не\s+сакам|ne\s+sakam|не\s+доаѓам|otkazuvam|откажувам|откажи|otkazi|cancel|canceled|cancelled|само\s+да\s+те\s+извести|samo\s+da\s+te\s+izvesti|bol(?:en|na|est)|бол(?:ен|на|ест)|дојде\s+работа|dojde\s+rabota|имам\s+проблем|imam\s+problem|не\s+مى\s+е\s+полесно|zhal|жал|poplakja|поплаки|bolest|болест)/iu;
+const CANCEL_RE = /(?:не\s+можам|неможам|не\s+мозам|не\s+сум|не\s+сум|не\s+сакам|не\s+сакам|не\s+доаѓам|отказувам|откажувам|откажи|откази|цанцел|цанцелед|цанцеллед|само\s+да\s+те\s+извести|само\s+да\s+те\s+извести|бол(?:ен|на|ест)|бол(?:ен|на|ест)|дојде\s+работа|дојде\s+работа|имам\s+проблем|имам\s+проблем|не\s+مى\s+е\s+полесно|жал|жал|поплаќа|поплаки|болест|болест)/iu;
 export function detectVisitCancellation(text: string): boolean {
-  return CANCEL_RE.test(text);
+  return matchesBoth(CANCEL_RE, text);
 }
 
 export function extractSlots(text: string): DetectedSlots {
@@ -1161,9 +1161,9 @@ export function extractSlots(text: string): DetectedSlots {
 // visit is arranged. This triggers a privacy-refusal + redirect to
 // visit scheduling.
 // =========================================================================
-const OWNER_CONTACT_RE = /(?:контакт|kontakt|број|broj|телефон|telefon|емаил|emaill?|линија|linija)\s*(?:од|от|od|на|na|за|za|наш|nas)?\s*(?:сопственик|sopstvenik|власник|vlasnik)|(?:сопственик|sopstvenik|власник|vlasnik)(?:от|ot)?(?:\s+(?:е|e))?\s*(?:телефон|telefon|број|broj|контакт|kontakt)|(?:може|moze)\s+ли\s+(?:контакт|kontakt|број|broj)\s+(?:од|от|od|на|на)\s*(?:сопственик|sopstvenik|власник|vlasnik)|(?:дад(?:и|иј|ете|иите)|dadi(?:j|te)?)\s+(?:ми|mi)?\s*(?:го|go)?\s*(?:сопственикот|sopstvenikot|власникот|vlasnikot|бројот|brojot|телефонот|telefonot)|(?:сакам|sakam)\s+(?:да|da)\s+(?:разговарам|razgovaram|контактирам|kontaktiram|звонам|zvonam|зборувам|zboruvam)\s+(?:со|sa|so)\s*(?:сопственик|sopstvenik|власник|vlasnik)|(?:имам|imam)\s+(?:ли|li)\s+(?:можност|mozhnost|могућност|mogucnost)\s+(?:да|da)\s+(?:звам|zvam|контактирам|kontaktiram)/iu;
+const OWNER_CONTACT_RE = /(?:контакт|контакт|број|број|телефон|телефон|емаил|емаилл?|линија|линија)\s*(?:од|от|од|на|на|за|за|наш|нас)?\s*(?:сопственик|сопственик|власник|власник)|(?:сопственик|сопственик|власник|власник)(?:от|от)?(?:\s+(?:е|e))?\s*(?:телефон|телефон|број|број|контакт|контакт)|(?:може|мозе)\s+ли\s+(?:контакт|контакт|број|број)\s+(?:од|от|од|на|на)\s*(?:сопственик|сопственик|власник|власник)|(?:дад(?:и|иј|ете|иите)|дади(?:j|те)?)\s+(?:ми|ми)?\s*(?:го|го)?\s*(?:сопственикот|сопственикот|власникот|власникот|бројот|бројот|телефонот|телефонот)|(?:сакам|сакам)\s+(?:да|да)\s+(?:разговарам|разговарам|контактирам|контактирам|звонам|звонам|зборувам|зборувам)\s+(?:со|са|со)\s*(?:сопственик|сопственик|власник|власник)|(?:имам|имам)\s+(?:ли|ли)\s+(?:можност|можност|могућност|могуцност)\s+(?:да|да)\s+(?:звам|звам|контактирам|контактирам)/iu;
 /** True when the client asks for the owner's direct contact/phone. */
 export function detectOwnerContact(text: string): boolean {
-  return OWNER_CONTACT_RE.test(text);
+  return matchesBoth(OWNER_CONTACT_RE, text);
 }
 
