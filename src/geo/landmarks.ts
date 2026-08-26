@@ -1,3 +1,10 @@
+
+// Single choke point for landmark decision logging. Every resolution event
+// (layer returns, cache skips, proximity rejections) flows through here —
+// one file, one line format ([iso] EB n: EVENT …) so ops greps stay stable.
+function dbgLog(line: string): void {
+  try { fs.appendFileSync('/tmp/landmark-debug.log', line.endsWith('\n') ? line : line + '\n'); } catch {}
+}
 // LandmarkService — resolves the APPROXIMATE public location of a property.
 //
 // The exact street address is a trade secret of the funnel: a client who knows
@@ -399,7 +406,7 @@ export class LandmarkService {
             if (!poi) return true; // cannot measure — give it the benefit of the doubt
             const d = meters(propGeo, { lat: poi.lat, lon: poi.lon });
             if (d > FEED_MAX_DISTANCE_M) {
-              try { fs.appendFileSync('/tmp/landmark-debug.log',
+              try { dbgLog(
                 `[${new Date().toISOString()}] EB ${p.eb}: REJECT-FEED ${x.l.landmark} — ${Math.round(d)}m > ${FEED_MAX_DISTANCE_M}m\n`); } catch {}
               return false;
             }
@@ -417,7 +424,7 @@ export class LandmarkService {
         });
       if (ranked.length > 0) {
         const top = ranked.slice(0, 3);
-        const _r = top[Math.abs(p.eb * 2654435761) % top.length].hit; fs.appendFileSync('/tmp/landmark-debug.log',
+        const _r = top[Math.abs(p.eb * 2654435761) % top.length].hit; dbgLog(
         `[${new Date().toISOString()}] EB ${p.eb}: RETURN-FEED ${_r.landmark} [${_r.source}]\n`); return _r;
       }
     }
@@ -451,9 +458,9 @@ export class LandmarkService {
         mapsUrl: cached.mapsUrl ?? undefined,
         source: cached.source as Landmark['source'],
       });
-      if (hit) { fs.appendFileSync('/tmp/landmark-debug.log',
+      if (hit) { dbgLog(
         `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DB-CACHE ${hit.landmark} [${hit.source}] key=${key}\n`); return hit; }
-      if (suspect) { fs.appendFileSync('/tmp/landmark-debug.log',
+      if (suspect) { dbgLog(
         `[${new Date().toISOString()}] EB ${p.eb}: SKIP-SUSPECT-CACHE ${cached.landmark} [${cached.source}] → re-resolving via higher-quality layer\n`); }
     }
 
@@ -465,7 +472,7 @@ export class LandmarkService {
     if (this.opts.googleKey && this.opts.googleEnabled !== false) {
       try {
         const g = publicPlace(await googleLandmark(p.address, p.location, this.opts.googleKey, p.eb));
-        if (g) { fs.appendFileSync('/tmp/landmark-debug.log',
+        if (g) { dbgLog(
         `[${new Date().toISOString()}] EB ${p.eb}: RETURN-GOOGLE ${g.landmark} [${g.source}]\n`); this.store.put(key, g); return g; }
       } catch (e) {
         console.warn('[landmark] google failed:', (e as Error).message);
@@ -478,7 +485,7 @@ export class LandmarkService {
     const detailsLandmark = extractDetailsLandmark(p.details);
     if (detailsLandmark) {
       const l = publicPlace({ landmark: detailsLandmark, type: 'details', source: 'table' as const });
-      if (l) { fs.appendFileSync('/tmp/landmark-debug.log',
+      if (l) { dbgLog(
         `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DETAILS ${l.landmark} [${l.source}]\n`); this.store.put(key, l); return l; }
     }
 
@@ -529,11 +536,11 @@ export class LandmarkService {
             ?? pois.find(po => po.name.length >= 3);
           if (best) {
             const l = publicPlace({ landmark: best.name, type: best.type, source: 'offline' as const });
-            if (l) { fs.appendFileSync('/tmp/landmark-debug.log',
+            if (l) { dbgLog(
             `[${new Date().toISOString()}] EB ${p.eb}: RETURN-OFFLINE-MAP ${l.landmark} [${l.source}]\n`); this.store.put(key, l); return l; }
           }
         }
-      } catch (e) { try { fs.appendFileSync('/tmp/landmark-debug.log',
+      } catch (e) { try { dbgLog(
           `[${new Date().toISOString()}] EB ${p.eb}: OFFLINE-MAP-FAILED: ${(e as Error).message}\n`); } catch {} }
     }
 
@@ -541,7 +548,7 @@ export class LandmarkService {
     if (this.opts.osm !== false && this.opts.osmEnabled !== false) {
       try {
         const o = publicPlace(await osmLandmark(p.address, p.location));
-        if (o) { try { fs.appendFileSync('/tmp/landmark-debug.log',
+        if (o) { try { dbgLog(
           `[${new Date().toISOString()}] EB ${p.eb}: LAYER6-OSM gave ${o.landmark} addr=${JSON.stringify(p.address?.substring(0, 40))}\n`); } catch {} this.store.put(key, o); return o; }
       } catch (e) {
         console.warn('[landmark] osm failed:', (e as Error).message);
@@ -567,7 +574,7 @@ export class LandmarkService {
             const d = meters(propGeo, { lat: lmPoi.lat, lon: lmPoi.lon });
             if (d > TABLE_MAX_DISTANCE_M) {
               tooFar = true;
-              try { fs.appendFileSync('/tmp/landmark-debug.log',
+              try { dbgLog(
                 `[${new Date().toISOString()}] EB ${p.eb}: REJECT-TABLE ${t.landmark} — ${Math.round(d)}m > ${TABLE_MAX_DISTANCE_M}m\n`); } catch {}
             }
           }
@@ -593,7 +600,7 @@ export class LandmarkService {
       // caches a mutated property object for 5 minutes.
       const l = await this.resolve(pr);
       if (l.source !== 'none') pr.landmark = l.landmark;
-      try { fs.appendFileSync('/tmp/landmark-debug.log',
+      try { dbgLog(
         `[${new Date().toISOString()}] EB ${pr.eb}: resolved=${l.landmark} source=${l.source} addr=${JSON.stringify(pr.address?.substring(0, 40))}\n`); } catch {}
     }));
   }

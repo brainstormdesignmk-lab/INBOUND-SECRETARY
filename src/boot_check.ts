@@ -35,6 +35,15 @@ function geminiKeyCount(cfg: AppConfig): number {
 export function bootChecks(cfg: AppConfig): CheckResult[] {
   const out: CheckResult[] = [];
 
+  // 0) Config source — WHERE the secrets came from must be explicit, not
+  //    silent (config.ts loads exactly one file: ~/.lina/lina.env).
+  const cfgPath = `${process.env.HOME ?? '~'}/.lina/lina.env`;
+  const cfgExists = fs.existsSync(cfgPath);
+  out.push({ name: 'config', ok: true, critical: false,
+    detail: cfgExists
+      ? `${cfgPath} (loaded)`
+      : `${cfgPath} NOT FOUND — keys must come from real process env (pm2/systemd)` });
+
   // 1) LLM brains
   const gk = geminiKeyCount(cfg);
   const hasGroq = !!cfg.groqApiKey;
