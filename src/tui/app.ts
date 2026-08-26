@@ -41,7 +41,7 @@ interface Lead {
 }
 type Mode = 'chat' | 'naming' | 'menu';
 
-const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/status] здравствена проверка (клучеви, мапа, фид, мозок) · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [C-q] излез`;
+const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/status] здравствена проверка (клучеви, мапа, фид, мозок) · [/routes N] последни рутирани намери · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [C-q] излез`;
 
 // The brain chooser: 'hybrid' = Gemini pool -> Groq fallback (production),
 // 'gemini' = the 3 rotating keys only, 'groq' = Groq only, 'free' = always-throw
@@ -406,6 +406,25 @@ export class TuiApp {
       const warn = this.detFallbackCount >= 10 ? '  ⚠ ВИСОКО — провери ги LLM клучите!' : '';
       lines.push(`детерминистички одговори оваа сесија: ${this.detFallbackCount}${warn}`);
       this.appendMsg(lead.chatId, { role: 'system', text: `СТАТУС:\n${lines.join('\n')}`, at: Date.now() });
+      this.renderAll();
+      return;
+    }
+    if (text === '/routes' || /^\/routes\s*\d*$/.test(text)) {
+      const { recentRoutes } = await import('../handlers/router');
+      const n = parseInt(text.split(/\s+/)[1] ?? '', 10);
+      const rows = recentRoutes(Number.isFinite(n) && n > 0 ? Math.min(n, 500) : 25);
+      if (rows.length === 0) {
+        this.appendMsg(lead.chatId, { role: 'system', text: 'РУТИРАЊЕ: нема одлуки во оваа сесија уште.', at: Date.now() });
+      } else {
+        // Compact table: time → intent → message. [route?] predictions and
+        // [route] actuals interleave — a predict/actual mismatch on the same
+        // message is the drift signal (see src/handlers/router.ts).
+        const lines = rows.map(r => {
+          const t = new Date(r.at).toTimeString().slice(0, 5);
+          return `${t} → ${r.intent.padEnd(22)} "${r.text}"`;
+        });
+        this.appendMsg(lead.chatId, { role: 'system', text: `РУТИРАЊЕ (последни ${rows.length}):\n${lines.join('\n')}`, at: Date.now() });
+      }
       this.renderAll();
       return;
     }
