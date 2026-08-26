@@ -22,6 +22,17 @@ const OWNER_JUMP_ALLOWED = new Set(['contact_collection', 'visit_scheduling', 'o
 
 export function guardText(state: State, text: string, publicSiteUrl?: string, recent?: string[]): string {
   let out = text.trim();
+  // LANGUAGE GUARD: Lina speaks Macedonian only. If the LLM emits
+  // predominantly non-Cyrillic text (English hallucination, language
+  // switching), reject the entire response and use the deterministic
+  // fallback. The30% threshold allows Latin-script Macedonian and short
+  // English words (OK, EUR, MKD) that naturally appear.
+  const cyrillicCount = (out.match(/\p{Script=Cyrillic}/gu) ?? []).length;
+  const charCount = out.replace(/\s/g, '').length;
+  if (charCount > 20 && cyrillicCount / charCount < 0.3) {
+    console.warn(`[guard] language rejected (${cyrillicCount}/${charCount} Cyrillic) — using fallback`);
+    return fallbackVariant(state, recent) ?? FALLBACKS[state] ?? FALLBACKS.default;
+  }
   // Property info is described IN THE CHAT with words from the database — links
   // to the public page are NEVER shown. Deterministically strip any link the
   // model still emits: "Повеќе информации: <url>" phrases (bold or plain),
