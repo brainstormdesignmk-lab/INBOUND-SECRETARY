@@ -842,6 +842,19 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
     'каде по поточно', 'kade po potocno',
     // bare "каде поточно / kade potocno?" with no verb after
     'каде поточно ?', 'каде поточно?', 'kade potocno ?', 'kade potocno?',
+    // Nearby-area follow-ups ("what else is nearby?")
+    'што уште има во околината', 'sto uste ima vo okolinata',
+    'што има околу', 'sto ima okolu',
+    'што уште има околу', 'sto uste ima okolu',
+    'што друго има', 'sto drugo ima',
+    'што друго е околу', 'sto drugo e okolu',
+    'кои објекти има', 'koi objekti ima',
+    'какви објекти има', 'kakvi objekti ima',
+    'какво има околу', 'kakvo ima okolu',
+    'што е во близина', 'sto e vo blizina',
+    'што уште е во близина', 'sto uste e vo blizina',
+    'кој е во близина', 'koj e vo blizina',
+    'кои се во близина', 'koi se vo blizina',
   ];
   if (whereIsSecondary.some(p => lower.includes(p) || norm.includes(p))) {
     return { place: '', generic: true };
