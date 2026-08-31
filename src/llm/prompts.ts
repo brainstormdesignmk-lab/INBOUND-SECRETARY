@@ -69,6 +69,13 @@ export const LOCATE_NUMBER_PROMPT =
 export const LOCATE_REFINE_ASK =
   'Не најдов имот што одговара точно на тие податоци. Кажете ми уште некој детал — населба, квадратура, цена или нешто друго што го памтите?';
 
+// Location is known but m² / price / bedrooms are missing — ask for the
+// remaining specs before showing matches.  Keeps the collect-first rhythm
+// so the bot doesn't dump all Водно properties when the client only said
+// "stan na Vodno".
+export const LOCATE_MORE_SPECS_ASK =
+  'Разбрав — {location}. За да го стесниме изборот, кажете ми — колку квадрати има станот и по која цена беше?';
+
 export const LOCATE_PICK_CLOSER =
   'Дали некој од овие е тој што го видовте? Ако е, кажете ми „првиот“ или „вториот“, или Евидентен број на имотот.';
 
@@ -94,12 +101,34 @@ export function buildLocateMatches(properties: Property[], closerIndex = 0): str
 // property is still available AND whether he accepts the proposed time. The
 // owner's plain-text answer is parsed deterministically (detectOwnerVerdict)
 // and relayed back to the client — loop until the visit is arranged.
-export function buildOwnerAsk(eb: number, proposedTime: string): string {
-  return `Евидентен број ${eb} — дали имотот е сè уште достапен во моментов? Клиентот сака посета: ${proposedTime}. Дали се согласувате на овој термин, или имате друг предлог?`;
+export interface OwnerAskProps {
+  eb: number;
+  proposedTime: string;
+  /** Property type label (e.g. 'стан', 'куќа', 'деловен простор', 'плац'). */
+  propertyType?: string;
+  /** Definite article form (e.g. 'станот', 'куќата', 'деловниот простор', 'плацот'). */
+  propertyTypeDef?: string;
+  /** Possessive pronoun matching gender: 'Вашиот' (masc), 'Вашата' (fem), 'Вашето' (neut). */
+  possessive?: string;
+  /** Adjective form for 'достапен': 'достапен' (masc), 'достапна' (fem), 'достапно' (neut). */
+  dostapen?: string;
 }
 
-export function buildOwnerAskAgain(eb: number): string {
-  return `Не разбрав. Евидентен број ${eb} — дали имотот е достапен и дали го прифаќате предложениот термин за посета?`;
+export function buildOwnerAsk(eb: number, proposedTime: string, opts?: OwnerAskProps): string {
+  const pt = opts?.propertyType;
+  const ptd = opts?.propertyTypeDef;
+  const pos = opts?.possessive ?? 'Вашиот';
+  const dost = opts?.dostapen ?? 'достапен';
+  if (pt && ptd) {
+    return `Здраво. Ве контактирам во врска со пројавен интерес од сериозен клиент за ${pos} ${pt} кој во нашиот систем е внесен со број ${eb}. Дали ${ptd} е сè уште ${dost} во моментов? Клиентот сака посета: ${proposedTime}. Дали се согласувате на овој термин, или имате друг предлог?`;
+  }
+  return `Здраво. Ве контактирам во врска со пројавен интерес од сериозен клиент за имот кој во нашиот систем е внесен со број ${eb}. Дали е сè уште достапен во моментов? Клиентот сака посета: ${proposedTime}. Дали се согласувате на овој термин, или имате друг предлог?`;
+}
+
+export function buildOwnerAskAgain(eb: number, opts?: OwnerAskProps): string {
+  const ptd = opts?.propertyTypeDef;
+  const dost = opts?.dostapen ?? 'достапен';
+  return `Не разбрав. ${ptd ? `Дали ${ptd}` : `Евидентен број ${eb} — дали имотот`} е ${dost} и дали го прифаќате предложениот термин за посета?`;
 }
 
 export const FEE_GRACEFUL_CLOSE =
@@ -604,6 +633,20 @@ function propertyType(p: Property): string {
   return 'стан';
 }
 
+/** Property type labels for owner messages (indefinite + definite article + gender). */
+export function ownerPropertyLabels(p: Property): { type: string; def: string; possessive: string; dostapen: string } {
+  if (p.house) return { type: 'куќа', def: 'куќата', possessive: 'Вашата', dostapen: 'достапна' };
+  if (p.business) return { type: 'деловен простор', def: 'деловниот простор', possessive: 'Вашиот', dostapen: 'достапен' };
+  // Plac is rare — check address/details for "плац"
+  const addr = (p.address ?? '').toLowerCase();
+  const det = (p.details ?? '').toLowerCase();
+  if (/плац|plac/i.test(addr + ' ' + det)) return { type: 'плац', def: 'плацот', possessive: 'Вашиот', dostapen: 'достапен' };
+  // Default: стан (apartment) with specific type
+  const label = propertyType(p);
+  if (label.includes('гарсоњер')) return { type: label, def: 'гарсоњерата', possessive: 'Вашата', dostapen: 'достапна' };
+  return { type: label, def: 'станот', possessive: 'Вашиот', dostapen: 'достапен' };
+}
+
 /** Macedonian list join: "а, б и в" (no Oxford comma). */
 function joinMk(items: string[]): string {
   if (items.length <= 1) return items[0] ?? '';
@@ -733,6 +776,12 @@ export function conversationalDetails(p: Property): string | undefined {
       const locRe = new RegExp(NOT_PREV + 'во\\s+' + escRe(p.location) + '(\\([^)]*\\))?' + NOT_NEXT, 'gi');
       sent = sent.replace(locRe, ' ').trim();
     }
+    // When a resolved landmark exists, strip vague proximity phrases from the
+    // ad text ("во близина на главниот влез") — the resolved landmark line
+    // ("Се наоѓа во близина на Клинички Центар") already answers "каде е?".
+    if (p.landmark) {
+      sent = sent.replace(/(?:во\s+близина\s+на|близу\s+до|блиску\s+до)\s+[^,.!?]{2,50}/gi, ' ').trim();
+    }
     // The size is already its own line in the card ("Има 56 м²…"). Only the
     // token whose number EQUALS the DB size is dropped — "58м2 + 12м2 балкони"
     // keeps the balcony sizes (they are extra facts, not the repeat).
@@ -765,11 +814,13 @@ export function conversationalDetails(p: Property): string | undefined {
  * is always correct.
  */
 export function buildPropertyCard(p: Property): string {
+  // Strip internal feed disambiguator: "Центар (населба)" → "Центар"
+  const loc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
   let s = p.house
-    ? `Куќата под Евидентен број ${p.eb}${p.location ? ` е во ${p.location}.` : '.'}`
+    ? `Куќата под Евидентен број ${p.eb}${loc ? ` е во ${loc}.` : '.'}`
     : p.business
-      ? `Деловниот простор под Евидентен број ${p.eb}${p.location ? ` е во ${p.location}.` : '.'}`
-      : `Станот под Евидентен број ${p.eb} е ${propertyType(p)}${p.location ? ` во ${p.location}.` : '.'}`;
+      ? `Деловниот простор под Евидентен број ${p.eb}${loc ? ` е во ${loc}.` : '.'}`
+      : `Станот под Евидентен број ${p.eb} е ${propertyType(p)}${loc ? ` во ${loc}.` : '.'}`;
   // The ad text rewritten conversationally — facts only, no "Се Продава" / agency
   // boilerplate, no street. undefined = nothing usable -> the card omits it.
   const details = conversationalDetails(p);
@@ -777,12 +828,16 @@ export function buildPropertyCard(p: Property): string {
   // street goes straight to the owner and cuts the agency out). The location
   // line names a nearby PUBLIC LANDMARK when one was resolved ("Се наоѓа во
   // близина на Градежен Факултет"), else just the neighborhood the opening
-  // sentence already gave. When the ad text itself names a landmark ("во
-  // близина на Мајчин Дом"), that line already answers "каде е?" — the
-  // resolver line is skipped so the proximity is never said twice.
-  if (p.landmark && !/во близина на|близу до|блиску до/i.test(details ?? '')) {
-    s += ` Се наоѓа во близина на ${p.landmark}.`;
-  }
+  // Include the resolved landmark unless the ad text already names the
+  // SAME place. The old guard suppressed on any "во близина на…" phrase,
+  // which is wrong when the ad says something vague ("во близина на
+  // главниот влез") but the resolver found a real named place ("Клинички
+  // Центар"). We now compare the landmark name itself: if the details
+  // text already mentions it after a proximity phrase, skip; otherwise
+  // always include.
+  // Landmark line REMOVED: geocoded nearest POI can be wrong ("Јане Сандански"
+  // instead of "МК Доналд"). The client can ask "каде е?" to get the
+  // landmark rotation from the WHERE_IS handler, which is always accurate.
   if (p.size) s += ` Има ${p.size} ${p.business ? 'деловна' : 'станбена'} површина.`;
   // Dedupe exact repeats — the feed lists "гаража" twice for some properties,
   // and "гаража, … и гаража" reads broken.

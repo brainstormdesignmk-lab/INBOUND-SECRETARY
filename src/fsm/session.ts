@@ -42,6 +42,7 @@ export interface SlotData {
   nearbyLandmarkCoords?: Array<{ lat: number; lon: number }>; // parallel coords for Google Maps links
   landmarkIndex?: number;         // how many landmarks have been revealed so far
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
+  lastPrice?: string;             // last price answered to the client (for "та цена" resolution)
 }
 
 export type HistoryMsg = { role: 'user' | 'assistant'; text: string };

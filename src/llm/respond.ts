@@ -5,6 +5,7 @@ import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
 import { fallbackVariant, pickVariant } from '../data/responseBank';
 import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feePersuasion, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
+import { detectInvestmentOpinion, detectFeeWhy } from './deterministic';
 
 // Anchored so a property price like "68.300 евра" never trips it — only a
 // STANDALONE 300/500/600 in денари (the viewing fee; buy is 500, rent 300)
@@ -144,6 +145,13 @@ export class Responder {
     // LLM prose, so it can't be skipped or paraphrased. Refusals use the
     // persuasion ladder; agreement moves to contact_collection (owner contact).
     if (session.state === 'closing') {
+      // Digression guard: investment opinions, fee-why questions, and other
+      // non-funnel messages must NOT get the fee disclosure — they fall
+      // through to the LLM for a contextual response. Without this, the
+      // closing state acts as a fee-disclosure black hole that swallows
+      // every message.
+      const isDigression = detectInvestmentOpinion(userText) || detectFeeWhy(userText);
+      if (!isDigression) {
       // The fee disclosure/persuasion is bank-backed but stays DETERMINISTIC in
       // spirit: every variant was validated at generation time to carry the
       // exact amounts (500/300 денари) and the 0%-commission / "Дали се
@@ -165,6 +173,7 @@ export class Responder {
       const line = pickVariant(key, { recent: assistantTexts(session) })
         ?? (rejects > 0 ? feePersuasion(service, rejects) : buildFeeAsk(service));
       return { text: guardText(session.state, line, this.cfg.publicSiteUrl, assistantTexts(session)), source: 'deterministic' };
+      } // end !isDigression — digressions fall through to the LLM below
     }
     const task = stateTask(session.state, session.slots);
     const propCtx = buildPropertyContext(properties);
@@ -178,6 +187,7 @@ export class Responder {
       { role: 'user' as const, content: userText },
     ];
     let provider: string | undefined;
+    const t0 = Date.now();
     try {
       const text = await this.llm.complete({
         role: 'respond',
@@ -187,9 +197,12 @@ export class Responder {
         topP: this.cfg.topP,
         onProvider: p => { provider = p; },
       });
+      const ms = Date.now() - t0;
+      console.log(`[timing] respond ${ms}ms → ${provider ?? 'llm'}`);
       return { text: guardText(session.state, text, this.cfg.publicSiteUrl, assistantTexts(session)), source: provider ?? 'llm' };
     } catch (e) {
-      console.error('[respond] LLM failed:', (e as Error).message);
+      const ms = Date.now() - t0;
+      console.error(`[respond] LLM failed (${ms}ms):`, (e as Error).message);
       // LLM-less fallback: property data is code-built (never invented), so the
       // bot still presents REAL offers when every LLM is down.
       if ((session.state === 'property_query' || session.state === 'presentation') && properties.length > 0) {

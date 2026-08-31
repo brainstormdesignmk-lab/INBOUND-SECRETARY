@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectFeeWhy, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -191,6 +191,7 @@ export class Classifier {
     ];
     let parsed: Classified;
     let llmDown = false;
+    const t0 = Date.now();
     try {
       const raw = await this.llm.complete({
         role: 'classify',
@@ -206,6 +207,7 @@ export class Classifier {
       llmDown = true;
       parsed = { event: { type: 'STAY' }, offensive: false, offenseLevel: 0 };
     }
+    console.log(`[timing] classify ${Date.now() - t0}ms → ${parsed.event.type}`);
     // Bare-number override (see inferPropertyId): in property-intake states a
     // 2-3 digit number always means an Евидентен број, even when the LLM chose
     // another event (e.g. INTERESTED) or when the LLM is DOWN — so "SIFRA 82"
@@ -237,9 +239,14 @@ export class Classifier {
     // the intake states even when the LLM read it as DETAILS_PROVIDED (the
     // deterministic detector owns the funnel here). A known number
     // (PROPERTY_ID_REQUESTED) wins — that is the easy path.
+    // ALSO: if inferPropertyId extracts a number ("stanot so broj 61"),
+    // the event is already PROPERTY_ID_REQUESTED — skip SEEN_PROPERTY so
+    // the property_query path handles it directly (availability, price, etc.).
+    const inferPid = inferPropertyId(text);
     if (['idle', 'intent', 'discovery'].includes(session.state)
       && parsed.event.type !== 'PROPERTY_ID_REQUESTED'
       && parsed.event.type !== 'REJECTED'
+      && !inferPid
       && detectSeenProperty(text)) {
       const slots = extractSlots(text);
       // extractSlots leaves location empty (the feed's neighborhoods fill it) —
@@ -365,7 +372,8 @@ export class Classifier {
     // платам за посета?", "зошто наплаќате?") is NEVER agreement — the bare
     // "да" in "да платам" must not close the deal — and neither is a denial.
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing'
-      && detectAgreement(text) && !detectFeeWhy(text) && !detectRejection(text)) {
+      && detectAgreement(text) && !detectFeeWhy(text) && !detectRejection(text)
+      && !detectInvestmentOpinion(text)) {
       parsed.event = { type: 'FEE_AGREED' };
     }
     // Fee WHY-question guard (applies even when the LLM is UP): a model that
@@ -449,7 +457,7 @@ export class Classifier {
       && parsed.event.type !== 'ESCALATE'
       && parsed.event.type !== 'PROPERTY_ID_REQUESTED'
       && parsed.event.type !== 'INTERESTED'
-      && detectSuggestAlternatives(text)) {
+      && (detectSuggestAlternatives(text) || detectDrugAlternative(text))) {
       parsed.event = { type: 'SEARCH_REQUESTED' };
     }
     // property_locate pick: the client chooses among the presented closest

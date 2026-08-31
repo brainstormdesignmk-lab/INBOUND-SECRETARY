@@ -37,6 +37,7 @@ import { Classifier } from '../llm/classify';
 interface GroupedPattern {
   state: string;
   eventType: string;
+  bankKey: string | null;          // from the record, if set
   sampleMsgs: string[];
   sampleReplies: string[];
   count: number;
@@ -69,15 +70,43 @@ function similarity(a: string, b: string): number {
   return inter / (ta.size + tb.size - inter);
 }
 
-/** Group records by state + eventType + message similarity. */
-function groupRecords(records: Array<{ state: string; eventType: string; userMsg: string; replyText: string }>): GroupedPattern[] {
+/** Group records by state + eventType + message similarity.
+ *  Records that carry an explicit bankKey are grouped BY that key (ignoring
+ *  state/eventType) — this is the preferred path since the handler now sets
+ *  bankKey on every bank-backed deterministic reply. Records without a bankKey
+ *  (pure LLM replies for which no bank key was known) fall back to grouping by
+ *  state + eventType, with a bank key inferred via stateToBankKey(). */
+function groupRecords(records: Array<{ state: string; eventType: string; bankKey: string | null; userMsg: string; replyText: string }>): GroupedPattern[] {
   const groups: GroupedPattern[] = [];
 
   for (const rec of records) {
     let matched = false;
+
+    // Records with an explicit bankKey group by that key.
+    if (rec.bankKey) {
+      const keyGroup = groups.find(g => g.bankKey === rec.bankKey);
+      if (keyGroup) {
+        const isSimilar = keyGroup.sampleMsgs.some(m => similarity(m, rec.userMsg) > 0.4);
+        if (isSimilar) {
+          keyGroup.count++;
+          keyGroup.sampleMsgs.push(rec.userMsg);
+          keyGroup.sampleReplies.push(rec.replyText);
+          matched = true;
+        }
+      } else {
+        groups.push({
+          state: rec.state, eventType: rec.eventType, bankKey: rec.bankKey,
+          sampleMsgs: [rec.userMsg], sampleReplies: [rec.replyText], count: 1,
+        });
+        matched = true;
+      }
+    }
+
+    if (matched) continue;
+
+    // No bankKey — fall back to state + eventType grouping (LLM replies).
     for (const g of groups) {
-      if (g.state === rec.state && g.eventType === rec.eventType) {
-        // Check if this message is similar to existing messages in the group
+      if (g.bankKey === null && g.state === rec.state && g.eventType === rec.eventType) {
         const isSimilar = g.sampleMsgs.some(m => similarity(m, rec.userMsg) > 0.4);
         if (isSimilar) {
           g.count++;
@@ -90,11 +119,8 @@ function groupRecords(records: Array<{ state: string; eventType: string; userMsg
     }
     if (!matched) {
       groups.push({
-        state: rec.state,
-        eventType: rec.eventType,
-        sampleMsgs: [rec.userMsg],
-        sampleReplies: [rec.replyText],
-        count: 1,
+        state: rec.state, eventType: rec.eventType, bankKey: rec.bankKey,
+        sampleMsgs: [rec.userMsg], sampleReplies: [rec.replyText], count: 1,
       });
     }
   }
@@ -102,18 +128,38 @@ function groupRecords(records: Array<{ state: string; eventType: string; userMsg
   return groups;
 }
 
-/** Map FSM state + event to a bank key. */
+/** Map FSM state + event to a bank key — used when a record has no explicit
+ *  bankKey (pure LLM replies). Expanded to cover more of the funnel so
+ *  LLM-generated replies for informational/intentional intents can still be
+ *  banked. Records WITH a bankKey are grouped by it directly (see groupRecords). */
 function stateToBankKey(state: string, eventType: string): string | null {
-  // Direct mappings for common patterns
   const map: Record<string, string> = {
-    'discovery:DETAILS_PROVIDED': 'discovery.intro.house.business', // generic
+    // Greetings
+    'idle:STAY': 'greeting',
+    'intent:INTENT_DECLARED': 'greeting',
+    // Presentation / discovery
     'discovery:SEARCH_REQUESTED': 'presentation.open',
+    'discovery:DETAILS_PROVIDED': 'discovery.intro.house',
     'presentation:STAY': 'fallback.presentation',
     'presentation:REJECTED': 'exhausted.plain',
+    'presentation:SEARCH_REQUESTED': 'presentation.open',
+    'presentation:INTERESTED': 'property.liked',
+    // Property query
+    'property_query:INTERESTED': 'property.liked',
+    'property_query:SEARCH_REQUESTED': 'presentation.open',
+    'property_locate:INTERESTED': 'property.liked',
+    // Closing (fee)
     'closing:STAY': 'fallback.presentation',
-    'property_query:STAY': 'fallback.presentation',
-    'intent:INTENT_DECLARED': 'greeting',
-    'idle:STAY': 'greeting',
+    'closing:INTERESTED': 'property.liked',
+    // Contact / scheduling
+    'contact_collection:CONTACT_PROVIDED': 'contact.ask.name',
+    'contact_collection:CONTACT_INCOMPLETE': 'contact.ask.name.phone',
+    'visit_scheduling:VISIT_TIME_PROVIDED': 'scheduling.flex',
+    // Owner checking
+    'owner_checking:STAY': 'patience.line',
+    'owner_checking:OWNER_COUNTER': 'time_confirm',
+    // Queued
+    'queued:STAY': 'fallback.queued',
   };
   return map[`${state}:${eventType}`] ?? null;
 }
@@ -198,7 +244,10 @@ async function enrich(): Promise<void> {
   // 4. Process each frequent group
   for (const group of freqGroups) {
     log.groups++;
-    const bankKey = stateToBankKey(group.state, group.eventType);
+    // Prefer the bankKey carried by the records (set by the handler on
+    // deterministic bank-backed replies). Fall back to stateToBankKey() for
+    // pure LLM replies that have no bankKey.
+    const bankKey = group.bankKey ?? stateToBankKey(group.state, group.eventType);
     if (!bankKey) {
       console.log(`[enrich] skipping group (${group.state}/${group.eventType}) — no bank key mapping`);
       continue;

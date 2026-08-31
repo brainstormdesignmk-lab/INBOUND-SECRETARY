@@ -96,6 +96,15 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
     }
   }
   const part = partHour(t);
+  // PM context adjustment: "попладне после 6" = 18:00, not 06:00.
+  // When a bare "после N" (no HH:MM) is parsed and the text carries a PM
+  // context word (попладне/вечер/навечер), shift the hour to PM if it's < 12.
+  if (hour !== undefined && part !== undefined && part >= 12 && hour < 12 * 60) {
+    const h = Math.floor(hour / 60);
+    if (h >= 1 && h <= 11 && /(?:после|posle)/i.test(t) && !/\d{1,2}[:.]\d{2}/.test(t)) {
+      hour = (h + 12) * 60;
+    }
+  }
   if (hour === undefined && part !== undefined) hour = part * 60; // part is an HOUR
 
   const dow = dayOfWeekFrom(t);

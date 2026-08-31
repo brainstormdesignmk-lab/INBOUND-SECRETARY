@@ -345,10 +345,15 @@ test('fee resistance PIVOTS to other neighborhoods when alternatives exist ("zos
   assert.equal(s.state, 'closing'); // persuasion, not pivot
   assert.equal(s.slots.feeRejections, 1); // 1st refusal counted
 
-  // 2nd refusal → NOW the pivot fires (alternatives exist in other areas)
+  // 2nd refusal → still persuasion (3-attempt ladder)
+  s = await send('не сакам да платам');
+  assert.equal(s.state, 'closing'); // still persuasion
+  assert.equal(s.slots.feeRejections, 2); // 2nd refusal counted
+
+  // 3rd refusal → NOW the pivot fires (alternatives exist in other areas)
   s = await send('не сакам да платам');
   assert.equal(s.state, 'presentation'); // pivoted
-  const pivot = sent[4];
+  const pivot = sent[5]; // index shifted: 2 extra persuasion messages
   assert.ok(PIVOT_OFFER.test(pivot), pivot); // the other-neighborhoods offer
   assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(pivot), pivot); // price-closest alternatives
   assert.ok(!/(?:Евидентен број 78)/.test(pivot), pivot); // the current property is NOT re-offered
@@ -373,11 +378,14 @@ test('a fee REFUSAL with alternatives also pivots — and the refusal rung reset
   let s = await send('не сакам да платам'); // 1st refusal → persuasion
   assert.equal(s.state, 'closing'); // persuasion, not pivot
   assert.equal(s.slots.feeRejections, 1);
-  s = await send('не сакам да платам'); // 2nd refusal → pivot
+  s = await send('не сакам да платам'); // 2nd refusal → still persuasion
+  assert.equal(s.state, 'closing'); // still persuasion (3-attempt ladder)
+  assert.equal(s.slots.feeRejections, 2);
+  s = await send('не сакам да платам'); // 3rd refusal → pivot
   assert.equal(s.state, 'presentation'); // pivoted — alternatives exist
   assert.equal(s.slots.feeRejections, undefined, JSON.stringify(s.slots)); // reset: the new property gets a fresh fee ask
-  assert.ok(PIVOT_OFFER.test(sent[3]), sent[3]);
-  assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(sent[3]), sent[3]);
+  assert.ok(PIVOT_OFFER.test(sent[4]), sent[4]);
+  assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(sent[4]), sent[4]);
 });
 
 test('no alternatives anywhere: the fee question stays — filter rationale for why, persuasion ladder for refusals', async () => {
@@ -1427,23 +1435,28 @@ test('seen property without a number: Lina asks for Евидентен број 
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   // 1) "go gledav oglasot za stan vo karpos na internet. dali go imate uste ?"
-  //    — a SPECIFIC seen property with NO number: never the buy/rent battery.
+  //    — a SPECIFIC seen property with NO number: location (Карпош) is already
+  //    extracted, so Lina skips the generic EB-number ask and goes straight to
+  //    collecting the remaining specs (m², price).
   let s = await send('dobar den. go gledav oglasot za stan vo karpos na internet. dali go imate uste ?');
   assert.equal(s.state, 'property_locate');
-  assert.ok(sent[0].includes('Евидентен број'), sent[0]);
+  assert.ok(sent[0].includes('Карпош'), sent[0]); // acknowledges the known area
   assert.ok(!sent[0].includes('купување или изнајмување'), sent[0]);
 
-  // 2) the client does NOT know the number — the area is already known (Карпош),
-  //    so Lina immediately presents the closest Карпош matches to identify it
+  // 2) the client does NOT know the number — location (Карпош) is known but
+  //    m² / price are missing, so Lina asks for more specs before showing
   s = await send('ne go znam brojot');
   assert.equal(s.state, 'property_locate');
-  assert.ok(sent[1].includes('Евидентен број 54'), sent[1]); // 69.500 € in Карпош III
-  assert.ok(sent[1].includes('првиот'), sent[1]);
+  assert.ok(sent[1].includes('Карпош'), sent[1]); // acknowledges the area
+  assert.ok(!sent[1].includes('Евидентен број 54'), sent[1]); // NOT showing yet
 
-  // 3) "triesetina kvadrati nekade" (≈30 м²) — word-form sqm is extracted
+  // 3) "triesetina kvadrati nekade" (≈30 м²) — word-form sqm is extracted;
+  //    now sqm is set → closest matches are shown
   s = await send('triesetina kvadrati nekade');
   assert.equal(s.state, 'property_locate');
   assert.equal(s.slots.sqm, 30);
+  assert.ok(sent[2].includes('Евидентен број 54'), sent[2]); // 69.500 € in Карпош III
+  assert.ok(sent[2].includes('првиот'), sent[2]);
 
   // 4) "okolu 70 000 evra bese" — the price detail re-ranks the WHOLE pool;
   //    EB 54 (69.500) stays the closest match (the exclude bug hid it before)
@@ -1507,7 +1520,7 @@ test('availability ask: the client asks about a SHOWN property → ack (permissi
   assert.ok(sent[0].includes('Евидентен број 78'), sent[0]);
   s = await send('dali e seuste dostapen?');
   assert.equal(s.state, 'closing');
-  assert.ok(/(?:достапен|достапна|постои|база|слободен|слободна|активен|активна|води)/i.test(sent[1]), sent[1]);
+  assert.ok(/(?:достапен|достапна|постои|база|слободен|слободна|активен|активна|води| располагање)/i.test(sent[1]), sent[1]);
   assert.ok(sent[1].includes('?'), sent[1]); // must be a QUESTION (permission ask)
   assert.ok(!sent[1].includes('500 денари'), sent[1]); // fee NOT yet disclosed
   assert.ok(!sent[1].includes('Станот под Евидентен'), sent[1]);
@@ -1651,7 +1664,7 @@ test('a куќа funnel stays куќа through type-less detail messages — a �
   s = await send('DVE SPALNI OBAVEZNO A MOZE I TRI');
   assert.equal(s.state, 'presentation');
   assert.equal(s.slots.house, true);
-  assert.equal(s.slots.bedrooms, 2); // "DVE SPALNI" is a real bedroom count now
+  assert.equal(s.slots.bedrooms, 3); // "DVE SPALNI" = 2 bedrooms → 3-room (feed stores room count)
   assert.ok(sent[3].includes('Евидентен број 91'), sent[3]); // the HOUSE
   assert.ok(!sent[3].includes('Евидентен број 92'), sent[3]); // never the стан
   assert.ok(!sent[3].includes('станот под'), sent[3]);
@@ -1897,7 +1910,7 @@ test('bedroom mismatch: 2-bedroom requested but only 3-bedroom available → exp
     `should show available 3-bedroom properties: ${reply.substring(0, 200)}`);
 });
 
-test('bedroom match: 3-bedroom requested and 3-bedroom available → NO explanation prefix', async () => {
+test('bedroom match: 2-bedroom requested (= 3-room) and 3-room available → NO explanation prefix', async () => {
   const cfg = loadConfig();
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
@@ -1919,7 +1932,7 @@ test('bedroom match: 3-bedroom requested and 3-bedroom available → NO explanat
 
   await send('SAKAM DA KUPAM TROSOBEN STAN');
   await send('VO KISELA VODA');
-  await send('TRI SPALNI');
+  await send('DVE SPALNI');  // 2 bedrooms → 3-room (matches properties with bedrooms: 3)
   await send('DO 100000');
   const reply = sent[sent.length - 1];
   assert.ok(reply, 'must get a reply');

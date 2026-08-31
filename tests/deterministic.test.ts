@@ -108,6 +108,18 @@ test('detectAvailabilityAsk: "дали е сеуште достапен?" — th
   assert.equal(detectAvailabilityAsk('дали е достапен 82?'), true); // number supplies the EB
   assert.equal(detectAvailabilityAsk('Dail e dostapen seuste ?'), true); // transposed l/i typo
   assert.equal(detectAvailabilityAsk('DAIL E SEUSTE DOSTAPEN ?'), true); // same typo uppercase
+  // Reversed word order: "uste" before "go imate" — the most common Latin
+  // Viber typing for this question (ME INTERESIRA DALI USTE GO IMATE 79)
+  assert.equal(detectAvailabilityAsk('ME INTERESIRA DALI USTE GO IMATE 79'), true);
+  assert.equal(detectAvailabilityAsk('me interesira dali uste go imate 79'), true);
+  assert.equal(detectAvailabilityAsk('Dali uste go imate?'), true);
+  assert.equal(detectAvailabilityAsk('дали уште го имате?'), true);
+  assert.equal(detectAvailabilityAsk('ДАЛИ УШТЕ ГО ИМАТЕ?'), true);
+  assert.equal(detectAvailabilityAsk('уште ли го имате?'), true);
+  assert.equal(detectAvailabilityAsk('сеуште го имате?'), true);
+  assert.equal(detectAvailabilityAsk('uste li go imate?'), true);
+  assert.equal(detectAvailabilityAsk('seuste li go imate?'), true);
+  assert.equal(detectAvailabilityAsk('SEUSTE LI GO IMATE?'), true);
   // NOT availability asks — visit interest, searches, greetings stay untouched
   assert.equal(detectAvailabilityAsk('KOGA BI MOZELO DA SE POGLEDNE STANOT ?'), false);
   assert.equal(detectAvailabilityAsk('сакам да ја видам 78'), false);
@@ -207,7 +219,10 @@ test('detectService: "ми треба стан" without a marker is UNKNOWN — 
 });
 
 test('detectBedrooms: numbers and word forms', () => {
-  assert.equal(detectBedrooms('2 spalni'), 2);
+  // spalni (bedrooms) → room count (bedrooms + 1)
+  assert.equal(detectBedrooms('2 spalni'), 3);  // 2 bedrooms → 3-room
+  assert.equal(detectBedrooms('2 sobi'), 2);     // 2 rooms → 2-room
+  // Room-type words → room count (direct)
   assert.equal(detectBedrooms('двособен стан'), 2);
   assert.equal(detectBedrooms('една соба'), 1);
   assert.equal(detectBedrooms('три соби'), 3);
@@ -215,13 +230,14 @@ test('detectBedrooms: numbers and word forms', () => {
   assert.equal(detectBedrooms('zdravo'), undefined);
 });
 
-test('detectBedrooms: "спални" word forms count — "DVE SPALNI" is 2 (the transcript gap)', () => {
-  assert.equal(detectBedrooms('DVE SPALNI ОБАВЕЗНО А МОЖЕ И ТРИ'), 2);
-  assert.equal(detectBedrooms('dve spalni'), 2);
-  assert.equal(detectBedrooms('две спални'), 2);
-  assert.equal(detectBedrooms('три спални'), 3);
-  assert.equal(detectBedrooms('една спална'), 1);
-  assert.equal(detectBedrooms('четири спални'), 4);
+test('detectBedrooms: "спални" word forms count — spalni = bedrooms, +1 for room count', () => {
+  // спални (bedrooms) → room count (bedrooms + 1)
+  assert.equal(detectBedrooms('DVE SPALNI ОБАВЕЗНО А МОЖЕ И ТРИ'), 3);  // 2 bedrooms → 3-room
+  assert.equal(detectBedrooms('dve spalni'), 3);
+  assert.equal(detectBedrooms('две спални'), 3);
+  assert.equal(detectBedrooms('три спални'), 4);    // 3 bedrooms → 4-room
+  assert.equal(detectBedrooms('една спална'), 2);   // 1 bedroom → 2-room
+  assert.equal(detectBedrooms('четири спални'), 5); // 4 bedrooms → 5-room
 });
 
 test('detectBedrooms: "мало станче"/"гарсоњера" is a 1-bedroom request (explicit wins)', () => {
@@ -230,7 +246,7 @@ test('detectBedrooms: "мало станче"/"гарсоњера" is a 1-bedroo
   assert.equal(detectBedrooms('мала гарсоњера'), 1);
   assert.equal(detectBedrooms('garsonjera'), 1);
   // an explicit bedroom mention overrides the small-word heuristic
-  assert.equal(detectBedrooms('мало станче со 2 спални'), 2);
+  assert.equal(detectBedrooms('мало станче со 2 спални'), 3);  // 2 bedrooms → 3-room
   assert.equal(detectBedrooms('zdravo'), undefined);
 });
 
@@ -719,7 +735,7 @@ test('buildEvent: nothing detected -> STAY', () => {
 test('extractSlots: full LLM-free intake from a single Latin message', () => {
   const s = extractSlots('sakam da kupam stan vo Centar, 2 spalni, do 80.000 evra');
   assert.equal(s.service, 'buy');
-  assert.equal(s.bedrooms, 2);
+  assert.equal(s.bedrooms, 3);  // 2 spalni = 2 bedrooms → 3-room (feed stores room count)
   assert.equal(s.budget, '80000');
   assert.equal(s.rejected, undefined);
 });

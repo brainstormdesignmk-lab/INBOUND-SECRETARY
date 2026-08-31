@@ -128,10 +128,10 @@ test('buildPropertyCards: code-built PROSE card quotes euros and real data (LLM-
   assert.ok(card.includes('Во него има лифт, парно и јавен паркинг.'), card);
   assert.ok(card.includes('Станот е целосно наместен.'), card);
   assert.ok(card.includes('Цената е 143.000 евра.'), card);
-  // With a resolved landmark the card names it ("Се наоѓа во близина на …"),
-  // never the street.
+  // The resolver's landmark line was removed (wrong geocoded landmarks).
+  // The landmark is NOT in the card — the client asks "каде е?" instead.
   const landmarked = buildPropertyCard({ ...prop, landmark: 'Градежниот факултет' });
-  assert.ok(landmarked.includes('Се наоѓа во близина на Градежниот факултет.'), landmarked);
+  assert.ok(!landmarked.includes('Градежниот факултет'), landmarked);
   assert.ok(!landmarked.includes('Јане Сандански'), landmarked);
   // prose, not a spec sheet — no "Клуч: Вредност" walls
   assert.ok(!card.includes('Локација:'));
@@ -316,23 +316,26 @@ test('conversationalDetails: the exact street NEVER survives (address secrecy)',
   assert.ok(!card2.includes('улица'), card2);
 });
 
-test('conversationalDetails: the proximity landmark is said ONCE, not twice', () => {
-  // The ad names a landmark ("во близина на Мајчин Дом") — the resolver's
-  // landmark line is skipped so the proximity never repeats.
+test('conversationalDetails: the proximity landmark is stripped from ad text, resolver landmark not in card', () => {
+  // The ad names a landmark ("во близина на Мајчин Дом") — the
+  // conversationalDetails function strips proximity phrases, so the
+  // landmark does NOT survive in the card. The resolver's landmark line
+  // was also removed (wrong geocoded landmarks). The client asks "каде е?"
+  // to get the landmark from the WHERE_IS handler.
   const prop: Property = {
     eb: 88, id: 88, location: 'Аеродром', price: 68000, size: '68 м²', landmark: 'Мајчин Дом',
     details: 'Агенција МЕТРОПОЛИС Продава Одличен Фамилијарен Стан во Аеродром. Во Близина на Мајчин Дом, во најпожелниот дел на Аеродром. Две Спални Соби.',
   };
   const card = buildPropertyCard(prop);
-  assert.equal(card.split('Мајчин Дом').length - 1, 1, card); // exactly once
-  assert.ok(/близина на Мајчин Дом/.test(card), card);
-  // when the ad has NO landmark, the resolver's line still names it
+  // The ad's proximity phrase is stripped by conversationalDetails
+  assert.ok(!card.includes('Мајчин Дом'), card);
+  // when the ad has NO landmark, the resolver's line is also not included
   const prop2: Property = {
     eb: 95, id: 95, location: 'Центар', price: 204000, size: '74 м²', landmark: 'ГТЦ',
     details: 'Се продава нов стан на прв спрат и гаражно место.',
   };
   const card2 = buildPropertyCard(prop2);
-  assert.ok(card2.includes('Се наоѓа во близина на ГТЦ'), card2);
+  assert.ok(!card2.includes('ГТЦ'), card2); // resolver landmark NOT in card
 });
 
 test('conversationalDetails: niche ad phrases are stripped too („Сите Потреби…", mid-sentence „се продава")', () => {

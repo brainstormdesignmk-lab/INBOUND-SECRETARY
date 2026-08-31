@@ -72,7 +72,7 @@ test('the original bug phrases route to LANDMARK', () => {
 
 test('"something else well-known?" family advances the rotation (LANDMARK)', () => {
   const cases = [
-    'DRUGO NESTO POZNATO ?', 'drugo nesto?', 'nesto poznato?',
+    'DRUGO NESTO POZNATO ?', 'nesto poznato?',
     'dali ima nesto poznato', 'друго нешто познато?', 'нешто познато?',
     'познато место?',
   ];

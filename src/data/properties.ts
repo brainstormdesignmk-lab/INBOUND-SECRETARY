@@ -617,14 +617,27 @@ export class PropertyService {
       .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
       .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
       .filter(p => max === undefined || p.price === undefined || p.price <= max);
-    // Bedroom filter: try exact match first; if no results, fall back to >=
-    // so the client sees alternatives (bigger/smaller) instead of nothing.
+    // Bedroom filter: try exact match first; if no results in the TARGET
+    // LOCATION, fall back to >= so the client sees alternatives (bigger/smaller)
+    // instead of nothing. The fallback must happen BEFORE the location filter
+    // so that exact matches in OTHER areas don't block the >= fallback for
+    // the requested area.
     const withBedrooms = opts.bedrooms
       ? base.filter(p => !p.bedrooms || p.bedrooms === opts.bedrooms)
       : base;
-    const baseFiltered = withBedrooms.length > 0 ? withBedrooms : base.filter(p => !opts.bedrooms || !p.bedrooms || p.bedrooms >= (opts.bedrooms as number));
-    // Track whether we had to relax the filter so the caller can explain.
-    const relaxedBedrooms = opts.bedrooms && withBedrooms.length === 0 && baseFiltered.length > 0;
+    // Check if exact matches exist in the target location
+    const exactInLoc = opts.location ? withBedrooms.filter(inLoc) : withBedrooms;
+    let baseFiltered: typeof base;
+    let relaxedBedrooms = false;
+    if (exactInLoc.length > 0 || !opts.location) {
+      // Exact matches in target area (or no location filter) — use them
+      baseFiltered = withBedrooms;
+    } else {
+      // No exact matches in target area — fall back to >= for the WHOLE pool,
+      // then apply location filter so the client sees bigger/smaller options
+      baseFiltered = base.filter(p => !opts.bedrooms || !p.bedrooms || p.bedrooms >= (opts.bedrooms as number));
+      relaxedBedrooms = !!(opts.bedrooms && baseFiltered.length > 0);
+    }
     const sqmFiltered = opts.sqm ? baseFiltered.filter(p => !p.sqm || p.sqm >= (opts.sqm as number)) : baseFiltered;
     const relaxedSqm = opts.sqm && sqmFiltered.length === 0 && baseFiltered.length > 0;
     const finalBase = relaxedSqm ? baseFiltered : sqmFiltered;

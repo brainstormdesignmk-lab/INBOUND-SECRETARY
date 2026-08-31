@@ -165,7 +165,8 @@ const POI_PRIORITY: Record<string, number> = {
   square: 0, plaza: 0,
   // neighbourhood/locality/suburb are geographic LABELS, not landmarks.
   // 'во близина на Центар' is meaningless when you ARE in Центар.
-  neighbourhood: 40, locality: 40, suburb: 40,
+  // Never use as landmarks — excluded from nearestPois entirely.
+  neighbourhood: 100, locality: 100, suburb: 100,
   // institutional
   hospital: 1, clinic: 1, healthcare: 1,
   school: 2, university: 2, college: 2, dormitory: 2,
@@ -285,8 +286,12 @@ export class OfflineMapStore {
     const rows = this.db.prepare(
       `SELECT name, type, lat, lon FROM pois WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?`
     ).all(lat - dLat, lat + dLat, lon - dLon, lon + dLon) as Array<{ name: string; type: string; lat: number; lon: number }>;
+    // Exclude suburb/neighbourhood/locality — geographic labels, not navigation points.
+    // 'Јане Сандански' as a suburb centres on the whole neighbourhood, not the property.
+    const EXCLUDED_POI_TYPES = new Set(['suburb', 'neighbourhood', 'locality', 'village', 'hamlet', 'quarter', 'city_block', 'residential']);
     const out: LocalPoi[] = [];
     for (const r of rows) {
+      if (EXCLUDED_POI_TYPES.has(r.type)) continue;
       const d = meters({ lat, lon }, { lat: r.lat, lon: r.lon });
       if (d <= radiusM) out.push({ name: r.name, type: boostNamedLandmark(r.type, r.name), distance_m: Math.round(d), lat: r.lat, lon: r.lon });
     }

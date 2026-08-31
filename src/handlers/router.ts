@@ -16,7 +16,7 @@ import {
   detectExactAddressAsk, detectWhereIs, detectOwnerContact,
   isKadeTocno, detectPropertyDescription, detectService, detectBothServices,
   detectVisitCancellation, detectOfftopic, detectDefer, detectNegotiate,
-  detectProvisionAsk, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
+  detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
 } from '../llm/deterministic';
 
@@ -140,14 +140,21 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
     bankKey: 'price.negotiate',
     fallback: 'Цената е фиксна, но ако сакате можам да го контактам сопственикот за да видам дали има простор за преговарање.',
     detect: detectNegotiate,
-    allowedStates: ['closing', 'presentation', 'property_query'],
+    allowedStates: ['closing', 'presentation', 'property_query', 'contact_collection'],
+  },
+  {
+    intent: 'PROVISION_WHO',
+    bankKey: 'provision.who',  // resolved to .buy / .rent in handler
+    fallback: 'Трошоците за адвокат и нотар се по договор. Вообичаена пракса е 50/50.',
+    detect: detectProvisionWho,
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
   },
   {
     intent: 'PROVISION_ASK',
     bankKey: 'provision.ask',
     fallback: 'Агенциската провизија изнесува 500 денари (10 евра) и се плаќа при организација на посетата.',
     detect: detectProvisionAsk,
-    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'],
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
   },
   {
     intent: 'ESCALATION',
@@ -161,14 +168,14 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
     bankKey: 'documents.info',
     fallback: 'За документите ќе добиете информации при посетата на имотот.',
     detect: detectDocumentsAsk,
-    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'],
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
   },
   {
     intent: 'MORTGAGE_ASK',
     bankKey: 'mortgage.info',
     fallback: 'Можам да Ви помогнам со информации за финансирање. Кажете ми кој банкарски производ Ве интересира.',
     detect: detectMortgageAsk,
-    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'],
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
   },
   {
     intent: 'NEIGHBORHOOD_ASK',
