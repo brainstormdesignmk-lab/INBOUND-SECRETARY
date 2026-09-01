@@ -9,7 +9,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, detectPriceAsk, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -244,7 +244,22 @@ export class InboundHandler {
       this.deps.sessions.set(session);
       await this.sendRaw(session, warning);
       return;
-    }
+     }
+
+    // Question gate: when the client asks a genuine question (investment opinion,
+    // price comparison, fee debate, neighborhood advice, etc.), skip ALL
+    // deterministic interceptors and fall through to the FSM classifier +
+    // LLM responder. Each interceptor has its own exclusion guards (e.g.
+    // detectInvestmentOpinion on PROPERTY_DESCRIPTION), but a question that
+    // false-positives on one interceptor would never reach the LLM. This
+    // single gate ensures question-intent messages reach the LLM where they
+    // get proper context-aware handling + enrichment logging.
+    // NOTE: service intents (sakam da kupam) and property descriptions (garsonjerata
+    // kaj ambasada) are NOT caught here — they must still hit their fast paths.
+    const skipInterceptors = isGenuineQuestion(text)
+      && !detectService(text) && !detectBothServices(text)
+      && !detectPropertyDescription(text)  // excluded — property descriptions need the fast path
+      && !detectExactAddressAsk(text);    // excluded — exact address has its own WHERE_IS guard
 
     // The client asks for the EXACT street/address ("потoчно која улица?",
     // "точно која адреса?", "на која адреса е?") — address PRIVACY is
@@ -256,7 +271,7 @@ export class InboundHandler {
     // Also: "каде му е адресата?" matches EXACT_ADDRESS but is really a WHERE_IS
     // question — the client wants to know WHERE it is, not the exact address.
     // WHERE_IS takes priority: landmark rotation first, protocol on follow-ups.
-    if (detectExactAddressAsk(text) && !isKadeTocno(text) && !detectWhereIs(text)) {
+    if (detectExactAddressAsk(text) && !isKadeTocno(text) && !detectWhereIs(text) && !skipInterceptors) {
       routeLog(chatId, text, 'EXACT_ADDRESS');
       const answer = buildExactAddressAnswer(assistantTexts(session));
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -515,7 +530,8 @@ export class InboundHandler {
     // Exclude service intents ("sakam da kupam/iznajmam") — those go to discovery.
     if (detectPropertyDescription(text) && !session.slots.service
         && !detectService(text) && !detectBothServices(text)
-        && !detectDrugAlternative(text)) {
+        && !detectDrugAlternative(text)
+        && !detectInvestmentOpinion(text)) {
       routeLog(chatId, text, 'PROPERTY_DESCRIPTION');
       const slots = extractSlots(text);
       if (!slots.service) {
@@ -553,8 +569,168 @@ export class InboundHandler {
       // Service declared — fall through to classifier/discovery
     }
 
-    // 1) Cold-brained intent extraction (Groq, JSON mode)
-    const classified = await this.deps.classifier.classify(session, text);
+    // Reply accumulators — declared early so the fast deterministic path
+    // can use them before the classifier/FSM chain.
+    let reply: string = '';
+    let replySource = 'deterministic';
+    let bankKey: string | undefined;
+
+    // 0b) Fast deterministic dispatch: check the bank BEFORE the classifier.
+    // If a bank-backed answer exists (provision, mortgage, documents, fee-why,
+    // investment opinion, etc.), skip the Groq classifier entirely — the answer
+    // fires instantly without any LLM call. This is the core of the LLM-free
+    // design: deterministic answers must be instant, LLM only fires when there
+    // is NO deterministic answer.
+    //
+    // EXCEPTIONS: states that need FSM transitions or slot extraction must still
+    // go through the classifier:
+    //   - contact_collection: needs contact reminder appended
+    //   - property_locate: needs slot extraction for property matching
+    //   - discovery: needs FSM transition for criteria collection
+    //   - idle/intent: first messages need classifier for intent extraction
+    // Messages that need the classifier (Groq) for FSM transitions, slot
+    // extraction, or intent disambiguation — even if dispatchSimple matches.
+    const needsClassifier = ['contact_collection', 'property_locate', 'discovery', 'idle', 'intent'].includes(session.state)
+      // Property/visit-related messages need the classifier for FSM transitions:
+      // visit interest → closing, property description → property_locate, etc.
+      || detectVisitInterest(text)
+      || detectPropertyInterest(text)
+      || detectPropertyDescription(text)
+      || detectSeeOffers(text)
+      || detectAvailabilityAsk(text)
+      || detectDrugAlternative(text)
+      || detectSuggestAlternatives(text)
+      || detectService(text)
+      || detectBothServices(text)
+      || detectLocationNag(text)
+      || detectExactAddressAsk(text)
+      || detectWhereIs(text) !== undefined;
+    if (!needsClassifier) {
+      const simpleFast = dispatchSimple(text, session.state);
+      if (simpleFast) {
+        routeLog(chatId, text, simpleFast.intent);
+        let effectiveKey = simpleFast.bankKey;
+        if (effectiveKey === 'provision.ask') {
+          effectiveKey = session.slots.service === 'rent' ? 'provision.ask.rent' : 'provision.ask.buy';
+        } else if (effectiveKey === 'provision.who') {
+          const isDanok = /danok|danokot|данок|данокот/i.test(text);
+          if (isDanok && session.slots.service !== 'rent') {
+            effectiveKey = 'provision.who.danok.buy';
+          } else {
+            effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
+          }
+        }
+        reply = pickVariant(effectiveKey, { recent: assistantTexts(session) })
+          ?? simpleFast.fallback;
+        bankKey = effectiveKey;
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        // Enrichment logging for bank-backed fast-path replies
+        if (this.deps.enrichment && bankKey) {
+          try {
+            this.deps.enrichment.insert({
+              chatId: session.chatId,
+              state: session.state,
+              eventType: 'DETERMINISTIC_FAST',
+              userMsg: text,
+              replyText: reply,
+              replySource: 'deterministic',
+              bankKey,
+            });
+          } catch (e) { console.error('[enrichment] log failed:', (e as Error).message); }
+        }
+        const pipelineMs = Date.now() - pipelineStart;
+        console.log(`[timing] pipeline ${pipelineMs}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+
+      // Additional bank-backed detectors that don't need the classifier:
+      // fee.why, fee.complaint, investment.opinion, price.ask — all fire
+      // instantly from the bank without Groq.
+      if (detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(session.state)) {
+        reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? 'Разбирам. Надоместот за разгледување е симболичен и служи како филтер за сериозни клиенти.';
+        bankKey = 'fee.why';
+        routeLog(chatId, text, 'FEE_WHY:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && bankKey) {
+          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_WHY_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ }
+        }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+      if (detectFeeComplaint(text) && session.state === 'closing' && !detectFeeWhy(text)) {
+        reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? 'Разбирам. Надоместот за разгледување е симболичен и служи како филтер за сериозни клиенти.';
+        bankKey = 'fee.why';
+        routeLog(chatId, text, 'FEE_COMPLAINT:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && bankKey) {
+          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_COMPLAINT_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ }
+        }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+      if (detectInvestmentOpinion(text)) {
+        reply = pickVariant('investment.opinion', { recent: assistantTexts(session) })
+          ?? 'Разбирам. Цените ги одредуваат сопствениците, а ние сме само посредници. Дали сакате да Ви понудам некои опции во друг реон, или да го контактирам сопственикот за моменталната цена?';
+        bankKey = 'investment.opinion';
+        routeLog(chatId, text, 'INVESTMENT_OPINION:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && bankKey) {
+          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'INVESTMENT_OPINION_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ }
+        }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+      if (detectPriceAsk(text) && !detectProvisionAsk(text) && !detectProvisionWho(text) && !detectDrugAlternative(text)) {
+        const priceEb = session.slots.propertyId
+          ?? session.slots.interestedPropertyId
+          ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
+        if (priceEb) {
+          const p = await this.deps.properties.getById(priceEb);
+          if (p?.price !== undefined) {
+            const priceLoc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
+            const priceType = p.house ? 'Куќата' : p.business ? 'Деловниот простор' : 'Станот';
+            reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ' во ' + priceLoc : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
+            session.slots.lastPrice = String(p.price);
+          } else {
+            reply = pickVariant('fee.ask.buy', { recent: assistantTexts(session) }) ?? 'Цената ја одредува сопственикот.';
+          }
+        } else {
+          reply = 'За кое конкретно станува збор? Кажете ми Евидентен број и ќе Ви ја соопштам цената.';
+        }
+        bankKey = 'price.ask';
+        routeLog(chatId, text, 'PRICE_ASK:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && bankKey) {
+          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PRICE_ASK_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ }
+        }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+    }
+
+    // 1) Deterministic intent extraction — NO LLM call.
+    // Classify using only regex detectors + buildEvent. Only falls to Groq
+    // when the message is truly novel (no detector fires, no slots extracted).
+    let classified = await this.deps.classifier.deterministicClassify(session, text);
+    if (!classified) {
+      // Truly novel message — Groq classifies the state, then Gemini answers.
+      classified = await this.deps.classifier.classify(session, text);
+    }
 
     // 2) Slots + FSM transition
     const ev = classified.event;
@@ -681,17 +857,6 @@ export class InboundHandler {
       this.queueCustomer(session, session.slots.queueAfterContact ? 'исцрпени опции — регистрирани барања' : '3x одбиен надомест');
     }
     if (next === 'escalated') this.raiseEscalation(session, text);
-
-    // Reply accumulators — declared BEFORE the first branch that assigns them
-    // (visit cancellation below), otherwise the block uses them pre-declaration.
-    let reply: string = '';
-    // Which brain produced the reply — default deterministic; only the
-    // responder path can be LLM-driven ('gemini:1..3' / 'groq' / 'fallback').
-    let replySource = 'deterministic';
-    // When a deterministic reply uses a bank key, this carries it so the
-    // enrichment queue can log it (banked replies ARE worth enriching — they
-    // are the ones that would benefit most from variant diversity).
-    let bankKey: string | undefined;
 
     // Visit cancellation: client or owner says they can't make it.
     // Works in visit_scheduling, owner_checking, time_confirm, pending.

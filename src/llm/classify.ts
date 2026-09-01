@@ -182,6 +182,184 @@ export class Classifier {
     this.llm = llm;
   }
 
+  /**
+   * Pure deterministic classifier — no LLM call. Replicates the full
+   * classify() logic (slot extraction, event type, funnel overrides) using
+   * only regex detectors + buildEvent. Returns undefined when the message
+   * is truly novel and needs the LLM (no detector fires).
+   *
+   * The caller uses this as the primary path. Groq only fires when this
+   * returns undefined — the truly novel messages that no detector catches.
+   */
+  async deterministicClassify(session: ChatSession, text: string): Promise<Classified | undefined> {
+    const t0 = Date.now();
+
+    // --- Bare-number override ---
+    let barePid: number | undefined;
+    if (PROP_INTAKE_STATES.has(session.state)) {
+      barePid = inferPropertyId(text);
+    }
+
+    // --- Seen-property override ---
+    // Only in intake states, and only when no bare number was extracted
+    // (a number means the client knows the EB — easy lookup path).
+    if (['idle', 'intent', 'discovery'].includes(session.state)
+      && !barePid && detectSeenProperty(text)) {
+      const slots = extractSlots(text);
+      let location = slots.location;
+      if (!location && this.properties) {
+        try {
+          const locs = await this.properties.locations();
+          location = detectLocation(text, locs) ?? undefined;
+        } catch { /* ignore */ }
+      }
+      console.log(`[timing] det-classify ${Date.now() - t0}ms → SEEN_PROPERTY`);
+      return {
+        event: {
+          type: 'SEEN_PROPERTY', service: slots.service, location,
+          bedrooms: slots.bedrooms, sqm: slots.sqm, business: slots.business,
+          house: slots.house, budget: slots.budget, anywhere: slots.anywhere,
+        }, offensive: false, offenseLevel: 0,
+      };
+    }
+
+    // --- Slot extraction + buildEvent (the deterministic core) ---
+    const slots = extractSlots(text);
+    let location = slots.location;
+    if (!location && this.properties) {
+      try {
+        const locs = await this.properties.locations();
+        const loc = detectLocation(text, locs);
+        if (loc) location = loc;
+      } catch { /* ignore */ }
+    }
+    let ev = buildEvent(session.state, {
+      service: slots.service, location, bedrooms: slots.bedrooms,
+      sqm: slots.sqm, business: slots.business, house: slots.house,
+      budget: slots.budget, anywhere: slots.anywhere,
+      need: slots.need, rejected: slots.rejected,
+    });
+
+    // Bare-number: set propertyId on event BEFORE funnel overrides so
+    // visit interest can read it ("ДОГОВОРИ MI ЗА ОВОЈ СО БРОЈ 89" →
+    // INTERESTED with propertyId=89, not a bare INTERESTED).
+    if (barePid && ev.type === 'STAY') {
+      ev = { type: 'PROPERTY_ID_REQUESTED', propertyId: barePid };
+    }
+
+    // --- Contact intake (contact_collection state) ---
+    // Always fire in contact_collection — phone/name digits must not be
+    // eaten as budget/bedrooms by extractSlots.
+    if (session.state === 'contact_collection' && ev.type !== 'CONTACT_PROVIDED' && ev.type !== 'CONTACT_INCOMPLETE') {
+      const c = detectContact(text);
+      const phone = c.phone ?? session.slots.phone;
+      if (phone || c.name) {
+        ev = phone && c.name
+          ? { type: 'CONTACT_PROVIDED', name: c.name, phone }
+          : phone
+            ? { type: 'CONTACT_INCOMPLETE', phone }
+            : { type: 'CONTACT_INCOMPLETE', name: c.name };
+      }
+    }
+
+    // --- Funnel overrides ---
+
+    // Visit interest in property states → INTERESTED
+    if (['property_query', 'presentation'].includes(session.state)
+      && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
+      && detectVisitInterest(text)) {
+      const pid = ev.propertyId ?? session.slots.propertyId;
+      ev = pid ? { type: 'INTERESTED', propertyId: pid } : { type: 'INTERESTED' };
+    }
+
+    // Agreement in closing → FEE_AGREED.
+    // Guard: ev.type must NOT already be REJECTED/ESCALATE/FEE_REFUSED, but
+    // DETAILS_PROVIDED is allowed — a false-positive location ("да" matches
+    // a location substring like "Кисела Вода") can inflate ev to DETAILS_PROVIDED
+    // and silently block the agreement override, leaving the client stuck in
+    // closing with a broken funnel.
+    if ((ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED') && session.state === 'closing'
+      && detectAgreement(text) && !detectFeeWhy(text)
+      && !detectRejection(text) && !detectInvestmentOpinion(text)) {
+      ev = { type: 'FEE_AGREED' };
+    }
+
+    // Fee WHY guard — agreement overridden to STAY when WHY-question
+    if (session.state === 'closing' && ev.type === 'FEE_AGREED' && detectFeeWhy(text)) {
+      ev = { type: 'STAY' };
+    }
+
+    // Visit time in visit_scheduling → VISIT_TIME_PROVIDED
+    if (session.state === 'visit_scheduling'
+      && ev.type !== 'VISIT_TIME_PROVIDED' && ev.type !== 'ESCALATE' && ev.type !== 'REJECTED') {
+      const t = detectVisitTime(text);
+      if (t) ev = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+    }
+
+    // Time confirm: rejection / agreement / new time
+    if (ev.type === 'STAY' && session.state === 'time_confirm') {
+      const bareNo = /^(?:не|ne|no)\s*[.!?]*$/iu.test(text.trim());
+      if (detectTimeRejection(text) || bareNo) {
+        ev = { type: 'TIME_REJECTED' };
+      } else if (detectAgreement(text)) {
+        ev = { type: 'TIME_ACCEPTED' };
+      } else {
+        const t = detectVisitTime(text);
+        if (t) ev = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+      }
+    }
+
+    // Owner checking: time rejection or new time
+    if (session.state === 'owner_checking'
+      && ev.type !== 'ESCALATE' && ev.type !== 'REJECTED') {
+      if (detectTimeRejection(text)) {
+        ev = { type: 'TIME_REJECTED' };
+      } else {
+        const t = detectVisitTime(text);
+        if (t) ev = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+      }
+    }
+
+    // See offers in discovery → SEARCH_REQUESTED
+    if (session.state === 'discovery'
+      && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE' && ev.type !== 'PROPERTY_ID_REQUESTED'
+      && detectSeeOffers(text)) {
+      ev = { type: 'SEARCH_REQUESTED' };
+    }
+
+    // Suggest alternatives in property_query → SEARCH_REQUESTED
+    if (session.state === 'property_query'
+      && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
+      && ev.type !== 'PROPERTY_ID_REQUESTED' && ev.type !== 'INTERESTED'
+      && (detectSuggestAlternatives(text) || detectDrugAlternative(text))) {
+      ev = { type: 'SEARCH_REQUESTED' };
+    }
+
+    // Property locate pick → INTERESTED
+    if (session.state === 'property_locate'
+      && ev.type !== 'PROPERTY_ID_REQUESTED' && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE') {
+      const batch = session.slots.currentBatch ?? [];
+      const pick = detectLocatePick(text);
+      if (pick !== undefined && batch[pick] !== undefined) {
+        ev = { type: 'INTERESTED', propertyId: batch[pick] };
+      } else if (batch.length === 1 && detectAgreement(text) && !/знам|znam/i.test(text)) {
+        ev = { type: 'INTERESTED', propertyId: batch[0] };
+      }
+    }
+
+    // If event is still STAY and no slots were extracted → truly novel, needs LLM.
+    // Also defer INTENT_DECLARED without details: the LLM can enrich bare intents
+    // with location context that the deterministic regex can't extract.
+    const hasSlots = !!(slots.service || location || slots.bedrooms || slots.budget || slots.sqm || slots.anywhere);
+    const hasDetail = !!(location || slots.bedrooms || slots.budget || slots.sqm || slots.anywhere);
+    if ((ev.type === 'STAY' && !hasSlots) || (ev.type === 'INTENT_DECLARED' && !hasDetail)) {
+      return undefined; // signals caller to fire Groq
+    }
+
+    console.log(`[timing] det-classify ${Date.now() - t0}ms → ${ev.type}`);
+    return { event: ev, offensive: false, offenseLevel: 0 };
+  }
+
   async classify(session: ChatSession, text: string): Promise<Classified> {
     const messages = [
       { role: 'system' as const, content: CLASSIFY_SYSTEM },

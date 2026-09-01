@@ -771,6 +771,44 @@ export function detectExhaustedFollowUp(text: string): boolean {
   return matchesBoth(EXHAUSTED_FOLLOWUP_RE, text);
 }
 
+// A message that expresses a genuine QUESTION needing the LLM's semantic
+// processing — NOT a remembered-property description, NOT a service intent,
+// but a conceptual inquiry (investment opinions, price explanations,
+// comparisons, feature questions, fee debates, neighborhood advice, etc.).
+//
+// The interceptor chain runs these checks BEFORE the FSM classifier, so any
+// question that triggers a false-positive deterministic interceptor (e.g.
+// "стан во скопје" inside an investment question) would never reach the LLM.
+// This consolidated gate is used by ALL early-return interceptors: when true,
+// the message skips the deterministic interceptors and falls through to the
+// classifier + LLM responder, which has the full conversation context.
+//
+// Each individual detector is still used in its proper routing context — this
+// is an OR-union for the gate only, NOT a replacement for targeted checks.
+export function isGenuineQuestion(text: string): boolean {
+  return detectInvestmentOpinion(text)
+    || detectComparison(text)
+    || detectFeatureAsk(text)
+    || detectNeighborhoodAsk(text)
+    || detectMortgageAsk(text)
+    || detectDocumentsAsk(text)
+    || detectProvisionAsk(text)
+    || detectProvisionWho(text)
+    || detectPriceAsk(text)
+    || detectSchedulingFlex(text)
+    || detectFeeWhy(text)
+    || detectFeeComplaint(text)
+    // NOTE: detectLocationNag excluded — it has its own LOCATION_NAG interceptor
+    // in inbound.ts that shows nearby landmarks deterministically. Including it
+    // here would cause skipInterceptors to block the handler (self-blocking bug).
+    || detectDrugAlternative(text)
+    || detectSuggestAlternatives(text)
+    || detectExhaustedFollowUp(text)
+    || detectFeePaymentAgreement(text)
+    || detectApartmentNeed(text)
+    || detectPriceReference(text);
+}
+
 // Minimal name+phone intake for the LLM-down path (contact_collection).
 const NAME_STOPWORDS = new Set(['моето', 'мое', 'име', 'јас', 'сум', 'се', 'викам',
   'нарекувам', 'тел', 'телефон', 'телефонот', 'број', 'бројот', 'контакт', 'контактниот',

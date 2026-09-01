@@ -18,6 +18,7 @@ import {
   detectVisitCancellation, detectOfftopic, detectDefer, detectNegotiate,
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
+  detectDrugAlternative, detectInvestmentOpinion,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -39,7 +40,7 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'WHERE_IS', note: 'any каде-question → landmark rotation. Beats EXACT_ADDRESS by the guard above and beats description routing below',
     fires: t => !!detectWhereIs(t) },
   { intent: 'PROPERTY_DESCRIPTION', note: '"гарсоњерата кај амбасадата" — remembered-property flow before FSM discovery swallows it',
-    fires: (t) => detectPropertyDescription(t) && !detectService(t) && !detectBothServices(t) },
+    fires: (t) => detectPropertyDescription(t) && !detectService(t) && !detectBothServices(t) && !detectDrugAlternative(t) && !detectInvestmentOpinion(t) },
   { intent: 'VISIT_CANCEL', note: 'cancellation only meaningful in visit states',
     fires: (t, s) => detectVisitCancellation(t) &&
       ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(s) },
