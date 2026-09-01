@@ -9,7 +9,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots, fsmRequired } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -575,80 +575,14 @@ export class InboundHandler {
     let replySource = 'deterministic';
     let bankKey: string | undefined;
 
-    // 0b) Fast deterministic dispatch: check the bank BEFORE the classifier.
-    // If a bank-backed answer exists (provision, mortgage, documents, fee-why,
-    // investment opinion, etc.), skip the Groq classifier entirely — the answer
-    // fires instantly without any LLM call. This is the core of the LLM-free
-    // design: deterministic answers must be instant, LLM only fires when there
-    // is NO deterministic answer.
-    //
-    // EXCEPTIONS: states that need FSM transitions or slot extraction must still
-    // go through the classifier:
-    //   - contact_collection: needs contact reminder appended
-    //   - property_locate: needs slot extraction for property matching
-    //   - discovery: needs FSM transition for criteria collection
-    //   - idle/intent: first messages need classifier for intent extraction
-    // Messages that need the classifier (Groq) for FSM transitions, slot
-    // extraction, or intent disambiguation — even if dispatchSimple matches.
-    const needsClassifier = ['contact_collection', 'property_locate', 'discovery', 'idle', 'intent'].includes(session.state)
-      // Property/visit-related messages need the classifier for FSM transitions:
-      // visit interest → closing, property description → property_locate, etc.
-      || detectVisitInterest(text)
-      || detectPropertyInterest(text)
-      || detectPropertyDescription(text)
-      || detectSeeOffers(text)
-      || detectAvailabilityAsk(text)
-      || detectDrugAlternative(text)
-      || detectSuggestAlternatives(text)
-      || detectService(text)
-      || detectBothServices(text)
-      || detectLocationNag(text)
-      || detectExactAddressAsk(text)
-      || detectWhereIs(text) !== undefined;
-    if (!needsClassifier) {
-      const simpleFast = dispatchSimple(text, session.state);
-      if (simpleFast) {
-        routeLog(chatId, text, simpleFast.intent);
-        let effectiveKey = simpleFast.bankKey;
-        if (effectiveKey === 'provision.ask') {
-          effectiveKey = session.slots.service === 'rent' ? 'provision.ask.rent' : 'provision.ask.buy';
-        } else if (effectiveKey === 'provision.who') {
-          const isDanok = /danok|danokot|данок|данокот/i.test(text);
-          if (isDanok && session.slots.service !== 'rent') {
-            effectiveKey = 'provision.who.danok.buy';
-          } else {
-            effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
-          }
-        }
-        reply = pickVariant(effectiveKey, { recent: assistantTexts(session) })
-          ?? simpleFast.fallback;
-        bankKey = effectiveKey;
-        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
-        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
-        this.deps.sessions.set(session);
-        // Enrichment logging for bank-backed fast-path replies
-        if (this.deps.enrichment && bankKey) {
-          try {
-            this.deps.enrichment.insert({
-              chatId: session.chatId,
-              state: session.state,
-              eventType: 'DETERMINISTIC_FAST',
-              userMsg: text,
-              replyText: reply,
-              replySource: 'deterministic',
-              bankKey,
-            });
-          } catch (e) { console.error('[enrichment] log failed:', (e as Error).message); }
-        }
-        const pipelineMs = Date.now() - pipelineStart;
-        console.log(`[timing] pipeline ${pipelineMs}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
-        await this.sendRaw(session, reply, 'deterministic:fast');
-        return;
-      }
-
-      // Additional bank-backed detectors that don't need the classifier:
-      // fee.why, fee.complaint, investment.opinion, price.ask — all fire
-      // instantly from the bank without Groq.
+    // 0b) Bank-backed informational interceptors — fire BEFORE needsClassifier.
+    // These are pure Q&A (fee-why, investment opinion, price ask) that don't
+    // need FSM transitions. They used to be trapped inside `if (!needsClassifier)`
+    // so they NEVER fired in idle/intent/discovery — those states forced Groq.
+    // Moving them here eliminates Groq calls for any message the bank can answer.
+    // Guard: skip if the message needs the FSM (classifier → state transition).
+    // fsmRequired is the SINGLE source of truth for all FSM-triggering detectors.
+    if (!fsmRequired(text)) {
       if (detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(session.state)) {
         reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? 'Разбирам. Надоместот за разгледување е симболичен и служи како филтер за сериозни клиенти.';
         bankKey = 'fee.why';
@@ -656,9 +590,7 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && bankKey) {
-          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_WHY_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ }
-        }
+        if (this.deps.enrichment && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_WHY_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
@@ -670,9 +602,7 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && bankKey) {
-          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_COMPLAINT_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ }
-        }
+        if (this.deps.enrichment && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_COMPLAINT_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
@@ -685,14 +615,17 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && bankKey) {
-          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'INVESTMENT_OPINION_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ }
-        }
+        if (this.deps.enrichment && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'INVESTMENT_OPINION_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
-      if (detectPriceAsk(text) && !detectProvisionAsk(text) && !detectProvisionWho(text) && !detectDrugAlternative(text)) {
+      // detectPriceAsk matches 'DO 500 EVRA' because it contains 'евра' —
+      // that's a budget statement, NOT a price question. Guard: exclude messages
+      // that contain a budget number (detectBudget fires) so they reach the
+      // classifier as DETAILS_PROVIDED instead of being swallowed here.
+      if (detectPriceAsk(text) && !detectBudget(text)
+          && !detectProvisionAsk(text) && !detectProvisionWho(text) && !detectDrugAlternative(text)) {
         const priceEb = session.slots.propertyId
           ?? session.slots.interestedPropertyId
           ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
@@ -714,13 +647,46 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && bankKey) {
-          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PRICE_ASK_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ }
-        }
+        if (this.deps.enrichment && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PRICE_ASK_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
+    }
+
+    // 0c) dispatchSimple: bank-backed informational intents (offtopic, defer,
+    // negotiate, provision, documents, mortgage, scheduling, etc.). These fire
+    // BEFORE the classifier — they don't need FSM transitions, they just answer
+    // a question and stay in the current state. The dispatchSimple table already
+    // has allowedStates gates so they only fire in appropriate states.
+    // Guard: skip if fsmRequired — same guard as the interceptors above.
+    const simpleFast = !fsmRequired(text) ? dispatchSimple(text, session.state) : undefined;
+    if (simpleFast) {
+      routeLog(chatId, text, simpleFast.intent);
+      let effectiveKey = simpleFast.bankKey;
+      if (effectiveKey === 'provision.ask') {
+        effectiveKey = session.slots.service === 'rent' ? 'provision.ask.rent' : 'provision.ask.buy';
+      } else if (effectiveKey === 'provision.who') {
+        const isDanok = /danok|danokot|данок|данокот/i.test(text);
+        if (isDanok && session.slots.service !== 'rent') {
+          effectiveKey = 'provision.who.danok.buy';
+        } else {
+          effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
+        }
+      }
+      reply = pickVariant(effectiveKey, { recent: assistantTexts(session) })
+        ?? simpleFast.fallback;
+      bankKey = effectiveKey;
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && bankKey) {
+        try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'DETERMINISTIC_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch (e) { console.error('[enrichment] log failed:', (e as Error).message); }
+      }
+      const pipelineMs = Date.now() - pipelineStart;
+      console.log(`[timing] pipeline ${pipelineMs}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+      await this.sendRaw(session, reply, 'deterministic:fast');
+      return;
     }
 
     // 1) Deterministic intent extraction — NO LLM call.

@@ -489,25 +489,29 @@ export class Classifier {
       && parsed.event.type !== 'CONTACT_PROVIDED'
       && parsed.event.type !== 'CONTACT_INCOMPLETE' // the contact intake owns contact_collection
       && (llmDown || RECOMPUTE_EVENTS.includes(parsed.event.type))) {
+      // GLOBAL FIX: When Groq fires (not LLM-down), strip its slot values.
+      // Only the event type survives. The deterministic layer is the single
+      // source of truth for slots — Groq's job is event classification, not
+      // slot extraction. This prevents Groq from leaking slots inferred from
+      // conversation history (e.g. "Скопje" from a previous "vo skopje")
+      // into the deterministic flow, which would skip the neighbourhood question.
+      if (!llmDown) {
+        const keptType = parsed.event.type;
+        parsed.event = { type: keptType };
+      }
       const slots = extractSlots(text);
       if (this.properties) {
         try {
           const locs = await this.properties.locations();
           const loc = detectLocation(text, locs);
           if (loc) slots.location = loc;
-          // The LLM's location can be sloppy ("во Кисела Вода кај пазар") or
-          // garbage ("кукја пофтина") — canonicalize it against the feed's
-          // neighborhoods ("Кисела Вода") or drop it (undefined) so the
-          // gap-fill below supplies the deterministic match. A garbage phrase
-          // must never reach the reply ("…во кукја пофтина").
-          if (typeof parsed.event.location === 'string') {
-            parsed.event.location = detectLocation(parsed.event.location, locs) ?? undefined;
-          }
         } catch (e) {
           console.error('[classify] location lookup failed:', (e as Error).message);
         }
       }
-      // Gap-fill: deterministic never overrides a field the LLM already set.
+      // Gap-fill: deterministic slots are the source of truth.
+      // When Groq fired, its slots were stripped — deterministic fills everything.
+      // When LLM was down, deterministic fills gaps the LLM left empty.
       const ev = parsed.event;
       if (ev.service === undefined && slots.service) ev.service = slots.service;
       if (ev.location === undefined && slots.location) ev.location = slots.location;

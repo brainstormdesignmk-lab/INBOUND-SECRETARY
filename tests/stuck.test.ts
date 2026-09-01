@@ -454,7 +454,7 @@ test('"DOGOVORI MI ZA OVOJ SO BROJ 89" is visit interest — fee disclosed first
   void sent2;
 });
 
-test('an LLM sloppy location ("во Кисела Вода кај пазар") is canonicalized to the feed neighborhood', async () => {
+test('an LLM sloppy location ("во Кисела Вода кај пазар") is stripped — deterministic is the source of truth for slots', async () => {
   const cfg = loadConfig();
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
@@ -476,11 +476,12 @@ test('an LLM sloppy location ("во Кисела Вода кај пазар") is
 
   const s = await send('SAKAM DA KUPAM STAN'); // the LLM invents the location
   assert.equal(s.state, 'discovery');
-  assert.equal(s.slots.location, 'Кисела Вода'); // canonical, not the sentence
-  // NO recap anymore — the reply just asks what's still missing (bedrooms+budget),
-  // and the garbage suffix never reaches it
-  assert.ok(/спални/.test(sent[0]), sent[0]);
-  assert.ok(!sent[0].includes('кај пазар'), sent[0]);
+  // GLOBAL FIX: LLM-invented slots are stripped. The deterministic layer is
+  // the source of truth — 'SAKAM DA KUPAM STAN' has no location, so
+  // location stays undefined. The discovery ask should ask about location.
+  assert.equal(s.slots.location, undefined); // LLM-invented location stripped
+  assert.ok(/дел од градот|населба|локаци/.test(sent[0]), sent[0]); // asks location
+  assert.ok(!sent[0].includes('кај пазар'), sent[0]); // garbage never reaches reply
   assert.ok(!sent[0].includes('Разбрав — барате'), sent[0]);
 });
 
@@ -2005,6 +2006,39 @@ test('"каде точно се наоѓа" bypasses exact-address protocol — 
     reply.includes('Бисер') || reply.includes('Авионче'),
     `must give a landmark, not a protocol: ${reply.substring(0, 200)}`
   );
+});
+
+test('"DA" in closing state produces FEE_AGREED — regression for detectLocation false-positive on \"да\"', async () => {
+  // BUG: detectLocation('DA') was matching 'Кисела Вода, Автокоманда' because
+  // 'да' is a substring of 'Кисела'. This inflated buildEvent to DETAILS_PROVIDED
+  // instead of STAY, and the agreement override guard `ev.type === 'STAY'` silently
+  // failed — 'DA' in closing never triggered FEE_AGREED, leaving the client stuck.
+  // FIX: the agreement override now also fires on DETAILS_PROVIDED.
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'da-closing-regression';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Navigate to closing: full criteria → presentation, then visit interest → closing
+  let s = await send('SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN');
+  assert.equal(s.state, 'presentation');
+  s = await send('DALI E SEUSTE DOSTAPEN ?'); // visit interest → INTERESTED → closing
+  assert.equal(s.state, 'closing', 'should be in closing state before DA');
+
+  // The critical regression: plain 'DA' must produce FEE_AGREED
+  s = await send('DA');
+  assert.equal(s.state, 'contact_collection',
+    'DA in closing → FEE_AGREED → contact_collection (was broken by detectLocation false-positive)');
+  assert.ok(s.slots.viewingFeeAgreed, 'viewingFeeAgreed should be set after DA');
+
+  // Also test Cyrillic 'ДА' — same false-positive path
+  const { handler: h2, sessions: s2 } = makeHandler();
+  const chatId2 = 'da-cyr-regression';
+  const send2 = async (m: string) => { await h2.handle('test', chatId2, m); return s2.get(chatId2)!; };
+  await send2('SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN');
+  await send2('DALI E SEUSTE DOSTAPEN ?');
+  s = await send2('ДА');
+  assert.equal(s.state, 'contact_collection',
+    'ДА (Cyrillic) in closing → FEE_AGREED → contact_collection');
 });
 
 test('"кажи ми точно адреса" triggers the privacy protocol (not a landmark)', async () => {

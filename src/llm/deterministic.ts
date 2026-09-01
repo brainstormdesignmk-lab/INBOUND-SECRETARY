@@ -228,6 +228,24 @@ export function detectService(text: string): Service | undefined {
 const SMALL_STAN_RE = /(мал[оаи]?\s+(стан|станче|стани)|мал[оа]?\s+(стан|станце|стани)|гарсоњера|гарсоњера|студио|студио)/i;
 
 export function detectBedrooms(text: string): number | undefined {
+  // Range pattern: "edna ili dve spalni" / "2 ili 3 sobi" — user is flexible,
+  // take the LOWER bound so the search is inclusive.
+  if (/ili|или/iu.test(text) && /spalni|спални|spalna|спална|sobi|соби|soba|соба/iu.test(text)) {
+    const beforeIli = text.split(/ili|или/iu)[0];
+    // Word numbers: "една"=1, "две"=2, "три"=3, "четири"=4
+    const wordNums = [ {re: /една|едно|edna|edno/i, n: 1}, {re: /две|два|dve|dva/i, n: 2},
+      {re: /три|tri/i, n: 3}, {re: /четири|chetiri|cetiri/i, n: 4} ];
+    const before = beforeIli.toLowerCase();
+    for (const wn of wordNums) {
+      if (wn.re.test(before)) return wn.n + 1; // +1: bedroom → room count
+    }
+    // Digit numbers: "2" → 2 rooms (sobi = rooms, not bedrooms)
+    const digitMatch = before.trim().match(/(\d+)$/);
+    if (digitMatch) {
+      const n = parseInt(digitMatch[1], 10);
+      if (n >= 1 && n <= 6) return n;
+    }
+  }
   const m = text.match(BED_NUM_RE);
   if (m) {
     const n = parseInt(m[1], 10);
@@ -692,11 +710,19 @@ export function detectAgreement(text: string): boolean {
   const daIsPurpose = matchesBoth(DA_PURPOSE_RE, low) || matchesBoth(DA_PURPOSE_CLAUSE_RE, low);
   // "да ли" / "дали" — question particle (whether), NOT agreement.
   const daIsQuestion = matchesBoth(DA_LI_RE, low);
+  // "да е" / "да e" — subordinate clause ("that is"), NOT agreement.
+  // "bitno mi e da e do 150000" = "what matters is THAT it's up to 150000".
+  // "да не" / "да ne" — negated subordinate clause, NOT agreement.
+  const norm = normalizeMc(text).toLowerCase();
+  const daIsClause = low.includes('да е') || low.includes('да e') || norm.includes('да е') || norm.includes('да e');
+  const daIsNegClause = low.includes('да не') || low.includes('да ne') || norm.includes('да не') || norm.includes('да ne');
   return tokens.some(t => AGREE_WORDS.has(t)
     && !(mozeIsCriteria && (t === 'moze' || t === 'може'))
     && !(daIsVerbPhrase && (t === 'da' || t === 'да'))
     && !(daIsPurpose && (t === 'da' || t === 'да'))
-    && !(daIsQuestion && (t === 'da' || t === 'да')));
+    && !(daIsQuestion && (t === 'da' || t === 'да'))
+    && !(daIsClause && (t === 'da' || t === 'да'))
+    && !(daIsNegClause && (t === 'da' || t === 'да')));
 }
 
 // A pure "yes, show me more" — agreement WITHOUT an explicit register/contact
@@ -894,7 +920,7 @@ export function isValidVisitTime(t: string): boolean {
 const KNOWN_NEIGHBORHOODS = [
   'Центар', 'Центар (населба)', 'Карпош', 'Карпош III',
   'Аеродром', 'Кисела Вода', 'Капиштец', 'Чаир', 'Тафталиџе', 'Маџари',
-  'Влае', 'Ново Лисиче', 'Лисиче', 'Водно', 'Козле', 'Скопје Север',
+  'Влае', 'Ново Лисиче', 'Лисиче', 'Водно', 'Козле',
   'Дебар Маало', 'Гази Баба', 'Бутел', 'Илинден', 'Сарај', 'Ѓорче Петров',
   'Автокоманда', 'Црниче', 'Радишани', 'Хром', 'Железара', 'Шуто Оризари',
   'Пржино', 'Момин Поток', 'Бег', 'Злокуќани', 'Визбегово', 'Драчево',
@@ -914,7 +940,11 @@ export function detectLocation(text: string, feedLocations: string[]): string | 
   // voda, aerodrom") gets ALL of them stored, so presentations stay inside the
   // union of the named areas instead of a single first match. The joined string
   // reads naturally in recaps and locMatches() matches any of its members.
-  const hits = [...KNOWN_NEIGHBORHOODS, ...feedLocations].filter(loc => locMatches(text, loc));
+  let hits = [...KNOWN_NEIGHBORHOODS, ...feedLocations].filter(loc => locMatches(text, loc));
+  // "vo Skopje" alone is too broad — the bot should ask which neighbourhood.
+  // Strip prepositions and check if the remaining text is just the city name.
+  const stripped = text.replace(/^(?:во|вo|vo|на|нa|на)\s+/iu, '').trim();
+  if (/^скопје$/iu.test(stripped) || /^skopje$/iu.test(stripped)) hits = [];
   // Dedupe overlapping names ("Центар" vs "Центар (населба)"): keep the more
   // specific one, longest first — a redundant "Центар (населба), …, Центар"
   // would leak into recaps and no-match lines.
@@ -1415,7 +1445,7 @@ export function detectOfftopic(text: string): boolean {
 
 // Follow-up defer: the client is not ready to decide.
 const DEFER_RE =
-  /(?:ќе\s+размислам|ќе\s+размислувам|ќе\s+се\s+јавам|ќе\s+се\s+техам|подоцна\s+ќе|не\s+сега|не\s+сум\s+сигурен|сега\s+не\s+сум|sakam\s+da\s+razmislam|ke\s+se\s+javam|podocna\s+ke|sakam\s+pa\s+razmislam|ke\s+razmislam|podocna\s+ke\s+se|ne\s+sum\s+siguran|ne\s+e\s+segas|sega\s+ne\s+sum|not\s+now|later|maybe\s+later|i.ll\s+(?:think|call|contact)|let\s+me\s+(?:think|check)|give\s+me\s+(?:a\s+)?(?:day|time|sec)|zapisete\s+me|запишете\s+ме|запиши\s+ме|евидентирај\s+ме|регистрирај\s+ме)/iu;
+  /(?:ќе\s+размислам|ќе\s+размислувам|ќе\s+се\s+јавам|ќе\s+се\s+техам|подоцна\s+ќе|не\s+сега|не\s+сум\s+сигурен|сега\s+не\s+сум|sakam\s+da\s+razmislam|ke\s+se\s+javam|podocna\s+ke|sakam\s+pa\s+razmislam|ke\s+razmislam|podocna\s+ke\s+se|ne\s+sum\s+siguran|ne\s+e\s+segas|sega\s+ne\s+sum|not\s+now|later|maybe\s+later|i.ll\s+(?:think|call|contact)|let\s+me\s+(?:think|check)|give\s+me\s+(?:a\s+)?(?:day|time|sec)|zapisete\s+me|запишете\s+ме|запиши\s+ме|евидентирај\s+ме|регистрирај\s+ме|одлагам|одложам|одложувам|одлагав|одложив|odlagam|odlozhuvam|odlagav|postpone|delay)/iu;
 
 // GRAMMAR RULE for the same family: future-marker (ќе/би/подоцна) followed by
 // up to two filler words then a decision-delay verb — covers every conjugation
@@ -1434,7 +1464,7 @@ export function detectDefer(text: string): boolean {
 
 // Price negotiation: the client asks to lower the price or requests a discount.
 const NEGOTIATE_RE =
-  /(?:може\s+ли\s+(?:помала|пониска|поевтина|поевтин|помал)|може\s+ли\s+(?:нешто|nesto)?\s*поевтин[оа]|moze\s+li\s+(?:nesto\s+)?poevtin[oа]|помала\s+(?:цена|евра|евро)|пониска\s+(?:цена|евра)|поевтин\s+(?:стан|нешто)|дали\s+(?:има|постои|ќе\s+има)\s+попуст|попуст|popust|намалување|namaluvanje|појефтинување|pojeftinuvanje|може\s+ли\s+да\s+се\s+договориме\s+за\s+цена|дали\s+е\s+(?:фиксна|финална|конечна)\s+цена|can\s+(?:you|we)\s+(?:lower|reduce|drop|negotiate|cut)\s+(?:the\s+)?(?:price|cost)|discount|cheaper|lower\s+price|price\s+(?:reduction|cut|drop|negotiat)|any\s+(?:wiggle|flexibility|room)\s+(?:on\s+the\s+)?price|is\s+(?:the\s+)?(?:price|cost)\s+(?:fixed|firm|final|negotiable)|negotiate)/iu;
+  /(?:може\s+ли\s+(?:помала|пониска|поевтина|поевтин|помал)|може\s+ли\s+(?:нешто|nesto)?\s*поевтин[оа]|moze\s+li\s+(?:nesto\s+)?poevtin[oа]|помала\s+(?:цена|евра|евро)|пониска\s+(?:цена|евра)|поевтин\s+(?:стан|нешто)|дали\s+(?:има|постои|ќе\s+има)\s+попуст|попуст|popust|намалување|namaluvanje|појефтинување|pojeftinuvanje|може\s+ли\s+да\s+се\s+договориме\s+за\s+цена|дали\s+е\s+(?:фиксна|финална|конечна)\s+цена|can\s+(?:you|we)\s+(?:lower|reduce|drop|negotiate|cut)\s+(?:the\s+)?(?:price|cost)|discount|cheaper|lower\s+price|price\s+(?:reduction|cut|drop|negotiat)|any\s+(?:wiggle|flexibility|room)\s+(?:on\s+the\s+)?price|is\s+(?:the\s+)?(?:price|cost)\s+(?:fixed|firm|final|negotiable)|negotiate|за\s+(?:цената?|cena(?:to)?)|nego\s+za\s+cena|цена\s+(?:доле|надолу|долу|намали)|поевтин[оа]?|пониско|поскапо|него\s+за\s+цена|за\s+цената)/iu;
 
 // GRAMMAR RULE for negotiation: price-adjective + price-noun in either order,
 // with optional fillers — covers "цена малку помала", "po evtina cena?",
@@ -1463,7 +1493,34 @@ export function detectProvisionAsk(text: string): boolean {
 
 // Provision who-pays: the client asks WHO pays the lawyer/notary/tax —
 // "кој плаќа advokat?", "notarot koj go plakja?", "danokot e nivna obvrskа"
-const PROVISION_WHO_RE = /\b(?:кој|koj)\b[^.!?\n]{0,30}\b(?:плаќа|plakja|сносва|snosva|покрива|pokriva)\b|\b(?:адвокат|advokat|нотар|notar|нотарот|notarot|адвокатот|advokatot|danok|данок|данокот|danokot)\b[^.!?\n]{0,20}\b(?:плаќа|plakja|сносва|snosva|покрива|pokriva)\b|\b(?:кој|koj)\s+(?:плаќа|plakja)\s*\?|трошо(?:к|ци)\s+(?:за|на)\s+(?:адвокат|advokat|нотар|notar)|trosho(?:k|ci)\s+(?:za|na)\s+(?:advokat|notar)/iu;
+// Word-boundary that works with Cyrillic (JS \b only knows ASCII [a-zA-Z0-9_]).
+// Unicode-aware: not preceded/followed by a letter or digit.
+const UB = "(?<![\\p{L}\\p{N}])";
+const UE = "(?!\\p{L}\\p{N})";
+const _cb = (w: string) => `${UB}${w}${UE}`;
+
+// Provision who-pays: the client asks WHO pays the lawyer/notary/tax —
+// "кој плаќа advokat?", "кого плаќа адвокатот?", "notarot koj go plakja?",
+// "адвокатот кој го плаќа?", "којо плаќја адвокатот", "кој плаќал данок"
+// Uses Unicode word boundaries (UB/UE) instead of \b for Cyrillic support.
+const PROVISION_WHO_RE = new RegExp(
+  // "кој/кого/којо ... плака/плаќал/плаќја/сносва/покрива"
+  _cb("коjо|коj|коjго|кого") + "[^.!?\\n]{0,30}" + _cb("плаќа|plakja|плаќал|плаќалa|плаќја|сносва|snosva|покрива|pokriva") +
+  "|" +
+  // "адвокатот/нотарот/danok ... плака" (reversed word order)
+  _cb("адвокат|advokat|нотар|notar|нотарот|notarot|адвокатот|advokatot|danok|данок|данокот|danokot") + "[^.!?\\n]{0,20}" + _cb("плаќа|plakja|плаќал|плаќалa|плаќја|сносва|snosva|покрива|pokriva") +
+  "|" +
+  // "кој plakja?" (Latin)
+  _cb("koj") + "\\s+" + _cb("plakja|плаќа") + "\\s*\\?" +
+  "|" +
+  // "кој плаќа/плаќал/плаќја ...?" (Cyrillic question)
+  _cb("коjо|коj|кого") + "\\s+" + _cb("плаќа|плаќал|плаќалa|плаќја") + "\\s*[?]" +
+  "|" +
+  // "трошок/трошоци за/на адвокат/нотар"
+  "трошо(?:к|ци)" + "\\s+" + "(?:за|на)" + "\\s+" + _cb("адвокат|advokat|нотар|notar") +
+  "|" +
+  "trosho(?:k|ci)" + "\\s+" + "(?:za|na)" + "\\s+" + _cb("advokat|notar"),
+  "iu");
 /** True when the client asks WHO pays lawyer/notary/tax. */
 export function detectProvisionWho(text: string): boolean {
   return PROVISION_WHO_RE.test(text);
@@ -1477,6 +1534,10 @@ const PRICE_ASK_RE = /(?:која|колку|кое|која|колку|koe|koja
 
 /** True when the client asks about the property price. */
 export function detectPriceAsk(text: string): boolean {
+  // "колку саати работите" matches because 'работите' ends with 'е' —
+  // false positive. Require at least one price-related keyword (цена/евра/чини)
+  // so the regex only fires for actual price questions.
+  if (!/(?:цена|цени|цената|cena|cenata|ceni|price|евра|евро|евра|евро|еуро|eur|чини|chini|iznesuva|изнесува|costs?|bi\s+trebalo)/i.test(text)) return false;
   return matchesBoth(PRICE_ASK_RE, text);
 }
 
@@ -1531,6 +1592,9 @@ const DOCUMENTS_RE =
 
 /** True when the client asks about required documents. */
 export function detectDocumentsAsk(text: string): boolean {
+  // "договори ми" = "arrange for me" (visit interest) — NOT a documents question.
+  // "договор" as a standalone noun = contract (documents context) — allowed.
+  if (/(?:договори|dogovori)\s+(?:ми|mi)/i.test(text)) return false;
   return matchesBoth(DOCUMENTS_RE, text);
 }
 
@@ -1579,6 +1643,48 @@ export function detectFeatureAsk(text: string): boolean {
  * INTENT_DECLARED; anything partial is DETAILS_PROVIDED so discovery asks for
  * the missing pieces.
  */
+
+/**
+ * Single source of truth: does this message need the FSM (classifier)?
+ *
+ * Every detector whose output produces an FSM event type (INTERESTED,
+ * SEARCH_REQUESTED, FEE_AGREED, etc.) or triggers a handler-level state
+ * transition (WHERE_IS → landmark rotation, VISIT_CANCEL → closing, etc.)
+ * must be listed here. Messages matching ANY of these detectors bypass the
+ * fast-path interceptors and go through the classifier → FSM pipeline.
+ *
+ * WHY: when dispatchSimple fires before the classifier, it can accidentally
+ * swallow FSM-triggering messages (e.g. "договори ми посета" matched
+ * documents.ask instead of visit interest). This function prevents that by
+ * blocking ALL FSM-triggering messages from the fast path in one place.
+ *
+ * Informational-only detectors (offtopic, defer, negotiate, provision.*,
+ * documents, mortgage, fee.why, investment.opinion, etc.) are NOT listed
+ * — they produce bank-backed answers without FSM transitions.
+ */
+export function fsmRequired(text: string): boolean {
+  return detectService(text) !== undefined
+    || detectBothServices(text)
+    || detectVisitInterest(text)
+    || detectPropertyInterest(text)
+    || detectPropertyDescription(text)
+    || detectSeeOffers(text)
+    || detectAvailabilityAsk(text)
+    || detectDrugAlternative(text)
+    || detectSuggestAlternatives(text)
+    || detectLocationNag(text)
+    || detectVisitCancellation(text)
+    || !!detectVisitTime(text)
+    || detectVagueTime(text)
+    || detectFeePaymentAgreement(text)
+    || detectExhaustedFollowUp(text)
+    || detectWidenIntent(text)
+    || detectAgreement(text)
+    || detectRejection(text)
+    || detectEyeCatch(text)
+    || detectPriceReference(text);
+}
+
 export function buildEvent(state: State, slots: DetectedSlots): Event {
   const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected } = slots;
   const has = !!(service || location || bedrooms || budget || sqm || anywhere);
@@ -1625,7 +1731,7 @@ export function detectBothServices(text: string): boolean {
 }
 
 // Visit cancellation: the client or owner says they can't make it.
-const CANCEL_RE = /(?:не\s+можам|неможам|не\s+мозам|не\s+сум|не\s+сум|не\s+сакам|не\s+сакам|не\s+доаѓам|отказувам|откажувам|откажи|откази|цанцел|цанцелед|цанцеллед|само\s+да\s+те\s+извести|само\s+да\s+те\s+извести|бол(?:ен|на|ест)|бол(?:ен|на|ест)|дојде\s+работа|дојде\s+работа|имам\s+проблем|имам\s+проблем|не\s+مى\s+е\s+полесно|жал|жал|поплаќа|поплаки|болест|болест)/iu;
+const CANCEL_RE = /(?:не\s+можам|неможам|не\s+мозам|не\s+сум|не\s+сум|не\s+сакам|не\s+сакам|не\s+доаѓам|отказувам|откажувам|откажи|откази|цанцел|цанцелед|цанцеллед|само\s+да\s+те\s+извести|само\s+да\s+те\s+извести|бол(?:ен|на|ест)|бол(?:ен|на|ест)|дојде\s+работа|дојде\s+работа|имам\s+проблем|имам\s+проблем|не\s+مى\s+е\s+полесно|жал|жал|поплаќа|поплаки|болест|болест|одлагам|одложувам|odlagam|odlozhuvam)/iu;
 export function detectVisitCancellation(text: string): boolean {
   return matchesBoth(CANCEL_RE, text);
 }

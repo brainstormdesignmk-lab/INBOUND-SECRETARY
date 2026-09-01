@@ -278,6 +278,11 @@ function askQuestion(key: string, fallback: string, recent: string[]): string {
  * Commercial spaces (деловен простор) complete with square meters instead of
  * bedrooms — a "деловен простор" request must never be asked "колку спални?".
  */
+// City-level locations are too broad — the bot should ask which neighbourhood.
+// When Groq infers "Скопје" from conversation history, we treat it as "no specific
+// neighbourhood" and still ask the location question with neighbourhood variants.
+const CITY_LEVEL_LOCATIONS = /^(?:Скопје|Skopje|скопjе|skopje)$/iu;
+
 export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): string {
   const business = !!slots.business;
   const house = !!slots.house;
@@ -303,7 +308,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // "Било каде" answers the location question — the question is skipped, and
   // the bedrooms question too (a flexible client gets the budget-driven
   // city-wide presentation; bedrooms refine later via rejections, never block).
-  if (slots.service && !slots.location && !anywhere) {
+  if (slots.service && (!slots.location || CITY_LEVEL_LOCATIONS.test(slots.location)) && !anywhere) {
     missing.push(askQuestion(
       business ? 'discovery.ask.location.business' : house ? 'discovery.ask.location.house' : 'discovery.ask.location.stan',
       business ? 'Во кој дел од градот го барате?'
