@@ -10,7 +10,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectNearbyAsk, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots, fsmRequired } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots, fsmRequired } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -503,7 +503,18 @@ export class InboundHandler {
       }
     }
 
-    const whereIs = detectWhereIs(text);
+    // CONTEXT GATE — bare "sto drugo ima?" is ambiguous. After a LANDMARK
+    // reply it means "what else is near the building" (rotation stands);
+    // after a PROPERTY presentation it means "what OTHER apartments do you
+    // have with those characteristics" — the where-is interception must
+    // stand down so the classifier serves the NEXT options batch
+    // (SEARCH_REQUESTED → presentation's next-2 engine).
+    const whereIsRaw = detectWhereIs(text);
+    const recentAssistant = assistantTexts(session);
+    const whereIs = whereIsRaw && whereIsRaw.generic
+      && isOptionsFollowUp(text, recentAssistant[recentAssistant.length - 1] ?? '')
+      ? undefined
+      : whereIsRaw;
     if (whereIs) {
       routeLog(chatId, text, 'WHERE_IS');
       const all = await this.deps.properties.getAll();

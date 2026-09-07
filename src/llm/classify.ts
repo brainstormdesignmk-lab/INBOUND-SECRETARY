@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -328,10 +328,21 @@ export class Classifier {
     }
 
     // Suggest alternatives in property_query → SEARCH_REQUESTED
-    if (session.state === 'property_query'
+    if ((session.state === 'property_query' || session.state === 'presentation')
       && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
       && ev.type !== 'PROPERTY_ID_REQUESTED' && ev.type !== 'INTERESTED'
       && (detectSuggestAlternatives(text) || detectDrugAlternative(text))) {
+      ev = { type: 'SEARCH_REQUESTED' };
+    }
+    // Presentation state: ANY bare "more/other" ask ("sto uste ima?", "nesto
+    // drugo?") means the client wants the NEXT batch of matching properties —
+    // the options engine re-presents with new EBs. Availability asks are
+    // excluded: "dali uste e dostapen?" is about the CURRENT property (the
+    // "усте" inside it must never read as a new search).
+    if (session.state === 'presentation'
+      && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
+      && ev.type !== 'PROPERTY_ID_REQUESTED' && ev.type !== 'INTERESTED'
+      && !detectAvailabilityAsk(text) && mentionsMore(text)) {
       ev = { type: 'SEARCH_REQUESTED' };
     }
 
@@ -634,12 +645,22 @@ export class Classifier {
     // имотот со Евидентен број X" forever. Deterministic (event-independent),
     // like the see-offers override — "predlozi mi" after a failed lookup is a
     // fresh search, whatever the LLM mood.
-    if (session.state === 'property_query'
+    if ((session.state === 'property_query' || session.state === 'presentation')
       && parsed.event.type !== 'REJECTED'
       && parsed.event.type !== 'ESCALATE'
       && parsed.event.type !== 'PROPERTY_ID_REQUESTED'
       && parsed.event.type !== 'INTERESTED'
       && (detectSuggestAlternatives(text) || detectDrugAlternative(text))) {
+      parsed.event = { type: 'SEARCH_REQUESTED' };
+    }
+    // Presentation state: bare "more/other" ask → next options batch (see the
+    // deterministic twin above for the availability exclusion).
+    if (session.state === 'presentation'
+      && parsed.event.type !== 'REJECTED'
+      && parsed.event.type !== 'ESCALATE'
+      && parsed.event.type !== 'PROPERTY_ID_REQUESTED'
+      && parsed.event.type !== 'INTERESTED'
+      && !detectAvailabilityAsk(text) && mentionsMore(text)) {
       parsed.event = { type: 'SEARCH_REQUESTED' };
     }
     // property_locate pick: the client chooses among the presented closest

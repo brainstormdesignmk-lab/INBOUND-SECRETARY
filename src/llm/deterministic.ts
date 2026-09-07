@@ -3,7 +3,7 @@ import { locMatches, normalizeLocation } from '../data/properties';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc } from './normalize';
 import { AVAILABILITY_LEXICON, toRegexAlt } from './morphology';
-import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots } from './grammar';
+import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots } from './grammar';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -31,6 +31,8 @@ export interface DetectedSlots {
   anywhere?: boolean;  // "било каде" — no location preference (satisfies location)
   need?: boolean;      // a bare "ми треба стан" without any extracted detail
   rejected?: boolean;
+  sizeWaived?: boolean;    // "големината не ми е битна" — skip bedrooms question
+  pricePriority?: boolean; // "што поевтино" — sort by price, skip budget question
 }
 
 // Latin spellings included — Macedonian clients type in Latin more often than Cyrillic.
@@ -309,6 +311,26 @@ const ANYWHERE_RE = /(било\s+каде|било\s+кај|било\s+где|к
 /** True when the client says "anywhere" — no location preference. */
 export function detectAnywhere(text: string): boolean {
   return matchesBoth(ANYWHERE_RE, text);
+}
+
+// ── Size Waived ──────────────────────────────────────────────────────────────
+// Client says size/bedrooms don't matter — skip the bedrooms question.
+// Built from grammar.ts word classes via slot permutations.
+const SIZE_WAIVED_RE = buildSizeWaivedSlots();
+
+/** True when the client says size/bedrooms don't matter. */
+export function detectSizeWaived(text: string): boolean {
+  return matchesBoth(SIZE_WAIVED_RE, text);
+}
+
+// ── Price Priority ───────────────────────────────────────────────────────────
+// Client says cheapest is the priority — sort by price, skip budget question.
+// Built from grammar.ts word classes via slot permutations.
+const PRICE_PRIORITY_RE = buildPricePrioritySlots();
+
+/** True when the client says cheapest is the priority. */
+export function detectPricePriority(text: string): boolean {
+  return matchesBoth(PRICE_PRIORITY_RE, text);
 }
 
 // The client asks for ALTERNATIVE suggestions — "predlozi mi", "drugi
@@ -1090,9 +1112,13 @@ export interface WhereIsQuestion {
   generic: boolean;
 }
 
-// "каде е X?" — verb list includes Latin + Cyrillic; lookahead keeps the
-// boundary so "каде е?" (no place) still matches and yields an empty rest.
-const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:поточно|потoчno|potocno|точно|tocno|tochno|ориентино|ориентирно|приближно|бас|bas)?\s*(?:(?:се|se)\s+)?(?:наоѓа|наоjа|naogja|naoga|е|e|се|se|is)(?=\s|[?!.]|$)/iu; // wo+se: removed 'да\s+' from modifier to avoid backtracking issues
+// "каде е X?" — verb family is tolerant: any of се наоѓа / наоѓа / naogja /
+// naoga / naogjaa (doubled-vowel typo) / наоѓаат / naogjaat (person endings) /
+// ѓ→г/ј letter swaps, plus bare е / e / се / se / is. A tolerant verb token is
+// essential: if only "kade se" matched, the leftover verb fragment ("naogjaa 76")
+// would be mistaken for a place name and the EB lookup would never fire. The
+// lookahead keeps the boundary so "каде е?" (no place) still yields empty rest.
+const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:поточно|потoчno|potocno|точно|tocno|tochno|ориентино|ориентирно|приближно|бас|bas)?\s*(?:(?:се|se)\s+)?(?:нао[ѓгјj]?[аa]{1,3}[тмшtm]?|naog?j?[аa]{1,3}[тмшtm]?|е|e|се|se|is)(?=\s|[?!.]|$)/iu; // wo+se: removed 'да\s+' from modifier to avoid backtracking issues
 // A bare "каде?" / "kade ?" means "where [is it]?" — the last shown property.
 const WHERE_BARE_RE = /^(?:каде|каде|где|где|кај|кај|wхере)\s*\??\s*$/iu;
 // "што има во близина?" / "what's nearby?" — NEARBY questions about the last shown property.
@@ -1344,6 +1370,115 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   if (WHERE_IS_BLACKLIST.test(rest)) return undefined;
   if (rest.length < 3) return undefined;
   return { place: rest, generic: false };
+}
+
+// ── NEARBY ASK — grammar-based detector (order-free) ────────────────────────
+// The client asks what else is around the CURRENTLY DISCUSSED property:
+//   "sto uste ima vo blizina?" / "sto ima drugo vo blizina na zgradata?"
+//   "shto drugo ima okolu?" / "nesto drugo vo blizina?" / "ima li nesto okolu?"
+// Production miss it closes: the enumerated whereIsSecondary phrases list only
+// ONE word order ("sto uste ima…", "sto drugo ima…"), so "sto ima drugo vo
+// blizina…" slipped through and the FSM's fee-confirmation consumed the
+// message as fee agreement. Instead of adding more variants, this detector
+// builds the question from grammar slots so ANY order matches:
+//   subject-initial:  SUBJECT (MOD|HAVE)* FILLER NEAR
+//   have-initial:     HAVE (SUBJECT|MOD)* FILLER NEAR     ("ima li nesto okolu")
+//   anchor-initial:   ^ NEAR (SUBJECT|MOD|HAVE)+          ("vo blizina shto uste ima")
+// WRITTEN CYRILLIC-CANONICAL ONLY and tested against normalizeMc(text) — per
+// the normalize.ts contract: normalizeMc transliterates Latin (including
+// mixed-script homoglyph typos like "imа") to Cyrillic, so ONE alternation
+// covers every script and the homoglyph-typo class disappears structurally.
+// SAFETY CORES:
+//   1. The proximity anchor is REQUIRED — a bare "sto ima?" (search request)
+//      can never match.
+//   2. The subject is an INTERROGATIVE — "baram stan vo blizina na centar"
+//      (a search wish, subject "стан") can never match.
+//   3. The anchor must NOT name a target AREA — "vo blizina na Centar" is a
+//      location wish owned by the search pipeline, not a nearby ask.
+//   4. Chat-length cap (≤ 10 words) + exact-address priority guard.
+const NB_SUBJECT = '(?:што|шт?о|несто|нешто|кое|кој|која|кои)';
+const NB_MOD = '(?:уште|усте|сеуште|друго|други|дополнително|повеќе)';
+// HAVE: verb + optional inverted question particle ("има", "има ли", "имат")
+const NB_HAVE = '(?:има|имат|постои|најде)\\s*(?:ли)?';
+// FILLER: copula/preposition or a noun head between modifiers and the anchor
+// ("shto uste E vo blizina", "koi drugi OBJEKTI okolu")
+const NB_FILLER = '(?:\\s*(?:е|и|на|во|објекти|станови|куќи|локали|згради|места|работи)\\s*)*';
+const NB_NEAR =
+  '(?:во\\s+бли[зж]ин(?:а|ата|у)|бли[зж]ин(?:а|ата|у)' +
+  '|бли[зж]у|околу|околин(?:а|ата)|околии(?:а|ата)' +
+  '|наспроти|сспроти|спроти)';
+const NEARBY_RE_SUBJECT = new RegExp(
+  NB_SUBJECT + '(?:\\s*(?:' + NB_MOD + '|' + NB_HAVE + '))*' + NB_FILLER + '\\s*' + NB_NEAR, 'iu');
+const NEARBY_RE_HAVE = new RegExp(
+  NB_HAVE + '(?:\\s*(?:' + NB_SUBJECT + '|' + NB_MOD + '))*' + NB_FILLER + '\\s*' + NB_NEAR, 'iu');
+// Anchor-initial: the anchor must OPEN the message and carry at least one
+// following term — otherwise any text containing "во близина" would match.
+const NEARBY_RE_ANCHOR = new RegExp(
+  '^' + NB_NEAR + '(?:\\s*(?:' + NB_SUBJECT + '|' + NB_MOD + '|' + NB_HAVE + '))+', 'iu');
+// A nearby ask is about the CURRENT property. When the anchor names a target
+// AREA ("во близина на Центар") it is a SEARCH wish — the search pipeline
+// owns it. The feed's own neighborhoods (Latin covered via normalizeMc).
+const NEARBY_AREA_TARGET_RE = new RegExp(
+  NB_NEAR + '\\s*(?:на|во)?\\s*' +
+  '(?:центар|аеродром|карпош|кисела\\s+вода|водно|лисиче|ново\\s+лисиче|бутел|капиштец|ѓорче|таир|автокоманда|кисела)', 'iu');
+
+/** True when the client asks what else is near the current property.
+ *  Order-free (grammar slots, not enumerated variants); requires a proximity
+ *  anchor so plain search wishes never match. */
+export function detectNearbyAsk(text: string): boolean {
+  const t = text.trim();
+  // Guard: nearby asks are short chat lines (≤ 10 words). Sentences never
+  // carry this shape.
+  if (t.split(/\s+/).length > 10) return false;
+  // Guard: exact-address asks keep priority — never swallow them.
+  if (matchesBoth(EXACT_ADDRESS_RE, t)) return false;
+  // Single canonical pass: Latin/homoglyphs → Cyrillic (normalize.ts contract).
+  const n = normalizeMc(t);
+  if (NEARBY_AREA_TARGET_RE.test(n)) return false;
+  return NEARBY_RE_SUBJECT.test(n) || NEARBY_RE_HAVE.test(n) || NEARBY_RE_ANCHOR.test(n);
+}
+
+// ── CONTEXT DISAMBIGUATION for the ambiguous "more/other" family ───────────
+// Bare "sto drugo ima?" / "sto uste ima?" cannot decide between two questions:
+//   (a) "what else is NEAR THE BUILDING?"  → landmark rotation (where-is path)
+//   (b) "what OTHER PROPERTIES do you have?" → next options batch (classifier)
+// Production bug: after Lina presented two matching apartments ("so edna
+// spalna ili garsonjera", "do 100.000"), "STO DRUGO IMA?" was intercepted by
+// the whereIsSecondary list and answered with a landmark (Biser Shopping
+// Center) instead of more properties. The CONTEXT decides: a proximity anchor
+// in the message (каде / во близина / околу / тука…) always means a location
+// question; otherwise, when the last assistant reply presented property
+// content (card / options list / price line — the "Евидентен број" marker),
+// the client is still in the property thread and wants more options.
+
+/** A proximity/location anchor — the message is unambiguously about place.
+ *  Tested on normalizeMc output (Latin → Cyrillic), like every detector. */
+export function hasProximityAnchor(text: string): boolean {
+  return /(?:каде|во\s+бли[зж]ин|бли[зж]у|околу|околин|наспроти|сспроти|спроти|тука|локациј|адрес)/u
+    .test(normalizeMc(text));
+}
+
+/** The "more/other" marker — other(о/и/а) or уште in either script. */
+export function mentionsMore(text: string): boolean {
+  return /(?:друг(?:о|и|а|иот|ата|ово)?|уште|усте|уцте|iste)/u.test(normalizeMc(text));
+}
+
+/** The last assistant reply presented PROPERTY content — a card, an options
+ *  list, a price line, a visit-location message or an exhausted/no-match line
+ *  (every one anchors the property-options thread). Landmark/protocol/greeting
+ *  replies never do. */
+export function lastReplyWasProperty(lastAssistantText: string): boolean {
+  return /(?:под|со)\s+Евидентен\s+број/iu.test(lastAssistantText)
+    || /(?:составив\s+листа|ги\s+одбрав\s+следниве|предлози\s+кои)/iu.test(lastAssistantText)
+    || /ЛОКАЦИЈА\s+ЗА\s+ЕВИДЕНТЕН\s+БРОЈ/iu.test(lastAssistantText)
+    || /(?:што\s+одговараат\s+на\s+Вашите\s+критериуми|немам\s+слободни\s+имоти|не\s+можам\s+да\s+го\s+најдам\s+имотот)/iu.test(lastAssistantText);
+}
+
+/** True when a bare "more" ask right after property content means
+ *  "show more properties" — the where-is interception must stand down and
+ *  the classifier serves the next options batch. */
+export function isOptionsFollowUp(text: string, lastAssistantText: string): boolean {
+  return mentionsMore(text) && !hasProximityAnchor(text) && lastReplyWasProperty(lastAssistantText);
 }
 
 // "потoчно која улица?", "точно која адреса?", "на која адреса е?", "која е
@@ -1686,8 +1821,8 @@ export function fsmRequired(text: string): boolean {
 }
 
 export function buildEvent(state: State, slots: DetectedSlots): Event {
-  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected } = slots;
-  const has = !!(service || location || bedrooms || budget || sqm || anywhere);
+  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected, sizeWaived, pricePriority } = slots;
+  const has = !!(service || location || bedrooms || budget || sqm || anywhere || sizeWaived || pricePriority);
   // A rejection is honored ONLY when the message carries NO new direction —
   // "не барам стан, барам куќа" names a new type, which wins over the denial.
   // Checked BEFORE the STAY guard so a pure denial ("не барам стан", nothing
@@ -1705,12 +1840,16 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
   // client gets the budget-driven city-wide presentation ("bilo kade do 250"
   // → rent options till 250, from the most popular neighborhoods), instead of
   // being asked for a location/bedrooms they explicitly didn't care about.
+  // sizeWaived: bedrooms waived — "големината не ми е битна"
+  // pricePriority: budget optional — "што поевтино" → sort by price, search now
+  const bedroomsOk = business ? sqm : (bedrooms || anywhere || sizeWaived);
+  const budgetOk = budget || pricePriority;
   const complete = service && (location || anywhere)
-    && (business ? sqm : (bedrooms || anywhere)) && budget;
+    && bedroomsOk && budgetOk;
   if (complete) {
-    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, house, budget, anywhere };
+    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority };
   }
-  if (service && !location && !bedrooms && !budget && !sqm && !anywhere) {
+  if (service && !location && !bedrooms && !budget && !sqm && !anywhere && !sizeWaived && !pricePriority) {
     return { type: 'INTENT_DECLARED', service, business, house };
   }
   // A bare need ("ми треба стан", "MI TREBA STANCE") with NOTHING extracted:
@@ -1720,7 +1859,7 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
   if (need && !has) {
     return { type: 'INTENT_DECLARED', service: undefined, business, house };
   }
-  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, house, budget, anywhere };
+  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority };
 }
 
 
@@ -1755,6 +1894,8 @@ export function extractSlots(text: string): DetectedSlots {
   if (detectAnywhere(text)) out.anywhere = true;
   if (detectApartmentNeed(text)) out.need = true;
   if (detectRejection(text)) out.rejected = true;
+  if (detectSizeWaived(text)) out.sizeWaived = true;
+  if (detectPricePriority(text)) out.pricePriority = true;
   return out;
 }
 
