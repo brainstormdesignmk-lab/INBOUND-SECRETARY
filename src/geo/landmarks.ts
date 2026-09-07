@@ -15,309 +15,223 @@ function dbgLog(line: string): void {
 // link with the real address) is revealed ONLY in the visit protocol, 2 hours
 // before the visit, when the visit is already arranged.
 //
-// Resolution layers, quality-first (each hit is cached in the `landmarks`
-// table so live APIs are called at most ONCE per address ever):
-//   1. feed landmarks      — ANA's import-time ranked list (Supabase).
-//   2. DB cache            — previous resolution (any source).
-//   3. Google Maps         — Geocoding + Places Nearby Search (professional
-//      quality, the primary layer when a key is available).
-//   4. details extraction  — parse "спроти X", "кај X", "близина на X" from
+// Resolution layers — DB-ONLY. No network, no table, no LLM in the request
+// path (network lives only in scripts/: the offline-map builder, the SerpApi
+// geocoders, the monthly refresh cron). Each hit is cached in the `landmarks`
+// table keyed by property.id:
+//   1. feed landmarks      — ANA's import-time ranked list (Supabase),
+//                            proximity-guarded against wrong upstream entries.
+//   2. DB cache            — previous resolution (any source), tier-guarded
+//                            by canServeLandmark (never serves poison).
+//   3. details extraction  — parse "спроти X", "кај X", "близина на X" from
 //      the property's own description text. Zero cost, always available.
-//   5. offline map         — local OSM POIs, zero network (Skopje only).
-//   6. OSM                 — Nominatim + Overpass (free fallback).
-//   7. deterministic table — per-neighborhood Skopje landmarks (last resort).
-//   8. Hermes event        — async LLM resolver (phase 2).
+//   4. offline map         — local OSM POIs + addresses, zero network
+//                            (Skopje only). Trusted only for exact building /
+//                            interpolated resolutions; centroid guesses are
+//                            honest "населба" fallbacks, never landmarks.
 // If everything fails → { source: 'none' } and the caller falls back to the
 // neighborhood alone — the street is never revealed.
 
 import fs from 'fs';
 import { Db } from '../store/db';
-import { tableLandmark } from './landmarkTable';
 import { FeedLandmark } from '../data/properties';
-import { OfflineMapStore } from './offlineMap';
+import { OfflineMapStore, type Center } from './offlineMap';
+export type { Center } from './offlineMap';
 
 export interface Landmark {
   landmark: string;
   type: string;
   mapsUrl?: string;
-  source: 'feed' | 'table' | 'google' | 'osm' | 'hermes' | 'none' | 'offline';
+  // 'table'|'google'|'osm'|'hermes' kept for legacy DB-cache rows written by
+  // older generations — canServeLandmark gates them by tier before serving.
+  source: 'feed' | 'extract' | 'offline' | 'table' | 'google' | 'osm' | 'hermes' | 'none';
+}
+
+// ── Tier system (replaces old address_key cache + 24h TTL + suspect bypass) ──
+// Higher rank = higher quality. Only UPGRADE on rewrite, never downgrade.
+export const TIER_RANK: Record<string, number> =
+  { feed: 5, google: 4, extract: 3, osm_poi: 2, osm_low_confidence: 1 };
+export type LandmarkTier = keyof typeof TIER_RANK;
+
+/** Minimal property row shape needed by the tier system. The caller passes
+ *  whatever Property fields are available — we never depend on the full
+ *  Property type so the function stays testable. */
+export interface PropertyRow {
+  id: number;
+  eb?: number;
+  landmark_tier?: string | null;
+  landmark_lat?: number | null;
+  landmark_lon?: number | null;
+  landmark_name?: string | null;
+  geo_source?: string | null;   // 'stored'|'google_cached'|'osm_low_confidence'
+  address?: string;
+  lat?: number | null;
+  lon?: number | null;
+}
+
+export function centerTrusted(geoSource: string | null | undefined): boolean {
+  // Trusted: real geocodes (stored / google_cached) AND the Phase-1 offline
+  // import resolutions (osm_building exact / osm_interpolated between two
+  // neighbours). Untrusted: osm_low_confidence (street centroid, endpoint
+  // clamp, name-fail) — never anchors a landmark claim.
+  return geoSource === 'stored' || geoSource === 'google_cached'
+    || geoSource === 'osm_building' || geoSource === 'osm_interpolated';
+}
+
+// Can the CACHED landmark be served to a client right now?
+export function canServeLandmark(p: PropertyRow): boolean {
+  if (!p.landmark_tier) return false;
+  if (p.landmark_tier === 'osm_low_confidence') return false;   // NEVER serves
+  if (p.landmark_tier === 'osm_poi') return centerTrusted(p.geo_source); // needs trusted center
+  return true;
 }
 
 export interface LandmarkOpts {
-  /** street address (used ONLY for the live geocoders, never shown) */
-  address?: string;
-  location?: string;
-  /** Google Places API key, or '' to skip the Google layer */
-  googleKey?: string;
-  /** false = skip Google Maps layer (use offline map instead) */
-  googleEnabled?: boolean;
-  /** Enable the free OSM layer (Nominatim + Overpass). ON by default for
-   *  production; tests turn it off so the suite never hits the network. */
-  osm?: boolean;
-  /** false = skip live OSM layer (Nominatim + Overpass) */
-  osmEnabled?: boolean;
   /** Local OSM map (named POIs + addresses) — the zero-network landmark
-   *  layer for Skopje. Geocodes the address locally, finds the nearest
-   *  named POI, returns it as the landmark. Falls through when the map
-   *  is unavailable or the address can't be geocoded. */
+   *  layer for Skopje. Resolves the address locally (exact building →
+   *  interpolation → centroid), finds the nearest named POI, returns it as
+   *  the landmark. Falls through when the map is unavailable or the address
+   *  can't be resolved. Trusted only for building/interpolated resolutions. */
   offlineMap?: OfflineMapStore;
-  /** called when no layer produced a landmark — the Hermes contract */
-  onHermesRequest?: (opts: { address?: string; location?: string }) => void;
 }
 
-const TIMEOUT_MS = 8000;
-const GEO_MAX_RETRIES = 3;
-
-/** Sleep helper. */
-function geoSleep(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
-
-async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<any> {
-  for (let attempt = 0; attempt <= GEO_MAX_RETRIES; attempt++) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(url, { headers, signal: ctrl.signal });
-      if (res.status === 429 && attempt < GEO_MAX_RETRIES) {
-        const retryAfter = Number(res.headers.get('Retry-After'));
-        const delay = (Number.isFinite(retryAfter) && retryAfter > 0)
-          ? retryAfter * 1000
-          : 2000 * Math.pow(2, attempt);
-        console.log(`    ⏳ geocode 429 — retrying in ${Math.round(delay / 1000)}s (${GEO_MAX_RETRIES - attempt} left)`);
-        await geoSleep(delay);
-        continue;
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw new Error('geocode: max retries exceeded');
-}
-
-/** Distance in meters (haversine) between two lat/lon points. */
-function meters(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
-  const R = 6371000;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLon = ((b.lon - a.lon) * Math.PI) / 180;
-  const s =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
-}
-
-// --- Photon layer (Komoot) --------------------------------------------------
-// Free, fast, no key, no rate limits. Better than Nominatim for forward
-// geocoding (address → coordinates). Used to center the offline map POI search.
-const PHOTON_URL = 'https://photon.komoot.io/api/';
-
-async function photonGeocode(address: string, location: string): Promise<{ lat: number; lon: number; street: string } | undefined> {
-  const q = [address, location, 'Skopje'].filter(Boolean).join(' ');
-  try {
-    const data = await fetchJson(
-      `${PHOTON_URL}?q=${encodeURIComponent(q)}&limit=1&osm_tag=building`
-    );
-    const f = data?.features?.[0];
-    if (!f?.geometry?.coordinates) return undefined;
-    const street = f.properties?.street ?? f.properties?.name ?? '';
-    return { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], street };
-  } catch {
-    return undefined;
-  }
-}
-
-// --- Google layer -----------------------------------------------------------
 /** Google Maps link for a query (real address or landmark name) — the ONLY
  *  link format that may ever reach a customer: "everyone uses Google Maps".
- *  The visit protocol's exact-address link and every landmark layer build
- *  through this, so an OSM/other URL can never leak into a message or cache. */
+ *  Pure string builder, no network. Shared by the visit protocol (exact
+ *  address reveal) and every landmark answer, so an OSM/other URL can never
+ *  leak into a message or cache. */
 export function googleMapsLink(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
-/** Pre-visit coordinate link, PRIVACY-ROUNDED to 3 decimals (~100 m — one
- *  city block). Full 7-decimal coords pin the building entrance to ~1 cm,
- *  which defeats the whole "address only 2 h before the visit" protocol:
- *  the maps link IS the exact address. Rounding keeps the link useful for
- *  orientation (right block / right POI) without leaking the building.
- *  The visit-time unlock (visits/messages.ts mapsLinkFor) stays full-precision
- *  by design — it sends the street address itself anyway. */
-export function approxCoordsLink(lat: number, lon: number): string {
-  const r3 = (n: number) => Math.round(n * 1000) / 1000;
-  return `https://www.google.com/maps/search/?api=1&query=${r3(lat)},${r3(lon)}`;
-}
+// Re-export precision utilities for callers (handler, scripts)
+import { distM as _distM, propertyAreaLink, fullCoordsLink, landmarkLink } from './precision';
+import { typeRank } from './types';
+export { propertyAreaLink, fullCoordsLink, landmarkLink };
 
-// Priority POI types: well-known public places that people use for navigation.
-// Ranked by how recognizable they are as landmarks (hospital > school > mall > etc).
-const GOOGLE_POI_TYPES = 'hospital|school|university|shopping_mall|stadium|pharmacy|bank|tourist_attraction|church|mosque|museum|library|fire_station|police|city_hall';
-
-async function googleLandmark(
-  address: string | undefined,
-  location: string | undefined,
-  key: string,
-  eb?: number,
-): Promise<Landmark | undefined> {
-  const q = [address, location, 'Скопје'].filter(Boolean).join(', ');
-  const geo = await fetchJson(
-    `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`
-  );
-  const gres = geo?.results?.[0];
-  if (!gres?.geometry?.location) return undefined;
-  const { lat, lng } = gres.geometry.location;
-  // 1500m radius — wide enough to find a recognizable landmark, narrow enough
-  // to be relevant ("во близина на" implies walking distance).
-  const nearby = await fetchJson(
-    `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=1500&type=${GOOGLE_POI_TYPES}&key=${encodeURIComponent(key)}`
-  );
-  const results: Array<{ name: string; type: string; dist: number }> = (nearby?.results ?? [])
-    .filter((r: any) => r.name && r.name.length >= 3)
-    .map((r: any) => {
-      const dlat = ((r.geometry?.location?.lat ?? lat) - lat) * 111320;
-      const dlng = ((r.geometry?.location?.lng ?? lng) - lng) * 111320 * Math.cos((lat * Math.PI) / 180);
-      return { name: r.name as string, type: (r.types?.[0] ?? 'place') as string, dist: Math.sqrt(dlat ** 2 + dlng ** 2) };
-    })
-    .sort((a: { dist: number }, b: { dist: number }) => a.dist - b.dist);
-  if (results.length === 0) return undefined;
-  // Rotate among the top 3 by EB hash (like the feed layer) so two
-  // properties on the same street don't get the same landmark.
-  const top = results.slice(0, 3);
-  const pick = eb !== undefined ? top[Math.abs(eb * 2654435761) % top.length] : top[0];
-  return {
-    landmark: pick.name,
-    type: pick.type,
-    mapsUrl: googleMapsLink(pick.name),
-    source: 'google',
-  };
-}
-
-// --- OSM layer (Nominatim + Overpass) ---------------------------------------
-const OSM_AMENITIES = 'school|university|hospital|clinic|mall|hotel|theatre|cinema|stadium|library';
-
-/** Geocode an address via OSM Nominatim (free, no key) — shared by the nearby
- *  lookup and the Hermes resolver (which hands the coordinates to the LLM). */
-export async function geocodeOsm(address: string | undefined, location: string | undefined): Promise<{ lat: number; lon: number } | undefined> {
-  const q = [address, location, 'Скопје'].filter(Boolean).join(', ');
-  const geo = await fetchJson(
-    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
-    { 'User-Agent': 'metropolis-lina-bot/1.0', 'Accept-Language': 'mk' }
-  );
-  const g = geo?.[0];
-  if (!g || g.lat === undefined || g.lon === undefined) return undefined;
-  return { lat: Number(g.lat), lon: Number(g.lon) };
-}
-
-async function osmLandmark(address: string | undefined, location: string | undefined): Promise<Landmark | undefined> {
-  const g = await geocodeOsm(address, location);
-  if (!g) return undefined;
-  const { lat, lon } = g;
-  // Nearest amenity POI within 800m — names come out in the local script.
-  const overpass = await fetchJson(
-    `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(
-      `[out:json][timeout:8];(node["amenity"~"^(${OSM_AMENITIES})$"](around:800,${lat},${lon});way["amenity"~"^(${OSM_AMENITIES})$"](around:800,${lat},${lon}););out center tags;`
-    )}`
-  );
-  const elems: Array<{ lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string> }> =
-    overpass?.elements ?? [];
-  if (!elems.length) return undefined;
-  let best: (typeof elems)[0] | undefined;
-  let bestDist = Infinity;
-  for (const e of elems) {
-    const p = { lat: e.lat ?? e.center?.lat ?? NaN, lon: e.lon ?? e.center?.lon ?? NaN };
-    if (!Number.isFinite(p.lat)) continue;
-    const name = e.tags?.name;
-    if (!name) continue; // unnamed POIs are useless landmarks
-    const d = meters({ lat, lon }, p);
-    if (d < bestDist) { bestDist = d; best = e; }
-  }
-  if (!best?.tags?.name) return undefined;
-  return {
-    landmark: best.tags.name,
-    type: best.tags.amenity ?? 'place',
-    // OSM is the DATA source, never the customer link — always Google Maps.
-    mapsUrl: googleMapsLink(best.tags.name),
-    source: 'osm',
-  };
-}
-
-// --- DB cache ---------------------------------------------------------------
+// --- DB cache (property.id keyed, no TTL, upgrade-only) ---------------------
+// The old address_key cache caused two buildings sharing an address to collide.
+// Property.id is the stable, unique key. No 24h TTL: freshness comes from the
+// monthly cron refresh and the upgrade-only write policy.
 export class LandmarkStore {
   constructor(private db: Db) {}
 
-  /** Cache freshness window. Stale-forever caches served wrong answers for
-   *  weeks when feed addresses changed under an existing key; after this TTL
-   *  an entry re-resolves from current data (cheap: offline map, no network). */
-  static readonly CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-  private fresh(resolvedAt: number | undefined): boolean {
-    return typeof resolvedAt === 'number' && Date.now() - resolvedAt < LandmarkStore.CACHE_TTL_MS;
-  }
-
-  get(addressKey: string): { landmark: string; type: string; mapsUrl: string | null; source: string } | undefined {
+  /** Read the cached landmark for a property. No TTL — once resolved, it stays
+   *  until the cron or a higher-quality layer supersedes it. */
+  get(propertyId: number): { landmark: string; type: string; mapsUrl: string | null; source: string; tier: string | null } | undefined {
     const row = this.db.db.prepare(
-      `SELECT landmark, type, maps_url as mapsUrl, source, resolved_at as resolvedAt FROM landmarks WHERE address_key = ?`
-    ).get(addressKey) as any;
-    if (!row) return undefined;
-    if (!this.fresh(row.resolvedAt)) return undefined; // expired → caller re-resolves
-    return row;
+      `SELECT landmark, type, maps_url as mapsUrl, source, tier FROM landmarks WHERE property_id = ?`
+    ).get(propertyId) as any;
+    return row ?? undefined;
   }
 
-  put(addressKey: string, l: { landmark: string; type: string; mapsUrl?: string; source: string }): void {
+  /** Write a landmark to the cache. Upgrade-only: if the existing entry has
+   *  a higher or equal tier, this is a no-op. Never downgrade quality. */
+  put(propertyId: number, l: { landmark: string; type: string; mapsUrl?: string; source: string }, tier: LandmarkTier): void {
+    const existing = this.db.db.prepare(
+      `SELECT tier FROM landmarks WHERE property_id = ?`
+    ).get(propertyId) as { tier: string } | undefined;
+    // Upgrade-only rule: only write if new tier is higher than existing
+    if (existing?.tier && (TIER_RANK[tier] ?? 0) <= (TIER_RANK[existing.tier as LandmarkTier] ?? 0)) {
+      try { dbgLog(`    SKIP-UPGRADE id=${propertyId} tier ${tier} <= ${existing.tier}\n`); } catch {}
+      return;
+    }
     this.db.db.prepare(
-      `INSERT OR REPLACE INTO landmarks (address_key, landmark, type, maps_url, source, resolved_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(addressKey, l.landmark, l.type, l.mapsUrl ?? null, l.source, Date.now());
+      `INSERT OR REPLACE INTO landmarks (property_id, landmark, type, maps_url, source, tier, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(propertyId, l.landmark, l.type, l.mapsUrl ?? null, l.source, tier, new Date().toISOString());
   }
 
-  getNearby(addressKey: string): Array<{ landmark: string; lat: number; lon: number }> | undefined {
+  /** Read the nearby-landmarks rotation for a property. No TTL. */
+  getNearby(propertyId: number): Array<{ landmark: string; lat: number; lon: number }> | undefined {
     const row = this.db.db.prepare(
-      `SELECT nearby, resolved_at as resolvedAt FROM landmarks WHERE address_key = ? AND nearby IS NOT NULL`
-    ).get(addressKey) as { nearby: string; resolvedAt?: number } | undefined;
-    if (!row || !this.fresh(row.resolvedAt)) return undefined;
+      `SELECT nearby FROM landmarks WHERE property_id = ? AND nearby IS NOT NULL`
+    ).get(propertyId) as { nearby: string } | undefined;
+    if (!row) return undefined;
     try { return JSON.parse(row.nearby); } catch { return undefined; }
   }
 
-  putNearby(addressKey: string, nearby: Array<{ landmark: string; lat: number; lon: number }>): void {
+  putNearby(propertyId: number, nearby: Array<{ landmark: string; lat: number; lon: number }>): void {
     if (nearby.length === 0) return;
-    // UPDATE only — the row must already exist from put(); never create a
-    // row with only nearby (no landmark) to avoid partial entries.
     this.db.db.prepare(
-      `UPDATE landmarks SET nearby = ? WHERE address_key = ?`
-    ).run(JSON.stringify(nearby), addressKey);
+      `UPDATE landmarks SET nearby = ? WHERE property_id = ?`
+    ).run(JSON.stringify(nearby), propertyId);
   }
 }
 
-/** Canonical cache key — a property is identified by location + street, so a
- *  price update or EB change never needs a new lookup. */
+/** Canonical cache key — now just property.id. Kept for backward compat during migration. */
 export function landmarkCacheKey(p: { address?: string; location?: string }): string {
   return `${p.location ?? ''} | ${p.address ?? ''}`.toLowerCase().replace(/\s+/g, ' ');
 }
 
-/**
- * Extract a landmark name from the property's description text. Real estate
- * listings almost always mention nearby landmarks: "спроти ОУ Димитар
- * Миладинов", "кај ТЦ Олимпико", "близина на Црногорска Амбасада",
- * "до Клинички центар". This layer is FREE (no geocoding, no network),
- * always available, and gives the MOST ACCURATE landmark because it comes
- * from the person who created the listing.
- *
- * Returns the first valid match ( спроти > кај > близина > до ), cleaned
- * and length-guarded. Undefined when the details have no landmark phrase.
- */
-const LANDMARK_DETAIL_RE = /(?:спроти|спротив|кај|близина\s+на|близу\s+на|до|на\s+\d+\s*(?:м|метри|метар|meter|m)\s+од)\s+(.{3,50}?)(?:\.|,\s|\s+и\s|\s+се\s|\s+во\s|\s+на\s|\s+е\s|\s+има\s|$)/iu;
+// Cache write: UPGRADE-ONLY. Never overwrite a better tier. Never downgrade.
+let _offlineMapRef: OfflineMapStore | undefined;
+export function setOfflineMapRef(m: OfflineMapStore | undefined): void { _offlineMapRef = m; }
 
-export function extractDetailsLandmark(details: string | undefined): string | undefined {
-  if (!details || details.length < 10) return undefined;
-  const m = details.match(LANDMARK_DETAIL_RE);
-  if (!m) return undefined;
-  let name = m[1].trim();
-  // Strip trailing junk: quotes, parens, trailing prepositions
+export function cacheLandmark(
+  p: PropertyRow,
+  lm: Landmark,
+  tier: string,
+): void {
+  if (!lm?.landmark) return;
+  if (p.landmark_tier && (TIER_RANK[tier] ?? 0) <= (TIER_RANK[p.landmark_tier] ?? 0)) return;
+  // Uses the LandmarkStore internally — store reference set via LandmarkService constructor
+  if (_landmarkStoreInstance) _landmarkStoreInstance.put(p.id, lm, tier as LandmarkTier);
+}
+
+let _landmarkStoreInstance: LandmarkStore | undefined;
+
+// Search center: property row ONLY. geocodeAddress is called NOWHERE in the request path.
+export function resolveSearchCenter(p: PropertyRow): { lat: number; lon: number; trusted: boolean } {
+  if (p.lat && p.lon && p.geo_source !== 'osm_low_confidence') {
+    return { lat: p.lat, lon: p.lon, trusted: true };
+  }
+  const osm = _offlineMapRef?.geocodeAddress(p.address ?? '');
+  if (osm) return { lat: osm.lat, lon: osm.lon, trusted: false };
+  return { lat: 0, lon: 0, trusted: false };
+}
+
+/**
+ * Extract a landmark name from the property's description text, validated
+ * against the local POI table. Returns null-coords for text-only hits
+ * (the description SAYS "спроти X" but X isn't in the POI table).
+ * Never generates a coordinate link for null-coords results.
+ */
+const NEAR_RE = /(?:спроти|кај|близина на|до|во близина на)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
+
+export interface DetailsLandmark {
+  name: string;
+  lat: number | null;
+  lon: number | null;
+  place_url?: string;
+}
+
+export function extractDetailsLandmark(
+  details: string | undefined,
+  center?: Center,
+  offlineMap?: OfflineMapStore,
+): DetailsLandmark | null {
+  if (!details || details.length < 10) return null;
+  const m = details.match(NEAR_RE);
+  if (!m) return null;
+  let name = m[1].trim().replace(/[.,]$/, '');
+  // Strip trailing junk: quotes, parens
   name = name.replace(/[{}`\[\]()"„‟«»'']+$/g, '').trim();
   // Remove leading articles: "на" etc.
   name = name.replace(/^на\s+/i, '').trim();
-  if (name.length < 3 || name.length > 60) return undefined;
-  // Reject time expressions: "пред 2 месеци", "до јануари", etc.
-  if (/пред\s+\d|\bмесец|\bден|\bгодин|\bнедел|januar|februar|mart|april|maj|juni|juli|avgust|septembar|oktombar|noembar|deke(mbar|c)/iu.test(name)) return undefined;
-  return name;
+  if (name.length < 3 || name.length > 60) return null;
+  // Reject time expressions
+  if (/пред\s+\d|\bмесец|\bден|\bгодин|\bнедел|januar|februar|mart|april|maj|juni|juli|avgust|septembar|oktombar|noembar|deke(mbar|c)/iu.test(name)) return null;
+
+  // Validate against merged POI table — local, free, fuzzy
+  if (center && offlineMap?.available) {
+    const pois = offlineMap.findPoisLike(name, center);
+    if (pois.length > 0) {
+      return { name: pois[0].name, lat: pois[0].lat, lon: pois[0].lon, place_url: pois[0].place_url ?? undefined };
+    }
+  }
+  // Text-only hit: may SAY "спроти X", never generates a coordinate link
+  return { name, lat: null, lon: null };
 }
 
 /**
@@ -369,19 +283,26 @@ export class LandmarkService {
 
   constructor(private db: Db, private opts: LandmarkOpts = {}) {
     this.store = new LandmarkStore(db);
+    _landmarkStoreInstance = this.store;
+    setOfflineMapRef(opts.offlineMap);
   }
+
+  /** Public access to the offline map for external callers (handler, scripts). */
+  get offlineMap(): OfflineMapStore | undefined { return this.opts.offlineMap; }
 
   /** Public passthrough: resolve a place name against the offline POI table
    *  ("kade e toa Helen Doron?"). Undefined when the map is unavailable or
-   *  nothing matches. */
-  findPlace(name: string): { name: string; lat: number; lon: number } | undefined {
+   *  nothing matches. When center is given, the NEAREST branch of a chain
+   *  wins ("TTK Banka" near Капиштец = the Beverly Hills branch, not Ново
+   *  Лисиче). */
+  findPlace(name: string, center?: { lat: number; lon: number }): { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined {
     if (!this.opts.offlineMap?.available) return undefined;
-    return this.opts.offlineMap.findPoiByName(name);
+    return this.opts.offlineMap.findPoiByName(name, center);
   }
 
   /** Resolve the approximate location for a property. Cached in the DB after
    *  the first successful layer — later calls cost nothing. */
-  async resolve(p: { eb: number; address?: string; location?: string; details?: string; landmarks?: FeedLandmark[] }): Promise<Landmark> {
+  async resolve(p: { id?: number; eb: number; address?: string; location?: string; details?: string; landmarks?: FeedLandmark[]; geo_source?: string | null; lat?: number | null; lon?: number | null }): Promise<Landmark> {
     // 0) FEED layer
     //    PROXIMITY GUARD (same contract as the table layer below): a
     //    feed-authored landmark can be wrong upstream — an earlier enrichment
@@ -404,7 +325,7 @@ export class LandmarkService {
           try {
             const poi = this.opts.offlineMap.findPoiByName(x.l.landmark);
             if (!poi) return true; // cannot measure — give it the benefit of the doubt
-            const d = meters(propGeo, { lat: poi.lat, lon: poi.lon });
+            const d = _distM(propGeo.lat, propGeo.lon, poi.lat, poi.lon);
             if (d > FEED_MAX_DISTANCE_M) {
               try { dbgLog(
                 `[${new Date().toISOString()}] EB ${p.eb}: REJECT-FEED ${x.l.landmark} — ${Math.round(d)}m > ${FEED_MAX_DISTANCE_M}m\n`); } catch {}
@@ -417,8 +338,9 @@ export class LandmarkService {
         .sort((a, b) => {
           // Prefer malls first ("Беверли Хилс" / "ТЦ Бисер" / "Рамстор"),
           // then by distance. People navigate by malls, not by kiosks.
-          const aMall = a.l.type === 'mall' || a.l.type === 'shopping_mall' ? 0 : 1;
-          const bMall = b.l.type === 'mall' || b.l.type === 'shopping_mall' ? 0 : 1;
+          // Canonical: typeRank() (normalized) instead of exact-type lists.
+          const aMall = typeRank(a.l.type) >= typeRank('mall') ? 0 : 1;
+          const bMall = typeRank(b.l.type) >= typeRank('mall') ? 0 : 1;
           if (aMall !== bMall) return aMall - bMall;
           return (a.l.distance_m ?? Infinity) - (b.l.distance_m ?? Infinity);
         });
@@ -429,169 +351,98 @@ export class LandmarkService {
       }
     }
 
-    const key = landmarkCacheKey(p);
-
-    // 2) DB cache — previous resolution. High-quality sources (feed,
-    //    google, offline, details, table) are served immediately. OSM-sourced
-    //    entries are SUSPECT: Nominatim returns unreliable landmarks for some
-    //    addresses (e.g. 'Златна вилушка' at ~1km for ASNOM 134). When the
-    //    offline map is available, skip the OSM cache and let it re-resolve —
-    //    the offline map has 3,796 local POIs and is far more accurate.
-    const cached = this.store.get(key);
-    const HIGH_QUALITY = new Set(['feed', 'google', 'offline', 'details']);
-    if (cached) {
-      const stale = cached.source === 'table' && p.location
-        ? (() => {
-            const t = tableLandmark(p.eb, p.location);
-            return !t || t.landmark !== cached.landmark;
-          })()
-        : false;
-      // OSM cache is suspect: skip if offline map can re-resolve
-      // TABLE cache is also suspect: neighborhood-level hash-picked landmarks
-      // (e.g. 'Хотел Парк' for EB 69) are coarse — re-resolve when a
-      // higher-quality layer (offline map, Google) is available.
-      const betterAvailable = this.opts.offlineMap?.available || !!this.opts.googleKey;
-      const suspect = cached.source === 'osm' && betterAvailable
-        || cached.source === 'table' && betterAvailable;
-      const hit = (stale || suspect) ? undefined : publicPlace({
+    // 2) DB cache — keyed by property.id, upgrade-only, no TTL.
+    //    canServeLandmark decides whether the cached tier is trustworthy.
+    //    osm_low_confidence → NEVER served. osm_poi → served only if center trusted.
+    const cached = p.id != null ? this.store.get(p.id) : undefined;
+    if (cached && canServeLandmark({ id: p.id!, landmark_tier: cached.tier, geo_source: p.geo_source } as PropertyRow)) {
+      const hit = publicPlace({
         landmark: cached.landmark, type: cached.type,
         mapsUrl: cached.mapsUrl ?? undefined,
         source: cached.source as Landmark['source'],
       });
       if (hit) { dbgLog(
-        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DB-CACHE ${hit.landmark} [${hit.source}] key=${key}\n`); return hit; }
-      if (suspect) { dbgLog(
-        `[${new Date().toISOString()}] EB ${p.eb}: SKIP-SUSPECT-CACHE ${cached.landmark} [${cached.source}] → re-resolving via higher-quality layer\n`); }
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DB-CACHE ${hit.landmark} [${hit.source}] tier=${cached.tier} id=${p.id}\n`); return hit; }
+    }
+    if (cached && !canServeLandmark({ id: p.id!, landmark_tier: cached.tier, geo_source: p.geo_source } as PropertyRow)) {
+      dbgLog(
+        `[${new Date().toISOString()}] EB ${p.eb}: SKIP-BLOCKED-CACHE ${cached.landmark} [${cached.source}] tier=${cached.tier} → re-resolving\n`);
     }
 
-    // 3) Google Maps — the PRIMARY professional layer. Geocodes the exact
-    //    address to coordinates, finds the nearest named POI (hospital,
-    //    school, mall, etc.). Quality is far above OSM/offline. Free tier
-    //    (10K geocode + 5K nearby/month) covers this scale permanently.
-    //    Results are cached so Google is called ONCE per address ever.
-    if (this.opts.googleKey && this.opts.googleEnabled !== false) {
-      try {
-        const g = publicPlace(await googleLandmark(p.address, p.location, this.opts.googleKey, p.eb));
-        if (g) { dbgLog(
-        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-GOOGLE ${g.landmark} [${g.source}]\n`); this.store.put(key, g); return g; }
-      } catch (e) {
-        console.warn('[landmark] google failed:', (e as Error).message);
-      }
-    }
-
-    // 4) DETAILS extraction — parse landmark names from the property's own
+    // 3) DETAILS extraction — parse landmark names from the property's own
     //    description text ("спроти ОУ Димитар Миладинов", "кај ТЦ Олимпико").
-    //    Zero cost, always available. Fallback when Google is unavailable.
-    const detailsLandmark = extractDetailsLandmark(p.details);
-    if (detailsLandmark) {
-      const l = publicPlace({ landmark: detailsLandmark, type: 'details', source: 'table' as const });
+    //    Zero cost, always available. Validated against the local POI table —
+    //    returns coords when matched. Requires a TRUSTED center: validating
+    //    "спроти X" against POIs within 900m of an interpolated guess would
+    //    bless a wrong building as the reference. Untrusted → text-only hits
+    //    only (name, null coords — never a link), which resolve() skips so
+    //    the property lands in the honest fallback + re-resolve queue.
+    const detailsCenter = resolveSearchCenter({ ...p, id: p.id! } as PropertyRow);
+    const detailsHit = detailsCenter.trusted
+      ? extractDetailsLandmark(p.details, detailsCenter, this.opts.offlineMap)
+      : null;
+    if (detailsHit) {
+      const l = publicPlace({ landmark: detailsHit.name, type: 'details', source: 'extract' as const });
       if (l) { dbgLog(
-        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DETAILS ${l.landmark} [${l.source}]\n`); this.store.put(key, l); return l; }
+        `[${new Date().toISOString()}] EB ${p.eb}: RETURN-DETAILS ${l.landmark} [${l.source}] coords=${detailsHit.lat},${detailsHit.lon}\n`); if (p.id != null) this.store.put(p.id, l, 'extract'); return l; }
     }
 
-    // 5) OFFLINE MAP + PHOTON — local OSM POIs with Photon geocoding.
-    //    The offline map has 3,796 named POIs. When the local geocoder can't
-    //    match the address, Photon (free, no key) provides coordinates so the
-    //    POI search still works. This eliminates flaky Nominatim/Overpass calls.
+    // 4) OFFLINE MAP — local OSM POIs + addresses, zero network. The map has
+    //    thousands of named POIs; geocoding is local (exact building →
+    //    interpolation → centroid). No Photon/OSM/Google fallback — if the
+    //    local geocoder can't match the address, the property gets the honest
+    //    "населба" fallback and is queued for the monthly Google upgrade.
     if (this.opts.offlineMap?.available) {
       try {
-        // 5a) Try the address as a POI name first ("Кај Бранка", "Палома Бјанка")
+        // 4a) Try the address as a POI name first ("Кај Бранка", "Палома Бјанка")
+        //     A named complex is a landmark in itself — no center needed.
         if (p.address) {
           const poi = this.opts.offlineMap.findPoiByName(p.address);
           if (poi) {
             const l = publicPlace({ landmark: poi.name, type: 'poi', source: 'osm' as const });
-            if (l) { this.store.put(key, l); return l; }
+            if (l) { if (p.id != null) this.store.put(p.id, l, 'osm_poi'); return l; }
           }
         }
-        // 5b) Local geocode → nearest POI
-        let geo = p.address ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
-        // 5c) If local geocode fails, try Photon (free, fast, no key)
-        if (!geo && p.address) {
-          geo = await photonGeocode(p.address, p.location ?? '');
-        }
+        // 4b) Nearest POI around the search center. resolveSearchCenter prefers
+        //    stored property coordinates (trusted); only rows WITHOUT coords
+        //    fall back to the local geocodeAddress (untrusted). Never geocode
+        //    the address when the property already carries its real position.
+        //    TRUST GATE: an untrusted center (OSM street/centroid guess) never
+        //    produces a served landmark — searching from it would re-create the
+        //    "Златна вилушка 1km away" bug. Such rows fall through to the
+        //    honest fallback and the monthly Google upgrade queue.
+        const center = resolveSearchCenter({ ...p, id: p.id! } as PropertyRow);
+        const geo = center.trusted && center.lat && center.lon ? center : undefined;
         if (geo) {
-          // ADAPTIVE RADIUS — same philosophy as the rotation: a landmark
-          // 150m away is a real reference ("кај Тинекс"); "близина на ТЦ
-          // Џевахир" 1.1km away is not. Start tight at 150m, widen only when
-          // the area is genuinely sparse.
+          // ADAPTIVE RADIUS — a landmark 150m away is a real reference ("кај
+          // Тинекс"); "близина на ТЦ Џевахир" 1.1km away is not. Start tight
+          // at 150m, widen only when the area is genuinely sparse.
           let pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 150, 25);
           if (pois.length === 0) pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 400, 25);
           if (pois.length === 0) pois = this.opts.offlineMap.nearestPois(geo.lat, geo.lon, 1000, 25);
-          // Three-tier landmark preference:
+          // Three-tier landmark preference (canonical, typeRank-based):
           //   1. Malls — everyone knows "Беверли Хилс" / "ТЦ Бисер" / "Рамстор"
-          //   2. Government, schools, hospitals, parks, hotels — permanent structures
+          //   2. Institutional anchors (schools, hospitals, universities, …)
           //   3. Any POI with name >= 3 chars (fallback)
-          const isMall = (t: string) => t === 'mall' || t === 'shopping_mall';
-          const isLandmark = (t: string) => [
-            'school', 'university', 'college',
-            'government', 'townhall', 'diplomatic', 'embassy',
-            'hospital', 'clinic', 'healthcare',
-            'place_of_worship', 'church', 'mosque',
-            'stadium', 'sports_centre', 'museum', 'theatre', 'cinema', 'library',
-            'park', 'garden', 'playground',
-            'hotel', 'hostel', 'motel', 'department_store',
-          ].includes(t);
-          const best = pois.find(po => po.name.length >= 3 && isMall(po.type))
-            ?? pois.find(po => po.name.length >= 3 && isLandmark(po.type))
+          const best = pois.find(po => po.name.length >= 3 && typeRank(po.type) >= typeRank('mall'))
+            ?? pois.find(po => po.name.length >= 3 && typeRank(po.type) >= typeRank('school'))
             ?? pois.find(po => po.name.length >= 3);
           if (best) {
             const l = publicPlace({ landmark: best.name, type: best.type, source: 'offline' as const });
             if (l) { dbgLog(
-            `[${new Date().toISOString()}] EB ${p.eb}: RETURN-OFFLINE-MAP ${l.landmark} [${l.source}]\n`); this.store.put(key, l); return l; }
+            `[${new Date().toISOString()}] EB ${p.eb}: RETURN-OFFLINE-MAP ${l.landmark} [${l.source}]\n`); if (p.id != null) this.store.put(p.id, l, 'osm_poi'); return l; }
           }
         }
       } catch (e) { try { dbgLog(
           `[${new Date().toISOString()}] EB ${p.eb}: OFFLINE-MAP-FAILED: ${(e as Error).message}\n`); } catch {} }
     }
 
-    // 6) OSM network — Nominatim + Overpass (free, no key)
-    if (this.opts.osm !== false && this.opts.osmEnabled !== false) {
-      try {
-        const o = publicPlace(await osmLandmark(p.address, p.location));
-        if (o) { try { dbgLog(
-          `[${new Date().toISOString()}] EB ${p.eb}: LAYER6-OSM gave ${o.landmark} addr=${JSON.stringify(p.address?.substring(0, 40))}\n`); } catch {} this.store.put(key, o); return o; }
-      } catch (e) {
-        console.warn('[landmark] osm failed:', (e as Error).message);
-      }
-    }
-
-    // 7) Deterministic table — per-neighborhood, offline, coarse.
-    //    PROXIMITY GUARD: static table entries are neighborhood-level guesses
-    //    and can be kilometers off (Кисела Вода → „Стадион Борис Трајковски“
-    //    is 4.9 km from properties on Ефтим Спространов). If we can measure
-    //    the real distance and it exceeds TABLE_MAX_DISTANCE_M, reject the
-    //    entry — better no landmark than a misleading one.
-    if (p.location) {
-      const t = tableLandmark(p.eb, p.location);
-      if (t) {
-        const TABLE_MAX_DISTANCE_M = 800;
-        let tooFar = false;
-        try {
-          const propGeo = p.address && this.opts.offlineMap?.available
-            ? this.opts.offlineMap.geocodeAddress(p.address) : undefined;
-          const lmPoi = this.opts.offlineMap?.findPoiByName(t.landmark);
-          if (propGeo && lmPoi) {
-            const d = meters(propGeo, { lat: lmPoi.lat, lon: lmPoi.lon });
-            if (d > TABLE_MAX_DISTANCE_M) {
-              tooFar = true;
-              try { dbgLog(
-                `[${new Date().toISOString()}] EB ${p.eb}: REJECT-TABLE ${t.landmark} — ${Math.round(d)}m > ${TABLE_MAX_DISTANCE_M}m\n`); } catch {}
-            }
-          }
-        } catch {}
-        const hit = tooFar ? undefined : publicPlace({ landmark: t.landmark, type: t.type, source: 'table' });
-        if (hit) { this.store.put(key, hit); return hit; }
-      }
-    }
-
-    // 8) Hermes contract — async LLM resolver (phase 2)
-    this.opts.onHermesRequest?.({ address: p.address, location: p.location });
     return { landmark: '', type: '', source: 'none' };
   }
 
   /** Batch stamp: enriches properties with `landmark` before they reach any
    *  reply builder (cards, LLM context, where-is, availability). */
-  async enrich(props: Array<{ eb: number; address?: string; location?: string; details?: string; landmark?: string; landmarks?: FeedLandmark[] }>): Promise<void> {
+  async enrich(props: Array<{ id?: number; eb: number; address?: string; location?: string; details?: string; landmark?: string; landmarks?: FeedLandmark[]; geo_source?: string | null; lat?: number | null; lon?: number | null }>): Promise<void> {
     await Promise.all(props.map(async pr => {
       // Feed landmarks from Supabase (ANA's import-time resolution) are
       // authoritative — never override them. But ALWAYS re-resolve for all
@@ -605,66 +456,55 @@ export class LandmarkService {
     }));
   }
 
-  /** Returns the top 3 nearby landmarks with coordinates for rotation
-   *  ("каде?" → first, "каде поточно?" → second, …) and Google Maps links.
-   *  Uses ONLY the offline map (zero network) — if the local geocode fails,
-   *  returns empty (no live API fallback for bulk POI queries).
-   *  Results are cached in the landmarks table so the geocode+POI query
-   *  runs at most ONCE per unique address. */
-  nearbyLandmarks(p: { eb: number; address?: string; location?: string; landmark?: string }): Array<{ landmark: string; lat: number; lon: number }> {
-    const key = landmarkCacheKey(p);
-    // 1) Check DB cache
-    const cached = this.store.getNearby(key);
-    if (cached) return cached;
-    // 2) Compute from offline map
-    try {
-      if (!this.opts.offlineMap || !p.address) return [];
-      let geo = this.opts.offlineMap.geocodeAddress(p.address);
-      // FALLBACK 1: address may be a landmark name ("Беверли Хилс") not a street.
-      if (!geo && p.address) {
-        const poi = this.opts.offlineMap.findPoiByName(p.address);
-        if (poi) geo = { lat: poi.lat, lon: poi.lon, street: poi.name };
-      }
-      // FALLBACK 2: use the already-resolved landmark name ("Католичка црква...")
-      if (!geo && p.landmark) {
-        const poi = this.opts.offlineMap.findPoiByName(p.landmark);
-        if (poi) geo = { lat: poi.lat, lon: poi.lon, street: p.landmark };
-      }
-      if (!geo) return [];
-      // ADAPTIVE WIDENING: dense city blocks have plenty of POIs within
-      // 150m; sparse suburbs don't. Widen until we have 3 candidates for
-      // the rotation so clients always get the full 3-step drill-down.
-      // Dedupe by name AND by coordinates — alias POIs (e.g. "Црногорска
-      // Амбасада" vs "Амбасада на Црна Гора") can share the exact same point;
-      // wider radii also re-report the same POIs.
-      const seenNames = new Set<string>();
-      const seenCoords = new Set<string>();
-      let pois: typeof validPois = [];
-      const validPois: Array<{ name: string; type: string; distance_m: number; lat?: number; lon?: number }> = [];
-      for (const radius of [150, 300, 600]) {
-        for (const po of this.opts.offlineMap.nearestPois(geo.lat, geo.lon, radius, 50)) {
-          const coordKey = po.lat != null && po.lon != null
-            ? `${po.lat.toFixed(4)}|${po.lon.toFixed(4)}` : null;
-          if (seenNames.has(po.name)) continue;
-          if (coordKey && seenCoords.has(coordKey)) continue;
-          seenNames.add(po.name);
-          if (coordKey) seenCoords.add(coordKey);
-          validPois.push(po);
-        }
-        const good = validPois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null);
-        if (good.length >= 3) break;
-      }
-      pois.push(...validPois.filter(po => po.name.length >= 3 && po.lat != null && po.lon != null));
-      // nearestPois scores by distance × effective priority × permanence.
-      // Malls and big chains under 100m get boosted to priority 1-2.
-      // Exclude the primary POI (distance < 10m).
-      const nearby = pois.slice(0, 3).map(po => ({ landmark: po.name, lat: po.lat!, lon: po.lon! }));
-      // 3) Cache for next time
-      if (nearby.length > 0) this.store.putNearby(key, nearby);
-      return nearby;
-    } catch (e) {
-      console.warn('[landmarks] nearbyLandmarks failed:', (e as Error).message);
+  /** Returns the top 3 nearby landmarks with coordinates for rotation.
+   *  Uses resolveSearchCenter (property.lat/lon only, no geocodeAddress in
+   *  request path). If the center is untrusted, pushes to the re-resolve
+   *  queue and returns empty — the handler serves an honest fallback.
+   *  Client-facing claims are capped at 500m. */
+  nearbyLandmarks(p: PropertyRow): Array<{ landmark: string; lat: number; lon: number; place_url?: string; place_id?: string }> {
+    const center = resolveSearchCenter(p);
+
+    if (!center.trusted) {
+      try {
+        this.db.db.prepare(
+          `INSERT OR IGNORE INTO geo_reresolve_queue (property_id, reason, created_at) VALUES (?, ?, ?)`
+        ).run(p.id, 'low_confidence_center', new Date().toISOString());
+      } catch {}
+      try { dbgLog(
+        `[${new Date().toISOString()}] EB ${p.eb}: NEARBY-BLOCKED center untrusted (lat=${center.lat}, lon=${center.lon}) → queue\n`); } catch {}
       return [];
     }
+
+    // Adaptive widening — POI search; client-facing claims capped at 500m
+    let found: Array<{ name: string; distance_m: number; lat: number; lon: number; place_url?: string; place_id?: string }> = [];
+    if (this.opts.offlineMap?.available) {
+      for (const radius of [150, 300, 600, 900]) {
+        const pois = this.opts.offlineMap.nearestPois(center.lat, center.lon, radius, 50);
+        if (pois.length >= 3 || radius === 900) {
+          found = pois
+            .filter(poi => poi.distance_m <= 500 && poi.lat != null && poi.lon != null)
+            .slice(0, 3)
+            .map(poi => ({ name: poi.name, distance_m: poi.distance_m, lat: poi.lat!, lon: poi.lon!, place_url: poi.place_url ?? undefined, place_id: poi.place_id ?? undefined }));
+          break;
+        }
+      }
+    }
+
+    if (found.length > 0) {
+      const tier: LandmarkTier = 'osm_poi';
+      cacheLandmark(p, { landmark: found[0].name, type: 'poi', source: 'offline' }, tier);
+      try { dbgLog(
+        `[${new Date().toISOString()}] EB ${p.eb}: NEARBY-OK ${found.map(f => f.name).join(', ')} center=(${center.lat},${center.lon})\n`); } catch {}
+    } else {
+      try {
+        this.db.db.prepare(
+          `INSERT OR IGNORE INTO geo_reresolve_queue (property_id, reason, created_at) VALUES (?, ?, ?)`
+        ).run(p.id, 'no_landmark', new Date().toISOString());
+      } catch {}
+      try { dbgLog(
+        `[${new Date().toISOString()}] EB ${p.eb}: NEARBY-EMPTY no POIs within 500m → queue\n`); } catch {}
+    }
+
+    return found.map(f => ({ landmark: f.name, lat: f.lat, lon: f.lon, place_url: f.place_url, place_id: f.place_id }));
   }
 }

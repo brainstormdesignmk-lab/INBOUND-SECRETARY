@@ -5,11 +5,12 @@ import {
   touchInbound, touchOutbound, canSend, pushHistory, buildGreeting, assistantTexts,
 } from '../fsm/session';
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant } from '../data/responseBank';
+import { shouldLogForEnrichment } from '../llm/enrichPolicy';
 import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots, fsmRequired } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectNearbyAsk, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots, fsmRequired } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -23,7 +24,8 @@ import { ChannelRegistry } from '../channels/types';
 import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/strikes';
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
-import { LandmarkService, approxCoordsLink } from '../geo/landmarks';
+import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extractDetailsLandmark, resolveSearchCenter, type PropertyRow, type Center } from '../geo/landmarks';
+import { walkMinutes } from '../geo/precision';
 import { routeLog, resolveIntent, dispatchSimple } from './router';
 import { VisitScheduler } from '../visits/scheduler';
 import {
@@ -80,6 +82,15 @@ export interface HandlerDeps {
   /** Enrichment queue — stores LLM-backed responses for the midnight cron
    *  that generates bank variants. Optional: without it, the queue is silent. */
   enrichment?: import('../store/enrichment').EnrichmentStore;
+  /** Learned bank store — the SQLite layer of the response bank. Used by the
+   *  learning loop: escalated Q→A pairs are retired into it as new keys.
+   *  Optional: without it, learning is inert (seed bank still serves). */
+  bank?: import('../store/bank').BankStore;
+  /** THE TEACHER/EXAM POLICY — current brain mode supplied by the runner
+   *  (TUI). Teacher modes (hybrid/gemini/groq) log replies for the midnight
+   *  cron; exam mode ('free') logs nothing so the deterministic+bank stack
+   *  can be TESTED standalone. Server runs are always teacher. */
+  brainMode?: () => string;
 }
 
 export class InboundHandler {
@@ -99,6 +110,11 @@ export class InboundHandler {
    *  TUI renders this in the owner panel; Hermes consumes the same question
    *  from the owner_check_requested event in phase 2. */
   onOwnerAsk?: (chatId: string, eb: number, question: string) => void;
+  /** THE TEACHER/EXAM POLICY — current brain mode supplied by the runner
+   *  (TUI). Teacher modes (hybrid/gemini/groq) log replies for the midnight
+   *  cron; exam mode ('free') logs nothing so the deterministic+bank stack
+   *  can be TESTED standalone. Server runs are always teacher. */
+  brainMode?: () => string;
 
   private chains = new Map<string, Promise<void>>();
 
@@ -157,6 +173,103 @@ export class InboundHandler {
         this.deps.sessions.set(session);
         await this.sendRaw(session, greeting);
       }).then(resolve);
+    });
+  }
+
+  /** One WHERE_IS turn for a property: reveal ONE public landmark per ask,
+   *  rotating L1→L2→L3 across sequential "каде е? / сто има во близина?"
+   *  asks (the t60 workflow), then the privacy protocol once all 3 are shown.
+   *  The 3 landmarks are pre-resolved once per property into session slots
+   *  (nearbyLandmarks + nearbyLandmarkCoords), so each follow-up costs
+   *  nothing. Reply shape — agency rules:
+   *    „Тоа се наоѓа во близина на {landmark}."
+   *    + one original Google link (no tinyurl, no second coordinate sentence)
+   *  No "X мин пеш", no "Имотот е приближно тука:" — the client drills into
+   *  the landmark itself, never the street. */
+  private whereIsReply(p: Property, session: ChatSession, place?: string): string {
+    // Coordinates ride the feed now (public-properties selects lat/lon/
+    // geo_source/geocoded_at). NEVER zero them: resolveSearchCenter serves a
+    // TRUSTED center from stored coords; only rows without coords fall to the
+    // geocodeAddress fallback (untrusted) or the honest no-center path.
+    const propRow: PropertyRow = {
+      id: p.id, eb: p.eb, address: p.address,
+      landmark_name: p.landmark,
+      lat: p.lat, lon: p.lon,
+      geo_source: p.geo_source ?? null,
+    };
+    if (process.env.DBG_WHEREIS) console.error('[whereis] propRow=', JSON.stringify(propRow), 'center=', JSON.stringify(resolveSearchCenter(propRow)));
+    const center = resolveSearchCenter(propRow);
+
+    // Pre-resolve the top-3 rotation slots ONCE per property. The client asks
+    // "каде е?" → L1, "што уште има во близина?" → L2, … then privacy protocol.
+    const lm = session.slots.nearbyLandmarks;
+    if ((!lm || lm.length === 0) && this.landmarks) {
+      const nearby = this.landmarks.nearbyLandmarks(propRow);
+      if (nearby.length > 0) {
+        session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+        session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+        session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+        session.slots.landmarkIndex = 0;
+      }
+    }
+
+    const lmList = session.slots.nearbyLandmarks ?? [];
+    const idx = session.slots.landmarkIndex ?? 0;
+
+    // Privacy protocol — ONLY after all 3 landmarks have been revealed.
+    if (lmList.length > 0 && idx >= lmList.length) {
+      const protoIdx = session.slots.addressProtocolIndex ?? 0;
+      const protoLines = [
+        'Точната адреса на имотот ја споделуваме два часа пред средбата, согласно политиките на Агенцијата.',
+        'За безбедност на сопственикот, точната адреса се открива на денот на посетата — тоа е правило на Агенцијата.',
+        'Агенцијата ги штити информациите за имотот. Точната адреса ќе ја дознаете кога ќе се договориме за термин.',
+        'Заради приватноста на сопственикот, адресата се споделува само по закажување на посета. Дали би сакале да закажеме?',
+      ];
+      session.slots.addressProtocolIndex = protoIdx + 1;
+      session.slots.landmarkIndex = idx + 1;
+      return protoLines[protoIdx % protoLines.length];
+    }
+
+    // Landmark turns: idx=0→L1, idx=1→L2, idx=2→L3. If no rotation resolved,
+    // fall back to the property's own landmark (feed/cache/enrichment).
+    if (lmList.length > 0 || p.landmark) {
+      const slot = lmList.length > 0 ? Math.min(idx, lmList.length - 1) : 0;
+      const landmark = lmList.length > 0 ? lmList[slot] : (p.landmark ?? '');
+      session.slots.landmarkIndex = idx + 1;
+      const coords = session.slots.nearbyLandmarkCoords?.[slot];
+      if (landmark) {
+        // Find the landmark's coords/place link: rotation slots carry coords;
+        // otherwise look it up in the offline map by name.
+        // PLACE_ID REPAIR: sessions persisted before the identity map carry
+        // coords-but-no-placeIds slots. When the slot lacks a place_id, look
+        // the landmark up in the CURRENT map — never fall to a coordinate pin
+        // when Google's own identity for that place exists in the POI table.
+        let c = coords;
+        let placeUrl: string | undefined;
+        let placeId: string | null | undefined = session.slots.nearbyLandmarkPlaceIds?.[slot];
+        if ((!c || !placeId) && this.landmarks) {
+          // Center = the shown property: a chain name resolves to the NEAREST
+          // branch (TTK Banka near Капиштец ≠ Ново Лисиче branch).
+          const center = c ?? (session.slots.nearbyLandmarkCoords?.[0]) ?? undefined;
+          const poi = this.landmarks.findPlace(landmark, center);
+          if (poi) {
+            if (!c) c = { lat: poi.lat, lon: poi.lon };
+            placeUrl = poi.place_url ?? placeUrl;
+            placeId = poi.place_id ?? placeId;
+          }
+        }
+        const gmapsLine = c && Number.isFinite(c.lat) && Number.isFinite(c.lon)
+          ? `\n${landmarkLink(landmark, placeId ?? null, c.lat, c.lon, placeUrl)}`
+          : '';
+        return `Тоа се наоѓа во близина на ${landmark}.${gmapsLine}`;
+      }
+    }
+
+    // Honest fallback — no landmark known: neighborhood-level answer, never
+    // the exact street.
+    return buildWhereIsAnswer(place ?? '', {
+      address: p.address, location: p.location, eb: p.eb,
+      business: p.business, landmark: p.landmark,
     });
   }
 
@@ -302,32 +415,16 @@ export class InboundHandler {
           : undefined);
       if (hit) {
         await this.landmarks.enrich([hit]);
-        // Use stored landmarks or resolve fresh.
-        if (!session.slots.nearbyLandmarks?.length) {
-          const nearby = await this.landmarks.nearbyLandmarks(hit);
-          if (nearby.length > 0) {
-            session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
-            session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
-            session.slots.landmarkIndex = 0;
-          }
+        // Record the discussed property; reset the rotation if the client
+        // switched to a different property mid-session.
+        if (session.slots.propertyId !== hit.eb) {
+          session.slots.propertyId = hit.eb;
+          session.slots.nearbyLandmarks = undefined;
+          session.slots.nearbyLandmarkCoords = undefined;
+          session.slots.landmarkIndex = 0;
+          session.slots.addressProtocolIndex = 0;
         }
-        const lm = session.slots.nearbyLandmarks;
-        const idx = session.slots.landmarkIndex ?? 0;
-        const lmSlot = lm ? Math.min(idx, lm.length - 1) : 0;
-        const landmark = lm?.[lmSlot] ?? hit.landmark;
-        session.slots.landmarkIndex = idx + 1;
-        let coords = session.slots.nearbyLandmarkCoords?.[lmSlot];
-        if (!coords && landmark && this.landmarks) {
-          const poi = this.landmarks.findPlace(landmark);
-          if (poi) coords = { lat: poi.lat, lon: poi.lon };
-        }
-        const gmapsLine = coords
-          ? `\n${approxCoordsLink(coords.lat, coords.lon)}`
-          : '';
-        // Privacy: reveal the nearby landmark, NOT the exact street.
-        const answer = `${buildWhereIsAnswer('', {
-          location: hit.location, eb: hit.eb, business: hit.business, landmark,
-        })}${gmapsLine}`;
+        const answer = this.whereIsReply(hit, session, '');
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
@@ -355,6 +452,40 @@ export class InboundHandler {
     // Answer code-built from DB facts (address/neighborhood) so it can never
     // derail into a bogus "exhausted all properties in X" reply — the classifier
     // never even sees it, so the LLM can't misread the place as a location.
+    // 0a-pre) NEARBY ask — "what else is near the building?" ("sto ima drugo
+    // vo blizina na zgradata?"). Grammar-based (order-free) so no word order
+    // variant can slip through to the FSM. It is a where-is question about the
+    // CURRENT property → route into the same landmark-rotation reply path.
+    // Checked BEFORE detectWhereIs: no kade-verb → detectWhereIs returns
+    // undefined for these, and if it ever DOES match (e.g. "kade sto ima
+    // drugo vo blizina"), the dedicated nearby path must win anyway.
+    if (!skipInterceptors && detectNearbyAsk(text)) {
+      routeLog(chatId, text, 'NEARBY_ASK');
+      // Current property: last shown, else the one under discussion by EB.
+      const all = await this.deps.properties.getAll();
+      const shownIds = new Set(session.slots.presentedIds ?? []);
+      const shown = all.filter(p => shownIds.has(p.id));
+      const cur = shown[shown.length - 1]
+        ?? (session.slots.propertyId
+          ? await this.deps.properties.getByEb(session.slots.propertyId)
+          : undefined)
+        ?? (session.slots.interestedPropertyId
+          ? await this.deps.properties.getByEb(session.slots.interestedPropertyId)
+          : undefined);
+      if (!cur) {
+        // Nothing under discussion — a nearby ask without context is a search
+        // wish; let the normal pipeline handle it.
+      } else {
+        await this.landmarks.enrich([cur]);
+        const answer = this.whereIsReply(cur, session, text);
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer);
+        return;
+      }
+    }
+
     const whereIs = detectWhereIs(text);
     if (whereIs) {
       routeLog(chatId, text, 'WHERE_IS');
@@ -405,59 +536,27 @@ export class InboundHandler {
         // Address privacy: "каде е X?" is answered with the nearest PUBLIC
         // landmark ("во близина на City Mall"), never the street.
         await this.landmarks.enrich([hit]);
-        // Pre-resolve nearby landmarks for rotation if not yet done.
-        if (!session.slots.nearbyLandmarks?.length) {
-          const nearby = await this.landmarks.nearbyLandmarks(hit);
-          if (nearby.length > 0) {
-            session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
-            session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
-            session.slots.landmarkIndex = 0;
+        // Session context: mark the answered property as the one under
+        // discussion. Without this, a fresh-session "каде се наоѓа 76?" is
+        // answered once and every follow-up ("kade tocno?", "sto ima vo
+        // blizina?", "dali e dostapen?") finds NO context and dead-ends on
+        // the visit pitch. Recording it here makes the whole follow-up chain
+        // resolve to the same property — the landmark answer never reveals
+        // the exact address, so privacy is unaffected.
+        if (session.slots.propertyId !== hit.eb) {
+          session.slots.propertyId = hit.eb;
+          const presented = session.slots.presentedIds ?? [];
+          if (!presented.includes(hit.id)) {
+            session.slots.presentedIds = [...presented, hit.id];
           }
+          // Property switched — reset the nearby-landmark rotation so the new
+          // property's L1→L2→L3 start fresh.
+          session.slots.nearbyLandmarks = undefined;
+          session.slots.nearbyLandmarkCoords = undefined;
+          session.slots.landmarkIndex = 0;
+          session.slots.addressProtocolIndex = 0;
         }
-        // Rotation: L1 → L2 → L3 → Protocol → Protocol → Protocol → ...
-        // Show ALL landmarks first, then privacy protocol after they're exhausted.
-        const lm = session.slots.nearbyLandmarks;
-        const idx = session.slots.landmarkIndex ?? 0;
-        const hasLandmarks = lm && lm.length > 0;
-        // Protocol ONLY after all landmarks exhausted
-        const isProtocolTurn = hasLandmarks && idx >= lm.length;
-        if (isProtocolTurn) {
-          const protoIdx = session.slots.addressProtocolIndex ?? 0;
-          const protoLines = [
-            'Адресата на имотот ќе ја споделам со Вас два часа пред нашата средба, согласно политиките на Агенцијата.',
-            'Точната адреса се открива на денот на посетата, за безбедност на сопственикот — тоа е правило на Агенцијата.',
-            'Агенцијата ги штити информациите за имотот. Точната адреса ќе ја дознаете кога ќе се договориме за термин.',
-            'Заради приватноста на сопственикот, адресата се споделува само по закажување на посета. Сте во можност да закажеме?',
-          ];
-          answer = protoLines[protoIdx % protoLines.length];
-          session.slots.addressProtocolIndex = protoIdx + 1;
-          session.slots.landmarkIndex = idx + 1;
-          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
-          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
-          this.deps.sessions.set(session);
-          await this.sendRaw(session, answer);
-          return;
-        }
-        // Landmark turns: idx=0→L1, idx=1→L2, idx=2→L3. If no landmarks resolved,
-        // just use hit.landmark (the pre-resolved one from the table/feed).
-        const lmSlot = lm ? Math.min(idx, lm.length - 1) : 0;
-        const landmark = lm?.[lmSlot] ?? hit.landmark;
-        session.slots.landmarkIndex = idx + 1;
-        // Google Maps link: always included so the client never needs a
-        // follow-up asking for directions. Fallback: if nearbyLandmarkCoords
-        // is empty (geocoding failed), try to find the landmark in the offline
-        // map by name.
-        let coords = session.slots.nearbyLandmarkCoords?.[lmSlot];
-        if (!coords && landmark && this.landmarks) {
-          const poi = this.landmarks.findPlace(landmark);
-          if (poi) coords = { lat: poi.lat, lon: poi.lon };
-        }
-        const gmapsLine = coords
-          ? `\n${approxCoordsLink(coords.lat, coords.lon)}`
-          : '';
-        answer = `${buildWhereIsAnswer(whereIs.place, {
-          location: hit.location, eb: hit.eb, business: hit.business, landmark,
-        })}${gmapsLine}`;
+        answer = this.whereIsReply(hit, session, whereIs.place);
       } else if (whereIs.place) {
         // (a) The client asks about a landmark WE just gave ("kade e toa
         // Helen Doron?") — match against the rotation slots before anything
@@ -472,12 +571,18 @@ export class InboundHandler {
         if (givenIdx >= 0) {
           const nm = lmList[givenIdx];
           const c = session.slots.nearbyLandmarkCoords?.[givenIdx];
-          answer = `Ова е местото што Ви го спомнав — ${nm}.${c ? `\n${approxCoordsLink(c.lat, c.lon)}` : ''}`;
+          answer = `Ова е местото што Ви го спомнав — ${nm}.${c ? `\n${landmarkLink(nm, null, c.lat, c.lon)}` : ''}`;
         } else {
           // (b) Any known POI ("kade e Ramstor?") — answer from the offline map.
-          const poi = this.landmarks.findPlace(whereIs.place);
+          // Center = the property under discussion: chain names resolve to the
+          // NEAREST branch (TTK Banka near Капиштец ≠ Ново Лисиче branch).
+          const ctxProp = session.slots.propertyId
+            ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
+            : undefined;
+          const center = ctxProp?.lat && ctxProp?.lon ? { lat: ctxProp.lat, lon: ctxProp.lon } : undefined;
+          const poi = this.landmarks.findPlace(whereIs.place, center);
           if (poi) {
-            answer = `${poi.name}:\n${approxCoordsLink(poi.lat, poi.lon)}`;
+            answer = `${poi.name}:\n${landmarkLink(poi.name, poi.place_id ?? null, poi.lat, poi.lon, poi.place_url)}`;
           } else {
             // (c) Neighborhood / unknown — property-neighborhood or honest miss.
             // BUT: if we have a currently-shown property, the client is likely
@@ -493,23 +598,30 @@ export class InboundHandler {
                 : undefined);
             if (curProp) {
               await this.landmarks.enrich([curProp]);
-              const lm = session.slots.nearbyLandmarks;
-              const idx = session.slots.landmarkIndex ?? 0;
-              const landmark = lm?.[Math.min(idx, (lm.length ?? 1) - 1)] ?? curProp.landmark;
-              session.slots.landmarkIndex = idx + 1;
-              let coords = session.slots.nearbyLandmarkCoords?.[Math.min(idx, (lm?.length ?? 1) - 1)];
-              if (!coords && landmark && this.landmarks) {
-                const poi = this.landmarks.findPlace(landmark);
-                if (poi) coords = { lat: poi.lat, lon: poi.lon };
-              }
-              const gmapsLine = coords ? `\n${approxCoordsLink(coords.lat, coords.lon)}` : '';
-              answer = `${buildWhereIsAnswer(whereIs.place, {
-                location: curProp.location, eb: curProp.eb, business: curProp.business, landmark,
-              })}${gmapsLine}`;
+              answer = this.whereIsReply(curProp, session, whereIs.place);
             } else {
-              const locs = await this.deps.properties.locations();
-              const loc = detectLocation(whereIs.place, locs);
-              answer = buildWhereIsAnswer(whereIs.place, loc ? { location: loc } : undefined);
+              // EB rescue: the "place" text is unrecognized (verb typo junk like
+              // "naogjaa 76", or an unknown name that happens to carry a number),
+              // but it CONTAINS a property number. Before claiming ignorance,
+              // try it as an EB — the number is almost always the property the
+              // client means, and this branch only runs after the rotation slots
+              // and the POI table both failed to match the text as a place.
+              const m = whereIs.place.match(/(?:^|\s)(\d{1,5})(?:\s|$)/);
+              if (m) {
+                const ebHit = await this.deps.properties.getByEb(parseInt(m[1], 10));
+                if (ebHit) {
+                  await this.landmarks.enrich([ebHit]);
+                  answer = this.whereIsReply(ebHit, session, whereIs.place);
+                } else {
+                  const locs = await this.deps.properties.locations();
+                  const loc = detectLocation(whereIs.place, locs);
+                  answer = buildWhereIsAnswer(whereIs.place, loc ? { location: loc } : undefined);
+                }
+              } else {
+                const locs = await this.deps.properties.locations();
+                const loc = detectLocation(whereIs.place, locs);
+                answer = buildWhereIsAnswer(whereIs.place, loc ? { location: loc } : undefined);
+              }
             }
           }
         }
@@ -548,6 +660,8 @@ export class InboundHandler {
         if (slots.bedrooms) session.slots.bedrooms = slots.bedrooms;
         if (slots.sqm) session.slots.sqm = slots.sqm;
         if (slots.budget) session.slots.budget = slots.budget;
+        if (slots.sizeWaived) session.slots.sizeWaived = true;
+        if (slots.pricePriority) session.slots.pricePriority = true;
         // "та цена" / "та cenа" — client references a previously discussed price
         // but no number is in the message. Resolve to the last answered price.
         if (!session.slots.budget && detectPriceReference(text) && session.slots.lastPrice) {
@@ -590,7 +704,7 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_WHY_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_WHY_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
@@ -602,7 +716,7 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_COMPLAINT_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_COMPLAINT_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
@@ -615,7 +729,7 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'INVESTMENT_OPINION_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'INVESTMENT_OPINION_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
@@ -647,7 +761,7 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PRICE_ASK_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PRICE_ASK_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
@@ -1506,14 +1620,16 @@ ${contactReminder}`;
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
 
-    // Enrichment queue: log responses for the midnight cron job.
-    // Now logs BOTH LLM-generated replies AND bank-backed deterministic replies —
-    // the latter are exactly the ones that benefit most from variant diversity
-    // (fee explanations, off-topic redirects, patience lines, etc. that were
-    // never logged before because they're deterministic). The cron groups by
-    // (state, eventType, bankKey) and only generates new variants for keys
-    // that appear frequently but have few existing variants.
-    if (this.deps.enrichment && (bankKey || (replySource !== 'deterministic' && replySource !== 'fallback'))) {
+    // Enrichment queue: log responses for the midnight cron job — but ONLY in
+    // TEACHER modes (hybrid/gemini/groq). Exam mode ('free') logs nothing:
+    // the deterministic+bank stack must score alone, uncontaminated by what
+    // it just learned. (shouldLogForEnrichment defaults to teacher, so the
+    // production server without a brainMode getter keeps learning.)
+    // Logs BOTH LLM-generated replies AND bank-backed deterministic replies —
+    // the latter are exactly the ones that benefit most from variant diversity.
+    if (this.deps.enrichment
+      && shouldLogForEnrichment(this.deps.brainMode?.(), replySource !== 'deterministic' && replySource !== 'fallback', replySource)
+      && (bankKey || (replySource !== 'deterministic' && replySource !== 'fallback'))) {
       try {
         this.deps.enrichment.insert({
           chatId: session.chatId,
@@ -1756,6 +1872,8 @@ ${contactReminder}`;
     if (ev.house !== undefined) session.slots.house = ev.house;
     if (ev.budget) session.slots.budget = ev.budget;
     if (ev.anywhere) session.slots.anywhere = true;
+    if (ev.sizeWaived) session.slots.sizeWaived = true;
+    if (ev.pricePriority) session.slots.pricePriority = true;
     if (ev.propertyId) session.slots.propertyId = ev.propertyId;
     if (ev.visitTime) session.slots.visitTime = ev.visitTime;
     if (ev.name) session.slots.name = ev.name;

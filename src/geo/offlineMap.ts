@@ -14,10 +14,14 @@
 // and atomically renames it, so a failed pull never leaves a half-written map.
 // No map file yet → `available` is false and callers fall back to live APIs.
 
+import '../compat/node16';
+
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
-import { appendFileSync, renameSync, rmSync, statSync } from 'fs';
+import { appendFileSync, existsSync, readFileSync, renameSync, rmSync, statSync } from 'fs';
+import { distM } from './precision';
+import { normType, typeRank } from './types';
 
 /** Skopje metro bbox (south, west, north, east) — Центар, Карпош, Аеродром,
  *  Кисела Вода, Влае, Ѓорче Петров, Чаир, Бутел, Гази Баба. */
@@ -37,6 +41,20 @@ export interface LocalPoi {
   distance_m: number;
   lat?: number;
   lon?: number;
+  /** Short canonical Google Maps place URL (captured + shortened by
+   *  scripts/capture-place-urls.ts). When present, links should use it so the
+   *  client's map opens the EXACT place card, not a bare coordinate view. */
+  place_url?: string;
+  /** Google place_id (hex pair "0x…:0x…"). When present, landmarkLink emits
+   *  maps.google.com/?cid=<decimal> — the EXACT place card, immune to name
+   *  ambiguity. Populated from overrides and the monthly SerpApi top-up. */
+  place_id?: string;
+}
+
+export interface Center {
+  lat: number;
+  lon: number;
+  trusted: boolean;
 }
 
 export interface GeocodeHit {
@@ -44,6 +62,17 @@ export interface GeocodeHit {
   lon: number;
   street: string;
 }
+
+export type OfflineResolveSource = 'osm_building' | 'osm_interpolated' | 'osm_low_confidence';
+
+/** Result of the instant offline property resolver, tagged with an explicit
+ *  trust level. Trusted coords (osm_building / osm_interpolated) may anchor
+ *  POI searches and client links. Untrusted results (osm_low_confidence)
+ *  must never anchor a landmark claim — they go to the honest "населба"
+ *  fallback and the async re-resolution queue geocodes them later. */
+export type OfflineResolve =
+  | { lat: number; lon: number; trusted: true; source: 'osm_building' | 'osm_interpolated' }
+  | { lat: number | null; lon: number | null; trusted: false; source: 'osm_low_confidence' };
 
 export interface MapStats {
   pois: number;
@@ -124,6 +153,44 @@ export function normalizeStreet(s: string): string {
 
 export function streetKey(s: string): string {
   return toLatin(normalizeStreet(s));
+}
+
+/** Cyrillic → Latin transliteration, for tolerant name comparison. */
+export function translitToLatin(s: string): string {
+  const map: Record<string, string> = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ѓ': 'gj', 'е': 'e', 'ж': 'zh', 'з': 'z',
+    'ѕ': 'dz', 'и': 'i', 'ј': 'j', 'к': 'k', 'л': 'l', 'љ': 'lj', 'м': 'm', 'н': 'n', 'њ': 'nj',
+    'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'ќ': 'kj', 'у': 'u', 'ф': 'f', 'х': 'h',
+    'ц': 'c', 'ч': 'ch', 'џ': 'dzh', 'ш': 'sh',
+  };
+  return s.toLowerCase().split('').map(c => map[c] ?? c).join('');
+}
+
+/** Tolerant name key: transliterate + lowercase + strip punctuation/spaces.
+ *  Deliberately does NOT strip meaningful words — "Kipper" vs
+ *  "Kipper Market - Butel" are different branches and must stay distinct. */
+export function normName(s: string): string {
+  return translitToLatin(s).replace(/[^a-z0-9]/g, '');
+}
+
+/** First house-number token in a raw address line.
+ *  "Јане Сандански 25 - 17" → "25", "Бр.134" → "134", "ул. Македонија" → "".
+ *  Shared by geocodeAddress() and resolvePropertyOffline(). */
+export function extractHouseNum(address: string): string {
+  const m = address.match(/\b(\d+[а-яa-z]?)\b/i);
+  return m ? m[1] : '';
+}
+
+/** Numeric value of a stored house number, for neighbour ordering.
+ *  "19A" → 19.5, "29/3" → 29, "16/134" → 16, "70b" → 70.5.
+ *  Shared by geocodeAddress() and resolvePropertyOffline(). */
+export function houseNumValue(h: string): number | null {
+  const m = h.match(/^(\d+)/);
+  if (!m) return null;
+  const base = parseInt(m[1], 10);
+  // Letter suffix (19A, 5B, 70b) → +0.5 — sits between 19 and 20.
+  if (/^\d+[a-zа-я]$/i.test(h)) return base + 0.5;
+  return base;
 }
 
 /** True when a and b differ by at most one edit (insert/delete/substitute).
@@ -255,6 +322,22 @@ export class OfflineMapStore {
   constructor(dbPath: string) {
     try {
       this.db = new Database(dbPath, { readonly: true });
+      // Schema self-upgrade: DBs built before the place_id column (Google
+      // place-card links) must still open — new column reads as NULL and the
+      // overrides fill it on the next apply/build. readonly connections can
+      // still PRAGMA table_info; only the ALTER would fail, and a NULL
+      // place_id is handled gracefully everywhere (link falls to next tier).
+      const cols = (this.db.prepare("PRAGMA table_info(pois)").all() as Array<{ name: string }>)
+        .map(c => c.name);
+      if (!cols.includes('place_id')) {
+        try {
+          this.db.close();
+          const rw = new Database(dbPath); // read-write for the migration
+          rw.exec('ALTER TABLE pois ADD COLUMN place_id TEXT');
+          rw.close();
+          this.db = new Database(dbPath, { readonly: true });
+        } catch { /* read-only FS or concurrent writer — place_id stays absent */ }
+      }
       // Validate the schema — an empty/foreign file must not masquerade as a map.
       this.db.prepare('SELECT COUNT(*) FROM pois').get();
     } catch {
@@ -278,54 +361,89 @@ export class OfflineMapStore {
     return { pois, addresses, bytes: 0 };
   }
 
-  /** The named POIs within radiusM of a point, nearest first. */
+  /** The named POIs within radiusM of a point, preference-ranked first.
+   *  Google-sourced POIs win on a Cyrillic/Latin-tolerant same-place
+   *  collision within 30m (the Google entry has verified coordinates). */
   nearestPois(lat: number, lon: number, radiusM = 2000, limit = 10, opts?: { distanceOnly?: boolean }): LocalPoi[] {
     if (!this.db) return [];
-    const dLat = radiusM / 111320;
-    const dLon = radiusM / (111320 * Math.cos((lat * Math.PI) / 180));
+    const rows = this.db.prepare(`
+      SELECT * FROM pois
+      WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
+    `).all(lat - radiusM / 111000, lat + radiusM / 111000,
+           lon - radiusM / 82000,  lon + radiusM / 82000) as Array<{
+      name: string; type: string; lat: number; lon: number; source?: string; place_url?: string; place_id?: string;
+    }>;
+
+    const inCircle = rows
+      .map(r => ({ ...r, dist: distM(lat, lon, r.lat, r.lon) }))
+      .filter(r => r.dist <= radiusM);
+
+    // Junk types (taxonomy dirt from the Overpass/Google merge) are never
+    // usable as landmarks — filter BEFORE ranking so a "yes" building can't
+    // outrank a real anchor.
+    // Junk types (taxonomy dirt from the Overpass/Google merge) are never
+    // usable as landmarks — filter BEFORE ranking so a "yes" building can't
+    // outrank a real anchor. NOTE: 'residential' (bare OSM landuse tag on
+    // apartment complexes) is NOT junk when it names a known complex —
+    // Беверли Хилс is typed exactly that and is THE landmark of its block.
+    // Only unnamed residential rows are junk; named ones stay eligible.
+    const JUNK_TYPES = new Set(['yes', 'place', 'company', '',
+      'house', 'building', 'address', 'unknown']);
+    const clean = inCircle.filter(r =>
+      !JUNK_TYPES.has(normType(r.type)) ||
+      (normType(r.type) === 'residential' && !!r.name && r.name.trim().length > 0));
+
+    // Institutional landmark first, then distance. This replaces the
+    // pure-distance sort: a mall at 200m outranks a cafe at 50m — people say
+    // "кај Рамстор", never "кај кафето".
+    const ranked = clean.sort((a, b) =>
+      (typeRank(b.type) - typeRank(a.type)) || (a.dist - b.dist));
+
+    // Dedupe pass — Cyrillic/Latin + case/punctuation tolerant (NOT name
+    // variants: "Kipper" vs "Kipper Market - Butel" are different branches
+    // and must never merge). For a same-place pair within 30m, Google wins
+    // the anchor (verified coordinates); the OSM row is dropped.
+    // Identity tier 1: same non-null place_id = THE SAME physical place no
+    // matter how the name is spelled (official vs feed alias) or how far the
+    // coordinates disagree — this is what keeps two spellings of one embassy
+    // from occupying two of the three rotation slots. No distance bound:
+    // place_id equality is stronger evidence than any coordinate.
+    const merged: Array<{ name: string; type: string; lat: number; lon: number; dist: number; source?: string; place_url?: string; place_id?: string }> = [];
+    for (const poi of ranked) {
+      const dup = merged.find(g =>
+        (!!poi.place_id && !!g.place_id && poi.place_id === g.place_id) ||
+        (Math.abs(g.dist - poi.dist) < 30 && normName(g.name) === normName(poi.name)));
+      if (dup) {
+        if (poi.source === 'google' && dup.source !== 'google') {
+          // Google wins the anchor; replace the dup in place
+          merged[merged.indexOf(dup)] = poi;
+        }
+        continue; // else keep existing (same-source or google already present)
+      }
+      merged.push(poi);
+    }
+    return merged.slice(0, limit).map(p => ({
+      name: p.name,
+      type: p.type,
+      distance_m: Math.round(p.dist),
+      lat: p.lat,
+      lon: p.lon,
+      place_url: p.place_url,
+      place_id: p.place_id,
+    }));
+  }
+
+  /** Fuzzy POI name search — LIKE %name% against the pois table, sorted by
+   *  real haversine distance from center. Returns candidates within 900m. */
+  findPoisLike(name: string, center: Center): Array<{ name: string; lat: number; lon: number; dist: number; place_url?: string; place_id?: string }> {
+    if (!this.db || !name) return [];
     const rows = this.db.prepare(
-      `SELECT name, type, lat, lon FROM pois WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?`
-    ).all(lat - dLat, lat + dLat, lon - dLon, lon + dLon) as Array<{ name: string; type: string; lat: number; lon: number }>;
-    // Exclude suburb/neighbourhood/locality — geographic labels, not navigation points.
-    // 'Јане Сандански' as a suburb centres on the whole neighbourhood, not the property.
-    const EXCLUDED_POI_TYPES = new Set(['suburb', 'neighbourhood', 'locality', 'village', 'hamlet', 'quarter', 'city_block', 'residential']);
-    const out: LocalPoi[] = [];
-    for (const r of rows) {
-      if (EXCLUDED_POI_TYPES.has(r.type)) continue;
-      const d = meters({ lat, lon }, { lat: r.lat, lon: r.lon });
-      if (d <= radiusM) out.push({ name: r.name, type: boostNamedLandmark(r.type, r.name), distance_m: Math.round(d), lat: r.lat, lon: r.lon });
-    }
-    if (opts?.distanceOnly) {
-      // PURE DISTANCE: skip scoring, just return closest POIs.
-      // Used by nearbyLandmarks() for rotation — distance matters more than type.
-      out.sort((a, b) => a.distance_m - b.distance_m);
-      return out.slice(0, limit);
-    }
-    // SCORE-BASED ranking: blends distance, type recognizability, and permanence.
-    // Permanent landmarks (parks, churches, schools) beat temporary ones (shops,
-    // cafes) even when farther — "кај паркот" is valid forever;
-    // "кај Алка-У" might not be tomorrow.
-    // score = distance_m * (1 + priority/10) * permanence.
-    // Lower = better landmark. Cap: max 3 results per type to prevent flooding.
-    // TWO-LEVEL SORT: relevance first (malls > chains > landmarks > others),
-    // then distance as tiebreaker within the same relevance tier.
-    out.sort((a, b) => {
-      const priA = effectivePriority(a.type, a.name, a.distance_m);
-      const priB = effectivePriority(b.type, b.name, b.distance_m);
-      if (priA !== priB) return priA - priB; // relevance first
-      return a.distance_m - b.distance_m;     // then distance
-    });
-    // Cap per-type: no more than 3 of any single type so diverse landmarks surface
-    const MAX_PER_TYPE = 3;
-    const typeCounts = new Map<string, number>();
-    const capped: LocalPoi[] = [];
-    for (const p of out) {
-      const count = typeCounts.get(p.type) ?? 0;
-      if (count >= MAX_PER_TYPE) continue;
-      typeCounts.set(p.type, count + 1);
-      capped.push(p);
-    }
-    return capped.slice(0, limit);
+      `SELECT name, lat, lon, place_url, place_id FROM pois WHERE name LIKE ? COLLATE NOCASE`
+    ).all(`%${name}%`) as Array<{ name: string; lat: number; lon: number; place_url?: string; place_id?: string }>;
+    return rows
+      .map(r => ({ ...r, dist: distM(center.lat, center.lon, r.lat, r.lon) }))
+      .filter(r => r.dist <= 900)
+      .sort((a, b) => a.dist - b.dist);
   }
 
   /** Local address → coordinates. When the address includes a house number
@@ -360,106 +478,173 @@ export class OfflineMapStore {
 
   geocodeAddress(street: string): GeocodeHit | undefined {
     if (!this.db || !street) return undefined;
+    const key = this.resolveKey(street);
+    if (!key) return undefined;
+    const hit = this.resolveAddress(street, key);
+    return hit ? { lat: hit.lat, lon: hit.lon, street: hit.street } : undefined;
+  }
+
+  /** Canonical street key lookup with the FUZZY FALLBACK: feed addresses
+   *  sometimes misspell the OSM street name by one letter ("Ефтим
+   *  Спространов" feed vs "Евтим Спространов" OSM). When the exact key has
+   *  no rows at all, try an unambiguous 1-edit match before giving up — this
+   *  makes typo'd future properties just work. Returns undefined for a
+   *  completely unknown street. */
+  private resolveKey(street: string): string | undefined {
+    if (!this.db || !street) return undefined;
     const rawKey = streetKey(street);
     if (!rawKey) return undefined;
-    // FUZZY FALLBACK: feed addresses sometimes misspell the OSM street name
-    // by one letter ("Ефтим Спространов" feed vs "Евтим Спространов" OSM).
-    // When the exact key has no rows at all, try an unambiguous 1-edit match
-    // before giving up — this makes typo'd future properties just work.
     const exactRows = this.db.prepare('SELECT COUNT(*) AS n FROM addresses WHERE key = ?').get(rawKey) as { n: number };
-    const key = exactRows.n > 0 ? rawKey : (this.fuzzyKey(rawKey) ?? rawKey);
-    // Extract the house number from the original address: the first number
-    // after the street name ("Јане Сандански 25 - 17" → "25", "Бр.134" → "134").
-    const numMatch = street.match(/\b(\d+[а-яa-z]?)\b/i);
-    const houseNum = numMatch ? numMatch[1] : '';
-    // Try exact house number first, then compound match ("134" → "16/134"),
-    // then fall back to any building on the street.
-    if (houseNum) {
-      const exact = this.db.prepare(
-        `SELECT street, lat, lon FROM addresses WHERE key = ? AND housenumber = ?
-         OR (key = ? AND housenumber = ? COLLATE NOCASE) LIMIT 1`
-      ).get(key, houseNum, key, houseNum) as { street: string; lat: number; lon: number } | undefined;
-      if (exact) return { lat: exact.lat, lon: exact.lon, street: exact.street };
-      // Compound match: "Бр.134" → "16/134" (the /134 part is the door number)
-      const compound = this.db.prepare(
-        `SELECT street, lat, lon FROM addresses
-         WHERE key = ? AND housenumber LIKE '%' || ? || '%'
-         ORDER BY LENGTH(housenumber) ASC LIMIT 1`
-      ).get(key, houseNum) as { street: string; lat: number; lon: number } | undefined;
-      if (compound) return { lat: compound.lat, lon: compound.lon, street: compound.street };
+    return exactRows.n > 0 ? rawKey : (this.fuzzyKey(rawKey) ?? rawKey);
+  }
+
+  /** Stage A — exact house-number row, then compound match ("Бр.134" →
+   *  "16/134", where the /134 part is the door number). Returns the stored
+   *  building coordinates when found (trusted — a real mapped building). */
+  private exactBuilding(key: string, houseNum: string): { lat: number; lon: number; street: string } | undefined {
+    if (!this.db) return undefined;
+    const exact = this.db.prepare(
+      `SELECT street, lat, lon FROM addresses WHERE key = ? AND housenumber = ?
+       OR (key = ? AND housenumber = ? COLLATE NOCASE) LIMIT 1`
+    ).get(key, houseNum, key, houseNum) as { street: string; lat: number; lon: number } | undefined;
+    if (exact) return exact;
+    const compound = this.db.prepare(
+      `SELECT street, lat, lon FROM addresses
+       WHERE key = ? AND housenumber LIKE '%' || ? || '%'
+       ORDER BY LENGTH(housenumber) ASC LIMIT 1`
+    ).get(key, houseNum) as { street: string; lat: number; lon: number } | undefined;
+    if (compound) return compound;
+    return undefined;
+  }
+
+  /** Stage B — linear interpolation between the two adjacent numbered
+   *  buildings when the exact number is missing. More accurate than the ББ
+   *  centroid (which can be 100m+ off on long streets).
+   *  E.g. Народен Фронт 23 → between #19A (41.9937, 21.4163) and #25
+   *  (41.9940, 21.4146) → interpolated near Beverly Hills Center.
+   *  Returns { interp: true } only when BOTH neighbours exist (a real
+   *  estimate); otherwise the nearest endpoint is returned with
+   *  { interp: false } — still a rough guess, never a trusted point. */
+  private interpolateBuilding(key: string, houseNum: string):
+    { lat: number; lon: number; street: string; interp: boolean } | undefined {
+    if (!this.db) return undefined;
+    const allBuildings = this.db.prepare(
+      `SELECT street, housenumber, lat, lon FROM addresses
+       WHERE key = ? AND housenumber != '' AND housenumber != 'ББ'
+       ORDER BY housenumber`
+    ).all(key) as Array<{ street: string; housenumber: string; lat: number; lon: number }>;
+    if (allBuildings.length < 2) return undefined;
+    const target = houseNumValue(houseNum);
+    if (target === null) return undefined;
+    const parsed = allBuildings
+      .map(b => ({ ...b, num: houseNumValue(b.housenumber) }))
+      .filter(b => b.num !== null) as Array<{ street: string; housenumber: string; lat: number; lon: number; num: number }>;
+    parsed.sort((a, b) => a.num - b.num);
+    // Find the two neighbors: largest <= target and smallest > target
+    let lo: typeof parsed[0] | null = null;
+    let hi: typeof parsed[0] | null = null;
+    for (const b of parsed) {
+      if (b.num <= target) lo = b;
     }
-    // "ББ" (без број / no number) represents the street centroid — prefer it
-    // over a random single building when the specific house number isn't mapped.
-    const bbRow = this.db.prepare(
+    for (let i = parsed.length - 1; i >= 0; i--) {
+      if (parsed[i].num > target) { hi = parsed[i]; break; }
+    }
+    if (lo && hi && lo.num !== hi.num) {
+      const t = (target - lo.num) / (hi.num - lo.num);
+      return {
+        lat: lo.lat + t * (hi.lat - lo.lat),
+        lon: lo.lon + t * (hi.lon - lo.lon),
+        street: lo.street,
+        interp: true,
+      };
+    }
+    // Target is outside the range — use the nearest endpoint (rough guess)
+    if (lo) return { lat: lo.lat, lon: lo.lon, street: lo.street, interp: false };
+    if (hi) return { lat: hi.lat, lon: hi.lon, street: hi.street, interp: false };
+    return undefined;
+  }
+
+  /** Stage C — "ББ" (без број / no number) row: the street centroid. Only
+   *  used when no numbered building or interpolation exists. A street-level
+   *  point, never building-accurate. */
+  private streetCentroid(key: string): { lat: number; lon: number; street: string } | undefined {
+    if (!this.db) return undefined;
+    return this.db.prepare(
       `SELECT street, lat, lon FROM addresses WHERE key = ?
        AND (housenumber = 'ББ' OR housenumber = '') LIMIT 1`
     ).get(key) as { street: string; lat: number; lon: number } | undefined;
-    if (bbRow) return { lat: bbRow.lat, lon: bbRow.lon, street: bbRow.street };
+  }
 
-    // LINEAR INTERPOLATION: when the exact number is missing, find the two
-    // adjacent numbered buildings and interpolate their coordinates.
-    // E.g. Народен Фронт 23 → between #19A (41.9937, 21.4163) and #25
-    // (41.9940, 21.4146) → interpolated near Beverly Hills Center.
-    if (houseNum && this.db) {
-      const allBuildings = this.db.prepare(
-        `SELECT street, housenumber, lat, lon FROM addresses
-         WHERE key = ? AND housenumber != '' AND housenumber != 'ББ'
-         ORDER BY housenumber`
-      ).all(key) as Array<{ street: string; housenumber: string; lat: number; lon: number }>;
-      if (allBuildings.length >= 2) {
-        // Parse each house number to a numeric value for comparison.
-        // "19A" → 19.5, "29/3" → 29, "16/134" → 16
-        const parseNum = (h: string): number | null => {
-          const m = h.match(/^(\d+)/);
-          if (!m) return null;
-          const base = parseInt(m[1], 10);
-          // Letter suffix (19A, 5B) → +0.5
-          if (/^\d+[a-zа-я]$/i.test(h)) return base + 0.5;
-          return base;
-        };
-        const target = parseNum(houseNum);
-        if (target !== null) {
-          const parsed = allBuildings
-            .map(b => ({ ...b, num: parseNum(b.housenumber) }))
-            .filter(b => b.num !== null) as Array<{ street: string; housenumber: string; lat: number; lon: number; num: number }>;
-          parsed.sort((a, b) => a.num - b.num);
-          // Find the two neighbors: largest <= target and smallest > target
-          let lo: typeof parsed[0] | null = null;
-          let hi: typeof parsed[0] | null = null;
-          for (const b of parsed) {
-            if (b.num <= target) lo = b;
-          }
-          for (let i = parsed.length - 1; i >= 0; i--) {
-            if (parsed[i].num > target) { hi = parsed[i]; break; }
-          }
-          if (lo && hi && lo.num !== hi.num) {
-            const t = (target - lo.num) / (hi.num - lo.num);
-            return {
-              lat: lo.lat + t * (hi.lat - lo.lat),
-              lon: lo.lon + t * (hi.lon - lo.lon),
-              street: lo.street,
-            };
-          }
-          // Target is outside the range — use the nearest endpoint
-          if (lo && !hi) return { lat: lo.lat, lon: lo.lon, street: lo.street };
-          if (hi && !lo) return { lat: hi.lat, lon: hi.lon, street: hi.street };
-        }
-      }
-    }
-
-    // Absolute last resort: first building on the street (sorted by housenumber)
-    const fallback = this.db.prepare(
+  /** Stage D — absolute last resort: the first building on the street. Used
+   *  only when even a centroid row is missing. Rough. */
+  private firstBuilding(key: string): { lat: number; lon: number; street: string } | undefined {
+    if (!this.db) return undefined;
+    return this.db.prepare(
       `SELECT street, lat, lon FROM addresses WHERE key = ?
        ORDER BY housenumber ASC LIMIT 1`
     ).get(key) as { street: string; lat: number; lon: number } | undefined;
-    if (!fallback) return undefined;
-    return { lat: fallback.lat, lon: fallback.lon, street: fallback.street };
+  }
+
+  /** Shared address→coordinate chain used by BOTH geocodeAddress() (which
+   *  collapses trust) and resolvePropertyOffline() (which keeps it). Exact +
+   *  interpolated results are trusted; street-level guesses are not. */
+  private resolveAddress(street: string, key: string):
+    { lat: number; lon: number; street: string; trusted: boolean; source: OfflineResolveSource } | undefined {
+    // Extract the house number: the first number after the street name
+    // ("Јане Сандански 25 - 17" → "25", "Бр.134" → "134").
+    const houseNum = extractHouseNum(street);
+
+    // Stage A: exact/compound building
+    if (houseNum) {
+      const exact = this.exactBuilding(key, houseNum);
+      if (exact) return { ...exact, trusted: true, source: 'osm_building' };
+    }
+
+    // Stage B: linear interpolation between neighbours
+    if (houseNum) {
+      const interp = this.interpolateBuilding(key, houseNum);
+      if (interp) {
+        if (interp.interp) {
+          return { lat: interp.lat, lon: interp.lon, street: interp.street, trusted: true, source: 'osm_interpolated' };
+        }
+        // Endpoint clamp — a rough guess, never trusted
+        return { lat: interp.lat, lon: interp.lon, street: interp.street, trusted: false, source: 'osm_low_confidence' };
+      }
+    }
+
+    // Stage C: street centroid ("ББ" / no number)
+    const centroid = this.streetCentroid(key);
+    if (centroid) return { ...centroid, trusted: false, source: 'osm_low_confidence' };
+
+    // Stage D: first building on the street — street-level guess
+    const first = this.firstBuilding(key);
+    if (first) return { ...first, trusted: false, source: 'osm_low_confidence' };
+
+    return undefined;
+  }
+
+  /** Resolve a property's own address to coordinates WITHOUT any network,
+   *  tagged with an explicit trust level — the Phase-1 instant offline
+   *  import resolver. Conservative on purpose: exact + interpolated results
+   *  are trusted; street-centroid / endpoint guesses are never trusted and
+   *  may be omitted entirely (null lat/lon) when the street itself is
+   *  unknown or the address is a landmark/complex name ("БИСЕР"). */
+  resolvePropertyOffline(address: string): OfflineResolve {
+    if (!this.db || !address) return { lat: null, lon: null, trusted: false, source: 'osm_low_confidence' };
+    const key = this.resolveKey(address);
+    if (!key) return { lat: null, lon: null, trusted: false, source: 'osm_low_confidence' };
+    const hit = this.resolveAddress(address, key);
+    if (!hit) return { lat: null, lon: null, trusted: false, source: 'osm_low_confidence' };
+    if (hit.trusted) {
+      return { lat: hit.lat, lon: hit.lon, trusted: true as const, source: hit.source as 'osm_building' | 'osm_interpolated' };
+    }
+    return { lat: hit.lat, lon: hit.lon, trusted: false as const, source: 'osm_low_confidence' as const };
   }
 
   /** Search POIs by name — for landmark-style addresses like "Кај Бранка"
    *  or "Палома Бјанка" where the address IS the landmark, not a street.
    *  Returns the best match (exact > starts-with > contains). */
-  findPoiByName(name: string): { lat: number; lon: number; name: string } | undefined {
+  findPoiByName(name: string, center?: { lat: number; lon: number }): { lat: number; lon: number; name: string; place_url?: string; place_id?: string } | undefined {
     if (!this.db || !name) return undefined;
     // Strip location prepositions AND feed typos of them ("как" for "кај").
     const clean = name.replace(/^(?:кај|спроти|как|кај штипски|кај скопски)\s+/i, '').trim();
@@ -471,8 +656,8 @@ export class OfflineMapStore {
     // JS where toLowerCase() is Unicode-aware. Table is ~4k rows — trivial.
     const needle = clean.toLowerCase();
     let rows = (this.db.prepare(
-      'SELECT name, type, lat, lon FROM pois'
-    ).all() as Array<{ name: string; type: string; lat: number; lon: number }>)
+      'SELECT name, type, lat, lon, place_url, place_id FROM pois'
+    ).all() as Array<{ name: string; type: string; lat: number; lon: number; place_url?: string; place_id?: string }>)
       .filter(r => r.name.toLowerCase().includes(needle));
     // Progressive shortening: "Сити Мол ' Руските Згради" → "Сити Мол"
     // (head) and "Шампионче Как Кипер Маркет" → "кипер маркет" (tail).
@@ -485,18 +670,27 @@ export class OfflineMapStore {
         .filter(w => w.length >= 3);
       for (const short of candidates) {
         rows = (this.db.prepare(
-          'SELECT name, type, lat, lon FROM pois'
-        ).all() as Array<{ name: string; type: string; lat: number; lon: number }>)
+          'SELECT name, type, lat, lon, place_url FROM pois'
+        ).all() as Array<{ name: string; type: string; lat: number; lon: number; place_url?: string }>)
           .filter(r => r.name.toLowerCase().includes(short));
         if (rows.length > 0) break;
       }
     }
     if (rows.length > 0) {
-      rows.sort((a, b) => a.name.length - b.name.length);
+      // Branch disambiguation: chains (TTK Banka, Tinex, Kipper…) have many
+      // rows sharing one name. "Nearest to the client's context" (the shown
+      // property) is the branch they mean — NEVER a global shortest-name
+      // pick, which sent a Капиштец client to a Ново Лисиче branch.
+      if (center) {
+        rows.sort((a, b) =>
+          distM(center.lat, center.lon, a.lat, a.lon) - distM(center.lat, center.lon, b.lat, b.lon));
+      } else {
+        rows.sort((a, b) => a.name.length - b.name.length);
+      }
       const best = rows[0];
       try { fs.appendFileSync('/tmp/landmark-debug.log',
         `[${new Date().toISOString()}] findPoiByName(${clean}): ${rows.length} matches → ${best.name} (${best.name.length} chars)\n`); } catch {}
-      return { lat: best.lat, lon: best.lon, name: best.name };
+      return { lat: best.lat, lon: best.lon, name: best.name, place_url: best.place_url ?? undefined, place_id: best.place_id ?? undefined };
     }
     return undefined;
   }
@@ -731,9 +925,88 @@ function expandInterpolation(
 /** Write the map tables from given data (atomic: temp file + rename). Exported
  *  so tests can build a map without the network; the CLI uses it via
  *  buildSkopjeDb (which fetches first). */
+interface OverrideRow {
+  name?: string;
+  type?: string;
+  lat?: number;
+  place_id?: string;
+  lon?: number;
+  street?: string;
+  housenumber?: string;
+  osmStreet?: string;
+}
+
+/** Apply manual corrections from an overrides JSON file onto a freshly built
+ *  map DB. Same semantics as scripts/apply_overrides.ts, but folded INTO the
+ *  build so a weekly OSM rebuild can never wipe them:
+ *    pois      — insert POI if name+coords absent
+ *    replaces  — delete ALL rows with the name, insert the corrected coords
+ *    addresses — insert a specific house number if street+number absent
+ *    aliases   — duplicate an OSM street's rows under the feed's spelling key
+ *  Returns the number of rows added/fixed. Missing file / empty file → 0. */
+function applyOverrides(db: Database.Database, file: string): number {
+  if (!file || !existsSync(file)) return 0;
+  let ov: { pois?: OverrideRow[]; replaces?: OverrideRow[]; addresses?: OverrideRow[]; aliases?: OverrideRow[] };
+  try {
+    ov = JSON.parse(readFileSync(file, 'utf8'));
+  } catch { return 0; }
+  let added = 0;
+
+  // --- POIs (insert-if-absent) ---
+  for (const p of ov.pois ?? []) {
+    if (!p.name || !p.type || !Number.isFinite(p.lat ?? NaN) || !Number.isFinite(p.lon ?? NaN)) continue;
+    const n = (db.prepare('SELECT COUNT(*) AS n FROM pois WHERE name = ? AND lat = ? AND lon = ?')
+      .get(p.name, p.lat, p.lon) as { n: number }).n;
+    if (n > 0) continue;
+    db.prepare('INSERT INTO pois (name, type, lat, lon, source, place_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(p.name, p.type, p.lat, p.lon, 'osm', p.place_id ?? null);
+    added++;
+  }
+
+  // --- Replaces (fix wrong coords — phantom embassy etc.) ---
+  for (const r of ov.replaces ?? []) {
+    if (!r.name || !r.type || !Number.isFinite(r.lat ?? NaN) || !Number.isFinite(r.lon ?? NaN)) continue;
+    const del = db.prepare('DELETE FROM pois WHERE name = ?').run(r.name);
+    db.prepare('INSERT INTO pois (name, type, lat, lon, source, place_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(r.name, r.type, r.lat, r.lon, 'osm', r.place_id ?? null);
+    added += del.changes + 1;
+  }
+
+  // --- Addresses (exact house numbers OSM never mapped, e.g. Стефановски 16) ---
+  for (const a of ov.addresses ?? []) {
+    if (!a.street || !Number.isFinite(a.lat ?? NaN) || !Number.isFinite(a.lon ?? NaN)) continue;
+    const key = streetKey(a.street);
+    const n = (db.prepare('SELECT COUNT(*) AS n FROM addresses WHERE key = ? AND housenumber = ?')
+      .get(key, a.housenumber ?? '') as { n: number }).n;
+    if (n > 0) continue;
+    db.prepare('INSERT INTO addresses (street, housenumber, lat, lon, key) VALUES (?, ?, ?, ?, ?)')
+      .run(a.street, a.housenumber ?? '', a.lat, a.lon, key);
+    added++;
+  }
+
+  // --- Aliases (duplicate OSM street rows under the feed's spelling) ---
+  for (const al of ov.aliases ?? []) {
+    const srcKey = streetKey(al.osmStreet ?? '');
+    const dstKey = streetKey(al.street ?? '');
+    if (!srcKey || !dstKey || srcKey === dstKey) continue;
+    const srcRows = db.prepare(
+      'SELECT street, housenumber, lat, lon FROM addresses WHERE key = ?'
+    ).all(srcKey) as Array<{ street: string; housenumber: string; lat: number; lon: number }>;
+    for (const r of srcRows) {
+      const n = (db.prepare('SELECT COUNT(*) AS n FROM addresses WHERE key = ? AND housenumber = ?')
+        .get(dstKey, r.housenumber) as { n: number }).n;
+      if (n > 0) continue;
+      db.prepare('INSERT INTO addresses (street, housenumber, lat, lon, key) VALUES (?, ?, ?, ?, ?)')
+        .run(al.street!, r.housenumber, r.lat, r.lon, dstKey);
+      added++;
+    }
+  }
+  return added;
+}
+
 export function writeMap(
   dbPath: string,
-  pois: Array<{ name: string; type: string; lat: number; lon: number }>,
+  pois: Array<{ name: string; type: string; lat: number; lon: number; source?: string; place_url?: string; place_id?: string }>,
   addresses: Array<{ street: string; housenumber: string; lat: number; lon: number }>,
 ): MapStats {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -761,7 +1034,10 @@ export function writeMap(
         name TEXT NOT NULL,
         type TEXT NOT NULL,
         lat  REAL NOT NULL,
-        lon  REAL NOT NULL
+        lon  REAL NOT NULL,
+        source TEXT NOT NULL DEFAULT 'osm',
+        place_url TEXT,
+        place_id TEXT
       );
       CREATE INDEX idx_pois_lat ON pois(lat);
       CREATE TABLE addresses (
@@ -777,13 +1053,18 @@ export function writeMap(
     // Wrap ALL inserts in a single transaction — 10-100x faster than
     // auto-commit per row.
     const insertAll = db.transaction(() => {
-      const insPoi = db.prepare('INSERT INTO pois (name, type, lat, lon) VALUES (?, ?, ?, ?)');
-      for (const p of pois) insPoi.run(p.name, p.type, p.lat, p.lon);
+      const insPoi = db.prepare('INSERT INTO pois (name, type, lat, lon, source, place_url, place_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      for (const p of pois) insPoi.run(p.name, p.type, p.lat, p.lon, p.source ?? 'osm', p.place_url ?? null, p.place_id ?? null);
       console.log(`[skopje-map] inserted ${pois.length} POIs`);
 
       const insAddr = db.prepare('INSERT INTO addresses (street, housenumber, lat, lon, key) VALUES (?, ?, ?, ?, ?)');
       for (const a of addresses) insAddr.run(a.street, a.housenumber, a.lat, a.lon, streetKey(a.street));
       console.log(`[skopje-map] inserted ${addresses.length} addresses`);
+      // Manual corrections folded INTO the build (address-overrides.json next
+      // to the target DB) so a weekly OSM rebuild never wipes them. Skips
+      // silently when no overrides file exists (tests build tmp maps).
+      const applied = applyOverrides(db, path.join(path.dirname(dbPath), 'address-overrides.json'));
+      if (applied > 0) console.log(`[skopje-map] applied ${applied} override row(s)`);
     });
     insertAll();
 
