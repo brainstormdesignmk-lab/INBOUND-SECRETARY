@@ -218,7 +218,15 @@ export class InboundHandler {
 
     // Privacy protocol — ONLY after all 3 landmarks have been revealed.
     if (lmList.length > 0 && idx >= lmList.length) {
+      // Exhaustion: after the 3 landmarks AND 2 protocol rounds, further
+      // "во близина" asks get the polite shut-down — the neighborhood is
+      // clear, the exact address comes on visit day. Bank-served so Gemini
+      // variants accumulate over time (learned layer merges into the pool).
       const protoIdx = session.slots.addressProtocolIndex ?? 0;
+      if (protoIdx >= 2) {
+        return pickVariant('nearby.exhausted', { recent: assistantTexts(session) })
+          ?? 'Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.';
+      }
       const protoLines = [
         'Точната адреса на имотот ја споделуваме два часа пред средбата, согласно политиките на Агенцијата.',
         'За безбедност на сопственикот, точната адреса се открива на денот на посетата — тоа е правило на Агенцијата.',
@@ -461,11 +469,20 @@ export class InboundHandler {
     // drugo vo blizina"), the dedicated nearby path must win anyway.
     if (!skipInterceptors && detectNearbyAsk(text)) {
       routeLog(chatId, text, 'NEARBY_ASK');
-      // Current property: last shown, else the one under discussion by EB.
+      // EB-anchored nearby asks ("sto drugo ima vo blizina na 78?") MUST
+      // resolve the NAMED property — falling back to shown[last] served a
+      // Влае center for a Капиштец property (Reptil/Badu bug).
+      const ebInText = (() => {
+        const m = text.match(/\b(?:na|на)\s+(\d{1,4})\b/i);
+        return m ? parseInt(m[1], 10) : undefined;
+      })();
       const all = await this.deps.properties.getAll();
       const shownIds = new Set(session.slots.presentedIds ?? []);
       const shown = all.filter(p => shownIds.has(p.id));
-      const cur = shown[shown.length - 1]
+      const cur = (ebInText
+          ? await this.deps.properties.getByEb(ebInText).catch(() => undefined)
+          : undefined)
+        ?? shown[shown.length - 1]
         ?? (session.slots.propertyId
           ? await this.deps.properties.getByEb(session.slots.propertyId)
           : undefined)
