@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectRecommendAsk, collectMentionedEbs, buildRecommendation } from '../src/llm/recommend';
-import { buildRecommendClose } from '../src/llm/prompts';
+import { buildRecommendClose, RECOMMEND_CLOSE_LINES } from '../src/llm/prompts';
 import { RESPONSE_BANK } from '../src/data/responses';
+import { FROZEN_BANK_KEYS, isExcludedFromEnrichment } from '../src/store/bank';
 
 // THE TRANSCRIPT: "me interesira stanot 89" / "i stanot 94" / "koj bi mi go
 // preporacale?" — the client named TWO EBs and asked which to choose. No
@@ -17,6 +18,14 @@ test('recommend-ask detector: grammar family coverage', () => {
   assert.equal(detectRecommendAsk('preporacaj mi nesto'), true);
   assert.equal(detectRecommendAsk('ПРЕПОРАЧАЈ МИ'), true);
   assert.equal(detectRecommendAsk('preporaka?'), true);
+});
+
+test('comparative-judgment family routes to the same handler (the 18:21 transcript)', () => {
+  assert.equal(detectRecommendAsk('KOJ OD OVIE DVA E PODOBAR SPORED VAS ?'), true);
+  assert.equal(detectRecommendAsk('koj e podobar?'), true);
+  assert.equal(detectRecommendAsk('кој е подобар?'), true);
+  assert.equal(detectRecommendAsk('koj stan e pogoden za mene?'), true);
+  assert.equal(detectRecommendAsk('sto mislite spored vas?'), true);
 });
 
 test('recommend-ask detector: unrelated messages never match', () => {
@@ -64,11 +73,22 @@ test('buildRecommendation: full cards from DB facts + the clientela close', () =
   assert.match(out, /осетите просторот|на лице место|во живо|погледнете во живо/);
 });
 
-test('recommend.close bank key: seeds present and clean', () => {
+test('recommend.close bank key: owner wording only, FROZEN against enrichment', () => {
   const v = (RESPONSE_BANK as Record<string, string[]> | undefined)['recommend.close'];
   assert.ok(Array.isArray(v) && v.length >= 6, 'recommend.close must carry >=6 seed variants');
   for (const s of v!) {
     assert.doesNotMatch(s, /\{|\}|https?:|денари/);
     assert.match(s, /посета|осетите/);
+  }
+  // FROZEN: the Gemini-grown variants were removed by request — the key
+  // serves the seeded clientela lines and never grows.
+  assert.equal(FROZEN_BANK_KEYS.has('recommend.close'), true);
+  assert.equal(isExcludedFromEnrichment('recommend.close'), true);
+});
+
+test('recommend close fallback lines mirror the bank seeds (code path parity)', () => {
+  const v = (RESPONSE_BANK as Record<string, string[]> | undefined)['recommend.close'] ?? [];
+  for (const line of RECOMMEND_CLOSE_LINES) {
+    assert.ok(v.includes(line), `code line missing from bank seeds: ${line.slice(0, 30)}…`);
   }
 });

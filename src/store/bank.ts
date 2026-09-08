@@ -29,6 +29,10 @@ export const FROZEN_BANK_KEYS = new Set([
   // Bare "zosto?" push-back on the address-privacy rule — same family as
   // fee.why: fixed protocol answer, frozen pool, never enriched.
   'address.why',
+  // The recommendation close ("koj da go preporacate?", "koj e podobar?"):
+  // owner-approved wording only. Gemini-grown variants were removed by
+  // request — the key serves the seeded clientela lines and never grows.
+  'recommend.close',
   // Commission law + contact collection + owner-contact protocol:
   'provision.ask.buy', 'provision.ask.rent',
   'provision.who.buy', 'provision.who.rent', 'provision.who.danok.buy',

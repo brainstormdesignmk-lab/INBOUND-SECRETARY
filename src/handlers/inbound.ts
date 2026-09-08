@@ -886,8 +886,22 @@ export class InboundHandler {
         await this.sendRaw(session, answer);
         return;
       }
-      // EBs mentioned but none in the DB, or none mentioned: fall through —
-      // the classifier may still handle a legit recommendation frame.
+      // No EBs named in recent messages, but properties were just presented
+      // ("KOJ OD OVIE DVA E PODOBAR SPORED VAS?" right after a card batch):
+      // the judgment question is about THOSE — serve the clientela close
+      // WITHOUT re-dumping the cards (the client just read them).
+      const shownIds2 = session.slots.presentedIds ?? [];
+      if (shownIds2.length > 0) {
+        routeLog(chatId, text, 'RECOMMEND_ASK');
+        const answer = buildRecommendClose(assistantTexts(session));
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer);
+        return;
+      }
+      // Nothing under discussion at all: fall through — the classifier may
+      // still handle a legit recommendation frame.
     }
 
     // 0c) dispatchSimple: bank-backed informational intents (offtopic, defer,

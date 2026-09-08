@@ -21,16 +21,35 @@ import { buildPropertyCard } from './prompts';
 import { normalizeMc } from './normalize';
 
 /** Word classes for the recommendation ask. The verb family: preporac-/препорач-
- *  (all conjugations), suggest/recommend (English). */
+ *  (all conjugations), izber-/избира-/избор- (choose), suggest/recommend. */
 const RECO_VERB_RE =
   /(?:препорач|препорац|preporac|preporaka|preporaci|preporach|препорака|избер|избира|izber|izbira|избор|izbor)/iu;
+
+/** Comparative-judgment word classes — "KOJ OD OVIE DVA E PODOBAR SPORED
+ *  VAS?" is the SAME question as "koj da go preporacate?": the client asks
+ *  Lina to judge between properties. Stems cover all genders/numbers
+ *  (podobr→podobar/podobra/podobri/podobro; pogod→pogoden/pogodna;
+ *  pobar→pobaran/pobaranа; posakuv→posakuvan). Interrogative anchor required
+ *  (koj/shto/sto/dali) so "sakam podobar stan" (a search) never matches.
+ *  Stems written in BOTH scripts: the raw test hits Latin, the normalized
+ *  test (normalizeMc folds Latin→Cyrillic) hits Cyrillic. */
+const RECO_COMPARATIVE_RE =
+  /(?:koj|koja|koe|koji|shto|sto|dali|кој|која|кое|кои|што|сто|дали)[^\n]{0,40}?(?:podob|подоб|pogod|погод|pobar|побар|posakuv|посакув|poiskren|поискрен)/iu;
+
+/** "spored vas / според вас" (according to you) — an opinion ask by itself
+ *  when paired with an interrogative. */
+const RECO_OPINION_RE =
+  /(?:koj|koja|koe|shto|sto|кој|која|кое|што|сто)[^\n]{0,30}?(?:spored\s+vas|според\s+вас|mislite\s+vi|мислите\s+ви)/iu;
 
 /** True when the client asks for a recommendation between/for properties.
  *  Tested raw AND normalized: normalizeMc folds Latin→Cyrillic ('c'→'ц'),
  *  so the raw test catches Latin 'preporac…' and the normalized test catches
- *  its Cyrillic form 'препорац…'. */
+ *  its Cyrillic form 'препорац…'. The comparative family ("koj e podobar?")
+ *  routes here too — same question type, same clientela answer. */
 export function detectRecommendAsk(text: string): boolean {
-  return RECO_VERB_RE.test(text) || RECO_VERB_RE.test(normalizeMc(text));
+  return RECO_VERB_RE.test(text) || RECO_VERB_RE.test(normalizeMc(text))
+    || RECO_COMPARATIVE_RE.test(text) || RECO_COMPARATIVE_RE.test(normalizeMc(text))
+    || RECO_OPINION_RE.test(text) || RECO_OPINION_RE.test(normalizeMc(text));
 }
 
 /** Extract EB numbers the client mentioned in their messages. */
