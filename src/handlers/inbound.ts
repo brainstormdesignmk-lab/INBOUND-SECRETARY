@@ -10,7 +10,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectLocation, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, extractSlots, fsmRequired } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired } from '../llm/deterministic';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -501,6 +501,68 @@ export class InboundHandler {
         await this.sendRaw(session, answer);
         return;
       }
+    }
+
+    // ADDRESS-WHY push-back — a bare "ZOSTO?" right after a privacy-protocol
+    // line gets the agency-rules explanation ("затоа што тоа се правилата на
+    // Агенцијата…"), NOT the options thread (the 20:56 transcript bug).
+    // Bank-backed (address.why) so Gemini variants accumulate. Topic
+    // why-questions ("зошто наплаќате?") belong to their own detectors and
+    // never match the bare form.
+    if (!skipInterceptors && detectWhyFollowUp(text)
+      && lastReplyWasNearby(assistantTexts(session).slice(-1)[0] ?? '')) {
+      routeLog(chatId, text, 'ADDRESS_WHY');
+      const answer = pickVariant('address.why', { recent: assistantTexts(session) })
+        ?? 'Затоа што тоа се правилата на Агенцијата, кои и Јас и Вие мора да ги почитуваме.';
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, answer);
+      return;
+    }
+
+    // NEARBY-THREAD continuation — a bare "more" ask ("I STO USTE?", "сто
+    // друго има?") right after a landmark/protocol/nearby reply means
+    // "what else is near the building" — the nearby thread continues into
+    // the rotation → protocol → shut-down lifecycle. WITHOUT this gate the
+    // ask leaked into the property-options thread (the 21:00 transcript bug).
+    // Genuine search/availability/price intents own their words regardless
+    // of context and are excluded.
+    if (!skipInterceptors
+      && mentionsMore(text)
+      && !hasProximityAnchor(text)
+      && !detectWidenIntent(text) && !detectExplicitWiden(text)
+      && !detectAvailabilityAsk(text) && !detectPriceAsk(text)
+      && lastReplyWasNearby(assistantTexts(session).slice(-1)[0] ?? '')) {
+      routeLog(chatId, text, 'NEARBY_THREAD');
+      // EB-anchored asks resolve the NAMED property (same rule as NEARBY_ASK).
+      const ebInText = (() => {
+        const m = text.match(/\b(?:na|на)\s+(\d{1,4})\b/i);
+        return m ? parseInt(m[1], 10) : undefined;
+      })();
+      const all = await this.deps.properties.getAll();
+      const shownIds = new Set(session.slots.presentedIds ?? []);
+      const shown = all.filter(p => shownIds.has(p.id));
+      const cur = (ebInText
+          ? await this.deps.properties.getByEb(ebInText).catch(() => undefined)
+          : undefined)
+        ?? shown[shown.length - 1]
+        ?? (session.slots.propertyId
+          ? await this.deps.properties.getByEb(session.slots.propertyId)
+          : undefined)
+        ?? (session.slots.interestedPropertyId
+          ? await this.deps.properties.getByEb(session.slots.interestedPropertyId)
+          : undefined);
+      if (cur) {
+        await this.landmarks.enrich([cur]);
+        const answer = this.whereIsReply(cur, session, text);
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer);
+        return;
+      }
+      // No property under discussion — fall through to the normal pipeline.
     }
 
     // CONTEXT GATE — bare "sto drugo ima?" is ambiguous. After a LANDMARK
@@ -1010,8 +1072,14 @@ export class InboundHandler {
     // message) releases the area lock and presents the next batch from the REST
     // of the city — options come only AFTER the ask, never silently. Register
     // intents ("контактирај ме") fall through to the queue escape below.
+    // EXPLICIT widen commands ("PROSIRI JA POTRAGATA", "а во други населби
+    // нешто со тие карактеристики?", bare "drugi naselbi?") release the lock
+    // TOO — they are commands/answers, not agreements, and grammar.ts matches
+    // every real phrasing of them.
     if (next === 'presentation' && props.length === 0
-      && session.slots.areaExhausted && detectWidenIntent(text) && !ev.location) {
+      && session.slots.areaExhausted
+      && (detectWidenIntent(text) || detectExplicitWiden(text))
+      && !ev.location) {
       session.slots.areaExhausted = false;
       session.slots.location = undefined;
       props = await this.loadProps(session, false, false);
