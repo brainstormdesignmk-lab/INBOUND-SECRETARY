@@ -3,7 +3,7 @@ import { locMatches, normalizeLocation } from '../data/properties';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc } from './normalize';
 import { AVAILABILITY_LEXICON, toRegexAlt } from './morphology';
-import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots } from './grammar';
+import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots } from './grammar';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -754,6 +754,25 @@ export function detectWidenIntent(text: string): boolean {
   return detectAgreement(text) && !matchesBoth(WIDEN_EXCLUDE_RE, text);
 }
 
+// Explicit WIDEN command — grammar-based (grammar.ts word classes + slot
+// permutations), so every real phrasing matches instead of a hand-list that
+// always lags: "PROSIRI JA POTRAGATA", "а во други населби нешто со тие
+// карактеристики?", bare "drugi naselbi?", "провери друг дел од градот".
+// This is the client ANSWERING Lina's exhausted-ask with "widen" — a command,
+// not an agreement. detectWidenIntent covers only the bare-agreement case.
+// GUARD: when the message names a CONCRETE neighborhood ("друга населба ми е
+// Карпош"), it's a search for that area, not a widen. The bare-area slot must
+// stand down there. (detectLocation is defined below this — KNOWN_NEIGHBORHOODS
+// is a const, so the same transliteration-aware match is inlined here.)
+// Parenthetical aliases ("Центар (населба)") are EXCLUDED from the guard:
+// locMatches would match the bare word "населба" inside them and kill every
+// legitimate "…во друга населба?" widen ask.
+const _widenSlotsRe = buildWidenSlots();
+export function detectExplicitWiden(text: string): boolean {
+  if (KNOWN_NEIGHBORHOODS.some(loc => !loc.includes('(') && locMatches(text, loc))) return false;
+  return matchesBoth(_widenSlotsRe, text);
+}
+
 // Fee payment agreement — the client explicitly agrees to PAY the viewing fee.
 // "DOBRO KE PLATAM", "ќе ја платам", "согласен сум со цената", "договорено",
 // "ќе платам", "платам", "прифаќам да платам" etc.
@@ -1479,6 +1498,35 @@ export function lastReplyWasProperty(lastAssistantText: string): boolean {
  *  the classifier serves the next options batch. */
 export function isOptionsFollowUp(text: string, lastAssistantText: string): boolean {
   return mentionsMore(text) && !hasProximityAnchor(text) && lastReplyWasProperty(lastAssistantText);
+}
+
+/** The last assistant reply was a NEARBY-thread answer — a landmark line
+ *  ("во близина на X" + link), a privacy-protocol line (address revealed on
+ *  visit day / agency rule), or the nearby shut-down ("реонот е јасен…").
+ *  A bare "more" ask ("I STO USTE?") after these means "what else is near
+ *  the building" — the nearby thread continues — NEVER the options thread.
+ *  The visit-location message (ЛОКАЦИЈА ЗА…) is excluded: after a visit is
+ *  arranged, "more" means more properties. Fee/no-match/options lines never
+ *  match (their локации/населба words are not followed by rule/visit markers). */
+export function lastReplyWasNearby(lastAssistantText: string): boolean {
+  if (/ЛОКАЦИЈА\s+ЗА/iu.test(lastAssistantText)) return false;
+  return /во\s+бли[зж]ин/u.test(lastAssistantText)
+    || /maps\.google|google\.com\/maps/u.test(lastAssistantText)
+    || /(?:адрес|локаци|улиц)[^\n]{0,60}(?:правил|политик|задолжително|официјално|стандардно|строго)/iu.test(lastAssistantText)
+    || /(?:два часа пред|денот на посетата|ден на посетата|пред средбата|пред посетата)/iu.test(lastAssistantText)
+    || /реон[^\n]{0,40}(?:јасен|адрес)/iu.test(lastAssistantText);
+}
+
+/** A BARE why-question — "ZOSTO?", "зошто?", "зошто така?" — with no topic.
+ *  Grammar-built (buildWhySlots): the Macedonian interrogative adverb family
+ *  is closed-class (зошто/зашто/зосто + transliterations), so word classes
+ *  fully cover it. Topic why-questions are owned by their own detectors
+ *  (fee-why, etc.): the anchor-free ^…$ form only matches the bare push-back
+ *  "why is that the rule?". Tested raw AND normalized so both scripts hit. */
+const WHY_BARE_RE = buildWhySlots();
+export function detectWhyFollowUp(text: string): boolean {
+  const t = text.trim();
+  return WHY_BARE_RE.test(t) || WHY_BARE_RE.test(normalizeMc(t));
 }
 
 // "потoчно која улица?", "точно која адреса?", "на која адреса е?", "која е

@@ -13,6 +13,7 @@ import {
   isOptionsFollowUp,
 } from '../src/llm/deterministic';
 import { RESPONSE_BANK } from '../src/data/responses';
+import { FROZEN_BANK_KEYS, isExcludedFromEnrichment } from '../src/store/bank';
 
 // THE TRANSCRIPT BUGS (20:56 / 21:00):
 // 1. "ZOSTO?" after the privacy-protocol line fell through to the options-
@@ -31,16 +32,21 @@ const SHUTDOWN_REPLY =
 const OPTIONS_REPLY =
   'Врз основа на Вашите желби, составив листа од неколку опции:\n\nСтанот под Евидентен број 54 е двособен стан во Карпош III.';
 
-test('bare why detector: transcript forms + tolerated additions', () => {
+test('bare why detector: grammar word classes cover the family', () => {
   assert.equal(detectWhyFollowUp('ZOSTO?'), true);
   assert.equal(detectWhyFollowUp('зошто?'), true);
   assert.equal(detectWhyFollowUp('зошто така?'), true);
+  assert.equal(detectWhyFollowUp('зошто тоа?'), true);
   assert.equal(detectWhyFollowUp('zosto'), true);
   assert.equal(detectWhyFollowUp('zashto?'), true);
+  assert.equal(detectWhyFollowUp('zoshto?'), true);
+  assert.equal(detectWhyFollowUp('зошто па?'), true);
+  assert.equal(detectWhyFollowUp('зошто вака?'), true);
   // Topic why-questions are owned by their own detectors — the bare form
   // must NOT capture them.
   assert.equal(detectWhyFollowUp('зошто наплаќате посета?'), false);
   assert.equal(detectWhyFollowUp('зошто е цената 185.000?'), false);
+  assert.equal(detectWhyFollowUp('зошто треба да платам?'), false);
 });
 
 test('nearby-thread marker: landmark, protocol and shut-down replies all anchor the thread; visit message never', () => {
@@ -79,6 +85,10 @@ test('address.why bank key: user wording first, all variants clean', () => {
   for (const s of v!) {
     assert.doesNotMatch(s, /\{|\}|https?:|Евидентен|евра|денари/);
   }
+  // FROZEN — same family as fee.why: fixed pool, never enriched, never
+  // learned (no unbounded bank growth).
+  assert.equal(FROZEN_BANK_KEYS.has('address.why'), true);
+  assert.equal(isExcludedFromEnrichment('address.why'), true);
 });
 
 test('nearby.exhausted bank key still intact (the shut-down wording)', () => {

@@ -512,6 +512,8 @@ export class InboundHandler {
     if (!skipInterceptors && detectWhyFollowUp(text)
       && lastReplyWasNearby(assistantTexts(session).slice(-1)[0] ?? '')) {
       routeLog(chatId, text, 'ADDRESS_WHY');
+      // Frozen key — same family as fee.why: fixed protocol pool, never
+      // enriched, never learned (no unbounded bank growth).
       const answer = pickVariant('address.why', { recent: assistantTexts(session) })
         ?? 'Затоа што тоа се правилата на Агенцијата, кои и Јас и Вие мора да ги почитуваме.';
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
