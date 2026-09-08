@@ -1,5 +1,17 @@
+import '../compat/node16';
+
 import { Service } from '../fsm/machine';
 import { LANDLORD_DATA } from './landlords';
+
+// How a property's coordinates were obtained. Determines whether the
+// runtime may TRUST them as the search center:
+//   stored / google_cached          — trusted (real geocode)
+//   osm_building / osm_interpolated — trusted (exact/interpolated building)
+//   osm_low_confidence              — NEVER trusted (neighborhood centroid etc.)
+export type GeoSource =
+  | 'stored' | 'google_cached'
+  | 'osm_building' | 'osm_interpolated'
+  | 'osm_low_confidence';
 
 // v2: THE IDENTITY IS "evidenten_broj" (EB). The feed's "id" is a UUID and
 // must NOT be used for lookups — it only builds deep links.
@@ -11,6 +23,14 @@ export interface Property {
   price?: number;          // cena_eur
   priceLabel?: string;     // optional display label
   location?: string;       // naselba
+  // NEW — coordinates now flow through the runtime. public-properties selects
+  // lat/lon/geo_source/geocoded_at and the feed mapper copies them here so
+  // resolveSearchCenter() can serve a TRUSTED center instead of re-geocoding
+  // the address text on every ask.
+  lat?: number;
+  lon?: number;
+  geo_source?: GeoSource | null;
+  geocoded_at?: string;
   bedrooms?: number;       // from tip_na_sobi
   sqm?: number;            // povrsina_m2 as a number (business spaces have no bedrooms — size matters)
   size?: string;           // povrsina_m2
@@ -201,9 +221,14 @@ export function cleanMacedonian(text: string): string {
   });
 }
 
+const GEO_SOURCES = new Set(['stored', 'google_cached', 'osm_building', 'osm_interpolated', 'osm_low_confidence']);
+
 function mapRow(r: Record<string, unknown>): Property | null {
   const eb = Math.floor(Number(str(r.evidenten_broj)));
   if (!Number.isFinite(eb) || eb <= 0) return null;
+  const lat = num(r.lat);
+  const lon = num(r.lon);
+  const geoRaw = str(r.geo_source).trim();
   const prop: Property = {
     eb,
     id: eb,
@@ -212,6 +237,11 @@ function mapRow(r: Record<string, unknown>): Property | null {
     price: num(r.cena_eur),
     priceLabel: str(r.cena_label) || undefined,
     location: str(r.naselba) || undefined,
+    lat: lat !== undefined ? lat : undefined,
+    lon: lon !== undefined ? lon : undefined,
+    geo_source: lat !== undefined && lon !== undefined && GEO_SOURCES.has(geoRaw)
+      ? geoRaw as GeoSource : undefined,
+    geocoded_at: str(r.geocoded_at) || undefined,
     bedrooms: isBusiness(r) ? undefined : parseBedrooms(r.tip_na_sobi),
     sqm: num(r.povrsina_m2),
     business: isBusiness(r),
@@ -487,6 +517,13 @@ export class PropertyService {
    *  — callers must NOT claim "no matching properties" when the feed is simply down. */
   get healthy(): boolean {
     return this.ok;
+  }
+
+  /** The set of valid Евидентен броеви — for validating EBs the client
+   *  mentioned (recommendation flow). Cheap: reuses the feed cache. */
+  async getAllEbs(): Promise<Set<number>> {
+    const all = await this.getAll();
+    return new Set(all.map(p => p.eb));
   }
 
   async getAll(): Promise<Property[]> {

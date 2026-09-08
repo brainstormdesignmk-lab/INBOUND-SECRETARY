@@ -38,10 +38,12 @@ import {
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
+  buildRecommendClose,
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
   SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER,
   NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER,
 } from '../llm/prompts';
+import { detectRecommendAsk, collectMentionedEbs, buildRecommendation } from '../llm/recommend';
 
 const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуална порака за да можам да Ви помогнам.';
 const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветен имот.';
@@ -858,6 +860,34 @@ export class InboundHandler {
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
+    }
+
+    // RECOMMENDATION ask — "koj bi mi go preporacale?" after the client named
+    // EBs. THE FIX: no detector fired, the LLM misread it as SEEN_PROPERTY and
+    // asked "Дали го знаете Евидентен број?" for numbers the client JUST gave.
+    // Deterministic: collect the mentioned EBs from recent messages, validate
+    // against the DB, present each as a full card (DB facts) + the professional
+    // close (clientela line + visit offer). One per-turn slot consumed.
+    if (detectRecommendAsk(text)
+      && !fsmRequired(text)
+      && ['idle', 'intent', 'discovery', 'property_query', 'presentation'].includes(session.state)) {
+      const userMsgs = session.history.filter(m => m.role === 'user').map(m => m.text);
+      const ebs = collectMentionedEbs(userMsgs, await this.deps.properties.getAllEbs());
+      const picks = (await Promise.all(ebs.map(eb => this.deps.properties.getByEb(eb).catch(() => undefined))))
+        .filter((p): p is NonNullable<typeof p> => !!p);
+      if (picks.length > 0) {
+        routeLog(chatId, text, 'RECOMMEND_ASK');
+        if (picks.length === 1) session.slots.propertyId = picks[0]!.eb;
+        else session.slots.presentedIds = picks.map(p => p.eb);
+        const answer = buildRecommendation(picks, buildRecommendClose(assistantTexts(session)));
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer);
+        return;
+      }
+      // EBs mentioned but none in the DB, or none mentioned: fall through —
+      // the classifier may still handle a legit recommendation frame.
     }
 
     // 0c) dispatchSimple: bank-backed informational intents (offtopic, defer,

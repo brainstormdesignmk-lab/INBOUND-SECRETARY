@@ -60,6 +60,24 @@ export const DIRECTION_PIVOT_LINE =
 export const LOCATE_FIRST_ASK =
   'Дали го знаете Евидентен број на тој стан? Ако да, само кажете ми го — веднаш ќе го проверам. Ако не, кажете ми во која населба е, колку квадрати има и по која цена беше, па јас ќе се обидам да го најдам.';
 
+// The professional close of a recommendation answer (frozen protocol, same
+// class as the privacy-protocol lines): every property has its own clientele;
+// the client must feel the space in person to decide; offer to arrange a
+// visit. Written as an array so pickVariant-style rotation avoids repeats.
+export const RECOMMEND_CLOSE_LINES = [
+  'Секоја недвижнина има своја клиентела. За да знаете дали е нешто за Вас, треба да го осетите просторот во живо. Дали да се обидам да договорам посета?',
+  'Секој имот носи различна вредност за секој клиент. Најдобро е да ги погледнете во живо и сами да процените. Дали да се обидам да договорам посета?',
+  'Кажд property has its own clientele — во живо се реакциите најискрени. Дали да закажеме посета за да го осетите просторот?',
+  'Секоја недвижнина зборува поинаку во живо. Треба сами да го осетите просторот за да одлучите. Дали да се обидам да договорам посета?',
+  'Фото и опис не се доволни — просторот се осетува во живо. Дали да договорам посета на имотот што Ви се допаѓа повеќе?',
+];
+
+/** Bank-backed recommendation close (fallback = the code-built line). */
+export function buildRecommendClose(recent: string[] = []): string {
+  return pickVariant('recommend.close', { recent })
+    ?? RECOMMEND_CLOSE_LINES[Math.floor(Math.random() * RECOMMEND_CLOSE_LINES.length)];
+}
+
 export const LOCATE_DETAILS_ASK =
   'Во ред, ќе се обидам да го најдам. Кажете ми — во која населба е, колку квадрати има и по која цена беше?';
 
@@ -319,13 +337,13 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   if (slots.service && (slots.location || anywhere) && business && !slots.sqm) {
     missing.push(askQuestion('discovery.ask.sqm.business', 'Која површина (во м²) ја барате?', recent));
   }
-  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms && !anywhere) {
+  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms && !anywhere && !slots.sizeWaived) {
     missing.push(askQuestion(
       house ? 'discovery.ask.bedrooms.house' : 'discovery.ask.bedrooms.stan',
       house ? 'Колку спални соби би сакале да има куќата?' : 'Колку спални соби би сакале да има станот?',
       recent));
   }
-  if (slots.service && (slots.location || anywhere) && !slots.budget) {
+  if (slots.service && (slots.location || anywhere) && !slots.budget && !slots.pricePriority) {
     // RENT asks about the MONTHLY rent (месечна кирија), not a purchase price —
     // "колку е киријата?" is the client's question, and the budget slot is the
     // monthly amount the presentation filters rent listings by.
