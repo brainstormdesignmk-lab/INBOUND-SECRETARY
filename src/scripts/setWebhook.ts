@@ -1,3 +1,5 @@
+import '../compat/node16';
+
 import { loadConfig } from '../config';
 
 async function main(): Promise<void> {

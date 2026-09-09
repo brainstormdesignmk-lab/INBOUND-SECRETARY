@@ -1,3 +1,5 @@
+import '../compat/node16';
+
 import { CompleteOpts, LlmClient } from './types';
 
 // OpenAI-compatible surface of the Gemini API — same request/response shape as Groq.

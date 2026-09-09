@@ -12,6 +12,13 @@
 
 import { RESPONSE_BANK } from './responses';
 import type { State } from '../fsm/machine';
+import type { BankStore } from '../store/bank';
+
+/** The learned bank layer (SQLite), injected at boot. May be undefined in
+ *  scripts/tests that run without the store — the seed bank still works. */
+let learned: BankStore | undefined;
+export function setLearnedBank(b: BankStore | undefined): void { learned = b; }
+export function getLearnedBank(): BankStore | undefined { return learned; }
 
 /** Normalized comparison form — same rules as the generator's dedupe. */
 export function normalizeVariant(s: string): string {
@@ -32,14 +39,40 @@ export interface PickOpts {
   vars?: Record<string, string>;
 }
 
-/** Pick a variant for a bank key, or undefined when the key has no variants yet. */
+/** Pick a variant for a bank key, or undefined when the key has no variants yet.
+ *  Layered: seed (responses.ts) + learned (SQLite bank_variants). Learned
+ *  variants are LIVE without rebuild; the seed layer is the boot fallback if
+ *  the DB is corrupted. Repeat avoidance spans BOTH layers. */
 export function pickVariant(key: string, opts: PickOpts = {}): string | undefined {
-  const variants = RESPONSE_BANK[key];
-  if (!variants || variants.length === 0) return undefined;
+  const seed = RESPONSE_BANK[key] ?? [];
+  const learnedVars = learned ? learned.variants(key) : [];
+  const variants = [...seed, ...learnedVars];
+  if (variants.length === 0) return undefined;
   const recent = new Set((opts.recent ?? []).map(normalizeVariant));
   const fresh = variants.filter(v => !recent.has(normalizeVariant(v)));
   const pool = fresh.length > 0 ? fresh : variants;
   return fillVars(pool[Math.floor(Math.random() * pool.length)], opts.vars);
+}
+
+/**
+ * RETRIEVAL: match a free-form client message against the learned examples
+ * table and serve a variant for the matched key — the card catalog of the
+ * bank. Offline (SQLite read), sub-ms. Returns undefined when nothing
+ * matches or the matched key has no variants in either layer; callers then
+ * escalate to the LLM. Records a hit/miss metric when a store is attached.
+ */
+export function retrieveVariant(userMsg: string, opts: PickOpts = {}): string | undefined {
+  if (!learned) return undefined;
+  const hit = learned.retrieve(userMsg);
+  if (!hit) return undefined;
+  const line = pickVariant(hit.key, opts);
+  learned.metric(hit.key, line !== undefined);
+  return line;
+}
+
+/** Record a bank MISS for a key the runtime needed but could not serve. */
+export function recordBankMiss(key: string): void {
+  learned?.metric(key, false);
 }
 
 /**

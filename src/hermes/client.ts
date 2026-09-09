@@ -1,9 +1,11 @@
 // The Hermes-side client — how machine B talks to Lina's /hermes/v1 API.
 // Every call carries x-admin-token: <HERMES_TOKEN> (the shared admin token).
 
+import '../compat/node16';
+
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 
-export interface LandmarkCandidate { address?: string; location?: string; }
+export interface LandmarkCandidate { id?: number; address?: string; location?: string; }
 export interface PriceChangeWork { id: number; eb: number; old_price: number | null; new_price: number; }
 export interface OwnerCheckWork { chat_id: string; eb: number | null; proposed_time: string; }
 
@@ -33,7 +35,7 @@ export function pullWork(baseUrl: string, token: string): Promise<HermesWork> {
 
 export function pushLandmarks(
   baseUrl: string, token: string,
-  items: Array<{ address?: string; location?: string; landmark: string; type?: string; maps_url?: string }>,
+  items: Array<{ id?: number; address?: string; location?: string; landmark: string; type?: string; maps_url?: string }>,
 ): Promise<{ accepted: number; rejected: Array<Record<string, unknown>> }> {
   return request(baseUrl, token, '/hermes/v1/landmarks', { method: 'POST', body: JSON.stringify(items) });
 }

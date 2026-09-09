@@ -15,7 +15,7 @@ import { LlmClient } from '../llm/types';
 import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
 import { buildLayout, esc, hhmm } from './layout';
-import { detectOwnerVerdict } from '../llm/deterministic';
+import { detectOwnerVerdict, detectOwnerAddressReply } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
 import { LandmarkService } from '../geo/landmarks';
 import { OfflineMapStore } from '../geo/offlineMap';
@@ -23,6 +23,8 @@ import { VisitScheduler } from '../visits/scheduler';
 import { EventStore } from '../store/events';
 import { OwnerStore } from '../store/owners';
 import { EnrichmentStore } from '../store/enrichment';
+import { BankStore } from '../store/bank';
+import { setLearnedBank } from '../data/responseBank';
 
 type Role = 'user' | 'assistant' | 'system' | 'error';
 // source = which brain produced the reply ('gemini:1..3', 'groq',
@@ -120,6 +122,9 @@ export class TuiApp {
     const start = this.brains.hybrid!;
     this.brainSummary = `мозок: hybrid`;
     this.db = new Db('data/tui.db'); // separate DB — never pollutes production counters
+    // TUI gets its own learned-bank store (its own DB), attached to the picker
+    // so bank retrieval + learned variants work in every TUI brain mode.
+    setLearnedBank(new BankStore(this.db));
     this.sessions = new SessionStore(this.db);
     const appointments = new AppointmentStore(this.db);
     const escalations = new EscalationStore(this.db);
@@ -128,6 +133,12 @@ export class TuiApp {
     this.propertyService = new PropertyService(cfg.propertyDataUrl);
     this.classifier = new Classifier(start, cfg, this.propertyService);
     this.responder = new Responder(start, cfg);
+    // KNOWLEDGE-BASED DISPATCH: the escalation brain is ALWAYS a real LLM —
+    // /brain free is a cost preference for what serves KNOWN answers, never a
+    // knowledge cap. Without this, free mode routes escalate() to NoLlm →
+    // throw → canned fallback = the exact "wrong canned answer" class this
+    // package exists to kill. (The user-selected brain still drives setLlm.)
+    this.responder.setEscalationLlm(start);
 
     this.channel = new TuiChannel(cfg);
     this.channel.onTyping = (chatId, ms) => {
@@ -156,15 +167,7 @@ export class TuiApp {
     this.db.db.prepare('DELETE FROM landmarks').run();
     console.log('[startup] landmark cache cleared');
 
-    const landmarks = new LandmarkService(this.db, {
-      googleKey: cfg.googleMapsApiKey,
-      googleEnabled: cfg.googleMapsEnabled,
-      osmEnabled: cfg.osmEnabled,
-      offlineMap: this.offlineMap,
-      onHermesRequest: ({ address, location }) => {
-        events.insert('landmark_requested', '', null, { address: address ?? null, location: location ?? null });
-      },
-    });
+    const landmarks = new LandmarkService(this.db, { offlineMap: this.offlineMap });
     this.visits = new VisitScheduler({
       db: this.db,
       events,
@@ -205,6 +208,11 @@ export class TuiApp {
       appointments, escalations, meta, channels,
       landmarks, visits: this.visits,
       enrichment: new EnrichmentStore(this.db),
+      bank: new BankStore(this.db),
+      // THE TEACHER/EXAM POLICY: hybrid teaches the bank (replies logged for
+      // the cron), free is the exam (nothing logged — the deterministic+bank
+      // stack must answer alone, proving the enrichment worked).
+      brainMode: () => this.brainMode,
     });
 
     // The owner ping-pong: when the client proposes a visit time, Lina asks the
@@ -408,6 +416,15 @@ export class TuiApp {
       lines.push(`мозок: ${this.brainMode} (достапни: ${available})`);
       const warn = this.detFallbackCount >= 10 ? '  ⚠ ВИСОКО — провери ги LLM клучите!' : '';
       lines.push(`детерминистички одговори оваа сесија: ${this.detFallbackCount}${warn}`);
+      // Bank health — the perpetuum's proof: free-rate climbing = learning.
+      try {
+        const { getLearnedBank } = await import('../data/responseBank');
+        const bs = getLearnedBank()?.stats();
+        if (bs) {
+          lines.push(`банка: ${bs.totalVariants} научени варијанти / ${bs.keys} клуча · примери: ${bs.examples} · корекции: ${bs.corrections}`);
+          lines.push(`free-rate: ${bs.hitRate === null ? 'сè уште нема мерења' : (bs.hitRate * 100).toFixed(1) + '%'} (без LLM)`);
+        }
+      } catch { /* bank stats are non-critical */ }
       this.appendMsg(lead.chatId, { role: 'system', text: `СТАТУС:\n${lines.join('\n')}`, at: Date.now() });
       this.renderAll();
       return;
@@ -482,10 +499,12 @@ export class TuiApp {
       this.brainMode = mode;
       this.classifier.setLlm(client);
       this.responder.setLlm(client);
+      // free mode: escalation brain stays the real hybrid LLM (set at boot).
+      if (mode !== 'free') this.responder.setEscalationLlm(client);
       this.brainSummary = `мозок: ${mode}`;
       const label = mode === 'free'
-        ? 'без LLM — се одговара детерминистички'
-        : mode === 'hybrid' ? 'gemini → groq' : mode;
+        ? 'испит — банка без LLM (ништо не се учити)'
+        : mode === 'hybrid' ? 'gemini → groq (учители на банката)' : mode;
       this.appendMsg(lead.chatId, {
         role: 'system',
         text: `мозок: ${mode} (${label}) — префрлен. Следната порака ја одговара новиот мозок.`,
@@ -651,6 +670,10 @@ export class TuiApp {
    * во 11", "продаден е"). The reply is parsed deterministically into a
    * verdict and resolves the pending check — Lina relays it to the client and
    * the ping-pong loops until the visit date+time are arranged.
+   *
+   * When a Turn-0 ADDRESS confirmation is pending instead, the reply routes to
+   * confirmAddress() — previously it died with 'нема активна проверка' and the
+   * owner's corrected address was lost.
    */
   private ownerInput(): void {
     const lead = this.activeLead();
@@ -661,7 +684,31 @@ export class TuiApp {
       pendingEb?: (chatId: string) => number | null;
     };
     const pending = agent.pendingEb?.(lead.chatId) ?? null;
+    // ── Turn-0 address confirmation pending? Route to the scheduler. ──
     if (pending == null) {
+      const addrAppt = this.visits?.pendingAddressConfirm(lead.chatId) ?? null;
+      if (addrAppt != null) {
+        this.appendOwnerMsg(lead.chatId, { role: 'user', text, at: Date.now() });
+        const reply = detectOwnerAddressReply(text);
+        if (!reply) {
+          this.appendOwnerMsg(lead.chatId, {
+            role: 'assistant',
+            text: 'Ве молам потврдете: дали адресата е точна? (да / не + точната адреса)',
+            at: Date.now(),
+          });
+          this.renderAll();
+          return;
+        }
+        this.applyAddressConfirm(lead.chatId, addrAppt, reply)
+          .then(() => this.renderAll())
+          .catch((e) => {
+            this.appendOwnerMsg(lead.chatId, {
+              role: 'error', text: `грешка: ${(e as Error).message}`, at: Date.now(),
+            });
+            this.renderAll();
+          });
+        return;
+      }
       this.appendOwnerMsg(lead.chatId, { role: 'system', text: 'нема активна проверка за овој клиент', at: Date.now() });
       this.renderAll();
       return;
@@ -684,6 +731,24 @@ export class TuiApp {
       at: Date.now(),
     });
     this.renderAll();
+  }
+
+  /** Apply the owner's Turn-0 address reply: confirm → Turn 1 goes out;
+   *  correct → the address is stored on the appointment (corrected_address),
+   *  logged for the operator, and Turn 1 uses the REAL address. */
+  private async applyAddressConfirm(
+    chatId: string, appointmentId: number, reply: { status: 'confirm' | 'correct'; address?: string },
+  ): Promise<void> {
+    const applied = await this.visits!.confirmAddress(appointmentId, reply.status === 'correct' ? reply.address : undefined);
+    this.appendOwnerMsg(chatId, {
+      role: 'system',
+      text: applied
+        ? reply.status === 'correct'
+          ? `адресата коригирана: „${reply.address}“ — потврдата е испратена до клиентот`
+          : 'адресата потврдена — потврдата е испратена до клиентот'
+        : 'одговорот не е примен (нема активна адресна потврда)',
+      at: Date.now(),
+    });
   }
 
   private appendOwnerMsg(chatId: string, msg: Msg): void {

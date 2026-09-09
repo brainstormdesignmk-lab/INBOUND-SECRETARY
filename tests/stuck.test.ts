@@ -1108,9 +1108,11 @@ test('"KADE E TOA PALOMA BJANKA ?" — a place question is answered from the DB,
   let s = await send('KADE E TOA PALOMA BJANKA ?');
   assert.equal(s.state, 'idle'); // the where-answer does not change the funnel
   // ADDRESS PRIVACY: the street is never named — the answer gives the
-  // neighborhood or a resolved landmark ("во близина на …").
+  // neighborhood or a resolved landmark ("во близина на …"). DB-only chain:
+  // without feed landmarks or an offline map in this harness there is no
+  // fabricatable landmark, so the honest "населба" fallback is the answer.
   assert.ok(!sent[0].includes('Палома Бјанка'), sent[0]); // the address stays hidden
-  assert.ok(sent[0].includes('во близина на'), sent[0]);
+  assert.ok(/мин пеш до|во близина на|приближно|населба/i.test(sent[0]), sent[0]);
   assert.ok(!sent[0].includes('улица'), sent[0]);
   assert.ok(!sent[0].includes('исцрпивме'), sent[0]);
   assert.ok(!sent[0].includes('немам слободни'), sent[0]);
@@ -1121,9 +1123,10 @@ test('"KADE E TOA PALOMA BJANKA ?" — a place question is answered from the DB,
   assert.ok(sent[1].includes('Евидентен број 63'), sent[1]);
   s = await send('KADE SE NAOGA TOJ STAN ?');
   assert.equal(s.state, 'presentation'); // state untouched
-  // EB 63 is in Центар (населба) — the deterministic table answers with a
-  // landmark ("во близина на …"), never the street.
-  assert.ok(sent[2].includes('во близина на'), sent[2]);
+  // EB 63 is in Центар (населба) — the DB-only chain answers with a landmark
+  // when one is resolvable, else the honest "населба" fallback. Never the
+  // street, never an exhausted/search reply.
+  assert.ok(/мин пеш до|во близина на|приближно|населба/i.test(sent[2]), sent[2]);
   assert.ok(!sent[2].includes('улица'), sent[2]);
   assert.ok(!sent[2].includes('исцрпивме'), sent[2]);
 });
@@ -1832,7 +1835,7 @@ test('"каде се наоѓа 89" — EB number lookup gives a deterministic l
   assert.ok(!reply.includes('наместен'), `reply must NOT include features: ${reply}`);
 
   // The reply should contain a location reference (landmark or neighborhood)
-  assert.ok(/(наоѓа|населб|близина)/iu.test(reply), `reply should mention location: ${reply}`);
+  assert.ok(/(мин пеш до|наоѓа|населб|близина)/iu.test(reply), `reply should mention location: ${reply}`);
 });
 
 test('burst: "go gledav ova 89" then "kaj se naogja" — where-is after seen-property never crashes (TDZ bug)', async () => {

@@ -1,6 +1,10 @@
+import './compat/node16';
+
 import express from 'express';
 import { loadConfig } from './config';
 import { Db } from './store/db';
+import { BankStore } from './store/bank';
+import { setLearnedBank } from './data/responseBank';
 import { SessionStore, ChatSession, isExpired, resetToIdle } from './fsm/session';
 import { AppointmentStore } from './store/appointments';
 import { EscalationStore } from './store/escalations';
@@ -42,22 +46,16 @@ async function main(): Promise<void> {
   const events = new EventStore(db);
   const owners = new OwnerStore(db);
 
-  // Approximate locations (address privacy): deterministic table -> offline
-  // map (local POIs, zero network) -> Google (if key) -> OSM -> Hermes event.
-  // Cached in the DB, so live lookups happen once per address ever.
+  // Approximate locations (address privacy): DB-only resolution — feed
+  // landmarks → tiered DB cache → details extraction → offline map (local POIs,
+  // zero network). No Google/OSM/Photon/LLM in the request path; the monthly
+  // refresh cron (scripts/refresh-monthly.ts) upgrades low-trust properties.
   const offlineMap = new OfflineMapStore(cfg.skopjePoisDb);
   if (offlineMap.available) {
     const s = offlineMap.stats();
     console.log(`[offline-map] ${s?.pois ?? 0} POIs / ${s?.addresses ?? 0} addresses — ${cfg.skopjePoisDb}`);
   }
-  const landmarks = new LandmarkService(db, {
-    googleKey: cfg.googleMapsApiKey,
-    offlineMap,
-    onHermesRequest: ({ address, location }) => {
-      // Phase 2: Hermes (its own LLM via NVIDIA) answers landmark_result.
-      events.insert('landmark_requested', '', null, { address: address ?? null, location: location ?? null });
-    },
-  });
+  const landmarks = new LandmarkService(db, { offlineMap });
 
   // The visit protocol: turns 2+3 (morning confirmation, exact location 2h
   // before) fired by the tick; turn 1 (arranged) is inline in confirmVisit.
@@ -82,6 +80,12 @@ async function main(): Promise<void> {
   });
 
   const enrichment = new EnrichmentStore(db);
+  // Learned bank layer — SQLite-backed, live without rebuild. Attached to the
+  // responseBank picker so pickVariant merges seed + learned everywhere, and
+  // retrieval (free answers for known questions) works in the request path.
+  const bankStore = new BankStore(db);
+  bankStore.selfTest(); // appliance boot: corrupted bank fails LOUDLY, not silently
+  setLearnedBank(bankStore);
   const pipeline = new InboundHandler({
     cfg, db, sessions, classifier, responder, properties, appointments, escalations, meta, channels,
     landmarks, visits, enrichment,

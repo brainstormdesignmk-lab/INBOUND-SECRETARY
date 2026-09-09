@@ -115,16 +115,19 @@ export class Db {
       );
       -- v4: approximate locations (landmarks) per property — resolved ONCE via
       -- the layered resolver (deterministic table -> Google/OSM -> Hermes) and
-      -- cached here so live APIs are hit at most once per address EVER. The
+      -- cached here so live APIs are hit at most once per property. The
       -- exact street address is NEVER stored here: only the public landmark.
+      -- v7: keyed by property_id (not address_key) — no two buildings collide.
+      -- tier: feed|extract|google|osm_poi|osm_low_confidence — upgrade-only writes.
       CREATE TABLE IF NOT EXISTS landmarks (
-        address_key  TEXT PRIMARY KEY,
+        property_id  INTEGER PRIMARY KEY,
         landmark     TEXT NOT NULL,
         type         TEXT NOT NULL DEFAULT '',
         maps_url     TEXT,
         source       TEXT NOT NULL DEFAULT 'table',
-        resolved_at  INTEGER NOT NULL,
-        nearby       TEXT  -- JSON array of top-3 nearby landmarks with coords
+        tier         TEXT,  -- 'feed'|'extract'|'google'|'osm_poi'|'osm_low_confidence'
+        resolved_at  TEXT,  -- ISO timestamp, no TTL — freshness from cron
+        nearby       TEXT   -- JSON array of top-3 nearby landmarks with coords
       );
       -- v4: scheduled visit notifications (turns 2+3 of the visit protocol;
       -- turn 1 "arranged" is sent inline at confirmation). status per party
@@ -171,6 +174,40 @@ export class Db {
       );
       CREATE INDEX IF NOT EXISTS idx_enrichment_pending
         ON enrichment_queue(enriched, created_at);
+
+      -- v7: learned bank layer — variants/examples/metrics/corrections.
+      -- responses.ts stays the seed; everything learned lives here, live
+      -- immediately (no rebuild/restart), read-only in the request path.
+      CREATE TABLE IF NOT EXISTS bank_variants (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        key        TEXT NOT NULL,
+        text       TEXT NOT NULL,
+        source     TEXT NOT NULL DEFAULT 'learned',
+        created_at INTEGER NOT NULL,
+        UNIQUE(key, text)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bank_variants_key ON bank_variants(key);
+      CREATE TABLE IF NOT EXISTS bank_examples (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        key        TEXT NOT NULL,
+        msg        TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(key, msg)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bank_examples_key ON bank_examples(key);
+      CREATE TABLE IF NOT EXISTS bank_metrics (
+        key    TEXT PRIMARY KEY,
+        hits   INTEGER NOT NULL DEFAULT 0,
+        misses INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS bank_corrections (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        key        TEXT,
+        msg        TEXT NOT NULL,
+        reply      TEXT NOT NULL,
+        reason     TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
     `);
     // v4 migration: nearby landmarks cache column — safe no-op if already present
     const lmCols = this.db.prepare(`PRAGMA table_info(landmarks)`).all() as Array<{ name: string }>;
@@ -191,6 +228,36 @@ export class Db {
     // v5: owner-corrected address (overrides feed address for turns 2+3).
     if (!cols.some(c => c.name === 'corrected_address')) {
       this.db.exec(`ALTER TABLE appointments ADD COLUMN corrected_address TEXT`);
+    }
+    // v7: geo re-resolve queue — properties with bad geocoding that need
+    // re-resolution when the Google scraper or a better geocoder runs.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS geo_reresolve_queue (
+        property_id INTEGER PRIMARY KEY,
+        reason      TEXT NOT NULL,   -- 'no_landmark'|'low_confidence_center'|'poison_sweep'
+        created_at  INTEGER NOT NULL
+      );
+    `);
+    // v7 migration: landmarks table re-keyed from address_key to property_id.
+    // If the old table exists (address_key TEXT PK), recreate with new schema.
+    const lmPK = this.db.prepare(`PRAGMA table_info(landmarks)`).all() as Array<{ name: string; pk: number }>;
+    const hasAddressKey = lmPK.some(c => c.name === 'address_key' && c.pk === 1);
+    const hasPropertyId = lmPK.some(c => c.name === 'property_id' && c.pk === 1);
+    if (hasAddressKey && !hasPropertyId) {
+      // Drop old address_key based table — all data was transient cache anyway
+      this.db.exec(`DROP TABLE IF EXISTS landmarks`);
+      this.db.exec(`
+        CREATE TABLE landmarks (
+          property_id  INTEGER PRIMARY KEY,
+          landmark     TEXT NOT NULL,
+          type         TEXT NOT NULL DEFAULT '',
+          maps_url     TEXT,
+          source       TEXT NOT NULL DEFAULT 'table',
+          tier         TEXT,
+          resolved_at  TEXT,
+          nearby       TEXT
+        );
+      `);
     }
   }
 

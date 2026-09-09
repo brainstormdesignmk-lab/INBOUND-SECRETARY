@@ -13,6 +13,7 @@
 
 import { formatDateOnly, formatTimeOnly } from './time';
 import { googleMapsLink } from '../geo/landmarks';
+import { fullCoordsLink } from '../geo/precision';
 
 /** Turn 0 — sent to OWNER ONLY: confirm the property address is correct.
  *  The client does NOT see this message. Turn 1 to the client only fires
@@ -65,13 +66,16 @@ export function buildLocationMsg(eb: number, when: Date, agentPhone: string, add
 /** Google Maps link for the REAL address (visit day) — built through the
  *  shared googleMapsLink so the customer always lands on Google Maps, never
  *  OSM. No API key needed.
- *  When precise coordinates are available they are PREFERRED: a raw Cyrillic
- *  address percent-encodes into an unreadable %D0%A2… wall of junk, while
- *  `query=lat,lon` is short, clean, and lands on the exact building (full
- *  precision is ALLOWED here — the visit-day unlock sends the street anyway). */
+ *  Coordinates PREFERRED, in the short @-view form: the written address is
+ *  already in the message text, and putting it in the URL too would make a
+ *  long percent-encoded Cyrillic link that the operator console truncates
+ *  (the class of failure that produced "Google Maps can't find 41.99560" and
+ *  the stray "П " search). The @-view opens the map exactly at the building.
+ *  The address query is the fallback when no coordinates exist. */
 export function mapsLinkFor(address: string | undefined, location: string | undefined, coords?: { lat: number; lon: number }): string {
-  if (coords) return googleMapsLink(`${coords.lat},${coords.lon}`);
-  return googleMapsLink([address, location, 'Скопје'].filter(Boolean).join(', '));
+  if (coords) return fullCoordsLink(coords.lat, coords.lon);
+  if (address) return googleMapsLink([address, location, 'Скопје'].filter(Boolean).join(', '));
+  return googleMapsLink([location, 'Скопје'].filter(Boolean).join(', '));
 }
 
 export interface Party { name: string; phone: string; }

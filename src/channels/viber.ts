@@ -1,3 +1,5 @@
+import '../compat/node16';
+
 import type { Express } from 'express';
 import { AppConfig } from '../config';
 import { TokenBucket } from '../antiabuse/rateLimiter';

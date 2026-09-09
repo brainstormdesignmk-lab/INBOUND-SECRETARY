@@ -81,10 +81,27 @@ test('setLlm swaps the responder brain at runtime (TUI chooser)', async () => {
   s.state = 'presentation';
   const r = new Responder(new DownLlm(), cfg);
   assert.equal((await r.respond(s, [], 'zdravo')).source, 'fallback');
-  r.setLlm(new OkLlm('groq'));
+  // TUI wiring: the serving brain AND the escalation brain swap together
+  // (except in free mode, where escalation stays the real boot brain).
+  const groq = new OkLlm('groq');
+  r.setLlm(groq);
+  r.setEscalationLlm(groq);
   const up = await r.respond(s, [], 'zdravo');
   assert.equal(up.source, 'groq');
   assert.equal(up.text, PROSE_REPLY);
+});
+
+test('KNOWLEDGE-BASED DISPATCH: setLlm(NoLlm) never downgrades escalation', async () => {
+  const cfg = loadConfig();
+  const s = freshSession('test', 'x-esc');
+  s.state = 'presentation';
+  const r = new Responder(new DownLlm(), cfg);
+  r.setEscalationLlm(new OkLlm('gemini:1')); // boot brain pinned as escalation
+  r.setLlm(new DownLlm());                    // free-mode-style serving swap
+  const up = await r.respond(s, [], 'zdravo');
+  // The miss escalated to the REAL brain, not to the swapped-down one.
+  assert.equal(up.source, 'gemini:1');
+  assert.equal(up.escalated, true);
 });
 
 test('setLlm swaps the classifier brain at runtime (TUI chooser)', async () => {

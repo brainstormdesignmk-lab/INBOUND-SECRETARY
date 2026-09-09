@@ -4,3 +4,11 @@ data/*.db
 data/*.db-*
 .env
 *.log
+GOOGLEMAPS_API_KEY.txt
+data/*.db.*
+data/enrichment-log.json
+.tap/
+tmp/
+session-*.md
+supabase/.temp/
+**/.temp/

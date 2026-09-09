@@ -26,6 +26,8 @@ export interface Event {
   house?: boolean;          // куќа — a residential request that is NOT a стан
   budget?: string;
   anywhere?: boolean;       // "било каде" — no location preference (satisfies location)
+  sizeWaived?: boolean;    // "големината не ми е битна" — skip bedrooms question
+  pricePriority?: boolean; // "што поевтино" — sort by price, skip budget question
   propertyId?: number;      // = Евидентен број (EB)
   visitTime?: string;       // free-text time proposed by the client
   name?: string;

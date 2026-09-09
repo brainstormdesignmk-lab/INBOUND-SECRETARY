@@ -11,6 +11,8 @@ export interface SlotData {
   house?: boolean;              // куќа — a residential request that is NOT a стан
   budget?: string;
   anywhere?: boolean;           // "било каде" — no location preference (satisfies location)
+  sizeWaived?: boolean;        // "големината не ми е битна" — skip bedrooms question
+  pricePriority?: boolean;     // "што поевтино" — sort by price, skip budget question
   propertyId?: number;          // EB of the property currently discussed
   interestedPropertyId?: number;
   presentedIds?: number[];      // ALL EBs shown so far (excluded from later batches)
@@ -40,6 +42,7 @@ export interface SlotData {
   bothServices?: boolean;        // client wants BOTH buy and rent — ask property type first, then service
   nearbyLandmarks?: string[];     // top-3 nearby landmark names for rotation ("каде?" → first, "каде поточно?" → second, …)
   nearbyLandmarkCoords?: Array<{ lat: number; lon: number }>; // parallel coords for Google Maps links
+  nearbyLandmarkPlaceIds?: Array<string | null>; // parallel Google place_ids → ?cid= place-card links
   landmarkIndex?: number;         // how many landmarks have been revealed so far
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
   lastPrice?: string;             // last price answered to the client (for "та цена" resolution)

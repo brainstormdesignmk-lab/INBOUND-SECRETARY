@@ -4,24 +4,29 @@
 # single supported entry point so the manual fixes can never be forgotten.
 #
 # Steps:
-#   1. rebuild   — fresh OSM data into data/skopje-pois.db
-#                  (atomic: a failed pull leaves the old DB untouched)
-#   2. overrides — re-apply every manual fix from data/address-overrides.json
-#   3. audit     — coverage report over all feed properties
+#   1. OSM rebuild   — fresh address data from OpenStreetMap
+#   2. Google build  — replace POIs with Google Maps coordinates (SerpApi)
+#   3. overrides     — re-apply every manual fix from data/address-overrides.json
+#   4. audit         — coverage report over all feed properties
 #
 # Usage:  bash scripts/update_map.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "=== [1/3] Rebuilding map from OSM (atomic) ==="
+echo "=== [1/4] Rebuilding map from OSM (for addresses) ==="
 npx tsx scripts/rebuild_map.ts
 
 echo ""
-echo "=== [2/3] Re-applying manual overrides ==="
+echo "=== [2/4] Replacing POIs with Google Maps data (SerpApi) ==="
+echo "(Requires SERPAPI_KEY env var or data/serpapi-key.txt)"
+npx tsx scripts/buildGoogleMap.ts
+
+echo ""
+echo "=== [3/4] Re-applying manual overrides ==="
 npx tsx scripts/apply_overrides.ts
 
 echo ""
-echo "=== [3/3] Auditing feed address coverage ==="
+echo "=== [4/4] Auditing feed address coverage ==="
 npx tsx scripts/audit_addresses.ts
 
 echo ""

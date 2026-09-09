@@ -15,10 +15,9 @@ import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { parseVisitDateTime, formatVisitDate } from '../src/visits/time';
-import { tableLandmark, tableNeighborhood, NEIGHBORHOOD_LANDMARKS } from '../src/geo/landmarkTable';
 import { LandmarkService, sanitizeLandmarkAnswer } from '../src/geo/landmarks';
 import { VisitScheduler } from '../src/visits/scheduler';
-import { LandmarkStore, landmarkCacheKey } from '../src/geo/landmarks';
+import { LandmarkStore } from '../src/geo/landmarks';
 import { detectOwnerVerdict } from '../src/llm/deterministic';
 
 class FailingLlm implements LlmClient {
@@ -71,67 +70,70 @@ test('formatVisitDate: Macedonian weekday + date + time', () => {
 });
 
 // --- landmark resolver (offline layers) --------------------------------------
-test('landmark table: deterministic per-neighborhood landmarks', () => {
-  const a = tableLandmark(53, 'Аеродром')!;
-  const b = tableLandmark(53, 'Аеродром')!;
-  assert.ok(a && b && a.landmark === b.landmark, 'same EB -> same landmark');
-  assert.ok(['Трговскиот центар „Веро Центар“', 'Паркот Аеродром', 'Автобуската станица на Аеродром', 'Трговскиот центар „Бисер“', 'Паркот Авионче'].includes(a.landmark));
-  assert.equal(tableLandmark(53, 'Непозната Насе') , undefined);
-  assert.equal(tableNeighborhood('Карпош III'), 'карпош');
-  assert.equal(tableNeighborhood('Кисела Вода'), 'кисела вода');
-});
-
-test('LandmarkService: table hit, cache, and the Hermes seam (no network)', async () => {
+test('LandmarkService: cached landmark is deterministic (same property → same answer)', async () => {
   const db = new Db(':memory:');
-  const hermes: Array<{ address?: string; location?: string }> = [];
-  const svc = new LandmarkService(db, { osm: false, onHermesRequest: o => hermes.push(o) });
-
-  // Карпош III is in the table -> instant, cached, no live layer.
-  const l = await svc.resolve({ eb: 54, address: 'Партизанска', location: 'Карпош III' });
-  assert.equal(l.source, 'table');
-  assert.ok(l.landmark.length > 0);
-  const again = await svc.resolve({ eb: 54, address: 'Партизанска', location: 'Карпош III' });
-  assert.equal(again.landmark, l.landmark);
-  assert.equal(hermes.length, 0);
-
-  // Unknown neighborhood, no google key, osm off -> the Hermes contract fires.
-  const none = await svc.resolve({ eb: 1, address: 'X', location: 'Непознато Место' });
+  const svc = new LandmarkService(db);
+  // A cache row (written by the import hook or cron drain) is served on every
+  // resolve — same property → same landmark; unknown ones are never fabricated.
+  const store = new LandmarkStore(db);
+  store.put(53, { landmark: 'Паркот Авионче', type: 'park', source: 'offline' }, 'osm_poi');
+  const a = await svc.resolve({ id: 53, eb: 53, address: 'Бисер', location: 'Аеродром', geo_source: 'osm_building' });
+  const b = await svc.resolve({ id: 53, eb: 53, address: 'Бисер', location: 'Аеродром', geo_source: 'osm_building' });
+  assert.ok(a.landmark && a.landmark === b.landmark, 'same property -> same landmark');
+  assert.equal(a.landmark, 'Паркот Авионче');
+  // Unknown property/location -> honest none (the removed table used to guess
+  // per-neighborhood; the new chain never fabricates).
+  const none = await svc.resolve({ eb: 9999, address: 'Непознато', location: 'Непозната Насе' });
   assert.equal(none.source, 'none');
-  assert.equal(hermes.length, 1);
+  assert.equal(none.landmark, '');
   db.close();
 });
 
-test('landmark table: NO entry may ever be a street name (address privacy)', () => {
-  // Regression: "Булеварот Партизански Одреди" was seeded as a Кисела Вода
-  // landmark — the exact street must never be offered as the approximate
-  // location. Every entry in every neighborhood is a PUBLIC PLACE.
-  const streetRe = /(?<![А-Яа-яA-Za-z])(?:улиц(?:а|и|ата|ите)|булевар(?:от|и)?|бул\.?|ул\.?|пат(?:от|и)?|street|boulevard)(?![А-Яа-яA-Za-z])/i;
-  for (const [nb, opts] of Object.entries(NEIGHBORHOOD_LANDMARKS)) {
-    for (const o of opts) {
-      assert.ok(!streetRe.test(o.landmark), `${nb} -> "${o.landmark}" is a street!`);
-    }
-  }
-  // Кисела Вода now offers real public places (park / school), never a булевар.
-  const kv = NEIGHBORHOOD_LANDMARKS['кисела вода'].map(o => o.landmark);
-  assert.ok(!kv.some(l => /булевар|Партизански/.test(l)), JSON.stringify(kv));
-  assert.ok(kv.some(l => /Парк|ОУ|Стадион|Клинички/.test(l)), JSON.stringify(kv));
-  const centar = NEIGHBORHOOD_LANDMARKS['центар'].map(o => o.landmark);
-  assert.ok(centar.includes('Плоштад „Македонија“'), JSON.stringify(centar));
-  assert.ok(centar.includes('Универзална сала'), JSON.stringify(centar));
+test('LandmarkService: DB-only chain — no feed/offline map → honest none, nothing cached or fired', async () => {
+  const db = new Db(':memory:');
+  const svc = new LandmarkService(db);
+
+  // No feed landmarks, no offline map, no cache row -> the runtime chain has
+  // nothing left to fabricate a landmark from (table + OSM/Google layers were
+  // removed) -> honest 'none'. The caller serves the "населба" fallback.
+  const none = await svc.resolve({ eb: 1, address: 'X', location: 'Непознато Место' });
+  assert.equal(none.source, 'none');
+  assert.equal(none.landmark, '');
+  db.close();
 });
 
-test('LandmarkService: a cached table landmark that left the TABLE is re-resolved (never stale)', async () => {
+test('LandmarkService: a street name is NEVER served as a landmark (address privacy)', async () => {
+  const db = new Db(':memory:');
+  const svc = new LandmarkService(db);
+  // Regression: "Булеварот Партизански Одреди" was once offered as a Кисела
+  // Вода landmark. The street guard now lives in publicPlace(), applied to
+  // EVERY layer — a feed entry that is a street is rejected, never served.
+  const street = await svc.resolve({
+    eb: 53, location: 'Кисела Вода',
+    landmarks: [{ landmark: 'Булеварот Партизански Одреди', type: 'road', distance_m: 100 }],
+  });
+  assert.equal(street.source, 'none', 'street feed landmark must be rejected');
+  assert.equal(street.landmark, '');
+  // A real public place passes the same guard and is served.
+  const place = await svc.resolve({
+    eb: 54, location: 'Кисела Вода',
+    landmarks: [{ landmark: 'Градскиот парк', type: 'park', distance_m: 200 }],
+  });
+  assert.equal(place.source, 'feed');
+  assert.equal(place.landmark, 'Градскиот парк');
+  db.close();
+});
+
+test('LandmarkService: a cached osm_poi landmark is served (no TTL — freshness from cron)', async () => {
   const db = new Db(':memory:');
   const store = new LandmarkStore(db);
   const svc = new LandmarkService(db, { osm: false });
-  const key = landmarkCacheKey({ eb: 12, address: 'X', location: 'Центар' });
-
-  // Simulate a row cached with a landmark that is NOT in the current table.
-  store.put(key, { landmark: 'Непостоечко место', type: 'culture', source: 'table' });
-  const fresh = await svc.resolve({ eb: 12, address: 'X', location: 'Центар' });
-  assert.notEqual(fresh.landmark, 'Непостоечко место', fresh.landmark);
-  assert.ok(['Градскиот трговски центар (ГТЦ)', 'Градската болница', 'Хотел „Парк“',
-    'Македонската опера и балет', 'Плоштад „Македонија“', 'Универзална сала'].includes(fresh.landmark), fresh.landmark);
+  // Cache a landmark with osm_poi tier — once cached, it stays until cron refreshes
+  store.put(999, { landmark: 'Непостоечко место', type: 'culture', source: 'offline' }, 'osm_poi');
+  const cached = await svc.resolve({ id: 999, eb: 12, address: 'X', location: 'Центар', geo_source: 'stored' });
+  // With the new tier system, osm_poi is served (center trusted by default in resolve)
+  assert.equal(cached.landmark, 'Непостоечко место');
+  assert.equal(cached.source, 'offline');
 });
 
 test('sanitizeLandmarkAnswer: cleans names and REJECTS the street (address privacy)', () => {
@@ -149,19 +151,18 @@ test('sanitizeLandmarkAnswer: cleans names and REJECTS the street (address priva
   assert.equal(sanitizeLandmarkAnswer('!!!', 'Бисер'), undefined);
 });
 
-test('LandmarkService: a Hermes-sourced row upgrades the coarse table row', async () => {
+test('LandmarkService: a cached higher-tier row is served (upgrade-only cache holds)', async () => {
   const db = new Db(':memory:');
-  const svc = new LandmarkService(db, { osm: false });
-  // first resolve -> coarse table fallback (offline layers all fail)
+  const svc = new LandmarkService(db);
+  // First resolve with nothing available -> honest none (no table layer anymore).
   const coarse = await svc.resolve({ eb: 63, address: 'Македонија', location: 'Центар (населба)' });
-  assert.equal(coarse.source, 'table');
-  // Hermes writes its precise answer over the same key
+  assert.equal(coarse.source, 'none');
+  // A cache row written for property.id (by the cron drain or import hook) is
+  // served on the next resolve — the tier gate (extract ≥ osm_poi) allows it.
   const store = new LandmarkStore(db);
-  store.put(landmarkCacheKey({ address: 'Македонија', location: 'Центар (населба)' }), {
-    landmark: 'Кафе бар Ван Гог', type: 'llm', source: 'hermes',
-  });
-  const upgraded = await svc.resolve({ eb: 63, address: 'Македонија', location: 'Центар (населба)' });
-  assert.equal(upgraded.source, 'hermes');
+  store.put(998, { landmark: 'Кафе бар Ван Гог', type: 'poi', source: 'offline' }, 'extract');
+  const upgraded = await svc.resolve({ id: 998, eb: 63, address: 'Македонија', location: 'Центар (населба)' });
+  assert.equal(upgraded.source, 'offline');
   assert.equal(upgraded.landmark, 'Кафе бар Ван Гог');
   db.close();
 });

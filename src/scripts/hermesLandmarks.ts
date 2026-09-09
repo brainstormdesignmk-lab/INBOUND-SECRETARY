@@ -23,9 +23,11 @@
 //   npm run hermes:landmarks            # one pass
 //   npm run hermes:landmarks -- --dry-run   # report only, no writes, no LLM calls
 
+import '../compat/node16';
+
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
-import { geocodeOsm, sanitizeLandmarkAnswer, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
+import { sanitizeLandmarkAnswer, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
 import { OfflineMapStore } from '../geo/offlineMap';
 import { EventStore } from '../store/events';
 import { PropertyService, FeedLandmark } from '../data/properties';
@@ -89,6 +91,27 @@ async function fetchWithRetry(url: string, opts: RequestInit, retries = MAX_LLM_
 /** Regex to strip trailing forward slashes from a URL. Defined as a constant
  *  to avoid a template-literal parsing quirk with /\/ in `${}`. */
 const TRAILING_SLASH_RE = /\/+$/;
+
+/** Geocode an address via OSM Nominatim (free, no key) — script-side only.
+ *  The runtime request path is DB-only; this live fallback belongs to this
+ *  nightly resolver, never to a client message. */
+async function geocodeOsm(address: string | undefined, location: string | undefined): Promise<{ lat: number; lon: number; street: string } | undefined> {
+  const q = [address, location, 'Скопје'].filter(Boolean).join(', ');
+  try {
+    const res = await fetchWithRetry(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+      { headers: { 'User-Agent': 'metropolis-lina-bot/1.0', 'Accept-Language': 'mk' } },
+      2,
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as Array<{ lat?: string | number; lon?: string | number; display_name?: string }> | undefined;
+    const g = data?.[0];
+    if (!g || g.lat === undefined || g.lon === undefined) return undefined;
+    return { lat: Number(g.lat), lon: Number(g.lon), street: g.display_name ?? '' };
+  } catch {
+    return undefined;
+  }
+}
 
 /** Distance in meters (haversine) — same formula as LandmarkService. */
 function meters(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
@@ -230,24 +253,32 @@ async function llmLandmark(
   return (msg2?.content?.trim() || msg2?.reasoning_content?.trim() || '').replace(/^\n+/, '') || undefined;
 }
 
-/** Candidates in LOCAL mode: feed addresses without a precise row + the
- *  runtime's pending landmark_requested events. */
-async function localCandidates(db: Db): Promise<Array<{ address?: string; location?: string }>> {
+/** Candidates in LOCAL mode: feed properties without a precise cached row +
+ *  the runtime's pending landmark_requested events (matched to a property id
+ *  via address, since the cache is property.id keyed). */
+async function localCandidates(db: Db): Promise<LandmarkCandidate[]> {
   const store = new LandmarkStore(db);
   const events = new EventStore(db);
   const props = new PropertyService(loadConfig().propertyDataUrl);
-  const candidates: Array<{ address?: string; location?: string }> = [];
-  for (const p of await props.getAll()) {
-    const key = landmarkCacheKey(p);
-    if (store.get(key) && store.get(key)!.source !== 'table') continue;
+  const all = await props.getAll();
+  const keyOf = (a?: string, l?: string) => `${l ?? ''} | ${a ?? ''}`.toLowerCase().replace(/\s+/g, ' ');
+  const candidates: LandmarkCandidate[] = [];
+  for (const p of all) {
+    if (p.id == null) continue;
+    const row = store.get(p.id);
+    if (row && row.tier && row.tier !== 'osm_low_confidence') continue; // already precise
     if (!p.address && !p.location) continue;
     if (p.address && isJunkAddress(p.address)) continue;
-    candidates.push({ address: p.address, location: p.location });
+    candidates.push({ id: p.id, address: p.address, location: p.location });
   }
+  const idByKey = new Map(all.filter(p => p.id != null).map(p => [keyOf(p.address, p.location), p.id as number]));
   for (const ev of events.listPending('landmark_requested')) {
     const payload = JSON.parse(ev.payload) as { address?: string; location?: string };
     if (payload.address && isJunkAddress(payload.address)) continue;
-    if (!store.get(landmarkCacheKey(payload))) candidates.push(payload);
+    const id = idByKey.get(keyOf(payload.address, payload.location));
+    if (id == null) continue; // no property id — the cache can't key it
+    const row = store.get(id);
+    if (!row || !row.tier || row.tier === 'osm_low_confidence') candidates.push({ id, address: payload.address, location: payload.location });
   }
   return candidates;
 }
@@ -365,7 +396,7 @@ async function main(): Promise<void> {
   console.log(`[hermes-landmarks] ${candidates.length} candidate(s).`);
   let resolved = 0;
   let failed = 0;
-  const remoteResults: Array<{ address?: string; location?: string; landmark: string; type: string; maps_url: string }> = [];
+  const remoteResults: Array<{ id?: number; address?: string; location?: string; landmark: string; type: string; maps_url: string }> = [];
 
   for (const c of candidates) {
     if (!configured || dryRun) {
@@ -397,12 +428,17 @@ async function main(): Promise<void> {
       }
       const mapsUrl = googleMapsLink(landmark);
       if (remote) {
-        remoteResults.push({ address: c.address, location: c.location, landmark, type: 'llm', maps_url: mapsUrl });
+        remoteResults.push({ id: c.id, address: c.address, location: c.location, landmark, type: 'llm', maps_url: mapsUrl });
       } else if (store && events) {
-        store.put(landmarkCacheKey(c), { landmark, type: 'llm', mapsUrl, source: 'hermes' });
+        if (c.id == null) {
+          console.log(`  ✗ ${[c.address, c.location].filter(Boolean).join(', ')} — no property id (cache is property.id keyed)`);
+          failed++;
+          continue;
+        }
+        store.put(c.id, { landmark, type: 'llm', mapsUrl, source: 'hermes' }, 'extract');
         for (const ev of events.listPending('landmark_requested')) {
-          const payload = JSON.parse(ev.payload) as { address?: string; location?: string };
-          if (landmarkCacheKey(payload) === landmarkCacheKey(c)) events.resolve(ev.id);
+          const payload = JSON.parse(ev.payload) as { eb?: number };
+          if (payload.eb === c.id) events.resolve(ev.id);
         }
       }
       resolved++;

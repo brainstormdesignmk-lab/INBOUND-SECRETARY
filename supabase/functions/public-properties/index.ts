@@ -64,7 +64,7 @@ serve(async (req) => {
     // 1) Fetch published properties with ALL existing details for AI assistant
     // Filter out properties with future available_from dates
     const properties: Array<any> = await fetchJSON(
-      `/rest/v1/properties?select=id,property_number,title,property_type,room_type,neighborhood,address,price,area,floor,service_type,front_image_id,created_at,garage,elevator,heating,yard,orientation,year_built,total_floors,comments,description,parking,furnished,available_from&is_published=eq.true&or=(available_from.is.null,available_from.lte.${today})&order=created_at.desc`
+      `/rest/v1/properties?select=id,property_number,title,property_type,room_type,neighborhood,address,price,area,floor,service_type,front_image_id,created_at,garage,elevator,heating,yard,orientation,year_built,total_floors,comments,description,parking,furnished,available_from,lat,lon,geo_source,geocoded_at&is_published=eq.true&or=(available_from.is.null,available_from.lte.${today})&order=created_at.desc`
     );
     
     // If JSON format requested, return formatted data for AI systems like Lina
@@ -96,6 +96,12 @@ serve(async (req) => {
         opis: p.description ?? "",
         komentari: p.comments ?? "",
         url: `/property/${p.id}`,
+        // Coordinates flow through to Lina so the tiered geo system serves a
+        // TRUSTED center (lat/lon/geo_source) instead of re-geocoding text.
+        lat: p.lat ?? null,
+        lon: p.lon ?? null,
+        geo_source: p.geo_source ?? null,
+        geocoded_at: p.geocoded_at ?? null,
       }));
       
       return new Response(JSON.stringify({ 

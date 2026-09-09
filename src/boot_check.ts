@@ -5,6 +5,8 @@
 // ✅/❌ line per dependency so a zombie component is visible in the first
 // second, not discovered weeks later. /status (TUI) re-runs the same checks.
 
+import './compat/node16';
+
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { AppConfig } from './config';

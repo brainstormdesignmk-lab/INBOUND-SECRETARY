@@ -20,6 +20,8 @@
 //
 // Adding a new key later = one entry in SPEC below + rerun.
 
+import '../compat/node16';
+
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadConfig } from '../config';

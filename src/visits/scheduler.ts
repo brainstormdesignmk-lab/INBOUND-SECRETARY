@@ -160,6 +160,23 @@ export class VisitScheduler {
       locationAt < this.now.getTime() - skipGraceMs);
   }
 
+  /** The appointment id whose Turn 0 address confirmation is still awaiting
+   *  the owner's reply for this client chat — null when nothing is pending.
+   *  The owner-reply seam (TUI ownerInput / channel) uses this to route the
+   *  owner's answer to confirmAddress() instead of dropping it with
+   *  'нема активна проверка'. */
+  pendingAddressConfirm(clientChatId: string): number | null {
+    const row = this.db.db.prepare(
+      `SELECT a.id
+       FROM appointments a
+       JOIN visit_turns t ON t.appointment_id = a.id AND t.turn = 'address_confirm'
+       WHERE a.chat_id = ? AND t.status = 'pending'
+       ORDER BY a.id DESC
+       LIMIT 1`
+    ).get(clientChatId) as { id: number } | undefined;
+    return row?.id ?? null;
+  }
+
   /** Owner confirms or corrects the address. Called by the handler when
    *  the owner replies to the Turn 0 address confirmation.
    *  - If confirmed (no new address): sends Turn 1 to client.

@@ -44,9 +44,8 @@ test('nearestPois: nearest first, radius respected, limit honored', () => {
 
   const near = store.nearestPois(42.0, 21.43, 1000, 10);
   assert.equal(near.length, 2); // City Mall (>1.4km) is outside the 1000m ring
-  // Relevance-first ranking: university (higher relevance) beats cafe even
-  // though it's farther — "кај Градежен факултет" is a real Skopje phrase,
-  // "кај кафе Ван Гог" is not. Distance is the tiebreaker within tiers.
+  // TypeRank ranking: institutional landmarks first, then distance — the
+  // university (rank 3) outranks the cafe (rank 1) despite being farther.
   assert.equal(near[0].name, 'Градежен факултет');
   assert.equal(near[1].name, 'Кафе бар Ван Гог');
 

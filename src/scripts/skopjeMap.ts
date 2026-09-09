@@ -12,6 +12,8 @@
 // script logs the EXACT counts and the resulting DB size — the real answer to
 // "how much data does the offline map contain?" is printed on every run.
 
+import '../compat/node16';
+
 import { loadConfig } from '../config';
 import { buildSkopjeDb, OfflineMapStore, SKOPJE_BBOX } from '../geo/offlineMap';
 
@@ -21,7 +23,8 @@ async function main(): Promise<void> {
   console.log(`[skopje-map] bbox: ${SKOPJE_BBOX.join(', ')} → ${dbPath}`);
 
   const stats = await buildSkopjeDb(dbPath);
-  console.log(`[skopje-map] OK: ${stats.pois} POIs, ${stats.addresses} addresses, ${(stats.bytes / 1024 / 1024).toFixed(2)} MB on disk`);
+  const mb = Math.round(stats.bytes / 1024 / 1024 * 100) / 100;
+  console.log(`[skopje-map] OK: ${stats.pois} POIs, ${stats.addresses} addresses, ${mb} MB on disk`);
 
   // Sanity: reopen read-only and confirm the resolver sees them.
   const store = new OfflineMapStore(dbPath);

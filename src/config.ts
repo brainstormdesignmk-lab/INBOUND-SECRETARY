@@ -112,7 +112,13 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     viberOperatorId: process.env.VIBER_OPERATOR_ID || '',
     hermesLlmBaseUrl: process.env.HERMES_LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1',
     hermesLlmApiKey: process.env.HERMES_LLM_API_KEY || '',
-    hermesLlmModel: process.env.HERMES_LLM_MODEL || 'meta/llama-3.3-70b-instruct',
+    // meta/llama-3.3-70b-instruct went EOL on NVIDIA NIM (HTTP 410 since
+    // 2026-08-26). Probed replacements live (2026-09-05):
+    //   nvidia/llama-3.1-nemotron-70b-instruct → listed but 404 for our account
+    //   openai/gpt-oss-120b → EOL on NIM too
+    //   nvidia/nemotron-3-super-120b-a12b → works; reasoning separated into
+    //     reasoning_content (content stays clean) — consumers already handle it
+    hermesLlmModel: process.env.HERMES_LLM_MODEL || 'nvidia/nemotron-3-super-120b-a12b',
     skopjePoisDb: process.env.SKOPJE_POIS_DB || path.join(process.cwd(), 'data', 'skopje-pois.db'),
     linaApiUrl: process.env.LINA_API_URL || '',
     ownerBusPollMs: num(process.env.OWNER_BUS_POLL_MS, 2000),

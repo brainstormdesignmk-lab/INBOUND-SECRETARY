@@ -14,7 +14,13 @@ import { FakeViber } from './fakeViber';
 import { fakePropertyService } from './fixture';
 import { PERSONAS } from './personas';
 import { AssertionRunner, buildAssertions } from './assertions';
-import * as readline from 'readline/promises';
+import * as readline from 'readline';
+
+// Promise-based question helper — readline/promises needs Node >=17; this
+// classic-readline wrapper works on Node 16 (the atoms) and 18+ alike.
+function ask(rl: readline.Interface, prompt: string): Promise<string> {
+  return new Promise(resolve => rl.question(prompt, resolve));
+}
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -110,7 +116,7 @@ async function main(): Promise<void> {
 
     if (interactive && rl) {
       for (;;) {
-        const line = await rl.question('— Enter: next round | inject <key> <text> | q: quit —\n> ');
+        const line = await ask(rl, '— Enter: next round | inject <key> <text> | q: quit —\n> ');
         if (line.trim() === '') break;
         if (line.trim().toLowerCase() === 'q') break outer;
         const m = line.trim().match(/^inject\s+(\w+)\s+(.+)$/);

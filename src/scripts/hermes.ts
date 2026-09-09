@@ -24,6 +24,8 @@
 //
 // Cron-friendly: exit 0 = all pending synced, 1 = something needs attention.
 
+import '../compat/node16';
+
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
 import { PriceChangeStore } from '../store/priceChanges';

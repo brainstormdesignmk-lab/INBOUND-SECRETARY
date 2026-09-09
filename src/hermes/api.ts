@@ -23,7 +23,7 @@
 import { Express, Request, Response, NextFunction } from 'express';
 import { AppConfig } from '../config';
 import { InboundHandler } from '../handlers/inbound';
-import { LandmarkStore, sanitizeLandmarkAnswer, landmarkCacheKey } from '../geo/landmarks';
+import { LandmarkStore, sanitizeLandmarkAnswer } from '../geo/landmarks';
 import { Db } from '../store/db';
 import { PropertyService } from '../data/properties';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
@@ -54,12 +54,15 @@ export function registerHermesApi(app: Express, deps: HermesApiDeps): void {
   // One pull of everything Hermes can work on.
   app.get('/hermes/v1/work', guard, async (_req, res) => {
     const all = await properties.getAll();
-    const landmarkCandidates: Array<{ address?: string; location?: string }> = [];
+    // Landmark cache is keyed by property.id (not address_key) since the tier
+    // migration — a property is precise when it has a servable cached row.
+    const landmarkCandidates: Array<{ id: number; address?: string; location?: string }> = [];
     for (const p of all) {
-      const row = landmarks.get(landmarkCacheKey(p));
-      if (row && row.source !== 'table') continue; // already precise
+      if (p.id == null) continue;
+      const row = landmarks.get(p.id);
+      if (row && row.tier && row.tier !== 'osm_low_confidence') continue; // already precise
       if (!p.address && !p.location) continue;
-      landmarkCandidates.push({ address: p.address, location: p.location });
+      landmarkCandidates.push({ id: p.id, address: p.address, location: p.location });
     }
     const ownerChecks = pipeline.events.listPending('owner_check_requested')
       .map(ev => {
@@ -77,30 +80,48 @@ export function registerHermesApi(app: Express, deps: HermesApiDeps): void {
 
   // Hermes' named landmarks. The street is re-checked here (defense in depth):
   // an answer containing the address is rejected and stays for the next run.
-  app.post('/hermes/v1/landmarks', guard, (req, res) => {
+  // The cache is keyed by property.id. The push carries the id /work returned;
+  // when absent (older Hermes clients) it is resolved from address+location so
+  // the write still lands on the right property's row.
+  app.post('/hermes/v1/landmarks', guard, async (req, res) => {
     const items = Array.isArray(req.body) ? req.body : [];
-    const accepted: string[] = [];
-    const rejected: Array<{ address?: string; location?: string; reason: string }> = [];
+    // Cache resolution for backward-compatible pushes without an id.
+    const all = await properties.getAll();
+    const normKey = (a?: string, l?: string) => `${l ?? ''} | ${a ?? ''}`.toLowerCase().replace(/\s+/g, ' ');
+    const byKey = new Map(all.map(p => [normKey(p.address, p.location), p.id]));
+    const accepted: number[] = [];
+    const rejected: Array<{ id?: number; address?: string; location?: string; reason: string }> = [];
     for (const it of items) {
       const address = typeof it?.address === 'string' ? it.address : undefined;
       const location = typeof it?.location === 'string' ? it.location : undefined;
       const cleaned = sanitizeLandmarkAnswer(typeof it?.landmark === 'string' ? it.landmark : '', address);
       if (!cleaned) {
-        rejected.push({ address, location, reason: 'invalid or contains the street address' });
+        rejected.push({ id: it?.id, address, location, reason: 'invalid or contains the street address' });
         continue;
       }
-      const key = landmarkCacheKey({ address, location });
-      landmarks.put(key, {
+      const directId = Math.floor(Number(it?.id));
+      const id = Number.isFinite(directId) && directId > 0
+        ? directId
+        : (byKey.get(normKey(address, location)) ?? NaN);
+      if (!Number.isFinite(id)) {
+        rejected.push({ id: it?.id, address, location, reason: 'no property id and no property matches this address' });
+        continue;
+      }
+      landmarks.put(id, {
         landmark: cleaned,
         type: typeof it?.type === 'string' && it.type ? it.type : 'llm',
         mapsUrl: typeof it?.maps_url === 'string' ? it.maps_url : undefined,
         source: 'hermes',
-      });
-      accepted.push(key);
-      // Resolve any runtime landmark_requested events for this address.
+      }, 'extract');
+      accepted.push(id);
+      // Resolve any runtime landmark_requested events for this property.
       for (const ev of pipeline.events.listPending('landmark_requested')) {
-        const payload = JSON.parse(ev.payload) as { address?: string; location?: string };
-        if (landmarkCacheKey(payload) === key) pipeline.events.resolve(ev.id);
+        const payload = JSON.parse(ev.payload) as { eb?: number; address?: string; location?: string };
+        if (payload.eb === id || (payload.address === undefined && payload.location === undefined)) {
+          // Events carry eb when known; address-only payloads can't be keyed to
+          // a property id — leave them pending for a future id-carrying push.
+          if (payload.eb === id) pipeline.events.resolve(ev.id);
+        }
       }
     }
     res.json({ accepted: accepted.length, rejected });

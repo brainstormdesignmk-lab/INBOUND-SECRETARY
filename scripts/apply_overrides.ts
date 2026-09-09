@@ -4,6 +4,12 @@
 // Run this after EVERY weekly OSM rebuild, otherwise the manual fixes in
 // the overrides file are lost when the DB is regenerated.
 //
+// Sections:
+//   pois      — add POIs missing from OSM
+//   replaces  — delete wrong POI entries and insert corrected coords
+//   addresses — individual house numbers missing from OSM
+//   aliases   — feed spelling differs from OSM spelling
+//
 // Usage: npx tsx scripts/apply_overrides.ts
 
 import { readFileSync } from 'fs';
@@ -12,6 +18,7 @@ import { streetKey } from '../src/geo/offlineMap';
 
 interface OverrideFile {
   pois?: Array<{ name: string; type: string; lat: number; lon: number; note?: string }>;
+  replaces?: Array<{ name: string; type: string; lat: number; lon: number; note?: string }>;
   addresses?: Array<{ street: string; housenumber: string; lat: number; lon: number; note?: string }>;
   aliases?: Array<{ street: string; osmStreet: string; note?: string }>;
 }
@@ -31,6 +38,20 @@ function main() {
     db.prepare('INSERT INTO pois (name, type, lat, lon) VALUES (?, ?, ?, ?)')
       .run(p.name, p.type, p.lat, p.lon);
     console.log(`+ poi   ${p.name} [${p.type}] @ ${p.lat},${p.lon}`);
+    added++;
+  }
+
+  // --- Replaces (fix wrong POI coords) ------------------------------------
+  for (const r of ov.replaces ?? []) {
+    // Delete ALL existing entries with this name (may be multiple wrong coords)
+    const del = db.prepare('DELETE FROM pois WHERE name = ?').run(r.name);
+    if (del.changes > 0) {
+      console.log(`~ replace ${r.name}: deleted ${del.changes} wrong entr${del.changes === 1 ? 'y' : 'ies'}`);
+    }
+    // Insert the corrected entry
+    db.prepare('INSERT INTO pois (name, type, lat, lon) VALUES (?, ?, ?, ?)')
+      .run(r.name, r.type, r.lat, r.lon);
+    console.log(`+ poi   ${r.name} [${r.type}] @ ${r.lat},${r.lon} (corrected)`);
     added++;
   }
 
