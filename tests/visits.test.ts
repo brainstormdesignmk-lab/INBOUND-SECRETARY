@@ -18,7 +18,7 @@ import { parseVisitDateTime, formatVisitDate } from '../src/visits/time';
 import { LandmarkService, sanitizeLandmarkAnswer } from '../src/geo/landmarks';
 import { VisitScheduler } from '../src/visits/scheduler';
 import { LandmarkStore } from '../src/geo/landmarks';
-import { detectOwnerVerdict } from '../src/llm/deterministic';
+import { detectOwnerVerdict, detectOwnerAddressReply } from '../src/llm/deterministic';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
@@ -353,5 +353,116 @@ test('e2e: arranged visit fires ДОГОВОРЕНА ПОСЕТА to owner + cli
   const rows = new AppointmentStore(db).listByChat(chatId);
   assert.equal(rows.length, 1);
   assert.ok(rows[0].time!.includes('UTRE'), JSON.stringify(rows[0]));
+  db.close();
+});
+
+// --- e2e regression: the SREDA ping-pong bug + the Turn-0 address seam -------
+// Field transcript (18:50): client proposes УТРЕ ВО 4 → owner refuses with
+// "NEMOZAM UTRE VO 4, DOGOVORI GO SREDA VO 6" → Lina must counter with СРЕДА ВО 6
+// (never the refused term), and after booking, the owner's Turn-0 address
+// CORRECTION must be applied — not dropped with "нема активна проверка".
+test('e2e regression: refused-time ping-pong counters СРЕДА ВО 6, and the owner address correction lands', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const props = new FakeProps(ROWS);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, props);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+
+  const events = new EventStore(db);
+  const owners = new OwnerStore(db);
+  owners.upsert({ eb: 78, name: 'Стојан', phone: '070999888', status: 'available' });
+  const clientMsgs: string[] = [];
+  const ownerMsgs: string[] = [];
+  const operatorLogs: string[] = [];
+  let clock = NOW;
+  const sched = new VisitScheduler({
+    db, events, owners, properties: props,
+    notifyClient: async (chatId, text) => { clientMsgs.push(`[${chatId}] ${text}`); },
+    notifyOwner: async (_chatId, eb, text) => { ownerMsgs.push(`[EB ${eb}] ${text}`); },
+    notifyOperator: async t => { operatorLogs.push(t); },
+    now: () => clock,
+  });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties: props,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+    visits: sched,
+  });
+
+  const chatId = 'sreda-e2e';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // 1) Funnel to the visit proposal: client wants EB 78, proposes УТРЕ ВО 4.
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA');
+  await send('DA, SE SOGLASUVAM');
+  await send('MARKO 078/914 196');
+  let s = await send('UTRE VO 4');
+  assert.equal(s.state, 'owner_checking', `expected owner_checking, got ${s.state}`);
+
+  // 2) THE SREDA BUG: owner refuses the proposed term AND counter-proposes.
+  //    The counter must carry СРЕДА ВО 6 — never the refused УТРЕ ВО 4.
+  const verdict = detectOwnerVerdict('NEMOZAM UTRE VO 4, DOGOVORI GO SREDA VO 6', 'Утре во 4');
+  assert.ok(verdict, 'owner verdict must be detected');
+  assert.equal(verdict!.status, 'counter', JSON.stringify(verdict));
+  assert.equal(verdict!.ownerTime, 'Среда во 6', JSON.stringify(verdict));
+  assert.ok(!/утре\s+во\s+4/i.test(verdict!.ownerTime ?? ''), 'the REFUSED term must never become the counter');
+
+  handler.ownerAnswer(chatId, 78, verdict!);
+  await new Promise(r => setTimeout(r, 50));
+  s = sessions.get(chatId)!;
+  assert.equal(s.state, 'time_confirm', `client must sit in time_confirm, got ${s.state}`);
+  assert.ok(sent.some(t => t.includes('Среда во 6')), `client relay must carry the counter, got: ${sent.join(' | ')}`);
+
+  // 3) Client accepts the COUNTER → visit booked at Среда во 6.
+  s = await send('SREDA VO 6 E OK');
+  assert.equal(s.state, 'pending', `expected pending after accepting the counter, got ${s.state}`);
+  const apptRows = new AppointmentStore(db).listByChat(chatId);
+  assert.equal(apptRows.length, 1, 'exactly one appointment');
+  assert.ok(/среда/i.test(apptRows[0].time ?? ''), `booked time must be the counter Среда во 6, got ${JSON.stringify(apptRows[0])}`);
+  assert.ok(!/утре/i.test(apptRows[0].time ?? ''), 'the refused term must not be booked');
+  const apptId = apptRows[0].id;
+
+  // 4) Turn 0: address confirmation goes to the OWNER (client still silent).
+  assert.ok(ownerMsgs.some(m => m.includes('Ми треба потврда')), ownerMsgs.join(' | '));
+  assert.ok(!clientMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА')), clientMsgs.join(' | '));
+
+  // 5) The OWNER SEAM: the address-confirmation ask is discoverable by chat,
+  //    the owner's correction parses deterministically, and confirmAddress
+  //    applies it — the old code dropped this reply with "нема активна проверка".
+  const pendingAppt = sched.pendingAddressConfirm(chatId);
+  assert.equal(pendingAppt, apptId, 'Turn-0 must be discoverable for this chat');
+  const addrReply = detectOwnerAddressReply('ne, ulicata e Vasil Stefanovski 16');
+  assert.ok(addrReply, 'owner correction must parse');
+  assert.equal(addrReply!.status, 'correct', JSON.stringify(addrReply));
+  assert.ok(/Vasil\s+Stefanovski\s+16/i.test(addrReply!.address ?? ''), JSON.stringify(addrReply));
+  const confirmed = await sched.confirmAddress(apptId, addrReply!.address);
+  assert.equal(confirmed, true, 'confirmAddress must resolve the pending Turn-0');
+
+  // 6) After the correction: Turn 1 fires to BOTH, correction logged, and the
+  //    corrected address is stored on the appointment.
+  assert.ok(clientMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 78')), clientMsgs.join(' | '));
+  assert.ok(operatorLogs.some(l => l.includes('ADDRESS CORRECTED')), operatorLogs.join(' | '));
+  const after = db.db.prepare(`SELECT corrected_address FROM appointments WHERE id = ?`).get(apptId) as { corrected_address: string | null };
+  assert.equal(after.corrected_address, 'Vasil Stefanovski 16', JSON.stringify(after));
+
+  // 7) The location turn (visit − 2h) uses the CORRECTED address, not the feed's.
+  //    "Среда во 6" books at 06:00 (bare hour = morning) → Wed 19.08 06:00 →
+  //    location turn at 04:00. (The visitEnded guard refuses turns after the
+  //    visit has passed — the clock must land before 08:00.)
+  clock = new Date(2026, 7, 19, 4, 0);
+  await sched.tick();
+  const locMsg = clientMsgs.find(m => m.includes('ЛОКАЦИЈА'));
+  assert.ok(locMsg, `location turn must fire, got: ${clientMsgs.join(' | ')}`);
+  assert.ok(locMsg!.includes('Vasil Stefanovski 16'), `location must carry the CORRECTED address, got: ${locMsg}`);
+
+  // 8) The seam is one-shot: after resolution nothing is pending.
+  assert.equal(sched.pendingAddressConfirm(chatId), null, 'no pending confirm after resolution');
   db.close();
 });

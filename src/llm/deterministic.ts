@@ -1202,6 +1202,7 @@ export function detectOwnerAddressReply(text: string): OwnerAddressReply | undef
       .replace(/^\s*(?:да|da|ок|ok)[,\s]+/iu, '')
       .replace(/^\s*(?:не,?\s*)?(?:адресата\s+(?:е\s+)?(?:не\s+)?|ne,?\s*(?:adresata\s+)?(?:e\s+)?)/iu, '')
       .replace(/^\s*(?:точн[ао]\s+е,?\s*|тачна\s+е,?\s*|tochna\s+e,?\s*|tacna\s+e,?\s*)/iu, '')
+      .replace(/^\s*(?:улица(?:та)?\s+(?:е\s+)?|ulica(?:ta)?\s+(?:e\s+)?)/iu, '')
       .replace(/^\s*(?:само\s+|samo\s+)/iu, '')
       .replace(/^\s*(?:тоја\s+е\s*|tоa\s+e\s*)/iu, '')
       .trim();
