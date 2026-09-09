@@ -2073,6 +2073,53 @@ test('"DA" in closing state produces FEE_AGREED — regression for detectLocatio
     'ДА (Cyrillic) in closing → FEE_AGREED → contact_collection');
 });
 
+// An LLM that is UP but mislabels a digit-less availability ask as
+// SEEN_PROPERTY — the exact production LLM behavior behind the [19:28] bug
+// ("ME INTERESIRA STANOT SO BROJ 90\nDALI SEUSTE E DOSTAPEN?" → "do you know
+// the EB?" the client JUST gave). The classifier guards must defeat it.
+class MisreadSeenLlm implements LlmClient {
+  async complete(args: { role: string; messages?: { role: string; content: string }[] }): Promise<string> {
+    if (args.role === 'respond') return 'Еве ги деталите.';
+    const last = args.messages?.[args.messages.length - 1]?.content ?? '';
+    if (/DOSTAPEN| dostapen/i.test(last)) return JSON.stringify({ event: 'SEEN_PROPERTY' });
+    return JSON.stringify({ event: 'STAY' });
+  }
+}
+
+test('the [19:28] bug: EB named in line 1, digit-less availability ask in line 2 must NEVER ask for the EB back', async () => {
+  // The mislabeling-LLM classifier — production's Groq verdict is taken at
+  // face value without the guards.
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const classifier = new Classifier(new MisreadSeenLlm(), cfg, properties);
+  const responder = new Responder(new FailingLlm(), cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }) });
+
+  const chatId = 'eb-90-bug';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Line 1: the client names the EB — the card must come.
+  let s = await send('ME INTERESIRA STANOT SO BROJ 53');
+  assert.ok(sent[sent.length - 1].includes('53'), `card expected: ${sent[sent.length - 1].substring(0, 120)}`);
+  assert.equal(s.state, 'property_query');
+
+  // Line 2: digit-less availability ask — the LLM mislabels it SEEN_PROPERTY.
+  // The guards must route it to the availability ack, NEVER the EB question.
+  s = await send('DALI SEUSTE E DOSTAPEN?');
+  const reply = sent[sent.length - 1];
+  assert.ok(!reply.includes('Дали го знаете Евидентен број'), `EB question must not fire: ${reply.substring(0, 160)}`);
+  assert.ok(/(?:достапен|постои|база|слободен|активен|поврзам|исконтактирам)/i.test(reply), `availability ack expected: ${reply.substring(0, 160)}`);
+  assert.equal(s.state, 'closing');
+});
+
 test('"кажи ми точно адреса" triggers the privacy protocol (not a landmark)', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'kazi-adresa-test';

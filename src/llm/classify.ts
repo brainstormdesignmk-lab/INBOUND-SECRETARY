@@ -205,6 +205,14 @@ export class Classifier {
     // (a number means the client knows the EB — easy lookup path).
     if (['idle', 'intent', 'discovery'].includes(session.state)
       && !barePid && detectSeenProperty(text)) {
+      // GUARD: an availability ask is NEVER a seen-property probe, no matter
+      // what the LLM said ("DALI SEUSTE E DOSTAPEN?" about the property the
+      // client JUST named by EB — asking "do you know the EB?" back is the
+      // [19:28] field bug). LLM verdicts never override detectors.
+      if (detectAvailabilityAsk(text)) {
+        console.log(`[timing] det-classify ${Date.now() - t0}ms → availability-guard STAY`);
+        return undefined; // the LLM/classify() guards handle the routing
+      }
       const slots = extractSlots(text);
       let location = slots.location;
       if (!location && this.properties) {
@@ -370,6 +378,15 @@ export class Classifier {
       }
     }
 
+    // Availability ask with a known EB — the property under discussion is
+    // already named; route it into the property funnel even with no digits
+    // in THIS message ("dali e dostapen?" right after "stan 90").
+    if (ev.type === 'STAY' && detectAvailabilityAsk(text)
+      && PROP_INTAKE_STATES.has(session.state)) {
+      const known = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      if (known !== undefined) ev = { type: 'PROPERTY_ID_REQUESTED', propertyId: known };
+    }
+
     // If event is still STAY and no slots were extracted → truly novel, needs LLM.
     // Also defer INTENT_DECLARED without details: the LLM can enrich bare intents
     // with location context that the deterministic regex can't extract.
@@ -444,6 +461,50 @@ export class Classifier {
     // the event is already PROPERTY_ID_REQUESTED — skip SEEN_PROPERTY so
     // the property_query path handles it directly (availability, price, etc.).
     const inferPid = inferPropertyId(text);
+    // GUARD 1 — availability asks are never seen-property probes (the [19:28]
+    // field bug: "DALI SEUSTE E DOSTAPEN?" right after naming EB 90 was
+    // mislabeled SEEN_PROPERTY by the LLM → property_locate asked "do you know
+    // the EB?" the client JUST gave). LLM verdicts never override detectors.
+    if (parsed.event.type === 'SEEN_PROPERTY' && detectAvailabilityAsk(text)) {
+      parsed.event = { type: 'STAY' };
+    }
+    // GUARD 2 — the client NAMED an EB earlier in this session (slots carry
+    // it) and the LLM now says "seen property" for a digit-less follow-up:
+    // the number they gave IS the property under discussion. Fall back to the
+    // deterministic core (buildEvent + overrides), which routes the ask
+    // correctly (availability → closing ack; interest → closing; etc.).
+    if (parsed.event.type === 'SEEN_PROPERTY'
+      && !detectSeenProperty(text) // a literal "go gledav stan na internet" still enters property_locate
+      && (session.slots.propertyId ?? session.slots.interestedPropertyId) !== undefined) {
+      const s = extractSlots(text);
+      let loc: string | undefined;
+      if (this.properties) {
+        try {
+          const locs = await this.properties.locations();
+          loc = detectLocation(text, locs) ?? undefined;
+        } catch { /* ignore */ }
+      }
+      const ev = buildEvent(session.state, {
+        service: s.service, location: loc, bedrooms: s.bedrooms,
+        sqm: s.sqm, business: s.business, house: s.house,
+        budget: s.budget, anywhere: s.anywhere, need: s.need, rejected: s.rejected,
+      });
+      console.log(`[classify] seen-property guard: EB ${session.slots.propertyId ?? session.slots.interestedPropertyId} already known → ${ev.type}`);
+      parsed.event = ev;
+    }
+    // GUARD 3 — an availability ask with a known EB is ALWAYS about the
+    // property under discussion, even with no digits in THIS message
+    // ("dali e dostapen?" right after "stan 90"). STAY verdicts promote to
+    // PROPERTY_ID_REQUESTED so the FSM enters the property funnel and the
+    // handler's availability-ack branch fires (never the LLM's improvisation).
+    if (parsed.event.type === 'STAY' && detectAvailabilityAsk(text)
+      && PROP_INTAKE_STATES.has(session.state)) {
+      const known = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      if (known !== undefined) {
+        console.log(`[classify] availability-with-known-EB guard: EB ${known}`);
+        parsed.event = { type: 'PROPERTY_ID_REQUESTED', propertyId: known };
+      }
+    }
     if (['idle', 'intent', 'discovery'].includes(session.state)
       && parsed.event.type !== 'PROPERTY_ID_REQUESTED'
       && parsed.event.type !== 'REJECTED'
