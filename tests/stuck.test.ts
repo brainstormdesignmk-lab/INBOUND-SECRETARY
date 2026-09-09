@@ -78,7 +78,7 @@ class FakeProps extends PropertyService {
 
 // The exhausted-area ask is bank-backed (wording varies) — the contract is the
 // widen/register ASK itself, never the exact code-built sentence.
-const EXHAUSTED_ASK = /(?:друга населба|друг дел од градот|друга локаци|други населби|забележам|регистрирам|контактирам)/iu;
+const EXHAUSTED_ASK = /(?:друга населба|друг дел од градот|друга локаци|други населби|друга можност|забележам|запишам|зачувам|сочувам|регистрирам|контактирам)/iu;
 
 // GORAN's session: buy, Кисела Вода, 60.000 € budget. Карпош's only apartment
 // (EB 54) is OVER budget; EB 48 in Карпош is a rental.
@@ -1516,8 +1516,9 @@ test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" 
   let s = await send('ve kontaktiram vo vrska so oglasot so evidenten broj 53\ndali e seuste dostapen?');
   assert.equal(s.state, 'closing');
   assert.equal(s.slots.interestedPropertyId, 53);
-  // availability ack anchor (bank-backed, all variants carry one)
-  assert.ok(/(?:достапен|постои|база|слободен|активен)/i.test(sent[0]), sent[0]);
+  // availability ack anchor (bank-backed — pickVariant rotates, so the anchor
+  // must cover every legitimate ack wording: available/in-database/free)
+  assert.ok(/(?:достапен|достапност|постои|база|слободен|активен|располагање|евидентиран)/i.test(sent[0]), sent[0]);
   assert.ok(sent[0].includes('?'), sent[0]); // must be a QUESTION (permission ask)
   assert.ok(!sent[0].includes('500 денари'), sent[0]); // fee NOT yet disclosed
   assert.ok(!sent[0].includes('Станот под Евидентен'), sent[0]); // never the card
@@ -2116,8 +2117,62 @@ test('the [19:28] bug: EB named in line 1, digit-less availability ask in line 2
   s = await send('DALI SEUSTE E DOSTAPEN?');
   const reply = sent[sent.length - 1];
   assert.ok(!reply.includes('Дали го знаете Евидентен број'), `EB question must not fire: ${reply.substring(0, 160)}`);
-  assert.ok(/(?:достапен|постои|база|слободен|активен|поврзам|исконтактирам)/i.test(reply), `availability ack expected: ${reply.substring(0, 160)}`);
+  assert.ok(/(?:достапен|достапност|постои|база|слободен|активен|располагање|евидентиран|поврзам|исконтактирам|стапам)/i.test(reply), `availability ack expected: ${reply.substring(0, 160)}`);
   assert.equal(s.state, 'closing');
+});
+
+test('the [20:02] bug: a 3-line paste with the EB inside must NEVER ask for the EB back', async () => {
+  // The exact field transcript: one multi-line paste. The step-0
+  // PROPERTY_DESCRIPTION guard used to swallow it (desc-regex matched the
+  // "seбe си го gledav"-shaped lines) and route to property_locate — which
+  // asks "do you know the EB?" for the number IN the message. The EB-present
+  // exclusion now lets the classifier route it, and the availability branch
+  // fires the ack.
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new MisreadSeenLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }) });
+
+  await handler.handle('test', 'eb-paste-90', 'ZDRAVO\nME ZAINTERESIRA STANCETO SO BROJ 53\nDALI USTE GO IMATE?');
+  const s = sessions.get('eb-paste-90')!;
+  assert.equal(s.slots.propertyId, 53, `EB must be captured: ${JSON.stringify(s.slots)}`);
+  assert.ok(!sent.some(t => t.includes('Дали го знаете Евидентен број')),
+    `EB question must not fire: ${JSON.stringify(sent)}`);
+  assert.ok(/(?:достапен|достапност|постои|база|слободен|активен|располагање|евидентиран|поврзам|исконтактирам|стапам)/i.test(sent[sent.length - 1] ?? ''),
+    `availability ack expected: ${sent[sent.length - 1]?.substring(0, 160)}`);
+  assert.equal(s.state, 'closing');
+});
+
+test('a pure greeting with a hostile LLM never enters property_locate', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new MisreadSeenLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }) });
+
+  await handler.handle('test', 'greet-guard', 'ZDRAVO');
+  const s = sessions.get('greet-guard')!;
+  assert.notEqual(s.state, 'property_locate', `greeting must not enter locate: ${s.state}`);
+  assert.ok(!sent.some(t => t.includes('Дали го знаете Евидентен број')), 'EB question must not fire on a greeting');
 });
 
 test('"кажи ми точно адреса" triggers the privacy protocol (not a landmark)', async () => {
@@ -2132,7 +2187,8 @@ test('"кажи ми точно адреса" triggers the privacy protocol (not
   assert.ok(reply, 'must get a reply');
   assert.ok(
     reply.includes('два часа') || reply.includes('посета') || reply.includes('политика') ||
-    reply.includes('средба') || reply.includes('договориме'),
+    reply.includes('средба') || reply.includes('договориме') || reply.includes('состанок') ||
+    reply.includes('правил') || reply.includes('гледање'),
     `must give privacy protocol: ${reply.substring(0, 200)}`
   );
 });

@@ -68,8 +68,11 @@ test('buildRecommendation: full cards from DB facts + the clientela close', () =
   assert.match(out, /Аеродром/);
   assert.match(out, /110\.000/);
   // The close: any variant, but always the clientela/in-person framing +
-  // the visit offer.
-  assert.match(out, /посета\?$/);
+  // the visit offer. The rotation is RANDOM — assert the last line is a
+  // question that offers a visit, whatever the picked phrasing is.
+  const closer = out.trim().split('\n').pop() ?? '';
+  assert.match(closer, /\?$/, `close must end with a question: ${closer}`);
+  assert.match(closer, /посета/, `close must offer a visit: ${closer}`);
   assert.match(out, /осетите просторот|на лице место|во живо|погледнете во живо/);
 });
 

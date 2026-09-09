@@ -11,6 +11,7 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
 import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired } from '../llm/deterministic';
+import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -734,7 +735,14 @@ export class InboundHandler {
     // doesn't know the EB number. Route to property_locate for guided search.
     // Must come BEFORE the classifier so the FSM doesn't go to discovery.
     // Exclude service intents ("sakam da kupam/iznajmam") — those go to discovery.
-    if (detectPropertyDescription(text) && !session.slots.service
+    // EXCLUDE any message carrying an Евидентен броj ("ZDRAVO\nME
+    // ZAINTERESIRA STANCETO SO BROJ 90\nDALI USTE GO IMATE?"): the number WINS
+    // — property_locate is the NO-number funnel, and entering it asked "do you
+    // know the EB?" for a number the client had just given (the 20:02 field
+    // bug). With the EB present the classifier routes property_query, where
+    // the availability branch (detectAvailabilityAsk) fires the correct ack.
+    if (detectPropertyDescription(text) && inferPropertyId(text) === undefined
+        && !session.slots.service
         && !detectService(text) && !detectBothServices(text)
         && !detectDrugAlternative(text)
         && !detectInvestmentOpinion(text)) {

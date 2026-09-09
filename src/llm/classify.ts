@@ -468,6 +468,13 @@ export class Classifier {
     if (parsed.event.type === 'SEEN_PROPERTY' && detectAvailabilityAsk(text)) {
       parsed.event = { type: 'STAY' };
     }
+    // GUARD 1b — a pure greeting/small-talk opener is never a seen-property
+    // probe ("ZDRAVO" alone: the LLM's SEEN_PROPERTY verdict sent the client
+    // to property_locate, which fired "do you know the EB?" out of nowhere).
+    if (parsed.event.type === 'SEEN_PROPERTY'
+      && /^(?:zdravo|dobar\s*den|dobro\s*utro|zdr|pozz|poz|hello|hi|selam|hey|здраво|добар\s*ден|добро\s*утро|привет|селам)[\s!.,?]*$/iu.test(text.trim())) {
+      parsed.event = { type: 'STAY' };
+    }
     // GUARD 2 — the client NAMED an EB earlier in this session (slots carry
     // it) and the LLM now says "seen property" for a digit-less follow-up:
     // the number they gave IS the property under discussion. Fall back to the
