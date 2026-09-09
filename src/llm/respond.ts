@@ -102,9 +102,20 @@ export function guardText(state: State, text: string, publicSiteUrl?: string, re
   // properties the client never asked about. That pivot is the presentation
   // engine's job — strip it and everything after it deterministically.
   // Also strips the '**Евидентен број' bullet-list spawn that followed it.
+  // EXEMPTION: the code-built presentation OPENER legitimately contains
+  // "ги издвоив следниве неколку опции:" ON LINE 1 of the card reply. The cut
+  // therefore only fires when the match is NOT on line 1, OR the junk pivot's
+  // signature "Во меѓувреме" appears anywhere (the opener never contains it).
+  // Without the exemption the guard randomly ATE the whole fallback card
+  // (opener rotated onto the matching phrase → pivotIdx landed inside line 1
+  // → EB card and closer sliced off) — the sources.test.ts flake.
   const pivotIdx = out.search(/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве)/iu);
   if (pivotIdx > 0) {
-    out = out.slice(0, pivotIdx).trim();
+    const firstLineEnd = out.indexOf('\n');
+    const inFirstLine = firstLineEnd === -1 || pivotIdx < firstLineEnd;
+    if (!inFirstLine || /во\s+меѓувреме/iu.test(out)) {
+      out = out.slice(0, pivotIdx).trim();
+    }
   }
   // TRUNCATED-ENDING REPAIR: an LLM answer that stops mid-sentence (token cap,
   // stream cut) reads broken and must never be served or banked. Cut back to
