@@ -3,7 +3,7 @@ import { AppConfig } from '../config';
 import { ChatSession, assistantTexts } from '../fsm/session';
 import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
-import { fallbackVariant, pickVariant } from '../data/responseBank';
+import { fallbackVariant, pickVariant, retrieveVariant } from '../data/responseBank';
 import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feePersuasion, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy } from './deterministic';
 
@@ -97,26 +97,141 @@ export function guardText(state: State, text: string, publicSiteUrl?: string, re
   out = out.replace(/[^\p{Script=Cyrillic}\p{Script=Latin}\p{N}\p{P}\p{Z}\p{Sc}\n\r\t]/gu, '')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
+  // JUNK-PIVOT CUT: the model often tacks "Во меѓувреме, ги издвоив следните
+  // достапни предлози…" onto an unrelated answer and starts listing OTHER
+  // properties the client never asked about. That pivot is the presentation
+  // engine's job — strip it and everything after it deterministically.
+  // Also strips the '**Евидентен број' bullet-list spawn that followed it.
+  const pivotIdx = out.search(/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве)/iu);
+  if (pivotIdx > 0) {
+    out = out.slice(0, pivotIdx).trim();
+  }
+  // TRUNCATED-ENDING REPAIR: an LLM answer that stops mid-sentence (token cap,
+  // stream cut) reads broken and must never be served or banked. Cut back to
+  // the last sentence-final mark. Punctuation-only fragments ("84 м², и") or
+  // trailing link/markdown remnants are dropped with the fragment.
+  if (out.length > 0 && !/[.!?…]["')\]]?\s*$/.test(out)) {
+    const lastStop = Math.max(out.lastIndexOf('.'), out.lastIndexOf('!'), out.lastIndexOf('?'), out.lastIndexOf('…'));
+    if (lastStop < 0) {
+      // No complete sentence at all — too short to be a reply on its own;
+      // reject (caller falls back to the code-built line).
+      console.warn(`[guard] truncated reply (no complete sentence) rejected`);
+      return fallbackVariant(state, recent) ?? FALLBACKS[state] ?? FALLBACKS.default;
+    }
+    out = out.slice(0, lastStop + 1).trim();
+  }
   return out;
 }
 
 /** A reply plus where it came from — so the TUI can show which brain produced
  *  it: 'deterministic' (code-built, no LLM call), 'gemini:1..3'/'groq' (LLM
- *  prose), or 'fallback' (LLM attempted, failed, code-built line used). */
+ *  prose), or 'fallback' (LLM attempted, failed, code-built line used).
+ *  escalated=true marks a bank/detector miss that reached the LLM — the
+ *  learning loop's signal for "novel question, retire into the bank". */
 export interface RespondResult {
   text: string;
   source: string;
+  escalated?: boolean;
 }
 
 export class Responder {
-  constructor(private llm: LlmClient, private cfg: AppConfig) {}
+  private escalationLlm: LlmClient;
 
-  /** Swap the brain at runtime (TUI chooser: gemini/groq/llm-free). */
+  constructor(private llm: LlmClient, private cfg: AppConfig) {
+    // Escalation brain defaults to the boot brain; the TUI re-pins it so
+    // /brain free never routes escalate() to NoLlm (knowledge-based dispatch).
+    this.escalationLlm = llm;
+  }
+
+  /** Pin the brain that handles BANK/DETECTOR MISSES. Called once at boot
+   *  with a real LLM and NEVER with NoLlm — a miss must reach real
+   *  intelligence in every mode, or the system "answers" with a canned
+   *  line it knows is wrong. */
+  setEscalationLlm(llm: LlmClient): void {
+    this.escalationLlm = llm;
+  }
+
+  /** Swap the serving brain at runtime (TUI chooser: gemini/groq/llm-free).
+   *  This is a COST PREFERENCE for direct prose, never a knowledge ceiling:
+   *  when the deterministic layer + bank have no answer, escalate() uses
+   *  escalationLlm regardless of this swap. */
   setLlm(llm: LlmClient): void {
     this.llm = llm;
   }
 
+  /**
+   * Escalation path for messages the deterministic layer + bank could not
+   * answer. Runs the real LLM in EVERY brain mode — including 'free' —
+   * because "LLM-free" must mean "zero cost when we KNOW", never "canned
+   * answer when we DON'T". The answered pair is queued so the midnight cron
+   * retires the novelty into the bank (variants + example → next client
+   * asks free). On LLM failure: code-built property cards / fallback line.
+   */
+  private async escalate(session: ChatSession, properties: Property[], userText: string): Promise<RespondResult> {
+    const task = stateTask(session.state, session.slots);
+    const propCtx = buildPropertyContext(properties);
+    const messages = [
+      { role: 'system' as const, content: SYSTEM_PROMPT },
+      {
+        role: 'system' as const,
+        content: `CURRENT STATE TASK:\n${task}\n\nRELEVANT PROPERTY DATA (JSON, from the agency database):\n${propCtx}`,
+      },
+      ...session.history.slice(-10).map(m => ({ role: m.role, content: m.text })),
+      { role: 'user' as const, content: userText },
+    ];
+    let provider: string | undefined;
+    const t0 = Date.now();
+    try {
+      const text = await this.escalationLlm.complete({
+        role: 'respond',
+        messages,
+        temperature: this.cfg.personaTemp,
+        maxTokens: this.cfg.maxTokens,
+        topP: this.cfg.topP,
+        onProvider: p => { provider = p; },
+      });
+      const ms = Date.now() - t0;
+      console.log(`[timing] respond ${ms}ms → ${provider ?? 'llm'}`);
+      return {
+        text: guardText(session.state, text, this.cfg.publicSiteUrl, assistantTexts(session)),
+        source: provider ?? 'llm',
+        escalated: true,
+      };
+    } catch (e) {
+      const ms = Date.now() - t0;
+      console.error(`[respond] LLM failed (${ms}ms):`, (e as Error).message);
+      // LLM-less fallback: property data is code-built (never invented), so the
+      // bot still presents REAL offers when every LLM is down.
+      if ((session.state === 'property_query' || session.state === 'presentation') && properties.length > 0) {
+        // closerIndex = conversation progress -> consecutive presentations get
+        // DIFFERENT closing questions (the same one every time reads robotic).
+        // "Било каде" searches pass anywhere+budget so the LLM-free cards open
+        // with the descriptive offering ("…до {budget} евра, почнувајќи од
+        // најбараните населби…") instead of the generic opener.
+        return { text: guardText(session.state,
+          buildPropertyCards(properties, session.state, session.history.length, assistantTexts(session), {
+            anywhere: session.slots.anywhere,
+            budget: session.slots.budget,
+          }),
+          this.cfg.publicSiteUrl, assistantTexts(session)), source: 'fallback' };
+      }
+      return {
+        text: fallbackVariant(session.state, assistantTexts(session))
+          ?? FALLBACKS[session.state] ?? FALLBACKS.default,
+        source: 'fallback',
+      };
+    }
+  }
+
   async respond(session: ChatSession, properties: Property[], userText: string): Promise<RespondResult> {
+    // LAYER 0 — retrieval: every message that reaches respond() already missed
+    // the deterministic detectors. Before paying for an LLM call, check the
+    // learned bank's example messages — a similar question answered before is
+    // served free. (Sub-ms SQLite read; miss costs nothing.)
+    const bankLine = retrieveVariant(userText, { recent: assistantTexts(session) });
+    if (bankLine) {
+      return { text: guardText(session.state, bankLine, this.cfg.publicSiteUrl, assistantTexts(session)), source: 'bank' };
+    }
     // The discovery ask is deterministic: it only asks for what is still
     // missing and NEVER re-asks the intent once it is known — a client who
     // never said buy/rent ("ми треба станче") is asked the intent question
@@ -175,54 +290,8 @@ export class Responder {
       return { text: guardText(session.state, line, this.cfg.publicSiteUrl, assistantTexts(session)), source: 'deterministic' };
       } // end !isDigression — digressions fall through to the LLM below
     }
-    const task = stateTask(session.state, session.slots);
-    const propCtx = buildPropertyContext(properties);
-    const messages = [
-      { role: 'system' as const, content: SYSTEM_PROMPT },
-      {
-        role: 'system' as const,
-        content: `CURRENT STATE TASK:\n${task}\n\nRELEVANT PROPERTY DATA (JSON, from the agency database):\n${propCtx}`,
-      },
-      ...session.history.slice(-10).map(m => ({ role: m.role, content: m.text })),
-      { role: 'user' as const, content: userText },
-    ];
-    let provider: string | undefined;
-    const t0 = Date.now();
-    try {
-      const text = await this.llm.complete({
-        role: 'respond',
-        messages,
-        temperature: this.cfg.personaTemp,
-        maxTokens: this.cfg.maxTokens,
-        topP: this.cfg.topP,
-        onProvider: p => { provider = p; },
-      });
-      const ms = Date.now() - t0;
-      console.log(`[timing] respond ${ms}ms → ${provider ?? 'llm'}`);
-      return { text: guardText(session.state, text, this.cfg.publicSiteUrl, assistantTexts(session)), source: provider ?? 'llm' };
-    } catch (e) {
-      const ms = Date.now() - t0;
-      console.error(`[respond] LLM failed (${ms}ms):`, (e as Error).message);
-      // LLM-less fallback: property data is code-built (never invented), so the
-      // bot still presents REAL offers when every LLM is down.
-      if ((session.state === 'property_query' || session.state === 'presentation') && properties.length > 0) {
-        // closerIndex = conversation progress -> consecutive presentations get
-        // DIFFERENT closing questions (the same one every time reads robotic).
-        // "Било каде" searches pass anywhere+budget so the LLM-free cards open
-        // with the descriptive offering ("…до {budget} евра, почнувајќи од
-        // најбараните населби…") instead of the generic opener.
-        return { text: guardText(session.state,
-          buildPropertyCards(properties, session.state, session.history.length, assistantTexts(session), {
-            anywhere: session.slots.anywhere,
-            budget: session.slots.budget,
-          }),
-          this.cfg.publicSiteUrl, assistantTexts(session)), source: 'fallback' };
-      }
-      return {
-        text: fallbackVariant(session.state, assistantTexts(session))
-          ?? FALLBACKS[session.state] ?? FALLBACKS.default,
-        source: 'fallback',
-      };
-    }
+    // Digression (investment opinion / fee-why) in the closing state falls
+    // through HERE and is answered by the LLM — never by a canned line.
+    return this.escalate(session, properties, userText);
   }
 }

@@ -58,6 +58,18 @@ test('nearby-thread marker: landmark, protocol and shut-down replies all anchor 
   assert.equal(lastReplyWasNearby('Добар ден. Како можам да Ви помогнам?'), false);
 });
 
+test('learned address.exact variants with гледање phrasing anchor the why-gate (the 18:35 transcript)', () => {
+  // A learned address.exact variant whose phrasing the old matcher missed:
+  const learned = 'Прецизните детали за адресата ќе ги споделам со Вас на денот на закажаното гледање, во согласност со правилата по кои работи Агенцијата.';
+  assert.equal(lastReplyWasNearby(learned), true);
+  assert.equal(detectWhyFollowUp('ZOSTO?') && lastReplyWasNearby(learned), true);
+  // Other learned interpolations stay covered:
+  assert.equal(lastReplyWasNearby('Точната адреса ќе ја добиете на денот на гледањето, согласно политиката на Агенцијата.'), true);
+  assert.equal(lastReplyWasNearby('Адресата ќе Ви биде доставена пред закажаниот термин за разгледување.'), true);
+  // A plain address line with no rule/visit marker never anchors:
+  assert.equal(lastReplyWasNearby('Адресата на имотот е во Центар, спроти паркот.'), false);
+});
+
 test('bare more-ask after nearby replies qualifies for the nearby thread', () => {
   const qualifies = (t: string) =>
     mentionsMore(t) && !hasProximityAnchor(t)

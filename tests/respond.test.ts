@@ -15,6 +15,32 @@ test('guardText: property prices are quoted in euros, never denars', () => {
   assert.equal(guardText('presentation', 'Цената изнесува 46.000 евра'), 'Цената изнесува 46.000 евра');
 });
 
+test('guardText: junk property pivot is cut (Во меѓувреме…)', () => {
+  const answer = guardText('presentation',
+    'Тоа е стандардна политика на агенцијата за заштита на приватноста на сопствениците. ' +
+    'Во меѓувреме, ги издвоив следните достапни предлози од нашата база:\n\n' +
+    '**Евидентен број 75** е трисобен стан во Аеродром. Цената е 154.000 евра.');
+  assert.ok(answer.startsWith('Тоа е стандардна политика'), answer);
+  assert.ok(!answer.includes('Во меѓувреме'), answer);
+  assert.ok(!answer.includes('Евидентен број 75'), answer);
+});
+
+test('guardText: truncated ending is cut back to the last complete sentence', () => {
+  const out = guardText('presentation',
+    'Секоја недвижнина има своја клиентела. За да знаете дали е нешто за Вас, треба да го осетите просторот');
+  assert.equal(out, 'Секоја недвижнина има своја клиентела.');
+});
+
+test('guardText: fully truncated reply (no complete sentence) is rejected to the fallback', () => {
+  const out = guardText('presentation', 'Станот е во Центар, со две спални и');
+  assert.ok(out.length > 0 && out !== 'Станот е во Центар, со две спални и');
+});
+
+test('guardText: complete sentences pass untouched (no over-cutting)', () => {
+  const s = 'Одговорот завршува тука. Ова е друга реченица!';
+  assert.equal(guardText('presentation', s), s);
+});
+
 test('buildFeeAsk: the fee is disclosed the moment the client is interested — code-built, never skippable', () => {
   const buy = buildFeeAsk('buy');
   assert.ok(buy.includes('500 денари (10 евра)'), buy);
