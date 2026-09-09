@@ -9,6 +9,27 @@ test('normalize: folds Cyrillic into canonical casual Latin', () => {
   assert.equal(normalize('Кучка разебана'), 'kucka razebana');
 });
 
+// The [20:14] field bug: the perfective "POEBAM" slipped past the S0k
+// 'ebam' family (the 'o' prefix trips the letter-boundary guard) and the
+// message was answered as a property-locate continuation. The prefixed/past
+// forms are their own lexicon row now — and the innocent homographs that
+// motivated the boundary guard must STAY clean.
+test('prefixed/past ebam forms (poebam/naebam/ebal/jeban) are sexual severity 3', () => {
+  for (const t of [
+    'A DA TE POEBAM MALCE', 'da te poebam malce', 'ПОЕБАМ', 'поебам малце',
+    'poebaj se', 'naebal sum', 'go ebala', 'jeban',
+  ]) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+    assert.equal(d.category, 'sexual', JSON.stringify(t));
+    assert.equal(d.severity, 3, JSON.stringify(t));
+  }
+  for (const t of ['trebam', 'nebesa', 'poebanošе', 'zanaebana kola', 'sloboden', 'rebam']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' -> ' + (d.reason ?? ''));
+  }
+});
+
 test('normalize: folds Latin digraphs and leetspeak', () => {
   assert.equal(normalize('pi4ka'), 'picka');
   assert.equal(normalize('pichka'), 'picka');

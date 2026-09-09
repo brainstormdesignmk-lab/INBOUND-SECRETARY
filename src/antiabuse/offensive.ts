@@ -117,6 +117,16 @@ const LEXICON: LexiconEntry[] = [
   { id: 'S0i', category: 'sexual', severity: 3, confidence: 0.97, stems: ['fuck', 'fuk', 'fakj', 'fakji'], reason: 'fuck variants' },
   { id: 'S0j', category: 'sexual', severity: 3, confidence: 0.97, stems: ['fak'], boundary: true, reason: 'fak (letter-bounded so "fakt"/"fakel" stay clean)' },
   { id: 'S0k', category: 'sexual', severity: 3, confidence: 0.97, stems: ['ebam', 'ebes', 'ebete', 'ebeme', 'ebat'], boundary: true, reason: 'ebam/ebete vulgar verb (letter-bounded so "trebam"/"trebete"/"nebesa" stay clean)' },
+  // Prefixed/perfective forms of the same vulgar verb — "A DA TE POEBAM
+  // MALCE" slipped through because the 'o' before 'ebam' trips the boundary
+  // guard of S0k. Same class, same severity; the po-/na- prefixed forms have
+  // no innocent homographs, and ebal/jeban past forms are letter-bounded.
+  { id: 'S0k2', category: 'sexual', severity: 3, confidence: 0.95,
+    stems: ['poebam', 'poebas', 'poebaj', 'poebat', 'poebame', 'poebate', 'poeban',
+      'naebam', 'naebas', 'naebal', 'naebala', 'ebal', 'ebala', 'ebali',
+      'jeban', 'izjeban'],
+    boundary: true,
+    reason: 'prefixed/past forms of the ebam vulgar verb (poebam/naebam/ebal/jeban family)' },
   // Flirtatious / sexual advances toward Lina personally — early warning
   { id: 'S0l', category: 'sexual', severity: 3, confidence: 0.9, stems: ['ostri zenski', 'sakam ostri zenski', 'ostro a'], reason: 'ostri zenski' },
   { id: 'S0m', category: 'sexual', severity: 3, confidence: 0.9, stems: ['ke bides li fino devojce', 'kje bides li fino devojce', 'fino devojce za mene'], reason: 'fino devojce' },
