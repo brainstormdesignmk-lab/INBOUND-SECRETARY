@@ -33,7 +33,7 @@ test('guardText: truncated ending is cut back to the last complete sentence', ()
 
 test('guardText: fully truncated reply (no complete sentence) is rejected to the fallback', () => {
   const out = guardText('presentation', 'Станот е во Центар, со две спални и');
-  assert.ok(out.length > 0 && out !== 'Станот е во Центар, со две спални и');
+  assert.ok(out.length > 0 && out !== 'Станот е во Центар, со две спални и', 'respond.test assertion (line 36)');
 });
 
 test('guardText: complete sentences pass untouched (no over-cutting)', () => {
@@ -72,8 +72,8 @@ test('guardText: the viewing fee stays in denars (always < 1000)', () => {
 
 test('guardText: fee mention blocked before interest (fallback reply)', () => {
   const out = guardText('presentation', 'Надоместот е 500 денари');
-  assert.ok(!out.includes('500'));
-  assert.ok(!out.includes('Надомест'));
+  assert.ok(!out.includes('500'), 'respond.test assertion (line 75)');
+  assert.ok(!out.includes('Надомест'), 'respond.test assertion (line 76)');
 });
 
 test('guardText: property prices in евра are never a fee mention', () => {
@@ -160,15 +160,15 @@ test('buildPropertyCards: code-built PROSE card quotes euros and real data (LLM-
   assert.ok(!landmarked.includes('Градежниот факултет'), landmarked);
   assert.ok(!landmarked.includes('Јане Сандански'), landmarked);
   // prose, not a spec sheet — no "Клуч: Вредност" walls
-  assert.ok(!card.includes('Локација:'));
-  assert.ok(!card.includes('Одлики:'));
-  assert.ok(!card.includes('денари'));
-  assert.ok(!card.includes('http'));
-  assert.ok(!card.includes('Повеќе информации'));
+  assert.ok(!card.includes('Локација:'), 'respond.test assertion (line 163)');
+  assert.ok(!card.includes('Одлики:'), 'respond.test assertion (line 164)');
+  assert.ok(!card.includes('денари'), 'respond.test assertion (line 165)');
+  assert.ok(!card.includes('http'), 'respond.test assertion (line 166)');
+  assert.ok(!card.includes('Повеќе информации'), 'respond.test assertion (line 167)');
   const pres = buildPropertyCards([prop], 'presentation');
-  assert.ok(pres.includes('организираме посета'));
+  assert.ok(pres.includes('организираме посета'), 'respond.test assertion (line 169)');
   const q = buildPropertyCards([prop], 'property_query');
-  assert.ok(q.includes('Дали би сакале да организираме посета'));
+  assert.ok(q.includes('Дали би сакале да организираме посета'), 'respond.test assertion (line 171)');
 });
 
 test('buildPropertyCard: гарсоњера inferred from size when bedrooms are missing', () => {
@@ -196,7 +196,7 @@ test('guardText: property links are stripped — info is described in words, nev
   assert.ok(out.includes('Дали Ви се допаѓа?'), out);
   // non-property URLs are NOT touched
   const other = 'Проверете на https://example.com/x';
-  assert.ok(guardText('presentation', other, SITE).includes('https://example.com/x'));
+  assert.ok(guardText('presentation', other, SITE).includes('https://example.com/x'), 'respond.test assertion (line 199)');
 });
 
 test('guardText: the two question-prefix flourishes are stripped from LLM prose (code-built once-each only)', () => {

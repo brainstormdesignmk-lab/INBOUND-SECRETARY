@@ -110,15 +110,53 @@ export function guardText(state: State, text: string, publicSiteUrl?: string, re
   // stream cut) reads broken and must never be served or banked. Cut back to
   // the last sentence-final mark. Punctuation-only fragments ("84 м², и") or
   // trailing link/markdown remnants are dropped with the fragment.
-  if (out.length > 0 && !/[.!?…]["')\]]?\s*$/.test(out)) {
-    const lastStop = Math.max(out.lastIndexOf('.'), out.lastIndexOf('!'), out.lastIndexOf('?'), out.lastIndexOf('…'));
-    if (lastStop < 0) {
-      // No complete sentence at all — too short to be a reply on its own;
-      // reject (caller falls back to the code-built line).
-      console.warn(`[guard] truncated reply (no complete sentence) rejected`);
-      return fallbackVariant(state, recent) ?? FALLBACKS[state] ?? FALLBACKS.default;
+  // COMPLETE-ENDING WHITELIST — these are NOT truncations and pass untouched:
+  //   • a URL ("Проверете на https://example.com/x" — ".com" is not a stop)
+  //   • a price/amount ending ("…46.000 евра", "…за 5.000")
+  //   • a terminal sentence mark
+  // When the text HAS a sentence mark but ends unpunctuated (LLM cut), cut to
+  // the last VALID mark — never inside a number ("46.000" is one amount),
+  // never before a dangling conjunction ("…стан и" keeps cutting back).
+  // When there is NO mark at all: a content-word ending is a complete short
+  // phrase ("има и 5.000 евра кирија", "300 денари за разгледување") → pass;
+  // a dangling ending (conjunction/copula/single letter: "…спални и",
+  // "…дали ова е") is truly mid-clause → reject to the fallback line.
+  const endsWithURL = /https?:\/\/\S+$/i.test(out);
+  const endsWithAmount = /(?:[\d.,]+\s*(?:евра|евро|денари|ден\.|мкд|%|м²|м2|m²|m2)|\d|\))["')\]]?\s*$/iu.test(out);
+  const terminal = /[.!?…]["')\]]?\s*$/.test(out);
+  if (out.length > 0 && !endsWithURL && !endsWithAmount && !terminal) {
+    const dangling = /(?:^|\s)(?:и|или|со|за|на|во|но|што|од|е|а|до|по|при|без|ke|i|ili|so|za|na|vo|no|shto|od|e|a)\s*$/iu.test(out)
+      || /\s\p{L}\s*$/u.test(out);
+    if (!/[.!?…]/.test(out)) {
+      if (dangling) {
+        console.warn(`[guard] truncated reply (no complete sentence) rejected`);
+        return fallbackVariant(state, recent) ?? FALLBACKS[state] ?? FALLBACKS.default;
+      }
+      // short complete phrase — untouched
+    } else {
+      let lastStop = -1;
+      for (const mark of ['.', '!', '?', '…']) {
+        let from = out.length;
+        for (;;) {
+          const i = out.lastIndexOf(mark, from - 1);
+          if (i < 0) break;
+          const tail = out.slice(i + 1);
+          // a stop followed by more digits/amount text is INSIDE a number — skip it
+          if (/^\s*[\d.,]/.test(tail) && !/^\s*$/.test(tail)) { from = i; continue; }
+          // a stop whose sentence tails off with a conjunction is mid-clause — skip it
+          if (/(?:\s(?:и|или|со|за|на|во|но|што|од|ke|i|ili|so|za|na|vo|no|shto|od))\s*$/iu.test(tail)) { from = i; continue; }
+          lastStop = Math.max(lastStop, i);
+          break;
+        }
+      }
+      if (lastStop >= 0) {
+        out = out.slice(0, lastStop + 1).trim();
+      } else if (dangling) {
+        console.warn(`[guard] truncated reply (no complete sentence) rejected`);
+        return fallbackVariant(state, recent) ?? FALLBACKS[state] ?? FALLBACKS.default;
+      }
+      // else: marks exist only inside numbers/URLs — treat as complete
     }
-    out = out.slice(0, lastStop + 1).trim();
   }
   return out;
 }
