@@ -284,6 +284,18 @@ export class Classifier {
       ev = { type: 'FEE_AGREED' };
     }
 
+    // "STAPI VO KONTAKT I INFORMIRAJ ME" — an explicit order to contact + be
+    // informed. The contact-request family (стапи/влези во контакт) IS an
+    // agreement (AGREE_PHRASES), but the LLM was inventing bogus events for it
+    // (e.g. routing the inform-stem to SEEN_PROPERTY). Closing + agreement =
+    // the client wants the owner contacted → the fee gate, always.
+    if (session.state === 'closing' && ev.type !== 'FEE_AGREED'
+      && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE' && ev.type !== 'FEE_REFUSED'
+      && detectAgreement(text) && !detectFeeWhy(text)
+      && !detectRejection(text) && !detectInvestmentOpinion(text)) {
+      ev = { type: 'FEE_AGREED' };
+    }
+
     // Fee WHY guard — agreement overridden to STAY when WHY-question
     if (session.state === 'closing' && ev.type === 'FEE_AGREED' && detectFeeWhy(text)) {
       ev = { type: 'STAY' };

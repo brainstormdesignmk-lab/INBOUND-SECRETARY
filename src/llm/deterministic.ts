@@ -680,7 +680,11 @@ export function detectSqm(text: string): number | undefined {
 // dead-end ("добро", "контактирај ме" after every option was shown).
 const AGREE_PHRASES = ['во ред', 'vo red', 'се согласувам', 'se soglasuvam',
   'контактирај ме', 'контактирајте ме', 'kontaktiraj me', 'kontaktirajte me',
-  'запиши ме', 'запишете ме', 'prijavete me'];
+  'запиши ме', 'запишете ме', 'prijavete me',
+  // "стапи во контакт …" — the client ORDERS the contact themselves. Same
+  // intent as "контактирај ме" (formal register), Cyrillic + normalized forms.
+  'стапи во контакт', 'стапете во контакт', 'влези во контакт',
+  'stapi vo kontakt', 'stapete vo kontakt', 'vlezi vo kontakt'];
 const AGREE_WORDS = new Set(['добро', 'ок', 'да', 'може', 'согласен', 'согласна',
   'согласувам', 'запиши', 'запишете', 'контактирај', 'контактирајте', 'регистрирај',
   'ok', 'dobro', 'moze', 'da', 'soglasen', 'soglasna', 'soglasuvam',
@@ -1861,13 +1865,18 @@ export function detectEscalation(text: string): boolean {
 }
 // Documents info: the client asks what documents they need.
 const DOCUMENTS_RE =
-  /(?:какви\s+документи|кои\s+документи|документи\s+(?:ми\s+требаат|треба\s+да\s+имам|ќе\s+ми\s+требаат)|what\s+(?:doc|paper|form)|need\s+(?:i\s+)?(?:any|some)?\s*(?:doc|paper|form)|што\s+треба\s+за\s+(?:купување|изнајмување)|документација\s+за|документи|документација|договор|договори|документи\b|договор\b|документација\b|doc(?:ument)?s?|papers?|forms?)/iu;
+  /(?:какви\s+документи|кои\s+документи|документи\s+(?:ми\s+требаат|треба\s+да\s+имам|ќе\s+ми\s+требаат)|what\s+(?:doc|paper|form)|need\s+(?:i\s+)?(?:any|some)?\s*(?:doc|paper|form)|што\s+треба\s+за\s+(?:купување|изнајмување)|документација\s+за|документи|документација|договор|договори|(?:^|[^\p{L}])doc(?:ument)?s?(?:$|[^\p{L}])|(?:^|[^\p{L}])papers?(?:$|[^\p{L}])|(?:^|[^\p{L}])forms?(?:$|[^\p{L}]))/iu;
 
 /** True when the client asks about required documents. */
 export function detectDocumentsAsk(text: string): boolean {
   // "договори ми" = "arrange for me" (visit interest) — NOT a documents question.
   // "договор" as a standalone noun = contract (documents context) — allowed.
   if (/(?:договори|dogovori)\s+(?:ми|mi)/i.test(text)) return false;
+  // "informiraj/informira/informacija" contains "form" — with the old unbounded
+  // forms? alternative ANY inform* message looked like a documents question
+  // ("STAPI VO KONTAKT I INFORMIRAJ ME" got the documents lecture). Loan words
+  // from the inform- stem are NEVER about paperwork.
+  if (/(?:inform|информ)/i.test(text)) return false;
   return matchesBoth(DOCUMENTS_RE, text);
 }
 

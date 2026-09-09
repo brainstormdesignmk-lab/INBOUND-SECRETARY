@@ -263,6 +263,35 @@ test('ZOKI: visit interest ("дали е достапен?") -> fee disclosed ->
   assert.ok(sent[5].includes('потврдам'), sent[5]); // OWNER_CHECK_ACK
 });
 
+test('STAPI VO KONTAKT I INFORMIRAJ ME in closing = contact order, not the documents lecture', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'stapi';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // The exact 12:51 field transcript: availability ack -> ownerContactPending,
+  // then the client ORDERS the contact.
+  await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  let s = await send('DALI E SEUSTE DOSTAPEN ?');
+  assert.equal(s.state, 'closing');
+  assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
+
+  s = await send('STAPI VO KONTAKT I INFORMIRAJ ME');
+  // NEVER the documents.info text (the inform-stem used to match forms?).
+  assert.ok(!sent.some(t => t.includes('лична карта')), `documents lecture leaked: ${sent.join(' | ')}`);
+  // The funnel proceeds: fee disclosed (buy: 500 денари) — the fee is the
+  // gate before the owner is contacted, and "informiraj me" is satisfied by
+  // the owner's availability+price relay that follows.
+  assert.equal(s.state, 'closing');
+  assert.ok(sent[2].includes('500 денари'), `expected fee disclosure, got: ${sent[2]}`);
+  assert.ok(!s.slots.ownerContactPending, 'ownerContactPending cleared after the contact order');
+
+  // The funnel continues normally from there.
+  s = await send('DA, SE SOGLASUVAM');
+  assert.equal(s.state, 'contact_collection');
+  s = await send('MARKO 078/914 196');
+  assert.equal(s.state, 'visit_scheduling');
+});
+
 test('ZOKI: "кога може да се погледне" is visit interest too — same fee funnel', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'zoki2';

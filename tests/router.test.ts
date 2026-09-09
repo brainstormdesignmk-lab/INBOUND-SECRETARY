@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveIntent, ROUTING_ORDER, dispatchSimple } from '../src/handlers/router';
 import { inferPropertyId } from '../src/llm/classify';
-import { detectEyeCatch } from '../src/llm/deterministic';
+import { detectEyeCatch, detectAgreement } from '../src/llm/deterministic';
 
 test('routing order has unique intents', () => {
   const names = ROUTING_ORDER.map(r => r.intent);
@@ -118,4 +118,36 @@ test('dispatchSimple: returns undefined for unrecognized text', () => {
 test('dispatchSimple: order matters — DEFER before NEGOTIATE', () => {
   const r = dispatchSimple('ќе размислам за цената', 'closing');
   assert.equal(r?.intent, 'DEFER');
+});
+
+// --- the inFORMiraj bug: the English `forms?` alternative inside the
+// documents regex matched inside "informiraj" (no word boundary), so ANY
+// message containing informiraj/informacija routed to DOCUMENTS_ASK. ---
+
+test('inform-family does NOT trigger DOCUMENTS_ASK (the inFORMiraj bug)', () => {
+  for (const t of [
+    'STAPI VO KONTAKT I INFORMIRAJ ME',
+    'informiraj me', 'ИНФОРМИРАЈ МЕ',
+    'koga ke me informirate?',
+    'sakam da me informirate za dostapnosta',
+  ]) {
+    assert.equal(resolveIntent(t, 'closing'), 'FALLTHROUGH',
+      `"${t}" must not route to DOCUMENTS_ASK`);
+  }
+});
+
+test('genuine documents questions still route to DOCUMENTS_ASK', () => {
+  for (const t of ['sto dokumenti se potrebni?', 'какви документи треба?', 'documents needed?']) {
+    assert.equal(resolveIntent(t, 'closing'), 'DOCUMENTS_ASK', `"${t}"`);
+  }
+});
+
+test('contact-request family counts as agreement (stapi vo kontakt)', () => {
+  for (const t of [
+    'STAPI VO KONTAKT I INFORMIRAJ ME',
+    'stapi vo kontakt so mene', 'стапи во контакт со сопственикот',
+    'vlezi vo kontakt so menе', 'СТАПЕТЕ ВО КОНТАКТ',
+  ]) {
+    assert.equal(detectAgreement(t), true, `agreement expected: "${t}"`);
+  }
 });
