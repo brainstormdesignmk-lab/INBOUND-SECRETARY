@@ -64,6 +64,20 @@ test('detectOwnerVerdict: plain-text owner answers → ok / counter / gone', () 
   assert.deepEqual(detectOwnerVerdict('нема да можам', proposed), { status: 'counter' });
   assert.deepEqual(detectOwnerVerdict('ne mozam denes, utre vo 16:00 mozam', 'deneska vo 18:00'),
     { status: 'counter', ownerTime: 'Утре во 16:00' });
+  // THE SREDA BUG, verbatim from the field: "NEMOZAM UTRE VO 4, DOGOVORI GO
+  // SREDA VO 6" — the time inside the REFUSAL clause (утре во 4) must never
+  // become the counter; the proposal lives in the clause after the comma.
+  assert.deepEqual(detectOwnerVerdict('NEMOZAM UTRE VO 4, DOGOVORI GO SREDA VO 6', 'utre vo 4'),
+    { status: 'counter', ownerTime: 'Среда во 6' });
+  assert.deepEqual(detectOwnerVerdict('nemozam utre vo 4. dogovori go sreda vo 6', 'utre vo 4'),
+    { status: 'counter', ownerTime: 'Среда во 6' });
+  // Refusal clause carrying ONLY the refused day (no alternative) → bare
+  // counter, never a proposal of the refused day itself.
+  assert.deepEqual(detectOwnerVerdict('ne mozam utre, ke javi', 'utre vo 4'),
+    { status: 'counter' });
+  // A bare day INSIDE the refusal clause must not become the counter either.
+  assert.deepEqual(detectOwnerVerdict('ne mozam utre vo 4, ke javam', 'utre vo 4'),
+    { status: 'counter' });
   // gone
   assert.deepEqual(detectOwnerVerdict('продаден е', proposed), { status: 'gone', note: 'продаден' });
   assert.deepEqual(detectOwnerVerdict('веќе издаден', proposed), { status: 'gone', note: 'издаден' });
@@ -147,6 +161,11 @@ test('detectWhereIs: "каде е X?" is a place question, never a search', () =
   assert.deepEqual(detectWhereIs('каде е?'), { place: '', generic: true });
   assert.deepEqual(detectWhereIs('каде се наоѓа?'), { place: '', generic: true });
   assert.deepEqual(detectWhereIs('kade se naogja?'), { place: '', generic: true });
+  // Verb-family tolerance: doubled-vowel typos and person endings must consume
+  // the verb so a trailing property-type word stays generic (regression: the
+  // old single-form verb list left "naogjaa stanot" as a fake place name).
+  assert.deepEqual(detectWhereIs('kade se naogjaa stanot?'), { place: '', generic: true });
+  assert.deepEqual(detectWhereIs('kade se naogjaat?'), { place: '', generic: true });
   assert.equal(detectWhereIs('DALI E SEUSTE DOSTAPEN ?'), undefined); // visit-interest stays intact
   // EB number: "каде е 89?" / "каде е број 89" — resolved by getByEb in the handler
   assert.deepEqual(detectWhereIs('каде се наоѓа 89'), { place: '89', generic: false });
@@ -155,6 +174,13 @@ test('detectWhereIs: "каде е X?" is a place question, never a search', () =
   assert.deepEqual(detectWhereIs('КАДЕ Е 89'), { place: '89', generic: false });
   assert.deepEqual(detectWhereIs('kade e 89'), { place: '89', generic: false });
   assert.deepEqual(detectWhereIs('kade se naogja 89'), { place: '89', generic: false });
+  // verb-family tolerance: doubled-vowel typo ("наогjaa"), 3pl ending, and a
+  // greeting prefix must NOT swallow the EB number into a fake place name —
+  // this is the exact production regression "zdravo kade se naogjaa 76 ?".
+  assert.deepEqual(detectWhereIs('kade se naogjaa 76'), { place: '76', generic: false });
+  assert.deepEqual(detectWhereIs('zdravo kade se naogjaa 76 ?'), { place: '76', generic: false });
+  assert.deepEqual(detectWhereIs('kade se naogjaat 76'), { place: '76', generic: false });
+  assert.deepEqual(detectWhereIs('каде се наоѓаат 76'), { place: '76', generic: false });
   // with prefixes: "број", "евидентен број", "еб"
   assert.deepEqual(detectWhereIs('каде е број 89'), { place: '89', generic: false });
   assert.deepEqual(detectWhereIs('каде е евидентен број 89'), { place: '89', generic: false });

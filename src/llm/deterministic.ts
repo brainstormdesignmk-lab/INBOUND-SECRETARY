@@ -1012,7 +1012,15 @@ const OWNER_DISAGREE_RE = /(не можам|не ми одговара|не ми
 // MOST common owner refusal — it contains the bare "mozam" that would
 // otherwise match OWNER_AGREE_RE and CLOSE THE DEAL on a refusal.
 const OWNER_CANT_RE =
-  /(не\s+можам|не\s+може|не\s+можеш|ne\s+mozam|ne\s+moze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да|nema\s+da\s+mozam|nema\s+da\s+moze|nema\s+da\s+mozeme|нема\s+да\s+можам|нема\s+да\s+може|нема\s+да\s+можеме)/i;
+  /(не\s+можам|не\s+може|не\s+можеш|ne\s*mozam|ne\s*moze|nemoz[ae]m|nemoz[ae]t|nemoze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да|nema\s*da\s*mozam|nema\s*da\s*moze|nema\s*da\s*mozeme|нема\s+да\s+можам|нема\s+да\s+може|нема\s+да\s+можеме)/i;
+// The refusal token positions where the owner REFUSED the client's time — the
+// text BEFORE the first refusal token. In "nemozam utre vo 4, dogovori go
+// sreda vo 6" the refusal covers "NEMOZAM UTRE VO 4": the утре-во-4 pair
+// belongs to the REFUSAL and must never become the counter-proposal.
+function firstRefusalIndex(text: string): number {
+  const m = text.match(OWNER_CANT_RE) ?? text.match(OWNER_DISAGREE_RE);
+  return m?.index ?? -1;
+}
 const OWNER_DAY_RE = /утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|вечер|викенд|понеделник|вторник|среда|четврток|петок|сабота|недела|utre|zadutre|denes|deneska|vecer|popladne|napladne|utrovo|vikend|ponedelnik|vtornik|sreda|cetvrtok|petok|sabota|nedela/i;
 // A clock like "во 18:00" or bare "16:00" — but NOT when the number is
 // part of a price phrase ("по 60 илјади евра", "околу 70 000 евра"): the
@@ -1022,18 +1030,37 @@ const OWNER_CLOCK_RE = /((?:(?:во|по|после|околу|vo|po|posle|okolu
 const OWNER_DAY_PART_RE = /(попладне|напладне|претпладне|утрово|наутро|вечерва|вечер|навечер|popladne|napladne|preтpladne|utrovo|nautro|vecer|navecer)/i;
 
 /**
+ * The counter-proposal can only live in a CLAUSE AFTER the clause that
+ * carries the refusal. The refusal clause runs from the refusal token to the
+ * first clause terminator after it — its own day/clock ("NEMOZAM UTRE VO 4")
+ * describes the REFUSED term and must never become the counter (the SREDA
+ * bug: the owner said "NEMOZAM UTRE VO 4, DOGOVORI GO SREDA VO 6" and Lina
+ * counter-proposed утре во 4 — the exact term he rejected).
+ */
+function refusalProposalScope(text: string, refusalIdx: number): string {
+  if (refusalIdx < 0) return text;
+  const tail = text.slice(refusalIdx);
+  const end = tail.search(/[.!?,;—]/);
+  return end >= 0 ? tail.slice(end + 1) : '';
+}
+
+/**
  * The time phrase in the owner's reply ("петок во 11", "сабота попладне",
  * "утре по 18:00"). The day word paired with the clock is the one NEAREST
  * BEFORE it, not the first in the message: "denes nema da mozam. utre vo 16:00 ?"
  * refuses TODAY and proposes TOMORROW — the 16:00 clock belongs to "утре",
  * and pairing it with the first day ("денес") would relay the wrong day.
  */
-function extractOwnerTime(text: string): string | undefined {
+function extractOwnerTime(text: string, refusalIdx = -1): string | undefined {
+  // SCOPE: the proposal must come from a LATER clause than the refusal
+  // ("nemozam utre vo 4, dogovori go sreda vo 6" — утре во 4 is refused,
+  // среда во 6 is the counter).
+  const scoped = refusalProposalScope(text, refusalIdx);
   // matchAll needs global regexes; the originals are stateful (.test) so clone
   // them with the g flag instead of mutating the shared patterns.
   const g = (re: RegExp) => new RegExp(re.source, `${re.flags.replace('g', '')}g`);
-  const clocks = [...text.matchAll(g(OWNER_CLOCK_RE))];
-  const days = [...text.matchAll(g(OWNER_DAY_RE))];
+  const clocks = [...scoped.matchAll(g(OWNER_CLOCK_RE))];
+  const days = [...scoped.matchAll(g(OWNER_DAY_RE))];
   // The clock picks its day: the nearest day word BEFORE it (skip days that
   // come after the clock — "само во петок во 11" pairs петок+во 11, and a
   // refusal's earlier day like "денес нема да можам, утре во 16:00" is
@@ -1057,12 +1084,16 @@ function extractOwnerTime(text: string): string | undefined {
   // the clock wins).
   if (days.length > 0) {
     const first = days[0];
-    const tail = text.slice((first.index ?? 0) + first[0].length);
+    const tail = scoped.slice((first.index ?? 0) + first[0].length);
     const part = tail.match(OWNER_DAY_PART_RE);
     if (part) return `${first[0]} ${part[0]}`.trim();
-    return first[0];
+    // After a refusal, a BARE day word is emphasis on WHEN the owner can't
+    // ("не можам, денес") — not a counter-proposal of that day. Without a
+    // refusal ("можам во петок") a bare day IS the proposal.
+    if (refusalIdx < 0) return first[0];
+    return undefined;
   }
-  const clock = text.match(OWNER_CLOCK_RE);
+  const clock = scoped.match(OWNER_CLOCK_RE);
   return clock ? clock[1].trim() : undefined;
 }
 
@@ -1101,8 +1132,15 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
     return withPrice({ status: 'gone', note });
   }
   const cant = OWNER_CANT_RE.test(t);
-  const time = extractOwnerTime(text);
-  const hasClock = OWNER_CLOCK_RE.test(text);
+  // The proposal lives in a LATER clause than the refusal — see
+  // refusalProposalScope. Both the extracted time and hasClock read the same
+  // scope so a refused clock ("NEMOZAM UTRE VO 4") can never count.
+  const refusalIdx = firstRefusalIndex(text);
+  const scoped = refusalProposalScope(text, refusalIdx);
+  const time = extractOwnerTime(text, refusalIdx);
+  const hasClock = scoped !== text && scoped.length > 0
+    ? new RegExp(OWNER_CLOCK_RE.source, OWNER_CLOCK_RE.flags.replace('g', '')).test(scoped)
+    : OWNER_CLOCK_RE.test(text);
   const agree = !cant && OWNER_AGREE_RE.test(t);
   const disagree = cant || matchesBoth(OWNER_DISAGREE_RE, t);
   // Same-time confirmation or plain agreement → ok (accept the client's time).
@@ -1123,6 +1161,53 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   // proposes another time and the owner is asked again.
   if (disagree) return withPrice({ status: 'counter' });
   if (agree) return withPrice({ status: 'ok', ownerTime: proposedTime });
+  return undefined;
+}
+
+// ── Owner reply to the Turn-0 ADDRESS confirmation ──────────────────────────
+// "Да, адресата е точна" / "ne, adresata e ..." / "точна е, само улицата е
+// Васил Стефановски 16". Deterministic so the TUI owner seam resolves the
+// address_confirm turn without any LLM.
+
+export interface OwnerAddressReply {
+  /** 'confirm' = address is correct; 'correct' = a new address was supplied. */
+  status: 'confirm' | 'correct';
+  /** The corrected address text (status 'correct' only). */
+  address?: string;
+}
+
+const ADDR_CONFIRM_RE =
+  /(?:^|[\s,.;:!?])(?:да|da|точн[ао]|tochn[ao]|тачн[ао]|tacn[ao]|ок|ok|правилн[ао]|praviln[ao]|во ред|vo red|истo|isto|сето е|seto e)(?:$|[\s,.;:!?])|потврд[уув]{1,2}[уув]{0,2}[аa]?|potvrduvam|potvrduva|potvrda|потврд[аa]/iu;
+const ADDR_CORRECT_RE =
+  /(?:^|[\s,.;:!?])(?:не|ne)(?:$|[\s,.;:!?])|(?:не\s+е|ne\s+e|није|nije)\s+(?:точн|тачн|tochn|tacn)|адресата\s+(?:не\s+)?(?:е\s+)?(?:погрешн|druga|друга|нова|nova|promena|промен[аa])|укажав|корегиран/iu;
+
+/**
+ * Parse the OWNER's answer to the Turn-0 address confirmation.
+ * Agreement ("да, точна е") → confirm. Anything naming a street/number or
+ * opening with a negation → 'correct' with the rest of the message as the
+ * address text. undefined = not understood (repeat the question).
+ */
+export function detectOwnerAddressReply(text: string): OwnerAddressReply | undefined {
+  const t = text.trim();
+  if (!t) return undefined;
+  const negation = ADDR_CORRECT_RE.test(t);
+  const agreement = ADDR_CONFIRM_RE.test(t);
+  // A street-shaped token (word + house number) or a negation both mean the
+  // owner is CORRECTING. "ne, Vasilsil Stefanovski 16" → correct with address.
+  const streetLike = /\p{L}{2,}[\.\s]+\d{1,4}[а-ѕa-z]?(?:\/\d+)?/iu.test(t)
+    || /\b(ул\.?|ul\.?|улица|ulica)\s*\S+/iu.test(t);
+  if (negation || streetLike) {
+    // Strip a leading agreement marker ("да, but actually..." is still a fix).
+    const cleaned = t
+      .replace(/^\s*(?:да|da|ок|ok)[,\s]+/iu, '')
+      .replace(/^\s*(?:не,?\s*)?(?:адресата\s+(?:е\s+)?(?:не\s+)?|ne,?\s*(?:adresata\s+)?(?:e\s+)?)/iu, '')
+      .replace(/^\s*(?:точн[ао]\s+е,?\s*|тачна\s+е,?\s*|tochna\s+e,?\s*|tacna\s+e,?\s*)/iu, '')
+      .replace(/^\s*(?:само\s+|samo\s+)/iu, '')
+      .replace(/^\s*(?:тоја\s+е\s*|tоa\s+e\s*)/iu, '')
+      .trim();
+    return { status: 'correct', address: cleaned || t };
+  }
+  if (agreement) return { status: 'confirm' };
   return undefined;
 }
 
@@ -1512,8 +1597,12 @@ export function lastReplyWasNearby(lastAssistantText: string): boolean {
   if (/ЛОКАЦИЈА\s+ЗА/iu.test(lastAssistantText)) return false;
   return /во\s+бли[зж]ин/u.test(lastAssistantText)
     || /maps\.google|google\.com\/maps/u.test(lastAssistantText)
-    || /(?:адрес|локаци|улиц)[^\n]{0,60}(?:правил|политик|задолжително|официјално|стандардно|строго)/iu.test(lastAssistantText)
-    || /(?:два часа пред|денот на посетата|ден на посетата|пред средбата|пред посетата)/iu.test(lastAssistantText)
+    // Address/privacy-protocol lines — the window is generous because learned
+    // bank variants interpolate freely ("…на денот на закажаното гледање, во
+    // согласност со правилата по кои работи Агенцијата" failed the old 60-char
+    // window and the bare ZOSTO? fell to the LLM).
+    || /(?:адрес|локаци|улиц|детал)[^\n]{0,90}(?:правил|политик|задолжително|официјално|стандардно|строго|согласност)/iu.test(lastAssistantText)
+    || /(?:два часа пред|денот на посетата|ден на посетата|денот на гледањето|ден на гледање|закажан(?:ото|а)\s+гледањ|пред средбата|пред посетата|пред закажаниот)/iu.test(lastAssistantText)
     || /реон[^\n]{0,40}(?:јасен|адрес)/iu.test(lastAssistantText);
 }
 
