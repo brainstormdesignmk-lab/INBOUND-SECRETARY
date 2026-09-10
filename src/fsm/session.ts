@@ -18,6 +18,8 @@ export interface SlotData {
   presentedIds?: number[];      // ALL EBs shown so far (excluded from later batches)
   currentBatch?: number[];      // EBs in the CURRENT presentation batch
   alternativesExhausted?: boolean;
+  ladderKey?: string;           // presentation ladder: the search key (loc|service|budget) the queue was built for
+  ladderQueue?: number[];       // presentation ladder: remaining EB ids in ladder order (top → cheapest → middle → rest)
   areaExhausted?: boolean;      // the selected area(s) are drained and Lina ASKED
                                 // whether to widen — agreement releases the lock
   name?: string;

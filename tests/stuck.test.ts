@@ -2035,6 +2035,98 @@ test('E2E: post-verbal "kade se naogja 76?" after presentation still resolves EB
     `must NOT answer with EB 48's area: ${postReply}`);
 });
 
+test('E2E: "nebitni se spalnite" waives the bedrooms ask — the 13:53 Влае transcript', async () => {
+  // The 13:53 transcript: "nebitni se spalnite" + "bitno e da e do 100000"
+  // kept re-asking "Колку спални соби…?" — the waiver detector missed the
+  // fused negative (nebitni) + definite noun (spalnite), and slotsComplete
+  // did not accept a waived bedrooms criterion at all.
+  const rows: Property[] = [
+    { eb: 11, id: 11, location: 'Влае', price: 55000, service: 'buy', bedrooms: 2, sqm: 55 },
+    { eb: 16, id: 16, location: 'Влае', price: 98000, service: 'buy', bedrooms: 4, sqm: 100 },
+    { eb: 17, id: 17, location: 'Влае', price: 41000, service: 'buy', bedrooms: 1, sqm: 38 },
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(rows);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+  });
+  const chatId = 'vlae-waiver';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('zdravo');
+  await send('sakm da kupam stan vo vlae');
+  const afterWaiver = await send('nebitni se spalnite');
+  assert.equal(afterWaiver.slots.sizeWaived, true, 'waiver must be registered');
+  const ask = sent[sent.length - 1];
+  assert.ok(!ask.includes('спални'), `must NOT re-ask bedrooms: ${ask}`);
+  const afterBudget = await send('bitno e da e do 100000');
+  assert.equal(afterBudget.state, 'presentation', `budget must complete discovery: ${afterBudget.state}`);
+  const batchReply = sent[sent.length - 1];
+  assert.ok(batchReply.includes('Влае') || batchReply.includes('Евидентен број'), `must present properties: ${batchReply}`);
+});
+
+test('presentation ladder: top pair → cheapest pair → middle pair → rest → exhausted', async () => {
+  // The client's spec: after the first (best) pair, "cheaper?" gets the two
+  // CHEAPEST, "what else?" gets the MIDDLE pair, then the rest — until the
+  // wanted specs run out and another neighborhood is offered.
+  const rows: Property[] = [
+    { eb: 11, id: 11, location: 'Влае', price: 55000, service: 'buy', bedrooms: 2, sqm: 55 },
+    { eb: 12, id: 12, location: 'Влае', price: 62000, service: 'buy', bedrooms: 2, sqm: 58 },
+    { eb: 13, id: 13, location: 'Влае', price: 70000, service: 'buy', bedrooms: 3, sqm: 75 },
+    { eb: 14, id: 14, location: 'Влае', price: 82000, service: 'buy', bedrooms: 3, sqm: 82 },
+    { eb: 15, id: 15, location: 'Влае', price: 94000, service: 'buy', bedrooms: 4, sqm: 96 },
+    { eb: 16, id: 16, location: 'Влае', price: 98000, service: 'buy', bedrooms: 4, sqm: 100 },
+    { eb: 17, id: 17, location: 'Влае', price: 41000, service: 'buy', bedrooms: 1, sqm: 38 },
+    { eb: 18, id: 18, location: 'Влае', price: 45000, service: 'buy', bedrooms: 1, sqm: 40 },
+    { eb: 19, id: 19, location: 'Аеродром', price: 60000, service: 'buy', bedrooms: 2, sqm: 60 },
+    { eb: 21, id: 21, location: 'Влае', price: 110000, service: 'buy', bedrooms: 4, sqm: 110 },
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(rows);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  channels.register({ name: 'test', send: async (_c, text) => { } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+  });
+  const chatId = 'vlae-ladder';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+  const batch = () => sessions.get(chatId)!.slots.currentBatch ?? [];
+
+  await send('zdravo');
+  await send('sakm da kupam stan vo vlae');
+  await send('nebitni se spalnite');
+  await send('bitno e da e do 100000');
+  assert.deepEqual(batch(), [16, 15], `batch1 = most expensive within budget: ${batch()}`);
+  await send('drugo nesto ima?');
+  assert.deepEqual(batch(), [17, 18], `batch2 = cheapest pair: ${batch()}`);
+  await send('drugo nesto ima?');
+  assert.deepEqual(batch(), [12, 13], `batch3 = middle pair: ${batch()}`);
+  await send('drugo nesto ima?');
+  assert.deepEqual(batch(), [11, 14], `batch4 = the rest: ${batch()}`);
+  await send('drugo nesto ima?');
+  assert.equal(batch().length, 0, 'specs exhausted');
+  assert.equal(sessions.get(chatId)!.slots.alternativesExhausted, true, 'alternatives must be exhausted');
+  assert.ok(!batch().includes(19), 'other-area property must NOT enter the Влае ladder (no spill)');
+  assert.ok(!batch().includes(21), 'over-budget property must NOT enter the ladder');
+});
+
 test('bedroom mismatch: 2-bedroom requested but only 3-bedroom available → explanation prefix', async () => {
   const cfg = loadConfig();
   const db = new Db(':memory:');

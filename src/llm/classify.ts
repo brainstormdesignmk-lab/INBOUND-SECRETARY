@@ -622,6 +622,7 @@ export class Classifier {
       if (ev.service === undefined && slots.service) ev.service = slots.service;
       if (ev.location === undefined && slots.location) ev.location = slots.location;
       if (ev.bedrooms === undefined && slots.bedrooms) ev.bedrooms = slots.bedrooms;
+      if (!ev.sizeWaived && slots.sizeWaived) ev.sizeWaived = true;
       if (ev.sqm === undefined && slots.sqm) ev.sqm = slots.sqm;
       if (ev.business === undefined && slots.business !== undefined) ev.business = slots.business;
       if (ev.house === undefined && slots.house !== undefined) ev.house = slots.house;

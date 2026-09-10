@@ -8,7 +8,7 @@ import {
   detectApartmentNeed, detectSeenProperty, detectLocatePick, detectSeeOffers,
   detectAvailabilityAsk, detectFeeWhy, detectExactAddressAsk, detectAnywhere,
   detectSuggestAlternatives, detectPropertyInterest, detectOwnerContact,
-  isPlausibleName, isValidPhone, isValidVisitTime,
+  isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -346,6 +346,24 @@ test('detectAnywhere: "bilo kade" means no location preference', () => {
   // a where-is question is NOT anywhere
   assert.equal(detectAnywhere('каде е Палома Бјанка?'), false);
   assert.equal(detectAnywhere('vo karpos'), false);
+});
+
+test('detectSizeWaived: "nebitni se spalnite" — the fused-negative waiver (13:53 Влае bug)', () => {
+  // The exact transcript line + both scripts + word orders
+  assert.equal(detectSizeWaived('nebitni se spalnite'), true);
+  assert.equal(detectSizeWaived('небитни се спалните'), true);
+  assert.equal(detectSizeWaived('spalnite nebitni se'), true);
+  assert.equal(detectSizeWaived('spalnite mi se nebitni'), true);
+  assert.equal(detectSizeWaived('nebitno e'), true);
+  assert.equal(detectSizeWaived('nebitni se sobite'), true);
+  // pre-existing forms keep working
+  assert.equal(detectSizeWaived('ne mi se bitni spalni'), true);
+  assert.equal(detectSizeWaived('goleminata ne mi e bitna'), true);
+  assert.equal(detectSizeWaived('bilo kolku spalni'), true);
+  // NOT waivers: an actual bedroom count, or unrelated negation
+  assert.equal(detectSizeWaived('minimum 2 spalni'), false);
+  assert.equal(detectSizeWaived('dve spalni'), false);
+  assert.equal(detectSizeWaived('bitno e da e do 100000'), false);
 });
 
 test('detectRejection: refusal phrases', () => {

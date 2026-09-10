@@ -2035,12 +2035,13 @@ ${contactReminder}`;
     // bedroom requirement — a flexible client gets the budget-driven city-wide
     // presentation ("bilo kade do 250" → rent options till 250) instead of a
     // location/bedrooms loop they explicitly didn't care about.
+    // Same for sizeWaived ("nebitni se spalnite" — the 13:53 loop: bedrooms
+    // question kept repeating although the client had waived it).
     const loc = !!s.slots.location || !!s.slots.anywhere;
-    // Commercial spaces complete with size (м²) instead of bedrooms.
     if (s.slots.business) {
       return !!s.slots.service && loc && !!s.slots.sqm && !!s.slots.budget;
     }
-    return !!s.slots.service && loc && (!!s.slots.bedrooms || !!s.slots.anywhere) && !!s.slots.budget;
+    return !!s.slots.service && loc && (!!s.slots.bedrooms || !!s.slots.anywhere || !!s.slots.sizeWaived) && !!s.slots.budget;
   }
 
   private async loadProps(session: ChatSession, areaRequested = false, seeOffers = false): Promise<Property[]> {
@@ -2080,7 +2081,34 @@ ${contactReminder}`;
       // candidates() already locks to the selected area(s) and never spills —
       // an exhausted area returns [] here, which routes to the "different area?"
       // ask instead of silently offering another neighborhood.
-      const batch = candidates.slice(0, 2);
+      // PRESENTATION LADDER: every batch is a PAIR of 2, walked as
+      //   1st: price-closest to budget (the best-guess top picks)
+      //   2nd: the CHEAPEST pair
+      //   3rd: the MIDDLE pair (of what remains)
+      //   4th+: the rest
+      // …until the specs run out → alternativesExhausted → the "another
+      // neighborhood?" offer. The ladder key is (location|anywhere, service,
+      // budget): a NEW search rebuilds the queue from the top.
+      const ladderKey = `${session.slots.anywhere ? '*' : session.slots.location ?? '-'}|${session.slots.service ?? '-'}|${session.slots.budget ?? '-'}`;
+      let queue = session.slots.ladderQueue ?? [];
+      if (session.slots.ladderKey !== ladderKey || queue.length === 0) {
+        const firstTwo = candidates.slice(0, 2).map(p => p.id);
+        const remaining = candidates.slice(2);
+        const byPrice = [...remaining].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || a.eb - b.eb);
+        const cheapest2 = byPrice.slice(0, 2).map(p => p.id);
+        const afterCheap = byPrice.slice(2);
+        const mid = Math.floor(afterCheap.length / 2);
+        const middle2 = afterCheap.slice(Math.max(0, mid - 1), Math.max(0, mid - 1) + 2).map(p => p.id);
+        const middleSet = new Set(middle2);
+        const rest = afterCheap.filter(p => !middleSet.has(p.id)).map(p => p.id);
+        queue = [...firstTwo, ...cheapest2, ...middle2, ...rest];
+        session.slots.ladderKey = ladderKey;
+        session.slots.ladderQueue = queue;
+      }
+      const batch = queue.slice(0, 2)
+        .map(id => candidates.find(p => p.id === id))
+        .filter((p): p is Property => !!p);
+      session.slots.ladderQueue = queue.slice(batch.length);
       session.slots.presentedIds = [...shown, ...batch.map(p => p.id)];
       session.slots.currentBatch = batch.map(p => p.id);
       session.slots.alternativesExhausted = candidates.length === 0;

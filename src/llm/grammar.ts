@@ -148,6 +148,13 @@ const SIZE_WAIVED_ADJ_L = ['bitna', 'bitno', 'vazhna', 'vazhno', 'biten'];
 // “bilo kolku / bilo kakvi“ — any number
 const SIZE_WAIVED_ANY = ['било колку', 'било какви', 'било каков', 'било колку соби', 'било колку спални'];
 const SIZE_WAIVED_ANY_L = ['bilo kolku', 'bilo kakvi', 'bilo kakov', 'bilo kolku sobi', 'bilo kolku spalni'];
+// “nebitni se spalnite“ — the NEGATED ADJECTIVE as ONE token (ne+bitni fused),
+// with the DEFINITE noun form (spalnite). The 13:53 transcript: the bedrooms
+// ask repeated because the slot list only knew “ne mi se bitni spalni“.
+const SIZE_WAIVED_NEADJ = ['небитни', 'небитно', 'небитна', 'небитен', 'неважни', 'неважно', 'неважна'];
+const SIZE_WAIVED_NEADJ_L = ['nebitni', 'nebitno', 'nebitna', 'nebiten', 'nevazhni', 'nevazno', 'nevazna', 'nevazni'];
+const SIZE_WAIVED_NOUN_DEF = ['спалните', 'собите'];
+const SIZE_WAIVED_NOUN_DEF_L = ['spalnite', 'sobite'];
 // English size doesn't matter
 const SIZE_WAIVED_EN = ["size doesn't matter", "size does not matter", "any size", "no preference"];
 
@@ -366,6 +373,10 @@ export function buildSizeWaivedSlots(): RegExp {
   const ADJ = or([...SIZE_WAIVED_ADJ, ...SIZE_WAIVED_ADJ_L]);
   const ANY = or([...SIZE_WAIVED_ANY, ...SIZE_WAIVED_ANY_L]);
   const EN = or([...SIZE_WAIVED_EN]);
+  // NEADJ = fused negated adjective (небитни/nebitni…), NOUNDEF = definite noun
+  // (спалните/spalnite, собите/sobite) — the 13:53 “nebitni se spalnite“ forms.
+  const NEADJ = or([...SIZE_WAIVED_NEADJ, ...SIZE_WAIVED_NEADJ_L]);
+  const NOUNDEF = or([...SIZE_WAIVED_NOUN_DEF, ...SIZE_WAIVED_NOUN_DEF_L]);
   const s = (base: string) => base;
 
   const patterns = [
@@ -377,6 +388,15 @@ export function buildSizeWaivedSlots(): RegExp {
     s(ANY),
     // Slot: EN — “size doesn't matter“
     s(EN),
+    // Slot: NEADJ BE (SUBJ)? — “nebitni se spalnite“ / “небитни се спалните“
+    // / bare “nebitni se“ / “nebitno e“ — order-free: the noun may sit before
+    // or after, so both (NEADJ BE NOUNDEF?) and (NOUNDEF BE NEADJ) match.
+    s(`${NEADJ}${WS}(?:се|se|е|e)(?:${WS}${NOUNDEF})?`),
+    s(`${NOUNDEF}${WS}(?:се|се|se)${WS}${NEADJ}`),
+    // NOUN-first with clitics anywhere: “spalnite nebitni se“,
+    // “spalnite mi se nebitni“, “spalnite se nebitni“ — up to two clitic
+    // tokens (subject/beat-verb) between the noun and the fused negative.
+    s(`${NOUNDEF}${WS}(?:(?:${SUBJ}|се|se|е|e|и|i)${WS}){0,2}${NEADJ}(?:${WS}(?:се|se))?`),
     // “не ми се битни спални“ / “не ми се важни соби“
     s(`${NEG}${WS}${SUBJ}${WS}(?:се|се|се)${WS}(?:битни|важни|битни|важни|bitni|vazhni)${WS}(?:спални|соби|sobni|spalni)`),
     // “не ми требаат спални“ / “не ми требаат соби“
