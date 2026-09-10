@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { titleCase, cleanMacedonian, featurePhrases, locMatches, PropertyService, Property } from '../src/data/properties';
+import { detectLocation } from '../src/llm/deterministic';
+import { titleCase, cleanMacedonian, featurePhrases, locMatches, normalizeLocation, PropertyService, Property } from '../src/data/properties';
 
 class FakeProps extends PropertyService {
   constructor(private rows: Property[]) { super('http://fake-feed'); }
@@ -153,6 +154,57 @@ test('locMatches: a single-word query matches a multi-word feed location', () =>
   assert.equal(locMatches('дали е достапен 82?', 'Кисела Вода'), false);
   // exact short names still match via containment
   assert.equal(locMatches('што имате во Влае', 'Влае'), true);
+});
+
+test('locMatches: the bare CITY is city-wide, never a sub-district embedding it', () => {
+  // "skopje" must NOT resolve to "Скопје Север" — the district name embeds the
+  // city word, which carries no district identity (Skopje bug, 2026-09-10).
+  assert.equal(locMatches('skopje', 'Скопје Север'), false);
+  assert.equal(locMatches('во скопје', 'Скопје Север'), false);
+  assert.equal(locMatches('sakam da kupan stance vo skopje', 'Скопје Север'), false);
+  assert.equal(locMatches('sakam stan vo skopje', 'скопје север'), false);
+  // A real district ask still matches (alias + full name)
+  assert.equal(locMatches('skopje sever', 'Скопје Север'), true);
+  assert.equal(locMatches('sever', 'Скопје Север'), true);
+  assert.equal(locMatches('стан во Скопје Север', 'Скопје Север'), true);
+  // A bare-city FEED location still matches the bare-city ask
+  assert.equal(locMatches('skopje', 'скопје'), true);
+});
+
+test('locMatches: sibling settlements (Ново Лисиче vs Лисиче) never merge', () => {
+  // Adjacent but DISTINCT municipalities — a bare-base ask must not match the
+  // compound feed location, and vice versa. Same for Ново Маџари vs Маџари.
+  assert.equal(locMatches('vo lisice', 'Ново Лисиче'), false);
+  assert.equal(locMatches('lisice', 'Ново Лисиче'), false);
+  assert.equal(locMatches('novo lisice', 'Лисиче'), false);
+  assert.equal(locMatches('novo lisice', 'Ново Лисиче'), true);
+  assert.equal(locMatches('vo novo lisice', 'Ново Лисиче'), true);
+  assert.equal(locMatches('madjari', 'Ново Маџари'), false);
+  assert.equal(locMatches('novo madjari', 'Маџари'), false);
+  assert.equal(locMatches('novo madjari', 'Ново Маџари'), true);
+  // Cyrillic asks behave identically
+  assert.equal(locMatches('во лисиче', 'Ново Лисиче'), false);
+  assert.equal(locMatches('ново лисиче', 'Лисиче'), false);
+  // Base-word matching OUTSIDE a modifier compound survives (Карпош ⊃ Карпош III)
+  assert.equal(locMatches('STO IMAS VO KARPOS ?', 'Карпош III'), true);
+  // Mid-word containment never matches: 'novo lisice' does not contain 'vo lisice'
+  assert.equal(locMatches('vo lisice', 'novo lisice'), false);
+});
+
+test('detectLocation: the exact ask wins over its sibling settlement', () => {
+  const feed = ['Ново Лисиче', 'Лисиче', 'Ново Маџари', 'Маџари', 'Карпош III', 'Карпош'];
+  assert.equal(detectLocation('vo lisice', feed), 'Лисиче');
+  assert.equal(detectLocation('novo lisice', feed), 'Ново Лисиче');
+  assert.equal(detectLocation('vo novo madjari', feed), 'Ново Маџари');
+  assert.equal(detectLocation('vo madjari', feed), 'Маџари');
+  assert.equal(detectLocation('novo lisice, karpos', feed), 'Ново Лисиче, Карпош III');
+});
+
+test('normalizeLocation: Latin asks canonicalize to the feed spelling', () => {
+  assert.equal(normalizeLocation('novo lisice'), 'Ново Лисиче');
+  assert.equal(normalizeLocation('novo madjari'), 'Ново Маџари');
+  assert.equal(normalizeLocation('karpos'), 'Карпош');
+  assert.equal(normalizeLocation('kapistec'), 'Капиштец');
 });
 
 test('featurePhrases: "Клуч: Вредност" noise becomes clean Macedonian phrases', () => {

@@ -422,11 +422,24 @@ function locKeys(s: string): Set<string> {
   if (fromLatLoose !== low && fromLatLoose !== fromLat) keys.add(fromLatLoose);
   // Explicit alias: "autokomanda" → "автокоманда" (u/v confusion)
   // Check both the full string AND individual words ("madjari ili autokomanda")
-  const alias = LAT_ALIASES[low];
+  const alias = LAT_ALIASES[low]
+    // Also try the alias with a leading preposition stripped — a QUERY like
+    // 'vo novo madjari' must reach the compound alias ('novo madjari' →
+    // 'ново маџари') or it can never match its own neighborhood.
+    ?? LAT_ALIASES[low.replace(/^(?:vo|во|во|na|на)\s+/iu, '')];
   if (alias) keys.add(alias);
   for (const word of low.split(/\s+/)) {
     const wAlias = LAT_ALIASES[word];
-    if (wAlias) keys.add(wAlias);
+    if (!wAlias) continue;
+    // Sibling-settlement guard: 'novo lisice' must not gain the bare-base key
+    // ('lisice' → 'лисиче') — that would merge Ново Лисиче with Лисиче, two
+    // DIFFERENT municipalities. When every OTHER word of the query (leading
+    // prepositions stripped) is a settlement modifier, the word IS the
+    // compound's base — skip the alias. Bare 'lisice' and 'karpos 3' still
+    // get theirs.
+    const rest = low.split(/\s+/).filter(w => w !== word && !PREP_TOKENS.has(w));
+    if (rest.length > 0 && rest.every(w => SETTLEMENT_MOD_WORDS.has(w))) continue;
+    keys.add(wAlias);
   }
   return keys;
 }
@@ -441,6 +454,55 @@ function locKeys(s: string): Set<string> {
 const CITY_TOKEN_RE = /^(?:скопје|skopje|skapje)$/iu;
 const _stripCityWords = (ws: string[]): string[] => ws.filter(w => !CITY_TOKEN_RE.test(w));
 
+// SIBLING SETTLEMENTS: 'Ново Лисиче' is NOT a superset of 'Лисиче' — they are
+// adjacent but distinct municipalities (same for 'Ново Маџари' vs 'Маџари',
+// and any старо/горно/долно pair). Two keys that become EQUAL after stripping
+// a leading/trailing modifier denote DIFFERENT places, so the containment and
+// word-overlap stages below must never merge them. (A sub-district like
+// 'Карпош III' inside 'Карпош' still matches — the modifier rule does not
+// fire because the strings differ by the NUMBER, not by a modifier.)
+const SETTLEMENT_MODIFIER_RE = /^(?:ново|старо|горно|долно|novo|staro|gorno|dolno)\s+|\s+(?:ново|старо|горно|долно|novo|staro|gorno|dolno)$/iu;
+const _stripSettlementModifier = (s: string): string => s.replace(SETTLEMENT_MODIFIER_RE, '');
+const _siblingSettlements = (a: string, b: string): boolean => {
+  const sa = _stripSettlementModifier(a);
+  const sb = _stripSettlementModifier(b);
+  return (sa !== a || sb !== b) && sa === sb;
+};
+// Modifier words, used word-wise: a token flanked by one of these belongs to a
+// COMPOUND name ('novo lisice'), so the bare token must not independently
+// match a feed location ('Лисиче') in the word-overlap stage. Modifier tokens
+// themselves are never place names and never match either.
+const SETTLEMENT_MOD_WORDS = new Set(['ново', 'старо', 'горно', 'долно', 'novo', 'staro', 'gorno', 'dolno']);
+// Leading prepositions are stripped before alias/modifier logic — 'vo' is
+// grammar, not geography.
+const PREP_TOKENS = new Set(['vo', 'во', 'во', 'na', 'на', 'u', 'у']);
+const _modAdjacent = (ws: string[], i: number): boolean =>
+  (i > 0 && SETTLEMENT_MOD_WORDS.has(ws[i - 1])) || (i < ws.length - 1 && SETTLEMENT_MOD_WORDS.has(ws[i + 1]));
+/** Word-boundary containment that rejects mid-word overlaps ('novo lisice'
+ *  does NOT contain 'vo lisice' — the match starts inside 'novo') and overlaps
+ *  preceded by a settlement modifier ('novo lisice, karpos' does not contain
+ *  bare 'lisice' — that token names the SIBLING settlement). */
+function _containsLoc(small: string, big: string): boolean {
+  if (!small || small.length > big.length) return false;
+  const isWordCh = (ch: string) => /[\p{L}\p{N}]/u.test(ch);
+  let from = 0;
+  for (;;) {
+    const i = big.indexOf(small, from);
+    if (i === -1) return false;
+    const j = i + small.length;
+    const beforeOk = i === 0 || !isWordCh(big[i - 1]);
+    const afterOk = j === big.length || !isWordCh(big[j]);
+    if (beforeOk && afterOk) {
+      // Which word precedes the match? If it is a settlement modifier, the
+      // contained name is a compound's base — not the same place.
+      const head = big.slice(0, i).trim().split(/\s+/).filter(Boolean);
+      const prev = head.length > 0 ? head[head.length - 1] : '';
+      if (!prev || !SETTLEMENT_MOD_WORDS.has(prev)) return true;
+    }
+    from = i + 1;
+  }
+}
+
 export function locMatches(query: string, feedLoc: string): boolean {
   const qk = [...locKeys(query)].filter(k => k.length >= 2);
   const lk = [...locKeys(feedLoc)].filter(k => k.length >= 2);
@@ -454,7 +516,14 @@ export function locMatches(query: string, feedLoc: string): boolean {
       const aw0 = a.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
       const bw0 = b.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
       if (aw0.length === 1 && CITY_TOKEN_RE.test(aw0[0]) && bw0.length > 1) continue;
-      if (b.includes(a) || a.includes(b)) return true;
+      // Identical keys always match — MUST be checked before the sibling
+      // guard, which fires on any compound vs itself ('ново лисиче' strips to
+      // 'лисиче' on both sides).
+      if (a === b) return true;
+      // Sibling settlements (Ново Лисиче vs Лисиче) are distinct places —
+      // neither containment nor word-overlap may merge them.
+      if (_siblingSettlements(a, b)) continue;
+      if (_containsLoc(a, b) || _containsLoc(b, a)) return true;
       // Word-level: "sto imas vo karpos" contains the word "karpos", which is
       // a transliterated word of "Карпош III" — a client naming just the base
       // neighborhood must still match a multi-word feed location. Only words
@@ -462,9 +531,15 @@ export function locMatches(query: string, feedLoc: string): boolean {
       // short EXACT names already match via the containment check above).
       // Split on punctuation too: "centar, kisela voda" must yield the word
       // "centar" (a trailing comma used to break the match entirely).
-      const aw = a.split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 5);
-      const bw = b.split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 5);
-      if (_stripCityWords(aw).some(w => _stripCityWords(bw).includes(w))) return true;
+      // MODIFIER-ADJACENT tokens ("lisice" inside "novo lisice") and modifier
+      // words themselves are excluded — the compound names a DIFFERENT
+      // settlement than the bare token.
+      const bare = (toks: string[]) => toks.map((w, i) => ({ w, mod: _modAdjacent(toks, i) }))
+        .filter(x => x.w.length >= 5 && !CITY_TOKEN_RE.test(x.w) && !x.mod && !SETTLEMENT_MOD_WORDS.has(x.w))
+        .map(x => x.w);
+      const aw = bare(aw0);
+      const bw = bare(bw0);
+      if (aw.some(w => bw.includes(w))) return true;
     }
   }
   return false;
@@ -473,11 +548,31 @@ export function locMatches(query: string, feedLoc: string): boolean {
 /** Display form: Latin-typed locations are transliterated to canonical Cyrillic.
  *  Only when the string has NO Cyrillic at all — "Карпош III" must never become
  *  "Карпош иии" (the roman numeral is latin, not a latin spelling of the name). */
-export function normalizeLocation(s: string): string {
+/** Display form for TIME phrases ("utre vo 16:00" → "Утре во 16:00"):
+ *  Latin → Cyrillic, first letter capitalized — never titleCase (mid-phrase
+ *  "во" is grammar, not a place name) and never alias canonicalization.
+ *  Used by the owner ping-pong relay; normalizeLocation is for PLACES. */
+export function normalizeTimePhrase(s: string): string {
   const src = s.trim();
   const hasCyr = /[\u0400-\u04FF]/u.test(src);
   const cyr = hasCyr ? src : latToCyr(src);
   return cyr.charAt(0).toUpperCase() + cyr.slice(1);
+}
+
+export function normalizeLocation(s: string): string {
+  const src = s.trim();
+  const hasCyr = /[\u0400-\u04FF]/u.test(src);
+  const cyr = hasCyr ? src : latToCyr(src);
+  // Canonicalize to the FEED spelling when an alias maps to it ('novo lisice'
+  // → 'Ново Лисиче', never the raw transliteration 'Ново лисице') — slots
+  // echo in recaps and no-match lines, so the display form must be a real
+  // neighborhood name. Try the original string first (Latin aliases are keyed
+  // by their Latin spellings), then the transliterated form. titleCase
+  // restores the feed's per-word capitals ('ново лисиче' → 'Ново Лисиче');
+  // roman numerals stay uppercase ('карпош iii' → 'Карпош III').
+  const canon = LAT_ALIASES[src.toLowerCase()] ?? LAT_ALIASES[cyr.toLowerCase()];
+  const shown = canon ?? cyr;
+  return titleCase(shown).replace(/\b(?:i{1,3}|iv|vi{1,3})\b/gi, m => m.toUpperCase());
 }
 
 /**

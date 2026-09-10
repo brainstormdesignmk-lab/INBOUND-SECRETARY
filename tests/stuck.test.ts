@@ -1725,7 +1725,9 @@ test('a куќа funnel stays куќа through type-less detail messages — a �
   let s = await send('SAKAM DA KUPAM KUKJA');
   assert.equal(s.state, 'discovery');
   assert.equal(s.slots.house, true);
-  s = await send('VO LISICE ILI BUTEL');
+  // Unambiguous compound names — bare "lisice" is now its OWN neighborhood
+  // (sibling of Ново Лисиче) and must not silently widen to the compound.
+  s = await send('VO NOVO LISICE ILI BUTEL');
   assert.equal(s.state, 'discovery');
   assert.equal(s.slots.house, true);
   s = await send('DO 100.000');

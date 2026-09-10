@@ -1,5 +1,5 @@
 import { Service, State, Event } from '../fsm/machine';
-import { locMatches, normalizeLocation } from '../data/properties';
+import { locMatches, normalizeLocation, normalizeTimePhrase } from '../data/properties';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc } from './normalize';
 import { AVAILABILITY_LEXICON, toRegexAlt } from './morphology';
@@ -1180,7 +1180,7 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   // A refusal with only the refused day ("денес нема да можам" — no clock, no
   // alternative) is a BARE counter, not a proposal of the refused day itself.
   if (time && (!disagree || hasClock)) {
-    return withPrice({ status: 'counter', ownerTime: normalizeLocation(time) });
+    return withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(time) });
   }
   // Can't do the proposed time (no alternative given) → counter; the client
   // proposes another time and the owner is asked again.
