@@ -93,6 +93,7 @@ const ROWS: Property[] = [
   { eb: 48, id: 48, location: 'Карпош III', price: 250, service: 'rent' },
   { eb: 56, id: 56, location: undefined, price: 500, service: 'rent', business: true, sqm: 40 },
   { eb: 59, id: 59, location: 'Центар', address: 'Палома Бјанка', price: 950, service: 'rent', business: true, sqm: 105 },
+  { eb: 77, id: 77, location: 'Водно', price: 300, service: 'rent', bedrooms: 2, size: '35 м²' },
 ];
 
 function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent: string[] } {
@@ -321,6 +322,32 @@ test('availability first-ask: "DALI 78 SE IZDAVA USTE ?" hits the availability f
   // and the follow-up "DA" proceeds to the fee disclosure (the funnel works)
   s = await send('DA');
   assert.ok(/(?:денари|евра|провизи)/i.test(sent[1]), sent[1]);
+});
+
+test('location confirm: "ZNACI NA VODNO E" confirms the discussed property\'s neighborhood, never re-searches', async () => {
+  // The 21:27 field transcript: after a nearby-landmark answer, the client
+  // concludes the property is in Водно. The old behavior parsed "Водно" as a
+  // fresh search and replied "немам слободен имот во Водно" — about a
+  // property that IS in Водно. Lina must confirm or correct from the feed.
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'vodno-confirm';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // property under discussion: EB 77 (Водно, rent)
+  await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 77');
+  const s = await send('ZNACI NA VODNO E');
+  // CONFIRMATION, not a no-match search
+  assert.ok(/Точно, Станот со Евидентен број 77 се наоѓа во Водно/i.test(sent[1]), sent[1]);
+  assert.ok(!sent[1].includes('За жал'), sent[1]); // never the no-match line
+  assert.ok(!sent[1].includes('други локации'), sent[1]);
+  assert.equal(s.state, 'property_query'); // stays put
+
+  // a WRONG conclusion gets corrected from the feed
+  const { handler: h2, sessions: ss2, sent: sent2 } = makeHandler();
+  const send2 = async (m: string) => { await h2.handle('test', 'vodno-wrong', m); return ss2.get('vodno-wrong')!; };
+  await send2('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 77');
+  await send2('ZNACI NA KARPOS E');
+  assert.ok(/всушност се наоѓа во Водно/i.test(sent2[1]), sent2[1]);
 });
 
 test('STAPI VO KONTAKT I INFORMIRAJ ME in closing = contact order, not the documents lecture', async () => {

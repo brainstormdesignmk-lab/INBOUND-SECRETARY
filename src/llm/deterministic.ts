@@ -1922,6 +1922,32 @@ export function detectMortgageAsk(text: string): boolean {
   return matchesBoth(MORTGAGE_RE, text);
 }
 
+// Location confirmation about the property under discussion — "ZNACI NA
+// VODNO E" (21:27), "znaci e vo vodno", "dakle vo karpos, ne?". The client
+// draws a conclusion (or asks) about WHERE the discussed property is. This is
+// NOT a new search: Lina must confirm or correct against the property's
+// actual feed location. Structure: (znaci/dakle/togas/значи/дакле/тогаш or
+// question tail) + a feed neighborhood. A bare neighborhood alone is a SEARCH
+// (existing behavior) — only the confirmation markers make it a confirmation.
+const LOC_CONFIRM_MARKERS_RE =
+  /(?:znaci|dakle|togas|taka|deka|значи|дакле|тогаш|така|дека|zgodno|dobro\s*deka)/iu;
+const LOC_CONFIRM_QUESTION_RE =
+  /(?:na?\s+vodno|vo\s+vodno)|(?:\?\s*$)|(?:ne\s*\?)|(?:dali\s)/iu;
+
+/**
+ * True when the message looks like a location CONFIRMATION about the property
+ * under discussion ("znaci na vodno e", "znaci e vo vodno ne?") rather than a
+ * fresh search. Requires BOTH: a confirmation marker (znaci/dakle/togash…)
+ * AND a neighborhood mention. The caller still verifies the named area
+ * against the actual property location — this only guards the detector class.
+ */
+export function detectLocationConfirm(text: string): boolean {
+  if (!matchesBoth(LOC_CONFIRM_MARKERS_RE, text)) return false;
+  // question tails ("...vo vodno, ne?") or the marker family are enough here;
+  // the neighborhood itself is verified by the caller (needs the feed list).
+  return true;
+}
+
 // Neighborhood general: the client asks general questions about neighborhoods.
 const NEIGHBORHOOD_RE =
   /(?:во\s+(?:која|кој)\s+(?:населба|дел|локаци|део|neighborhood|area|part)\s+(?:е\s+)?(?:најдобро|подобро|популарно|барано|барана|супер|одлично|добро)|(?:како\s+е|што\s+е|какво\s+е|каков\s+е|каква\s+е)\s+во\s+(?:центар|капиштец|карпош|аеродром|кисела\s+вода|влае|ѓорче|маџари|хиподром|ченто|орце|пржино|тафталиџе|кареа)|(?:безбедно|сигурно)\s+(?:ли\s+е|е\s+ли|во)|safe\s+(?:in|area|neighborhood)|населба(?:\s|$)|кварт(?:\s|$)|реон(?:\s|$)|лиjspx|neighborhood(?:\s|$)|area(?:\s|$))/iu;
@@ -1997,7 +2023,8 @@ export function fsmRequired(text: string): boolean {
     || detectAgreement(text)
     || detectRejection(text)
     || detectEyeCatch(text)
-    || detectPriceReference(text);
+    || detectPriceReference(text)
+    || detectLocationConfirm(text);
 }
 
 export function buildEvent(state: State, slots: DetectedSlots): Event {

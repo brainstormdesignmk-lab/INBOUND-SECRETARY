@@ -10,7 +10,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired } from '../llm/deterministic';
 import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
@@ -1491,6 +1491,43 @@ ${contactReminder}`;
       reply = pickVariant('investment.opinion', { recent: assistantTexts(session) })
         ?? 'Разбирам. Цените ги одредуваат сопствениците, а ние сме само посредници. Дали сакате да Ви понудам некои опции во друг реон, или да го контактирам сопственикот за моменталната цена?';
       bankKey = 'investment.opinion';
+    } else if (detectLocationConfirm(text)
+        && (before === 'property_query' || before === 'presentation' || before === 'closing' || before === 'property_locate')
+        && session.slots.location
+        && (session.slots.propertyId || session.slots.interestedPropertyId || session.slots.presentedIds?.length)
+        // Search criteria in the same message ("znaci sakam stan vo vodno do
+        // 300") = a real request, never a confirmation
+        && !detectBudget(text) && !detectService(text) && !detectBothServices(text)
+        && !detectHouse(text) && !detectBusiness(text)) {
+      // Location confirmation about the property under discussion — "ZNACI NA
+      // VODNO E" (21:27). The client draws a conclusion about WHERE the
+      // discussed property is; Lina must CONFIRM or CORRECT against the
+      // property's actual feed location. Never a re-search: the old behavior
+      // parsed the named neighborhood as a fresh request and answered "немам
+      // слободен имот во Водно" about a property that IS in Водно — stupid.
+      const confEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+        ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
+      const confProp = confEb != null
+        ? await this.deps.properties.getById(confEb).catch(() => undefined)
+        : undefined;
+      if (confProp?.location) {
+        // Strip "(населба)" feed disambiguator — internal, not spoken language
+        const actualLoc = confProp.location.replace(/\s*\([^)]*\)\s*$/, '');
+        const namedLoc = session.slots.location;
+        const agree = locMatches(namedLoc, confProp.location) || locMatches(actualLoc, namedLoc);
+        const confType = confProp.house ? 'Куќата' : confProp.business ? 'Деловниот простор' : 'Станот';
+        // Anchor the context: the discussion is about this property's area now
+        session.slots.location = actualLoc;
+        reply = agree
+          ? `Точно, ${confType} со Евидентен број ${confProp.eb} се наоѓа во ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`
+          : `Не, ${confType} со Евидентен број ${confProp.eb} всушност се наоѓа во ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`;
+        bankKey = 'location.confirm';
+        // A confirmation is not a transition — stay in the current state
+        session.state = before;
+        next = before;
+      }
+      // No property context/location -> fall through: the guard above already
+      // required a discussion anchor, but a locationless feed row lands here.
     } else if (next === 'presentation' && props.length === 0
         && !detectInvestmentOpinion(text)
         && !detectProvisionAsk(text) && !detectProvisionWho(text)) {
