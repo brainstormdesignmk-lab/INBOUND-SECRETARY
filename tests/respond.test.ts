@@ -39,10 +39,13 @@ test('guardText: policy pivot outside presentation is ALWAYS junk — the [10:50
   const za = guardText('closing', 'Разбирам. За да Ви помогнам, еве ги следните предлози: **Евидентен број 53**');
   assert.equal(za, 'Разбирам.', za);
 
-  // A reply that is ENTIRELY a pivot gets the state's fallback line.
+  // A reply that is ENTIRELY a pivot gets the state's fallback line. The
+  // fallback pool rotates (9 discovery variants, several legitimately contain
+  // the word "опции") — the contract is: the STATE's line served, pivot gone.
   const only = guardText('discovery', 'Со цел да Ви помогнам да најдете соодветен имот, еве ги следните достапни опции од нашата база.');
   assert.ok(only.length > 0, only);
-  assert.ok(!only.includes('опции'), only);
+  assert.ok(!only.includes('Со цел') && !only.includes('еве ги следните'), only);
+  assert.ok(!only.includes('Евидентен број'), only);
 
   // Legit one-topic answers pass untouched — the guard must not eat a policy
   // sentence that merely CONTAINS "со цел".

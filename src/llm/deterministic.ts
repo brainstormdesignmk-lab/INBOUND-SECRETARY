@@ -1311,7 +1311,7 @@ const NEARBY_ALT_RE = new RegExp(
   'iu');
 
 const NEARBY_RE = /(?:што|што|што|wхат|кој|кое|кој|кое)\s+(?:има|има|хаве|имате)\s+(?:во|во|v|неар)\s+(?:близина|близина|вицинитy)|(?:во|во|v|неар)\s+(?:близина|близина|вицинитy)(?:\s*\?|$)|wхат\s+(?:ис\s+)?неарбy|цо\s+је\s+(?:v\s+)?близини/iu;
-const WHERE_IS_DETERMINER = /^(?:тоа|toa|тој|toj|таа|taa|ова|ova|оваа|ovaa|овој|ovoj|она|ona|онаа|onaa|оној|onoj|the|that|it)\s+/iu;
+const WHERE_IS_DETERMINER = /^(?:тоа|toa|тој|toj|таа|taa|ова|ova|оваа|ovaa|овој|ovoj|она|ona|онаа|onaa|оној|onoj|the|that|it)(?:\s+|$)/iu;
 // Generic referents = the last shown property, not a named place.
 const WHERE_IS_GENERIC =
   /^(?:деловниот простор|delovniot prostor|деловен простор|deloven prostor|локалот|lokalot|локал|lokal|станот|stanot|стан|stan|куќата|kukjata|kukata|куќа|kukja|kuka|зградата|zgradata|зграда|zgrada|имотот|imotot|имот|imot|објектот|objektot|објект|objekt)$/iu;
@@ -1485,14 +1485,23 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   const m = text.match(WHERE_IS_RE);
   if (!m) return undefined;
   let rest = text.slice((m.index ?? 0) + m[0].length).trim();
-  rest = rest.replace(WHERE_IS_DETERMINER, '').replace(/[?!.]+$/u, '').trim();
-  // Strip trailing clauses after a comma — "кaj се наоѓа, за да знам дали е за мене"
+  rest = rest.replace(/[?!.]+$/u, '').replace(WHERE_IS_DETERMINER, '').trim();  // Strip trailing clauses after a comma — "кaj се наоѓа, за да знам дали е за мене"
   // The part after the comma is a reason/explanation, not a place name.
   rest = rest.replace(/,.*$/u, '').trim();
-  // "каде се наоѓа?" / "where is it?" — no named place, means the last
-  // shown property (same as bare "каде?"). Without this, the verb form
-  // falls through to the classifier and re-shows the property card.
-  if (!rest) return { place: '', generic: true };
+  // "каде се наоѓа?" / "where is it?" — no named place after the verb.
+  // BUT the place can sit BEFORE the каде-phrase ("ovoj 76 kade se naogja?"):
+  // the extractor above only reads what FOLLOWS the verb, so a pre-verbal EB
+  // was lost → generic:true → the handler answered about the LAST SHOWN
+  // property (13:12 bug: client asked 76, got the Ѓорче Петров landmark of
+  // the previously presented EB 41). Recover a trailing EB from the prefix.
+  if (!rest) {
+    const pre = (m.index !== undefined ? text.slice(0, m.index) : '')
+      .replace(/[?!.:,;\s]+$/u, '').trim();
+    const preBare = pre.replace(WHERE_IS_DETERMINER, '').trim();
+    const preEb = preBare.match(/(?:^|\s)(\d{1,5})$/u);
+    if (preEb) return { place: preEb[1], generic: false };
+    return { place: '', generic: true };
+  }
   if (WHERE_IS_GENERIC.test(rest)) return { place: '', generic: true };
   // EB number: "каде е 89?" — look up directly by evidence number.
   const ebRest = rest.replace(/(?:евидентен\s+)?(?:број|broj|еб|eb)\s*/iu, '').trim();

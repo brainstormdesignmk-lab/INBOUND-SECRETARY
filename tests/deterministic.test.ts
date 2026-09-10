@@ -161,6 +161,20 @@ test('detectWhereIs: "каде е X?" is a place question, never a search', () =
   assert.deepEqual(detectWhereIs('каде е?'), { place: '', generic: true });
   assert.deepEqual(detectWhereIs('каде се наоѓа?'), { place: '', generic: true });
   assert.deepEqual(detectWhereIs('kade se naogja?'), { place: '', generic: true });
+  // EB BEFORE the каде-phrase ("ovoj 76 kade se naogja?") — the extractor
+  // only reads what follows the verb, so the pre-verbal EB was lost →
+  // generic → answered about the LAST SHOWN property (13:12 bug: client
+  // asked 76 after a presentation of 48/41, got EB 41's Ѓорче Петров
+  // landmark). The prefix must yield the trailing EB as the place.
+  assert.deepEqual(detectWhereIs('ovoj 76 kade se naogja ?'), { place: '76', generic: false });
+  assert.deepEqual(detectWhereIs('OVOJ 76 KADE SE NAOGJA?'), { place: '76', generic: false });
+  assert.deepEqual(detectWhereIs('ovoj stan 76 kade se naogja?'), { place: '76', generic: false });
+  assert.deepEqual(detectWhereIs('toj 89 kade e?'), { place: '89', generic: false });
+  assert.deepEqual(detectWhereIs('а 76 каде се наоѓа?'), { place: '76', generic: false });
+  assert.deepEqual(detectWhereIs('станот 41 каде е?'), { place: '41', generic: false });
+  // …while a bare determiner with no number stays generic
+  assert.deepEqual(detectWhereIs('kade e toj?'), { place: '', generic: true });
+  assert.deepEqual(detectWhereIs('ovoj stan kade se naogja?'), { place: '', generic: true });
   // Verb-family tolerance: doubled-vowel typos and person endings must consume
   // the verb so a trailing property-type word stays generic (regression: the
   // old single-form verb list left "naogjaa stanot" as a fake place name).
@@ -473,6 +487,29 @@ test('detectAgreement: exits the exhausted dead-end, never misfires on questions
   assert.equal(detectAgreement('moze da'), true);
   assert.equal(detectAgreement('може'), true);
   assert.equal(detectAgreement('може да'), true);
+});
+
+test('detectAgreement: the openness family answers Lina\'s "Дали сте отворени…?" question', () => {
+  // The client repeating LINA'S OWN WORDS back is a confirmation — both
+  // scripts, both genders, with/without "jas", bare one-word answers.
+  assert.equal(detectAgreement('otvoren sum'), true);
+  assert.equal(detectAgreement('ОТВОРЕН СУМ'), true);
+  assert.equal(detectAgreement('otvorena sum'), true);
+  assert.equal(detectAgreement('jas sum otvoren'), true);
+  assert.equal(detectAgreement('Јас сум отворена'), true);
+  assert.equal(detectAgreement('otvoren'), true);
+  assert.equal(detectAgreement('отворена'), true);
+  assert.equal(detectAgreement('spremna sum'), true);
+  assert.equal(detectAgreement('спреман сум'), true);
+  assert.equal(detectAgreement('podgotven sum'), true);
+  assert.equal(detectAgreement('подготвена сум'), true);
+  // Negated openness is a REFUSAL, never agreement
+  assert.equal(detectAgreement('ne sum otvoren'), false);
+  assert.equal(detectAgreement('НЕ СУМ ОТВОРЕНА'), false);
+  assert.equal(detectAgreement('ne spremna'), false);
+  // Unrelated words containing the stems stay clean
+  assert.equal(detectAgreement('otvorena vrata'), false);
+  assert.equal(detectAgreement('spremni parici'), false);
 });
 
 test('detectVisitInterest: "кога може да се погледне" / "дали е достапен" / "сакам да ја видам" are visit interest', () => {

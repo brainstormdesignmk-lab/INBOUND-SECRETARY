@@ -1947,6 +1947,94 @@ test('burst: "go gledav ova 89" then "kaj se naogja" — where-is after seen-pro
   assert.ok(!sent[3].includes('110.000'), `no price card: ${sent[3]}`);
 });
 
+test('E2E: "ovoj 76 kade se naogja?" after presenting 48+41 answers about EB 76, not shown[last] (13:12 bug)', async () => {
+  // The 13:12 transcript: presentation showed EB 48 (Карпош III) + EB 41
+  // (Ѓорче Петров). The client then asked "ovoj 76 kade se naogja ?" — the
+  // EB sits BEFORE the каде-phrase, the extractor read only what follows
+  // the verb → generic:true → the handler served shown[last] = EB 41 and
+  // gave a Карпош-area landmark for a Центар property.
+  const rows: Property[] = [
+    { eb: 48, id: 48, location: 'Карпош III', price: 250, service: 'rent' },
+    { eb: 41, id: 41, location: 'Ѓорче Петров', price: 250, service: 'rent' },
+    { eb: 76, id: 76, location: 'Центар', address: 'Партизанска', price: 200, service: 'rent', lat: 41.9960, lon: 21.4172, geo_source: 'google' },
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(rows);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+  });
+  const chatId = 'eb-prefix-whereis';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZDRAVO');
+  await send('SAKAM DA IZNAJMAM STAN');
+  await send('minimum 2 spalni');
+  await send('do 250 evra');
+  await send('bilo kade');
+  // Presentation fills shown[] → shown[last] = EB 48 (Карпош III)
+  const s5 = sessions.get(chatId)!;
+  assert.ok((s5.slots.presentedIds ?? []).length >= 2, `presentation must show properties: ${JSON.stringify(s5.slots.presentedIds)}`);
+
+  // The client asks about 76 BY NUMBER, pre-verbal — must resolve EB 76
+  await send('ovoj 76 kade se naogja ?');
+  const s6 = sessions.get(chatId)!;
+  assert.equal(s6.slots.propertyId, 76, `the named EB must become the context property: ${s6.slots.propertyId}`);
+  const preReply = sent[sent.length - 1];
+  assert.ok(preReply, 'must answer');
+  assert.ok(preReply.includes('Центар'), `must answer about EB 76 (Центар): ${preReply}`);
+  assert.ok(!preReply.includes('Карпош') && !preReply.includes('Ѓорче') && !preReply.includes('Горче'),
+    `must NOT answer with the last shown property's area (EB 48, Карпош III): ${preReply}`);
+});
+
+test('E2E: post-verbal "kade se naogja 76?" after presentation still resolves EB 76', async () => {
+  const rows: Property[] = [
+    { eb: 48, id: 48, location: 'Карпош III', price: 250, service: 'rent' },
+    { eb: 41, id: 41, location: 'Ѓорче Петров', price: 250, service: 'rent' },
+    { eb: 76, id: 76, location: 'Центар', address: 'Партизанска', price: 200, service: 'rent', lat: 41.9960, lon: 21.4172, geo_source: 'google' },
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(rows);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+  });
+  const chatId = 'eb-postverbal-whereis';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZDRAVO');
+  await send('SAKAM DA IZNAJMAM STAN');
+  await send('minimum 2 spalni');
+  await send('do 250 evra');
+  await send('bilo kade');
+  await send('kade se naogja 76?');
+  const s6 = sessions.get(chatId)!;
+  assert.equal(s6.slots.propertyId, 76, `named EB must win: ${s6.slots.propertyId}`);
+  const postReply = sent[sent.length - 1];
+  assert.ok(postReply, 'must answer');
+  assert.ok(postReply.includes('Центар'), `must answer about EB 76 (Центар): ${postReply}`);
+  assert.ok(!postReply.includes('Карпош') && !postReply.includes('Ѓорче') && !postReply.includes('Горче'),
+    `must NOT answer with EB 48's area: ${postReply}`);
+});
+
 test('bedroom mismatch: 2-bedroom requested but only 3-bedroom available → explanation prefix', async () => {
   const cfg = loadConfig();
   const db = new Db(':memory:');
