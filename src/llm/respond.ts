@@ -98,23 +98,41 @@ export function guardText(state: State, text: string, publicSiteUrl?: string, re
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
   // JUNK-PIVOT CUT: the model often tacks "Во меѓувреме, ги издвоив следните
-  // достапни предлози…" onto an unrelated answer and starts listing OTHER
-  // properties the client never asked about. That pivot is the presentation
-  // engine's job — strip it and everything after it deterministically.
-  // Also strips the '**Евидентен број' bullet-list spawn that followed it.
-  // EXEMPTION: the code-built presentation OPENER legitimately contains
-  // "ги издвоив следниве неколку опции:" ON LINE 1 of the card reply. The cut
-  // therefore only fires when the match is NOT on line 1, OR the junk pivot's
-  // signature "Во меѓувреме" appears anywhere (the opener never contains it).
-  // Without the exemption the guard randomly ATE the whole fallback card
-  // (opener rotated onto the matching phrase → pivotIdx landed inside line 1
-  // → EB card and closer sliced off) — the sources.test.ts flake.
-  const pivotIdx = out.search(/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве)/iu);
-  if (pivotIdx > 0) {
+  // достапни предлози…" (or "Со цел да Ви помогнам… еве ги следните достапни
+  // опции…**Евидентен број 63**") onto an unrelated answer and starts listing
+  // OTHER properties the client never asked about — the [10:50] GLUPOSTI
+  // transcript: a policy complaint answered, then an EB-63 card bolted on.
+  // That pivot is the presentation engine's job — strip it and everything
+  // after it deterministically. Also strips the '**Евидентен број' bullet-list
+  // spawn that followed it.
+  // STATE AWARENESS: in presentation/property_locate a pivot into listings IS
+  // the reply — there the cut stays conservative (not on line 1, or the
+  // "Во меѓувреме" signature anywhere). In every OTHER state (closing,
+  // discovery, contact_collection, owner_checking, …) the state's job is never
+  // "list properties", so ANY pivot signature anywhere in the reply is junk —
+  // the line-1 exemption would preserve a reply that is ENTIRELY a pivot.
+  // EXEMPTION (presentation states): the code-built presentation OPENER
+  // legitimately contains "ги издвоив следниве неколку опции:" ON LINE 1 of
+  // the card reply. The cut therefore only fires when the match is NOT on
+  // line 1, OR the junk pivot's signature "Во меѓувреме" appears anywhere (the
+  // opener never contains it). Without the exemption the guard randomly ATE
+  // the whole fallback card (opener rotated onto the matching phrase →
+  // pivotIdx landed inside line 1 → EB card and closer sliced off) — the
+  // sources.test.ts flake.
+  const pivotIdx = out.search(/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu);
+  if (pivotIdx >= 0) {
+    const presentationState = state === 'presentation' || state === 'property_locate';
     const firstLineEnd = out.indexOf('\n');
     const inFirstLine = firstLineEnd === -1 || pivotIdx < firstLineEnd;
-    if (!inFirstLine || /во\s+меѓувреме/iu.test(out)) {
+    const cut = presentationState
+      ? pivotIdx > 0 && (!inFirstLine || /во\s+меѓувреме/iu.test(out))
+      : true;
+    if (cut) {
       out = out.slice(0, pivotIdx).trim();
+      if (!out) {
+        // The whole reply was a pivot — serve the state's code-built line.
+        return fallbackVariant(state, recent) ?? FALLBACKS[state] ?? FALLBACKS.default;
+      }
     }
   }
   // TRUNCATED-ENDING REPAIR: an LLM answer that stops mid-sentence (token cap,

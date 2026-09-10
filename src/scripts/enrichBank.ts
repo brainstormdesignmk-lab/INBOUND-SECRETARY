@@ -180,10 +180,12 @@ function replyIsClean(reply: string): boolean {
   // stored **Локација:** bullets — correct facts, wrong format for chat).
   if (/\*\*|^#|^-\s/m.test(out)) return false;
   // JUNK-PIVOT GUARD: a line that pivots into presenting OTHER properties
-  // ("Во меѓувреме, ги издвоив следните достапни предлози…") is presentation-
-  // engine behavior, never bank prose — the runtime sanitizer cuts it from
-  // replies, so the bank must not store it either.
-  if (/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве)/iu.test(out)) return false;
+  // ("Во меѓувреме, ги издвоив следните достапни предлози…", "Со цел да Ви
+  // помогнам… еве ги следните достапни опции…") is presentation-engine
+  // behavior, never bank prose — the runtime sanitizer cuts it from replies,
+  // so the bank must not store it either. Same regex as the runtime pivot
+  // signature in guardText (respond.ts) — keep them in sync.
+  if (/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu.test(out)) return false;
   // COMPLETENESS GUARD: a line that ends mid-sentence (no terminal mark) is a
   // truncation artifact (token cap / stream cut). Banking it would serve
   // broken sentences to clients forever. Reject — only complete sentences

@@ -25,6 +25,31 @@ test('guardText: junk property pivot is cut (Во меѓувреме…)', () =>
   assert.ok(!answer.includes('Евидентен број 75'), answer);
 });
 
+test('guardText: policy pivot outside presentation is ALWAYS junk — the [10:50] GLUPOSTI transcript', () => {
+  // The client vented about the address-privacy rule; Gemini answered the
+  // complaint CORRECTLY, then bolted an EB-63 card onto it. In a non-
+  // presentation state ANY pivot signature is junk — even as the opening.
+  const transcript = 'Ја разбирам Вашата реакција и жал ми е доколку нашите процедури Ви изгледаат така, но тие се востановени правила на агенцијата со цел заштита и сигурност на сите страни.\n\nСо цел да Ви помогнам да најдете соодветен имот, еве ги следните достапни опции од нашата база:\n\n**Евидентен број 63**\n- Локација: Центар (населба)\n- Цена: 36.000 евра';
+  const answer = guardText('closing', transcript);
+  assert.ok(answer.startsWith('Ја разбирам Вашата реакција'), answer);
+  assert.ok(!answer.includes('Со цел да Ви помогнам'), answer);
+  assert.ok(!answer.includes('Евидентен број 63'), answer);
+
+  // 'За да Ви помогнам' variant — same pivot family.
+  const za = guardText('closing', 'Разбирам. За да Ви помогнам, еве ги следните предлози: **Евидентен број 53**');
+  assert.equal(za, 'Разбирам.', za);
+
+  // A reply that is ENTIRELY a pivot gets the state's fallback line.
+  const only = guardText('discovery', 'Со цел да Ви помогнам да најдете соодветен имот, еве ги следните достапни опции од нашата база.');
+  assert.ok(only.length > 0, only);
+  assert.ok(!only.includes('опции'), only);
+
+  // Legit one-topic answers pass untouched — the guard must not eat a policy
+  // sentence that merely CONTAINS "со цел".
+  const legit = 'Тие се востановени правила на агенцијата со цел заштита и сигурност на сите страни.';
+  assert.equal(guardText('closing', legit), legit);
+});
+
 test('guardText: truncated ending is cut back to the last complete sentence', () => {
   const out = guardText('presentation',
     'Секоја недвижнина има своја клиентела. За да знаете дали е нешто за Вас, треба да го осетите просторот');
