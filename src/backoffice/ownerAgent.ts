@@ -64,6 +64,18 @@ export class DeferredOwnerAgent implements OwnerAgent {
 
   check(chatId: string, eb: number, proposedTime: string): Promise<OwnerVerdict> {
     this.events.insert('owner_check_requested', chatId, eb, { proposedTime });
+    const requestedAt = Date.now();
+    // STALE-EVENT GUARD: a previous check for the same chatId+EB can leave an
+    // owner_check_result on the bus (process died/restarted between insert and
+    // poll). Without a guard the NEXT check consumes that leftover instantly —
+    // Lina relays a "counter: 19:00" verdict the owner NEVER GAVE for THIS
+    // visit. Events older than the request are junk from the past: consume AND
+    // resolve them so they can never fire again, but never act on them.
+    for (const stale of this.events.listPending('owner_check_result')
+      .filter(r => r.chatId === chatId && r.eb === eb && (r.createdAt ?? 0) < requestedAt)) {
+      this.events.resolve(stale.id);
+      console.error(`[owner] dropped stale owner_check_result (id=${stale.id}) predating this check for chat=${chatId} eb=${eb}`);
+    }
     return new Promise<OwnerVerdict>(resolve => {
       this.pending.set(chatId, { eb, resolve });
       // Cross-process: Hermes (machine B) answers through the /hermes/v1 API,
@@ -76,8 +88,11 @@ export class DeferredOwnerAgent implements OwnerAgent {
           clearInterval(poll);
           return;
         }
+        // ONLY events created AFTER this check was requested count — anything
+        // older is a leftover from a previous visit (see the stale guard above;
+        // belt-and-braces: double-checked at consumption time).
         const hit = this.events.listPending('owner_check_result')
-          .find(r => r.chatId === chatId && r.eb === eb);
+          .find(r => r.chatId === chatId && r.eb === eb && (r.createdAt ?? 0) >= requestedAt);
         if (!hit) return;
         clearInterval(poll);
         this.pending.delete(chatId);
