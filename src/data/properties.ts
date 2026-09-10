@@ -431,12 +431,29 @@ function locKeys(s: string): Set<string> {
   return keys;
 }
 
+// CITY ≠ DISTRICT: a feed location that is a SUB-DISTRICT of the city
+// ("Скопје Север") must NOT be matched by a bare city mention ("skopje",
+// "во Скопје", "sakam stan vo skopje") — the city word is embedded in every
+// such district name, so it carries no district identity. Enforced at the
+// WORD-overlap stage below by excluding city tokens; a real district ask
+// ("skopje sever", alias "sever") still matches at the KEY level via the
+// alias map, and a feed location that IS the bare city matches there too.
+const CITY_TOKEN_RE = /^(?:скопје|skopje|skapje)$/iu;
+const _stripCityWords = (ws: string[]): string[] => ws.filter(w => !CITY_TOKEN_RE.test(w));
+
 export function locMatches(query: string, feedLoc: string): boolean {
   const qk = [...locKeys(query)].filter(k => k.length >= 2);
   const lk = [...locKeys(feedLoc)].filter(k => k.length >= 2);
   if (!qk.length || !lk.length) return false; // a property with NO location never matches a location query
   for (const a of qk) {
     for (const b of lk) {
+      // City ≠ district at KEY level: a bare city key ("skopje") must not be
+      // swallowed by a multi-word district key that merely embeds the city
+      // word ("skopje sever"). The reverse (district ask → bare-city feed)
+      // stays a match: the district IS inside the city.
+      const aw0 = a.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+      const bw0 = b.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+      if (aw0.length === 1 && CITY_TOKEN_RE.test(aw0[0]) && bw0.length > 1) continue;
       if (b.includes(a) || a.includes(b)) return true;
       // Word-level: "sto imas vo karpos" contains the word "karpos", which is
       // a transliterated word of "Карпош III" — a client naming just the base
@@ -447,7 +464,7 @@ export function locMatches(query: string, feedLoc: string): boolean {
       // "centar" (a trailing comma used to break the match entirely).
       const aw = a.split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 5);
       const bw = b.split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 5);
-      if (aw.some(w => bw.includes(w))) return true;
+      if (_stripCityWords(aw).some(w => _stripCityWords(bw).includes(w))) return true;
     }
   }
   return false;

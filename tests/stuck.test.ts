@@ -167,6 +167,43 @@ test('stuck loop: an area switch re-targets, exhaustion ASKS, agreement widens',
   assert.ok(!sent[5].includes('Ги исцрпивме'), sent[5]);
 });
 
+test('bare-city ask: "stance vo skopje" never pins a district; openness answers city-wide', async () => {
+  // The [21:19] transcript: a client from another city asks for an apartment in
+  // the CAPITAL ("skopje") — Lina resolved it to the district Скопје Север,
+  // then looped the location ask at "otvoren sum". The contract:
+  //   1. bare "skopje" fills NO location slot -> the standard full question
+  //      (населба/дел од градот) is asked like for any other criteria gap;
+  //   2. "otvoren sum" ANSWERING that ask = "no preference" -> city-wide
+  //      presentation, never a loop and never a contact-collection push.
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'vlade';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  let s = await send('sakam da kupam stan vo skopje');
+  assert.notEqual(s.slots.location, 'Скопје Север');
+  assert.equal(s.state, 'discovery');
+
+  s = await send('minimum 2 spalni');
+  assert.equal(s.state, 'discovery');
+
+  s = await send('do 180 000');
+  // Criteria incomplete (no location) -> the standard location question, NOT a
+  // no-match line about a district the client never named.
+  assert.equal(s.state, 'discovery');
+  assert.ok(/населба|дел од градот|локација/i.test(sent[sent.length - 1]), sent[sent.length - 1]);
+
+  // The openness answer means "anywhere" -> the funnel completes city-wide.
+  s = await send('otvoren sum');
+  assert.equal(s.state, 'presentation');
+  assert.equal(s.slots.anywhere, true);
+  assert.ok(/Евидентен број \d+/.test(sent[sent.length - 1]), sent[sent.length - 1]);
+
+  // Anti-regression: an EXPLICIT district ask still pins the district.
+  const chat2 = 'gordana';
+  await handler.handle('test', chat2, 'sakam da kupam stan vo kisela voda');
+  assert.equal(sessions.get(chat2)!.slots.location, 'Кисела Вода');
+});
+
 test('multi-area selection: "помало нешто" and bedroom follow-ups stay INSIDE the named areas (never Влае)', async () => {
   // The Влае-spill transcript: "pa moze centar, kisela voda, aerodrom" then
   // "pomalo nesto" / "nesto so edna spalna?" — every presentation must stay in

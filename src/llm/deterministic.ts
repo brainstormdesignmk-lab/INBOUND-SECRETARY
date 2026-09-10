@@ -679,6 +679,17 @@ export function detectSqm(text: string): number | undefined {
 // Agreement/contact-intent phrases — the escape hatch from the exhausted
 // dead-end ("добро", "контактирај ме" after every option was shown).
 const AGREE_PHRASES = ['во ред', 'vo red', 'се согласувам', 'se soglasuvam',
+  // "отворен/отворена сум", "спреман/спремна сум", "подготвен/подготвена сум" —
+  // the client ANSWERING Lina's "Дали сте отворени за предлози во други
+  // делови од градот?" with the very words SHE used. Grammar-family: the
+  // adjective in both genders + "sum/сум" in either order ("отворен сум",
+  // "јас сум отворен"), script-independent via normalizeMc.
+  'отворен сум', 'отворена сум', 'otvoren sum', 'otvorena sum',
+  'jas sum otvoren', 'jas sum otvorena',
+  'спреман сум', 'спремна сум', 'spreman sum', 'spremna sum',
+  'jas sum spreman', 'jas sum spremna',
+  'подготвен сум', 'подготвена сум', 'podgotven sum', 'podgotvena sum',
+  'jas sum podgotven', 'jas sum podgotvena',
   'контактирај ме', 'контактирајте ме', 'kontaktiraj me', 'kontaktirajte me',
   'запиши ме', 'запишете ме', 'prijavete me',
   // "стапи во контакт …" — the client ORDERS the contact themselves. Same
@@ -689,6 +700,13 @@ const AGREE_WORDS = new Set(['добро', 'ок', 'да', 'може', 'согл
   'согласувам', 'запиши', 'запишете', 'контактирај', 'контактирајте', 'регистрирај',
   'ok', 'dobro', 'moze', 'da', 'soglasen', 'soglasna', 'soglasuvam',
   'zapisi', 'zapisete', 'kontaktiraj', 'kontaktirajte', 'registriraj']);
+
+// One-word openness ANSWERS — "otvoren", "spremna", "podgotven" (± "jas",
+// ± "sum"): a client replying to Lina's "Дали сте отворени за предлози…?"
+// with a single word, in either script. The whole message must BE the answer
+// — an attributive use inside a longer sentence ("stan so otvorena kujna",
+// open-kitchen feature ask) is never agreement.
+const OPEN_BARE_RE = /^(?:јас|jas)?\s*(?:сум|sum|sam)?\s*(?:отворен|отворена|спреман|спремна|подготвен|подготвена|otvoren|otvorena|spreman|spremna|podgotven|podgotvena)(?:\s*(?:сум|sum|sam))?\s*[!.?]*$/iu;
 
 // "moze/може" is ONLY agreement when standalone or followed by "да/da".
 // When followed by ANYTHING ELSE it means "can/may" — a criteria modifier
@@ -723,6 +741,9 @@ const DA_LI_RE = /(?:^|[^а-яa-z])(?:да|да)\s+ли|дали/iu;
 export function detectAgreement(text: string): boolean {
   const low = text.toLowerCase();
   if (AGREE_PHRASES.some(p => low.includes(p))) return true;
+  // One-word openness answer ("otvoren", "spremna", "jas sum podgotven") —
+  // see OPEN_BARE_RE: whole-message only, so attributive uses can't misfire.
+  if (matchesBoth(OPEN_BARE_RE, text)) return true;
   const tokens = low.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   // "moze i pogolem" / "moze 2 spalni" — "moze" here means "can/may"
   // (criteria modifier), NOT agreement.  Skip the "moze/може" token when

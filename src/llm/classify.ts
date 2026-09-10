@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -280,6 +280,21 @@ export class Classifier {
       ev = pid ? { type: 'INTERESTED', propertyId: pid } : { type: 'INTERESTED' };
     }
 
+    // Pure-agreement answer to the openness/location ask ("otvoren sum",
+    // "спремна сум", "добро") in discovery = "no preference" → city-wide
+    // (anywhere). Without this the funnel loops "Во кој дел од градот…?" at a
+    // client who just said yes. Event-independent (fires whatever the model
+    // picked) and only when the message carries NO other slot (a named
+    // neighborhood or a bedroom/budget detail is a search, not an answer).
+    // detectWidenIntent already excludes register/contact phrasings, which
+    // keep flowing to the queue escape.
+    if (session.state === 'discovery'
+      && (ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED')
+      && !ev.location && !ev.bedrooms && !ev.budget && !ev.sqm
+      && detectWidenIntent(text)) {
+      ev = { type: 'SEARCH_REQUESTED', service: session.slots.service,
+        house: session.slots.house, business: session.slots.business, anywhere: true };
+    }
     // Agreement in closing → FEE_AGREED.
     // Guard: ev.type must NOT already be REJECTED/ESCALATE/FEE_REFUSED, but
     // DETAILS_PROVIDED is allowed — a false-positive location ("да" matches
@@ -638,6 +653,18 @@ export class Classifier {
       && detectVisitInterest(text)) {
       const pid = parsed.event.propertyId ?? session.slots.propertyId;
       parsed.event = pid ? { type: 'INTERESTED', propertyId: pid } : { type: 'INTERESTED' };
+    }
+    // Pure-agreement answer to the openness/location ask ("otvoren sum") in
+    // discovery = "no preference" → city-wide (anywhere). Mirror of the
+    // deterministic-path override: the funnel must complete with what is
+    // already collected, never loop the location question.
+    if (session.state === 'discovery'
+      && (parsed.event.type === 'STAY' || parsed.event.type === 'DETAILS_PROVIDED')
+      && !parsed.event.location && !parsed.event.bedrooms
+      && !parsed.event.budget && !parsed.event.sqm
+      && detectWidenIntent(text)) {
+      parsed.event = { type: 'SEARCH_REQUESTED', service: session.slots.service,
+        house: session.slots.house, business: session.slots.business, anywhere: true };
     }
     // LLM-down agreement in closing -> FEE_AGREED ("да, се согласувам" after
     // the fee question). Without it, an LLM outage would loop the fee question
