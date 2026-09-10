@@ -141,6 +141,21 @@ test('detectAvailabilityAsk: "дали е сеуште достапен?" — th
   assert.equal(detectAvailabilityAsk('STO IMAS VO KARPOS ?'), false);
   assert.equal(detectAvailabilityAsk('сакам стан во Центар'), false);
   assert.equal(detectAvailabilityAsk('да, се согласувам'), false);
+  // Present-reflexive family — "DALI 79 SE IZDAVA USTE ?" (21:09): the client
+  // asks whether the property is STILL being rented. Previously invisible →
+  // the property card fired instead of the availability funnel.
+  assert.equal(detectAvailabilityAsk('DALI 79 SE IZDAVA USTE ?'), true);
+  assert.equal(detectAvailabilityAsk('dali se izdava uste'), true);
+  assert.equal(detectAvailabilityAsk('se izdava li'), true);
+  assert.equal(detectAvailabilityAsk('izdava li se 79'), true);
+  assert.equal(detectAvailabilityAsk('79 se izdava?'), true);
+  assert.equal(detectAvailabilityAsk('се издава ли'), true);
+  assert.equal(detectAvailabilityAsk('дали се издава уште'), true);
+  assert.equal(detectAvailabilityAsk('се изнајмува ли'), true);
+  assert.equal(detectAvailabilityAsk('se iznajmuva li'), true);
+  assert.equal(detectAvailabilityAsk('се продава ли 62?'), true);
+  // A declarative listing statement is NOT an availability question
+  assert.equal(detectAvailabilityAsk('сопственикот го издава станот'), false);
 });
 
 test('detectWhereIs: "каде е X?" is a place question, never a search', () => {

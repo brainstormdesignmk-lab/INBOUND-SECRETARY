@@ -300,6 +300,29 @@ test('ZOKI: visit interest ("дали е достапен?") -> fee disclosed ->
   assert.ok(sent[5].includes('потврдам'), sent[5]); // OWNER_CHECK_ACK
 });
 
+test('availability first-ask: "DALI 78 SE IZDAVA USTE ?" hits the availability funnel, never the card', async () => {
+  // The 21:09 field transcript (EB 79 there): fresh chat, the FIRST message
+  // is an availability ask with the EB embedded. The client knows the
+  // property from the website — the answer must be the availability ack
+  // ("Би требало да е достапен… да го контактирам сопственикот?"), NOT the
+  // full property card re-describing what they already know.
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'izdava78';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  let s = await send('DALI 78 SE IZDAVA USTE ?');
+  assert.equal(s.state, 'closing');
+  assert.ok(s.slots.ownerContactPending, 'ownerContactPending set');
+  // availability ack wording, not a card
+  assert.ok(/(?:достапен|достапн|постои|база|слободен|располагање)/i.test(sent[0]), sent[0]);
+  assert.ok(!sent[0].includes('м²'), sent[0]); // no square-meters = no card
+  assert.ok(!sent[0].includes('Цената е'), sent[0]); // no price = no card
+
+  // and the follow-up "DA" proceeds to the fee disclosure (the funnel works)
+  s = await send('DA');
+  assert.ok(/(?:денари|евра|провизи)/i.test(sent[1]), sent[1]);
+});
+
 test('STAPI VO KONTAKT I INFORMIRAJ ME in closing = contact order, not the documents lecture', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'stapi';

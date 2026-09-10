@@ -193,7 +193,7 @@ export const AVAILABILITY_LEXICON: string[] = expandWords([
   // Verbs
   { word: 'продавам', type: 'verb' },
   { word: 'изнајмувам', type: 'verb' },
-  { word: 'ȍдавам', type: 'verb' },
+  { word: 'издавам', type: 'verb' },
   { word: 'нудам', type: 'verb' },
   { word: 'имам', type: 'verb' },
 ]);
