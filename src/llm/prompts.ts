@@ -2,7 +2,7 @@ import { State, Service } from '../fsm/machine';
 import { SlotData } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
-import { Property } from '../data/properties';
+import { Property, locPrep } from '../data/properties';
 
 export const BUY_FEE_MKD = '500 MKD';
 export const RENT_FEE_MKD = '300 MKD';
@@ -839,11 +839,13 @@ export function conversationalDetails(p: Property): string | undefined {
 export function buildPropertyCard(p: Property): string {
   // Strip internal feed disambiguator: "Центар (населба)" → "Центар"
   const loc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
+  // NA/VO agreement: Водно is a mountain — "на Водно"; everywhere else "во"
+  const prep = loc ? locPrep(loc) : 'во';
   let s = p.house
-    ? `Куќата под Евидентен број ${p.eb}${loc ? ` е во ${loc}.` : '.'}`
+    ? `Куќата под Евидентен број ${p.eb}${loc ? ` е ${prep} ${loc}.` : '.'}`
     : p.business
-      ? `Деловниот простор под Евидентен број ${p.eb}${loc ? ` е во ${loc}.` : '.'}`
-      : `Станот под Евидентен број ${p.eb} е ${propertyType(p)}${loc ? ` во ${loc}.` : '.'}`;
+      ? `Деловниот простор под Евидентен број ${p.eb}${loc ? ` е ${prep} ${loc}.` : '.'}`
+      : `Станот под Евидентен број ${p.eb} е ${propertyType(p)}${loc ? ` ${prep} ${loc}.` : '.'}`;
   // The ad text rewritten conversationally — facts only, no "Се Продава" / agency
   // boilerplate, no street. undefined = nothing usable -> the card omits it.
   const details = conversationalDetails(p);

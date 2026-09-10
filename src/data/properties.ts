@@ -559,6 +559,26 @@ export function normalizeTimePhrase(s: string): string {
   return cyr.charAt(0).toUpperCase() + cyr.slice(1);
 }
 
+/**
+ * Areas that take НА instead of ВО in Macedonian: mountain/height locations.
+ * Водно is a mountain (Водно — планина) — "на Водно", like "на планина".
+ * Every other neighborhood uses во. The article form is ГТО-annotated:
+ * "на Водното" when the definite suffix fuses (amplitude: во→во / на→на).
+ */
+export const NA_LOCATIONS = new Set(['водно', 'vodno']);
+
+/** Definite-suffix areas needing special preposition agreement — reserved. */
+export const NA_LOCATION_DEFINITE: Record<string, string> = {};
+
+/**
+ * The correct Macedonian preposition for a location: "на Водно" (mountain
+ * area) but "во Центар" everywhere else. Used by every code-built sentence
+ * that places a property in its neighborhood.
+ */
+export function locPrep(loc: string): 'во' | 'на' {
+  return NA_LOCATIONS.has(loc.trim().toLowerCase()) ? 'на' : 'во';
+}
+
 export function normalizeLocation(s: string): string {
   const src = s.trim();
   const hasCyr = /[\u0400-\u04FF]/u.test(src);

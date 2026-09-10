@@ -1931,21 +1931,45 @@ export function detectMortgageAsk(text: string): boolean {
 // (existing behavior) — only the confirmation markers make it a confirmation.
 const LOC_CONFIRM_MARKERS_RE =
   /(?:znaci|dakle|togas|taka|deka|значи|дакле|тогаш|така|дека|zgodno|dobro\s*deka)/iu;
-const LOC_CONFIRM_QUESTION_RE =
-  /(?:na?\s+vodno|vo\s+vodno)|(?:\?\s*$)|(?:ne\s*\?)|(?:dali\s)/iu;
+// Bare QUESTION forms — "vo vodno li e?", "dali e vo vodno?", "e vo karpos?",
+// "na vodno e?" — a question about the discussed property's area, same class
+// as the marker form. Built with \p{L} boundaries: JS \b is ASCII-only and
+// never matches inside Cyrillic words. Wh-questions (што/каде/колку…) are
+// deliberately NOT this class — they carry their own detectors.
+const B = '(?<!\\p{L}\\p{N})';
+const E = '(?!\\p{L}\\p{N})';
+const LOC_CONFIRM_QUESTION_RE = new RegExp(
+  // "na vodno e?" / "vo karpos?" — preposition + area + '?'
+  B + '(?:na|vo|на|во)' + E + '[^.?!\\n]{0,30}\\?'
+  // "dali e vo vodno?" — дали + filler + preposition + '?'
+  + '|' + B + '(?:dali|дали)' + E + '[^.?!\\n]{0,30}' + B + '(?:vo|na|во|на)' + E + '[^.?!\\n]{0,20}\\?'
+  // "vo vodno li e?" — the ли-particle
+  + '|' + B + '(?:li|ли)' + E + '\\s*\\?',
+  'iu',
+);
+// Wh-question openers — a message STARTING with one is a content question
+// ("sto ima vo blizina?", "kade e?"), never a yes/no area confirmation.
+const LOC_CONFIRM_WH_RE = /^\s*(?:sto|shto|што|штo|kade|каде|kolku|колку|kako|како|zosto|зошто|зощо|koj|кој|koja|која|koe|кое)\S*/iu;
 
 /**
  * True when the message looks like a location CONFIRMATION about the property
- * under discussion ("znaci na vodno e", "znaci e vo vodno ne?") rather than a
- * fresh search. Requires BOTH: a confirmation marker (znaci/dakle/togash…)
- * AND a neighborhood mention. The caller still verifies the named area
- * against the actual property location — this only guards the detector class.
+ * under discussion ("znaci na vodno e", "znaci e vo vodno ne?", "vo vodno li
+ * e?", "dali e vo vodno?") rather than a fresh search. EITHER a confirmation
+ * marker (znaci/dakle/togash…) OR a bare question form suffices. The caller
+ * still verifies the named area against the actual property location and its
+ * own context guards — this only guards the detector class.
  */
 export function detectLocationConfirm(text: string): boolean {
-  if (!matchesBoth(LOC_CONFIRM_MARKERS_RE, text)) return false;
-  // question tails ("...vo vodno, ne?") or the marker family are enough here;
-  // the neighborhood itself is verified by the caller (needs the feed list).
-  return true;
+  if (matchesBoth(LOC_CONFIRM_MARKERS_RE, text)) return true;
+  // Wh-questions are a different class ("sto ima vo blizina?" must not be a
+  // confirm just because it contains "vo … ?")
+  if (LOC_CONFIRM_WH_RE.test(text)) return false;
+  return matchesBoth(LOC_CONFIRM_QUESTION_RE, text);
+}
+
+/** Marker-form check for callers distinguishing the two sub-classes. */
+export function isLocationConfirmMarker(text: string): boolean {
+  return matchesBoth(LOC_CONFIRM_MARKERS_RE, text);
 }
 
 // Neighborhood general: the client asks general questions about neighborhoods.

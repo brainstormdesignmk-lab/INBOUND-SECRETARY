@@ -336,8 +336,8 @@ test('location confirm: "ZNACI NA VODNO E" confirms the discussed property\'s ne
   // property under discussion: EB 77 (Водно, rent)
   await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 77');
   const s = await send('ZNACI NA VODNO E');
-  // CONFIRMATION, not a no-match search
-  assert.ok(/Точно, Станот со Евидентен број 77 се наоѓа во Водно/i.test(sent[1]), sent[1]);
+  // CONFIRMATION, not a no-match search (Водно is a mountain: "на Водно")
+  assert.ok(/Точно, Станот со Евидентен број 77 се наоѓа на Водно/i.test(sent[1]), sent[1]);
   assert.ok(!sent[1].includes('За жал'), sent[1]); // never the no-match line
   assert.ok(!sent[1].includes('други локации'), sent[1]);
   assert.equal(s.state, 'property_query'); // stays put
@@ -347,7 +347,25 @@ test('location confirm: "ZNACI NA VODNO E" confirms the discussed property\'s ne
   const send2 = async (m: string) => { await h2.handle('test', 'vodno-wrong', m); return ss2.get('vodno-wrong')!; };
   await send2('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 77');
   await send2('ZNACI NA KARPOS E');
-  assert.ok(/всушност се наоѓа во Водно/i.test(sent2[1]), sent2[1]);
+  assert.ok(/всушност се наоѓа на Водно/i.test(sent2[1]), sent2[1]);
+
+  // NA/VO agreement: Водно is a mountain — "на Водно", never "во Водно"
+  assert.ok(/се наоѓа на Водно/i.test(sent[1]), sent[1]);
+  assert.ok(!/се наоѓа во Водно/i.test(sent[1]), sent[1]);
+
+  // Bare QUESTION forms hit the same confirm/correct branch (the property is
+  // explicitly identified — EB 77 — which is the question-form anchor)
+  const { handler: h3, sessions: ss3, sent: sent3 } = makeHandler();
+  const send3 = async (m: string) => { await h3.handle('test', 'vodno-q', m); return ss3.get('vodno-q')!; };
+  await send3('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 77');
+  await send3('dali e vo vodno?');
+  assert.ok(/се наоѓа на Водно/i.test(sent3[1]), sent3[1]);
+
+  const { handler: h4, sessions: ss4, sent: sent4 } = makeHandler();
+  const send4 = async (m: string) => { await h4.handle('test', 'vodno-li', m); return ss4.get('vodno-li')!; };
+  await send4('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 77');
+  await send4('vo vodno li e?');
+  assert.ok(/се наоѓа на Водно/i.test(sent4[1]), sent4[1]);
 });
 
 test('STAPI VO KONTAKT I INFORMIRAJ ME in closing = contact order, not the documents lecture', async () => {

@@ -11,6 +11,7 @@
 // the full pool rather than returning nothing.
 
 import { RESPONSE_BANK } from './responses';
+import { locPrep } from './properties';
 import type { State } from '../fsm/machine';
 import type { BankStore } from '../store/bank';
 
@@ -29,6 +30,16 @@ function fillVars(text: string, vars?: Record<string, string>): string {
   if (!vars) return text;
   let out = text;
   for (const [k, v] of Object.entries(vars)) out = out.split(`{${k}}`).join(v);
+  // NA/VO agreement: the bank templates hardcode "во {location}" — but Водно
+  // is a mountain and takes "на" ("на Водно"). Normalize at fill time so every
+  // variant (seed AND learned) speaks correct Macedonian without editing each.
+  const loc = vars['location'];
+  if (loc && locPrep(loc) === 'на') {
+    out = out
+      .split(`во ${loc}`).join(`на ${loc}`)
+      .split(`во ${loc.toLowerCase()}`).join(`на ${loc}`)
+      .split(`vo ${loc}`).join(`на ${loc}`);
+  }
   return out;
 }
 

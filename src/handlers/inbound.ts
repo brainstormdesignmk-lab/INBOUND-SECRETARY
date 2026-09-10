@@ -9,8 +9,8 @@ import { shouldLogForEnrichment } from '../llm/enrichPolicy';
 import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired } from '../llm/deterministic';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep } from '../data/properties';
+import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired } from '../llm/deterministic';
 import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
@@ -411,7 +411,12 @@ export class InboundHandler {
     // exact address. Instead of repeating the protocol, reveal the nearby landmark
     // as a compromise (same as WHERE_IS but triggered by location-suitability
     // questions, not explicit каде-questions).
-    if (detectLocationNag(text)) {
+    // A bare area-confirmation question ("dali e vo vodno?", "vo vodno li e?")
+    // about the IDENTIFIED property is a yes/no confirm/correct, not a nag —
+    // the nag path repeats the landmark line; the confirm path answers from
+    // the feed (and corrects a wrong area). Marker forms (znaci…) fall through
+    // here and are handled by the confirm branch in the FSM chain below.
+    if (detectLocationNag(text) && !detectLocationConfirm(text)) {
       routeLog(chatId, text, 'LOCATION_NAG');
       // Find the property being discussed — same logic as WHERE_IS generic.
       const all = await this.deps.properties.getAll();
@@ -850,7 +855,7 @@ export class InboundHandler {
           if (p?.price !== undefined) {
             const priceLoc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
             const priceType = p.house ? 'Куќата' : p.business ? 'Деловниот простор' : 'Станот';
-            reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ' во ' + priceLoc : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
+            reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${locPrep(priceLoc)} ${priceLoc}` : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
             session.slots.lastPrice = String(p.price);
           } else {
             reply = pickVariant('fee.ask.buy', { recent: assistantTexts(session) }) ?? 'Цената ја одредува сопственикот.';
@@ -1471,10 +1476,11 @@ ${contactReminder}`;
       if (priceEb) {
         const p = await this.deps.properties.getById(priceEb);
         if (p?.price !== undefined) {
-          // Strip "(населба)" suffix — it's an internal feed disambiguator, not spoken language
+          // Strip "(населба)" suffix — internal feed disambiguator, not spoken language
           const priceLoc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
           const priceType = p.house ? 'Куќата' : p.business ? 'Деловниот простор' : 'Станот';
-          reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ' во ' + priceLoc : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
+          const pricePrep = priceLoc ? locPrep(priceLoc) : 'во';
+          reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${pricePrep} ${priceLoc}` : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
           session.slots.lastPrice = String(p.price);
         } else {
           reply = pickVariant('fee.ask.buy', { recent: assistantTexts(session) }) ?? 'Цената ја одредува сопственикот. Дали сакате да го контактирам за да го пренесам Вашето прашање за цената?';
@@ -1505,10 +1511,16 @@ ${contactReminder}`;
       // property's actual feed location. Never a re-search: the old behavior
       // parsed the named neighborhood as a fresh request and answered "немам
       // слободен имот во Водно" about a property that IS in Водно — stupid.
+      const isQuestion = !isLocationConfirmMarker(text);
       const confEb = session.slots.propertyId ?? session.slots.interestedPropertyId
         ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
-      const confProp = confEb != null
-        ? await this.deps.properties.getById(confEb).catch(() => undefined)
+      // Bare questions ("vo vodno li e?") have no znaci-marker to prove intent,
+      // so they require a TIGHT anchor: an explicitly identified property.
+      const anchor = isQuestion
+        ? (session.slots.propertyId ?? session.slots.interestedPropertyId)
+        : confEb;
+      const confProp = anchor != null
+        ? await this.deps.properties.getById(anchor).catch(() => undefined)
         : undefined;
       if (confProp?.location) {
         // Strip "(населба)" feed disambiguator — internal, not spoken language
@@ -1516,11 +1528,13 @@ ${contactReminder}`;
         const namedLoc = session.slots.location;
         const agree = locMatches(namedLoc, confProp.location) || locMatches(actualLoc, namedLoc);
         const confType = confProp.house ? 'Куќата' : confProp.business ? 'Деловниот простор' : 'Станот';
+        // NA/VO agreement: Водно is a mountain — "на Водно"; everywhere else "во"
+        const prep = locPrep(actualLoc);
         // Anchor the context: the discussion is about this property's area now
         session.slots.location = actualLoc;
         reply = agree
-          ? `Точно, ${confType} со Евидентен број ${confProp.eb} се наоѓа во ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`
-          : `Не, ${confType} со Евидентен број ${confProp.eb} всушност се наоѓа во ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`;
+          ? `Точно, ${confType} со Евидентен број ${confProp.eb} се наоѓа ${prep} ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`
+          : `Не, ${confType} со Евидентен број ${confProp.eb} всушност се наоѓа ${prep} ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`;
         bankKey = 'location.confirm';
         // A confirmation is not a transition — stay in the current state
         session.state = before;
