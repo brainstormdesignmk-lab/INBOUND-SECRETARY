@@ -77,10 +77,12 @@ test('bare more-ask after nearby replies qualifies for the nearby thread', () =>
     && !detectAvailabilityAsk(t) && !detectPriceAsk(t);
   assert.equal(qualifies('I STO USTE?'), true);
   assert.equal(qualifies('nesto drugo?'), true);
-  // "сто друго има?" collides with detectAvailabilityAsk (its "има") so the
-  // NEW gate stands down. The LATIN form ("STO DRUGO IMA?", the one clients
-  // actually type) keeps its existing detectWhereIs interception → rotation.
-  assert.equal(qualifies('сто друго има?'), false);
+  // "сто друго има?" used to false-fire detectAvailabilityAsk through a
+  // SUBSTRING match of "има" — the 22:05 boundary fix ("lokaciJA IMA" bug)
+  // killed the accident, so the Cyrillic more-ask now qualifies for the
+  // nearby thread like its Latin twin. The LATIN form ("STO DRUGO IMA?", the
+  // one clients actually type) keeps its existing detectWhereIs interception.
+  assert.equal(qualifies('сто друго има?'), true);
   assert.deepEqual(detectWhereIs('STO DRUGO IMA?'), { place: '', generic: true });
   assert.equal(isOptionsFollowUp('STO DRUGO IMA?', LANDMARK_REPLY), false);
   // Excluded intents own their words regardless of context:

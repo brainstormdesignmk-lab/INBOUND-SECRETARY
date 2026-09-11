@@ -416,6 +416,28 @@ test('detectSizeWaived: "nebitni se spalnite" — the fused-negative waiver (13:
   assert.equal(detectSizeWaived('bitno e da e do 100000'), false);
 });
 
+test('detectAvailabilityAsk: word boundaries — compliments are NOT availability asks (22:05 bug)', () => {
+  // "DOBRA LOKACIJA IMA" matched the clitic+have slot through the SUBSTRING
+  // "ja ima" inside lokaciJA (no Unicode boundaries; JS \b is ASCII-only).
+  // The client's compliment got the canned availability ack instead of a
+  // conversational answer.
+  assert.equal(detectAvailabilityAsk('DOBRA LOKACIJA IMA'), false);
+  assert.equal(detectAvailabilityAsk('dobra lokacija ima ovoj stan'), false);
+  assert.equal(detectAvailabilityAsk('taa ima dobra lokacija'), false);
+  // "ima LI ft" — the li inside lift fired the have-ли slot
+  assert.equal(detectAvailabilityAsk('stanot ima lift'), false);
+  // "kadе има" — the е from каде fired the morphology copula branch
+  assert.equal(detectAvailabilityAsk('kade ima parkiranje'), false);
+  assert.equal(detectAvailabilityAsk('ima li podrum'), false); // feature ask, not availability
+  // genuine availability asks keep firing
+  assert.equal(detectAvailabilityAsk('ja imate uste?'), true);
+  assert.equal(detectAvailabilityAsk('go imate uste?'), true);
+  assert.equal(detectAvailabilityAsk('uste go imate?'), true);
+  assert.equal(detectAvailabilityAsk('dali e dostapen?'), true);
+  assert.equal(detectAvailabilityAsk('DALI 79 SE IZDAVA USTE ?'), true);
+  assert.equal(detectAvailabilityAsk('dali seuste e dostapen'), true);
+});
+
 test('detectGarsonjera + extractSlots: "garsonjera mi treba" is a TYPE, not "1 спална" (19:34 bug)', () => {
   // The exact transcript line — the client named the studio category, no
   // bedroom count was ever said. The 1-room heuristic must be stripped.

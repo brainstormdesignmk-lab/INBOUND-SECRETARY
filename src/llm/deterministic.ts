@@ -130,15 +130,20 @@ const AVAILABILITY_ASK_RE =
   /(дали[^.!?\n]{0,40}(?:достапен|достапна|достапно|остапен|остапна|слободен|слободна|слободно|слободна|слободно|продаден|продадена|издаден|издадена|на продажба|на prodazba|постои|го имате уште|ја имате уште)|достапен\s+ли\s+е|достапна\s+ли\s+е|слободен\s+ли\s+е|слободна\s+ли\s+е|продаден\s+ли\s+е|издаден\s+ли\s+е|сеуште\s+(?:ли\s+)?(?:е\s+)?(?:достапен|достапна|слободен|на продажба)|(?:е|е\s+ли)\s+(?:слободен|слободна|слободно|достапен|достапна|достапно)|(?:го|ја)\s+имате\s+(?:ли\s+)?(?:уште|сеуште)|(?:уште|сеуште)\s+(?:ли\s+)?(?:го|ја)\s+имате|(?:go|ja)\s+imate\s+(?:li\s+)?(?:uste|seuste)|(?:uste|seuste)\s+(?:li\s+)?(?:go|ja)\s+imate|daa?[il][il][^.!?\n]{0,40}(?:dostapen|dostapna|dostapno|ostapen|ostapna|sloboden|slobodna|slobodno|prodaden|prodadena|izdaden|izdadena|na prodazba|postoi|go imate uste|ja imate uste|za prodavanje|za prodazba|na prodazba|se prodava|prodavate|prodava li)|dostapen\s+li\s+e|dostapna\s+li\s+e|sloboden\s+li\s+e|slobodna\s+li\s+e|prodaden\s+li\s+e|izdaden\s+li\s+e|seuste\s+(?:li\s+)?(?:e\s+)?(?:dostapen|dostapna|sloboden|na prodazba)|(?:e|e\s+li)\s+(?:sloboden|slobodna|slobodno|dostapen|dostapna|dostapno))|(?:се|se|дали[^.!?\n]{0,30}|dale[^.!?\n]{0,30})\s*(?:уште\s+|uste\s+)?(?:издава|изнајмува|продава|izdava|iznajmuva|prodava)(?:\s+ли|\s+li|\s+уште|\s+uste)?(?:\s+(?:се|se))?|(?:издава|изнајмува|продава|izdava|iznajmuva|prodava)\s+(?:ли|li)(?:\s+(?:се|se))?|остапен\s+ли\s+е|остапна\s+ли\s+е|ostapen\s+li\s+e|ostapna\s+li\s+e|на\s+продажба\s+ли\s+е|се\s+продава\s+ли|продава\s+ли\s+е|на\s+prodazba\s+li\s+e|se\s+prodava\s+li|prodava\s+li\s+e|za\s+prodazba\s+li\s+e/iu;
 
 // Morphology-generated availability forms — catches inflected variants
-// the main regex doesn't enumerate (достапниот, продадена, продавање, ...)
+// the main regex doesn't enumerate (достапниот, продадена, продавање, ...).
+// Boundary guards (?<![\p{L}\p{N}]) on every anchored word: JS \b is
+// ASCII-only, and unguarded "е"/"го"/"ја" matched SUBSTRINGS — "kadе има"
+// (the е from каде) fired the copula branch on the innocent "kade ima
+// parkiranje" (the 22:05 "DOBRA LOKACIJA IMA" bug family).
 const _morphAlt = toRegexAlt(AVAILABILITY_LEXICON);
+const _mB = '(?<![\\p{L}\\p{N}])'; // Unicode left boundary
 const AVAILABILITY_MORPH_RE = new RegExp(
   // "дали е достапниот?" — dali + filler + morphology form
-  '(?:дали[^.!?\\n]{0,40}(?:' + _morphAlt + '))'
+  '(?:' + _mB + 'дали[^.!?\\n]{0,40}' + _mB + '(?:' + _morphAlt + '))'
   // "е достапниот ли?" — standalone "е X" or "е X ли"
-  + '|(?:е|е\\s+ли)\\s+(?:' + _morphAlt + ')'
+  + '|' + _mB + '(?:е|е\\s+ли)\\s+(?:' + _morphAlt + ')'
   // "го имате достапниот?" — "го/ја + word + (ли +) form"
-  + '|(?:го|ја)\\s+\\w+(?:\\s+ли)?\\s+(?:' + _morphAlt + ')',
+  + '|' + _mB + '(?:го|ја)' + _mB + '\\s+' + _mB + '\\w+' + _mB + '(?:\\s+' + _mB + 'ли' + _mB + ')?\\s+(?:' + _morphAlt + ')',
   'iu',
 );
 

@@ -36,9 +36,15 @@
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Build a non-capturing alternation: (?:a|b|c) */
+/** Build a non-capturing alternation: (?:a|b|c)
+ *  Every word class is boundary-guarded with Unicode lookarounds. JS \b is
+ *  ASCII-only (never binds around Cyrillic), and unguarded classes match
+ *  SUBSTRINGS inside longer words: "lokaciJA IMA" → ja+ima (clitic+have →
+ *  the 22:05 "DOBRA LOKACIJA IMA" availability ack), "ima LI ft" → li inside
+ *  "lift". A clitic/pronoun/verb is a whole word — matching its letters
+ *  inside another word is always wrong. */
 function or(words: string[]): string {
-  return '(?:' + words.join('|') + ')';
+  return '(?<![\\p{L}\\p{N}])(?:' + words.join('|') + ')(?![\\p{L}\\p{N}])';
 }
 
 /** Optional non-capturing group: (?:…)? */
@@ -211,27 +217,27 @@ export function buildAvailabilitySlots(): RegExp {
   const patterns = [
     // ── Possession patterns (go/imate family) ──────────────────────────────
     // Slot: Q? TIME CLITIC? HAVE
-    s(`${Q}?${WS}${T}(?:${WS}${C})?${WS}${H}`),
+    s(`(${Q})?${WS}${T}(?:${WS}${C})?${WS}${H}`),
     // Slot: Q? CLITIC TIME? HAVE
-    s(`${Q}?${WS}${C}(?:${WS}${T})?${WS}${H}`),
+    s(`(${Q})?${WS}${C}(?:${WS}${T})?${WS}${H}`),
     // Slot: (Q|TIME|CLITIC) HAVE CLITIC? TIME? — bare HAVE is too loose
     // ("imas" matches inside "STO IMAS VO KARPOS"); require at least Q, TIME,
     // or CLITIC so the slot only fires for genuine availability questions.
     s(`(?:${Q}|${T}|${C})${WS}${H}(?:${WS}${C})?(?:${WS}${T})?`),
     // Slot: Q? TIME LI CLITIC? HAVE
-    s(`${Q}?${WS}${T}${WS}${LI}(?:${WS}${C})?${WS}${H}`),
+    s(`(${Q})?${WS}${T}${WS}${LI}(?:${WS}${C})?${WS}${H}`),
     // Slot: Q? HAVE LI CLITIC? TIME?
-    s(`${Q}?${WS}${H}${WS}${LI}(?:${WS}${C})?(?:${WS}${T})?`),
+    s(`(${Q})?${WS}${H}${WS}${LI}(?:${WS}${C})?(?:${WS}${T})?`),
     // Slot: Q? CLITIC LI TIME? HAVE
-    s(`${Q}?${WS}${C}${WS}${LI}(?:${WS}${T})?${WS}${H}`),
+    s(`(${Q})?${WS}${C}${WS}${LI}(?:${WS}${T})?${WS}${H}`),
 
     // ── Adjective copula patterns (достапен е) ─────────────────────────────
     // Slot: Q? TIME CLITIC? COPULA ADJ — "дали уште е достапен?"
-    s(`${Q}?${WS}${T}(?:${WS}${C})?${WS}${COPULA}${WS}${A}`),
+    s(`(${Q})?${WS}${T}(?:${WS}${C})?${WS}${COPULA}${WS}${A}`),
     // Slot: Q? ADJ COPULA TIME? — "дали достапен е уште?"
-    s(`${Q}?${WS}${A}${WS}${COPULA}(?:${WS}${T})?`),
+    s(`(${Q})?${WS}${A}${WS}${COPULA}(?:${WS}${T})?`),
     // Slot: Q? COPULA ADJ — "дали е достапен?" (simple copula+adj)
-    s(`${Q}?${WS}${COPULA}${WS}${A}`),
+    s(`(${Q})?${WS}${COPULA}${WS}${A}`),
     // Slot: TIME LI COPULA ADJ — "сеуште ли е достапен?"
     s(`${T}${WS}${LI}${WS}${COPULA}${WS}${A}`),
     // Slot: COPULA LI ADJ — "е ли слободен?" (fronted copula)
