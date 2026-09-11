@@ -608,6 +608,20 @@ export function publicPropertyUrl(url: string | undefined, base: string): string
   return undefined;
 }
 
+/**
+ * "Garsonjera" — the STUDIO category: a small residential unit (≤ 35 м²),
+ * described as one in the ad text or simply small. The 19:34 bug mapped
+ * "garsonjera mi treba" to bedrooms=1 and the no-match layer invented
+ * "стан со една спална" nobody asked for — the category is a TYPE, not a
+ * спални count.
+ */
+function isSmallUnit(p: Property): boolean {
+  if (/гарсоњер|garsonjer|студио|studio/i.test(p.details ?? '')) return true;
+  const m = p.size?.match(/(\d+)/);
+  const sqm = m ? parseInt(m[1], 10) : p.sqm;
+  return Number.isFinite(sqm) && (sqm as number) > 0 && (sqm as number) <= 35;
+}
+
 /** Parse a budget string to its maximum euros: "до 80.000" -> 80000, "80-100" -> 100. */
 function parseBudgetMax(s: string): number | undefined {
   const nums: number[] = [];
@@ -772,7 +786,7 @@ export class PropertyService {
    */
   async candidates(opts: {
     location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean;
-    service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
+    garsonjera?: boolean; service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
     sortByPopularity?: boolean; // "било каде" — most popular neighborhoods first
   }): Promise<Property[]> {
     const all = await this.getAll();
@@ -785,7 +799,7 @@ export class PropertyService {
       .filter(p => !opts.service || !p.service || p.service === opts.service)
       .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
       .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
-      .filter(p => max === undefined || p.price === undefined || p.price <= max);
+      .filter(p => opts.garsonjera ? !p.business && !p.house && isSmallUnit(p) : true)      .filter(p => max === undefined || p.price === undefined || p.price <= max);
     // Bedroom filter: try exact match first; if no results in the TARGET
     // LOCATION, fall back to >= so the client sees alternatives (bigger/smaller)
     // instead of nothing. The fallback must happen BEFORE the location filter

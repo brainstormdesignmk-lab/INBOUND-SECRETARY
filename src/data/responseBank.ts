@@ -109,6 +109,27 @@ export function noMatchLine(location: string | undefined, recent: string[] = [])
 }
 
 /**
+ * The TYPE-AWARE empty-result intro: when a small-category search (garsonjera)
+ * has no EXACT hits in the area but bigger units exist, Lina says so honestly
+ * and offers the closest options — one sentence, then the cards. The prefix
+ * + opener combo ("нема… Еве ги најблиските" followed by "Врз основа на…")
+ * read as two contradictory speakers; this replaces both when present.
+ * The 19:34 bug also fabricated "стан со една спална" — a criterion the
+ * client never gave (garsonjera is a TYPE, not a спални count).
+ */
+export function relaxedCategoryLine(
+  garsonjera: boolean | undefined,
+  requestedBeds: number | undefined,
+  location: string | undefined,
+  recent: string[] = [],
+): string | undefined {
+  if (!garsonjera) return undefined;
+  const where = location ? ` ${locPrep(location)}` : '';
+  return pickVariant('presentation.relaxed.category', { recent })
+    ?? `Во моментов немам слободна гарсоњера${where}, но имам мало станче во Ваша цена — ако Ви се допаѓа, може веднаш да организираме посета.`;
+}
+
+/**
  * The exhausted-area line, bank-backed: the selected area(s) are drained and
  * Lina asks whether to look elsewhere (or register the criteria). The location
  * form fills {location}; the plain form is used when no area was fixed.

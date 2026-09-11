@@ -2535,3 +2535,74 @@ test('near-center ladder: ask → hand-back → mixed pairs → elimination → 
   if (ringAfter) assert.ok(ringAfter.every(l => !/Карпош/.test(l)), JSON.stringify(ringAfter));
   for (const eb of shown3) assert.ok(![54].includes(eb), `eliminated Карпош row ${eb} must not show`);
 });
+
+test('19:34: "garsonjera mi treba do 250" presents the studio — never a fabricated "1 спална"', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  // Extra rows for the garsonjera scenario (CENTAR rent units in budget):
+  //   EB 76 = the real garsonjera (24 м², the 19:34 transcript row)
+  //   EB 91 = a 2-room in Центар — NOT a garsonjera
+  const rows = [...ROWS,
+    { eb: 76, id: 76, location: 'Центар', price: 200, service: 'rent' as const, size: '24 м²',
+      details: 'Реновирана Ефтина Гарсоњера во Строг Центар, на 100м од Црногорска Амбасада.' },
+    { eb: 91, id: 91, location: 'Центар', price: 230, service: 'rent' as const, bedrooms: 2, size: '48 м²', details: 'Двособен стан во Центар.' },
+  ];
+  const props2 = new FakeProps(rows);
+  const llm2 = new FailingLlm();
+  const classifier2 = new Classifier(llm2, loadConfig(), props2);
+  const responder2 = new Responder(llm2, loadConfig());
+  const db2 = new Db(':memory:');
+  const sessions2 = new SessionStore(db2);
+  const channels2 = new ChannelRegistry();
+  const sent2: string[] = [];
+  channels2.register({ name: 'test', send: async (_c, text) => { sent2.push(text); } });
+  const handler2 = new InboundHandler({ cfg: loadConfig(), db: db2, sessions: sessions2,
+    classifier: classifier2, responder: responder2, properties: props2,
+    appointments: new AppointmentStore(db2), escalations: new EscalationStore(db2),
+    meta: new MetaStore(db2), channels: channels2 });
+  void handler;
+  const chatId = 'garsonjera-client';
+  const send2 = async (m: string) => { await handler2.handle('test', chatId, m); return sessions2.get(chatId)!; };
+
+  // 1) rent + Центар established first (like the transcript)
+  let s = await send2('sakam da iznajmam stan vo centar');
+  assert.equal(s.state, 'discovery');
+
+  // 2) THE EXACT TRANSCRIPT LINE — garsonjera + budget, no спални mentioned
+  s = await send2('garsonjera mi treba do 250 evra mx');
+
+  // The funnel must PRESENT (not loop "Колку спални…" / "Во ред, ги забележав")
+  assert.equal(s.state, 'presentation', JSON.stringify(s.slots));
+  assert.equal(s.slots.garsonjera, true);
+  assert.equal(s.slots.bedrooms, undefined); // never a fabricated criterion
+  const reply = sent2[sent2.length - 1];
+  // The studio IS presented ("give him what he wants")
+  assert.ok(reply.includes('76'), `garsonjera must be presented: ${reply}`);
+  assert.ok(reply.includes('гарсоњера'), reply);
+  // No fabricated "1 спална" criterion anywhere in the reply
+  assert.ok(!/една спална/.test(reply), `no fabricated спални criterion: ${reply}`);
+
+  // 3) the relaxed path: same ask where NO garsonjera exists (Карпош) —
+  //    honest intro of the closest units, single speaker, no double intro.
+  const rowsB = [...ROWS, { eb: 92, id: 92, location: 'Карпош III', price: 180, service: 'rent' as const, bedrooms: 2, size: '45 м²', details: 'Двособен стан во Карпош.' }];
+  const propsB = new FakeProps(rowsB);
+  const dbB = new Db(':memory:');
+  const sessionsB = new SessionStore(dbB);
+  const channelsB = new ChannelRegistry();
+  const sentB: string[] = [];
+  channelsB.register({ name: 'test', send: async (_c, text) => { sentB.push(text); } });
+  const handlerB = new InboundHandler({ cfg: loadConfig(), db: dbB, sessions: sessionsB,
+    classifier: new Classifier(new FailingLlm(), loadConfig(), propsB),
+    responder: new Responder(new FailingLlm(), loadConfig()), properties: propsB,
+    appointments: new AppointmentStore(dbB), escalations: new EscalationStore(dbB),
+    meta: new MetaStore(dbB), channels: channelsB });
+  const chatB = 'garsonjera-miss';
+  const sendB = async (m: string) => { await handlerB.handle('test', chatB, m); return sessionsB.get(chatB)!; };
+  await sendB('sakam da iznajmam stan vo karpos');
+  await sendB('garsonjera mi treba do 250 evra');
+  const replyB = sentB[sentB.length - 1];
+  // honest category line + cards, single speaker (no "Врз основа…" after "нема")
+  assert.ok(/гарсоњер/i.test(replyB), `must name the category honestly: ${replyB}`);
+  assert.ok(replyB.includes('92'), `closest unit presented: ${replyB}`);
+  assert.ok(!/една спална/.test(replyB), replyB);
+  assert.ok(!/нема[\s\S]*Врз основа/.test(replyB), `double speaker: ${replyB}`);
+});

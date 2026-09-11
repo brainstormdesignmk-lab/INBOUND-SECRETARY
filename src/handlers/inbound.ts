@@ -4,7 +4,7 @@ import {
   ChatSession, SessionStore, freshSession, isExpired, resetToIdle,
   touchInbound, touchOutbound, canSend, pushHistory, buildGreeting, assistantTexts,
 } from '../fsm/session';
-import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant } from '../data/responseBank';
+import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
 import { shouldLogForEnrichment } from '../llm/enrichPolicy';
 import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
@@ -769,6 +769,7 @@ export class InboundHandler {
         if (slots.budget) session.slots.budget = slots.budget;
         if (slots.sizeWaived) session.slots.sizeWaived = true;
         if (slots.pricePriority) session.slots.pricePriority = true;
+        if (slots.garsonjera) session.slots.garsonjera = true;
         // "та цена" / "та cenа" — client references a previously discussed price
         // but no number is in the message. Resolve to the last answered price.
         if (!session.slots.budget && detectPriceReference(text) && session.slots.lastPrice) {
@@ -1714,23 +1715,33 @@ ${contactReminder}`;
         props = await this.loadProps(session, false, false);
       }
       if (props.length > 0) {
+        // Type-aware relaxed intro (19:34): garsonjera gets a garsonjera line;
+        // спални labels speak ROOMS-1 (slots store room count: "2 спални" → 3).
         const requestedBeds = session.slots.bedrooms;
         const exactMatch = requestedBeds ? props.some(p => p.bedrooms === requestedBeds) : true;
+        const garsonjeraNoExact = session.slots.garsonjera
+          && !props.some(p => /гарсоњер|garsonjer|студио|studio/i.test(p.details ?? ''));
         let prefix = '';
-        if (requestedBeds && !exactMatch) {
-          const requestedLabel = requestedBeds === 1 ? 'една спална' : requestedBeds === 2 ? 'две спални' : `${requestedBeds} спални`;
+        if (garsonjeraNoExact) {
+          prefix = relaxedCategoryLine(true, undefined, session.slots.location, assistantTexts(session)) ?? '';
+        } else if (requestedBeds && !exactMatch) {
+          const spokenRooms = requestedBeds - 1;
+          const requestedLabel = spokenRooms === 1 ? 'една спална'
+            : spokenRooms === 2 ? 'две спални'
+            : `${spokenRooms} спални`;
           const hasBigger = props.some(p => p.bedrooms && p.bedrooms > requestedBeds);
           const hasSmaller = props.some(p => p.bedrooms && p.bedrooms < requestedBeds);
           if (hasBigger && !hasSmaller) {
-            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има поголеми станови кои би можеле да Ви одговараат:\n\n`;
+            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има поголеми станови кои би можеле да Ви одговараат. `;
           } else if (hasSmaller && !hasBigger) {
-            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има помали станови кои би можеле да Ви одговараат:\n\n`;
+            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има помали станови кои би можеле да Ви одговараат. `;
           } else {
-            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена. Еве ги најблиските опции:\n\n`;
+            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има слични опции кои би можеле да Ви се допаднат. `;
           }
         }
-        reply = prefix + buildPropertyCards(props, 'presentation', session.history.length,
-          assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget });
+        const cards = buildPropertyCards(props, 'presentation', session.history.length,
+          assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix });
+        reply = prefix ? `${prefix.trimEnd()}\n\n${cards}` : cards;
       } else {
         reply = this.deps.properties.healthy
           ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId ?? 0)
@@ -1816,24 +1827,39 @@ ${contactReminder}`;
           ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId ?? 0)
           : FEED_UNAVAILABLE_LINE;
       } else {
-      const requestedBeds = session.slots.bedrooms;
-      const exactMatch = requestedBeds ? props.some(p => p.bedrooms === requestedBeds) : true;
-      const allSameArea = session.slots.location ? props.every(p => locMatches(session.slots.location!, p.location ?? '')) : true;
-      let prefix = '';
-      if (requestedBeds && !exactMatch) {
-        const requestedLabel = requestedBeds === 1 ? 'една спална' : requestedBeds === 2 ? 'две спални' : `${requestedBeds} спални`;
-        const hasBigger = props.some(p => p.bedrooms && p.bedrooms > requestedBeds);
-        const hasSmaller = props.some(p => p.bedrooms && p.bedrooms < requestedBeds);
-        if (hasBigger && !hasSmaller) {
-          prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има поголеми станови кои би можеле да Ви одговараат:\n\n`;
-        } else if (hasSmaller && !hasBigger) {
-          prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има помали станови кои би можеле да Ви одговараат:\n\n`;
-        } else {
-          prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена. Еве ги најблиските опции:\n\n`;
+        // The 19:34 fix: the relaxed-intro is TYPE-AWARE. Garsonjera asks get
+        // a garsonjera line (never the fabricated "стан со една спална" — the
+        // client named a category, not a спални count). The prefix replaces
+        // the default opener (buildPropertyCards' bank intro) — "нема… еве ги
+        // најблиските" followed by "Врз основа на… издвоив" read as two
+        // contradictory speakers (the 19:34 transcript).
+        const requestedBeds = session.slots.bedrooms;
+        const exactMatch = requestedBeds ? props.some(p => p.bedrooms === requestedBeds) : true;
+        const garsonjeraNoExact = session.slots.garsonjera
+          && !props.some(p => /гарсоњер|garsonjer|студио|studio/i.test(p.details ?? ''));
+        let prefix = '';
+        if (garsonjeraNoExact) {
+          prefix = relaxedCategoryLine(true, undefined, session.slots.location, assistantTexts(session)) ?? '';
+        } else if (requestedBeds && !exactMatch) {
+          // Room-count convention: slots.bedrooms stores ROOMS ("2 спални" → 3).
+          // The spoken label is the bedroom count: rooms-1 (3 rooms = 2 спални).
+          const spokenRooms = requestedBeds - 1;
+          const requestedLabel = spokenRooms === 1 ? 'една спална'
+            : spokenRooms === 2 ? 'две спални'
+            : `${spokenRooms} спални`;
+          const hasBigger = props.some(p => p.bedrooms && p.bedrooms > requestedBeds);
+          const hasSmaller = props.some(p => p.bedrooms && p.bedrooms < requestedBeds);
+          if (hasBigger && !hasSmaller) {
+            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има поголеми станови кои би можеле да Ви одговараат. `;
+          } else if (hasSmaller && !hasBigger) {
+            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има помали станови кои би можеле да Ви одговараат. `;
+          } else {
+            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има слични опции кои би можеле да Ви се допаднат. `;
+          }
         }
-      }
-      reply = prefix + buildPropertyCards(props, 'presentation', session.history.length,
-        assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget });
+        const cards = buildPropertyCards(props, 'presentation', session.history.length,
+          assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix });
+        reply = prefix ? `${prefix.trimEnd()}\n\n${cards}` : cards;
       }
     } else if (detectBothServices(text)
         && ['idle', 'intent'].includes(before)
@@ -2165,6 +2191,7 @@ ${contactReminder}`;
     if (ev.anywhere) session.slots.anywhere = true;
     if (ev.sizeWaived) session.slots.sizeWaived = true;
     if (ev.pricePriority) session.slots.pricePriority = true;
+    if (ev.garsonjera) session.slots.garsonjera = true;
     if (ev.propertyId) session.slots.propertyId = ev.propertyId;
     if (ev.visitTime) session.slots.visitTime = ev.visitTime;
     if (ev.name) session.slots.name = ev.name;
@@ -2182,7 +2209,9 @@ ${contactReminder}`;
     if (s.slots.business) {
       return !!s.slots.service && loc && !!s.slots.sqm && !!s.slots.budget;
     }
-    return !!s.slots.service && loc && (!!s.slots.bedrooms || !!s.slots.anywhere || !!s.slots.sizeWaived) && !!s.slots.budget;
+    // garsonjera: the explicit studio category IS the size answer (19:34 —
+    // "garsonjera mi treba do 250" must PRESENT, not loop "Колку спални…").
+    return !!s.slots.service && loc && (!!s.slots.bedrooms || !!s.slots.anywhere || !!s.slots.sizeWaived || !!s.slots.garsonjera) && !!s.slots.budget;
   }
 
   private async loadProps(session: ChatSession, areaRequested = false, seeOffers = false): Promise<Property[]> {
@@ -2208,6 +2237,11 @@ ${contactReminder}`;
         sqm: session.slots.sqm,
         business: session.slots.business,
         house: session.slots.house,
+        // "garsonjera mi treba" — the STUDIO category is the criterion: filter
+        // to small units (≤ 35 м²), never by a fabricated спални number. When
+        // the small pool would be empty, keep the broad pool (the feed has few
+        // tagged units — the category prefix + client self-filter do the rest).
+        garsonjera: session.slots.garsonjera,
         service: session.slots.service,
         budget: session.slots.budget,
         exclude: shown,
@@ -2219,6 +2253,25 @@ ${contactReminder}`;
         // neighborhoods (Центар, Капиштец, Карпош, Аеродром, …), then the rest.
         sortByPopularity: !!session.slots.anywhere && !session.slots.location,
       });
+      // Studio-relax: the area has NO garsonjera at all — falling back to the
+      // plain no-match loses the "give him what he wants" instruction. Retry
+      // WITHOUT the category filter (same budget/area); the presentation
+      // branches detect garsonjera-without-garsonjera-results and introduce
+      // the closest units honestly ("немам гарсоњера, но еве мало станче").
+      const relaxedCandidates = session.slots.garsonjera && candidates.length === 0
+        ? await this.deps.properties.candidates({
+          location: session.slots.location,
+          sqm: session.slots.sqm,
+          business: session.slots.business,
+          house: session.slots.house,
+          service: session.slots.service,
+          budget: session.slots.budget,
+          exclude: shown,
+          sortBySqm: seeOffers,
+          sortByPopularity: !!session.slots.anywhere && !session.slots.location,
+        })
+        : candidates;
+      const pool = relaxedCandidates;
       // candidates() already locks to the selected area(s) and never spills —
       // an exhausted area returns [] here, which routes to the "different area?"
       // ask instead of silently offering another neighborhood.
@@ -2233,8 +2286,8 @@ ${contactReminder}`;
       const ladderKey = `${session.slots.anywhere ? '*' : session.slots.location ?? '-'}|${session.slots.service ?? '-'}|${session.slots.budget ?? '-'}`;
       let queue = session.slots.ladderQueue ?? [];
       if (session.slots.ladderKey !== ladderKey || queue.length === 0) {
-        const firstTwo = candidates.slice(0, 2).map(p => p.id);
-        const remaining = candidates.slice(2);
+        const firstTwo = pool.slice(0, 2).map(p => p.id);
+        const remaining = pool.slice(2);
         const byPrice = [...remaining].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || a.eb - b.eb);
         const cheapest2 = byPrice.slice(0, 2).map(p => p.id);
         const afterCheap = byPrice.slice(2);
@@ -2247,12 +2300,12 @@ ${contactReminder}`;
         session.slots.ladderQueue = queue;
       }
       const batch = queue.slice(0, 2)
-        .map(id => candidates.find(p => p.id === id))
+        .map(id => pool.find(p => p.id === id))
         .filter((p): p is Property => !!p);
       session.slots.ladderQueue = queue.slice(batch.length);
       session.slots.presentedIds = [...shown, ...batch.map(p => p.id)];
       session.slots.currentBatch = batch.map(p => p.id);
-      session.slots.alternativesExhausted = candidates.length === 0;
+      session.slots.alternativesExhausted = pool.length === 0;
       await this.landmarks.enrich(batch); // cards name a landmark, never a street
       return batch;
     }

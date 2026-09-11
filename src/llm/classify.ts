@@ -227,6 +227,7 @@ export class Classifier {
           type: 'SEEN_PROPERTY', service: slots.service, location,
           bedrooms: slots.bedrooms, sqm: slots.sqm, business: slots.business,
           house: slots.house, budget: slots.budget, anywhere: slots.anywhere,
+          garsonjera: slots.garsonjera,
         }, offensive: false, offenseLevel: 0,
       };
     }
@@ -246,6 +247,11 @@ export class Classifier {
       sqm: slots.sqm, business: slots.business, house: slots.house,
       budget: slots.budget, anywhere: slots.anywhere,
       need: slots.need, rejected: slots.rejected,
+      // These three previously leaked only through the LLM-down recompute
+      // path — the pure-deterministic path silently dropped them, so the
+      // funnel re-asked bedrooms after "garsonjera mi treba" (19:34).
+      sizeWaived: slots.sizeWaived, pricePriority: slots.pricePriority,
+      garsonjera: slots.garsonjera,
     });
 
     // Bare-number: set propertyId on event BEFORE funnel overrides so
@@ -253,6 +259,30 @@ export class Classifier {
     // INTERESTED with propertyId=89, not a bare INTERESTED).
     if (barePid && ev.type === 'STAY') {
       ev = { type: 'PROPERTY_ID_REQUESTED', propertyId: barePid };
+    }
+
+    // Session-merge completeness: buildEvent sees only THIS message's slots,
+    // but the funnel accumulates criteria across messages (rent + Центар on
+    // msg 1, "garsonjera mi treba do 250" on msg 2). When the MERGED criteria
+    // are complete, the funnel must PRESENT — discovery with complete criteria
+    // that only says "Во ред, ги забележав" dead-ends the client. The LLM used
+    // to do this merge silently; the deterministic layer now owns it.
+    if (session.state === 'discovery' && (ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED')) {
+      const merged = buildEvent(session.state, {
+        service: slots.service ?? session.slots.service,
+        location: location ?? session.slots.location,
+        bedrooms: slots.bedrooms ?? session.slots.bedrooms,
+        sqm: slots.sqm ?? session.slots.sqm,
+        business: slots.business ?? session.slots.business,
+        house: slots.house ?? session.slots.house,
+        budget: slots.budget ?? session.slots.budget,
+        anywhere: slots.anywhere || session.slots.anywhere,
+        sizeWaived: slots.sizeWaived || session.slots.sizeWaived,
+        pricePriority: slots.pricePriority || session.slots.pricePriority,
+        garsonjera: slots.garsonjera || session.slots.garsonjera,
+        need: slots.need, rejected: slots.rejected,
+      });
+      if (merged.type === 'SEARCH_REQUESTED') ev = merged;
     }
 
     // --- Contact intake (contact_collection state) ---
@@ -622,6 +652,7 @@ export class Classifier {
       if (ev.service === undefined && slots.service) ev.service = slots.service;
       if (ev.location === undefined && slots.location) ev.location = slots.location;
       if (ev.bedrooms === undefined && slots.bedrooms) ev.bedrooms = slots.bedrooms;
+      if (ev.garsonjera === undefined && slots.garsonjera) ev.garsonjera = true;
       if (!ev.sizeWaived && slots.sizeWaived) ev.sizeWaived = true;
       if (ev.sqm === undefined && slots.sqm) ev.sqm = slots.sqm;
       if (ev.business === undefined && slots.business !== undefined) ev.business = slots.business;
@@ -632,8 +663,31 @@ export class Classifier {
         service: ev.service, location: ev.location, bedrooms: ev.bedrooms,
         sqm: ev.sqm, business: ev.business, house: ev.house, budget: ev.budget,
         anywhere: ev.anywhere, need: slots.need, rejected: slots.rejected,
+        sizeWaived: ev.sizeWaived || undefined, pricePriority: ev.pricePriority || undefined,
+        garsonjera: ev.garsonjera || undefined,
       });
       if (det.type !== 'STAY') parsed.event = det;
+      // Same session-merge completeness as the deterministic path (LLM-down
+      // mirrors it): merged criteria complete → SEARCH_REQUESTED, never a
+      // dead-end "Во ред, ги забележав" in discovery.
+      if (session.state === 'discovery'
+        && (parsed.event.type === 'STAY' || parsed.event.type === 'DETAILS_PROVIDED')) {
+        const merged = buildEvent(session.state, {
+          service: ev.service ?? session.slots.service,
+          location: ev.location ?? session.slots.location,
+          bedrooms: ev.bedrooms ?? session.slots.bedrooms,
+          sqm: ev.sqm ?? session.slots.sqm,
+          business: ev.business ?? session.slots.business,
+          house: ev.house ?? session.slots.house,
+          budget: ev.budget ?? session.slots.budget,
+          anywhere: ev.anywhere || session.slots.anywhere || undefined,
+          sizeWaived: ev.sizeWaived || session.slots.sizeWaived || undefined,
+          pricePriority: ev.pricePriority || session.slots.pricePriority || undefined,
+          garsonjera: ev.garsonjera || session.slots.garsonjera || undefined,
+          need: slots.need, rejected: slots.rejected,
+        });
+        if (merged.type === 'SEARCH_REQUESTED') parsed.event = merged;
+      }
     }
     // --- funnel overrides (run AFTER recompute so nothing clobbers them) ---
     // Visit interest in property states -> INTERESTED: "кога може да се

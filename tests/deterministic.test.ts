@@ -9,7 +9,7 @@ import {
   detectAvailabilityAsk, detectFeeWhy, detectExactAddressAsk, detectAnywhere,
   detectSuggestAlternatives, detectPropertyInterest, detectOwnerContact,
   isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
-  detectNearCenter, detectRingElimination, CENTER_RING,
+  detectNearCenter, detectRingElimination, CENTER_RING, detectGarsonjera,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -414,6 +414,22 @@ test('detectSizeWaived: "nebitni se spalnite" — the fused-negative waiver (13:
   assert.equal(detectSizeWaived('minimum 2 spalni'), false);
   assert.equal(detectSizeWaived('dve spalni'), false);
   assert.equal(detectSizeWaived('bitno e da e do 100000'), false);
+});
+
+test('detectGarsonjera + extractSlots: "garsonjera mi treba" is a TYPE, not "1 спална" (19:34 bug)', () => {
+  // The exact transcript line — the client named the studio category, no
+  // bedroom count was ever said. The 1-room heuristic must be stripped.
+  const s = extractSlots('garsonjera mi treba do 250 evra mx');
+  assert.equal(s.garsonjera, true);
+  assert.equal(s.bedrooms, undefined); // never fabricate "1 спална"
+  assert.equal(s.budget, '250');
+  // Cyrillic + both spellings
+  assert.equal(extractSlots('барам гарсоњера до 200').garsonjera, true);
+  assert.equal(extractSlots('MI TREBA STUDIO').garsonjera, true);
+  // an EXPLICIT bedroom count survives the category mention
+  assert.equal(extractSlots('garsonjera so edna spalna').bedrooms, 2); // 1 спална → 2-room
+  // the heuristic alone still answers 1-room when no category word appears
+  assert.equal(extractSlots('mi treba malo stanche').bedrooms, 1);
 });
 
 test('detectRejection: refusal phrases', () => {

@@ -13,6 +13,7 @@ export interface SlotData {
   anywhere?: boolean;           // "било каде" — no location preference (satisfies location)
   sizeWaived?: boolean;        // "големината не ми е битна" — skip bedrooms question
   pricePriority?: boolean;     // "што поевтино" — sort by price, skip budget question
+  garsonjera?: boolean;        // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
   propertyId?: number;          // EB of the property currently discussed
   interestedPropertyId?: number;
   presentedIds?: number[];      // ALL EBs shown so far (excluded from later batches)

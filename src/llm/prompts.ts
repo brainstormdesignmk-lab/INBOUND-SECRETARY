@@ -336,7 +336,10 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   if (slots.service && (slots.location || anywhere) && business && !slots.sqm) {
     missing.push(askQuestion('discovery.ask.sqm.business', 'Која површина (во м²) ја барате?', recent));
   }
-  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms && !anywhere && !slots.sizeWaived) {
+  // "garsonjera" IS the size answer — a studio has no separate спална, so the
+  // bedrooms question never fires for the explicit studio category (19:34 bug:
+  // the funnel looped on "Колку спални…" after the client already said it).
+  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms && !anywhere && !slots.sizeWaived && !slots.garsonjera) {
     missing.push(askQuestion(
       house ? 'discovery.ask.bedrooms.house' : 'discovery.ask.bedrooms.stan',
       house ? 'Колку спални соби би сакале да има куќата?' : 'Колку спални соби би сакале да има станот?',
@@ -883,7 +886,7 @@ export function buildPropertyCard(p: Property): string {
   return s;
 }
 
-export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0, recent: string[] = [], opts: { anywhere?: boolean; budget?: string } = {}): string {
+export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0, recent: string[] = [], opts: { anywhere?: boolean; budget?: string; noOpener?: boolean } = {}): string {
   const cards = properties.slice(0, 2)
     .map(p => buildPropertyCard(p)).join('\n\n');
   const closer = state === 'presentation'
@@ -896,7 +899,10 @@ export function buildPropertyCards(properties: Property[], state: State, closerI
   // населби…") — the client asked for options ANYWHERE, so the opener names
   // the budget and the popular-neighborhood ordering. property_query describes
   // ONE property — no opener there.
-  const opener = state === 'presentation'
+  // noOpener: a type-aware relaxed prefix ("нема гарсоњера, еве мало станче")
+  // already introduces the cards — the bank opener after it read as a second,
+  // contradictory speaker ("…но има слични опции. / Врз основа на… издвоив").
+  const opener = state === 'presentation' && !opts.noOpener
     ? (opts.anywhere && opts.budget
       ? pickVariant('presentation.open.anywhere', { recent, vars: { budget: formatBudget(opts.budget) ?? opts.budget } })
         ?? `Еве избор на станови до ${formatBudget(opts.budget) ?? opts.budget} евра, почнувајќи од најбараните населби:`

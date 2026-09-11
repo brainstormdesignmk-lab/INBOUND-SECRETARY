@@ -28,6 +28,7 @@ export interface Event {
   anywhere?: boolean;       // "било каде" — no location preference (satisfies location)
   sizeWaived?: boolean;    // "големината не ми е битна" — skip bedrooms question
   pricePriority?: boolean; // "што поевтино" — sort by price, skip budget question
+  garsonjera?: boolean;    // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
   propertyId?: number;      // = Евидентен број (EB)
   visitTime?: string;       // free-text time proposed by the client
   name?: string;

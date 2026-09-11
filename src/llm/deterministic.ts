@@ -38,6 +38,7 @@ export interface DetectedSlots {
   rejected?: boolean;
   sizeWaived?: boolean;    // "големината не ми е битна" — skip bedrooms question
   pricePriority?: boolean; // "што поевтино" — sort by price, skip budget question
+  garsonjera?: boolean;    // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
 }
 
 // Latin spellings included — Macedonian clients type in Latin more often than Cyrillic.
@@ -270,6 +271,24 @@ export function detectBedrooms(text: string): number | undefined {
   }
   if (matchesBoth(SMALL_STAN_RE, text)) return 1;
   return undefined;
+}
+
+// "garsonjera ми треба до 250" — the client names the STUDIO category itself.
+// This is a TYPE, not a bedrooms answer: a garsonjera has no separate bedroom
+// ("1 спална" was never said), and the no-match/premessage layer must speak
+// about "garsonjera", not invent a bedrooms criterion. Also catches "мала
+// гарсоњера"/"мало станче" (the SIZE word alone already implies 1-room via
+// detectBedrooms — this detector only fires for the explicit category word).
+const GARSONJERA_RE =
+  /(гарсоњер|garsonjer|студио|studio)/iu;
+
+/**
+ * True when the client explicitly named the studio/garsonjera category
+ * ("garsonjera mi treba", "барам гарсоњера"). The session then carries the
+ * type (slots.garsonjera) instead of a fabricated "1 спална" criterion.
+ */
+export function detectGarsonjera(text: string): boolean {
+  return matchesBoth(GARSONJERA_RE, text);
 }
 
 /**
@@ -2102,8 +2121,8 @@ export function fsmRequired(text: string): boolean {
 }
 
 export function buildEvent(state: State, slots: DetectedSlots): Event {
-  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected, sizeWaived, pricePriority } = slots;
-  const has = !!(service || location || bedrooms || budget || sqm || anywhere || sizeWaived || pricePriority);
+  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected, sizeWaived, pricePriority, garsonjera } = slots;
+  const has = !!(service || location || bedrooms || budget || sqm || anywhere || sizeWaived || pricePriority || garsonjera);
   // A rejection is honored ONLY when the message carries NO new direction —
   // "не барам стан, барам куќа" names a new type, which wins over the denial.
   // Checked BEFORE the STAY guard so a pure denial ("не барам стан", nothing
@@ -2123,14 +2142,16 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
   // being asked for a location/bedrooms they explicitly didn't care about.
   // sizeWaived: bedrooms waived — "големината не ми е битна"
   // pricePriority: budget optional — "што поевтино" → sort by price, search now
-  const bedroomsOk = business ? sqm : (bedrooms || anywhere || sizeWaived);
+  // garsonjera: the studio category itself satisfies the size criterion —
+  // "garsonjera mi treba" never triggers a bedrooms question (19:34).
+  const bedroomsOk = business ? sqm : (bedrooms || anywhere || sizeWaived || garsonjera);
   const budgetOk = budget || pricePriority;
   const complete = service && (location || anywhere)
     && bedroomsOk && budgetOk;
   if (complete) {
-    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority };
+    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera };
   }
-  if (service && !location && !bedrooms && !budget && !sqm && !anywhere && !sizeWaived && !pricePriority) {
+  if (service && !location && !bedrooms && !budget && !sqm && !anywhere && !sizeWaived && !pricePriority && !garsonjera) {
     return { type: 'INTENT_DECLARED', service, business, house };
   }
   // A bare need ("ми треба стан", "MI TREBA STANCE") with NOTHING extracted:
@@ -2140,7 +2161,7 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
   if (need && !has) {
     return { type: 'INTENT_DECLARED', service: undefined, business, house };
   }
-  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority };
+  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera };
 }
 
 
@@ -2177,6 +2198,17 @@ export function extractSlots(text: string): DetectedSlots {
   if (detectRejection(text)) out.rejected = true;
   if (detectSizeWaived(text)) out.sizeWaived = true;
   if (detectPricePriority(text)) out.pricePriority = true;
+  if (detectGarsonjera(text)) {
+    out.garsonjera = true;
+    // "garsonjera" is a TYPE, not a bedrooms answer: the 19:34 transcript bug
+    // ("garsonjera mi treba do 250" → fabricated "1 спална" criterion). A
+    // bedroom count survives ONLY when the message also names bedrooms
+    // explicitly ("garsonjera so edna spalna"); the heuristic мал-стан 1 is
+    // stripped so the funnel speaks about the category, not a спални number.
+    if (out.bedrooms === 1 && !/(спалн|spaln|соби|sobi|соба|soba)/i.test(text)) {
+      delete out.bedrooms;
+    }
+  }
   return out;
 }
 
