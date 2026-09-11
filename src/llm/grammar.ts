@@ -120,8 +120,14 @@ const VISIT_SEE = ['погледн', 'видам', 'види', 'погледањ
 const VISIT_SEE_L = ['pogledn', 'vidam', 'vidi', 'pogledanje', 'razgledam', 'poseta'];
 
 /** Command verb — "schedule" / "arrange" */
-const VISIT_CMD = ['закажи', 'договори', 'организира'];
-const VISIT_CMD_L = ['zakazi', 'dogovori', 'organiziraj'];
+const VISIT_CMD = ['закажи', 'договори', 'организирај', 'организирајте'];
+const VISIT_CMD_L = ['zakazi', 'dogovori', 'organiziraj', 'organizirajte'];
+// NOTE: bare "организира" is deliberately NOT a command — it is 3rd person
+// ("агенцијата организира превоз", "Метрополис организира посета") and its
+// tail slot `(?:\s+посета)?` is OPTIONAL, so a bare 3rd-person verb would
+// claim every such sentence as visit interest. Only the imperative
+// (организирај/организирајте) is a command; "организира посета" as a request
+// is covered by the dedicated imperative+object tail in the patterns list.
 
 // ── Seen Property ─────────────────────────────────────────────────────────────
 
@@ -246,15 +252,23 @@ export function buildAvailabilitySlots(): RegExp {
     s(`${H}${WS}${C}${WS}${T}`),
 
     // ── Original hand-written patterns (kept for backward compat) ───────────
+    // Every tail below carries the Unicode boundary guard: a bare word stem
+    // matching INSIDE another word is the lokaciJA-class bug. Verified cases:
+    //   "постапен ли е" ⊃ остапен, "препродава ли е" ⊃ продава,
+    //   "dali ima postojan parking" ⊃ postoi (a FEATURE question, not availability).
     // "го имате уште" / "ја имате уште" (direct from old regex)
-    s(`(?:го|ја)${WS}имате${WS}(?:ли${WS})?(?:уште|сеуште)`),
-    s(`(?:go|ja)${WS}imate${WS}(?:li${WS})?(?:uste|seuste)`),
-    // "dali ... dostapen" / "dali ... prodaden" (Latin catch-all)
-    `daa?[il][il]${GAP}(?:dostapen|dostapna|dostapno|ostapen|ostapna|sloboden|slobodna|slobodno|prodaden|prodadena|izdaden|izdadena|na prodazba|postoi|go imate uste|ja imate uste|za prodavanje|za prodazba|na prodazba|se prodava|prodavate|prodava li)`,
-    // "остапен ли е" / "остапна ли е" (contracted forms)
-    'остапен\\s+ли\\s+е|остапна\\s+ли\\s+е|ostapen\\s+li\\s+e|ostapna\\s+li\\s+e',
-    // "на продажба ли е" / "се продава ли"
-    'на\\s+продажба\\s+ли\\s+е|се\\s+продава\\s+ли|продава\\s+ли\\s+е|на\\s+prodazba\\s+li\\s+e|se\\s+prodava\\s+li|prodava\\s+li\\s+e|za\\s+prodazba\\s+li\\s+e',
+    s(`(?<![\\p{L}\\p{N}])(?:го|ја)${WS}имате${WS}(?:ли${WS})?(?:уште|сеуште)(?![\\p{L}\\p{N}])`),
+    s(`(?<![\\p{L}\\p{N}])(?:go|ja)${WS}imate${WS}(?:li${WS})?(?:uste|seuste)(?![\\p{L}\\p{N}])`),
+    // "dali ... dostapen" / "dali ... prodaden" (Latin catch-all) — the keyword
+    // list is boundary-guarded on BOTH sides: unguarded, "postoi" fires inside
+    // "postojan" ("dali ima postojan parking?" read as an availability ask).
+    `daa?[il][il]${GAP}(?<![\\p{L}\\p{N}])(?:dostapen|dostapna|dostapno|ostapen|ostapna|sloboden|slobodna|slobodno|prodaden|prodadena|izdaden|izdadena|na prodazba|postoi|go imate uste|ja imate uste|za prodavanje|za prodazba|na prodazba|se prodava|prodavate|prodava li)(?![\\p{L}\\p{N}])`,
+    // "остапен ли е" / "остапна ли е" (contracted forms) — "остапен" is a
+    // substring of "постапен" (procedural speech!) — left guard required.
+    '(?<![\\p{L}\\p{N}])(?:остапен\\s+ли\\s+е|остапна\\s+ли\\s+е|ostapen\\s+li\\s+e|ostapna\\s+li\\s+e)(?![\\p{L}\\p{N}])',
+    // "на продажба ли е" / "се продава ли" — "продава" is a substring of
+    // "препродава" — left guard required.
+    '(?<![\\p{L}\\p{N}])(?:на\\s+продажба\\s+ли\\s+е|се\\s+продава\\s+ли|продава\\s+ли\\s+е|на\\s+prodazba\\s+li\\s+e|se\\s+prodava\\s+li|prodava\\s+li\\s+e|za\\s+prodazba\\s+li\\s+e)(?![\\p{L}\\p{N}])',
   ];
 
   return new RegExp('(?:' + patterns.join('|') + ')', 'iu');
@@ -293,12 +307,16 @@ export function buildVisitSlots(): RegExp {
     s(`${SEE}(?:${WS}${WHEN})?(?:${WS}${MODAL})?`),
     // Slot: CMD LI? посета? — "закажи ми посета"
     s(`${CMDB}(?:\\s+(?:ј|јте|te|и|е))?(?:${WS}(?:посета|poseta))?`),
-    // Slot: WANT GAP? посета — "сакам посета"
-    s(`${WANT}${GAP}(?:посета|poseta)`),
-    // "организира(ј|јте)? посета"
-    'организира(?:ј|јте)?(?:\\s+посета)?|organiziraj(?:te)?(?:\\s+poseta)?',
-    // "закаж(и|е)(те)? посета"
-    'закаж(?:и|е)(?:те)?(?:\\s+посета)?|zakaz(?:e|i)(?:te)?(?:\\s+poseta)?',
+    // Slot: WANT GAP? посета — "сакам посета" — guarded: "посета" is a prefix
+    // of "посетители" ("сакам да нема многу посетители" ≠ visit interest).
+    s(`${WANT}${GAP}(?<![\\p{L}\\p{N}])(?:посета|poseta)(?![\\p{L}\\p{N}])`),
+    // "организира(ј|јте)? посета" — imperative/object REQUIRED for the bare
+    // verb: "агенцијата организира превоз" (3rd person, object elsewhere)
+    // must never read as visit interest.
+    '(?<![\\p{L}\\p{N}])(?:организира(?:ј|јте|te)(?:\\s+посета)?|организира(?:\\s+посета)|organiziraj(?:te)?(?:\\s+poseta)?|organizira(?:\\s+poseta))(?![\\p{L}\\p{N}])',
+    // "закаж(и|е)(те)? посета" — guarded: "zakaz" is a stem of "zakazan/
+    // zakazuvam" ("terminot e zakazan" is a statement, not a request).
+    '(?<![\\p{L}\\p{N}])(?:закаж(?:и|е)(?:те)?(?:\\s+посета)?|zakaz(?:e|i)(?:te)?(?:\\s+poseta)?)(?![\\p{L}\\p{N}])',
     // "договори ми ја/го"
     '(?<![\\p{L}\\p{N}])(?:договори|dogovori)(?![\\p{L}\\p{N}])(?:\\s+ми(?:\\s+(?:ја|го))?)?',
     // "закажи ми"
@@ -343,15 +361,18 @@ export function buildSeenSlots(): RegExp {
     s(`${SAW}${GAPSEEN}${ONL}`),
     // Slot: OBJ CLITIC SAW GAP? online — "огласот го гледав на интернет"
     s(`${OBJ}${WS}${CL}${WS}${SAW}${GAPSEEN}${ONL}`),
-    // Original: тој конкретен стан / конкретниот стан
-    'тој\\s+конкретен\\s+стан|конкретниот\\s+стан',
-    // Original: кој стан беше / која е таа/ова
-    'кој\\s+стан\\s+беше|која\\s+(?:е|беше)\\s+(?:таа|ова)',
+    // Original: тој конкретен стан / конкретниот стан — guarded: "тој" is a
+    // suffix of "сетој/оној"-class words.
+    '(?<![\\p{L}\\p{N}])(?:тој\\s+конкретен\\s+стан|конкретниот\\s+стан)',
+    // Original: кој стан беше / која е таа/ова — guarded: "кој" is a suffix of
+    // "секој" ("секој стан беше добро описан" ≠ seen-property).
+    '(?<![\\p{L}\\p{N}])(?:кој\\s+стан\\s+беше|која\\s+(?:е|беше)\\s+(?:таа|ова))',
     // Original: може да ми кажете кој / кој е тој стан
-    'може\\s+да\\s+ми\\s+кажете\\s+кој|кој\\s+е\\s+тој\\s+стан',
-    // Latin: toj konkreten stan / konkretniot stan / koj stan bese
-    'toj\\s+konkreten\\s+stan|konkretniot\\s+stan|koj\\s+stan\\s+bese',
-    'koja\\s+(?:e|bese)\\s+(?:taa|ova)|moze\\s+da\\s+mi\\s+kazete\\s+koj|koj\\s+e\\s+toj\\s+stan',
+    '(?<![\\p{L}\\p{N}])(?:може\\s+да\\s+ми\\s+кажете\\s+кој|кој\\s+е\\s+тој\\s+стан)',
+    // Latin: toj konkreten stan / konkretniot stan / koj stan bese — same
+    // guards ("svoj konkreten stan", "sekoj stan bese" must not fire).
+    '(?<![\\p{L}\\p{N}])(?:toj\\s+konkreten\\s+stan|konkretniot\\s+stan|koj\\s+stan\\s+bese)',
+    '(?<![\\p{L}\\p{N}])(?:koja\\s+(?:e|bese)\\s+(?:taa|ova)|moze\\s+da\\s+mi\\s+kazete\\s+koj|koj\\s+e\\s+toj\\s+stan)',
   ];
 
   return new RegExp('(?:' + patterns.join('|') + ')', 'iu');
@@ -437,7 +458,7 @@ export function buildPricePrioritySlots(): RegExp {
     // Slot: SUP — “нajeftino“ / “најевтино“ / “најниско“
     s(SUP),
     // Slot: ADJ (be | you have | there is) — “поевтино е“ / “поевтино имате“
-    s(`${ADJ}${WS}(?:е|е|е|имате|има|е|е|e|imas|ima|ima)`),
+    s(`${ADJ}${WS}(?:е|имате|има|e|imas|ima)(?![\\p{L}\\p{N}])`),
     // “najevtino shto ima“ / “najnisko shto ima“
     s(`${SUP}${WS}(?:што|колку|shto|kolku)${WS}(?:има|има|ima|ima)`),
     // Slot: EN — “cheapest“ / “most affordable“

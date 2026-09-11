@@ -85,6 +85,46 @@ test('classify: oral-sex variants (zemi/lapni/lizi/turam/go sakas) are caught', 
   }
 });
 
+test('classify: substring class — innocent property words never fire (the lokaciJA lesson)', () => {
+  const clean = [
+    'skurat do gradski park',                 // 'kur' inside 'skurat' (street area!)
+    'zgradata e vo blizina na kulturen dom',  // 'kur' inside 'kulturen'
+    'sopstvenikot e cura',                    // bare 'cura' = girl, neutral speech
+    'mreza od marselski klopi',               // 'mars' inside 'marselski'
+    'avtobusot prelazi pred zgradata',        // 'lazi' inside 'prelazi' — bus crossings!
+    'koga ke bide smrtno potrebno ke ve javam', // 'smrt' inside 'smrtno'
+    'dokumentot ima smrtovni zabeleski',      // 'smrt' inside 'smrtovni'
+    'stanot e vo blizina na Marsal Tito',     // 'mars' inside a real street name
+  ];
+  for (const t of clean) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+  }
+});
+
+test('classify: 3rd-person lies about properties are complaints, not insults', () => {
+  const clean = [
+    'sopstvenikot laze za kvadraturata',  // client complaint about the OWNER
+    'starite vladelci lazea za stanot',
+  ];
+  for (const t of clean) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+  }
+  // …but directed liar insults still fire
+  for (const t of ['ti lazes', 'lazov eden', 'ti si lazov']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' must fire');
+  }
+});
+
+test('classify: real insults still fire after the boundary sweep', () => {
+  for (const t of ['A DA TE POEBAM MALCE', 'DA SE EBETE VO GAZOT', 'ti si debil', 'picka ti mater']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' must fire');
+  }
+});
+
 test('classify: normal real-estate talk is never offensive', () => {
   const clean = [
     'Здраво, сакам стан под кирија.',

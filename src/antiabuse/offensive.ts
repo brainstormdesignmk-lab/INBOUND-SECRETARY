@@ -106,7 +106,9 @@ const LEXICON: LexiconEntry[] = [
     excludeAfter: ['se', 'si', 'ime', 'ite', 'aat', 'eme', 'ot', 'ata'],
     reason: 'gradi (letter-bounded so "izgradi"=built stays clean; reflexive forms excluded)' },
   { id: 'S0c', category: 'sexual', severity: 3, confidence: 0.98, stems: ['picka'], reason: 'picka (picka/pichka/pi4ka/пичка all normalize here)' },
-  { id: 'S0d', category: 'sexual', severity: 3, confidence: 0.98, stems: ['kur', 'kuro', 'kura', 'cura', 'penis'], reason: 'kur/penis' },
+  { id: 'S0d', category: 'sexual', severity: 3, confidence: 0.98, stems: ['kur', 'kuro', 'kura', 'kurac', 'kurvo', 'kurva', 'kurvi', 'kurcinja', 'penis'], boundary: true,
+    reason: 'kur/penis (letter-bounded: "skurat", "kultura" stay clean; inflected kurvo/kurva listed explicitly). Bare "cura" deliberately NOT here — it also means "girl" ("sopstvenikot e cura") — the directed insult forms live in S0d2' },
+  { id: 'S0d2', category: 'sexual', severity: 3, confidence: 0.9, stems: ['ti cura', 'ti si cura', 'ti edna cura'], reason: 'directed cura insult (multi-word: neutral "sopstvenikot e cura" stays clean)' },
   { id: 'S0e', category: 'sexual', severity: 3, confidence: 0.98, stems: ['vagin', 'vulv'], reason: 'vagina/vulva' },
   // boundary on 'anal' (ANA had it bare): "направи анализа" (make an analysis)
   // is a legit real-estate request and must never flag — the unambiguous
@@ -200,7 +202,7 @@ const LEXICON: LexiconEntry[] = [
   { id: 'V3', category: 'violence', severity: 3, confidence: 0.99, stems: ['zastreluvam', 'pucam vo tebe'], reason: 'shooting threat' },
   { id: 'V4', category: 'violence', severity: 3, confidence: 0.99, stems: ['ke te najdam', 'kje te najdam'], reason: 'I will find you' },
   { id: 'V5', category: 'violence', severity: 3, confidence: 0.99, stems: ['ke ti gi skrsam', 'kje ti gi skrsam'], reason: 'I will break you' },
-  { id: 'V6', category: 'violence', severity: 3, confidence: 0.98, stems: ['smrt', 'umri', 'crkni'], reason: 'death/die' },
+  { id: 'V6', category: 'violence', severity: 3, confidence: 0.98, stems: ['smrt', 'umri', 'crkni'], boundary: true, reason: 'death/die (letter-bounded: "smrtno"/"smrtovni" stay clean)' },
   { id: 'V7', category: 'violence', severity: 3, confidence: 0.95, stems: ['znam kade rabotite', 'znam kade zivees'], reason: 'I know where you work/live (stalking)' },
 
   // ---------- CREEPY (severity 2) — personal-boundary questions ----------
@@ -251,10 +253,12 @@ const LEXICON: LexiconEntry[] = [
   { id: 'M2', category: 'mild', severity: 1, confidence: 0.8, stems: ['odjebi', 'odjebi se'], reason: 'odjebi' },
   { id: 'M3', category: 'mild', severity: 1, confidence: 0.8, stems: ['begaj', 'gubi se', 'nosi se'], reason: 'begaj/gubi se/nosi se' },
   { id: 'M4', category: 'mild', severity: 1, confidence: 0.8, stems: ['zajebavaj', 'zajebavas', 'zajebuvaj', 'zajebuvas', 'zaebavaj', 'zaebes', 'ne me zajebavaj', 'ne me zaebavaj'], reason: 'zajebavas family' },
-  { id: 'M5', category: 'mild', severity: 1, confidence: 0.8, stems: ['mars'], reason: 'mars' },
+  { id: 'M5', category: 'mild', severity: 1, confidence: 0.8, stems: ['mars'], boundary: true, reason: 'mars (letter-bounded: "marselski" stays clean)' },
   { id: 'M6', category: 'mild', severity: 1, confidence: 0.8, stems: ['bolesnik', 'bolesna'], reason: 'bolesnik' },
   { id: 'M7', category: 'mild', severity: 1, confidence: 0.8, stems: ['smesen', 'smesna'], reason: 'smeshen' },
-  { id: 'M8', category: 'mild', severity: 1, confidence: 0.8, stems: ['lazo', 'laze', 'lazi', 'lazov'], reason: 'lazh/lazho' },
+  { id: 'M8', category: 'mild', severity: 1, confidence: 0.8, boundary: true,
+    stems: ['lazo', 'lazov', 'lazes', 'lazete', 'ti lazi'],
+    reason: 'liar (only 2nd-person/directed forms: bare 3rd-person "laze" is legit property talk — "sopstvenikot laze za kvadraturata" is a client complaint, not an insult; "prelazi" stays clean)' },
   { id: 'M9', category: 'mild', severity: 1, confidence: 0.8, boundary: true, stems: ['dosadna si', 'si dosadna', 'dosaden si', 'si dosaden', 'dosadni ste', 'dosadno e'], reason: 'you are annoying (DOSADNA SI)' },
   { id: 'M10', category: 'mild', severity: 1, confidence: 0.8, boundary: true, stems: ['otkaci se', 'otkazi se', 'otkazhi se'], reason: 'buzz off (OTKACI SE)' },
   { id: 'O1', category: 'mild', severity: 1, confidence: 0.8, stems: ['zamolci', 'kjuti', 'kjutis'], reason: 'zamolci/kjuti' },
