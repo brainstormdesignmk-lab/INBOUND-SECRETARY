@@ -10,7 +10,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
@@ -1109,6 +1109,96 @@ export class InboundHandler {
           ? 'Откажана посета по желба на клиент. Метрополис се извинува за непланираните околности.Ќе бидеме во контакт.'
           : 'Откажана посета по желба на сопственикот. Метрополис се извинува за непланираните околности.Ќе бидеме во контакт.';
         session.state = 'terminated';
+      }
+    }
+
+    // NEAR-CENTER LADDER — runs BEFORE loadProps so the ring pool never leaks
+    // into the normal presentation ladder's presentedIds (the ring owns its own
+    // shown-set). Full flow documented at the branch below (steps 1–5).
+    if (session.state === 'presentation'
+      && (detectNearCenter(text) || session.slots.nearCenter)
+      && !session.slots.propertyId && !session.slots.interestedPropertyId) {
+      const nc = session.slots.nearCenter ?? { stage: 'ask' as const, ring: [...CENTER_RING] };
+      const ring = nc.ring;
+      // Ring-pair presenter: filters the city pool to the (remaining) ring,
+      // excludes everything already shown, and serves the next PAIR.
+      const presentRingPair = async (intro: string): Promise<boolean> => {
+        let pool = await this.deps.properties.candidates({
+          bedrooms: session.slots.bedrooms,
+          sqm: session.slots.sqm,
+          business: session.slots.business,
+          house: session.slots.house,
+          service: session.slots.service,
+          budget: session.slots.budget,
+        });
+        pool = pool.filter(p => ring.some(l => locMatches(l, p.location ?? '')));
+        const shown = session.slots.presentedIds ?? [];
+        const batch = pool.filter(p => !shown.includes(p.eb)).slice(0, 2);
+        if (batch.length === 0) return false;
+        session.slots.presentedIds = [...shown, ...batch.map(p => p.eb)];
+        await this.landmarks.enrich(batch);
+        const reply = `${intro}\n\n${buildPropertyCards(batch, 'presentation', session.history.length, assistantTexts(session), { budget: session.slots.budget })}`;
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, reply, 'deterministic');
+        return true;
+      };
+      const exhaustedNoRing = async (): Promise<void> => {
+        session.slots.nearCenter = undefined;
+        session.slots.areaExhausted = true;
+        const line = exhaustedLine(undefined, assistantTexts(session))
+          ?? 'Ги прегледавме сите опции во населбите околу центарот. Можам да ги запишам Вашите барања и да Ве известам штом се појави нешто соодветно, или да погледнеме во друга населба?';
+        pushHistory(session, { role: 'assistant', text: line }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, line, 'deterministic');
+      };
+      const ringIntro = () => pickVariant('near.center.ring', { recent: assistantTexts(session) })
+        ?? 'Еве ги најблиските опции до центарот:';
+
+      // Step 1 — the ask: "vo blizina na centar" with no ring session yet.
+      if (!session.slots.nearCenter) {
+        session.slots.nearCenter = { stage: 'ask', ring: [...CENTER_RING] };
+        const ask = pickVariant('near.center.ask', { recent: assistantTexts(session) });
+        const reply = ask ?? 'Најблиску до Центар се населбите Карпош, Аеродром и Кисела Вода. Дали имате конкретна населба на ум, или да Ви покажам сè што е најблиску?';
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, reply, 'deterministic');
+        return;
+      }
+      // Step 4 — elimination: "ne sakam karpos", "bez kisela voda" shrinks the
+      // ring and the flow continues with what remains (like a human agent).
+      const eliminated = detectRingElimination(text);
+      if (eliminated && ring.length > 1) {
+        const remaining = ring.filter(l => !locMatches(eliminated, l));
+        if (remaining.length > 0 && remaining.length !== ring.length) {
+          session.slots.nearCenter = { stage: 'ring', ring: remaining };
+          if (await presentRingPair(ringIntro())) return;
+          await exhaustedNoRing();
+          return;
+        }
+      }
+      // Step 3 — the client hands the choice back: "okolu centar",
+      // "sto poblisku do centar", "drugo nesto" → MIXED pairs from the ring.
+      if (detectNearCenter(text) || detectAgreement(text)
+        || detectDrugAlternative(text) || detectSeeOffers(text)) {
+        session.slots.nearCenter = { stage: 'ring', ring };
+        if (await presentRingPair(ringIntro())) return;
+        await exhaustedNoRing();
+        return;
+      }
+      // Step 2 — the client names a SPECIFIC ring neighborhood: release the
+      // ladder and fall through to the normal search path.
+      if (session.slots.location) {
+        session.slots.nearCenter = undefined;
+        // fall through to the normal flow below
+      } else {
+        // No named neighborhood, no ring phrase: re-ask (ask stage persists).
+        const ask = pickVariant('near.center.ask', { recent: assistantTexts(session) });
+        const reply = ask ?? 'Најблиску до Центар се населбите Карпош, Аеродром и Кисела Вода. Дали имате конкретна населба на ум?';
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, reply, 'deterministic');
+        return;
       }
     }
 

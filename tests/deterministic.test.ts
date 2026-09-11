@@ -9,6 +9,7 @@ import {
   detectAvailabilityAsk, detectFeeWhy, detectExactAddressAsk, detectAnywhere,
   detectSuggestAlternatives, detectPropertyInterest, detectOwnerContact,
   isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
+  detectNearCenter, detectRingElimination, CENTER_RING,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -361,6 +362,40 @@ test('detectAnywhere: "bilo kade" means no location preference', () => {
   // a where-is question is NOT anywhere
   assert.equal(detectAnywhere('каде е Палома Бјанка?'), false);
   assert.equal(detectAnywhere('vo karpos'), false);
+});
+
+test('detectNearCenter: the "vo blizina na centar" family (23:08 transcript)', () => {
+  // The transcript phrase that started the near-center protocol
+  assert.equal(detectNearCenter('vo blizina na centar sto imas'), true);
+  assert.equal(detectNearCenter('ВО БЛИЗИНА НА ЦЕНТАР'), true);
+  // Hand-back forms — the client lets Lina choose the ring
+  assert.equal(detectNearCenter('okolu centar'), true);
+  assert.equal(detectNearCenter('blisku do centar'), true);
+  assert.equal(detectNearCenter('sto poblisku do centar'), true);
+  assert.equal(detectNearCenter('najblisku do centar'), true);
+  // Cyrillic
+  assert.equal(detectNearCenter('во близина на центарот'), true);
+  assert.equal(detectNearCenter('околу центар'), true);
+  // NOT near-center: a plain Центар search must stay a Центар search
+  assert.equal(detectNearCenter('sakam stan vo centar'), false);
+  assert.equal(detectNearCenter('drugo nesto vo centar'), false);
+  assert.equal(detectNearCenter('zdravo'), false);
+  // Ring list sanity: the center border, in ladder order
+  assert.deepEqual(CENTER_RING, ['Карпош', 'Аеродром', 'Кисела Вода']);
+});
+
+test('detectRingElimination: "ne sakam kisela voda" shrinks the ring', () => {
+  assert.equal(detectRingElimination('ne sakam kisela voda'), 'Кисела Вода');
+  assert.equal(detectRingElimination('ne sakam karpos'), 'Карпош');
+  assert.equal(detectRingElimination('bez aerodrom'), 'Аеродром');
+  assert.equal(detectRingElimination('не сакам Кисела Вода'), 'Кисела Вода');
+  assert.equal(detectRingElimination('ne vo karpos'), 'Карпош');
+  // Eliminating Центар itself is meaningless — only ring areas matter
+  assert.equal(detectRingElimination('ne centar'), 'Центар');
+  // Non-eliminations
+  assert.equal(detectRingElimination('sakam karpos'), undefined);
+  assert.equal(detectRingElimination('drugo nesto'), undefined);
+  assert.equal(detectRingElimination('zdravo'), undefined);
 });
 
 test('detectSizeWaived: "nebitni se spalnite" — the fused-negative waiver (13:53 Влае bug)', () => {

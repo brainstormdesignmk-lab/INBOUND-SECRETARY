@@ -21,6 +21,11 @@ export interface SlotData {
   ladderKey?: string;           // presentation ladder: the search key (loc|service|budget) the queue was built for
   ladderQueue?: number[];       // presentation ladder: remaining EB ids in ladder order (top → cheapest → middle → rest)
   areaExhausted?: boolean;      // the selected area(s) are drained and Lina ASKED
+  /** Near-center ladder ("vo blizina na centar" — the 23:08 protocol):
+   *  'ask' = Lina asked whether a specific neighborhood is in mind;
+   *  'ring' = mixed pairs from the center-border ring (Карпош, Аеродром,
+   *  Кисела Вода), with client-eliminated areas dropped from the ring. */
+  nearCenter?: { stage: 'ask' | 'ring'; ring: string[] };
                                 // whether to widen — agreement releases the lock
   name?: string;
   phone?: string;

@@ -14,6 +14,11 @@ function matchesBoth(re: RegExp, text: string): boolean {
   return re.test(text) || re.test(normalizeMc(text));
 }
 
+/** First capture group across both scripts (raw + normalized). */
+function matchesBothCapture(re: RegExp, text: string): string | undefined {
+  return re.exec(text)?.[1] ?? re.exec(normalizeMc(text))?.[1];
+}
+
 // LLM-independent intent/slot extraction. When every LLM is down (or the model
 // says STAY), these deterministic rules still pull service, bedrooms and budget
 // out of the client's text — location comes from the feed's neighborhoods
@@ -1970,6 +1975,51 @@ export function detectLocationConfirm(text: string): boolean {
 /** Marker-form check for callers distinguishing the two sub-classes. */
 export function isLocationConfirmMarker(text: string): boolean {
   return matchesBoth(LOC_CONFIRM_MARKERS_RE, text);
+}
+
+// ── NEAR-CENTER LADDER — the 23:08 protocol ────────────────────────────────
+// "vo blizina na centar" is NOT a Центар search: the client means the
+// neighborhoods BORDERING the center. The ladder:
+//   1. «Центар» named explicitly → center pairs until exhausted (existing funnel)
+//   2. near-center phrasing AND ≥2 center properties fit → Lina ASKS whether a
+//      specific border neighborhood is in mind (nothing shown yet)
+//   3. client names one → normal search there; client says "okolu centar /
+//      blisku do centar / sto poblisku" → MIXED pairs from the ring
+//   4. "ne sakam kisela voda / karpos" → eliminated; the ring shrinks, flow
+//      continues like a human agent
+// The center ring (neighbors of Центар), ordered by the presentation ladder.
+export const CENTER_RING = ['Карпош', 'Аеродром', 'Кисела Вода'];
+// "okolu centar / blisku do centar" — the client hands the AREA choice back to
+// Lina (mixed pairs), as opposed to naming a specific border neighborhood.
+const NEAR_CENTER_RING_RE =
+  /(?:во\s+близин|vo\s+blizin|близ[уу]\s*(?:до)?|blisk[uyu]|blizu|околу|okolu|поблиску|poblisku|najblisku|најблиску)[^.?!\n]{0,25}(?:до\s+)?(?:центар|centar|centarot|центарот)/iu;
+
+/** True when the message asks for properties NEAR the center (not IN it). */
+export function detectNearCenter(text: string): boolean {
+  return matchesBoth(NEAR_CENTER_RING_RE, text);
+}
+
+// Elimination of a border neighborhood: "ne sakam kisela voda", "ne vo karpos",
+// "без кисела вода", "centar ne aerodrom" … — used only while the near-center
+// ladder is active (the caller guards on session.slots.nearCenter).
+const RING_ELIMINATE_RE =
+  /(?:\p{L}[^.?!\n]{0,10})?\s*(?:не\s+|ne\s+|bez|без)\s*\p{L}*\s*(карпош|karpos|аеродром|aerodrom|кисела\s+вода|kisela\s+voda|центар|centar)/iu;
+
+/**
+ * Extracts an ELIMINATED neighborhood from an elimination message
+ * ("ne sakam kisela voda", "bez karpos", "ne vo aerodrom"). Returns the
+ * feed-style name of the rejected area, or undefined. Only meaningful while
+ * the near-center ladder is active.
+ */
+export function detectRingElimination(text: string): string | undefined {
+  const m = matchesBothCapture(RING_ELIMINATE_RE, text);
+  if (!m) return undefined;
+  const raw = m.toLowerCase();
+  if (/karpos|карпош/.test(raw)) return 'Карпош';
+  if (/aerodrom|аеродром/.test(raw)) return 'Аеродром';
+  if (/kisela\s+voda|кисела\s+вода/.test(raw)) return 'Кисела Вода';
+  if (/centar|центар/.test(raw)) return 'Центар';
+  return undefined;
 }
 
 // Neighborhood general: the client asks general questions about neighborhoods.

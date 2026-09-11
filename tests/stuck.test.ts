@@ -2479,3 +2479,59 @@ test('"кажи ми точно адреса" triggers the privacy protocol (not
     `must give privacy protocol: ${reply.substring(0, 200)}`
   );
 });
+
+// THE 23:08 NEAR-CENTER PROTOCOL — the client drains Центар, asks "vo blizina
+// na centar sto imas", and Lina must behave like a human agent: ask whether a
+// specific border neighborhood is in mind → hand-back → MIXED ring pairs →
+// elimination shrinks the ring → drain → exhausted offer. Never a re-search of
+// Центар and never a bogus "немам имоти во Центар" answer.
+test('near-center ladder: ask → hand-back → mixed pairs → elimination → exhausted', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'near-center-test';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Discovery: buy Центар → waiver → budget → presentation (EB 63 — the only
+  // Центар buy row in ROWS within 80k)
+  let s = await send('SAKAM DA KUPAM STAN VO CENTAR');
+  s = await send('NEBITNO E');
+  s = await send('DO 80000');
+  assert.equal(s.state, 'presentation');
+  assert.ok(/Евидентен број 63/.test(sent[sent.length - 1]), sent[sent.length - 1]);
+
+  // Rejection → Центар drained → exhausted ask
+  s = await send('DRUGO NESTO VO CENTAR');
+  assert.equal(s.slots.areaExhausted, true);
+
+  // "vo blizina na centar sto imas" → the ASK, never a re-search of Центар
+  s = await send('vo blizina na centar sto imas');
+  assert.ok(/Карпош|Аеродром|Кисела Вода/.test(sent[sent.length - 1]), sent[sent.length - 1]);
+  assert.ok(/населб/iu.test(sent[sent.length - 1]), `must ask about a specific neighborhood: ${sent[sent.length - 1]}`);
+  assert.equal(s.slots.nearCenter?.stage, 'ask');
+  assert.deepEqual(s.slots.nearCenter?.ring, ['Карпош', 'Аеродром', 'Кисела Вода']);
+
+  // Client hands the choice back → MIXED ring pair (ROWS ring buys ≤ 80k:
+  // EB 46 Кисела Вода 72.3k, EB 54 Карпош III 69.5k, EB 53 Аеродром 55k,
+  // EB 80 Кисела Вода 46k)
+  s = await send('okolu centar');
+  assert.equal(s.slots.nearCenter?.stage, 'ring');
+  const pair1 = (sent[sent.length - 1].match(/Евидентен број (\d+)/g) ?? []).map(x => Number(x.replace(/\D/g, '')));
+  assert.ok(pair1.length === 2, `must present a ring PAIR: ${sent[sent.length - 1]}`);
+  // Every presented EB must be from the RING — never Центар, never Влае
+  const RING_ROWS = [46, 53, 54, 80];
+  for (const eb of pair1) assert.ok(RING_ROWS.includes(eb), `ring row only, got ${eb}`);
+
+  // "drugo nesto" → the NEXT ring pair — no repeats
+  s = await send('drugo nesto');
+  const pair2 = (sent[sent.length - 1].match(/Евидентен број (\d+)/g) ?? []).map(x => Number(x.replace(/\D/g, '')));
+  assert.ok(pair2.length >= 1, `must present the next pair: ${sent[sent.length - 1]}`);
+  for (const eb of pair2) assert.ok(!pair1.includes(eb), `no repeat: ${eb}`);
+
+  // Elimination: "ne sakam karpos" → Карпош never appears again; once the
+  // remaining ring is drained the ladder exits to the normal exhausted flow
+  s = await send('ne sakam karpos');
+  const r3 = sent[sent.length - 1];
+  const shown3 = (r3.match(/Евидентен број (\d+)/g) ?? []).map(x => Number(x.replace(/\D/g, '')));
+  const ringAfter = (s.slots.nearCenter as { ring?: string[] } | undefined)?.ring;
+  if (ringAfter) assert.ok(ringAfter.every(l => !/Карпош/.test(l)), JSON.stringify(ringAfter));
+  for (const eb of shown3) assert.ok(![54].includes(eb), `eliminated Карпош row ${eb} must not show`);
+});
