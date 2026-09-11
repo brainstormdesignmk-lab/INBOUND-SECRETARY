@@ -887,6 +887,36 @@ export function detectInvestmentOpinion(text: string): boolean {
   return matchesBoth(INVESTMENT_OPINION_RE, text);
 }
 
+// The client makes a CONVERSATIONAL REMARK about the property — a compliment
+// or observation ("dobra lokacija ima", "убаво место", "големо е", "ми се
+// допаѓа распоредот"). The 22:05 bug: the remark was swallowed by the
+// availability false-match; after that fix it fell into the closing fee-gate
+// (or the LLM's INTERESTED misread) — both funnel-jumps, neither an answer.
+// A remark must be ANSWERED conversationally by the real brain, not treated
+// as visit interest. Boundary-guarded stems: "ima" must never fire inside
+// another word (the lokaciJA class of bugs).
+// NOTE: "ми се допаѓа / mi se dopagja" is deliberately NOT here — it is the
+// funnel's INTEREST trigger ("mi se dopagja stanot 89" = property.liked, with
+// an EB). Only object-specific compliments about the location/size/light are
+// remarks; a bare "mi se dopagja X" stays interest so the fee flow keeps working.
+const REMARK_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])' +
+  '(?:добр[аоие]\\s+локациј[ао]|dobr[aeio]\\s+lokacij[aei]|локацијата\\s+е\\s+добра|lokacijata\\s+e\\s+dobra'
+  + '|убаво\\s+(?:место|станче|стан)|ubavo\\s+(?:mesto|stanche|stan)'
+  + '|големо\\s+е|golemo\\s+e|широко\\s+е|svetlo\\s+е|светло\\s+е'
+  + '|добро\\s+е\\s+тоа|dobro\\s+e\\s+toa)',
+  'iu',
+);
+
+/**
+ * True when the message is a conversational remark/compliment about the
+ * property under discussion — answer it like a human would, never jump the
+ * funnel (no fee, no visit scheduling) and never treat it as availability.
+ */
+export function detectRemark(text: string): boolean {
+  return matchesBoth(REMARK_RE, text);
+}
+
 // --- Exhausted follow-up detector -----------------------------------------------
 // When the bot just said "we exhausted all options in X" and the client asks
 // about rent/buy/availability in that area ("skapa kirija ima za toj reon",

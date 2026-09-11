@@ -5,7 +5,7 @@ import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
 import { fallbackVariant, pickVariant, retrieveVariant } from '../data/responseBank';
 import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feePersuasion, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
-import { detectInvestmentOpinion, detectFeeWhy } from './deterministic';
+import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
 
 // Anchored so a property price like "68.300 евра" never trips it — only a
 // STANDALONE 300/500/600 in денари (the viewing fee; buy is 500, rent 300)
@@ -327,12 +327,12 @@ export class Responder {
     // LLM prose, so it can't be skipped or paraphrased. Refusals use the
     // persuasion ladder; agreement moves to contact_collection (owner contact).
     if (session.state === 'closing') {
-      // Digression guard: investment opinions, fee-why questions, and other
-      // non-funnel messages must NOT get the fee disclosure — they fall
-      // through to the LLM for a contextual response. Without this, the
-      // closing state acts as a fee-disclosure black hole that swallows
-      // every message.
-      const isDigression = detectInvestmentOpinion(userText) || detectFeeWhy(userText);
+      // Digression guard: investment opinions, fee-why questions, conversational
+      // remarks ("dobra lokacija ima") and other non-funnel messages must NOT
+      // get the fee disclosure — they fall through to the LLM for a contextual
+      // response. Without this, the closing state acts as a fee-disclosure
+      // black hole that swallows every message (the 22:05 bug).
+      const isDigression = detectInvestmentOpinion(userText) || detectFeeWhy(userText) || detectRemark(userText);
       if (!isDigression) {
       // The fee disclosure/persuasion is bank-backed but stays DETERMINISTIC in
       // spirit: every variant was validated at generation time to carry the
@@ -357,8 +357,9 @@ export class Responder {
       return { text: guardText(session.state, line, this.cfg.publicSiteUrl, assistantTexts(session)), source: 'deterministic' };
       } // end !isDigression — digressions fall through to the LLM below
     }
-    // Digression (investment opinion / fee-why) in the closing state falls
-    // through HERE and is answered by the LLM — never by a canned line.
+    // Digression (investment opinion / fee-why / conversational remark) in the
+    // closing state falls through HERE and is answered by the LLM — never by a
+    // canned line.
     return this.escalate(session, properties, userText);
   }
 }

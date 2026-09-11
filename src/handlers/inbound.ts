@@ -10,7 +10,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
@@ -842,6 +842,37 @@ export class InboundHandler {
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
+      // Conversational remark about the property under discussion ("DOBRA
+      // LOKACIJA IMA", "ubavo mesto") — the 22:05 bug: it fell through to the
+      // STAY card re-serve (property_query) or the INTERESTED fee jump. A
+      // remark is NOT funnel traffic: answer it with the REAL brain
+      // conversationally, change no state, touch no slots. Guarded to contexts
+      // where a property actually exists (a "nice place" during discovery with
+      // no property is search chatter and stays with the classifier), and to
+      // messages with no search criteria ("ubavo mesto vo karpos do 500" = a
+      // search, not a remark).
+      if (detectRemark(text)
+        && (session.slots.propertyId || session.slots.interestedPropertyId || session.slots.presentedIds?.length)
+        && !detectBudget(text) && !detectService(text) && !detectBothServices(text)
+        && !detectHouse(text) && !detectBusiness(text) && !detectPriceAsk(text)) {
+        // Current property in context — Gemini needs it to talk ABOUT the
+        // remark's subject ("да, локацијата е одлична, во строг Центар…").
+        // Without it Gemini hallucinates availability. And if the LLM fails,
+        // the fallback re-serves THE CURRENT property's card — the only card
+        // that is never "offering other properties" junk.
+        const remarkEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+          ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
+        const remarkProp = remarkEb ? await this.deps.properties.getById(remarkEb).catch(() => undefined) : undefined;
+        const r = await this.deps.responder.respond(session, remarkProp ? [remarkProp] : [], text);
+        routeLog(chatId, text, 'REMARK:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: r.text }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), r.source !== 'deterministic' && r.source !== 'fallback', r.source)) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'REMARK', userMsg: text, replyText: r.text, replySource: r.source }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-remark) state=${session.state} src=${r.source}`);
+        await this.sendRaw(session, r.text, r.source);
+        return;
+      }
       // detectPriceAsk matches 'DO 500 EVRA' because it contains 'евра' —
       // that's a budget statement, NOT a price question. Guard: exclude messages
       // that contain a budget number (detectBudget fires) so they reach the
@@ -1397,6 +1428,7 @@ ${contactReminder}`;
       }
     } else if (next === 'closing'
         && detectPropertyInterest(text)
+        && !detectRemark(text)
         && before !== 'closing'
         && (before === 'property_query' || before === 'presentation' || before === 'discovery')) {
       // Enthusiasm: the client said 'mi se svigja 89' / 'zainteresiran sum' /
@@ -1422,6 +1454,7 @@ ${contactReminder}`;
         && !session.slots.viewingFeeAgreed
         && !detectAvailabilityAsk(text)
         && !detectPropertyInterest(text)
+        && !detectRemark(text)
         && !detectFeeWhy(text)
         && !detectInvestmentOpinion(text)
         && !detectFeeComplaint(text)

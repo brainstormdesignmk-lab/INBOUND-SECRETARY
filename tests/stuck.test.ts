@@ -19,6 +19,17 @@ class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
 }
 
+// A REMARK-BRAIN for the 22:05 compliment regression: the real Gemini answers
+// conversationally — the point is that the REPLY ROUTES to the real brain
+// (detectRemark guards + respond's digression fall-through), never the canned
+// availability ack or the fee re-disclosure.
+class RemarkLlm implements LlmClient {
+  async complete(args: { role: string }): Promise<string> {
+    if (args.role === 'respond') return 'Локацијата е навистина одлична — уживајте во неа!';
+    return JSON.stringify({ event: 'STAY' });
+  }
+}
+
 // An LLM that is UP but hallucinates: answers PROPERTY_ID_REQUESTED with no
 // propertyId for a budget refinement ("A NESTO POSKAPO DO 1000 EVRA").
 class HallucinatingLlm implements LlmClient {
@@ -2605,4 +2616,52 @@ test('19:34: "garsonjera mi treba do 250" presents the studio — never a fabric
   assert.ok(replyB.includes('92'), `closest unit presented: ${replyB}`);
   assert.ok(!/една спална/.test(replyB), replyB);
   assert.ok(!/нема[\s\S]*Врз основа/.test(replyB), `double speaker: ${replyB}`);
+});
+
+// ── 22:05 compliment regression ─────────────────────────────────────────────
+// "DOBRA LOKACIJA IMA" is a conversational remark about the property under
+// discussion. It must NEVER become the canned availability ack (the original
+// substring bug) nor a fee re-disclosure (the classifier's INTERESTED misread)
+// — it must reach the REAL brain and be answered conversationally.
+test('compliment reaches the real brain: conversational reply, never canned ack / fee dump', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const llm = new RemarkLlm();
+  const classifier = new Classifier(llm, cfg, properties);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }) });
+  const chatId = 'compliment';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Context 1 — closing (fee disclosed), the exact 22:05 flow
+  await send('mi se dopagja stanot 77');
+  await send('sakam da ja vidam');
+  const closingReplyIdx = sent.length - 1;
+  await send('DOBRA LOKACIJA IMA');
+  const remarkReply = sent[sent.length - 1];
+  assert.ok(!/сè уште (е )?во базата|сè уште стои достапен/i.test(remarkReply), `canned availability ack: ${remarkReply}`);
+  assert.ok(/одлична|убав/iu.test(remarkReply), `must answer the remark conversationally: ${remarkReply}`);
+  assert.ok(sessions.get(chatId)!.state === 'closing', 'closing stays closing');
+  // sanity: the context really was built (fee was disclosed before the remark)
+  assert.ok(/300 денари|симболичн/.test(sent[closingReplyIdx]), sent[closingReplyIdx]);
+
+  // Context 2 — property_query (client still browsing), FRESH chat so the
+  // session doesn't start from context 1's closing state.
+  const chat2 = 'compliment-2';
+  const send2 = async (m: string) => { await handler.handle('test', chat2, m); return sessions.get(chat2)!; };
+  await send2('mi se dopagja stanot 78');
+  const pqReplyIdx = sent.length - 1;
+  await send2('dobra lokacija ima ovoj stan');
+  const pqReply = sent[sent.length - 1];
+  assert.ok(!/сè уште (е )?во базата|сè уште стои достапен/i.test(pqReply), `canned availability ack: ${pqReply}`);
+  assert.ok(/одлична|убав/iu.test(pqReply), `must answer conversationally: ${pqReply}`);
+  assert.ok(/Евидентен број 78/.test(sent[pqReplyIdx]), sent[pqReplyIdx]);
 });
