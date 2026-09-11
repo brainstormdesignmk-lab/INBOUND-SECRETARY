@@ -428,7 +428,9 @@ test('detectGarsonjera + extractSlots: "garsonjera mi treba" is a TYPE, not "1 �
   assert.equal(extractSlots('MI TREBA STUDIO').garsonjera, true);
   // an EXPLICIT bedroom count survives the category mention
   assert.equal(extractSlots('garsonjera so edna spalna').bedrooms, 2); // 1 спална → 2-room
-  // the heuristic alone still answers 1-room when no category word appears
+  // bare "станче" stays the SIZE heuristic (bedrooms=1, GORAN transcripts),
+  // NOT the category — only garsonjera/studio are unambiguous studios
+  assert.equal(extractSlots('mi treba malo stanche').garsonjera, undefined);
   assert.equal(extractSlots('mi treba malo stanche').bedrooms, 1);
 });
 

@@ -279,8 +279,15 @@ export function detectBedrooms(text: string): number | undefined {
 // about "garsonjera", not invent a bedrooms criterion. Also catches "мала
 // гарсоњера"/"мало станче" (the SIZE word alone already implies 1-room via
 // detectBedrooms — this detector only fires for the explicit category word).
+// JS \b never binds around Cyrillic — Cyrillic forms are matched as
+// substrings (гарсоњер is specific enough); Latin forms keep \b.
+// Bare "студио" stays included: a client typing "studio mi treba" means the
+// category, exactly like garsonjera (the live-test finding).
+// NOTE: bare "станче"/"stanche" deliberately STAYS OUT — it is the ambiguous
+// "small apartment" size heuristic (bedrooms=1, the GORAN transcripts rely
+// on it), not an unambiguous studio category like garsonjera/studio.
 const GARSONJERA_RE =
-  /(гарсоњер|garsonjer|студио|studio)/iu;
+  /(гарсоњер|garsonjer|студио|\bstudio\b)/iu;
 
 /**
  * True when the client explicitly named the studio/garsonjera category

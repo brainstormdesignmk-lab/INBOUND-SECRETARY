@@ -613,10 +613,12 @@ export function publicPropertyUrl(url: string | undefined, base: string): string
  * described as one in the ad text or simply small. The 19:34 bug mapped
  * "garsonjera mi treba" to bedrooms=1 and the no-match layer invented
  * "стан со една спална" nobody asked for — the category is a TYPE, not a
- * спални count.
+ * спални count. Ad-text matching deliberately EXCLUDES bare "студио":
+ * listings say "модно студио"/"фото студио" (a fashion/photo studio IN the
+ * apartment) — the live feed's EB 50 (74 м²) sneaked through that way.
  */
-function isSmallUnit(p: Property): boolean {
-  if (/гарсоњер|garsonjer|студио|studio/i.test(p.details ?? '')) return true;
+export function isSmallUnit(p: Property): boolean {
+  if (/гарсоњер|garsonjer/i.test(p.details ?? '')) return true;
   const m = p.size?.match(/(\d+)/);
   const sqm = m ? parseInt(m[1], 10) : p.sqm;
   return Number.isFinite(sqm) && (sqm as number) > 0 && (sqm as number) <= 35;

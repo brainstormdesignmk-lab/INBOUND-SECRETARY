@@ -2267,7 +2267,10 @@ ${contactReminder}`;
           service: session.slots.service,
           budget: session.slots.budget,
           exclude: shown,
-          sortBySqm: seeOffers,
+          // SMALLEST first — the relaxed line says "мало станче", so the cards
+          // must lead with the smallest units in budget, not price-closest
+          // 70-m² duplexes.
+          sortBySqm: true,
           sortByPopularity: !!session.slots.anywhere && !session.slots.location,
         })
         : candidates;
