@@ -40,11 +40,14 @@ test('guardText: policy pivot outside presentation is ALWAYS junk — the [10:50
   assert.equal(za, 'Разбирам.', za);
 
   // A reply that is ENTIRELY a pivot gets the state's fallback line. The
-  // fallback pool rotates (9 discovery variants, several legitimately contain
-  // the word "опции") — the contract is: the STATE's line served, pivot gone.
+  // fallback pool rotates — and one legitimate discovery ask ALSO opens with
+  // "Со цел да ги пронајдеме…" (no pivot after it). The contract is therefore
+  // the PIVOT SIGNATURE is gone, not the bare words: the state's line served,
+  // no "помогнам…опции" pivot, no "еве ги следните…опции" pivot, no cards.
   const only = guardText('discovery', 'Со цел да Ви помогнам да најдете соодветен имот, еве ги следните достапни опции од нашата база.');
   assert.ok(only.length > 0, only);
-  assert.ok(!only.includes('Со цел') && !only.includes('еве ги следните'), only);
+  assert.ok(!/помогнам[^\n]{0,60}(?:опции|предлози|имоти)/i.test(only), only);
+  assert.ok(!/еве\s+ги\s+следни(?:те|ве)[^\n]{0,30}(?:опции|предлози)/i.test(only), only);
   assert.ok(!only.includes('Евидентен број'), only);
 
   // Legit one-topic answers pass untouched — the guard must not eat a policy

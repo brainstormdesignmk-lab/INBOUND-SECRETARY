@@ -14,15 +14,15 @@ import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { detectOwnerVerdict } from '../src/llm/deterministic';
 import { LandmarkService } from '../src/geo/landmarks';
+import { RESPONSE_BANK } from '../src/data/responses';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
 }
 
-// A REMARK-BRAIN for the 22:05 compliment regression: the real Gemini answers
-// conversationally — the point is that the REPLY ROUTES to the real brain
-// (detectRemark guards + respond's digression fall-through), never the canned
-// availability ack or the fee re-disclosure.
+// A REMARK-BRAIN for the 22:05 compliment regression. With remark.ack seeded
+// the BANK answers (zero brain calls — the stub's text must never surface);
+// this stub still matters as the escalation target if the bank were empty.
 class RemarkLlm implements LlmClient {
   async complete(args: { role: string }): Promise<string> {
     if (args.role === 'respond') return 'Локацијата е навистина одлична — уживајте во неа!';
@@ -2621,8 +2621,11 @@ test('19:34: "garsonjera mi treba do 250" presents the studio — never a fabric
 // ── 22:05 compliment regression ─────────────────────────────────────────────
 // "DOBRA LOKACIJA IMA" is a conversational remark about the property under
 // discussion. It must NEVER become the canned availability ack (the original
-// substring bug) nor a fee re-disclosure (the classifier's INTERESTED misread)
-// — it must reach the REAL brain and be answered conversationally.
+// substring bug) nor a fee re-disclosure (the classifier's INTERESTED misread).
+// BANK-FIRST dispatch: with remark.ack seeded, the fast path serves a bank
+// variant with ZERO brain calls (knowledge-based dispatch); with the bank
+// EMPTY (this test's separate LlmClient), the remark still reaches the REAL
+// brain conversationally. Both contexts must never jump the funnel.
 test('compliment reaches the real brain: conversational reply, never canned ack / fee dump', async () => {
   const cfg = loadConfig();
   const db = new Db(':memory:');
@@ -2648,7 +2651,10 @@ test('compliment reaches the real brain: conversational reply, never canned ack 
   await send('DOBRA LOKACIJA IMA');
   const remarkReply = sent[sent.length - 1];
   assert.ok(!/сè уште (е )?во базата|сè уште стои достапен/i.test(remarkReply), `canned availability ack: ${remarkReply}`);
-  assert.ok(/одлична|убав/iu.test(remarkReply), `must answer the remark conversationally: ${remarkReply}`);
+  // BANK-FIRST: the seed remark.ack pool is the served line — zero brain calls.
+  assert.ok(RESPONSE_BANK['remark.ack'].includes(remarkReply), `must serve a bank variant verbatim: ${remarkReply}`);
+  assert.ok(remarkReply !== 'Локацијата е навистина одлична — уживајте во неа!', `stub brain must NOT have answered: ${remarkReply}`);
+  assert.ok(!/Евидентен број/.test(remarkReply), `no card re-serve: ${remarkReply}`);
   assert.ok(sessions.get(chatId)!.state === 'closing', 'closing stays closing');
   // sanity: the context really was built (fee was disclosed before the remark)
   assert.ok(/300 денари|симболичн/.test(sent[closingReplyIdx]), sent[closingReplyIdx]);
@@ -2662,6 +2668,6 @@ test('compliment reaches the real brain: conversational reply, never canned ack 
   await send2('dobra lokacija ima ovoj stan');
   const pqReply = sent[sent.length - 1];
   assert.ok(!/сè уште (е )?во базата|сè уште стои достапен/i.test(pqReply), `canned availability ack: ${pqReply}`);
-  assert.ok(/одлична|убав/iu.test(pqReply), `must answer conversationally: ${pqReply}`);
+  assert.ok(RESPONSE_BANK['remark.ack'].includes(pqReply), `must serve a bank variant verbatim: ${pqReply}`);
   assert.ok(/Евидентен број 78/.test(sent[pqReplyIdx]), sent[pqReplyIdx]);
 });

@@ -855,6 +855,25 @@ export class InboundHandler {
         && (session.slots.propertyId || session.slots.interestedPropertyId || session.slots.presentedIds?.length)
         && !detectBudget(text) && !detectService(text) && !detectBothServices(text)
         && !detectHouse(text) && !detectBusiness(text) && !detectPriceAsk(text)) {
+        // BANK-FIRST, knowledge-based dispatch: a compliment is routine, and
+        // routine must be free. pickVariant = seed (responses.ts) + learned
+        // (SQLite bank_variants, live). If a variant exists, serve it — same
+        // protocol as fee.why/investment.opinion — and tag the enrichment row
+        // with the bankKey so the cron CAN grow the key. Missing variants
+        // escalate to the REAL brain (never a canned wrong line); Gemini's
+        // reply is logged WITHOUT bankKey so the cron learns NEW variants into
+        // this key's pool.
+        const ack = pickVariant('remark.ack', { recent: assistantTexts(session) });
+        if (ack) {
+          routeLog(chatId, text, 'REMARK:bank');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: ack }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'REMARK_FAST', userMsg: text, replyText: ack, replySource: 'deterministic', bankKey: 'remark.ack' }); } catch { /* ignore */ } }
+          console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-remark) state=${session.state} src=deterministic bank=remark.ack`);
+          await this.sendRaw(session, ack, 'deterministic:fast');
+          return;
+        }
         // Current property in context — Gemini needs it to talk ABOUT the
         // remark's subject ("да, локацијата е одлична, во строг Центар…").
         // Without it Gemini hallucinates availability. And if the LLM fails,
@@ -868,7 +887,7 @@ export class InboundHandler {
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: r.text }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), r.source !== 'deterministic' && r.source !== 'fallback', r.source)) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'REMARK', userMsg: text, replyText: r.text, replySource: r.source }); } catch { /* ignore */ } }
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), r.source !== 'deterministic' && r.source !== 'fallback', r.source)) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'REMARK', userMsg: text, replyText: r.text, replySource: r.source, bankKey: r.source === 'fallback' ? 'remark.ack' : undefined }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-remark) state=${session.state} src=${r.source}`);
         await this.sendRaw(session, r.text, r.source);
         return;
