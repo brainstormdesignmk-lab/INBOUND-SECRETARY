@@ -33,7 +33,7 @@ export const PATIENCE_LINE =
 // after the client confirms they want to proceed. Bank-backed (availability.ack)
 // with this exact line as the code-built fallback.
 export const AVAILABILITY_ACK =
-  'Би требало да е сеуште достапен. Дали сакате да Ве поврзам со сопственикот за да ги потврдиме моменталната достапност и цената?';
+  'Би требало да е сеуште достапен. Дали сакате да го исконтактирам сопственикот за да ги потврдиме моменталната достапност и цената?';
 
 /** The owner dictated a NEW price — relayed to the client (code-built, exact). */
 export function buildPriceRelay(eb: number, newPrice: number, oldPrice?: number): string {

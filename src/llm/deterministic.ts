@@ -810,9 +810,22 @@ const DA_PURPOSE_CLAUSE_RE = /(?:да|да)\s+се\s+[а-яa-z]{3,}|(?:да|да
 // дали (whether), not a standalone yes.
 const DA_LI_RE = /(?:^|[^а-яa-z])(?:да|да)\s+ли|дали/iu;
 
+// Whole-message CLIENT CONFIRMATION: "да сакам" / "DA SAKAM" — a direct yes
+// to Lina's own yes/no question ("Дали да го исконтактирам сопственикот?").
+// The purpose-clause guards below read "да сакам" as "in order to want…" and
+// kill the да — but as a SHORT ANSWER it is agreement (21:23 transcript:
+// after the availability ack, "DA SAKAM" fell through to the contact ask
+// instead of the fee). Whole-message ONLY — "да сакам да го видам" stays a
+// purpose clause (visit interest owns it), "сакам стан во Карпош" never
+// matches (no leading да).
+const CLIENT_CONFIRM_RE = /^(?:да|da)[\s,.!]*(?:јас\s+|jas\s+)?(?:сакам|сакаме)\s*[.!?]*$/iu;
+
 export function detectAgreement(text: string): boolean {
   const low = text.toLowerCase();
   if (AGREE_PHRASES.some(p => low.includes(p))) return true;
+  // Short confirmation answer ("DA SAKAM") — see CLIENT_CONFIRM_RE above.
+  const normEarly = normalizeMc(text).toLowerCase();
+  if (CLIENT_CONFIRM_RE.test(low) || CLIENT_CONFIRM_RE.test(normEarly)) return true;
   // One-word openness answer ("otvoren", "spremna", "jas sum podgotven") —
   // see OPEN_BARE_RE: whole-message only, so attributive uses can't misfire.
   if (matchesBoth(OPEN_BARE_RE, text)) return true;
