@@ -9,7 +9,7 @@ import { shouldLogForEnrichment } from '../llm/enrichPolicy';
 import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown } from '../data/properties';
 import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
@@ -200,6 +200,16 @@ export class InboundHandler {
       lat: p.lat, lon: p.lon,
       geo_source: p.geo_source ?? null,
     };
+    // NO-ADDRESS PROTOCOL (EB 58 class): the agency never learned this
+    // property's street — any landmark, neighborhood pin or "во близина на"
+    // claim would be invented geography. Answer honestly and pivot.
+    if (isAddressUnknown(p)) {
+      return pickVariant('location.unknown', {
+        recent: assistantTexts(session),
+        vars: { eb: String(p.eb) },
+      })
+        ?? `Локацијата на недвижнината со Евидентен број ${p.eb} не ми е позната во моментов. Ќе морам да го контактирам сопственикот и да Ви потврдам. Дали би сакале да погледнете нешто друго?`;
+    }
     if (process.env.DBG_WHEREIS) console.error('[whereis] propRow=', JSON.stringify(propRow), 'center=', JSON.stringify(resolveSearchCenter(propRow)));
     const center = resolveSearchCenter(propRow);
 
@@ -298,6 +308,7 @@ export class InboundHandler {
       business: p.business, landmark: p.landmark,
     });
   }
+
 
   handle(channel: string, chatId: string, text: string, opts: HandleOpts = {}): Promise<void> {
     return new Promise(resolve => {

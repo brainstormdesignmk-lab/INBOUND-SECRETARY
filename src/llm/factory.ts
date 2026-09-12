@@ -13,6 +13,33 @@ import { RotatingClient } from './rotatingClient';
  * - 'gemini'           → Gemini only (Groq only if no Gemini key is set)
  * - 'groq'             → Groq only
  */
+/**
+ * STRICT generator client — for BANK ENRICHMENT ONLY (gap-fills, the midnight
+ * cron). Unlike createLlm, it NEVER falls back to a weaker brain: when the
+ * Gemini keys are 429-exhausted it fails the run instead of degrading to
+ * Groq, whose weaker Macedonian produced banked garbage ("лошо место",
+ * "контаминани", fused "сеRETURNам" tokens) that passed the structural
+ * gates and had to be purged by hand. Enrichment quality > enrichment
+ * convenience: the queue catch-up semantics mean the cron simply re-runs
+ * tomorrow — no bad line ever enters the bank.
+ */
+export function createLlmStrict(cfg: AppConfig): LlmClient {
+  const pool: LlmClient[] = [];
+  if (cfg.geminiApiKey) {
+    pool.push(new GeminiClient(cfg.geminiApiKey, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:1'));
+  }
+  if (cfg.geminiApiKey2) {
+    pool.push(new GeminiClient(cfg.geminiApiKey2, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:2'));
+  }
+  if (cfg.geminiApiKey3) {
+    pool.push(new GeminiClient(cfg.geminiApiKey3, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:3'));
+  }
+  if (pool.length === 0) {
+    throw new Error('[llm-strict] no GEMINI_API_KEY set — enrichment requires the generator-grade model and must never run on a fallback backend');
+  }
+  return pool.length > 1 ? new RotatingClient(pool) : pool[0]!;
+}
+
 export function createLlm(cfg: AppConfig): LlmClient {
   const groq = new GroqClient(cfg.groqApiKey, cfg.groqModel, cfg.groqModelClassify, 'groq');
 

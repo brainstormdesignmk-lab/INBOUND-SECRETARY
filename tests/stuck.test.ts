@@ -96,7 +96,7 @@ const EXHAUSTED_ASK = /(?:друга населба|друг дел од гра�
 const ROWS: Property[] = [
   { eb: 80, id: 80, location: 'Кисела Вода', price: 46000, service: 'buy' },
   { eb: 46, id: 46, location: 'Кисела Вода', price: 72300, service: 'buy' },
-  { eb: 53, id: 53, location: 'Аеродром', price: 55000, service: 'buy' },
+  { eb: 53, id: 53, location: 'Аеродром', address: 'Бисер', price: 55000, service: 'buy' },   // address present — addressless rows now serve the no-address protocol (EB 58 fix)
   { eb: 55, id: 55, location: 'Влае', price: 40000, service: 'buy' },
   { eb: 54, id: 54, location: 'Карпош III', price: 69500, service: 'buy' },
   { eb: 78, id: 78, location: 'Капиштец', price: 185000, service: 'buy', bedrooms: 3, size: '82 м²', address: 'Народен Фронт' },

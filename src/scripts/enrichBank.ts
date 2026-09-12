@@ -39,7 +39,7 @@ import { loadConfig } from '../config';
 import { Db } from '../store/db';
 import { EnrichmentStore } from '../store/enrichment';
 import { BankStore, FROZEN_BANK_KEYS, DATA_DRIVEN_KEYS, MAX_VARIANTS_PER_KEY, isExcludedFromEnrichment } from '../store/bank';
-import { createLlm } from '../llm/factory';
+import { createLlmStrict } from '../llm/factory';
 import { RESPONSE_BANK } from '../data/responses';
 
 // --- Types ---
@@ -178,7 +178,11 @@ async function enrich(): Promise<void> {
   const db = new Db(cfg.dbPath);
   const enrichment = new EnrichmentStore(db);
   const bank = new BankStore(db);
-  const llm = createLlm(cfg);
+  // STRICT: the midnight cron enriches the BANK — a degraded backend's weak
+  // Macedonian must never be banked (Groq-garbage purge, 2026-09-12). When
+  // the Gemini keys are exhausted, the run fails and the queue catch-up
+  // re-runs it later. Quality > convenience.
+  const llm = createLlmStrict(cfg);
 
   const log: EnrichmentLog = {
     timestamp: new Date().toISOString(),
@@ -351,7 +355,7 @@ async function enrich(): Promise<void> {
 }
 
 /** Ask the LLM for 5 variants of the group's answer, validate + dedupe. */
-async function generateVariants(llm: ReturnType<typeof createLlm>, key: string, group: GroupedPattern, existing: string[], dryRun: boolean, log: EnrichmentLog): Promise<string[]> {
+async function generateVariants(llm: ReturnType<typeof createLlmStrict>, key: string, group: GroupedPattern, existing: string[], dryRun: boolean, log: EnrichmentLog): Promise<string[]> {
   console.log(`[enrich] generating for ${key} (${group.count} instances, ${existing.length} existing)`);
   const samples = group.sampleReplies.slice(0, 3).map((r, i) => `Sample ${i + 1}: ${r}`).join('\n');
   const msgs = group.sampleMsgs.slice(0, 3).map((m, i) => `User ${i + 1}: ${m}`).join('\n');

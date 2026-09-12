@@ -627,6 +627,24 @@ export function isSmallUnit(p: Property): boolean {
   return Number.isFinite(sqm) && (sqm as number) > 0 && (sqm as number) <= 35;
 }
 
+/**
+ * TRUE when the feed address is a non-answer — the agency never learned it.
+ * The CRM carries rows imported without a real street: the literal
+ * "НЕПОЗНАТА"/"Непозната" (EB 58's manual entry), its Latin spelling, or an
+ * empty field. A keyboard-mash address ("Фгхфгхфгхфгх") is NOT included:
+ * mash is a data-entry bug to delete upstream, not a state to answer around.
+ * (Test row EB 39 was deleted from the CRM on 2026-09-12 for exactly that.)
+ *
+ * Where this gate leads: every location-claiming reply (where-is landmark,
+ * nearby rotation, exact-address line) must serve the honest
+ * location.unknown protocol instead of inventing geography from nothing.
+ * Downstream the runtime also caps what these rows can claim — coords on an
+ * addressless row are neighborhood-context, never building truth.
+ */
+export function isAddressUnknown(p: Property): boolean {
+  return !p.address || p.address === `Имот ЕБ ${p.eb}` || /непозната|nepoznata/i.test(p.address);
+}
+
 /** Parse a budget string to its maximum euros: "до 80.000" -> 80000, "80-100" -> 100. */
 function parseBudgetMax(s: string): number | undefined {
   const nums: number[] = [];

@@ -63,6 +63,29 @@ export function replyIsClean(reply: string): boolean {
   // corrupted in transit (encoding/trim). Banking it would serve broken
   // words ("симбо\u{FFFD}\u{FFFD}ичен") to clients forever — reject.
   if (out.includes('\uFFFD')) return false;
+  // MIXED-SCRIPT TOKEN GUARD: a single word that fuses Latin and Cyrillic
+  // letters ("сеRETURNам", "доBre") is a degenerate LLM generation — the
+  // fallback backend (groq) produced exactly such lines when the Gemini keys
+  // were 429-exhausted. A Cyrillic-dominant line passes the 30% language
+  // guard while still carrying broken tokens; this catches it structurally.
+  // Tokens are split on non-letters; a token containing BOTH scripts rejects.
+  {
+    const mixed = out.split(/[^\p{L}]+/u).some(
+      (tok) => /\p{Script=Cyrillic}/u.test(tok) && /\p{Script=Latin}/u.test(tok),
+    );
+    if (mixed) return false;
+  }
+  // ALL-CAPS LATIN GUARD: an all-caps Latin word of 4+ letters inside a
+  // Cyrillic line ("други PONUDI во") is degenerate code-switching, not a
+  // brand. Real Latin brands are short acronyms (TTK, KAM) or mixed-case
+  // (Beverly Hills, TTK Banka, Hotel Tourist) — all stay. Split into words,
+  // a lone caps-Latin word ≥4 chars rejects.
+  {
+    const words = out.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    if (words.some((w) => w.length >= 4 && /^\p{Lu}+$|^\p{Lu}[\p{Lu}\p{Nd}]*$/u.test(w) && !/\p{Script=Cyrillic}/u.test(w))) {
+      return false;
+    }
+  }
   // PRICE-DIGIT GUARD: a learned prose line must never carry a price. Facts
   // belong to the property row, which the deterministic layer quotes live.
   // A price in bank prose = a stale EB-specific fact waiting to be served for
