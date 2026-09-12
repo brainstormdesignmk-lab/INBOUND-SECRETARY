@@ -53,6 +53,48 @@ const KEYS: Array<{ key: string; instruction: string; keepPlaceholder?: string; 
       'The client went off-topic (weather, jokes, personal questions). Politely redirect: state that you are fully focused on helping find the right property, ' +
       'then ask whether they are looking to buy (купување) or rent (изнајмување). NEVER engage with the off-topic subject itself. End with a question mark.',
   },
+  {
+    key: 'vague.time',
+    instruction:
+      'The client gave a VAGUE visit time (утре, попладне, некогаш). Ask for the EXACT hour so the appointment can be checked with the owner. ' +
+      'Vary the opening (Може ли… / Разбирам… / Ќе треба… / Супер, само…). ALWAYS end with a question asking the exact hour („во колку часот?“ family). Never name a specific hour yourself.',
+  },
+  {
+    key: 'near.center.ask',
+    instruction:
+      'The client wants something near the CENTER. Tell them the neighborhoods bordering Центар are Карпош, Аеродром and Кисела Вода — always list exactly those three. ' +
+      'Then ask whether they have a SPECIFIC neighborhood in mind, or want everything close to the center. End with a question mark.',
+  },
+  {
+    key: 'near.center.ring',
+    instruction:
+      'A SHORT intro line announcing that the best options from the neighborhoods closest to the center follow (the property list itself is appended by the system). ' +
+      'One or two sentences maximum, ending with a PERIOD (not a colon). Vary the acknowledgment (Одлично / Во ред / Ги одбрав…). Never name specific properties or prices.',
+  },
+  {
+    key: 'presentation.relaxed.category',
+    instruction:
+      'Honest studio-fallback intro: there is currently NO free garsonjera (studio) in this area, BUT there is a small compact apartment (мало станче) within the client\'s budget. ' +
+      'Offer to arrange a visit immediately if they like it. Mention garsonjera/станче, the budget, and the visit. End with a complete sentence (period or question mark).',
+  },
+  {
+    key: 'discovery.ask.budget.house',
+    instruction:
+      'Ask the client for the UPPER PRICE LIMIT (горната граница на цената) for the HOUSE (куќа) they are looking for. ' +
+      'NEVER mention any specific amount or number — only ask for their limit. Vary phrasing significantly. End with a question mark.',
+  },
+  {
+    key: 'discovery.ask.budget.business',
+    instruction:
+      'Ask the client for the UPPER PRICE LIMIT (горната граница на цената) for the BUSINESS SPACE (деловен простор) they are looking for. ' +
+      'NEVER mention any specific amount or number — only ask for their limit. Vary phrasing significantly. End with a question mark.',
+  },
+  {
+    key: 'nearby.exhausted',
+    instruction:
+      'The nearby-landmark rotation is EXHAUSTED — politely close the location topic: the area is now clear to the client, and the EXACT address is revealed on the day of the visit (agency rule). ' +
+      'Vary the opening (Мислам дека… / Сметам дека… / Верувам дека…). Keep the two facts in every variant: (1) the area/region is clear, (2) the exact address comes on visit day. Never apologize, never offer more landmarks.',
+  },
 ];
 
 function dedupeAgainst(newVariants: string[], existing: string[], strip?: string): string[] {
