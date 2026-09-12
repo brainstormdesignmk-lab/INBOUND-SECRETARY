@@ -10,6 +10,7 @@ import {
   detectSuggestAlternatives, detectPropertyInterest, detectOwnerContact,
   isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
   detectNearCenter, detectRingElimination, CENTER_RING, detectGarsonjera,
+  detectFeeSurprise, detectProvisionWho,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -692,6 +693,20 @@ test('detectFeeWhy: "зошто наплаќате посета?" is a why-quest
   assert.equal(detectFeeWhy('PRV PAT SLUSAM DA SE NAPLATUVA POSETA'), true);
   assert.equal(detectFeeWhy('првпат слушам дека се наплаќа посетата'), true);
   assert.equal(detectFeeWhy('prv pat cuvam za toa'), true);
+  // BARE pushback — statement-shaped, no question word. The 13:01 live
+  // transcript: "NAPLAKJATE ZA POSETA" previously substring-matched the
+  // provision-who detector ("naPLAKJAte" contains "plakja") and Lina served
+  // notary/lawyer CONTRACT terms to a fee complaint.
+  assert.equal(detectFeeWhy('NAPLAKJATE ZA POSETA'), true);
+  assert.equal(detectFeeWhy('naplakjate za poseta'), true);
+  assert.equal(detectFeeWhy('наплаќате за посета'), true);
+  assert.equal(detectFeeWhy('naplatuvate nadomest'), true);
+  assert.equal(detectFeeWhy('наплаќаат за посета'), true); // 3rd-person plural
+  assert.equal(detectFeeWhy('naplakjate 300 denari'), true); // amount + object
+  // genuine question shapes are EXCLUDED — they go to the classifier
+  assert.equal(detectFeeWhy('dali naplakjate za poseta?'), false);
+  assert.equal(detectFeeWhy('kolku naplakjate za poseta?'), false);
+  assert.equal(detectFeeWhy('koga se naplakja posetata?'), false);
   // NOT why-fee questions: property-price asks, refusals, agreement, small talk
   assert.equal(detectFeeWhy('зошто е цената 68.000 евра?'), false);
   assert.equal(detectFeeWhy('kako e organizirana posetata?'), false); // logistics, not the fee
@@ -702,6 +717,36 @@ test('detectFeeWhy: "зошто наплаќате посета?" is a why-quest
   assert.equal(detectFeeWhy('да, се согласувам'), false);
   assert.equal(detectFeeWhy('zdravo, kako si?'), false);
   assert.equal(detectFeeWhy('KOGA BI MOZELO DA SE POGLEDNE STANOT ?'), false);
+});
+
+test('fee-surprise + provision-who: the 13:01 transcript routing', () => {
+  // The fee-surprise reaction gets the fee-protocol reasons in closing.
+  assert.equal(detectFeeSurprise('AUUU OVA E NESTO NOVO'), true);
+  assert.equal(detectFeeSurprise('auu ova e nesto novo'), true);
+  assert.equal(detectFeeSurprise('ova e novo za mene'), true);
+  assert.equal(detectFeeSurprise('ова е нешто ново'), true);
+  assert.equal(detectFeeSurprise('некој ново нешто за мене'), false);
+  // property asks never fire — "imate nesto novo vo karpos?"
+  assert.equal(detectFeeSurprise('imate nesto novo vo karpos?'), false);
+  assert.equal(detectFeeSurprise('nesto novo vo kisela voda'), false);
+
+  // The ROOT bug: the provision-who detector's _cb() helper left every
+  // alternative after the first UNGUARDED, so bare "plakja" substring-matched
+  // inside "NA-PLAKJA-TE" → notary/lawyer contract terms to a fee complaint.
+  // With guards, the fee complaint must NOT fire provision-who...
+  assert.equal(detectProvisionWho('NAPLAKJATE ZA POSETA'), false);
+  assert.equal(detectProvisionWho('naplakjate za poseta?'), false);
+  // ...while the REAL notary/lawyer questions still fire.
+  assert.equal(detectProvisionWho('koj plakja advokatot?'), true);
+  assert.equal(detectProvisionWho('кој плаќа нотарот?'), true);
+  assert.equal(detectProvisionWho('koj plakjuva danokot?'), true);
+  assert.equal(detectProvisionWho('kogo ke go plati notarot'), true);
+  assert.equal(detectProvisionWho('dali jas plakjam za advokat'), true);
+  // 3rd-person pay verbs survive the guard (they were only reachable via the
+  // buggy unguarded alternation before).
+  assert.equal(detectProvisionWho('кој ќе го плаќа нотарот?'), true);
+  // Cyrillic й-forms (previously dead, now guarded-safe to include)
+  assert.equal(detectProvisionWho('кој плаќа адвокатот?'), true);
 });
 
 test('detectSeeOffers: mid-discovery "што имате во понуда?" is a see-offers ask', () => {

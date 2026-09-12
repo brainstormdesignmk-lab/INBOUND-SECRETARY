@@ -181,7 +181,40 @@ const FEE_AMOUNT_RE = /(?:како|како|која|која)[^.!?\n]{0,30}\d[^
 export function detectFeeWhy(text: string): boolean {
   // Normalize: join multi-line bursts into one line so cross-line patterns work
   const flat = text.replace(/\n/g, ' ');
-  return FEE_WHY_RE.test(flat) || matchesBoth(FEE_FOR_WHAT_RE, flat) || matchesBoth(FEE_AMOUNT_RE, flat);
+  return FEE_WHY_RE.test(flat) || matchesBoth(FEE_FOR_WHAT_RE, flat) || matchesBoth(FEE_AMOUNT_RE, flat) || bareFeeWhy(flat);
+}
+
+// Bare fee pushback — statement-shaped, NO question word: "NAPLAKJATE ZA
+// POSETA", "naplakjuvate za poseta", "наплатувате надомест". The 13:01
+// transcript bug: this used to substring-match the provision-who detector
+// ("naPLAKJAte" contains "plakja") and Lina served notary/lawyer CONTRACT
+// terms to a client complaining about the viewing fee. 2nd-person charge
+// forms + a fee object in the same breath. Genuine questions (dali/kolku
+// anywhere) are EXCLUDED — they fall to the classifier's fee-amount family.
+const FEE_WHY_BARE_RE =
+  /(?:наплаќа|наплатува|naplakja|naplakate|naplakjuva|naplatuva)(?:те|te|ат|at)?\s+(?:(?:за|za)\s+)?(?:[\d.,]+\s*)?(?:посет|poset|надомест|nadomest|денар|denar|ден|den|евр|evr)/iu;
+
+function bareFeeWhy(flat: string): boolean {
+  // genuine question shapes go to the classifier instead — dali/kolku (yes-no
+  // and amount), koga (WHEN is it paid = logistics), li/ли (yes-no particle)
+  if (/\b(?:dali|kolku|koga|li|ли)\b/iu.test(flat)) return false;
+  return FEE_WHY_BARE_RE.test(flat);
+}
+
+// Fee SURPRISE — the reaction to learning visits cost money: "AUUU OVA E
+// NESTO NOVO", "ova e novo za mene". Same intent as prv-pat-slusham (already
+// in FEE_WHY_RE): the client met the fee protocol for the first time and
+// needs the REASONS, not contract terms. NEVER state-gated inside this
+// detector — "imate nesto novo vo karpos?" (property ask) must not fire —
+// callers gate it to closing, where a fee was just disclosed.
+const FEE_SURPRISE_RE =
+  /(?:ов[ааие]|ova|т[оo]а|toa)\s+(?:е|e)\s+(?:нешто\s+|несто\s+|nesto\s+|nesto\s+)?(?:нов[оаи]|nov[oaie])|(?:ново|novo)\s+(?:за|za)\s+(?:мене|mene)|(?:нешто|несто|nesto|nesto)\s+(?:нов[оаи]|nov[oaie])\s+(?:за|za)\s+(?:мене|mene)/iu;
+
+/** True when the message is the fee-surprise reaction ("ova e nesto novo").
+ *  Callers MUST gate on state === 'closing' — outside a fee context this
+ *  pattern must never route to fee.why. */
+export function detectFeeSurprise(text: string): boolean {
+  return FEE_SURPRISE_RE.test(text.replace(/\n/g, ' '));
 }
 
 // Price complaints about the viewing fee ("скупо", "500 денари за посета?", "50
@@ -1873,29 +1906,45 @@ export function detectProvisionAsk(text: string): boolean {
 // Unicode-aware: not preceded/followed by a letter or digit.
 const UB = "(?<![\\p{L}\\p{N}])";
 const UE = "(?!\\p{L}\\p{N})";
-const _cb = (w: string) => `${UB}${w}${UE}`;
+// EVERY alternative inside w gets its own guards — without the (?: ) group
+// only the FIRST alternative was boundary-guarded and the rest substring-
+// matched inside other words ("naPLAKJAte" matched bare plakja).
+const _cb = (w: string) => `${UB}(?:${w})${UE}`;
+
+// The FULL pay-verb inflection family — with guards, every surface form must
+// be listed explicitly ("plakjam" contains "plakja" but the right guard
+// correctly rejects it, so 1st/2nd-person and aorist forms need their own
+// alternatives: "kogo ke go plati notarot", "dali jas plakjam za advokat").
+const PAY_VERBS =
+  "плаќа|плаќал|плаќалa|плаќја|плаќам|плаќаш|плаќаат|плаќаме|плаќате|" +
+  "plakja|plakjam|plakjash|plakjat|plakame|plakate|" +
+  "plakjuva|plakjuvat|plakjuvam|plakjuvate|плаќува|плаќуват|плаќувам|плаќувате|" +
+  "сносва|snosva|покрива|pokriva|" +
+  "плати|платам|платиш|платат|платиме|платите|plati|platam|platish|platat|platime|platite";
 
 // Provision who-pays: the client asks WHO pays the lawyer/notary/tax —
 // "кој плаќа advokat?", "кого плаќа адвокатот?", "notarot koj go plakja?",
-// "адвокатот кој го плаќа?", "којо плаќја адвокатот", "кој плаќал данок"
+// "адвокатот кој го плаќа?", "којо плаќја адвокатот", "кој плаќал данок",
+// "kogo ke go plati notarot", "dali jas plakjam za advokat"
 // Uses Unicode word boundaries (UB/UE) instead of \b for Cyrillic support.
 const PROVISION_WHO_RE = new RegExp(
-  // "кој/кого/којо ... плака/плаќал/плаќја/сносва/покрива"
-  _cb("коjо|коj|коjго|кого") + "[^.!?\\n]{0,30}" + _cb("плаќа|plakja|плаќал|плаќалa|плаќја|сносва|snosva|покрива|pokriva") +
+  // "кој/кого/којо ... плака/плаќал/плаќја/сносва/покрива" (Cyrillic AND Latin
+  // question words — "koj plakjuva danokot?" must fire like its Cyrillic twin)
+  // (Cyrillic-й AND Latin-j spellings of the question words — clients type both)
+  _cb("којо|кој|којго|кого|коjо|коj|коjго|koj|kojgo|kogo") + "[^.!?\\n]{0,30}" + _cb(PAY_VERBS) +
   "|" +
   // "адвокатот/нотарот/danok ... плака" (reversed word order)
-  _cb("адвокат|advokat|нотар|notar|нотарот|notarot|адвокатот|advokatot|danok|данок|данокот|danokot") + "[^.!?\\n]{0,20}" + _cb("плаќа|plakja|плаќал|плаќалa|плаќја|сносва|snosva|покрива|pokriva") +
-  "|" +
-  // "кој plakja?" (Latin)
-  _cb("koj") + "\\s+" + _cb("plakja|плаќа") + "\\s*\\?" +
-  "|" +
-  // "кој плаќа/плаќал/плаќја ...?" (Cyrillic question)
-  _cb("коjо|коj|кого") + "\\s+" + _cb("плаќа|плаќал|плаќалa|плаќја") + "\\s*[?]" +
+  _cb("адвокат|advokat|нотар|notar|нотарот|notarot|адвокатот|advokatot|danok|данок|данокот|danokot") + "[^.!?\\n]{0,20}" + _cb(PAY_VERBS) +
   "|" +
   // "трошок/трошоци за/на адвокат/нотар"
   "трошо(?:к|ци)" + "\\s+" + "(?:за|на)" + "\\s+" + _cb("адвокат|advokat|нотар|notar") +
   "|" +
-  "trosho(?:k|ci)" + "\\s+" + "(?:za|na)" + "\\s+" + _cb("advokat|notar"),
+  "trosho(?:k|ci)" + "\\s+" + "(?:za|na)" + "\\s+" + _cb("advokat|notar") +
+  "|" +
+  // "dali (jas/tie/nie/vie) plakjam/plati ... advokat/notar/danok" — the
+  // personal form: "do I pay for the lawyer?" Object REQUIRED so "dali ke
+  // plati stanot" (about the apartment) can never land here.
+  _cb("dali") + "[^.!?\\n]{0,15}" + _cb(PAY_VERBS) + "[^.!?\\n]{0,25}" + _cb("адвокат|advokat|нотар|notar|данок|danok|трошо|trosho"),
   "iu");
 /** True when the client asks WHO pays lawyer/notary/tax. */
 export function detectProvisionWho(text: string): boolean {

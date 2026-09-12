@@ -10,7 +10,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
@@ -825,6 +825,25 @@ export class InboundHandler {
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_COMPLAINT_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+      // Fee SURPRISE ("AUUU OVA E NESTO NOVO") — the reaction to learning
+      // visits cost money. The 13:01 transcript: the pushback ("NAPLAKJATE
+      // ZA POSETA") substring-matched provision-who and the surprise fell
+      // through to the LLM, which answered CONTRACT terms (advokat/notar
+      // 50/50). Both messages are fee-protocol traffic: Lina must explain
+      // the visit-fee REASONS. closing-only gate — "imate nesto novo vo
+      // karpos?" (a property ask) must never reach this branch.
+      if (detectFeeSurprise(text) && session.state === 'closing') {
+        reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? 'Разбирам. Надоместот за разгледување е симболичен и служи како филтер за сериозни клиенти.';
+        bankKey = 'fee.why';
+        routeLog(chatId, text, 'FEE_SURPRISE:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_SURPRISE_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
