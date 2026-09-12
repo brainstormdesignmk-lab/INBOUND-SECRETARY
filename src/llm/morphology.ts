@@ -171,10 +171,16 @@ export function expandWords(
 
 // ── Build a regex alternation from expanded forms ───────────────────────────
 // Escapes special regex characters and joins with |
+// GROUPED: the return value is always (?:a|b|c) so it can be interpolated
+// into any larger pattern with quantifiers/boundaries binding to the WHOLE
+// alternation. An ungrouped return was the trap that made _cb() unsafe
+// (guards bound only to the first alternative; bare "plakja" substring-
+// matched inside "na-PLAKJA-te") — this helper can never reproduce that
+// class, even if a future call site forgets its own wrapping.
 export function toRegexAlt(forms: string[]): string {
-  return forms
+  return '(?:' + forms
     .map(f => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|');
+    .join('|') + ')';
 }
 
 // ── Pre-built lexicons for common detector categories ───────────────────────
