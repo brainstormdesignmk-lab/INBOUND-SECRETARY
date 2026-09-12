@@ -163,6 +163,27 @@ export class BankStore {
 
   // ---------- WRITE (cron / learning loop only) ----------
 
+  /**
+   * HUMAN-DIRECTED write — the ONLY way a frozen key can grow. For explicit
+   * one-off scripts the human has reviewed and approved (gap-fill passes).
+   * The cron/learning loop must NEVER call this; it uses addVariant, which
+   * keeps frozen keys untouched. Cap and dedupe still apply.
+   */
+  forceAddVariant(key: string, text: string, source = 'gapfill'): boolean {
+    const t = text.trim();
+    if (!t) return false;
+    const count = (this.db.db.prepare(
+      `SELECT COUNT(*) AS c FROM bank_variants WHERE key = ?`
+    ).get(key) as { c: number }).c;
+    if (count >= MAX_VARIANTS_PER_KEY) return false;
+    try {
+      const res = this.db.db.prepare(
+        `INSERT OR IGNORE INTO bank_variants (key, text, source, created_at) VALUES (?, ?, ?, ?)`
+      ).run(key, t, source, Date.now());
+      return res.changes > 0; // 0 = duplicate ignored (idempotent)
+    } catch { return false; }
+  }
+
   /** Add a learned variant. Frozen + data-driven keys are rejected. Idempotent. */
   addVariant(key: string, text: string, source = 'learned'): boolean {
     if (isExcludedFromEnrichment(key)) return false;

@@ -31,6 +31,20 @@ test('frozen keys are rejected at the store layer', () => {
   cleanup();
 });
 
+test('forceAddVariant: the human-directed carve-out for frozen keys', () => {
+  const { store, cleanup } = freshBank();
+  // The cron/learning loop must NEVER grow a frozen key...
+  assert.equal(store.addVariant('fee.why', 'крон обид — мора да биде одбиен.'), false);
+  // ...but an approved one-off gap-fill may (cap + dedupe still apply).
+  assert.equal(store.forceAddVariant('fee.why', 'Ова е човечки прегледана варијанта за протоколот.'), true);
+  assert.equal(store.forceAddVariant('fee.why', 'Ова е човечки прегледана варијанта за протоколот.'), false); // idempotent
+  assert.deepEqual(store.variants('fee.why'), ['Ова е човечки прегледана варијанта за протоколот.']);
+  // Cap still enforced through the force path.
+  for (let i = 0; i < MAX_VARIANTS_PER_KEY + 5; i++) store.forceAddVariant('fee.why', `полнење варијанта број ${i} со текст.`);
+  assert.equal(store.variants('fee.why').length, MAX_VARIANTS_PER_KEY);
+  cleanup();
+});
+
 test('variant cap: MAX_VARIANTS_PER_KEY enforced', () => {
   const { store, cleanup } = freshBank();
   for (let i = 0; i < MAX_VARIANTS_PER_KEY + 5; i++) store.addVariant('cap', `варијанта број ${i} со доволно текст.`);

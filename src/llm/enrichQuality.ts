@@ -59,6 +59,10 @@ export function replyIsClean(reply: string): boolean {
   // Never store links, property paths, or Russian intrusions.
   if (/https?:\/\//.test(out)) return false;
   if (/использу/i.test(out)) return false;
+  // MOJIBAKE GUARD: a U+FFFD replacement character means the text was
+  // corrupted in transit (encoding/trim). Banking it would serve broken
+  // words ("симбо\u{FFFD}\u{FFFD}ичен") to clients forever — reject.
+  if (out.includes('\uFFFD')) return false;
   // PRICE-DIGIT GUARD: a learned prose line must never carry a price. Facts
   // belong to the property row, which the deterministic layer quotes live.
   // A price in bank prose = a stale EB-specific fact waiting to be served for
