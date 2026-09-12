@@ -205,6 +205,20 @@ export class InboundHandler {
 
     // Pre-resolve the top-3 rotation slots ONCE per property. The client asks
     // "каде е?" → L1, "што уште има во близина?" → L2, … then privacy protocol.
+    // SELF-HEAL (21:51 bug): the slots are tagged with the EB they were
+    // resolved for (nearbyLandmarkEb). A stale tag — the cached slots belong
+    // to a DIFFERENT property than the one being served now — means the
+    // client would get another property's landmarks (EB 57 got EB 56's
+    // Завод „Топанско поле", 3.2 km away). Discard and re-resolve for THIS
+    // property. Belt-and-braces for missed resets upstream.
+    if (session.slots.nearbyLandmarks?.length && session.slots.nearbyLandmarkEb !== undefined
+      && session.slots.nearbyLandmarkEb !== p.eb) {
+      session.slots.nearbyLandmarks = undefined;
+      session.slots.nearbyLandmarkCoords = undefined;
+      session.slots.nearbyLandmarkPlaceIds = undefined;
+      session.slots.nearbyLandmarkEb = undefined;
+      session.slots.landmarkIndex = 0;
+    }
     const lm = session.slots.nearbyLandmarks;
     if ((!lm || lm.length === 0) && this.landmarks) {
       const nearby = this.landmarks.nearbyLandmarks(propRow);
@@ -212,6 +226,7 @@ export class InboundHandler {
         session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
         session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
         session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+        session.slots.nearbyLandmarkEb = propRow.eb;
         session.slots.landmarkIndex = 0;
       }
     }
@@ -1751,6 +1766,7 @@ ${contactReminder}`;
           if (nearby.length > 0) {
             session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
             session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+            session.slots.nearbyLandmarkEb = props[0].eb;
             session.slots.landmarkIndex = 0;
           }
         }
@@ -1768,6 +1784,7 @@ ${contactReminder}`;
         if (nearby.length > 0) {
           session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
           session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+          session.slots.nearbyLandmarkEb = props[0].eb;
           session.slots.landmarkIndex = 0;
         }
       }
@@ -1838,6 +1855,7 @@ ${contactReminder}`;
         if (nearby.length > 0) {
           session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
           session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+          session.slots.nearbyLandmarkEb = props[0].eb;
           session.slots.landmarkIndex = 0;
         }
       }

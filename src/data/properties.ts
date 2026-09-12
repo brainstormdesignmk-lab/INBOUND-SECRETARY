@@ -223,7 +223,8 @@ export function cleanMacedonian(text: string): string {
 
 const GEO_SOURCES = new Set(['stored', 'google_cached', 'osm_building', 'osm_interpolated', 'osm_low_confidence']);
 
-function mapRow(r: Record<string, unknown>): Property | null {
+// Exported for tests — the feed→Property contract (0 м² = missing) is pinned.
+export function mapRow(r: Record<string, unknown>): Property | null {
   const eb = Math.floor(Number(str(r.evidenten_broj)));
   if (!Number.isFinite(eb) || eb <= 0) return null;
   const lat = num(r.lat);
@@ -243,11 +244,13 @@ function mapRow(r: Record<string, unknown>): Property | null {
       ? geoRaw as GeoSource : undefined,
     geocoded_at: str(r.geocoded_at) || undefined,
     bedrooms: isBusiness(r) ? undefined : parseBedrooms(r.tip_na_sobi),
-    sqm: num(r.povrsina_m2),
+    // povrsina_m2 = 0 means MISSING (the scraper writes 0 when the ad has no
+    // area). A 0 m² property does not exist — treat as absent so the card
+    // never prints "Има 0 м² деловна површина" (the EB 57 transcript bug).
+    sqm: num(r.povrsina_m2) || undefined,
     business: isBusiness(r),
     house: isHouse(r),
-    size: r.povrsina_m2 !== undefined && r.povrsina_m2 !== null && r.povrsina_m2 !== ''
-      ? `${r.povrsina_m2} м²` : undefined,
+    size: (num(r.povrsina_m2) ?? 0) > 0 ? `${r.povrsina_m2} м²` : undefined,
     features: featurePhrases(r),
     details: cleanMacedonian(str(r.opis)) || undefined,
     gmaps: str(r.gmaps) || undefined,

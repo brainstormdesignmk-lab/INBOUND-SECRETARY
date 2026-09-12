@@ -1618,6 +1618,23 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
     return { place: '', generic: true };
   }
   if (WHERE_IS_GENERIC.test(rest)) return { place: '', generic: true };
+  // PRE-VERBAL EB with a trailing AREA phrase ("OVOJ 57 KADE SE NAOGJA VO
+  // STROG CENTAR ?"): rest captures the area, and the client's EB — the
+  // REAL subject — was dropped, so the handler fell back to the session's
+  // current property and served ANOTHER property's landmarks 3.2 km away
+  // (the 21:51 EB 57 → Завод „Топанско поле" bug). When the prefix carries a
+  // demonstrative/type-noun + number, the number IS the subject and wins.
+  // Deliberately narrow: only demonstrative or type-noun anchored digits —
+  // a stray number in a generic question ("стан од 80 м2 каде е?") must
+  // never become an EB lookup.
+  {
+    const pre = (m.index !== undefined ? text.slice(0, m.index) : '').replace(/[?!.:,;\s]+$/u, '').trim();
+    // Match on the NORMALIZED prefix — clients mix scripts and homoglyphs
+    // ("OVOJ" with Latin o is invisible to a Cyrillic-only class).
+    const preNorm = normalizeMc(pre);
+    const preEb = preNorm.match(/(?:^|\s)(?:ов[ао]ј|тој|таа|станот?|куќата|имотот|локалот?|просторот)\s+(\d{1,5})$/u);
+    if (preEb) return { place: preEb[1], generic: false };
+  }
   // EB number: "каде е 89?" — look up directly by evidence number.
   const ebRest = rest.replace(/(?:евидентен\s+)?(?:број|broj|еб|eb)\s*/iu, '').trim();
   if (/^\d{1,5}$/.test(ebRest)) return { place: ebRest, generic: false };
