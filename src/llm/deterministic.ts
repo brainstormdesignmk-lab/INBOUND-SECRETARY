@@ -2081,8 +2081,8 @@ const LOC_CONFIRM_MARKERS_RE =
 // as the marker form. Built with \p{L} boundaries: JS \b is ASCII-only and
 // never matches inside Cyrillic words. Wh-questions (што/каде/колку…) are
 // deliberately NOT this class — they carry their own detectors.
-const B = '(?<!\\p{L}\\p{N})';
-const E = '(?!\\p{L}\\p{N})';
+const B = '(?<!\\p{L})(?<!\\p{N})';
+const E = '(?!\\p{L})(?!\\p{N})';
 const LOC_CONFIRM_QUESTION_RE = new RegExp(
   // "na vodno e?" / "vo karpos?" — preposition + area + '?'
   B + '(?:na|vo|на|во)' + E + '[^.?!\\n]{0,30}\\?'

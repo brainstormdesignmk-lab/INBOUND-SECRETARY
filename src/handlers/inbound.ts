@@ -1545,6 +1545,21 @@ ${contactReminder}`;
       // lets the client make an informed decision.
       reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
       bankKey = 'fee.why';
+    } else if (detectFeeSurprise(text)
+        && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)
+        && !detectFeeWhy(text)
+        && !detectFeeComplaint(text)) {
+      // FSM-leg mirror of the FEE_SURPRISE fast interceptor (the 08:32 bug):
+      // the fee-surprise reaction ("OVA E NESTO NOVO ?") reached the FSM when a
+      // boundary-macro bug made detectLocationConfirm claim it ("NOVO ?" read
+      // as "vo … ?"). The classifier then tagged INTERESTED and re-disclosed
+      // the fee.ask — answering "is this new?" by repeating the fee. The
+      // surprise is fee-protocol traffic: the REASONS (the time-waster filter),
+      // never a second disclosure. Same state gate as the fast interceptor
+      // (closing-only there; FSM leg adds the pre-closing contexts because the
+      // classifier may have moved us here mid-funnel).
+      reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
+      bankKey = 'fee.why';
     } else if (detectFeeComplaint(text)
         && before === 'closing'
         && !detectFeeWhy(text)) {

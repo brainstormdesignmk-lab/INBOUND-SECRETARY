@@ -10,7 +10,7 @@ import {
   detectSuggestAlternatives, detectPropertyInterest, detectOwnerContact,
   isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
   detectNearCenter, detectRingElimination, CENTER_RING, detectGarsonjera,
-  detectFeeSurprise, detectProvisionWho,
+  detectFeeSurprise, detectProvisionWho, detectLocationConfirm,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -729,6 +729,26 @@ test('fee-surprise + provision-who: the 13:01 transcript routing', () => {
   // property asks never fire — "imate nesto novo vo karpos?"
   assert.equal(detectFeeSurprise('imate nesto novo vo karpos?'), false);
   assert.equal(detectFeeSurprise('nesto novo vo kisela voda'), false);
+});
+
+test('location-confirm boundary: "NOVO ?" is not a "vo … ?" area question (08:32)', () => {
+  // THE 08:32 BUG: the B/E boundary macros were (?<!\p{L}\p{N}) — a TWO-char
+  // lookbehind matching letter+digit pairs, so "NOVO ?" matched A1's
+  // "vo … ?" leg (no letter directly before "VO"), detectLocationConfirm
+  // fired, fsmRequired blocked the FEE_SURPRISE interceptor, and the FSM+
+  // classifier re-disclosed the fee instead of explaining it. The fixed
+  // one-char lookarounds must keep every real area question working AND
+  // never claim the fee-surprise family.
+  assert.equal(detectLocationConfirm('OVA E NESTO NOVO ?'), false);
+  assert.equal(detectLocationConfirm('ova e nesto novo za mene'), false);
+  assert.equal(detectLocationConfirm('ova e novo za mene'), false);
+  // ...while every intended area-question form still fires.
+  assert.equal(detectLocationConfirm('na vodno e?'), true);
+  assert.equal(detectLocationConfirm('vo karpos?'), true);
+  assert.equal(detectLocationConfirm('dali e vo vodno?'), true);
+  assert.equal(detectLocationConfirm('vo vodno li e?'), true);
+  // a digit directly before the area token no longer passes the boundary
+  assert.equal(detectLocationConfirm('stan 2vo vodno?'), false);
 
   // The ROOT bug: the provision-who detector's _cb() helper left every
   // alternative after the first UNGUARDED, so bare "plakja" substring-matched
