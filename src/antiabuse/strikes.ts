@@ -17,6 +17,10 @@ import { classifyOffensive, OffenseDetection } from './offensive';
 //   - Two CONSECUTIVE offenses reach strike 2 (final warning). After that the
 //     counter NEVER decays: a clean message leaves it at 2, and any further
 //     offense terminates the chat at strike 3.
+//
+// STRIKE 3 OUTPUT (user-approved): the offender gets ONE ban notice —
+// 'Разговорот е завршен.' — so they know they are banned. Everything after
+// it stays absolute silence (blocklist + terminated state).
 // ========================================
 
 // Strike 1 (first offense) — professional rebuff. Rotates so Lina doesn't

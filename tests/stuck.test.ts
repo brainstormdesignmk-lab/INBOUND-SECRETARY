@@ -1449,15 +1449,16 @@ test('insult protocol: "DA SE EBETE VO GAZOT" is a strike — 3 strikes terminat
   s = await send('glupava si');
   assert.equal(s.strikes, 3);
   assert.equal(s.state, 'terminated');
-  assert.equal(sent.length, 6); // ZERO output on strike 3
+  assert.equal(sent.length, 7); // ban notice IS sent on strike 3
+  assert.equal(sent[6], 'Разговорот е завршен.');
 
   // absolute silence afterwards — even with a FRESH session (the blocklist is
   // permanent, the session TTL can never resurrect a strike-3 chat)
   await send('zdravo, izvinete');
-  assert.equal(sent.length, 6);
+  assert.equal(sent.length, 7);
   sessions.delete(chatId);
   await send('zdravo');
-  assert.equal(sent.length, 6);
+  assert.equal(sent.length, 7);
   assert.equal(sessions.get(chatId), null); // blocked at entry — session never re-created
 });
 

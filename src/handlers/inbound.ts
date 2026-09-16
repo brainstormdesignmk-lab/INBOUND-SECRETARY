@@ -384,7 +384,13 @@ export class InboundHandler {
         session.terminatedAt = Date.now();
         this.deps.sessions.set(session);
         console.error(`[EVENT] TERMINATE_SESSION ${JSON.stringify({ chatId, channel, strikes: session.strikes, reason: offense.reason })}`);
-        return; // ZERO OUTPUT — the sim asserts this
+        // Ban notice (user-approved): the offender must KNOW they are banned.
+        // One final line — everything afterwards stays absolute silence.
+        const banNotice = 'Разговорот е завршен.';
+        pushHistory(session, { role: 'assistant', text: banNotice }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, banNotice);
+        return;
       }
       // Bank-backed warnings (warn.1/warn.2): same 3-strike protocol, varied
       // wording. Falls back to the exact code-built lines.
