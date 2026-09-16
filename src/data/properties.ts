@@ -697,24 +697,40 @@ export class PropertyService {
 
   async getAll(): Promise<Property[]> {
     if (this.cache && Date.now() - this.cache.at < this.ttlMs) return this.cache.data;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    try {
-      const res = await fetch(this.url, { signal: ctrl.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { properties?: Record<string, unknown>[] };
-      const rows = Array.isArray(body) ? body : (body.properties ?? []);
-      const data = rows.map(mapRow).filter((p): p is Property => p !== null);
-      this.cache = { at: Date.now(), data };
-      this.ok = true;
-      return data;
-    } catch (e) {
-      console.error('[properties] fetch failed:', (e as Error).message);
-      if (!this.cache) this.ok = false; // stale cache is still real data; only distrust an empty hand
-      return this.cache?.data ?? [];
-    } finally {
-      clearTimeout(timer);
+    // TWO attempts, fresh 8s budget each: the feed is a Supabase edge function
+    // whose cold starts occasionally blow one 8s window ("This operation was
+    // aborted" in production). A single retry absorbs that without ever
+    // doubling a real 4xx — only network/timeout/5xx classes are retried.
+    const FETCH_TIMEOUT_MS = 8_000;
+    const ATTEMPTS = 2;
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const res = await fetch(this.url, { signal: ctrl.signal });
+        if (!res.ok && res.status < 500) throw new Error(`HTTP ${res.status}`); // no retry for 4xx
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = (await res.json()) as { properties?: Record<string, unknown>[] };
+        const rows = Array.isArray(body) ? body : (body.properties ?? []);
+        const data = rows.map(mapRow).filter((p): p is Property => p !== null);
+        this.cache = { at: Date.now(), data };
+        this.ok = true;
+        return data;
+      } catch (e) {
+        const msg = (e as Error).message;
+        const retryable = attempt < ATTEMPTS && (msg.includes('aborted') || msg.includes('fetch failed') || /HTTP 5\d\d/.test(msg));
+        if (retryable) {
+          console.error(`[properties] fetch attempt ${attempt} failed (${msg}) — retrying once`);
+          continue;
+        }
+        console.error('[properties] fetch failed:', msg);
+        if (!this.cache) this.ok = false; // stale cache is still real data; only distrust an empty hand
+        return this.cache?.data ?? [];
+      } finally {
+        clearTimeout(timer);
+      }
     }
+    return this.cache?.data ?? []; // unreachable — the loop always returns/throws
   }
 
   /** Lookup by Евидентен број — the only correct identity. */
