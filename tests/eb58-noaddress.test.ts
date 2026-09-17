@@ -77,7 +77,7 @@ test('EB 58 e2e: "kade se naogja?" serves the honest no-location protocol, never
   await send('kade se naogja?');
   const answer = sent[sent.length - 1] ?? '';
   // The honest protocol: location unknown + owner contact + pivot. EB filled.
-  assert.match(answer, /позната|немам податок|не ми е јасна|не е внесена|не располагам|не ми е позната/i, `honest location line expected: ${answer}`);
+  assert.match(answer, /позната|немам податок|немам потврдена локација|не ми е јасна|не е внесена|не располагам/i, `honest location line expected: ${answer}`);
   assert.match(answer, /сопственик/i, `owner-contact promise expected: ${answer}`);
   assert.match(answer, /58/, `EB must be filled into the template: ${answer}`);
   // NEVER invented geography or a maps link:

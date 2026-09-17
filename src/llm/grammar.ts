@@ -174,12 +174,25 @@ const SIZE_WAIVED_EN = ["size doesn't matter", "size does not matter", "any size
 // Client says cheapest is priority — used to sort by price.
 // Patterns: “што поевтино“, “нajeftino“, “најниска цена“,
 //           “поевтино“, “онаму каде е поевтино“
-const PRICE_PRI_ADJ = ['поевтино', 'поевтина', 'поевтин', 'пониско', 'ниско', 'ниска'];
-const PRICE_PRI_ADJ_L = ['poevtino', 'poevtina', 'poevtin', 'ponisko', 'nisko', 'niska'];
+const PRICE_PRI_ADJ = ['поевтино', 'поевтина', 'поевтин', 'поефтино', 'поефтина', 'поефтин', 'пониско', 'ниско', 'ниска'];
+// Latin real-world misspellings of “поевтино” seen in chat: the ф→т slip
+// (poeftino) and the ф→к slip (poektino — the 21:39 transcript). "poftino"
+// (dropped vowel) rounds out the family. These MUST match in every
+// cheaper-ask detector or the closed funnel swallows the intent.
+const PRICE_PRI_ADJ_L = ['poevtino', 'poevtina', 'poevtin', 'poeftino', 'poeftina', 'poeftin', 'poektino', 'poektina', 'poektin', 'poftino', 'poftina', 'poftin', 'pojeftino', 'pojeftina', 'pojeftin', 'ponisko', 'nisko', 'niska'];
 const PRICE_PRI_SUP = ['најевтино', 'најевтина', 'најевтин', 'нajeftino', 'најниско', 'нajевтин'];
 const PRICE_PRI_SUP_L = ['najeftino', 'najeftina', 'najeftin', 'najnisko', 'najevtin'];
 const PRICE_PRI_PHRASE = ['што поевтино', 'колку поевтино', 'што пониско', 'колку пониско'];
 const PRICE_PRI_PHRASE_L = ['sto poeftino', 'kolku poeftino', 'sto ponisko', 'kolku ponisko'];
+// Bare cheaper-word — “daj nesto poeftino vo toj reon” (the 21:39 transcript).
+// A standalone cheaper-word with NO verb slot around it is still a cheaper
+// search: “дај нешто поевтино” has nothing after the adjective for the ADJ+verb
+// slot to bind. Only unambiguous price words — “ниско/ниска” are excluded
+// because bare “ниска градба” (low-rise) is about construction, not price.
+// Misspelling family (real chat traffic): ф→т (poeftino), ф→к (poektino —
+// the 21:39 transcript), dropped vowel (poftino), й-insertion (pojeftino).
+const PRICE_PRI_BARE = ['поевтино', 'поевтина', 'поефтино', 'поефтина', 'најевтино', 'најевтина', 'појефтино', 'појефтина'];
+const PRICE_PRI_BARE_L = ['poevtino', 'poevtina', 'poeftino', 'poeftina', 'poektino', 'poektina', 'poftino', 'poftina', 'pojeftino', 'pojeftina', 'najeftino', 'najeftina'];
 // “najevtino shto ima“ / “the cheapest you have“
 const PRICE_PRI_EN = ['cheapest', 'most affordable', 'lowest price', 'cheapest you have'];
 
@@ -441,6 +454,7 @@ export function buildSizeWaivedSlots(): RegExp {
  *
  * Grammar slots:
  *   PHRASE                           — “што поевтино“
+ *   BARE                             — “daj nesto poeftino vo toj reon“
  *   SUP                              — “нajeftino“
  *   ADJ  (that's/you have)           — “поевтино е“
  *   EN                              — “cheapest“
@@ -449,12 +463,16 @@ export function buildPricePrioritySlots(): RegExp {
   const ADJ = or([...PRICE_PRI_ADJ, ...PRICE_PRI_ADJ_L]);
   const SUP = or([...PRICE_PRI_SUP, ...PRICE_PRI_SUP_L]);
   const PHRASE = or([...PRICE_PRI_PHRASE, ...PRICE_PRI_PHRASE_L]);
+  const BARE = or([...PRICE_PRI_BARE, ...PRICE_PRI_BARE_L]);
   const EN = or([...PRICE_PRI_EN]);
   const s = (base: string) => base;
 
   const patterns = [
     // Slot: PHRASE — “што поевтино“ / “колку пониско“
     s(PHRASE),
+    // Slot: BARE — “daj nesto poeKtino vo toj reon” (the 21:39 transcript):
+    // a cheaper-word with nothing to bind to — still a cheaper search.
+    s(BARE),
     // Slot: SUP — “нajeftino“ / “најевтино“ / “најниско“
     s(SUP),
     // Slot: ADJ (be | you have | there is) — “поевтино е“ / “поевтино имате“

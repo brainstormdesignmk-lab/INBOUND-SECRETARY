@@ -405,6 +405,18 @@ export function detectPricePriority(text: string): boolean {
   return matchesBoth(PRICE_PRIORITY_RE, text);
 }
 
+// “daj nesto poeKtino vo toj reon” (the 21:39 transcript) — a cheaper-search
+// ASK. The client wants REAL cheaper options in the current area, or — when
+// the area has nothing cheaper — an offer of other neighborhoods. This must
+// NEVER be swallowed by contact-collection (“Да ми го оставите бројот на
+// телефон?”), the fee, or an investment-opinion excuse: it is a SEARCH, not
+// a market opinion. Runs through matchesBoth so normalizeMc (Latin→Cyrillic
+// normalization) is covered too.
+/** True when the client asks for something cheaper (any spelling). */
+export function detectCheaperSearch(text: string): boolean {
+  return detectPricePriority(text) || detectSuggestAlternatives(text);
+}
+
 // The client asks for ALTERNATIVE suggestions — "predlozi mi", "drugi
 // lokaciii", "pokazi drugi", "други предлози" — typically answering the
 // not-found line ("Дали би сакале да Ви предложам слични имоти од други
@@ -413,7 +425,7 @@ export function detectPricePriority(text: string): boolean {
 // repeat the not-found line (the stuck loop: every "predlozi mi" re-rendered
 // "не можам да го најдам имотот со Евидентен број 250"). Latin + Cyrillic.
 const SUGGEST_ALTERNATIVES_RE =
-  /(предложи ми|предложете ми|предложи|предложете|sugeri|сугерирај|сугерирате|sugeriraj|predlozi mi|predlozete mi|predlozi|predlozete|други локации|друга локаци|drugi lokacii|drugi lokaciii|drugi lokacija|druga lokaci|други предлози|drugi predlozi|покажи други|pokazi drugi|покажете други|pokazete drugi|нешто друго|друго нешто|nesto drugo|неколку други|некои други|имаш ли други|имате ли други|imas li drugi|imate li drugi|дали имате други|dali imate drugi|на друго место|во друго место|на другa локаци|во другa локаци|na drugo mesto|vo drugo mesto|drugo mesto|druga lokacija|на друг реон|во друг реон|на друг дел|во друг дел|na drug reon|vo drug reon|drugi reon|drugi del|нешто на друго|nesto na drugo|kazi mi drugo|кажи ми друго|kazi mi vo drugo|кажи ми во друго|што имате на друго|shto imate na drugo|што имате во друго|shto imate vo drugo|da mi kazes za drugo|да ми кажеш за друго|isto e skapo|исто е скапо|пак е скапо|пак скапо|пак e skapo|isto e skapo|isto skapo|istata cena|истата цена|skapa e|скапо е|skapo e|сЀ уште е скапо|сè уште е скапо|previsoko e|превисоко е|mnogu e|многу е|preskapo|прескапо|ne mi odgovara cenata|не ми одговара цената|cenata ne mi odgovara|цената не ми одговара|ne odgovara cenata|не одговара цената|poeftino|поевтино|поефтино|pojeftino)/iu;
+  /(предложи ми|предложете ми|предложи|предложете|sugeri|сугерирај|сугерирате|sugeriraj|predlozi mi|predlozete mi|predlozi|predlozete|други локации|друга локаци|drugi lokacii|drugi lokaciii|drugi lokacija|druga lokaci|други предлози|drugi predlozi|покажи други|pokazi drugi|покажете други|pokazete drugi|нешто друго|друго нешто|nesto drugo|неколку други|некои други|имаш ли други|имате ли други|imas li drugi|imate li drugi|дали имате други|dali imate drugi|на друго место|во друго место|на другa локаци|во другa локаци|na drugo mesto|vo drugo mesto|drugo mesto|druga lokacija|на друг реон|во друг реон|на друг дел|во друг дел|na drug reon|vo drug reon|drugi reon|drugi del|нешто на друго|nesto na drugo|kazi mi drugo|кажи ми друго|kazi mi vo drugo|кажи ми во друго|што имате на друго|shto imate na drugo|што имате во друго|shto imate vo drugo|da mi kazes za drugo|да ми кажеш за друго|isto e skapo|исто е скапо|пак е скапо|пак скапо|пак e skapo|isto e skapo|isto skapo|istata cena|истата цена|skapa e|скапо е|skapo e|сЀ уште е скапо|сè уште е скапо|previsoko e|превисоко е|mnogu e|многу е|preskapo|прескапо|ne mi odgovara cenata|не ми одговара цената|cenata ne mi odgovara|цената не ми одговара|ne odgovara cenata|не одговара цената|poeftino|poeftina|poektino|poektina|poftino|poftina|поевтино|поевтина|поефтино|поефтина|појефтино|појефтина|pojeftino|pojeftina)/iu;
 
 /** True when the client asks for alternative suggestions / other options. */
 export function detectSuggestAlternatives(text: string): boolean {
@@ -431,9 +443,14 @@ export function detectSuggestAlternatives(text: string): boolean {
 function _isDrugAlt(text: string): boolean {
   const t = text.toLowerCase();
   // Matches: друг/drugi + property words, покажи/прикажете + други,
-  // нешто друго, drugo nesto, imate li drugo, поевтино/поефтино,
-  // next apartment — ANY pattern meaning "other/another property".
-  const hasDrugAlt = /друг(?:и|а|о|ом)?|drugi?|drgo|drugo\s+nesto|друго\s+нешто|нешто\s+друг|nesto\s+drug|покажи\s+други|pokazi\s+drugi|прикажете\s+други|покажете\s+други|имате\s+ли\s+друг|имаш\s+ли\s+друг|imate\s+li\s+drugi?|imas\s+li\s+drugi?|дали\s+имате\s+друг|dale\s+imate\s+drugi|next\s+(?:apartment|property|flat|house|option)|поевтино|поефтино|poftino|pojeftino|drugo\s+mesto|друго\s+место|na\s+drugo\s+mesto|vo\s+drugo\s+mesto|на\s+друго\s+место|во\s+друго\s+место|drugi\s+reon|drugi\s+del|drugi\s+lokaci|друг\s+реон|друг\s+дел|друга\s+локаци|na\s+drugi\s+reon|vo\s+drugi\s+reon|на\s+друг\s+реон|во\s+друг\s+реон/i.test(t);
+  // нешто друго, drugo nesto, imate li drugo, поевтино/поефтино/
+  // poeKtino (the cheaper-word typo family — poeKtino was the 21:39
+  // transcript miss), next apartment — ANY pattern meaning
+  // "other/another property".
+  // Cheaper-word family (без LLM contract): the ф→т slip (poeftino), the
+  // ф→к slip (poektino — the 21:39 transcript), dropped vowel (poftino),
+  // й-insertion (pojeftino), Cyrillic поефтино/појефтино.
+  const hasDrugAlt = /друг(?:и|а|о|ом)?|drugi?|drgo|drugo\s+nesto|друго\s+нешто|нешто\s+друг|nesto\s+drug|покажи\s+други|pokazi\s+drugi|прикажете\s+други|покажете\s+други|имате\s+ли\s+друг|имаш\s+ли\s+друг|imate\s+li\s+drugi?|imas\s+li\s+drugi?|дали\s+имате\s+друг|dale\s+imate\s+drugi|next\s+(?:apartment|property|flat|house|option)|поевтино|поевтина|поефтино|поефтина|појефтино|појефтина|poeftino|poeftina|poektino|poektina|poftino|poftina|pojeftino|pojeftina|drugo\s+mesto|друго\s+место|na\s+drugo\s+mesto|vo\s+drugo\s+mesto|на\s+друго\s+место|во\s+друго\s+место|drugi\s+reon|drugi\s+del|drugi\s+lokaci|друг\s+реон|друг\s+дел|друга\s+локаци|na\s+drugi\s+reon|vo\s+drugi\s+reon|на\s+друг\s+реон|во\s+друг\s+реон/i.test(t);
   if (!hasDrugAlt) return false;
   // Exclude pure price questions: "која е цената", "колку е цената" —
   // these ask for THE price, not alternatives.

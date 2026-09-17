@@ -10,7 +10,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
@@ -120,6 +120,10 @@ export class InboundHandler {
   brainMode?: () => string;
 
   private chains = new Map<string, Promise<void>>();
+  /** The raw inbound message of the in-flight processMessage call — history
+   *  helpers outside processMessage (presentCheaperBatch) push it into the
+   *  session log. */
+  private lastUserText = '';
 
   constructor(private deps: HandlerDeps) {
     this.agents = new AgentStore(deps.db);
@@ -320,6 +324,9 @@ export class InboundHandler {
 
   private async processMessage(channel: string, chatId: string, text: string, opts: HandleOpts): Promise<void> {
     const pipelineStart = Date.now();
+    // History helpers (presentCheaperBatch) read the raw message — set before
+    // any early return that reaches the cheaper-search batch presentation.
+    this.lastUserText = text;
     let session = this.deps.sessions.get(chatId) ?? freshSession(channel, chatId);
     session.channel = channel;
 
@@ -1304,6 +1311,33 @@ export class InboundHandler {
       }
     }
 
+    // CHEAPER-SEARCH INTERCEPTOR (the 21:39 fix) — MUST run BEFORE loadProps:
+    // the budget ladder in loadProps consumes the cheapest not-yet-shown row
+    // into presentedIds, which made the cheaper-ask below see an empty pool and
+    // wrongly fire the price.shy.empty ask ("nothing in the area") right after
+    // eating the row the client asked for. “daj nesto poeKtino vo toj reon” is
+    // a search instruction, NOT contact traffic and NOT a market opinion.
+    if ((next === 'presentation' || next === 'closing')
+        && detectCheaperSearch(text)
+        && !detectService(text) && !detectBothServices(text)
+        && !detectBudget(text)
+        // In presentation, a criteria message that carries a cheaper-word
+        // ("една спална, нешто поевтино, до 50") is a FILTER — the dedicated
+        // re-present branch's job. A BARE cheaper-ask (no bedrooms/sqm/
+        // location/budget in the message) is a search instruction and must be
+        // served HERE (the old ev.type exclusion swallowed it — the 21:39
+        // presentation variant). In closing there is no such branch: WITHOUT
+        // the cheaper interceptor the event falls off the chain into the LLM
+        // fallback (the 21:39 swallow).
+        && !(next === 'presentation'
+             && (ev.bedrooms || ev.sqm || ev.location || ev.budget)   // real criteria present
+             && detectPricePriority(text)                             // …plus a cheaper-word
+             && !detectAgreement(text))) {                            // “da, nesto poeftino” = consent, not a filter
+      const intro = pickVariant('price.shy', { recent: assistantTexts(session) })
+        ?? 'Разбирам — цената е важна. Еве ги најпристапните опции што моментално ги имам во таа населба.';
+      if (await this.presentCheaperBatch(session, intro)) return;
+    }
+
     // 4) Property context (responder only needs it for LLM-driven states)
     let props = await this.loadProps(session, areaRequested, seeOffers);
 
@@ -1321,6 +1355,16 @@ export class InboundHandler {
     // whether to widen ("…или да погледнеме во друга населба?"). A pure
     // agreement (no register/contact intent, no NEW area named in the same
     // message) releases the area lock and presents the next batch from the REST
+    // of the city — options come only AFTER the ask, never silently. Register
+    // intents ("контактирај ме") fall through to the queue escape below.
+    // EXPLICIT widen commands ("PROSIRI JA POTRAGATA", "а во други населби
+    // нешто со тие карактеристики?", bare "drugi naselbi?") release the lock
+    // TOO — they are commands/answers, not agreements, and grammar.ts matches
+    // every real phrasing of them.
+    // Exhausted-area pivot: the selected area(s) are drained and Lina just asked
+    // whether to widen ("…или да погледнеме во друга населба?"). A pure
+    // agreement (no register/contact intent, no NEW area named in the same
+    // message) releases the area lock and presents the base batch from the REST
     // of the city — options come only AFTER the ask, never silently. Register
     // intents ("контактирај ме") fall through to the queue escape below.
     // EXPLICIT widen commands ("PROSIRI JA POTRAGATA", "а во други населби
@@ -1901,6 +1945,7 @@ ${contactReminder}`;
     } else if ((next === 'closing' || before === 'closing')
         && session.slots.ownerContactPending
         && detectAgreement(text)
+        && !detectCheaperSearch(text)
         && !detectFeePaymentAgreement(text)) {
       // Client confirmed they WANT the owner contacted ("да" / "согласен" after
       // the availability ack). NOW disclose the fee — the client knows the
@@ -1921,6 +1966,7 @@ ${contactReminder}`;
     } else if (next === 'closing' && before === 'closing'
         && detectAgreement(text)
         && !session.slots.ownerContactPending
+        && !detectCheaperSearch(text)
         && (session.slots.viewingFeeAgreed || props[0]?.eb)) {
       // Fee already disclosed + client says "да" / "moze" / "dogovori" / etc.
       // → proceed to visit scheduling (owner contact). The fee block above set
@@ -1973,10 +2019,16 @@ ${contactReminder}`;
           if (hasBigger && !hasSmaller) {
             prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има поголеми станови кои би можеле да Ви одговараат. `;
           } else if (hasSmaller && !hasBigger) {
-            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има помали станови кои би можеле да Ви одговараат. `;
-          } else {
-            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има слични опции кои би можеле да Ви се допаднат. `;
+            prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има помали станови кои би можеле да Ви одговараат. `;        } else {
+          prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има слични опции кои би можеле да Ви се допаднат. `;
           }
+        }
+        // Price-priority clients ("што поевтино", "daj nesto poeKtino") get a
+        // dedicated bank intro — the default opener reads as if the price
+        // concern was never heard. Details-led presentation remains for the
+        // rest (the 19:34 convention).
+        if (!prefix && session.slots.pricePriority) {
+          prefix = pickVariant('price.shy', { recent: assistantTexts(session) }) ?? '';
         }
         const cards = buildPropertyCards(props, 'presentation', session.history.length,
           assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix });
@@ -2298,6 +2350,101 @@ ${contactReminder}`;
   }
 
   // ---------------- slots / props ----------------
+
+  /** CHEAPER-SEARCH PRESENTATION (the 21:39 contract): the client asked for
+   *  something cheaper (“daj nesto poeKtino vo toj reon”) — serve REAL cheaper
+   *  options from the DB, never the generic price excuse. Area-locked batch
+   *  cheapest-first under the price.shy bank intro; when the current area has
+   *  nothing (or is drained), offer OTHER NEIGHBORHOODS (price.shy.empty ask)
+   *  and let the widen release happen on the client's “да” — options never
+   *  spill silently. */
+  private async presentCheaperBatch(session: ChatSession, intro: string): Promise<boolean> {
+    // Area-locked pool, already-shown rows EXCLUDED (never re-serve a row the
+    // client rejected — the anti-loop convention). Empty pool = nothing
+    // cheaper LEFT in the area → the price.shy.empty offer below. The slots
+    // object is COPIED (a cheaper-ask must never let one branch mutate the
+    // live slots for the other) and the batch is sorted cheapest-first —
+    // candidates() orders by budget proximity, which is meaningless when the
+    // client's entire ask is “something cheaper”.
+    const batch = (await this.deps.properties.candidates({
+      location: session.slots.location,
+      bedrooms: session.slots.bedrooms,
+      sqm: session.slots.sqm,
+      business: session.slots.business,
+      house: session.slots.house,
+      garsonjera: session.slots.garsonjera,
+      service: session.slots.service,
+      exclude: session.slots.presentedIds ?? [],
+    })).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)).slice(0, 2);
+    if (batch.length > 0) {
+      session.slots.presentedIds = [...(session.slots.presentedIds ?? []), ...batch.map(p => p.id)];
+      session.slots.currentBatch = batch.map(p => p.id);
+      session.slots.areaExhausted = false;
+      session.slots.pricePriority = true;
+      session.state = 'presentation';
+      await this.landmarks.enrich(batch);
+      const cards = `${batch.map(p => buildPropertyCard(p)).join('\n\n')}`;
+      const reply = `${intro}\n\n${cards}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
+      pushHistory(session, { role: 'user', text: this.lastUserText ?? '' }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: 'closing', eventType: 'CHEAPER_SEARCH', userMsg: this.lastUserText ?? '', replyText: reply, replySource: 'deterministic', bankKey: 'price.shy' }); } catch { /* ignore */ } }
+      await this.sendRaw(session, reply, 'deterministic');
+      return true;
+    }
+    // No cheaper options left in the area: OFFER other neighborhoods (bank
+    // ask) — the option to widen, never a silent spill and never the phone ask.
+    if (!session.slots.areaExhausted) {
+      session.slots.areaExhausted = true;
+      session.slots.pricePriority = true;
+      const ask = pickVariant('price.shy.empty', { recent: assistantTexts(session) })
+        ?? 'Ја проверив понудата во таа населба — сè е над Вашиот буџет. Дали да Ви покажам најпристапни опции од други населби?';
+      pushHistory(session, { role: 'user', text: this.lastUserText ?? '' }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: 'closing', eventType: 'CHEAPER_SEARCH_EMPTY', userMsg: this.lastUserText ?? '', replyText: ask, replySource: 'deterministic', bankKey: 'price.shy.empty' }); } catch { /* ignore */ } }
+      await this.sendRaw(session, ask, 'deterministic');
+      return true;
+    }
+    // Area already drained AND nothing cheaper: release the lock and widen —
+    // the “cheaper” ask itself is consent to look at the rest of the city,
+    // cheapest-first, so the search never dead-ends into contact pushes.
+    session.slots.areaExhausted = false;
+    session.slots.location = undefined;
+    const wide = (await this.deps.properties.candidates({
+      bedrooms: session.slots.bedrooms,
+      sqm: session.slots.sqm,
+      business: session.slots.business,
+      house: session.slots.house,
+      garsonjera: session.slots.garsonjera,
+      service: session.slots.service,
+      exclude: session.slots.presentedIds ?? [],
+    })).slice(0, 2);
+    if (wide.length > 0) {
+      session.slots.presentedIds = [...(session.slots.presentedIds ?? []), ...wide.map(p => p.id)];
+      session.slots.currentBatch = wide.map(p => p.id);
+      session.state = 'presentation';
+      await this.landmarks.enrich(wide);
+      const wideIntro = pickVariant('price.shy.empty', { recent: assistantTexts(session) })
+        ?? 'Во таа населба нема повеќе пристапни опции — еве најевтините од другите населби.';
+      const reply = `${wideIntro}\n\n${wide.map(p => buildPropertyCard(p)).join('\n\n')}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
+      pushHistory(session, { role: 'user', text: this.lastUserText ?? '' }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: 'closing', eventType: 'CHEAPER_SEARCH_WIDEN', userMsg: this.lastUserText ?? '', replyText: reply, replySource: 'deterministic', bankKey: 'price.shy.empty' }); } catch { /* ignore */ } }
+      await this.sendRaw(session, reply, 'deterministic');
+      return true;
+    }
+    // Genuinely nothing left anywhere: the exhausted line (bank-backed).
+    session.slots.areaExhausted = true;
+    const exhausted = exhaustedLine(session.slots.location, assistantTexts(session))
+      ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location);
+    pushHistory(session, { role: 'user', text: this.lastUserText ?? '' }, this.cfg.maxHistory);
+    pushHistory(session, { role: 'assistant', text: exhausted }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+    await this.sendRaw(session, exhausted, 'deterministic');
+    return true;
+  }
 
   private applySlots(session: ChatSession, ev: Event): void {
     if (ev.service) { session.slots.service = ev.service; session.slots.bothServices = undefined; }

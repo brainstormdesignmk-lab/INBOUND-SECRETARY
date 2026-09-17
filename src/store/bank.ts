@@ -37,6 +37,11 @@ export const FROZEN_BANK_KEYS = new Set([
   'provision.ask.buy', 'provision.ask.rent',
   'provision.who.buy', 'provision.who.rent', 'provision.who.danok.buy',
   'contact.ask.name', 'contact.ask.name.phone', 'contact.ask.phone', 'owner.contact.refusal',
+  // Cheaper-search protocol (the 21:39 fix): price.shy intro + the
+  // other-neighborhoods offer. Owner-approved wording — the clientela lines
+  // serve real property batches and Gemini-grown variants were inconsistent
+  // about promising prices the DB can't back. Frozen, seeded-only.
+  'price.shy', 'price.shy.empty',
 ]);
 
 /** Data-driven keys: the answer's FACTS come from the property row, the owner
