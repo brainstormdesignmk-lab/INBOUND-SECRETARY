@@ -18,6 +18,7 @@ import { ChannelRegistry } from './channels/types';
 import { ViberAdapter } from './channels/viber';
 import { TelegramAdapter } from './channels/telegram';
 import { WhatsAppAdapter } from './channels/whatsapp';
+import { registerRelayIngress } from './channels/relay';
 import { LandmarkService } from './geo/landmarks';
 import { OfflineMapStore } from './geo/offlineMap';
 import { VisitScheduler } from './visits/scheduler';
@@ -105,6 +106,11 @@ async function main(): Promise<void> {
   // The two-machine bridge: Hermes (its own box) talks to Lina through this
   // token-guarded surface — work queue + results. Disabled (503) without HERMES_TOKEN.
   registerHermesApi(app, { cfg, db, pipeline, properties });
+
+  // ATOM4 relay ingress (one-pair slice): /message receives the normalized
+  // envelope routed from /webhook/viber/lina1 and feeds the SAME pipeline as
+  // the Viber webhook. Replies stay on the existing direct-Viber path.
+  registerRelayIngress(app, cfg, pipeline);
 
   app.listen(cfg.port, () => {
     console.log(`[boot] Lina online on :${cfg.port}`);
