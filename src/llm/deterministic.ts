@@ -276,7 +276,6 @@ export function detectService(text: string): Service | undefined {
   if (fuzzyHasToken(text, ['купувам', 'купам'])) return 'buy';
   if (fuzzyHasToken(text, ['изнајмувам'])) return 'rent';
   return undefined;
-  return undefined;
 }
 
 // "мало станче" / "гарсоњера" / "студио" is a 1-bedroom request — only when
@@ -628,9 +627,6 @@ const ME_INTEREST_RE = /ме\s+(?:интересира|интригира|заи
 
 /** True when the client expresses interest in a specific property. */
 const PROPERTY_NEGATION_RE = /(?:не|не)\s+(?:ми\s+се|ми\s+се)\s+(?:сви[ѓг]а|свига|допа[ѓг]а|допага|свиѓ|допаг)|(?:не|не)\s+(?:го|го)\s+(?:сакам|сакам)|(?:не|не)\s+(?:сум|сум)\s+(?:заинтересиран|заинтересиран)|(?:не|не)\s+(?:ме|ме)\s+(?:интересира|интригира|заинтересира|заним[ае])/i;
-// Single-letter-typo fallback: long unambiguous tokens only — "заинтересиран" slips
-// ("zainteresiraa", "интересираа") miss every listed spelling. Short/ambiguous
-// words are deliberately NOT fuzzed here.
 // Single-letter-typo fallback: long unambiguous tokens only — "заинтересиран" slips
 // ("zainteresiraa", "интересираа") miss every listed spelling. Deliberately NO
 // свиѓа/допаѓа here: those are CLITIC forms whose meaning depends on word order
