@@ -15,10 +15,10 @@ test('response bank: every entry is non-empty and placeholders live only where e
         assert.equal(v.match(/\{budget\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else if (key === 'both.ask.service') {
         assert.equal(v.match(/\{type\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
-      } else if (key === 'location.unknown') {
-        // The NO-ADDRESS protocol: {eb} is filled at serve time with the
-        // Евидентен број of the property being discussed.
-        assert.equal(v.match(/\{eb\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+      } else if (key === 'location.unknown' || key === 'property.notfound') {
+        // The NO-ADDRESS protocol + the 20:51 not-found pivot: {eb} is filled
+        // at serve time with the Евидентен број of the property discussed.
+        assert.ok((v.match(/\{eb\}/g)?.length ?? 0) >= 1, `${key}: "${v}"`);
       } else {
         assert.ok(!v.includes('{'), `${key}: unexpected placeholder: "${v}"`);
       }

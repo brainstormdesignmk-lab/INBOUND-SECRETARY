@@ -283,7 +283,9 @@ test('ZOKI: visit interest ("дали е достапен?") -> fee disclosed ->
   //    owner. NO fee yet — the client must confirm they WANT the owner contacted.
   s = await send('DALI E SEUSTE DOSTAPEN ?');
   assert.equal(s.state, 'closing');
-  assert.ok(/(?:достапен|постои|база|слободен|достапн)/i.test(sent[1]), sent[1]); // availability ack
+  // Bank-backed (20 variants): the anchor word varies — достапен/достапн(а/ост)/слободен/
+  // база/активен/евиденција/располагање/понуда/систем — so the regex must span them all.
+  assert.ok(/(?:достапен|достапн|постои|база|слободен|активен|евиденциј|располагање|понуда|систем)/i.test(sent[1]), sent[1]); // availability ack
   assert.ok(sent[1].includes('?'), sent[1]); // must be a QUESTION (permission ask)
   assert.ok(!sent[1].includes('500 денари'), sent[1]); // fee NOT yet disclosed
   assert.ok(!sent[1].includes('телефонски'), sent[1]); // no phone ask
@@ -325,8 +327,8 @@ test('availability first-ask: "DALI 78 SE IZDAVA USTE ?" hits the availability f
   let s = await send('DALI 78 SE IZDAVA USTE ?');
   assert.equal(s.state, 'closing');
   assert.ok(s.slots.ownerContactPending, 'ownerContactPending set');
-  // availability ack wording, not a card
-  assert.ok(/(?:достапен|достапн|постои|база|слободен|располагање)/i.test(sent[0]), sent[0]);
+  // availability ack wording (all bank variants), not a card
+  assert.ok(/(?:достапен|достапн|постои|база|слободен|активен|евиденциј|располагање|понуда|систем)/i.test(sent[0]), sent[0]);
   assert.ok(!sent[0].includes('м²'), sent[0]); // no square-meters = no card
   assert.ok(!sent[0].includes('Цената е'), sent[0]); // no price = no card
 

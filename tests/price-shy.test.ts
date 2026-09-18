@@ -76,7 +76,8 @@ function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent:
 const PHONE_ASK = /бројот на телефон|телефонски број/iu;
 // Bank-backed cheaper intro (wording varies) — the contract is the empathy +
 // cheapest-first SERVE, never the exact sentence.
-const CHEAPER_INTRO = /пристапн|најевтин|цената е важна|подредени од најевтина/iu;
+// Must cover ALL price.shy bank variants (variant 5 says "најдоброто… цените се високи").
+const CHEAPER_INTRO = /пристапн|најевтин|цената е важна|подредени од најевтина|најдоброто|цените се високи/iu;
 
 test('detector: every real-world cheaper-word spelling fires detectCheaperSearch', () => {
   for (const msg of [

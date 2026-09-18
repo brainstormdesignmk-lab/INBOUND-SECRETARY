@@ -42,6 +42,10 @@ export const FROZEN_BANK_KEYS = new Set([
   // serve real property batches and Gemini-grown variants were inconsistent
   // about promising prices the DB can't back. Frozen, seeded-only.
   'price.shy', 'price.shy.empty',
+  // The 20:51 fix: where-is on a property MISSING from the feed → the honest
+  // not-found pivot (with {eb} substitution). Data-carrying (the EB) + a
+  // policy-critical dead-end breaker — frozen, seeded-only.
+  'property.notfound',
 ]);
 
 /** Data-driven keys: the answer's FACTS come from the property row, the owner

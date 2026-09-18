@@ -109,7 +109,10 @@ test('08:32 flow: fee ask → "OVA E NESTO NOVO ?" → fee.why, never a second d
   assert.ok(!reply.includes('500 денари') && !reply.includes('10 евра'),
     `fee-surprise re-disclosed the fee: ${reply}`);
   // It must be the RATIONALE (filter for real clients / time-wasters).
-  assert.ok(/филтер|селекци|вистинск(и|ите)|сериозн/iu.test(reply), `no rationale in reply: ${reply}`);
+  // Covers ALL fee.why variants: most say филтер/филтрирање (v10 is
+  // "филтрирање" — no "е" after филтр), селективност (v10 — "т" where
+  // селекци needs "ц"), or the искрен-interest line.
+  assert.ok(/филт|селект|вистинск|сериозн|искрен/iu.test(reply), `no rationale in reply: ${reply}`);
   // Funnel keeps moving: still in closing, waiting for the fee agreement.
   assert.equal(s.state, 'closing');
 });

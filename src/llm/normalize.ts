@@ -65,3 +65,97 @@ export function normalizeMc(text: string): string {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Single-letter-typo fallback (edit distance ≤ 1 on long tokens).
+//
+// WHY: normalizeMc removes the script mismatch, but NOT typos — the poeKtino
+// bug (21:39 transcript) showed a one-letter slip silently voids every regex.
+// Fuzzing EVERY word is wrong ("да"→"дс" must never become agreement), so
+// callers pass only LONG, unambiguous keywords (≥5 letters) whose distance-1
+// neighborhood contains no other real word with a different intent.
+
+const MIN_FUZZY_TOKEN = 5;
+
+function editDistanceAtMost1(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a.length === b.length) {
+    // Damerau-style: an adjacent transposition ("посета"→"опсета") is ONE edit.
+    let diff = -1;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        if (diff >= 0) {
+          // Second difference: only a swap of the two differs-from positions
+          // qualifies (a[i-1]…a[i] swapped); anything else is 2+ edits.
+          if (diff === i - 1 && a[diff] === b[i] && a[i] === b[diff]) return true;
+          return false;
+        }
+        diff = i;
+      }
+    }
+    return true; // 0 or 1 substitution
+  }
+  // One insertion/deletion: walk both strings, skip at most one letter.
+  const [s, l] = a.length < b.length ? [a, b] : [b, a];
+  let i = 0, j = 0, skipped = false;
+  while (i < s.length && j < l.length) {
+    if (s[i] === l[j]) { i++; j++; continue; }
+    if (skipped) return false;
+    skipped = true;
+    j++;
+  }
+  return true;
+}
+
+/**
+ * True when any whitespace-separated token of `text` is within one single-
+ * letter edit of one of `keywords` (single words, lower or upper case).
+ * Each keyword is compared in THREE spaces against the matching space of the
+ * token: raw (as typed), Cyrillic-folded (normalizeMc — covers Latin input
+ * and Cyrillic typos), and the keyword's canonical Latin reverse-form (covers
+ * digraph-forming typos like "kjpuvam" whose fold "ќпувам" loses a letter).
+ */
+const CYR_TO_LAT: Record<string, string> = {
+  'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ѓ': 'gj', 'е': 'e',
+  'ж': 'zh', 'з': 'z', 'ѕ': 'dz', 'и': 'i', 'ј': 'j', 'к': 'k', 'ќ': 'kj',
+  'л': 'l', 'љ': 'lj', 'м': 'm', 'н': 'n', 'њ': 'nj', 'о': 'o', 'п': 'p',
+  'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'c',
+  'ч': 'ch', 'џ': 'dzh', 'ш': 'sh',
+};
+
+// The DIACRITIC-STRIPPED Latin users actually type: "prosiri" (не "proshiri"),
+// "predlozi" (не "predlozhi"), "iznajmuvam". Distance-1 checks against the
+// canonical digraph form alone would miss first-letter slips of these.
+const CYR_TO_LAT_ASCII: Record<string, string> = {
+  'ѓ': 'g', 'ж': 'z', 'ѕ': 'z', 'ќ': 'k', 'љ': 'l', 'њ': 'n',
+  'ч': 'c', 'џ': 'd', 'ш': 's',
+};
+
+function toLatin(cyr: string, map: Record<string, string> = CYR_TO_LAT): string {
+  let out = '';
+  for (const ch of cyr) out += (map[ch] ?? CYR_TO_LAT[ch]) ?? ch;
+  return out;
+}
+
+export function fuzzyHasToken(text: string, keywords: string[]): boolean {
+  const raw = text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (raw.length === 0) return false;
+  const cyr = raw.map(normalizeMc);
+  for (const kw of keywords) {
+    const k = kw.toLowerCase();
+    if (k.length < MIN_FUZZY_TOKEN || /\s/.test(k)) continue;
+    const kc = normalizeMc(k);
+    const kl = toLatin(kc);
+    const kla = toLatin(kc, CYR_TO_LAT_ASCII);
+    for (let i = 0; i < raw.length; i++) {
+      if (editDistanceAtMost1(raw[i], k)          // Cyrillic token vs Cyrillic keyword
+          || editDistanceAtMost1(cyr[i], kc)      // folded token vs folded keyword
+          || editDistanceAtMost1(raw[i], kl)      // Latin token vs Latin keyword form
+          || editDistanceAtMost1(raw[i], kla)) {  // …and the diacritic-stripped form
+        return true;
+      }
+    }
+  }
+  return false;
+}

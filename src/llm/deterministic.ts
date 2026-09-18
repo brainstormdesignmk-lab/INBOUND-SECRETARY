@@ -1,7 +1,7 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase } from '../data/properties';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
-import { normalizeMc } from './normalize';
+import { normalizeMc, fuzzyHasToken } from './normalize';
 import { AVAILABILITY_LEXICON, toRegexAlt } from './morphology';
 import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots } from './grammar';
 
@@ -158,7 +158,10 @@ export function detectAvailabilityAsk(text: string): boolean {
   // Morphology secondary check: expanded verb/adjective forms not in the main regex.
   // MUST use matchesBoth() — the morphology regex is Cyrillic-only and the
   // i flag doesn't cross scripts (Latin 'A' ≠ Cyrillic 'а').
-  return matchesBoth(AVAILABILITY_MORPH_RE, text);
+  if (matchesBoth(AVAILABILITY_MORPH_RE, text)) return true;
+  // Single-letter-typo fallback: "dostapes li e?" (s→e slip) still asks about
+  // availability. Long tokens only.
+  return fuzzyHasToken(text, ['достапен', 'слободен']);
 }
 
 // "Why do you charge for a visit?" — "зошто наплаќате посета?", "зошто
@@ -268,6 +271,11 @@ export function detectService(text: string): Service | undefined {
   const r = text.search(RENT_RE);
   if (b >= 0 && (r < 0 || b < r)) return 'buy';
   if (r >= 0) return 'rent';
+  // Single-letter-typo fallback (poeKtino lesson): "куSaM STAN" must still be
+  // a BUY. Only long unambiguous tokens — never the short confirmation words.
+  if (fuzzyHasToken(text, ['купувам', 'купам'])) return 'buy';
+  if (fuzzyHasToken(text, ['изнајмувам'])) return 'rent';
+  return undefined;
   return undefined;
 }
 
@@ -333,7 +341,10 @@ const GARSONJERA_RE =
  * type (slots.garsonjera) instead of a fabricated "1 спална" criterion.
  */
 export function detectGarsonjera(text: string): boolean {
-  return matchesBoth(GARSONJERA_RE, text);
+  if (matchesBoth(GARSONJERA_RE, text)) return true;
+  // Typo fallback: "garsonera mi treba" — the category word is long and
+  // unambiguous (distance-1 collisions are unlikely).
+  return fuzzyHasToken(text, ['гарсоњера', 'студио']);
 }
 
 /**
@@ -402,7 +413,10 @@ const PRICE_PRIORITY_RE = buildPricePrioritySlots();
 
 /** True when the client says cheapest is the priority. */
 export function detectPricePriority(text: string): boolean {
-  return matchesBoth(PRICE_PRIORITY_RE, text);
+  if (matchesBoth(PRICE_PRIORITY_RE, text)) return true;
+  // Typo fallback: "daj nesto poftinoo"-class slips that miss every listed
+  // spelling. The keyword is long and unambiguous — distance-1 is safe.
+  return fuzzyHasToken(text, ['поевтино', 'појефтино', 'поефтино']);
 }
 
 // “daj nesto poeKtino vo toj reon” (the 21:39 transcript) — a cheaper-search
@@ -429,7 +443,11 @@ const SUGGEST_ALTERNATIVES_RE =
 
 /** True when the client asks for alternative suggestions / other options. */
 export function detectSuggestAlternatives(text: string): boolean {
-  return SUGGEST_ALTERNATIVES_RE.test(text);
+  if (SUGGEST_ALTERNATIVES_RE.test(text)) return true;
+  // Typo fallback for the anchor words ("predlozzi mi"). Deliberately NO
+  // "друго/други": the 5-letter form is hyper-ambiguous — distance-1 hits
+  // ("drugi opcii", "drugo nesto ima?") belong to the rejection/ladder flows.
+  return fuzzyHasToken(text, ['предложи', 'предложете', 'предлози']);
 }
 
 // "DRUG STAN VO CENTAR" / "друг стан во центар" / "покажи друго" / "нешто друго"
@@ -582,7 +600,9 @@ export function detectVisitInterest(text: string): boolean {
   if (matchesBoth(VISIT_NEGATION_RE, text)) return false;
   if (VISIT_INTEREST_RE.test(text)) return true;
   // Grammar slot check: reversed word orders, 3rd-person види, gerund погледање
-  return matchesBoth(_visitSlotsRe, text);
+  if (matchesBoth(_visitSlotsRe, text)) return true;
+  // Typo fallback: "posetS", "razgledSa" — long unambiguous visit words only.
+  return fuzzyHasToken(text, ['разгледам', 'разгледање', 'посета']);
 }
 
 // Property interest: the client expresses positive sentiment about a shown
@@ -608,9 +628,20 @@ const ME_INTEREST_RE = /ме\s+(?:интересира|интригира|заи
 
 /** True when the client expresses interest in a specific property. */
 const PROPERTY_NEGATION_RE = /(?:не|не)\s+(?:ми\s+се|ми\s+се)\s+(?:сви[ѓг]а|свига|допа[ѓг]а|допага|свиѓ|допаг)|(?:не|не)\s+(?:го|го)\s+(?:сакам|сакам)|(?:не|не)\s+(?:сум|сум)\s+(?:заинтересиран|заинтересиран)|(?:не|не)\s+(?:ме|ме)\s+(?:интересира|интригира|заинтересира|заним[ае])/i;
+// Single-letter-typo fallback: long unambiguous tokens only — "заинтересиран" slips
+// ("zainteresiraa", "интересираа") miss every listed spelling. Short/ambiguous
+// words are deliberately NOT fuzzed here.
+// Single-letter-typo fallback: long unambiguous tokens only — "заинтересиран" slips
+// ("zainteresiraa", "интересираа") miss every listed spelling. Deliberately NO
+// свиѓа/допаѓа here: those are CLITIC forms whose meaning depends on word order
+// ("svigja mi se" = reversed order = NOT interest), and normalizeMc folds
+// "svigja" exactly onto "свиѓа" — token fuzz would break that contract.
+const INTEREST_FUZZY_KWS = ['заинтересиран', 'интересира'];
+
 export function detectPropertyInterest(text: string): boolean {
   if (matchesBoth(VISIT_NEGATION_RE, text) || matchesBoth(PROPERTY_NEGATION_RE, text)) return false;
-  return PROPERTY_INTEREST_RE.test(text) || matchesBoth(ME_INTEREST_RE, text);
+  if (PROPERTY_INTEREST_RE.test(text) || matchesBoth(ME_INTEREST_RE, text)) return true;
+  return fuzzyHasToken(text, INTEREST_FUZZY_KWS);
 }
 
 // "MI FATI OKO 94" / "ми фати окото" — the property CAUGHT THE CLIENT'S EYE
@@ -648,8 +679,13 @@ const VISIT_TIME_RE =
   /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|после\s*\d{1,2}|по\s*\d{1,2}|после\s+\d{1,2}|понеделник|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
 
 export function detectVisitTime(text: string): string | undefined {
-  if (!VISIT_TIME_RE.test(text)) return undefined;
-  return text.trim().slice(0, 80);
+  if (VISIT_TIME_RE.test(text)) return text.trim().slice(0, 80);
+  // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
+  // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
+  // ambiguous 5-letter “среда” stay exact-only.
+  if (fuzzyHasToken(text, ['понеделник', 'вторник', 'четврток', 'сабота', 'недела',
+    'попладне', 'напладне', 'претпладне', 'викенд', 'задутре'])) return text.trim().slice(0, 80);
+  return undefined;
 }
 
 // Vague time-of-day references that need a follow-up for the EXACT hour.
@@ -897,7 +933,11 @@ export function detectWidenIntent(text: string): boolean {
 const _widenSlotsRe = buildWidenSlots();
 export function detectExplicitWiden(text: string): boolean {
   if (KNOWN_NEIGHBORHOODS.some(loc => !loc.includes('(') && locMatches(text, loc))) return false;
-  return matchesBoth(_widenSlotsRe, text);
+  if (matchesBoth(_widenSlotsRe, text)) return true;
+  // Typo fallback: "PROSIRri JA POTRAGATA" — the command verb is long and
+  // unambiguous. Sits behind the concrete-neighborhood guard on purpose:
+  // naming an area makes it a search for THAT area, not a widen.
+  return fuzzyHasToken(text, ['прошири']);
 }
 
 // Fee payment agreement — the client explicitly agrees to PAY the viewing fee.
@@ -1372,6 +1412,11 @@ export function detectOwnerAddressReply(text: string): OwnerAddressReply | undef
 export interface WhereIsQuestion {
   place: string;   // the named place ('' when the client means the last shown property)
   generic: boolean;
+  /** The message names a property by something OTHER than its EB ("кај
+   *  Димитар Миладинов", "гарсоњерата", "овој од 99000"). The handler must
+   *  run the mention resolver over the DISCUSSED set before falling back to
+   *  "last shown" — the 12:33 rule. */
+  mention?: boolean;
 }
 
 // "каде е X?" — verb family is tolerant: any of се наоѓа / наоѓа / naogja /
@@ -1613,6 +1658,22 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
     return { place: '', generic: true };
   }
   // ===== END SECONDARY CHECK =====
+
+  // ===== PRE-VERBAL MENTION (the 12:33 class) — "KOJA MU E LOKACIJATA NA
+  // STANOT KAJ DIMITAR MILADINOV ?", "kade mu e lokacijata na garsonjerata ?"
+  // The location NOUN precedes the verb ("lokacijata NA stanot"), so
+  // WHERE_IS_RE — which reads what FOLLOWS the verb — either misses the
+  // message entirely ("kade mu e …" stalls on "mu") or captures
+  // "локацијата на гарсоњерата" as a PLACE NAME, and the handler degraded to
+  // the wrong-property fallback. Grammar, not phrase lists: location noun +
+  // "на" + property-type noun + a question signal = the same WHERE_IS intent,
+  // with WHICH property delegated to the mention resolver (mention: true).
+  {
+    const n2 = normalizeMc(text);
+    const locOnProp = /(?:локација|адреса)[\p{L}]*\s+на\s+(?:(?:овој|оваа|тој|таа)\s+)?(?:стан|куќ|гарсоњер|имот|објект|плац|локал|деловн)/iu;
+    const questionish = /\?\s*$/u.test(n2) || /(?:^|\s)(?:каде|која|кој|кое|дај|кажи|мораш|mora|moras)/iu.test(n2);
+    if (locOnProp.test(n2) && questionish) return { place: '', generic: true, mention: true };
+  }
 
   const m = text.match(WHERE_IS_RE);
   if (!m) return undefined;
@@ -1944,7 +2005,9 @@ const PROVISION_RE =
 
 /** True when the client asks about provision/commission. */
 export function detectProvisionAsk(text: string): boolean {
-  return PROVISION_RE.test(text);
+  if (PROVISION_RE.test(text)) return true;
+  // Typo fallback: “provizija”, “provizia” slips — long and unambiguous.
+  return fuzzyHasToken(text, ['провизија']);
 }
 
 // Provision who-pays: the client asks WHO pays the lawyer/notary/tax —
@@ -2072,7 +2135,10 @@ export function detectDocumentsAsk(text: string): boolean {
   // ("STAPI VO KONTAKT I INFORMIRAJ ME" got the documents lecture). Loan words
   // from the inform- stem are NEVER about paperwork.
   if (/(?:inform|информ)/i.test(text)) return false;
-  return matchesBoth(DOCUMENTS_RE, text);
+  if (matchesBoth(DOCUMENTS_RE, text)) return true;
+  // Typo fallback: “dokumeti”, “документа” — the anchor is long and
+  // unambiguous (the договори-ми / inform guards above already ran).
+  return fuzzyHasToken(text, ['документи', 'документација']);
 }
 
 // Mortgage / credit info: the client mentions credit/mortgage or asks about financing.
@@ -2081,7 +2147,11 @@ const MORTGAGE_RE =
 
 /** True when the client mentions mortgage / credit / bank financing. */
 export function detectMortgageAsk(text: string): boolean {
-  return matchesBoth(MORTGAGE_RE, text);
+  if (matchesBoth(MORTGAGE_RE, text)) return true;
+  // Typo fallback: “kredit”, “hipoteka” slips. Deliberately NO “банка” —
+  // the word is a landmark/POI magnet (“банка во близина”) and would
+  // misroute nearby-asks into the mortgage script.
+  return fuzzyHasToken(text, ['кредит', 'хипотека']);
 }
 
 // Location confirmation about the property under discussion — "ZNACI NA
@@ -2132,6 +2202,66 @@ export function detectLocationConfirm(text: string): boolean {
 /** Marker-form check for callers distinguishing the two sub-classes. */
 export function isLocationConfirmMarker(text: string): boolean {
   return matchesBoth(LOC_CONFIRM_MARKERS_RE, text);
+}
+
+// POI-CONFIRM — the 22:59 push-back ("da ne e vo skopjanka ?"). The client
+// tests a NAMED PLACE (a mall, a market — map POI, NOT a neighborhood)
+// against the property under discussion. Grammar-based, both scripts:
+//   yes/no scaffold — leading "da", "dali", negated "ne e", the "li" particle,
+//   a znaci/togas marker, or a trailing "?"
+//   + preposition (vo/na/kaj) + the place candidate.
+// The extracted candidate is resolved against the OFFLINE MAP by the caller;
+// no map hit → this detector abstains (neighborhood confirms keep using
+// detectLocationConfirm, so today's behavior is untouched).
+const POI_CONFIRM_PREP_RE = new RegExp(
+  B + '(?:vo|во|na|на|kaj|кај)' + E + '\\s*'
+  + "([\\p{L}\\p{N}][\\p{L}\\p{N}'\\- ]{1,60})",
+  'iu',
+);
+const POI_CONFIRM_TAIL_WORDS = new Set(['li', 'ли', 'e', 'е', 'toj', 'тој', 'taa', 'таа', 'toa', 'тоа',
+  'stanot', 'станот', 'kukata', 'куќата', 'objektot', 'објектот', 'se', 'се', 'naogja', 'наоѓа']);
+
+/** True when the message is a yes/no question about WHERE the discussed
+ *  property is — the POI-confirm class ("da ne e vo skopjanka ?"). */
+export function isPoiConfirmQuestion(text: string): boolean {
+  // Wh-openers are a DIFFERENT family ("kade e skopjanka?", "koga moze da se
+  // vidi?") — their own detectors own them, the trailing '?' alone must not
+  // claim them. The opener guard is start-anchored; a каде-verb ANYWHERE in
+  // the message ("ovoj 76 kade se naogja ?" — the 12:33 class) also makes it
+  // a content question, never a yes/no confirm, so the trailing-?' rule must
+  // not claim it either.
+  if (LOC_CONFIRM_WH_RE.test(text)) return false;
+  if (matchesBoth(/\b(?:kade|каде)\b/iu, text)) return false;
+  if (/\?\s*$/.test(text)) return true;
+  if (matchesBoth(LOC_CONFIRM_MARKERS_RE, text)) return true;
+  // Leading "da" + copula/negation scaffold ("da ne e vo …", "da e kaj …")
+  if (matchesBoth(/^\s*(?:da|да)\b[^.?!\n]{0,40}\b(?:e|е|ne|не)\b/iu, text)) return true;
+  // "dali e/kaj/vo …", "ne e vo …", "… li e?"
+  if (matchesBoth(/\b(?:dali|дали)\b/iu, text)) return true;
+  if (matchesBoth(/^\s*(?:ne|не)\s+(?:e|е)\b/iu, text)) return true;
+  if (matchesBoth(/\b(?:li|ли)\s*(?:e|е)?\s*\?/iu, text)) return true;
+  return false;
+}
+
+/** The place candidate after vo/na/kaj in a POI-confirm question
+ *  ("da ne e vo skopjanka ?" → "skopjanka"), or undefined. Trailing
+ *  copula/particle words are trimmed; multi-word names ("kam marketing")
+ *  survive up to 4 words. Never matches when there is no question scaffold
+ *  — a statement "e vo skopjanka." is not a confirmation ask. */
+export function extractPoiConfirmPlace(text: string): string | undefined {
+  if (!isPoiConfirmQuestion(text)) return undefined;
+  const m = matchesBothCapture(POI_CONFIRM_PREP_RE, text);
+  if (!m) return undefined;
+  let place = m.trim().replace(/[.?!,:;]+$/u, '').trim();
+  // Trim trailing scaffold words ("skopjanka li e" → "skopjanka")
+  for (;;) {
+    const words = place.split(/\s+/);
+    const last = words[words.length - 1]?.toLowerCase();
+    if (words.length > 1 && last && POI_CONFIRM_TAIL_WORDS.has(last)) place = words.slice(0, -1).join(' ');
+    else if (words.length > 4) place = words.slice(0, 4).join(' ');
+    else break;
+  }
+  return place.length >= 3 ? place : undefined;
 }
 
 // ── NEAR-CENTER LADDER — the 23:08 protocol ────────────────────────────────
