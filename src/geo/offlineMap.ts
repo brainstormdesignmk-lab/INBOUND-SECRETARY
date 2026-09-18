@@ -72,7 +72,7 @@ export interface GeocodeHit {
   street: string;
 }
 
-export type OfflineResolveSource = 'osm_building' | 'osm_interpolated' | 'osm_low_confidence';
+export type OfflineResolveSource = 'osm_building' | 'osm_interpolated' | 'osm_street_anchor' | 'osm_low_confidence';
 
 /** Result of the instant offline property resolver, tagged with an explicit
  *  trust level. Trusted coords (osm_building / osm_interpolated) may anchor
@@ -80,7 +80,7 @@ export type OfflineResolveSource = 'osm_building' | 'osm_interpolated' | 'osm_lo
  *  must never anchor a landmark claim — they go to the honest "населба"
  *  fallback and the async re-resolution queue geocodes them later. */
 export type OfflineResolve =
-  | { lat: number; lon: number; trusted: true; source: 'osm_building' | 'osm_interpolated' }
+  | { lat: number; lon: number; trusted: true; source: 'osm_building' | 'osm_interpolated' | 'osm_street_anchor' }
   | { lat: number | null; lon: number | null; trusted: false; source: 'osm_low_confidence' };
 
 export interface MapStats {
@@ -329,6 +329,21 @@ function effectivePriority(type: string, name: string, distanceM: number): numbe
  *  "кај Алка-У" might not. Multiplier < 1 = lower score = better pick.
  *  A park at ~180m (score ≈ 275) beats a supermarket at 117m (score ≈ 293).
  *  A shop at ≤65m still wins over any permanent landmark (score ≤ 163). */
+/** Address-row provenance. '' = OSM build row (the 7,674 backbone);
+ *  'google_street' = a Google-verified street anchor planted by the
+ *  self-learning loop (scripts/street-teach.ts, the monthly B3 drain).
+ *  The distinction is what lets Stage C trust a taught street's anchor
+ *  while an OSM "ББ" centroid stays untrusted: Google confirmed the
+ *  street EXISTS at that point; OSM's centroid is a cartographic label
+ *  with no ground truth. Rebuilds PRESERVE learned anchors by re-running
+ *  this schema-tolerant migration before inserting OSM rows. */
+const ADDR_SOURCE_DDL = "ALTER TABLE addresses ADD COLUMN source TEXT NOT NULL DEFAULT ''";
+
+function ensureAddressSourceColumn(db: Database.Database): void {
+  const cols = (db.prepare('PRAGMA table_info(addresses)').all() as Array<{ name: string }>).map(c => c.name);
+  if (!cols.includes('source')) db.exec(ADDR_SOURCE_DDL);
+}
+
 const PERMANENCE: Record<string, number> = {
   // Permanent — never relocate, decades-long
   park: 0.55, garden: 0.55, playground: 0.55, nature_reserve: 0.55,
@@ -373,6 +388,8 @@ export class OfflineMapStore {
       // overrides fill it on the next apply/build. readonly connections can
       // still PRAGMA table_info; only the ALTER would fail, and a NULL
       // place_id is handled gracefully everywhere (link falls to next tier).
+      // addresses.source (google_street provenance) carries the same rule.
+      try { ensureAddressSourceColumn(this.db); } catch { /* read-only FS — readers tolerate the missing column */ }
       const cols = (this.db.prepare("PRAGMA table_info(pois)").all() as Array<{ name: string }>)
         .map(c => c.name);
       if (!cols.includes('place_id')) {
@@ -630,12 +647,14 @@ export class OfflineMapStore {
   /** Stage C — "ББ" (без број / no number) row: the street centroid. Only
    *  used when no numbered building or interpolation exists. A street-level
    *  point, never building-accurate. */
-  private streetCentroid(key: string): { lat: number; lon: number; street: string } | undefined {
+  private streetCentroid(key: string): { lat: number; lon: number; street: string; google: boolean } | undefined {
     if (!this.db) return undefined;
-    return this.db.prepare(
-      `SELECT street, lat, lon FROM addresses WHERE key = ?
-       AND (housenumber = 'ББ' OR housenumber = '') LIMIT 1`
-    ).get(key) as { street: string; lat: number; lon: number } | undefined;
+    const hit = this.db.prepare(
+      `SELECT street, lat, lon, source FROM addresses WHERE key = ?
+       AND (housenumber = 'ББ' OR housenumber = '')
+       ORDER BY source DESC LIMIT 1`
+    ).get(key) as { street: string; lat: number; lon: number; source?: string | null } | undefined;
+    return hit ? { lat: hit.lat, lon: hit.lon, street: hit.street, google: hit.source === 'google_street' } : undefined;
   }
 
   /** Stage D — absolute last resort: the first building on the street. Used
@@ -675,9 +694,16 @@ export class OfflineMapStore {
       }
     }
 
-    // Stage C: street centroid ("ББ" / no number)
+    // Stage C: street centroid ("ББ" / no number). An OSM centroid row is a
+    // cartographic label — NEVER trusted. A GOOGLE-VERIFIED street anchor
+    // (learned by the teach loop) is: Google confirmed the street at that
+    // point, so any house number on it gets an honest street-level fix and
+    // the offline resolver serves the property trusted immediately.
     const centroid = this.streetCentroid(key);
-    if (centroid) return { ...centroid, trusted: false, source: 'osm_low_confidence' };
+    if (centroid) {
+      if (centroid.google) return { lat: centroid.lat, lon: centroid.lon, street: centroid.street, trusted: true, source: 'osm_street_anchor' };
+      return { lat: centroid.lat, lon: centroid.lon, street: centroid.street, trusted: false, source: 'osm_low_confidence' };
+    }
 
     // Stage D: first building on the street — street-level guess
     const first = this.firstBuilding(key);
@@ -699,7 +725,7 @@ export class OfflineMapStore {
     const hit = this.resolveAddress(address, key);
     if (!hit) return { lat: null, lon: null, trusted: false, source: 'osm_low_confidence' };
     if (hit.trusted) {
-      return { lat: hit.lat, lon: hit.lon, trusted: true as const, source: hit.source as 'osm_building' | 'osm_interpolated' };
+      return { lat: hit.lat, lon: hit.lon, trusted: true as const, source: hit.source as 'osm_building' | 'osm_interpolated' | 'osm_street_anchor' };
     }
     return { lat: hit.lat, lon: hit.lon, trusted: false as const, source: 'osm_low_confidence' as const };
   }
@@ -754,6 +780,57 @@ export class OfflineMapStore {
     } catch { return false; }
   }
 
+  /** THE STREET-LEVEL LEARN (October's class (c)): plant a Google-verified
+   *  STREET anchor — "one geocode teaches the whole street". The anchor is a
+   *  centroid row (housenumber 'ББ') carrying source='google_street', which
+   *  Stage C trusts (source 'osm_street_anchor'): every house number on the
+   *  street resolves OFFLINE trusted from now on, even with a single learned
+   *  point. A Google pin is a street's own door; the street exists around
+   *  it. Number-level precision for a SPECIFIC number still goes through
+   *  learnAddress(), which outranks the anchor (Stage A before Stage C).
+   *  Idempotent: re-teaching refreshes the anchor's coordinates. Returns
+   *  true when the anchor row was written. */
+  learnStreet(street: string, lat: number, lon: number): boolean {
+    if (!this.db || !street) return false;
+    const key = streetKey(street);
+    // Display name: original case, no trailing house number (same rule as
+    // learnAddress — normalizeStreet lowercases, fine for keys, ugly for
+    // display and for later per-number learning on the same street).
+    const name = street.replace(/\s+\d+(?:[\s.\-/]*(?:\d+|[а-яa-z]+))*\s*$/i, '').trim();
+    if (!key || key.length < 3 || !name) return false;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+    if (!this.rwDb) {
+      try { this.rwDb = new Database(this.dbPath ?? '', { timeout: 5000 }); } catch { return false; }
+    }
+    const w = this.rwDb;
+    if (!w) return false;
+    try {
+      ensureAddressSourceColumn(w);
+      // Upsert on the anchor row: re-teaching refreshes coordinates.
+      const existing = w.prepare(
+        "SELECT rowid FROM addresses WHERE key = ? AND (housenumber = 'ББ' OR housenumber = '') AND source = 'google_street'"
+      ).get(key) as { rowid: number } | undefined;
+      if (existing) {
+        w.prepare('UPDATE addresses SET lat = ?, lon = ? WHERE rowid = ?').run(lat, lon, existing.rowid);
+      } else {
+        // One anchor per street: ignore when a centroid row already exists
+        // (an OSM ББ row) — UPDATE the OSM row instead of INSERTing a twin.
+        const osmCentroid = w.prepare(
+          "SELECT rowid FROM addresses WHERE key = ? AND (housenumber = 'ББ' OR housenumber = '')"
+        ).get(key) as { rowid: number } | undefined;
+        if (osmCentroid) {
+          w.prepare("UPDATE addresses SET lat = ?, lon = ?, source = 'google_street' WHERE rowid = ?").run(lat, lon, osmCentroid.rowid);
+        } else {
+          w.prepare(
+            "INSERT INTO addresses (street, housenumber, lat, lon, key, source) VALUES (?, 'ББ', ?, ?, ?, 'google_street')"
+          ).run(name, lat, lon, key);
+        }
+        this.keyCache = null;
+      }
+      return true;
+    } catch { return false; }
+  }
+
   /** THE MAP KEEPS ITSELF HONEST: delete every POI row with coordinates
    *  outside the Skopje bbox. Google's fuzzy geographic expansion leaks
    *  far-away places into tile scrapes (a Skopje supermarket search returned
@@ -786,6 +863,23 @@ export class OfflineMapStore {
     if (!key) return false;
     const row = this.db.prepare('SELECT COUNT(*) AS n FROM addresses WHERE key = ?').get(key) as { n: number };
     return row.n > 0;
+  }
+
+  /** How many NUMBERED building rows the street carries (excludes "ББ"/
+    * blank-centroid rows). The census's class-(b) "thin" test: ≥2 numbered
+    * rows make interpolation possible for any in-range number; 0–1 rows is
+    * thin even when the street itself is known. Also the trust input for
+    * taught-anchor streets (a street with ≥2 real numbers outranks its
+    * Google anchor). */
+  numberedRowCount(address: string): number {
+    if (!this.db || !address) return 0;
+    const key = streetKey(address);
+    if (!key) return 0;
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS n FROM addresses
+       WHERE key = ? AND housenumber != '' AND housenumber != 'ББ'`
+    ).get(key) as { n: number };
+    return row.n;
   }
 
   /** THE SCRAPER CONTRACT, applied to the LIVE map: add any missing capture
@@ -1209,7 +1303,7 @@ export function writeMap(
     phone?: string | null; website?: string | null; price_level?: string | null;
     closed?: number | null; types?: string | null;
   }>,
-  addresses: Array<{ street: string; housenumber: string; lat: number; lon: number }>,
+  addresses: Array<{ street: string; housenumber: string; lat: number; lon: number; source?: string }>,
 ): MapStats {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
@@ -1255,7 +1349,8 @@ export function writeMap(
         housenumber TEXT NOT NULL DEFAULT '',
         lat         REAL NOT NULL,
         lon         REAL NOT NULL,
-        key         TEXT NOT NULL
+        key         TEXT NOT NULL,
+        source      TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX idx_addr_key ON addresses(key);
     `);
@@ -1274,8 +1369,8 @@ export function writeMap(
       );
       console.log(`[skopje-map] inserted ${pois.length} POIs`);
 
-      const insAddr = db.prepare('INSERT INTO addresses (street, housenumber, lat, lon, key) VALUES (?, ?, ?, ?, ?)');
-      for (const a of addresses) insAddr.run(a.street, a.housenumber, a.lat, a.lon, streetKey(a.street));
+      const insAddr = db.prepare('INSERT INTO addresses (street, housenumber, lat, lon, key, source) VALUES (?, ?, ?, ?, ?, ?)');
+      for (const a of addresses) insAddr.run(a.street, a.housenumber, a.lat, a.lon, streetKey(a.street), a.source ?? '');
       console.log(`[skopje-map] inserted ${addresses.length} addresses`);
       // Manual corrections folded INTO the build (address-overrides.json next
       // to the target DB) so a weekly OSM rebuild never wipes them. Skips

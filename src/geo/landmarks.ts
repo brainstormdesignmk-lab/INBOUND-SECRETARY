@@ -75,10 +75,12 @@ export interface PropertyRow {
 export function centerTrusted(geoSource: string | null | undefined): boolean {
   // Trusted: real geocodes (stored / google_cached) AND the Phase-1 offline
   // import resolutions (osm_building exact / osm_interpolated between two
-  // neighbours). Untrusted: osm_low_confidence (street centroid, endpoint
-  // clamp, name-fail) — never anchors a landmark claim.
+  // neighbours / osm_street_anchor — a Google-verified street anchor taught
+  // to the map by the self-learning loop). Untrusted: osm_low_confidence
+  // (street centroid, endpoint clamp, name-fail) — never anchors a claim.
   return geoSource === 'stored' || geoSource === 'google_cached'
-    || geoSource === 'osm_building' || geoSource === 'osm_interpolated';
+    || geoSource === 'osm_building' || geoSource === 'osm_interpolated'
+    || geoSource === 'osm_street_anchor';
 }
 
 // Can the CACHED landmark be served to a client right now?
