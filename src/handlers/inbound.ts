@@ -10,7 +10,9 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown } from '../data/properties';
-import { detectAgreement, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
+import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
 import { inferPropertyId } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
@@ -26,7 +28,7 @@ import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/str
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extractDetailsLandmark, resolveSearchCenter, type PropertyRow, type Center } from '../geo/landmarks';
-import { walkMinutes } from '../geo/precision';
+import { walkMinutes, distM } from '../geo/precision';
 import { routeLog, resolveIntent, dispatchSimple } from './router';
 import { VisitScheduler } from '../visits/scheduler';
 import {
@@ -193,6 +195,94 @@ export class InboundHandler {
    *    + one original Google link (no tinyurl, no second coordinate sentence)
    *  No "X мин пеш", no "Имотот е приближно тука:" — the client drills into
    *  the landmark itself, never the street. */
+
+  // ── MENTION BINDING (the 12:33 transcript, approved scope B) ──────────
+  // The client may name ANY property ever mentioned in the chat by EB,
+  // price, type, size, floor or descriptor landmark ("кај Димитар
+  // Миладинов", "гарсоњерата", "овој од 99000"). The candidate set is the
+  // session's own memory: presented pairs, the current batch, the current
+  // pointer and seen-property. One clear match binds it; several equal
+  // matches produce ONE clarify naming the options; no match leaves
+  // today's behavior untouched (undefined, never a guess).
+  private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean }): Promise<{ prop?: Property; clarify?: string } | undefined> {
+    const ebSet = new Set<number>();
+    for (const eb of [
+      ...(session.slots.presentedIds ?? []),
+      ...(session.slots.currentBatch ?? []),
+      session.slots.propertyId,
+      session.slots.interestedPropertyId,
+    ]) {
+      if (typeof eb === 'number') ebSet.add(eb);
+    }
+    if (ebSet.size === 0) return undefined;
+    const all = await this.deps.properties.getAll();
+    const discussed: Property[] = [];
+    for (const p of all) if (ebSet.has(p.eb) && !discussed.some(x => x.eb === p.eb)) discussed.push(p);
+    if (discussed.length === 0) return undefined;
+
+    // Map evidence for descriptor signals: "Црногорска амбасада" (client)
+    // vs "Embassy of Montenegro" (map row) — the offline map is the name
+    // bridge, same role as the Latin→Cyrillic script bridge.
+    const sig = extractMentionSignals(text);
+    let poi: MentionPoi | undefined;
+    if (sig.descriptor && sig.descriptor.trim().length >= 4) {
+      const hit = this.landmarks?.findPlace(sig.descriptor);
+      if (hit) poi = { name: hit.name, lat: hit.lat, lon: hit.lon };
+    }
+
+    const cands: MentionCandidate[] = discussed.map(p => {
+      const c: MentionCandidate = {
+        eb: p.eb, price: p.price, bedrooms: p.bedrooms, sqm: p.sqm,
+        business: p.business, house: p.house, location: p.location,
+        details: p.details, landmark: p.landmark, landmarks: p.landmarks,
+        lat: p.lat, lon: p.lon,
+      };
+      if (session.slots.nearbyLandmarks?.length && session.slots.nearbyLandmarkEb === p.eb) {
+        c.nearby = session.slots.nearbyLandmarks;
+      }
+      return c;
+    });
+    const match = resolveMention(text, cands, { poi });
+    if (!match && opts?.historyFallback) {
+      // Signal-less follow-up ("MORAS DA MI KAZES KADE E") right after a named
+      // bind: the chat's LAST uniquely-bound property is the one in play —
+      // never "the last item of the presented pair by feed order".
+      for (let i = session.history.length - 1; i >= 0; i--) {
+        const h = session.history[i];
+        if (h.role !== 'user' || h.text === text) continue;
+        // Only IDENTITY-carrying history binds ("кај Миладинов",
+        // "гарсоњерата", "овој од 99000"). Criteria messages ("до 250 евра",
+        // "minimum 2 spalni") are the client's SEARCH, not a property
+        // reference — scoring them here bound a budget to the wrong EB.
+        if (!hasIdentitySignals(extractMentionSignals(h.text))) continue;
+        const m = resolveMention(h.text, cands);
+        if (m?.kind === 'unique' && m.eb !== undefined) {
+          return { prop: discussed.find(p => p.eb === m.eb) };
+        }
+      }
+      return undefined;
+    }
+    if (!match) return undefined;
+    if (match.kind === 'unique' && match.eb !== undefined) {
+      return { prop: discussed.find(p => p.eb === match.eb) };
+    }
+    // Ambiguous → ONE clarify naming the options (never a silent guess,
+    // never a silent wrong property).
+    const labels = (match.candidates ?? []).map(describeCandidate).join(', ');
+    if (!labels) return undefined;
+    return { clarify: `Кажете ми точно на кој имот мислите — ${labels}?` };
+  }
+
+  /** Sends the clarify line for an ambiguous mention; reports that it did. */
+  private async sendIfClarify(mb: { prop?: Property; clarify?: string } | undefined, text: string, session: ChatSession): Promise<boolean> {
+    if (!mb?.clarify) return false;
+    pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+    pushHistory(session, { role: 'assistant', text: mb.clarify }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+    await this.sendRaw(session, mb.clarify);
+    return true;
+  }
+
   private whereIsReply(p: Property, session: ChatSession, place?: string): string {
     // Coordinates ride the feed now (public-properties selects lat/lon/
     // geo_source/geocoded_at). NEVER zero them: resolveSearchCenter serves a
@@ -203,6 +293,7 @@ export class InboundHandler {
       landmark_name: p.landmark,
       lat: p.lat, lon: p.lon,
       geo_source: p.geo_source ?? null,
+      details: p.details,
     };
     // NO-ADDRESS PROTOCOL (EB 58 class): the agency never learned this
     // property's street — any landmark, neighborhood pin or "во близина на"
@@ -311,6 +402,35 @@ export class InboundHandler {
       address: p.address, location: p.location, eb: p.eb,
       business: p.business, landmark: p.landmark,
     });
+  }
+
+  // THE 20:51 BUG — the where-is family has TWO dead ends, both ending in the
+  // same visit-pitch line repeated forever:
+  //   1. A NAMED property the feed no longer knows ("stanot so broj 77" →
+  //      EB dropped from the feed): every lookup misses and the generic
+  //      where-is answer lands on buildWhereIsAnswer('') — the visit pitch.
+  //   2. NO property under discussion at all ("kade tocno se naogja?" in a
+  //      fresh session): same pitch, and the client has no way to break the
+  //      loop — they never realize the bot needs the Евидентен број.
+  // Both now get an OUT: the not-found pivot (matching properties in the
+  // named neighborhood) or the ask-for-the-number reply. The visit pitch is
+  // served AT MOST ONCE per session — a repeat means the client asked again
+  // and must get something actionable instead.
+  private whereIsNoContext(session: ChatSession, userText: string): string {
+    // 1) The client is asking about a SPECIFIC property. If the session ever
+    //    saw an EB (named, interested, presented) and it is GONE from the
+    //    feed → the honest not-found pivot with matches from that area.
+    const eb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    if (eb) {
+      return pickVariant('property.notfound', { recent: assistantTexts(session), vars: { eb: String(eb) } })
+        ?? PROPERTY_NOT_FOUND_LINE(eb);
+    }
+    // 2) No property anchored at all — ask for the number. The pitch may
+    //    appear once (the generic where-is fallback above already served it
+    //    for the FIRST unanchored ask); repeating it is the loop. This line
+    //    gives the client the actionable escape: name the Евидентен број.
+    void userText;
+    return 'Можам да Ви ги покажам ориентирите околу имотот — кажете ми само Евидентен број на станот (на пр. „станот со број 77“), или ако сакате, организирам посета.';
   }
 
 
@@ -442,6 +562,128 @@ export class InboundHandler {
       this.deps.sessions.set(session);
       await this.sendRaw(session, answer);
       return;
+    }
+
+    // POI-CONFIRM — the 22:59 push-back ("da ne e vo skopjanka ?"). The client
+    // tests a NAMED PLACE against the discussed property. This is a QUESTION
+    // about the property under discussion — it must be ANSWERED, never
+    // misread as fee/agreement traffic. Answered here, BEFORE isGenuineQuestion
+    // can punt it to the LLM (the LLM was producing the generic fee pitch).
+    //   1. Map-confirmed POI → honest yes/no + the visit-reveal protocol:
+    //      neighborhood is fair game, exact address is not — same privacy
+    //      contract as the rotation.
+    //   2. No map hit → try a NEIGHBORHOOD reading ("da ne e vo karpos ?" —
+    //      the extract also catches bare areas) and fall to the feed-verified
+    //      location.confirm answer.
+    //   3. Neither → untouched: fall through to the exact stack as before.
+    if (isPoiConfirmQuestion(text)
+        && (session.slots.propertyId || session.slots.interestedPropertyId
+          || session.slots.presentedIds?.length)) {
+      const poiEb = session.slots.propertyId
+        ?? session.slots.interestedPropertyId
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+      const poiProp = poiEb != null
+        ? await this.deps.properties.getByEb(poiEb).catch(() => undefined)
+        : undefined;
+      if (poiProp?.location) {
+        const actualLoc = poiProp.location.replace(/\s*\([^)]*\)\s*$/, '');
+        const prep = locPrep(actualLoc);
+        const poiType = poiProp.house ? 'Куќата' : poiProp.business ? 'Деловниот простор' : 'Станот';
+        const poiHint = `${poiType} со Евидентен број ${poiProp.eb} се наоѓа ${prep} ${actualLoc}. Точната адреса се открива на денот на посетата.`;
+        // Anchor the context on the discussed property
+        if (session.slots.propertyId !== poiProp.eb && session.slots.interestedPropertyId !== poiProp.eb) {
+          session.slots.interestedPropertyId = poiProp.eb;
+        }
+        const placeCandidate = extractPoiConfirmPlace(text);
+        let answer: string | undefined;
+        if (placeCandidate && this.landmarks) {
+          const hit = this.landmarks.findPlace(placeCandidate,
+            poiProp.lat != null && poiProp.lon != null ? { lat: poiProp.lat, lon: poiProp.lon } : undefined);
+          if (hit) {
+            const d = poiProp.lat != null && poiProp.lon != null
+              ? Math.round(distM(poiProp.lat, poiProp.lon, hit.lat, hit.lon))
+              : null;
+            const near = d != null && d <= 500;
+            const distPhrase = d == null ? ''
+              : d < 1000 ? `на ${Math.round(d / 10) * 10} метри од`
+              : `на ${(d / 1000).toFixed(1).replace('.', ',')} километри од`;
+            answer = near
+              ? `${d != null && d <= 300 ? 'Да, директно до' : 'Да, во непосредна близина на'} ${hit.name}. ${poiHint}`
+              : `Не, тоа е ${distPhrase} ${hit.name}, а имотот е ${prep} ${actualLoc}. Точната адреса се открива на денот на посетата.`;
+          }
+        }
+        if (!answer && placeCandidate) {
+          // Neighborhood reading of the candidate ("da ne e vo karpos ?") —
+          // ONLY with a real candidate: marker words alone (дека/така/тогас)
+          // must never fabricate a location answer out of an opinion.
+          const namedLoc = detectLocation(placeCandidate, await this.deps.properties.locations().catch(() => []));
+          if (namedLoc) {
+            const agree = locMatches(namedLoc, poiProp.location);
+            answer = agree
+              ? `Точно, ${poiHint}`
+              : `Не, ${poiType} со Евидентен број ${poiProp.eb} всушност се наоѓа ${prep} ${actualLoc}. Точната адреса се открива на денот на посетата.`;
+          }
+        }
+        if (answer) {
+          session.slots.location = actualLoc;  // anchor the discussion context
+          routeLog(chatId, text, 'POI_CONFIRM');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
+          return;
+        }
+      }
+      // No map hit, no neighborhood reading, no confirm form → fall through
+      // untouched (LLM handles it with full context).
+    }
+
+    // INFO-ASK (scope C) — "kolku e garsonjerata?", "a 63 kolku kvadrati",
+    // "dali 76 ima lift?" — the public-add becomes quotable, same contract as
+    // the where-is family: the property is bound by MENTION (EB, price, type,
+    // descriptor) from everything the chat has put on the table, and the
+    // answer is built from the feed's public-add data — never the LLM, never
+    // invented. Facets with no stored data fall through to the owner-relay
+    // paths; an ambiguous mention asks back once (the clarify machinery).
+    {
+      const infoFacets = detectInfoFacets(text);
+      if (infoFacets
+        && (session.slots.propertyId || session.slots.interestedPropertyId
+          || session.slots.presentedIds?.length)) {
+        const mbInfo = await this.bindMention(text, session, { historyFallback: true });
+        if (await this.sendIfClarify(mbInfo, text, session)) return;
+        // No binding signal in the message ("kolku e ?") → the legacy slot
+        // chain (current → interested → presented[last]) — the mention layer
+        // must never STARVE the ask that the FSM price path already served.
+        const infoProp = mbInfo?.prop
+          ?? (session.slots.propertyId
+            ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
+            : undefined)
+          ?? (session.slots.interestedPropertyId
+            ? await this.deps.properties.getByEb(session.slots.interestedPropertyId).catch(() => undefined)
+            : undefined)
+          ?? (session.slots.presentedIds?.length
+            ? await this.deps.properties.getByEb(session.slots.presentedIds[session.slots.presentedIds.length - 1]).catch(() => undefined)
+            : undefined);
+        if (infoProp) {
+          const infoAnswer = buildInfoAnswer(infoProp, infoFacets);
+          if (infoAnswer) {
+            if (infoProp.eb !== session.slots.propertyId) {
+              session.slots.interestedPropertyId = infoProp.eb;
+            }
+            session.slots.lastPrice = infoProp.price !== undefined ? String(infoProp.price) : session.slots.lastPrice;
+            routeLog(chatId, text, 'INFO_ASK');
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: infoAnswer }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, infoAnswer, 'deterministic');
+            return;
+          }
+        }
+        // Facet asked but nothing stored for the bound property, or no
+        // property could be bound — fall through to the existing paths
+        // (owner-relay for unknown facets, FSM price fallback, LLM).
+      }
     }
 
     // Location nagging: after the privacy protocol ("the exact address is shared
@@ -632,6 +874,13 @@ export class InboundHandler {
       const shownIds = new Set(session.slots.presentedIds ?? []);
       const shown = all.filter(p => shownIds.has(p.id));
       let hit: Property | undefined;
+      // MENTION BINDING — the 12:33 rule: name-by-anything beats "last
+      // shown". A clear bind takes the reply, ambiguity asks back once,
+      // a miss falls through to the existing resolution untouched.
+      const mb = await this.bindMention(text, session, { historyFallback: true });
+      if (await this.sendIfClarify(mb, text, session)) return;
+      if (mb?.prop) hit = mb.prop;
+      if (hit === undefined) {
       if (whereIs.generic) {
         // The client asks about the current property ("каде е?", "сто има во
         // близина?"). If shown[] is empty (property looked up by EB number,
@@ -670,6 +919,7 @@ export class InboundHandler {
           }
         }
       }
+      } // end !hit — mention-bound property above skips the legacy resolution
       let answer: string;
       if (hit) {
         // Address privacy: "каде е X?" is answered with the nearest PUBLIC
@@ -765,7 +1015,10 @@ export class InboundHandler {
           }
         }
       } else {
-        answer = buildWhereIsAnswer('');
+        // NO ANCHOR: named-but-missing EB → honest not-found pivot; nothing
+        // under discussion → ask for the Евидентен број. NEVER the repeated
+        // visit pitch (the 20:51 stuck loop).
+        answer = this.whereIsNoContext(session, text);
       }
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
@@ -1578,7 +1831,15 @@ ${contactReminder}`;
       // pogledne', 'dogovori mi' — the client wants to SEE the property.
       // Show the fee disclosure directly (NOT enthusiasm — that's for general
       // interest like 'mi se svigja'). This is the main fee-disclosure gate.
-      if (session.slots.propertyId) session.slots.interestedPropertyId = session.slots.propertyId;
+      // MENTION BINDING (12:33): "sakam da ja vidam garsonjerata" — the visit
+      // is requested for the NAMED property, not the last one on the table.
+      const mb = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mb, text, session)) return;
+      const visitTarget = mb?.prop
+        ?? props.find(p => p.eb === (session.slots.propertyId ?? session.slots.interestedPropertyId))
+        ?? props[0];
+      if (visitTarget) session.slots.interestedPropertyId = visitTarget.eb;
+      else if (session.slots.propertyId) session.slots.interestedPropertyId = session.slots.propertyId;
       session.state = 'closing';
       const service = session.slots.service ?? props[0]?.service ?? 'buy';
       const fee = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
@@ -1723,11 +1984,21 @@ ${contactReminder}`;
       // Look up the most recently discussed property from the feed and show
       // its price — deterministic, no LLM. The EB comes from propertyId
       // (current), or the last item in presentedIds (previously shown).
-      const priceEb = session.slots.propertyId
+      // MENTION BINDING first (the 12:33 rule, one family over): a property
+      // named by anything ("garsonjerata", "a 63", "ovoj od 99000") beats the
+      // last-shown slot. No binding signal → the legacy slot chain
+      // (current → interested → presentedIds[last]). An ambiguous mention asks
+      // back once via the clarify line (sent by the normal tail below).
+      const mbPrice = await this.bindMention(text, session);
+      if (mbPrice?.clarify) {
+        reply = mbPrice.clarify;
+      } else {
+      const priceEb = mbPrice?.prop?.eb
+        ?? session.slots.propertyId
         ?? session.slots.interestedPropertyId
         ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
       if (priceEb) {
-        const p = await this.deps.properties.getById(priceEb);
+        const p = mbPrice?.prop ?? await this.deps.properties.getById(priceEb);
         if (p?.price !== undefined) {
           // Strip "(населба)" suffix — internal feed disambiguator, not spoken language
           const priceLoc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
@@ -1740,6 +2011,7 @@ ${contactReminder}`;
         }
       } else {
         reply = 'За кое конкретно станува збор? Кажете ми Евидентен број и ќе Ви ја соопштам цената.';
+      }
       }
     } else if (detectInvestmentOpinion(text)) {
       // Investment/market opinion: the client expresses doubt about prices,
@@ -1921,17 +2193,24 @@ ${contactReminder}`;
       // the owner. The fee is NOT disclosed yet — it comes AFTER the client
       // confirms they want to proceed. The ack is bank-backed (varied), with
       // the code-built line as fallback.
-      const eb = session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb!;
+      // MENTION BINDING (12:33): "dali e dostapna garsonjerata?" — the ask
+      // names a property; availability is answered for THAT one.
+      const mb = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mb, text, session)) return;
+      const target = mb?.prop
+        ?? props.find(p => p.eb === (session.slots.propertyId ?? session.slots.interestedPropertyId))
+        ?? props[0];
+      const eb = target?.eb ?? session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb!;
       session.state = 'closing';
       session.slots.interestedPropertyId = eb;
       session.slots.ownerContactPending = true;
       // Pre-resolve nearby landmarks for when the client asks "каде се наоѓа?"
-      if (!session.slots.nearbyLandmarks?.length && props[0]) {
-        const nearby = this.landmarks.nearbyLandmarks(props[0]);
+      if (!session.slots.nearbyLandmarks?.length && target) {
+        const nearby = this.landmarks.nearbyLandmarks(target);
         if (nearby.length > 0) {
           session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
           session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
-          session.slots.nearbyLandmarkEb = props[0].eb;
+          session.slots.nearbyLandmarkEb = target.eb;
           session.slots.landmarkIndex = 0;
         }
       }
