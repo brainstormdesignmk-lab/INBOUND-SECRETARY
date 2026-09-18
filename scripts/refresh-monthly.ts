@@ -58,6 +58,12 @@ const SERPAPI_KEYS = loadSerpApiKeys();
 let keyIdx = 0;
 let serpApiLeft = 250;
 
+// Cadence override: --full / --light on the command line wins over the
+// calendar (quarterly Jan/Apr/Jul/Oct = full, other months = light).
+const RUN_FLAG: '--full' | '--light' | undefined =
+  process.argv.includes('--full') ? '--full'
+  : process.argv.includes('--light') ? '--light' : undefined;
+
 async function serpApiSearch(query: string, ll?: string): Promise<any> {
   if (SERPAPI_KEYS.length === 0) return null;
   const key = SERPAPI_KEYS[keyIdx % SERPAPI_KEYS.length];
@@ -168,6 +174,10 @@ async function phaseA(db: Database.Database): Promise<number> {
   log('PHASE A: OSM restore via Overpass');
 
   const OVERPASS_QUERIES = [
+    // Query 0: NAMED TRANSIT STOPS — the single most-used navigation anchor
+    // in Skopje speech ("спроти автобуската", "кај станицата"). Named
+    // bus/tram stops only (unnamed stops are dirt), one cheap query.
+    `[out:json][timeout:300];(nwr["highway"~"bus_stop|tram_stop"]["name"]${SKOPJE_BBOX};nwr["railway"~"tram_stop|station"]["name"]${SKOPJE_BBOX};nwr["amenity"="bus_station"]["name"]${SKOPJE_BBOX};);out center;`,
     // Query 1: Core named POIs — shops, restaurants, services, institutions
     `[out:json][timeout:300];(nwr["name"]["amenity"~"pharmacy|bank|police|fire_station|school|hospital|cafe|restaurant|museum|university|place_of_worship|kindergarten|dentist|clinic|library|cinema|theatre|community_centre|marketplace|car_wash|veterinary|bicycle_rental|fuel|parking|bar|pub|nightclub|bureau_de_change|social_facility|fast_food|internet_cafe|driving_school|language_school|music_school|casino|doctors|post_office|townhall|courthouse|atm|arts_centre|car_rental|vehicle_inspection|shelter|fountain|recycling|vending_machine|parcel_locker"]${SKOPJE_BBOX};nwr["name"]["shop"~"supermarket|mall|department_store|greengrocer|bakery|butcher|electronics|furniture|clothing|convenience|car_repair|optician|jewelry|books|florist|kiosk|doityourself|mobile_phone|sports|outdoor|shoes|hairdresser|beauty|garden_centre|video|music|photo|pet|travel_agency|laundry|dry_cleaning|tailor|chemist|hardware|car_parts|stationery|copyshop|confectionery|pastry|car|bicycle|computer|office|tyres|cosmetics|gift|art|craft|locksmith|plumber|signmaker|stonemason|sweets|tea|wine"]${SKOPJE_BBOX};nwr["name"]["leisure"~"park|stadium|sports_centre|swimming_pool|playground|fitness_centre|garden|bowling_alley|ice_rink|water_park|amusement_arcade|horse_riding"]${SKOPJE_BBOX};nwr["name"]["tourism"~"hotel|hostel|motel|guest_house|attraction|viewpoint|artwork|information|museum|gallery|apartment|camp_site"]${SKOPJE_BBOX};nwr["name"]["office"~"company|lawyer|insurance|travel_agent|estate_agent|government|ngo|accountant|architect|consulting|employment_agency|it|notary"]${SKOPJE_BBOX};nwr["name"]["craft"~"electrician|plumber|carpenter|painter|roofer|tiler|gardener"]${SKOPJE_BBOX};nwr["name"]["building"~"commercial|retail|office|hotel|public|civic|stadium|school|hospital|university|train_station|transportation|mixed_use"]${SKOPJE_BBOX};nwr["name"]["man_made"~"tower|water_tower|windmill"]${SKOPJE_BBOX};nwr["name"]["historic"~"castle|memorial|monument|ruins|archaeological_site|wayside_cross|wayside_shrine|fort|tomb"]${SKOPJE_BBOX};);out center;`,
     // Query 2: Named buildings, extended amenities, historic, military, landuse
@@ -205,7 +215,10 @@ async function phaseA(db: Database.Database): Promise<number> {
             const lat = el.lat ?? el.center?.lat;
             const lon = el.lon ?? el.center?.lon;
             if (!lat || !lon) continue;
-            const type = el.tags?.amenity ?? el.tags?.shop ?? el.tags?.leisure ?? el.tags?.tourism ?? el.tags?.office ?? el.tags?.craft ?? el.tags?.building ?? 'place';
+            const type = el.tags?.amenity ?? el.tags?.shop ?? el.tags?.leisure ?? el.tags?.tourism ?? el.tags?.office ?? el.tags?.craft ?? el.tags?.building
+              ?? (el.tags?.highway === 'bus_stop' || el.tags?.highway === 'tram_stop' ? 'bus_station' : undefined)
+              ?? (el.tags?.railway === 'tram_stop' || el.tags?.railway === 'station' ? 'bus_station' : undefined)
+              ?? 'place';
             const osmKey = `${el.type}/${el.id}`;
             const info = insert.run(name, type, lat, lon, osmKey);
             if (info.changes > 0) inserted++;
@@ -221,11 +234,27 @@ async function phaseA(db: Database.Database): Promise<number> {
   }
 
   return inserted;
-}
+}  // ── SELF-PRUNE: purge any POI outside the Skopje bbox before top-up.    ──
+  // (Google's fuzzy expansion and one bad Overpass mirror pulled in 1,118
+  // foreign rows — Walgreens in California, a New York hospital. A POI
+  // outside Skopje can never be an honest "во близина" landmark.)
+  const prePrune = db.prepare(
+    `SELECT COUNT(*) AS n FROM pois WHERE lat IS NOT NULL AND lon IS NOT NULL
+       AND (lat < 41.95 OR lat > 42.05 OR lon < 21.35 OR lon > 21.50)`
+  ).get() as { n: number };
+  if (prePrune.n > 0) {
+    db.prepare(
+      `DELETE FROM pois WHERE lat IS NOT NULL AND lon IS NOT NULL
+         AND (lat < 41.95 OR lat > 42.05 OR lon < 21.35 OR lon > 21.50)`
+    ).run();
+    log(`  ✓ Pruned ${prePrune.n} outside-bbox POIs (Walgreens-class contamination)`);
+  }
 
-// ── PHASE B: SerpApi top-up ──────────────────────────────────────────────────
+  // ── PHASE B: SerpApi top-up ──────────────────────────────────────────
 async function phaseB(db: Database.Database): Promise<number> {
-  log('PHASE B: SerpApi top-up');
+  const { categoriesForRun, capturePoi, insideSkopjeBbox } = await import('../src/geo/serpCapture');
+  const cats = categoriesForRun(RUN_FLAG);
+  log(`PHASE B: SerpApi top-up — ${cats.length} categories (${RUN_FLAG ?? 'auto: ' + (cats.length > 2 ? 'FULL' : 'LIGHT')})`);
 
   if (SERPAPI_KEYS.length === 0) {
     log('  No SerpApi keys — skipping');
@@ -245,27 +274,31 @@ async function phaseB(db: Database.Database): Promise<number> {
   // They are the place's ID card — the only thing that merges "Амбасада на
   // Црна Гора" and "Црногорска Амбасада" into ONE place, and the key that
   // makes ?cid= place-card links work cluster-wide. Capture on EVERY row,
-  // even rows we already have (the UPDATE path backfills identity for free).
-  const queries = [
-    // 10 landmark categories — the institutional anchors people navigate by.
-    'supermarket', 'shopping mall', 'pharmacy', 'bank', 'school',
-    'hospital', 'embassy', 'hotel', 'museum', 'gas station',
-  ];
-  let inserted = 0;
+  // even rows we already have (the UPDATE path backfills identity for free).  let inserted = 0;
   let identityBackfilled = 0;
+  let enriched = 0;
+  // THE SCRAPER CONTRACT: every field captured via serpCapture.capturePoi —
+  // one mapping, unit-tested, no field silently dropped.
   const insert = db.prepare(
-    `INSERT OR IGNORE INTO pois (name, type, lat, lon, source, place_id) VALUES (?, ?, ?, ?, 'google', ?)`
+    `INSERT OR IGNORE INTO pois (name, type, lat, lon, source, place_id,
+      review_count, rating, plus_code, phone, website, price_level, closed, types)
+     VALUES (?, ?, ?, ?, 'google', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const findByCid = db.prepare(`SELECT rowid FROM pois WHERE place_id = ?`);
   const updateCoords = db.prepare(`UPDATE pois SET lat = ?, lon = ? WHERE rowid = ?`);
-
+  // Enrichment backfill: an existing row (by place_id) gets any capture
+  // fields it predates — identity pattern, now applied to all fields.
+  const updateAll = db.prepare(
+    `UPDATE pois SET lat = ?, lon = ?, review_count = ?, rating = ?, plus_code = ?,
+       phone = ?, website = ?, price_level = ?, closed = ?, types = ?
+     WHERE rowid = ?`
+  );
   for (const tile of tiles) {
     if (serpApiLeft < 20) {
       log(`  ⚠ Quota low (${serpApiLeft} left) — stopping SerpApi top-up`);
       break;
     }
-
-    for (const q of queries) {
+    for (const q of cats) {
       if (serpApiLeft < 20) break;
       const ll = `@${tile.lat},${tile.lon},15z`;
       const data = await serpApiSearch(q, ll);
@@ -275,39 +308,39 @@ async function phaseB(db: Database.Database): Promise<number> {
       // place_results can be a single object instead of array
       const resultArray = Array.isArray(results) ? results : (results.title ? [results] : []);
       for (const r of resultArray) {
-        const name = r.title;
-        if (!name || name.length < 2) continue;
-        const lat = r.gps_coordinates?.latitude;
-        const lon = r.gps_coordinates?.longitude;
-        if (!lat || !lon) continue;
-        const type = r.type ?? q;
-        // IDENTITY: hex data_id stored verbatim; data_cid normalized to hex
-        // pair "0x…:0x…" when data_id is absent (data_id high/low = the cid).
-        let placeId: string | null = (r.data_id ?? null);
-        if (!placeId && r.data_cid) {
-          try {
-            const cid = BigInt(r.data_cid);
-            const hi = cid >> 32n & 0xffffffffn;
-            const lo = cid & 0xffffffffn;
-            placeId = `0x${hi.toString(16)}:0x${lo.toString(16)}`;
-          } catch { placeId = null; }
-        }
-        const info = insert.run(name, type, lat, lon, placeId);
+        const cap = capturePoi(r, q);
+        if (!cap) continue;
+        // BBOX GATE (the Walgreens lesson): Google's fuzzy geographic expansion
+        // returns places FAR outside the map bounds — a Skopje search can still
+        // surface "Walgreens Pharmacy" (California) or a New York hospital.
+        // A POI outside Skopje can never be honestly "во близина" of anything.
+        if (!insideSkopjeBbox(cap.lat, cap.lon)) continue;
+        const info = insert.run(
+          cap.name, cap.type, cap.lat, cap.lon, cap.place_id,
+          cap.review_count, cap.rating, cap.plus_code, cap.phone,
+          cap.website, cap.price_level, cap.closed, cap.types,
+        );
         if (info.changes > 0) {
           inserted++;
-        } else if (placeId) {
-          // Row exists but may predate identity — backfill coords+id by place_id.
-          const existing = findByCid.get(placeId) as { rowid: number } | undefined;
+        } else if (cap.place_id) {
+          // Row exists but may predate identity/capture — backfill EVERYTHING
+          // by place_id (coords + all capture fields).
+          const existing = findByCid.get(cap.place_id) as { rowid: number } | undefined;
           if (existing) {
-            updateCoords.run(lat, lon, existing.rowid);
+            updateAll.run(
+              cap.lat, cap.lon, cap.review_count, cap.rating, cap.plus_code,
+              cap.phone, cap.website, cap.price_level, cap.closed, cap.types,
+              existing.rowid,
+            );
             identityBackfilled++;
+            enriched++;
           }
         }
       }
     }
   }
 
-  log(`  Inserted ${inserted} new Google POIs, identity backfilled ${identityBackfilled} (SerpApi left: ${serpApiLeft})`);
+  log(`  Inserted ${inserted} new Google POIs, backfilled ${identityBackfilled} rows (${enriched} with capture fields) (SerpApi left: ${serpApiLeft})`);
   return inserted;
 }
 
@@ -474,6 +507,80 @@ async function phaseD(): Promise<number> {
   return result.downgraded;
 }
 
+// ── PHASE B3: Map self-learning — teach the map every missing street ────────
+// For EVERY Supabase property whose street the local snapshot can't resolve
+// (import-time low-confidence), ask Google ONCE and write the street+number
+// → coords pair back into skopje-pois.db. After this pass, the SAME street
+// resolves OFFLINE forever — including for future properties on it. Google
+// Maps finds any street a human can find; this pass copies that knowledge
+// into the hybrid so "street not found" converges to zero.
+async function phaseB3(): Promise<{ taught: number; alreadyKnown: number; upgraded: number; failed: number }> {
+  log('PHASE B3: Map self-learning (teach every unknown street via Google)');
+  const stats = { taught: 0, alreadyKnown: 0, upgraded: 0, failed: 0 };
+  if (SERPAPI_KEYS.length === 0) {
+    log('  No SerpApi keys — skipping');
+    return stats;
+  }
+  const { insideBbox, BUDGET_STOP } = await import('../src/geo/queueDrain');
+  const { OfflineMapStore } = await import('../src/geo/offlineMap');
+
+  // The live map DB (read-write — learnAddress writes into it).
+  const map = new OfflineMapStore(POIS_DB);
+  if (!map.available) {
+    log('  ⚠ Offline map unavailable — cannot teach');
+    return stats;
+  }
+
+  // Every property in the feed, paginated.
+  const props: SupabasePropertyRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const url = `${SUPABASE_URL}/rest/v1/properties?select=property_number,address,neighborhood,lat,lon,geo_source&limit=1000&offset=${from}`;
+    const res = await fetch(url, { headers: restHeaders() });
+    if (!res.ok) { log(`  ⚠ Supabase fetch failed: ${res.status}`); break; }
+    const page = await res.json() as SupabasePropertyRow[];
+    props.push(...page);
+    if (page.length < 1000) break;
+  }
+  log(`  Feed rows: ${props.length}`);
+
+  for (const p of props) {
+    if (serpApiLeft < BUDGET_STOP) {
+      log(`  ⚠ Quota low (${serpApiLeft} left) — stopping B3; remaining streets teach next month`);
+      break;
+    }
+    if (!p.address || p.address.trim().length < 3) continue;
+    // Only rows the map canNOT resolve trusted — the exact gap B3 exists to close.
+    const offline = map.resolvePropertyOffline(p.address);
+    if (offline.trusted) { stats.alreadyKnown++; continue; }
+
+    const geo = await serpApiGeocode(p.address);
+    if (!geo || !insideBbox(geo.lat, geo.lon)) {
+      stats.failed++;
+      log(`  ✗ EB ${p.property_number} "${p.address}" — geocode miss/outside bbox`);
+      continue;
+    }
+    // Teach the map (the growth loop) AND upgrade the property row when it
+    // was still low-confidence — one Google call fixes both.
+    if (map.learnAddress(p.address, geo.lat, geo.lon)) stats.taught++;
+    if (p.geo_source === 'osm_low_confidence') {
+      try {
+        await patchProperty(String(p.property_number), {
+          lat: geo.lat, lon: geo.lon,
+          geo_source: 'google_cached',
+          geocoded_at: new Date().toISOString(),
+        });
+        stats.upgraded++;
+      } catch (e) { log(`  ⚠ patch EB ${p.property_number} failed: ${(e as Error).message}`); }
+    }
+    log(`  ✓ EB ${p.property_number} "${p.address}" → taught (${geo.lat},${geo.lon})`);
+    await sleep(1100);
+  }
+
+  log(`  Streets taught: ${stats.taught} (already known: ${stats.alreadyKnown}, properties upgraded: ${stats.upgraded}, misses: ${stats.failed})`);
+  map.close();
+  return stats;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
   log('=== refresh-monthly: monthly POI refresh ===\n');
@@ -497,6 +604,19 @@ async function main() {
   const initialCount = (db.prepare('SELECT COUNT(*) as c FROM pois').get() as { c: number }).c;
   log(`Initial POI count: ${initialCount}\n`);
 
+  // THE SCRAPER CONTRACT, schema-first: make sure the live map carries every
+  // capture column BEFORE Phase B writes (old DBs get the new columns here,
+  // one-time). Idempotent — a current schema adds nothing.
+  try {
+    const { OfflineMapStore } = await import('../src/geo/offlineMap');
+    const upgradeMap = new OfflineMapStore(POIS_DB);
+    if (upgradeMap.available) {
+      const added = upgradeMap.ensurePoiColumns();
+      if (added.length > 0) log(`Schema self-upgrade: added pois columns: ${added.join(', ')}`);
+      upgradeMap.close();
+    }
+  } catch (e) { log(`⚠ Schema self-upgrade skipped: ${(e as Error).message}`); }
+
   // Phase A: OSM restore
   const osmInserted = await phaseA(db);
   console.log('');
@@ -507,6 +627,10 @@ async function main() {
 
   // Phase B2: Identity propagation
   const healed = phaseB2(db);
+  console.log('');
+
+  // Phase B3: Map self-learning — teach every unknown street via Google
+  const learned = await phaseB3();
   console.log('');
 
   // Phase C: Queue drain
@@ -527,6 +651,7 @@ async function main() {
   log(`  OSM inserted: ${osmInserted}`);
   log(`  Google inserted: ${googleInserted}`);
   log(`  Identity-healed OSM rows: ${healed}`);
+  log(`  Map streets taught: ${learned.taught} (properties upgraded: ${learned.upgraded})`);
   log(`  Queue drained: ${queueDrained}`);
   log(`  Poison sweep downgraded: ${poisonDowngraded}`);
   log(`  SerpApi remaining: ${serpApiLeft}`);
