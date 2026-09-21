@@ -1,0 +1,129 @@
+{
+  "bankKey": "(visit_scheduling capture)",
+  "rows": [
+    {
+      "phrase": "utre vo 12 casot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "utre vo 18:30 ke dojdam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sabota utro okolu 10",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vo ponedelok popladne na 4",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "vagueTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "utrea vo 12 casot moze",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "petak posle rabota vo 17h",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "vagueTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze vo nedela na 3casot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "cetvrtok vo 19:00 sum sloboden",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "утре на 5 саат може",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "во понеделок попладне во 16:00",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сабота сабајле кај 11",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "петок во 18 и 30",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "може утре во 14h",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "во вторник сабајле во 9",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "среда во 17:30 ке дојдам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "утревечер во 8 саатот",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "vagueTime"
+      ],
+      "benign": []
+    }
+  ]
+}

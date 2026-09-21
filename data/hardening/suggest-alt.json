@@ -1,0 +1,149 @@
+{
+  "bankKey": "(alternatives pivot)",
+  "rows": [
+    {
+      "phrase": "pokazete mi drugi",
+      "verdict": "COVERED",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li nesto drugo",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "imajte li drugo vo ponuda",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "daj drga opcija",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ne mi se dopadja ovoj, dajte nesto dr",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "pokazi drugi lokacii",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper",
+        "widen"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "mozhe drg stan da vidime",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "daj nesto sosema drugo",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ima li drga opcija ova nsh ne mi e po kejv",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "pokazi mi i drugi ponudi",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper",
+        "seeOffers"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ne ovoj, drug",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "daj drugo da vidam",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "pishi mi drugi opcii",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ima li nekoj drg izbor",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dajte mi drg predlog",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "drg stan moze li",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    }
+  ]
+}

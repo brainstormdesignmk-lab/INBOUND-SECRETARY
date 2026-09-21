@@ -1,0 +1,125 @@
+{
+  "bankKey": "(nearby-ask branch)",
+  "rows": [
+    {
+      "phrase": "shto ima blizu ?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li skola blizu ?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kakvi objekti ima okolu ?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "whereIs"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "daleku e do pazar ?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "so ima vo blizina od prodavnici",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sho ima dr okolu stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li gradinka vo blizina",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "whereIs"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dali imamarket blizu",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "sho se naoga vo okolinata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li parkovi tamu negde",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kakva e okolinata ima li kafici",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "blizu li e apteka",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "shto ima na pesh od zgradata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li trgovski blizu",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kakvi sodrzini imaat vo maalo",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daleku e do autobuska stanica",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

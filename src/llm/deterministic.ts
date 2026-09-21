@@ -2,6 +2,7 @@ import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase } from '../data/properties';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
+import { extFires } from './detectorExt';
 import { AVAILABILITY_LEXICON, toRegexAlt } from './morphology';
 import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots } from './grammar';
 
@@ -161,7 +162,7 @@ export function detectAvailabilityAsk(text: string): boolean {
   if (matchesBoth(AVAILABILITY_MORPH_RE, text)) return true;
   // Single-letter-typo fallback: "dostapes li e?" (s→e slip) still asks about
   // availability. Long tokens only.
-  return fuzzyHasToken(text, ['достапен', 'слободен']);
+  return fuzzyHasToken(text, ['достапен', 'слободен']) || extFires('availability', text);
 }
 
 // "Why do you charge for a visit?" — "зошто наплаќате посета?", "зошто
@@ -184,7 +185,7 @@ const FEE_AMOUNT_RE = /(?:како|како|која|која)[^.!?\n]{0,30}\d[^
 export function detectFeeWhy(text: string): boolean {
   // Normalize: join multi-line bursts into one line so cross-line patterns work
   const flat = text.replace(/\n/g, ' ');
-  return FEE_WHY_RE.test(flat) || matchesBoth(FEE_FOR_WHAT_RE, flat) || matchesBoth(FEE_AMOUNT_RE, flat) || bareFeeWhy(flat);
+  return FEE_WHY_RE.test(flat) || matchesBoth(FEE_FOR_WHAT_RE, flat) || matchesBoth(FEE_AMOUNT_RE, flat) || bareFeeWhy(flat) || extFires('fee-why', flat);
 }
 
 // Bare fee pushback — statement-shaped, NO question word: "NAPLAKJATE ZA
@@ -217,7 +218,7 @@ const FEE_SURPRISE_RE =
  *  Callers MUST gate on state === 'closing' — outside a fee context this
  *  pattern must never route to fee.why. */
 export function detectFeeSurprise(text: string): boolean {
-  return FEE_SURPRISE_RE.test(text.replace(/\n/g, ' '));
+  return FEE_SURPRISE_RE.test(text.replace(/\n/g, ' ')) || extFires('fee-surprise', text.replace(/\n/g, ' '));
 }
 
 // Price complaints about the viewing fee ("скупо", "500 денари за посета?", "50
@@ -229,9 +230,61 @@ const FEE_COMPLAINT_RE = /(?:(?:скуп|скап|надомест)\w*|(?:над
 // Also catch direct price-complaint markers: the fee amount + "too expensive"
 const FEE_PRICE_COMPLAINT_RE = /(?:(?:500|300)\s*(?:денари|ден|мкд|mkd|ден\.))[^.!?\n]{0,60}(?:скуп|скап|неприступн|премал|повеќе|жеш|недостат|nadvoz)/iu;
 
+// Fee-amount counter-offer (10:18): the client DISPUTES the fee Lina just
+// quoted, using Lina's own vocabulary — "10 EVRA NE E BAS SIMBOLICNA CENA.
+// 1 EVRO E SIMBOLICNA CENA ?". The trailing "cena ?" made detectPriceAsk
+// claim it, so the INFO block answered with the PROPERTY price (143.000) —
+// abandoning the fee talk mid-persuasion. Family: a fee object (надомест/
+// poseta/evra/denari — the amounts Lina herself quotes) + a dismissal of
+// the symbolic framing (не е симболична / ne e bas simbolichna / Skapo E /
+// nema da platam). The text may CONTAIN "cena" — that is the client echoing
+// the phrase, not asking the property's price.
+// Both word orders: the client may state the objection first ("ne e
+// simbolichna taa taksa…") or name the fee first ("10 evra ne e…").
+const FEE_COUNTER_OBJ = '(?:надомест|надоместот|nadomest\\w*|poseta\\w*|посет\\w*|taksa\\w*|такса\\w*|тие\\s+пари|tie\\s+pari|разглед\\w*|razgled\\w*|гледањ\\w*|gledanj\\w*|преглед\\w*|pregled\\w*|десет\\s+евр\\w*|deset\\s+evr\\w*|\\d\\s*e(?!\\p{L})|\\d\\s*(?:евр\\w*|евра|evr\\w*|evra)|\\d\\s*(?:ден\\w*|денар|den\\w*|denar))';
+const FEE_COUNTER_DIS = '(?:'
+  // symbolic-fee rejection, both scripts, both spellings (сим-/симв-)
+  + 'не\\s+е\\s+(?:(?:бас|bas)\\s+)?(?:\\p{L}+\\s+)?(?:симболич|символич)'
+  + '|(?:simbolic|simvolich)\\w*\\s*(?:cen\\w*\\s*\\?|ne\\s+e)'
+  + '|ne\\s+e\\s+(?:(?:bas)\\s+)?(?:\\p{L}+\\s+)?(?:simbolic|simvolich)'
+  // consequence idioms: the fee is better spent on coffee/beer/lunch/gas
+  + '|(?:купувам|си\\s+купувам|си\\s+купам|купам)\\s+(?:\\p{L}+\\s+|\\d+\\s+)?(?:кафе\\w*|пиво|ручек)'
+  + '|(?:ke\\s+)?(?:si\\s+)?kup(?:uv)?am\\s+(?:\\p{L}+\\s+|\\d+\\s+)?(?:kafe\\w*|pivo|rucek)'
+  + '|(?:подобро|podobro)\\s+(?:на|na)\\s+(?:кафе\\w*|kafe\\w*|пиво|pivo|кафуле|kafule)'
+  + '|(?:пијам|pijam)\\s+(?:кафе\\w*|kafe\\w*|пиво|pivo)'
+  + '|(?:кафе\\w*|kafe\\w*|пиво|pivo)(?:\\s+(?:ке|ќе|ke))?\\s+(?:пијам|pijam)'
+  + '|(?:бензин|benzin|гориво|gorivo)\\s+(?:до|do)\\s+\\p{L}{3,}'
+  + '|(?:кафе\\w*|kafe\\w*|пиво|pivo)[^.\\n]{0,25}(?:пијам|pijam|купам|kupam|купувам|kupuvam)'
+  // too-much families
+  + '|премногу|premnogu|mno+gu|мно+гу'
+  + '|(?:(?:е|e)\\s*)?многу\\s+(?:за\\s+(?:една\\s+)?посета)'
+  + '|(?:e\\s*)?mnogu\\s+(?:za\\s+(?:edna\\s+)?poseta)'
+  + '|(?:\\d)\\s*(?:евро|евра|evro|evra)\\s+(?:тогаш|togash)'
+  + ')';
+const FEE_AMOUNT_COUNTER_RE = new RegExp(
+  // Window allows crossing ONE ?/! ("10 евро за 5 минути гледање? Па не е…"):
+  // fee complaints are one-liners, capped at 80/60 chars, periods stay hard stops.
+  FEE_COUNTER_OBJ + '[^.\\n]{0,80}' + FEE_COUNTER_DIS
+  + '|' + FEE_COUNTER_DIS + '[^.\\n]{0,60}' + FEE_COUNTER_OBJ,
+  'iu');
+
+// Fee-grammar for the unspecific family: [dispute adverb] × [fee noun] —
+// "skapo e za poseta" (no amount), "taksa e skapa", "10 evrata e skapo za"
+// razgleduvanje". One script, folded at call time; bounded window (40 chars)
+// so "stanot e skapo" can never fire it.
+const FEE_GRAMMAR_RE = new RegExp(
+  '(?:скап|skap|премногу|premnogu|многу|mnogu)' +
+  '[^.!?\\n]{0,40}' +
+  '(?:надомест\\w*|nadomest\\w*|посет\\w*|poseta\\w*|такса\\w*|taksa\\w*)' +
+  // noun-first word order: "10 evrata e skapo samo za da mi ja otvorite vratata"
+  '|' +
+  '(?:надомест\\w*|nadomest\\w*|посет\\w*|poseta\\w*|такса\\w*|taksa\\w*|\\d\\s*(?:евр\\w*|евра|evr\\w*|evra|ден\\w*|денар|den\\w*|denar))' +
+  '[^.\\n]{0,60}' +
+  '(?:скап|skap|премногу|premnogu)',
+  'iu');
 export function detectFeeComplaint(text: string): boolean {
   const flat = text.replace(/\n/g, ' ');
-  return FEE_COMPLAINT_RE.test(flat) || matchesBoth(FEE_PRICE_COMPLAINT_RE, flat);
+  return FEE_COMPLAINT_RE.test(flat) || matchesBoth(FEE_PRICE_COMPLAINT_RE, flat) || FEE_AMOUNT_COUNTER_RE.test(flat) || matchesBoth(FEE_GRAMMAR_RE, flat);
 }
 
 // A position pick among the presented closest matches: "првиот" / "вториот"
@@ -273,6 +326,11 @@ export function detectService(text: string): Service | undefined {
   if (r >= 0) return 'rent';
   // Single-letter-typo fallback (poeKtino lesson): "куSaM STAN" must still be
   // a BUY. Only long unambiguous tokens — never the short confirmation words.
+  if (extFires('service', text)) {
+    const buyCue = /куп|kup/iu.test(text), rentCue = /кириј|изнајм|kirij|iznajm|najm|rent/iu.test(text);
+    if (buyCue && rentCue) return undefined; // both-services territory
+    return rentCue ? 'rent' : 'buy';
+  }
   if (fuzzyHasToken(text, ['купувам', 'купам'])) return 'buy';
   if (fuzzyHasToken(text, ['изнајмувам'])) return 'rent';
   return undefined;
@@ -282,6 +340,27 @@ export function detectService(text: string): Service | undefined {
 // no explicit bedroom was mentioned (explicit numbers/words win). Latin and
 // Cyrillic variants (clients type "MALO STANCE" more often than "мало станче").
 const SMALL_STAN_RE = /(мал[оаи]?\s+(стан|станче|стани)|мал[оа]?\s+(стан|станце|стани)|гарсоњера|гарсоњера|студио|студио)/i;
+
+// Distance-1 check for the number-word typo floor ("edn", "edm", "dvie") —
+// a local copy of the normalize.ts edit-distance rule (fuzzyHasToken's
+// 5-letter floor can't reach 3–4-letter number words).
+function nearNumToken(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a.length === b.length) {
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { if (++diff > 1) return false; }
+    return true;
+  }
+  const [s, l] = a.length < b.length ? [a, b] : [b, a];
+  let i = 0, j = 0, skipped = false;
+  while (i < s.length && j < l.length) {
+    if (s[i] === l[j]) { i++; j++; continue; }
+    if (skipped) return false;
+    skipped = true; j++;
+  }
+  return true;
+}
 
 // Word-number finder shared by the noun and bare-answer paths: "една"→1,
 // "две"→2 … "пет"→5, both scripts. Order matters — "една" must be tested
@@ -359,8 +438,8 @@ export function detectBedrooms(text: string): number | undefined {
     && text.trim().split(/\s+/).length <= 3) {
     const bareWords: Array<[RegExp, number]> = [
       [/една|еден|едно|edna|eden|edno/iu, 2],   // 1 спална → 2-собен
-      [/две|два|dve|dva/iu, 3],
-      [/три|tri/iu, 4],
+      [/две|два|dve|dva|двојк|dvojk/iu, 3],      // "двојка" = a two (idiom)
+      [/три|tri|тројк|trojk/iu, 4],              // "тројка" = a three
       [/четири|chetiri|cetiri/iu, 5],
       [/пет|pet/iu, 6],
     ];
@@ -371,6 +450,32 @@ export function detectBedrooms(text: string): number | undefined {
     if (bareDigit) {
       const n = parseInt(bareDigit[1], 10);
       if (n >= 1 && n <= 5) return n + 1;
+    }
+    // TYPO FLOOR (hardening sweep 13/28 gaps): a funnel answer is 1–3 words
+    // with no type word and no budget — a single digit-word token here is
+    // unambiguous, so single-letter slips resolve: "edn", "dvje", "edm".
+    // Suffixed digits ("2ka") and filler tails ("samo 1", "1 max", "2 мислам")
+    // ride the same guard. Cyrillic-first: normalizeMc folds Latin typos.
+    const bareTokens = text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean);
+    const numTok = bareTokens.find(tok => /^\d(?:ка|ka)$/.test(tok) || /^\d$/.test(tok));
+    if (numTok) {
+      const n = parseInt(numTok, 10);
+      if (n >= 1 && n <= 5) return n + 1;
+    }
+    // "edm"/"edn" slips: inside this hard guard (≤3 words, no noun/budget/type)
+    // a folded ед-/дв- prefix token is unambiguous — except stall words, which
+    // are never a bedroom answer. двојк/тројк ride the vocabulary above.
+    if (!/момент|секунд|минут|moment|sekund|minut/iu.test(text)) {
+      const typoNum = bareTokens.find(tok => {
+        const f = normalizeMc(tok);
+        return tok.length >= 3 && tok.length <= 5
+          && (/^ед/.test(f) || /^дв/.test(f)
+            || nearNumToken(f, 'една') || nearNumToken(f, 'еден')
+            || nearNumToken(f, 'две') || nearNumToken(f, 'два'));
+      });
+      if (typoNum) {
+        return /^ед/.test(normalizeMc(typoNum)) ? 2 : 3;
+      }
     }
   }
   if (matchesBoth(SMALL_STAN_RE, text)) return 1;
@@ -402,7 +507,7 @@ export function detectGarsonjera(text: string): boolean {
   if (matchesBoth(GARSONJERA_RE, text)) return true;
   // Typo fallback: "garsonera mi treba" — the category word is long and
   // unambiguous (distance-1 collisions are unlikely).
-  return fuzzyHasToken(text, ['гарсоњера', 'студио']);
+  return fuzzyHasToken(text, ['гарсоњера', 'студио']) || extFires('garsonjera', text);
 }
 
 /**
@@ -486,7 +591,7 @@ export function detectPricePriority(text: string): boolean {
 // normalization) is covered too.
 /** True when the client asks for something cheaper (any spelling). */
 export function detectCheaperSearch(text: string): boolean {
-  return detectPricePriority(text) || detectSuggestAlternatives(text);
+  return detectPricePriority(text) || detectSuggestAlternatives(text) || extFires('cheaper', text);
 }
 
 // The client asks for ALTERNATIVE suggestions — "predlozi mi", "drugi
@@ -505,7 +610,7 @@ export function detectSuggestAlternatives(text: string): boolean {
   // Typo fallback for the anchor words ("predlozzi mi"). Deliberately NO
   // "друго/други": the 5-letter form is hyper-ambiguous — distance-1 hits
   // ("drugi opcii", "drugo nesto ima?") belong to the rejection/ladder flows.
-  return fuzzyHasToken(text, ['предложи', 'предложете', 'предлози']);
+  return fuzzyHasToken(text, ['предложи', 'предложете', 'предлози']) || extFires('suggest-alt', text);
 }
 
 // "DRUG STAN VO CENTAR" / "друг стан во центар" / "покажи друго" / "нешто друго"
@@ -539,7 +644,7 @@ export function detectDrugAlternative(text: string): boolean {
 
 
 export function detectRejection(text: string): boolean {
-  return REJECT_RE.test(text);
+  return REJECT_RE.test(text) || extFires('rejection', text);
 }
 
 // Location nagging: after the privacy protocol ("the exact address is shared
@@ -663,7 +768,7 @@ export function detectVisitInterest(text: string): boolean {
   // The imperatives join them (the 22:18 bug: "ORGABIZIRAJ MI" — b↔n is ONE
   // edit from "organiziraj") after Lina's visit offer sat unanswered past the
   // chat TTL; the resume path needs the command recognized to close the funnel.
-  return fuzzyHasToken(text, ['разгледам', 'разгледање', 'посета', 'организирај', 'закажи']);
+  return fuzzyHasToken(text, ['разгледам', 'разгледање', 'посета', 'организирај', 'закажи']) || extFires('visit-interest', text);
 }
 
 // Property interest: the client expresses positive sentiment about a shown
@@ -674,7 +779,7 @@ export function detectVisitInterest(text: string): boolean {
 // both exact interest words and adjective + copula combos.
 const PROPERTY_INTEREST_RE = new RegExp(
   "(?:\u0437\u0430\u0438\u043D\u0442\u0435\u0440\u0435\u0441\u0438\u0440\u0430\u043D(?:\u0430|\u043E)?|zainteresiran(?:a|o)?|interes(?:en|sen)(?:en)?|interessen)(?=[^\\p{L}\\p{N}]|$)" +
-  "|(?:\u043C\u0438\\s+\u0441\u0435|mi\\s+se)\\s+(?:\u0441\u0432\u0438[\u0453\u0433]\u0430|\u0441\u0432\u0438\u0433\u0430|svigja|sviga|\u0434\u043E\u043F\u0430[\u0453\u0433]\u0430|\u0434\u043E\u043F\u0430\u0433\u0430|dopaga|sviduva)" +
+  "|(?:\u043C\u0438\\s+\u0441\u0435|mi\\s+se)\\s+(?:\u0441\u0432\u0438[\u0453\u0433]\u0430|\u0441\u0432\u0438\u0433\u0430|svigja|sviga|\u0434\u043E\u043F\u0430[\u0453\u0433]\u0430|\u0434\u043E\u043F\u0430\u0433\u0430|\u0434\u043E\u043F\u0430\u0433\u0458\u0430|dopaga|dopagja|sviduva)" +
   "|(?:\u0433\u043E|go)\\s+(?:\u0441\u0430\u043A\u0430\u043C|\u0441\u0430\u043A\u0430\u0430\u043C|sakam|sakaam)" +
   "|(?:\u045C\u0435|ke)\\s+(?:\u0437\u0435\u043C\u0430\u043C|zemam)" +
   "|(?:\u0443\u0431\u0430\u0432\u0430?|\u0443\u0431\u0430\u0432\u043E?|ubav[aeo]?|\u0434\u043E\u0431\u0430\u0440|\u0434\u043E\u0431\u0440\u0430|\u0434\u043E\u0431\u0440\u043E|dobar|dobra|dobro|\u043F\u0440\u0435\u043A\u0440\u0430\u0441\u0435\u043D|\u043F\u0440\u0435\u043A\u0440\u0430\u0441\u043D\u0430|prekrasen|prekrasna|\u043D\u0430\u0458\u0443\u0431\u0430\u0432|najubav)\\s+(?:\u0435|e|\u043C\u0438\\s+\u0435|mi\\s+e)(?=[^\\p{L}\\p{N}]|$)" +
@@ -685,7 +790,10 @@ const PROPERTY_INTEREST_RE = new RegExp(
 // the most common colloquial phrasing in Macedonian.  The main regex above
 // only has the adjective form (заинтересиран).  Covers both scripts via
 // matchesBoth().
-const ME_INTEREST_RE = /ме\s+(?:интересира|интригира|заинтересира|заним[ае])/iu;
+// Latin-FOLDED via matchesBoth (hardening sweep: 26/31 generated interest
+// phrasings were Latin and missed — "me interesira", "me zanima"). Written in
+// ONE script; the bare-stem alternates catch suffix declensions.
+const ME_INTEREST_RE = /ме\s+(?:интересира|интригира|заинтересира|заним[ае])|интересира|интригира|заинтересира|занимава|(?:interesira|intrigira|zainteresira|zanima)|бендис\w*|bendis\w*|замислен\w*|zamislen\w*/iu;
 
 /** True when the client expresses interest in a specific property. */
 const PROPERTY_NEGATION_RE = /(?:не|не)\s+(?:ми\s+се|ми\s+се)\s+(?:сви[ѓг]а|свига|допа[ѓг]а|допага|свиѓ|допаг)|(?:не|не)\s+(?:го|го)\s+(?:сакам|сакам)|(?:не|не)\s+(?:сум|сум)\s+(?:заинтересиран|заинтересиран)|(?:не|не)\s+(?:ме|ме)\s+(?:интересира|интригира|заинтересира|заним[ае])|(?:не|ne)\s+(?:ми|mi)\s+(?:е|e)\s+(?:интересн)/i;
@@ -704,12 +812,41 @@ const INTEREST_FUZZY_KWS = ['заинтересиран', 'интересира'
 // tagged the message DETAILS_PROVIDED and the funnel re-fired the SEARCH
 // engine — presenting a different property while the client was pointing at
 // the one already on the table.
-const MI_E_INTEREST_RE = /ми\s+е\s+(?:интересна|интересно|интересен)/iu;
+// Script-folded the same way: the whole "mi e + adjective" shape is checked
+// against the Cyrillic fold, so Latin input ("mi e interesna", "mi e top",
+// "mi e po kjeif") hits the same families (hardening sweep).
+const MI_E_INTEREST_RE = /ми\s+е\s+(?:интересн\w*|топ|преубав|одличен|омил\w*|по\s+ќеиф|привлачн\w*|привлечн\w*|privlachn\w*|privlechn\w*|privlecen\w*|по\s+мера|po\s+мера|po\s+mera|нај\s*привл\w*|naj\s*privl\w*|(?:бас\s+)?по\s+мера)/iu;
+// Copula + quality adjective WITHOUT "ми": "e preubav", "e odlicen", "e top",
+// "e super", "privlechen e"→(here: e privlechen) — enthusiasm about a shown
+// property. Both scripts written out (fold turns c→ц, not ч, so privlachn
+// would never reach привлачн through folding).
+const ADJ_COPULA_RE = /(?:^|[\s,.:;!?])(?:е|e)\s+(?:преубав\w*|preubav\w*|одлич\w*|odlich\w*|супер|super|привлачн\w*|привлечн\w*|privlachn\w*|privlechn\w*|топ(?=$|[\s,.:;!?])|top(?=$|[\s,.:;!?])|бас\s+тоа\s+што\s+барам|bas\s+toa\s+sto\s+baram|бомба|bomba|фаворит\w*|favorit\w*)|(?:ми\s+)?(?:изгледа|izgleda)\s+(?:\p{L}+\s+)?(?:привлачн\w*|привлечн\w*|privlachn\w*|privlechn\w*|преубав\w*|preubav\w*|одлич\w*|odlich\w*|супер|super)/iu;
 
 export function detectPropertyInterest(text: string): boolean {
   if (matchesBoth(VISIT_NEGATION_RE, text) || matchesBoth(PROPERTY_NEGATION_RE, text)) return false;
-  if (PROPERTY_INTEREST_RE.test(text) || matchesBoth(ME_INTEREST_RE, text)) return true;
+  if (matchesBoth(PROPERTY_INTEREST_RE, text) || matchesBoth(ME_INTEREST_RE, text)) return true;
   if (matchesBoth(MI_E_INTEREST_RE, text)) return true;
+  if (ADJ_COPULA_RE.test(text)) return true;
+  // Interest IDIOMS (hardening sweep 26/31 gaps): "mi e top", "mi legna na
+  // srce", "po kjeif", "bas toa sto baram". Written in ONE script and checked
+  // via matchesBoth so Latin input folds through normalizeMc. The eye-catch
+  // idiom ("mi fati oko 94") IS interest — bridged here so the enthusiasm
+  // path sees it too (it had its own detector that never fed this branch).
+  if (matchesBoth(/ми\s+е\s+(?:топ|преубав|одличен)/iu, text)) return true;
+  if (matchesBoth(/ми\s+легн[аеј]*(?:\s+на\s+)?\s*срц[ае]/iu, text)) return true;
+  // Both fold spellings: "kjeif"→ќеиф, "kejf"→кејф (normalizeMc has no kj-digraph for it)
+  if (matchesBoth(/(?:по\s+)?(?:ќеиф|кејф)/iu, text)) return true;
+  // Adjective after ANY copula ("stanot e preubav", "е стварно одличен" —
+  // one filler word allowed between: adverbs like стварно/навистина/epten)
+  if (matchesBoth(/(?:е|e)\s+(?:\p{L}+\s+)?(?:преубав|пребубав|перфектен|перфектна|супер|феноменалн\w*|одличен|одлична|привлачн\w*)/iu, text)) return true;
+  // "ми изгледа супер / перфектен" ("looks … to me"), adverb insertion tolerated
+  if (matchesBoth(/ми\s+изглед[аa][^.\n]{0,15}(?:перфект|супер|одличн|преубав|убав|привлач)/iu, text)) return true;
+  // Reversed copula: "top e stanaot" (adjective BEFORE "е")
+  if (matchesBoth(/(?:топ|супер)\s+(?:е|e)(?![\p{L}])/iu, text)) return true;
+  // "po moj vkus" — exactly my taste
+  if (matchesBoth(/по\s+мој[ау]?\s+вкус/iu, text)) return true;
+  if (matchesBoth(/(?:бас|bas)\s+(?:тоа|toa|таа|taa)(?:\s+(?:е|e))?\s+(?:сто|што|sto|shto)(?:\s+(?:го|ja|je))?\s+(?:барам|барувам)/iu, text)) return true;
+  if (detectEyeCatch(text)) return true;
   return fuzzyHasToken(text, INTEREST_FUZZY_KWS);
 }
 
@@ -727,7 +864,7 @@ const ENTHUSIASM_RE =
 
 /** True when the client praises the property without asking for anything. */
 export function detectEnthusiasm(text: string): boolean {
-  return matchesBoth(ENTHUSIASM_RE, text);
+  return matchesBoth(ENTHUSIASM_RE, text) || extFires('enthusiasm', text);
 }
 
 // "MI FATI OKO 94" / "ми фати окото" — the property CAUGHT THE CLIENT'S EYE
@@ -736,7 +873,7 @@ export function detectEnthusiasm(text: string): boolean {
 // The idiom matters for inferPropertyId(): its "око 94" looks like a price cap
 // ("околу 250") but here it is an Евидентен број.
 const EYE_CATCH_RE =
-  /ми\s+(?:го\s+|ги\s+)?фат[иј](?:\s+(?:окото|око))?|ми\s+падна(?:\s+во\s+око|а\s+во\s+очи)|(?:ми\s+)?привлече\s+(?:моето\s+)?внимани(?:ето|е)|забележав\s+(?:еден\s+)?(?:имот|стан|куќа|оглас)(?![^\p{L}\p{N}])/iu;
+  /ми\s+(?:го\s+|ги\s+)?фа[тќ](?:[ија])?(?:\s+(?:окото|око))?|ми\s+падна(?:\s+во\s+око|а\s+во\s+очи)|(?:ми\s+)?привлече\s+(?:моето\s+)?внимани(?:ето|е)|забележав\s+(?:еден\s+)?(?:имот|стан|куќа|оглас)(?![^\p{L}\p{N}])/iu;
 export function detectEyeCatch(text: string): boolean {
   return matchesBoth(EYE_CATCH_RE, text);
 }
@@ -797,7 +934,7 @@ export function detectVagueTime(text: string): boolean {
   if (SPECIFIC_CLOCK_RE.test(text)) return false;
   // Day + time-of-day combo is specific enough ("утре попладне после 6")
   if (DAY_PLUS_PERIOD_RE.test(text)) return false;
-  return matchesBoth(VAGUE_TIME_WORD_RE, text) || matchesBoth(VAGUE_RELATIVE_RE, text);
+  return matchesBoth(VAGUE_TIME_WORD_RE, text) || matchesBoth(VAGUE_RELATIVE_RE, text) || extFires('vague-time', text);
 }
 
 // The client can't do the PROPOSED visit time — „не можам во 18:00“, „може
@@ -808,7 +945,7 @@ export function detectVagueTime(text: string): boolean {
 const TIME_REJECT_RE = /(не можам|не може|не можев|не можел|не ми одговара|не ми е згодно|не одговара|не тој термин|не тогаш|подоцна|покасно|друг термин|поинаков|поинаку|не мозам|не мозе|не мозев|не ми одговара|не ми e згодно|не одговара|не тој термин|не тогас|подоцна|покасно|друг термин|поинаков|поинаку|нема да мозам|нема да мозе|нема да моземе|нема да можам|нема да може|нема да можеме)/i;
 
 export function detectTimeRejection(text: string): boolean {
-  return matchesBoth(TIME_REJECT_RE, text);
+  return matchesBoth(TIME_REJECT_RE, text) || extFires('time-rejection', text);
 }
 
 // Commercial-property intent: деловен простор / канцеларија / локал / магацин /
@@ -854,6 +991,8 @@ const APARTMENT_RE = /(стан|стани|станче|стан|станце|а
 export function detectHouse(text: string): boolean | undefined {
   const house = matchesBoth(HOUSE_RE, text);
   const apartment = matchesBoth(APARTMENT_RE, text);
+  if (house && apartment) return false;
+  if (!house && extFires('house', text)) return true;
   if (!house && !apartment) return undefined; // no property-type word
   return house && !apartment;
 }
@@ -961,6 +1100,7 @@ const CLIENT_CONFIRM_RE = /^(?:да|da)[\s,.!]*(?:јас\s+|jas\s+)?(?:сака�
 
 export function detectAgreement(text: string): boolean {
   const low = text.toLowerCase();
+  if (extFires('agreement-yes', text)) return true;
   if (AGREE_PHRASES.some(p => low.includes(p))) return true;
   // Short confirmation answer ("DA SAKAM") — see CLIENT_CONFIRM_RE above.
   const normEarly = normalizeMc(text).toLowerCase();
@@ -1020,6 +1160,8 @@ const _widenSlotsRe = buildWidenSlots();
 export function detectExplicitWiden(text: string): boolean {
   if (KNOWN_NEIGHBORHOODS.some(loc => !loc.includes('(') && locMatches(text, loc))) return false;
   if (matchesBoth(_widenSlotsRe, text)) return true;
+  // Generated extension — 'widen' family (see scripts/propose-stems.ts).
+  if (extFires('widen', text)) return true;
   // Typo fallback: "PROSIRri JA POTRAGATA" — the command verb is long and
   // unambiguous. Sits behind the concrete-neighborhood guard on purpose:
   // naming an area makes it a search for THAT area, not a widen.
@@ -1072,16 +1214,25 @@ export function detectFeePaymentAgreement(text: string): boolean {
 const INVESTMENT_OPINION_RE = /(?:не\s*знам\s+дали|neznam\s+dali|незнам\s+дали)[^.!?\n]{0,40}(?:паметно|разумно|исплат|вреди|вреди|инвестира|купи|купувам)|(?:цените|цена|ceni|cena)[^.!?\n]{0,30}(?:превисок[иае]|висок[иае]|скап[иаео]|previsok[iae]|visok[iae]|skap[iae]| padna|опаѓаат|опаѓа)|(?:превисок[иае]|висок[иае]|скап[иаео]|skap[iae]|previsok[iae]|visok[iae])[^.!?\n]{0,30}(?:цените|цена|ceni|cena)|(?:инвестира|инвестиција|инвестирање|investira|investicij|investiranje|вложу|vlozu)[^.!?\n]{0,30}(?:р[аа]змисл|размислув|pakuvam|risks?|nevkl|е\s+ризичн|е\s+risik|е\s+скапо)|(?:е\s+паметно|e\s+pametno|е\s+разумно|e\s+razumno)[^.!?\n]{0,20}(?:да\s+купи|да\s+инвестира|da\s+kupi|da\s+investira)|(?:скапо|skapo|скапи|skapi)[^.!?\n]{0,20}(?:богами|богами|vauf|вау|бре|brate|bro|брате|jeez|џејз|бомба|бомб)|(?:цените?|цена|ceni|cena|ценови)[^.!?\n]{0,30}(?:отидоа|отиде|одат|отишле|отиде|отидов|otidoa|otishe|otisle|odat)[^.!?\n]{0,20}(?:без\s+трага|без\s+траги|без\s+след|во\s+бес\s*трага|в\s+бестрага|vo\s+bestraga|bestraga)/iu;
 
 // Verb-carried complaint (09:41): "MNOGU SE POSKAPEA STANOVIVE" — the
-// sentiment rides the VERB (поскапеа), no цена noun present, so the noun
-// families above never match. PAST-TENSE forms only: поскапеа/поскапе/
-// поскапоа + Latin poskapea/poskape/poskapoa. The neuter поскапо/poskapo
-// ("A NESTO POSKAPO DO 1000 EVRA") is a BUDGET REFINEMENT, not a complaint —
-// deliberately excluded (the stuck.test regression pins that funnel path).
-const INVESTMENT_VERB_RE = /(?<![\p{L}])(?:поскапеа|поскапе|поскапоа|poskapea|poskape|poskapoa)(?![\p{L}])/iu;
+// sentiment rides the VERB, no цена noun present, so the noun families above
+// never match. Hardening sweep (27/31 gaps): the family now covers the
+// METAPHORS clients actually use — prices jumped (скокнаа/skoknaa), hit the
+// roof (удрија во плафон/во облаци), crossed every line (поминаа сите
+// граници), became too expensive (прескапи). Written in ONE script and
+// checked via matchesBoth, so Latin input folds automatically. The neuter
+// поскапо/poskapo ("A NESTO POSKAPO DO 1000 EVRA") stays a BUDGET REFINEMENT,
+// not a complaint — excluded, the stuck.test regression pins that funnel path.
+const INVESTMENT_VERB_RE = /(?:поскапеа|поскапе|поскапоа|скокн(?:е|а|оа)|удрија[^.!?]{0,20}(?:плафон|облаци|небо|воздух)|помин(?:аа|уа|а|у)\s+(?:сите\s+)?границ|прескап(?:и|о|ен)|одлет[ао]|лет[ао][^.!?\n]{0,12}воздух|отид[ео][^.!?\n]{0,12}(?:јабан|облаци|небо|воздух)|(?:полуд|полуџ)[^.!?\n]{0,12}цен)/iu;
 
 /** True when the client expresses an investment/market opinion. */
 export function detectInvestmentOpinion(text: string): boolean {
-  return matchesBoth(INVESTMENT_OPINION_RE, text) || matchesBoth(INVESTMENT_VERB_RE, text);
+  if (matchesBoth(INVESTMENT_OPINION_RE, text) || matchesBoth(INVESTMENT_VERB_RE, text)) return true;
+  // Prefix floor for the поскап family typos ("poskapeja", "poskapie" — the
+  // 5-letter fuzzy floor can't reach these): any folded word starting поскап
+  // EXCEPT the neuter поскапо (the budget-refinement word, excluded by the
+  // stuck.test regression pin).
+  const folded = normalizeMc(text);
+  return /(?<![\p{L}])поскап(?!о)/iu.test(folded);
 }
 
 // The client makes a CONVERSATIONAL REMARK about the property — a compliment
@@ -1126,7 +1277,7 @@ const EXHAUSTED_FOLLOWUP_RE = /(?:kirija|кирија|кириja|киријат�
 
 /** True when the client asks about service/availability after exhausted state. */
 export function detectExhaustedFollowUp(text: string): boolean {
-  return matchesBoth(EXHAUSTED_FOLLOWUP_RE, text);
+  return matchesBoth(EXHAUSTED_FOLLOWUP_RE, text) || extFires('exhausted', text);
 }
 
 // A message that expresses a genuine QUESTION needing the LLM's semantic
@@ -1603,6 +1754,9 @@ const PROPERTY_TYPE_END_RE = /(?:гарсоњер(?:ата|та|а)|гарсоњ
 const WHERE_IS_BLACKLIST_START = /^(?:цената|цената|циената|цена|цена|циена|колк[ао]|колко|колку|колку|бројот|бројот|број|број|шифрата|сифрата|шифра|сифра|достапен|достапен|достапна|достапна|сместен|сместен|сместена|сместена)/iu;
 
 export function detectWhereIs(text: string): WhereIsQuestion | undefined {
+  // Generated extension — 'where-is' family (see scripts/propose-stems.ts):
+  // na koja ulica / vo koj kvart / kazete tochna adresa ...
+  if (extFires('where-is', text)) return { place: '', generic: true };
   if (matchesBoth(WHERE_BARE_RE, text)) return { place: '', generic: true };
   // "што има во близина?" / "what's nearby?" — treated as "where is it?" for the last shown property.
   if (matchesBoth(NEARBY_RE, text)) return { place: '', generic: true };
@@ -1900,6 +2054,7 @@ export function detectNearbyAsk(text: string): boolean {
   // Single canonical pass: Latin/homoglyphs → Cyrillic (normalize.ts contract).
   const n = normalizeMc(t);
   if (NEARBY_AREA_TARGET_RE.test(n)) return false;
+  if (extFires('nearby', text)) return true;
   return NEARBY_RE_SUBJECT.test(n) || NEARBY_RE_HAVE.test(n) || NEARBY_RE_ANCHOR.test(n);
 }
 
@@ -2073,7 +2228,7 @@ const OFFTOPIC_RE =
 
 /** True when the message is off-topic / small talk / self-intro question. */
 export function detectOfftopic(text: string): boolean {
-  return matchesBoth(OFFTOPIC_RE, text);
+  return matchesBoth(OFFTOPIC_RE, text) || extFires('offtopic', text);
 }
 
 // Follow-up defer: the client is not ready to decide.
@@ -2092,7 +2247,7 @@ const DEFER_GRAMMAR_RE = new RegExp(
 
 /** True when the client wants to defer the decision. */
 export function detectDefer(text: string): boolean {
-  return matchesBoth(DEFER_RE, text) || matchesBoth(DEFER_GRAMMAR_RE, text);
+  return matchesBoth(DEFER_RE, text) || matchesBoth(DEFER_GRAMMAR_RE, text) || extFires('defer', text);
 }
 
 // Price negotiation: the client asks to lower the price or requests a discount.
@@ -2112,7 +2267,7 @@ const NEGOTIATE_GRAMMAR_RE = new RegExp(
 
 /** True when the client wants to negotiate the price. */
 export function detectNegotiate(text: string): boolean {
-  return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text);
+  return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text) || extFires('negotiate', text);
 }
 
 // Provision / commission ask.
@@ -2174,7 +2329,7 @@ const PROVISION_WHO_RE = new RegExp(
   "iu");
 /** True when the client asks WHO pays lawyer/notary/tax. */
 export function detectProvisionWho(text: string): boolean {
-  return PROVISION_WHO_RE.test(text);
+  return PROVISION_WHO_RE.test(text) || extFires('provision-who', text);
 }
 
 // Price ask — the client asks about the property price: "која е цената?",
@@ -2193,16 +2348,18 @@ export function detectProvisionWho(text: string): boolean {
  * consulted BEFORE detectPriceAsk wherever freshness outranks the flat
  * quote. A plain "kolku e cenata?" (no freshness marker) stays a price.ask.
  */
-const PRICE_FRESH_KW_RE = /(?:цена|цената|цени|cena|cenata|ceni|price|евра|евро|еуро|eur)/iu;
+const PRICE_FRESH_KW_RE = /(?:цена|цената|цени|cena|cenata|ceni|price|евра|евро|еуро|eur|цифр\w*|cifr\w*|бројк\w*|brojk\w*|сум[аи](?![\p{L}])|sum[ae](?![\p{L}])|понуд\w*|ponud\w*)/iu;
 const PRICE_FRESH_STILL_RE = /(?:уште|сè\s*уште|сеуште|uste|use|still)/iu;
 const PRICE_FRESH_UNCHANGED_RE = /(?:непроменет|не\s*е\s*променет|не\s*се\s*менува|nepromenet|ne\s*e\s*promenet|ne\s*se\s*menuva|unchanged|(?<![\p{L}])ista(?:ta)?(?![\p{L}])|истата)/iu;
+// Folded via matchesBoth at call time — the regex is written in ONE script
+// (hardening sweep: 9/31 freshness phrasings were Latin: "vazi uste", "vazi").
 const PRICE_FRESH_VALID_RE = /(?:важи|важечка|валидна|актуелн|vazhi|vazi|vazecka|validna|aktueln|aktualn)/iu;
 const PRICE_FRESH_SOURCE_RE = /(?:оглас|веб\s*стран|на\s*сајтот|oglas|web\s*stran|veb\s*stran|on\s*the\s*(?:ad|site)|ads?\b)/iu;
 // "mozno e da ima izmeni vo cenata?" — the client PROBES for changes (the
 // 08:50 opener). Question-shaped only: a statement like "cenata e
 // nepromeneta" belongs to the unchanged family, and "promen" alone would
 // collide with unrelated renew/change talk that happens to mention цена.
-const PRICE_FRESH_CHANGES_RE = /(?:измен|промен|менув|менит|izmen|promen|menuv|menit)/iu;
+const PRICE_FRESH_CHANGES_RE = /(?:измен|промен|менув|менит|izmen|promen|menuv|menit|покач|pokac|корекц|korekc)/iu;
 const PRICE_FRESH_QUESTION_RE = /(?:\bdali\b|\bдали\b|\?)/iu;
 
 export function detectPriceFreshness(text: string): boolean {
@@ -2211,8 +2368,8 @@ export function detectPriceFreshness(text: string): boolean {
   if (PRICE_FRESH_STILL_RE.test(text)) return true;
   // "nepromeneta" / "ne se menuva" / "istata cena"
   if (PRICE_FRESH_UNCHANGED_RE.test(text)) return true;
-  // "dali uste vazi cenata" / "cenata validna li e"
-  if (PRICE_FRESH_VALID_RE.test(text)) return true;
+  // "dali uste vazi cenata" / "cenata validna li e" — folded (both scripts)
+  if (matchesBoth(PRICE_FRESH_VALID_RE, text)) return true;
   // "mozno e da ima izmeni vo cenata?" — probing for changes
   if (PRICE_FRESH_QUESTION_RE.test(text) && PRICE_FRESH_CHANGES_RE.test(text)) return true;
   // "cenata dali e taa na oglasot / web stranicata" — question mark + source
@@ -2227,8 +2384,10 @@ export function detectPriceAsk(text: string): boolean {
   // "колку саати работите" matches because 'работите' ends with 'е' —
   // false positive. Require at least one price-related keyword (цена/евра/чини)
   // so the regex only fires for actual price questions.
-  if (!/(?:цена|цени|цената|cena|cenata|ceni|price|евра|евро|евра|евро|еуро|eur|чини|chini|iznesuva|изнесува|costs?|bi\s+trebalo)/i.test(text)) return false;
-  return matchesBoth(PRICE_ASK_RE, text);
+  if (!/(?:цена|цени|цената|cena|cenata|ceni|price|евра|евро|евра|евро|еуро|eur|чини|chini|iznesuva|изнесува|costs?|bi\s+trebalo)/i.test(text)) {
+    return extFires('price-ask', text);
+  }
+  return matchesBoth(PRICE_ASK_RE, text) || extFires('price-ask', text);
 }
 
 // Scheduling flexibility: the client specifies a preferred day/time window.
@@ -2249,7 +2408,7 @@ const SCHED_FLEX_GRAMMAR_RE = new RegExp(
 
 /** True when the client specifies a scheduling window. */
 export function detectSchedulingFlex(text: string): boolean {
-  return matchesBoth(SCHED_FLEX_RE, text) || matchesBoth(SCHED_FLEX_GRAMMAR_RE, text);
+  return matchesBoth(SCHED_FLEX_RE, text) || matchesBoth(SCHED_FLEX_GRAMMAR_RE, text) || extFires('scheduling-flex', text);
 }
 
 // Escalation polite: the client asks to speak with a manager.
@@ -2274,7 +2433,7 @@ const ESCALATION_GRAMMAR_RE = new RegExp(
 
 /** True when the client asks for a manager / escalation. */
 export function detectEscalation(text: string): boolean {
-  return matchesBoth(ESCALATION_RE, text) || matchesBoth(ESCALATION_GRAMMAR_RE, text);
+  return matchesBoth(ESCALATION_RE, text) || matchesBoth(ESCALATION_GRAMMAR_RE, text) || extFires('escalation', text);
 }
 // Documents info: the client asks what documents they need.
 const DOCUMENTS_RE =
@@ -2293,7 +2452,7 @@ export function detectDocumentsAsk(text: string): boolean {
   if (matchesBoth(DOCUMENTS_RE, text)) return true;
   // Typo fallback: “dokumeti”, “документа” — the anchor is long and
   // unambiguous (the договори-ми / inform guards above already ran).
-  return fuzzyHasToken(text, ['документи', 'документација']);
+  return fuzzyHasToken(text, ['документи', 'документација']) || extFires('documents', text);
 }
 
 // Mortgage / credit info: the client mentions credit/mortgage or asks about financing.
@@ -2306,7 +2465,7 @@ export function detectMortgageAsk(text: string): boolean {
   // Typo fallback: “kredit”, “hipoteka” slips. Deliberately NO “банка” —
   // the word is a landmark/POI magnet (“банка во близина”) and would
   // misroute nearby-asks into the mortgage script.
-  return fuzzyHasToken(text, ['кредит', 'хипотека']);
+  return fuzzyHasToken(text, ['кредит', 'хипотека']) || extFires('mortgage', text);
 }
 
 // Location confirmation about the property under discussion — "ZNACI NA
@@ -2470,7 +2629,7 @@ const NEIGHBORHOOD_RE =
 
 /** True when the client asks a general neighborhood question. */
 export function detectNeighborhoodAsk(text: string): boolean {
-  return matchesBoth(NEIGHBORHOOD_RE, text);
+  return matchesBoth(NEIGHBORHOOD_RE, text) || extFires('neighborhood', text);
 }
 
 // Comparison help: the client asks to compare two properties.
@@ -2479,7 +2638,7 @@ const COMPARISON_RE =
 
 /** True when the client asks to compare properties. */
 export function detectComparison(text: string): boolean {
-  return matchesBoth(COMPARISON_RE, text);
+  return matchesBoth(COMPARISON_RE, text) || extFires('comparison', text);
 }
 
 // Feature question after a property was shown: the client asks about a feature.
@@ -2488,7 +2647,7 @@ const FEATURE_RE =
 
 /** True when the client asks about a specific property feature. */
 export function detectFeatureAsk(text: string): boolean {
-  return matchesBoth(FEATURE_RE, text);
+  return matchesBoth(FEATURE_RE, text) || extFires('feature-ask', text);
 }
 
 /**
@@ -2591,13 +2750,13 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
 // Both services: client wants BOTH buy and rent.
 const BOTH_SERVICES_RE = /(?:^|\s)(?:i\s+тоа\s+i\s+тоа|i\s+за\s+двете|за\s+двете|и\s+тоа\s+и\s+тоа|и\s+за\s+двете|за\s+двете|i\s+купам\s+i\s+киријам|и\s+купам\s+и\s+кирија|кедето|ке\s+треба(?:ат)?|ќе\s+треба(?:ат)?|сакам\s+(?:i\s+)?(?:купам|киријам)|сакам\s+(?:и\s+)?(?:купам|кирија)|две\s+работи|две\s+работи|купување\s+i\s+изнајмување|купување\s+и\s+изнајмување|i\s+купувам\s+i\s+изнајмувам|и\s+купувам\s+и\s+изнајмувам|ке\s+купам\s+i\s+киријам|ќе\s+купам\s+и\s+кирија|моз(?:e|ам|хе|ххе?|ззе?)\s+да\s+куп(?:ам|увам).*?моз(?:e|ам|хе|ххе?|ззе?)\s+(?:i\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајм(?:ување))|може\s+да\s+куп(?:ам|увам).*?може\s+(?:и\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајмување))/iu;
 export function detectBothServices(text: string): boolean {
-  return matchesBoth(BOTH_SERVICES_RE, text);
+  return matchesBoth(BOTH_SERVICES_RE, text) || extFires('both-services', text);
 }
 
 // Visit cancellation: the client or owner says they can't make it.
 const CANCEL_RE = /(?:не\s+можам|неможам|не\s+мозам|не\s+сум|не\s+сум|не\s+сакам|не\s+сакам|не\s+доаѓам|отказувам|откажувам|откажи|откази|цанцел|цанцелед|цанцеллед|само\s+да\s+те\s+извести|само\s+да\s+те\s+извести|бол(?:ен|на|ест)|бол(?:ен|на|ест)|дојде\s+работа|дојде\s+работа|имам\s+проблем|имам\s+проблем|не\s+مى\s+е\s+полесно|жал|жал|поплаќа|поплаки|болест|болест|одлагам|одложувам|odlagam|odlozhuvam)/iu;
 export function detectVisitCancellation(text: string): boolean {
-  return matchesBoth(CANCEL_RE, text);
+  return matchesBoth(CANCEL_RE, text) || extFires('visit-cancel', text);
 }
 
 export function extractSlots(text: string): DetectedSlots {
@@ -2654,6 +2813,6 @@ export function detectPriceReference(text: string): boolean {
 const OWNER_CONTACT_RE = /(?:контакт|контакт|број|број|телефон|телефон|емаил|емаилл?|линија|линија)\s*(?:од|от|од|на|на|за|за|наш|нас)?\s*(?:сопственик|сопственик|власник|власник)|(?:сопственик|сопственик|власник|власник)(?:от|от)?(?:\s+(?:е|e))?\s*(?:телефон|телефон|број|број|контакт|контакт)|(?:може|мозе)\s+ли\s+(?:контакт|контакт|број|број)\s+(?:од|от|од|на|на)\s*(?:сопственик|сопственик|власник|власник)|(?:дад(?:и|иј|ете|иите)|дади(?:j|те)?)\s+(?:ми|ми)?\s*(?:го|го)?\s*(?:сопственикот|сопственикот|власникот|власникот|бројот|бројот|телефонот|телефонот)|(?:сакам|сакам)\s+(?:да|да)\s+(?:разговарам|разговарам|контактирам|контактирам|звонам|звонам|зборувам|зборувам)\s+(?:со|са|со)\s*(?:сопственик|сопственик|власник|власник)|(?:имам|имам)\s+(?:ли|ли)\s+(?:можност|можност|могућност|могуцност)\s+(?:да|да)\s+(?:звам|звам|контактирам|контактирам)/iu;
 /** True when the client asks for the owner's direct contact/phone. */
 export function detectOwnerContact(text: string): boolean {
-  return matchesBoth(OWNER_CONTACT_RE, text);
+  return matchesBoth(OWNER_CONTACT_RE, text) || extFires('owner-contact', text);
 }
 

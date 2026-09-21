@@ -1,0 +1,140 @@
+{
+  "bankKey": "(where-is / locate branch)",
+  "rows": [
+    {
+      "phrase": "kade tochno e stanot ?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "na koja ulica se naogja stanot?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "kade e tochno lokacijata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vo koja naselba e ova",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "location"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "na koja ulica se prodava",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail",
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "kazete mi tochna adresa",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "kade se naogja imotot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vo koj del od gradot e",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "na koja ulica e zgradata",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "kade tochno se naoagja",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "kazete ulica i broj",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "vo koja malha e ova",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kade tochno se naogja stanov",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "na koja ulica e tochno",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "kade tochno se naogjat tie",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "vo koj kvart e tochno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

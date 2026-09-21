@@ -150,3 +150,45 @@ test('08:50 e2e: a PLAIN price ask still gets the flat quote (no overreach)', as
 
   offlineMap.close();
 });
+
+// P5 CROSS pin — the hardening sweep (152 Gemini-generated phrasings) found
+// "samo da proveram, taa cena od oglasot e ushte?" fires BOTH detectAgreement
+// (the bare "да" inside "да проверам") and detectPriceFreshness. Danger: in a
+// consent-pending state that could be misread as fee agreement. The freshness
+// fast block runs BEFORE every agreement gate, so the phrase must route to
+// the freshness disclaimer — never to a consent read.
+test('CROSS pin: agreement-shaped freshness question routes to freshness, never consent', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const props = new FakeProps([
+    { eb: 82, id: 82, location: 'Центар', price: 143000, service: 'buy', size: '95 м²' } as Property,
+  ]);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, props);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const mapPath = tmpMapDb();
+  writeMap(mapPath, [], []);
+  const offlineMap = new OfflineMapStore(mapPath);
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties: props,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }), offlineMap });
+  const chatId = 'cross-agreement-freshness';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZA EB 82');
+  await send('a dali mu e uste taa cena ?');   // arms ownerContactPending
+  await send('da');                            // consent → fee disclosed
+
+  // The CROSS phrase — client re-checks the price mid-consent
+  const s = await send('samo da proveram, taa cena od oglasot e ushte?');
+  const reply = sent[sent.length - 1];
+  assert.ok(/143\.000/.test(reply), `must serve the freshness disclaimer again: ${reply}`);
+  assert.ok(/сопственикот|сопственик/i.test(reply), `must stay in the owner-relay protocol: ${reply}`);
+  assert.ok(!/Дали се согласувате|да продолжиме/.test(reply), `must NOT read the question as fee consent: ${reply}`);
+  assert.equal(s.slots.ownerContactPending, true, 'contact gate re-armed for the YES');
+  offlineMap.close();
+});

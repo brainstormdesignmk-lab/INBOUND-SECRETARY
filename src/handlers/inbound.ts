@@ -674,6 +674,7 @@ export class InboundHandler {
         || session.slots.presentedIds?.length)
       && !detectRemark(text)
       && !detectBudget(text)
+      && !detectFeeComplaint(text)
       && !detectService(text) && !detectBothServices(text)) {
       const mbFresh = await this.bindMention(text, session, { historyFallback: true });
       if (await this.sendIfClarify(mbFresh, text, session)) return;
@@ -714,7 +715,11 @@ export class InboundHandler {
     // paths; an ambiguous mention asks back once (the clarify machinery).
     {
       const infoFacets = detectInfoFacets(text);
+      // A fee complaint that ECHOES Lina's wording can contain "cena ?" (the
+      // 10:18 line: "1 EVRO E SIMBOLICNA CENA ?") — that reads as a price ask
+      // facet. Fee traffic belongs to the fee protocol, never the INFO block.
       if (infoFacets
+        && !detectFeeComplaint(text)
         && (session.slots.propertyId || session.slots.interestedPropertyId
           || session.slots.presentedIds?.length)) {
         const mbInfo = await this.bindMention(text, session, { historyFallback: true });
@@ -1358,7 +1363,8 @@ export class InboundHandler {
       // that contain a budget number (detectBudget fires) so they reach the
       // classifier as DETAILS_PROVIDED instead of being swallowed here.
       if (detectPriceAsk(text) && !detectBudget(text)
-          && !detectProvisionAsk(text) && !detectProvisionWho(text) && !detectDrugAlternative(text)) {
+          && !detectProvisionAsk(text) && !detectProvisionWho(text) && !detectDrugAlternative(text)
+          && !detectFeeComplaint(text)) {
         // MENTION BINDING (12:33 rule, fast leg): this path PREEMPTS the FSM
         // price branch (same detector guard, earlier in the pipeline), so
         // without a bind here a NAMED price ask ("KOLKU E GARSONJERATA KAJ

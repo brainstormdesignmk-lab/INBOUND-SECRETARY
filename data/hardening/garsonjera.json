@@ -1,0 +1,143 @@
+{
+  "bankKey": "discovery.ask.type (studio)",
+  "rows": [
+    {
+      "phrase": "garsonjera baram",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "garsonjeraa baram",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "baram garnsonjera",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "studio stanche",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "malce stanche trazam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "garsonjera vo aerodrom",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ednosoben stan ili garsonjera",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "барај ми гарсоњера",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "студио станче",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "мала гарсоњера ми треба",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "trazam garsonjera hitno",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "garsonjera centar",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "бараме гарсоњера",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "само студио стамче",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "гарнизонџера барам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ednosoben mal stan",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    }
+  ]
+}

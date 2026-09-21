@@ -1,0 +1,139 @@
+{
+  "bankKey": "(time follow-up ask)",
+  "rows": [
+    {
+      "phrase": "nekogas popladne",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "posle rabota",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "bilo koga",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "najdobro vikendi",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "po 17h mozhe",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nekogas navecer",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "popladne sum sloboden",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "sledna nedela bilo koga",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "navecer mi odgovara",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "vo vtornik popladne",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "mozhe sekogas",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "preku nedela navecer",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "vikend najdobro",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "posleden del od denot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nokeski po 8",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "preku den sum na rabota",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    }
+  ]
+}

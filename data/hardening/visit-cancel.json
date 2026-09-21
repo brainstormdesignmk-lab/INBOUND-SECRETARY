@@ -1,0 +1,131 @@
+{
+  "bankKey": "(cancellation path)",
+  "rows": [
+    {
+      "phrase": "ne mozam da dojdam utre , otkazuvam",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "timeRej",
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "otkazuvam gledanjeto utre ne mozam",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "timeRej",
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Откажувам посетата за денес, се извинувам",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ne ke dojdam se ipak, otkazete go",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "се извинувам ама мора да откажам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ja otkeazuvam posetata, nisto od toa",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "нема да дојдам за станот, откажи",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ipak ne mozam da dojdam otkazuvam",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "timeRej"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Се предомисливме, нема да дојдеме ич",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moram da otkazam sves, se izvinuvam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Откажи го гледањето за станот",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne doagam vo stanot otkazuvam se",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "отакажувам средбата денес, фала ти",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "otkazete go terminot nema da doagame",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Нема да можам воопшто да дојдам",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "timeRej"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ipak otkazuvam terminot pozdrav",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

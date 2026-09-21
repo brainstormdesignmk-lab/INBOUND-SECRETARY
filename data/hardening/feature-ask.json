@@ -1,0 +1,129 @@
+{
+  "bankKey": "feature.after.show",
+  "rows": [
+    {
+      "phrase": "dali ima lift ?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "na koj sprat se naoga",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li lift u zgradata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a parking mesto ide li so stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "centralno greenje ima li",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "namestten li se prodava",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "kolku e toplec mesechno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "na koja strana gleda stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "terasa ima li",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "podrumce od kolku kvadrati sledi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali ima sopstven parking",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "spratot koj e tochno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "namestenite raboti ostanuvaat li",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "klima ured ima li vneseno",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "so kakvo greenje se great",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li podno greenje vo banjata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

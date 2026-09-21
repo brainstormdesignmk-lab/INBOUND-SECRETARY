@@ -1,0 +1,125 @@
+{
+  "bankKey": "both.ask.visit → visit_scheduling",
+  "rows": [
+    {
+      "phrase": "sakam da go vidam stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koga moze da se vidi stanot?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Може ли да се види станчето во живо?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sakam termin za gledanje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "кога има можност за посета?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali moze razgledvane?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sakam da doam da go vidam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Може терми за разгледување?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koga ke moze poseta?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Сакам да дојдам на лице место",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ke moze li da go vidam prostorot",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Би сакал да одам да го видам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koga moze gledanje?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Кога може да се прошета и види?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "сакам да го видам во живо",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze da se dogovorime za gledane?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    }
+  ]
+}

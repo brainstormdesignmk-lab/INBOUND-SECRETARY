@@ -1,0 +1,117 @@
+{
+  "bankKey": "comparison.help",
+  "rows": [
+    {
+      "phrase": "koj e podoben od dvata ?",
+      "verdict": "COVERED",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koe e podobro od tie dvata stanovi sto gi vidovme?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sporedi gi tie dve kukji molam te",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koi se glavnite razliki megju dvata apartmani?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sporedi gi poslednite two sto gi gledavme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koj od ovie dvoi stanovi e podobar za jiveenje?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daj napravi sporedba na tie dvete sto mi gi pokaja",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sporedi go prviot i vtoriot sto gi videvme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koi se bitnite razliki megju tie dvoi objekti?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koe od tie dvete, podobro e za investicija?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sporedi gi dvata sto gi gledavme denes",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koj e podobar izbor megju tie dve sto ni gi pokaja?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sporedi gi tie dva sto odamna gi gleavme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "razlikite me interesiraat za dvata stana sto gi vidovme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sporedi gi tie dvata placovi sto bea na kraj",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koe od tie dva tebe ti izglea podobro?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

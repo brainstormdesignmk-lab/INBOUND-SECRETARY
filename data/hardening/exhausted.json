@@ -1,0 +1,84 @@
+{
+  "bankKey": "no.match.location / no.match.plain",
+  "rows": [
+    {
+      "phrase": "nisto od ovie ne mi odgovara",
+      "verdict": "COVERED",
+      "target": false,
+      "cross": [
+        "rejection"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "oviie ne mi se dopadnaat vopsto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nisto od ovie iskreno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "site se nekako isti iskreno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "teshko, nisto od ova ne e to",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "site se istovetni nekakvi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nema nisto vistinsko za nas?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nisto za mene od ovie tuka",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "site se isti, dzabe gledavme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "site se istovetni, barame pospesijalno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nema nisto vistinsko sosema razlicno?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

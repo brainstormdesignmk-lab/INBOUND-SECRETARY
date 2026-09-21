@@ -1,0 +1,244 @@
+{
+  "bankKey": "(cheaper-search branch)",
+  "rows": [
+    {
+      "phrase": "imate nesto poevtino ?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "negot"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "prikazi poeftino nekoe stance",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "alternatives"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ima li nesto 20-30 kila pomalku?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ovoj mi e nad budzet, daj poevtino",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "negot"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Имате ли нешто поевтино од ова?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "negot",
+        "alternatives"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "daj nesto poefitno ako ima",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dajte ponuda so poniska cena",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "negot"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dajte nekoj poevftin stan",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Нешто со помал буџет да ми пратите?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "posilete poeftini opcii",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Има ли некоја поевтина опција за мене?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "negot",
+        "alternatives"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ima li nesto za pomalku pari?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дајте поефтино нешто, ова пречекорува буџет",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "alternatives"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "nesto pomalku od ovaa cena imate?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da vidam poeftini ponudi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Имате некој поевтин стан во истата населба?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "negot"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "daj nekoi popristapni opcii brat",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "има ли нешто со пониска цифра?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nesto za pomalku pari da mi pustis",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "прати некој поскромен стан со цена подолу",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dajte nekoj stan za poslab dzeb",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "имате ли со помал буџет нешто?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daj mi nekoja poniska ponuda od ova",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дај некој денар поефтино ако има",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "alternatives"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "pobaraj nesto podolu so cenata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "нешто поприфатливо како цена да предложиш?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "alternatives"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ima li nesto 10 kila podolu od ova",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дај некоја поефитна варијанта",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "pushti poniski cenovni rangovi te molam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "има ли нешто за поскромен џеб?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nesto za povaliden budzet da mi najdes",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

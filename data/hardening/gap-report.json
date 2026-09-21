@@ -1,0 +1,42 @@
+[
+  {
+    "id": "interest-bind",
+    "bug": "00:09 — interest in a NAMED shown property re-fired the search engine instead of binding EB 76",
+    "total": 31,
+    "covered": 5,
+    "gap": 26,
+    "cross": 0
+  },
+  {
+    "id": "price-freshness",
+    "bug": "08:50 — \"is this price still current?\" got a flat re-quote instead of the owner-relay disclaimer",
+    "total": 31,
+    "covered": 21,
+    "gap": 9,
+    "cross": 1
+  },
+  {
+    "id": "bare-bedrooms",
+    "bug": "13:44 — the bare answer \"EDNA\" to the bedrooms question was swallowed twice, funnel looped",
+    "total": 28,
+    "covered": 15,
+    "gap": 13,
+    "cross": 0
+  },
+  {
+    "id": "investment-verb",
+    "bug": "09:41 — \"MNOGU SE POSKAPEA STANOVIVE\" fell through the market-opinion detector into the fee pitch",
+    "total": 31,
+    "covered": 4,
+    "gap": 27,
+    "cross": 0
+  },
+  {
+    "id": "fee-counter",
+    "bug": "10:18 — the fee counter-offer (\"1 EVRO E SIMBOLICNA CENA ?\") got the PROPERTY price quote",
+    "total": 31,
+    "covered": 2,
+    "gap": 27,
+    "cross": 2
+  }
+]

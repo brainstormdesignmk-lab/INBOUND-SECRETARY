@@ -1,0 +1,269 @@
+{
+  "bug": "10:18 — the fee counter-offer (\"1 EVRO E SIMBOLICNA CENA ?\") got the PROPERTY price quote",
+  "rows": [
+    {
+      "phrase": "10 EVRA NE E BAS SIMBOLICNA CENA . 1 EVRO E SIMBOLICNA CENA ?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "10 evra ne e bas simvolichna suma za poseta brat",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "500 den za гледање? За тие пари ќе си купам кафе",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Abe mnooogu e za edna poseta, 1 evro togash moze?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Не е ова симболично, за тие пари си купувам 5 кафеа!",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "10 evrata e skapo samo za da mi ja otvorite vratata",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Mnogu e 500den za edna poseta, ne e bas simbolichna cenata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Десет евра за гледање стано? Па подобро на кафе да одам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "1 evro togash ako e simbolicna poseta hhh",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Ne e ič simvolichna taa taksa za gledanje stan",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "500 denari za poseta e premnogu, sto e toa",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Многу е за една посета, ајде 1 евро тогаш?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Za tie pari si kupuvam rucek a ne poseta",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Skapo e za poseta 10e, ne davam tolku za razgleduvanje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ауу 500 ден за оглед не е симболично воопшто",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "10 evra za poseta? Za tie pari kafe ke pijam cela nedela",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "10 evra za poseta? za tie pari si kupuvam 3 kafea u centar",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget",
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "500 den ne e bas simvolichna cena, preteravte malku",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Многу е за една посета, подобро на кафе да ве поканам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kakva simvolicna taksa, 10 evrata e benzin do ohrid haha",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "1 evro togash? 500 denari za гледање е скапо",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Skapo e za poseta, ne e bas simvolicno ova",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Za tie pari si kupuvam kafe i boks cigari...",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "10 евро за 5 минути гледање? Па не е ова символична сума",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "abe mnogu e za edna poseta, 1 evro e simvolicno",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Za tie pari kafe i kolac ke si kupam haha",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "500 denari za da otvorite vrata? Ne e simvolichna cena",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "skapo e za poseta be brat, kakvi 10 evra",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Не е симболично 500д, за тие пари ручек ќе јадам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "10 evra taksa za gledanje? moze 1 evro togash?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "mnoooogu e za edna poseta, toa e kafe za cela nedela",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

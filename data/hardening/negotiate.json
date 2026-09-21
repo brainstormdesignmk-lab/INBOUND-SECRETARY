@@ -1,0 +1,129 @@
+{
+  "bankKey": "price.negotiate",
+  "rows": [
+    {
+      "phrase": "moze li popust na cenata ?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "priceAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze li nekakov popust za keš isplata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sopstvenikot bi svalil neshto za seriozen kupuvac",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "135 iljadi krajna cena e ili ima prostor",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "priceAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dajte 130 pa da pravime muabet odma",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "za kes moze popust malku",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li lufta vo cenata, mnogu e ova",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper",
+        "priceAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "bi mozheshe da se korigira ovaa cena",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "gazdite se fleksibilni za cenata ili cvrsti stoat",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "120 e maksimum sto mozeme da dademe",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze popust ako platime vednas",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dajte adresa da vidime stanot pa ke zborime za cenata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "za gotovo isplata koja e najniska cena",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper",
+        "priceAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "sopstvenikot ke spushti li neshto od oglasena cena",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze 125000 evra kech sega odma",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ima li popust za seriozni kupuvaci",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

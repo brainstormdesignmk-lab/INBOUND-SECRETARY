@@ -1,0 +1,129 @@
+{
+  "bankKey": "neighborhood.general",
+  "rows": [
+    {
+      "phrase": "vo koi naselbi imate ?",
+      "verdict": "COVERED",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kade se naoagjaat stanovite, vo koi naselbi rabotite",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "whereIs"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "zdravo, vo koi delovi od gradot rabotite najvekje?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vo koi naselbi imate ponudi, mene me interesira Kisela Voda",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "location"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Dali rabotite niz cela Skopje ili samo centar?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "location"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "zdr, koi kvartali gi pokrivate za prodazba?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kade se site stanovi sto gi nudite",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "whereIs"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "vo koi naselvi imate najgolem izbor?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "me interesira vo koi naselbi imate stanovi za prodazba",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kazete mi vo koi delovi od gradot imate ponuda",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sho naselbi imate vo ponuda vo momentov?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vo koi opstini rabotete",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali imate stanovi niz Aerodrom i Centar, kade sve imate?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "location"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "koi kvaratali tocno gi pokrivat vasiot tim?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "pozdrav, vo koi naselbi imate najmnogu stanovi?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kade se naogjaat stanovite od vashata ponuda, vo koi naselbi?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "whereIs"
+      ],
+      "benign": []
+    }
+  ]
+}

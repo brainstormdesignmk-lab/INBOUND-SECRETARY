@@ -1,0 +1,143 @@
+{
+  "bankKey": "scheduling.flex",
+  "rows": [
+    {
+      "phrase": "moze li podocna ?",
+      "verdict": "COVERED",
+      "target": false,
+      "cross": [
+        "timeRej"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze 1 cas podocna?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "timeRej"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ke mozam li posle 6 vecer?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "pomestete go za utre pls",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze li terminot vo 5 da go prefrlime?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dali mozeme za pola saat pokasno?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "timeRej"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "mozhe li poskoro, primer vo 2?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze da kasnam 15 minuti?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mozhe li deneska, ama vo 7h?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "da go pomerime sostanokot za utre sabajle?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "mozheme li utre istovo vreme?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze za eden saat da se vidime?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze li vo 5 umesto vo 4?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze li utre popladne?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "da go premestime za drugiot den?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze li malku porano, vo 12?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    }
+  ]
+}

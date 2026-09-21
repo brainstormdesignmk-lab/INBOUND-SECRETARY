@@ -1,0 +1,127 @@
+{
+  "bankKey": "(owner-contact ask)",
+  "rows": [
+    {
+      "phrase": "moze direktno so sopstvenikot ?",
+      "verdict": "COVERED",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dajte mi go brojot na gazdata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sopstvenikot moze li da go javam?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "posredno ne sakam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da mi go dades brojot od gazdava",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze li direktno so sopstvenikot da se cueme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "jas sakam so gazdata licno da zboruvam",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dajte mi kontakt od gazdata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daj brojot na sopstvenikot be brat",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze li broj od gazda da mi pustite",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ne sakam preku agencija, daj broj na gazda",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze li direktno so gazdata kontakt",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dajte mi go direktniot broj na sopstvenikot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kako mozam da stapam vo kontakt so gazdata",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "daj mi go brojot na covekot sto e gazda",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "jas sakam direktno so gazdata da se dogovoram",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

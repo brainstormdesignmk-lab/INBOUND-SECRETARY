@@ -1,0 +1,141 @@
+{
+  "bankKey": "provision.who",
+  "rows": [
+    {
+      "phrase": "koj ja plakja provizijata ?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "plakja li kupuvacot provizija ili prodavacot?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "кој ја плаќа комисијата кај вас",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koj ja plakja provizijata, jas ili sopstvenikot?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "provizijata e 50-50 ili samo prodavacot plakja?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "дали купувачот плаќа провизија?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dali sopstvenikot plaka agenciska provizija",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "кој ја сноси провизијата за стан?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "koj gi plakja vasite uslugi kupuvac ili prodavac?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "плаќа ли купувачот нешто кај вас?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "provizija koj plaka, kupuvacot ili prodavac?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dali i dvete strani plakjaat provizija?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Кој плаќа провизија, јас или газдата?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "koj e zadolzen za provizijata?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "сопственикот ли ја плаќа агенцијата?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali prodavacot e toj sto plaka provizija?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "provisionAsk"
+      ],
+      "benign": []
+    }
+  ]
+}

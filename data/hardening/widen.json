@@ -1,0 +1,123 @@
+{
+  "bankKey": "(widen-criteria branch)",
+  "rows": [
+    {
+      "phrase": "sirok opseg , i nad 250",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze i nadvor od centar",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "location"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "razgledajte siroko",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "i do 300 da bide",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ne mora novo",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "puste i poshiroko",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mozhe i stanche pomalo",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dajte i nadvor od grad",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "i poskapo moze, do 200k",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "budget"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "mozhe i postaro, bitno lokacija",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "pogolem budzet pisuvam, gledajte se",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mozhe i stan vo gradba",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "pustete i 4 sobni, se dogovarame",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "i 3 sobni gledajte, mozhe",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daj i bez lift, ne e problem",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "shiroko barajte, moze i 90 kvadrati",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

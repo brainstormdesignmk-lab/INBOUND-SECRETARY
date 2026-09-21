@@ -1,0 +1,130 @@
+{
+  "bankKey": "(rescheduling branch)",
+  "rows": [
+    {
+      "phrase": "togash ne mozam",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cancel"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "togash ne mozan",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mi odgovara",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "тогаш не одговара",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "po drugo vreme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не можам утре",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime",
+        "cancel"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "тогаш сум зафатен",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "во тој термин не",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cancel"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "во друго време можи",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не можам тогаш",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cancel"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "тогаш сум на работа",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "друг термин можи ли",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не ми одговара времето",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "тогаш ич не можам",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cancel"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "друг саат подобро",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

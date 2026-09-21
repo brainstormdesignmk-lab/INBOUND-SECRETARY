@@ -1,0 +1,121 @@
+{
+  "bankKey": "discovery.ask.service",
+  "rows": [
+    {
+      "phrase": "baram pod kirija",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sakam da kupam stan",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "baram stan za izdavanje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mene mi treba pod krija",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kupuvam kuka vo Skopje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "baram nesto pod kirija",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sakam da kupem nesto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "za ziveenje da kupam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "izdavam ili prodavam? nene, baram pod kirija",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "baram stance za krienje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kupujem stan vo centar",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sakam kirija vo Aerodrom",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "both"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "baram da kupam plac",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "stan pod kirija bitola",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sakam da kupam garsonjera",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "garage"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "baram stance za kupuvanje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

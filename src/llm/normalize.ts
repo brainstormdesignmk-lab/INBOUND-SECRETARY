@@ -31,7 +31,7 @@ const SINGLES: Record<string, string> = {
   o: 'о', p: 'п', r: 'р', s: 'с', t: 'т', u: 'у', v: 'в',
   z: 'з',
   // Precomposed Latin diacritics → their Macedonian letters
-  č: 'ч', ć: 'ќ', š: 'ш', ž: 'ж', đ: 'ѓ', ѐ: 'ѐ',
+  č: 'ч', ć: 'ќ', š: 'ш', ž: 'ж', đ: 'ѓ', ǵ: 'ѓ', ѐ: 'ѐ',
 };
 
 const MAX_DIGRAPH = Math.max(...DIGRAPHS.map(([k]) => k.length));
