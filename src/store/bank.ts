@@ -26,6 +26,9 @@ export const FROZEN_BANK_KEYS = new Set([
   'fee.persuade.1.buy', 'fee.persuade.1.rent',
   'fee.persuade.2.buy', 'fee.persuade.2.rent',
   'fee.why', 'investment.opinion', 'price.ask',
+  // Price-freshness disclaimer (08:50 protocol): system price + owner-relay
+  // policy. Data-carrier ({price}) + funnel-critical wording.
+  'price.freshness',
   // Bare "zosto?" push-back on the address-privacy rule — same family as
   // fee.why: fixed protocol answer, frozen pool, never enriched.
   'address.why',
@@ -46,6 +49,12 @@ export const FROZEN_BANK_KEYS = new Set([
   // not-found pivot (with {eb} substitution). Data-carrying (the EB) + a
   // policy-critical dead-end breaker — frozen, seeded-only.
   'property.notfound',
+  // The 21:05 fix: the visit-command accept close ("dogovori mi" after the
+  // fee talk). Funnel-critical transition line — frozen, seeded-only.
+  'visit.scheduled',
+  // The 22:18 fix: TTL-expiry resume bridge for mid-funnel sessions. Keeps
+  // the funnel alive across long gaps instead of resetting to the greeting.
+  'session.resume',
 ]);
 
 /** Data-driven keys: the answer's FACTS come from the property row, the owner

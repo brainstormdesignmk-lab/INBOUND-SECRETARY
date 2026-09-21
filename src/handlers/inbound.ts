@@ -10,10 +10,10 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectBudget, detectExhaustedFollowUp, detectRemark, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
-import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
-import { inferPropertyId } from '../llm/classify';
+import { inferPropertyId, propertyOnTable } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -225,7 +225,7 @@ export class InboundHandler {
     // bridge, same role as the Latin→Cyrillic script bridge.
     const sig = extractMentionSignals(text);
     let poi: MentionPoi | undefined;
-    if (sig.descriptor && sig.descriptor.trim().length >= 4) {
+    if (sig.descriptor && sig.descriptor.trim().length >= MIN_POI_DESCRIPTOR) {
       const hit = this.landmarks?.findPlace(sig.descriptor);
       if (hit) poi = { name: hit.name, lat: hit.lat, lon: hit.lon };
     }
@@ -463,7 +463,27 @@ export class InboundHandler {
     // synthetic TUI/sim chatIds block nothing.
     if (this.blocklist.isBlocked(chatId, session.slots.phone)) return;
 
-    if (isExpired(session, this.cfg.chatTtlMinutes)) resetToIdle(session);
+    // TTL expiry — resume or reset (the 22:18 bug). The visit offer sat on
+    // the table past the TTL and the client answered "ORGABIZIRAJ MI" 73
+    // minutes later; the old code reset the funnel to idle mid-close and the
+    // message was eaten by the fresh greeting. Reset only from CLOSED states
+    // (idle/intent/discovery — nothing was offered yet). Mid-funnel states
+    // RESUME: keep state/slots/history, just re-anchor with a short bridge
+    // line so the client knows the offer is still live.
+    if (isExpired(session, this.cfg.chatTtlMinutes)) {
+      const funnelOpen = ['presentation', 'property_query', 'property_locate', 'closing',
+        'contact_collection', 'visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state);
+      if (funnelOpen) {
+        touchInbound(session);
+        const bridge = pickVariant('session.resume', { recent: assistantTexts(session) })
+          ?? 'Враќаме се на вашиот избор — сè уште важи. Организираме посета?';
+        pushHistory(session, { role: 'assistant', text: bridge }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, bridge, 'deterministic:resume');
+        return;
+      }
+      resetToIdle(session);
+    }
 
     if (session.resetGreeting) {
       session.resetGreeting = false;
@@ -638,6 +658,53 @@ export class InboundHandler {
       // untouched (LLM handles it with full context).
     }
 
+    // PRICE FRESHNESS (08:50 protocol) — "a dali mu e uste taa cena?" (the
+    // client asks whether the price already quoted is still current). The
+    // reply is NEVER a bare amount: system price = LAST KNOWN price, owners
+    // change terms without telling the agency. Serve the disclaimer + contact
+    // ask; the client's "да" rides the EXISTING ownerContactPending agreement
+    // gate → fee → visit workflow (no new funnel steps invented). Runs BEFORE
+    // the INFO block (which would serve the flat "чини X евра" quote) and
+    // before the fast price ask. Requires a property on the table AND a price
+    // in the slot (a brand-new search with no price yet has nothing to be
+    // "still" current — it stays a plain price.ask). The named-mention case
+    // binds the named property, ambiguity asks back once.
+    if (detectPriceFreshness(text)
+      && (session.slots.propertyId || session.slots.interestedPropertyId
+        || session.slots.presentedIds?.length)
+      && !detectRemark(text)
+      && !detectBudget(text)
+      && !detectService(text) && !detectBothServices(text)) {
+      const mbFresh = await this.bindMention(text, session, { historyFallback: true });
+      if (await this.sendIfClarify(mbFresh, text, session)) return;
+      const ebFresh = mbFresh?.prop?.eb
+        ?? inferPropertyId(text)
+        ?? session.slots.propertyId ?? session.slots.interestedPropertyId
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+      if (ebFresh) {
+        const pFresh = await this.deps.properties.getById(ebFresh)
+          ?? (await this.loadProps(session, false, true)).find(x => x.eb === ebFresh);
+        const priceNum = pFresh?.price ?? parseFloat(session.slots.lastPrice ?? '');
+        if (priceNum && Number.isFinite(priceNum)) {
+          session.slots.interestedPropertyId = ebFresh;
+          session.slots.ownerContactPending = true;
+          if (session.state !== 'closing') session.state = 'closing';
+          const freshReply = pickVariant('price.freshness', {
+            recent: assistantTexts(session),
+            vars: { price: `${priceNum.toLocaleString('mk-MK')} евра` },
+          }) ?? `Последната цена што ја имаме во системот е ${priceNum.toLocaleString('mk-MK')} евра. Сопствениците имаат пракса на менување на условите и цените без знаење на агенцијата. За моменталната достапност и цена морам да се консултирам со сопственикот. Дали би сакале да остварам контакт со сопственикот и да Ви дадам повратна информација?`;
+          routeLog(chatId, text, 'PRICE_FRESHNESS:fast');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: freshReply }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PRICE_FRESHNESS_FAST', userMsg: text, replyText: freshReply, replySource: 'deterministic', bankKey: 'price.freshness' }); } catch { /* ignore */ } }
+          console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-price-freshness) state=${session.state} src=deterministic bank=price.freshness`);
+          await this.sendRaw(session, freshReply, 'deterministic:fast');
+          return;
+        }
+      }
+    }
+
     // INFO-ASK (scope C) — "kolku e garsonjerata?", "a 63 kolku kvadrati",
     // "dali 76 ima lift?" — the public-add becomes quotable, same contract as
     // the where-is family: the property is bound by MENTION (EB, price, type,
@@ -697,13 +764,28 @@ export class InboundHandler {
     // the nag path repeats the landmark line; the confirm path answers from
     // the feed (and corrects a wrong area). Marker forms (znaci…) fall through
     // here and are handled by the confirm branch in the FSM chain below.
-    if (detectLocationNag(text) && !detectLocationConfirm(text)) {
+    // !detectWhereIs — "moram da znam kade e" (the 13:38 push) matches BOTH
+    // this detector and detectWhereIs. The nag branch serves shown[last] —
+    // after a pair presentation that is the WRONG property (EB 63 got served
+    // when the client was pushing about EB 69) — while the where-is branch
+    // binds by mention (historyFallback re-resolves the previous identity
+    // message). Location-suitability asks keep their nag answer; where-is
+    // questions belong to the rotation.
+    if (detectLocationNag(text) && !detectLocationConfirm(text) && !detectWhereIs(text)) {
       routeLog(chatId, text, 'LOCATION_NAG');
+      // MENTION BINDING (12:33 rule): a nag that NAMES the property
+      // ("garsonjerata kaj ambasadata") binds THAT property — shown[last]
+      // served EB 63 while the client was pushing about EB 69 (the pair bug
+      // this branch's own history documents). No mention keeps the legacy
+      // chain; ambiguity asks back once.
+      const mbNag = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mbNag, text, session)) return;
       // Find the property being discussed — same logic as WHERE_IS generic.
       const all = await this.deps.properties.getAll();
       const shownIds = new Set(session.slots.presentedIds ?? []);
       const shown = all.filter(p => shownIds.has(p.id));
-      const hit = shown[shown.length - 1]
+      const hit = mbNag?.prop
+        ?? shown[shown.length - 1]
         ?? (session.slots.propertyId
           ? await this.deps.properties.getByEb(session.slots.propertyId)
           : undefined)
@@ -768,7 +850,13 @@ export class InboundHandler {
       const all = await this.deps.properties.getAll();
       const shownIds = new Set(session.slots.presentedIds ?? []);
       const shown = all.filter(p => shownIds.has(p.id));
-      const cur = (ebInText
+      // Descriptor mentions bind too ("vo blizina na garsonjerata kaj
+      // ambasadata") — the numeric-only ebInText regex left those on
+      // shown[last] (the 00:09 class).
+      const mbNear = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mbNear, text, session)) return;
+      const cur = mbNear?.prop
+          ?? (ebInText
           ? await this.deps.properties.getByEb(ebInText).catch(() => undefined)
           : undefined)
         ?? shown[shown.length - 1]
@@ -826,7 +914,11 @@ export class InboundHandler {
       && !detectAvailabilityAsk(text) && !detectPriceAsk(text)
       && lastReplyWasNearby(assistantTexts(session).slice(-1)[0] ?? '')) {
       routeLog(chatId, text, 'NEARBY_THREAD');
-      // EB-anchored asks resolve the NAMED property (same rule as NEARBY_ASK).
+      // EB-anchored asks resolve the NAMED property (same rule as NEARBY_ASK);
+      // descriptor mentions bind too ("za garsonjerata kaj ambasadata") — the
+      // numeric-only ebInText regex left those on shown[last] (00:09 class).
+      const mbNear = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mbNear, text, session)) return;
       const ebInText = (() => {
         const m = text.match(/\b(?:na|на)\s+(\d{1,4})\b/i);
         return m ? parseInt(m[1], 10) : undefined;
@@ -834,7 +926,8 @@ export class InboundHandler {
       const all = await this.deps.properties.getAll();
       const shownIds = new Set(session.slots.presentedIds ?? []);
       const shown = all.filter(p => shownIds.has(p.id));
-      const cur = (ebInText
+      const cur = mbNear?.prop
+          ?? (ebInText
           ? await this.deps.properties.getByEb(ebInText).catch(() => undefined)
           : undefined)
         ?? shown[shown.length - 1]
@@ -1042,7 +1135,21 @@ export class InboundHandler {
         && !session.slots.service
         && !detectService(text) && !detectBothServices(text)
         && !detectDrugAlternative(text)
-        && !detectInvestmentOpinion(text)) {
+        && !detectInvestmentOpinion(text)
+        // EXCEPTION (00:09): the descriptor may carry PROPERTY INTEREST —
+        // "гарсоњерата кај Црногорска амбасада ми е интересна". With a property
+        // on the table that is an INTERESTED funnel message, not a guided
+        // search: property_locate would answer "Дали го знаете Евидентен број?"
+        // about the garsonjera Lina HERSELF had just offered. Interest wins;
+        // the classifier's funnel override routes it to closing. A cold
+        // interest line with nothing on the table keeps the guided search.
+        // EXCEPTION (19:28 family): same for AVAILABILITY asks — "дали е
+        // достапна гарсоњерата кај амбасадата?" is funnel traffic about a
+        // property on the table, never a guided search; the classifier's
+        // availability-with-known-EB guard (or the event-seam mention bind)
+        // routes it to the ack for THAT property.
+        && !(detectPropertyInterest(text) && propertyOnTable(session))
+        && !(detectAvailabilityAsk(text) && propertyOnTable(session))) {
       routeLog(chatId, text, 'PROPERTY_DESCRIPTION');
       const slots = extractSlots(text);
       if (!slots.service) {
@@ -1153,6 +1260,44 @@ export class InboundHandler {
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
+      // Praise WITHOUT a visit verb ("ODLICNA LOKACIJA IMA", "BAS TAKOV MI
+      // TREBA") — the 21:02 bug: with the LLM down the bare INTERESTED branch
+      // disclosed the fee BEFORE any visit interest. Session-mutating, so it
+      // must sit BEFORE the stateless fast-remark/LLM paths (mirror below at
+      // the FSM leg). Mark the property as liked + owner-contact pending and
+      // serve property.liked (enthusiasm + visit offer). NO fee here — the fee
+      // comes only after the client confirms. Same guards as the FSM mirror:
+      // fee-family and search-criteria messages keep their own paths.
+      if (detectEnthusiasm(text)
+        && (session.slots.propertyId || session.slots.interestedPropertyId || session.slots.presentedIds?.length)
+        && !detectPropertyInterest(text) && !detectVisitInterest(text)
+        && !detectAvailabilityAsk(text) && !detectRemark(text)
+        && !detectFeeWhy(text) && !detectFeeComplaint(text) && !detectFeeSurprise(text)
+        && !detectFeePaymentAgreement(text) && !detectInvestmentOpinion(text)
+        && !detectVisitTime(text)
+        && !detectBudget(text) && !detectService(text) && !detectBothServices(text)
+        && !detectHouse(text) && !detectBusiness(text) && !detectPriceAsk(text)
+        && !detectWhereIs(text) && !detectExactAddressAsk(text)
+        && !detectAgreement(text)
+        && (session.state !== 'closing' || !!session.slots.ownerContactPending)) {
+        const eb = session.slots.propertyId ?? session.slots.interestedPropertyId
+          ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+        if (eb) {
+          session.slots.interestedPropertyId = eb;
+          session.slots.ownerContactPending = true;
+          if (session.state !== 'closing') session.state = 'closing';
+        }
+        const liked = pickVariant('property.liked', { recent: assistantTexts(session) })
+          ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
+        routeLog(chatId, text, 'ENTHUSIASM:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: liked }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'ENTHUSIASM_FAST', userMsg: text, replyText: liked, replySource: 'deterministic', bankKey: 'property.liked' }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-enthusiasm) state=${session.state} src=deterministic bank=property.liked`);
+        await this.sendRaw(session, liked, 'deterministic:fast');
+        return;
+      }
       // Conversational remark about the property under discussion ("DOBRA
       // LOKACIJA IMA", "ubavo mesto") — the 22:05 bug: it fell through to the
       // STAY card re-serve (property_query) or the INTERESTED fee jump. A
@@ -1190,7 +1335,12 @@ export class InboundHandler {
         // Without it Gemini hallucinates availability. And if the LLM fails,
         // the fallback re-serves THE CURRENT property's card — the only card
         // that is never "offering other properties" junk.
-        const remarkEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+        // A remark that NAMES a property gives the brain THAT property as
+        // context ("ubava e garsonjerata kaj ambasadata") — the stale slot
+        // fed it the wrong card (00:09 class). No clarify here: a remark
+        // must stay frictionless; an unresolved mention keeps the old chain.
+        const mbRemark = await this.bindMention(text, session);
+        const remarkEb = mbRemark?.prop?.eb ?? session.slots.propertyId ?? session.slots.interestedPropertyId
           ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
         const remarkProp = remarkEb ? await this.deps.properties.getById(remarkEb).catch(() => undefined) : undefined;
         const r = await this.deps.responder.respond(session, remarkProp ? [remarkProp] : [], text);
@@ -1209,10 +1359,22 @@ export class InboundHandler {
       // classifier as DETAILS_PROVIDED instead of being swallowed here.
       if (detectPriceAsk(text) && !detectBudget(text)
           && !detectProvisionAsk(text) && !detectProvisionWho(text) && !detectDrugAlternative(text)) {
-        const priceEb = session.slots.propertyId
+        // MENTION BINDING (12:33 rule, fast leg): this path PREEMPTS the FSM
+        // price branch (same detector guard, earlier in the pipeline), so
+        // without a bind here a NAMED price ask ("KOLKU E GARSONJERATA KAJ
+        // AMBASADATA?") answered from the stale shown[last] slot — the 00:09
+        // class. A clear mention binds THAT property; ambiguity asks back
+        // once (the FSM branch's own protocol, mirrored); no mention keeps
+        // the legacy chain.
+        const mbPriceFast = await this.bindMention(text, session);
+        const priceEb = mbPriceFast?.prop?.eb
+          ?? inferPropertyId(text)
+          ?? session.slots.propertyId
           ?? session.slots.interestedPropertyId
           ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
-        if (priceEb) {
+        if (mbPriceFast?.clarify) {
+          reply = mbPriceFast.clarify;
+        } else if (priceEb) {
           const p = await this.deps.properties.getById(priceEb);
           if (p?.price !== undefined) {
             const priceLoc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
@@ -1220,7 +1382,11 @@ export class InboundHandler {
             reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${locPrep(priceLoc)} ${priceLoc}` : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
             session.slots.lastPrice = String(p.price);
           } else {
-            reply = pickVariant('fee.ask.buy', { recent: assistantTexts(session) }) ?? 'Цената ја одредува сопственикот.';
+            // Price-less feed row: the “price” here IS the viewing fee — serve
+            // the fee.ask for the PROPERTY'S OWN service. A rental must never
+            // get the buy fee (audit fix; previously hardcoded 'fee.ask.buy').
+            const psvc = p?.service ?? session.slots.service ?? 'buy';
+            reply = pickVariant(psvc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) }) ?? 'Цената ја одредува сопственикот.';
           }
         } else {
           reply = 'За кое конкретно станува збор? Кажете ми Евидентен број и ќе Ви ја соопштам цената.';
@@ -1324,7 +1490,31 @@ export class InboundHandler {
     }
 
     // 2) Slots + FSM transition
-    const ev = classified.event;
+    // EVENT-SEAM MENTION BINDING (audit): several classifier guards stamp
+    // propertyId from the SLOTS (availability-with-known-EB, interest
+    // overrides) and the LLM may stamp its own guess — applySlots then pins
+    // that id into slots.propertyId, re-anchoring the WHOLE funnel (loadProps
+    // property_query trusts it exclusively). When THIS message names a
+    // property by anything (descriptor, type, price, POI anchor) and carries
+    // no bare EB, a UNIQUE mention bind outranks the slot/LLM-derived stamp
+    // (the 12:33 rule at the event level). An availability ask that binds is
+    // promoted to PROPERTY_ID_REQUESTED so the FSM's availability ack fires
+    // for THAT property (the [19:28] class: never "Дали го знаете Евидентен
+    // број?" about a property that is on the table). Ambiguous mentions fall
+    // through — the FSM branches ask back ONCE (clarify protocol); an
+    // explicit EB in the text is never overridden.
+    let ev = classified.event;
+    if (!inferPropertyId(text)) {
+      const mbEv = await this.bindMention(text, session);
+      if (mbEv?.prop) {
+        if (detectAvailabilityAsk(text) && ev.type !== 'PROPERTY_ID_REQUESTED'
+          && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE') {
+          ev = { type: 'PROPERTY_ID_REQUESTED', propertyId: mbEv.prop.eb };
+        } else if (ev.propertyId !== mbEv.prop.eb) {
+          ev.propertyId = mbEv.prop.eb;
+        }
+      }
+    }
     this.applySlots(session, ev);
     // "та цена" / "та cenа" — client references a previously discussed price
     // but no number is in the message. Resolve to the last answered price so
@@ -1380,6 +1570,14 @@ export class InboundHandler {
       else if (session.slots.propertyId) session.slots.interestedPropertyId = session.slots.propertyId;
       else if (session.slots.currentBatch?.length) session.slots.interestedPropertyId = session.slots.currentBatch[0];
       else if (session.slots.presentedIds?.length) session.slots.interestedPropertyId = session.slots.presentedIds[0];
+      // Service backfill (audit): the fee sites fall back to slots.service →
+      // props[0]?.service → 'buy'. Binding interest on a RENTAL without the
+      // slot left every later fee site defaulting to the buy fee. The
+      // property's own service is the truth — record it (async, best-effort).
+      if (session.slots.service === undefined && session.slots.interestedPropertyId !== undefined) {
+        const p = await this.deps.properties.getById(session.slots.interestedPropertyId).catch(() => undefined);
+        if (p?.service) session.slots.service = p.service;
+      }
     }
     if (ev.type === 'FEE_AGREED') session.slots.viewingFeeAgreed = true;
 
@@ -1797,7 +1995,8 @@ ${contactReminder}`;
         && detectPropertyInterest(text)
         && !detectRemark(text)
         && before !== 'closing'
-        && (before === 'property_query' || before === 'presentation' || before === 'discovery')) {
+        && (before === 'property_query' || before === 'presentation' || before === 'discovery'
+          || before === 'idle' || before === 'intent' || before === 'property_locate')) {
       // Enthusiasm: the client said 'mi se svigja 89' / 'zainteresiran sum' /
       // 'go sakam' — general interest (NOT explicit scheduling like 'кога
       // може да се погледне' / 'договори ми'). Send enthusiasm + visit offer,
@@ -1805,7 +2004,57 @@ ${contactReminder}`;
       // Availability asks ('дали е достапен?') are caught by detectPropertyInterest
       // exclusion (PROPERTY_INTEREST_RE doesn't match them), so they go to the
       // availability ack path below.
-      const eb = session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb;
+      // (00:09) before-guard widened to idle/intent/property_locate: from those
+      // states the old guard let the INTERESTED event fall to the responder's
+      // closing fallback, which fee-asked IMMEDIATELY — skipping the enthusiasm
+      // + visit-offer step the 21:02 rule mandates. Same pre-closing set as the
+      // praise branch below.
+      // MENTION BINDING (00:09): "GARSONJERAVA KAJ CRNOGORSKA AMBASADA MI E
+      // INTERESNA" — the enthusiasm belongs to the property the client NAMED
+      // (EB 76, offered two turns earlier), never to the stale slot or
+      // props[0]. A tie serves ONE clarify question instead of a guess (same
+      // protocol as the visit branch below).
+      const mb = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mb, text, session)) return;
+      const eb = mb?.prop?.eb
+        ?? session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb;
+      if (eb) {
+        session.slots.interestedPropertyId = eb;
+        session.slots.ownerContactPending = true;
+        session.state = 'closing';
+      }
+      reply = pickVariant('property.liked', { recent: assistantTexts(session) })
+        ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
+      bankKey = 'property.liked';
+
+    } else if (next === 'closing'
+        && detectEnthusiasm(text)
+        && !detectPropertyInterest(text)
+        && !detectVisitInterest(text)
+        && !detectAvailabilityAsk(text)
+        && !detectRemark(text)
+        && !detectAgreement(text)
+        && !detectFeeWhy(text) && !detectFeeComplaint(text) && !detectFeeSurprise(text)
+        && !detectFeePaymentAgreement(text) && !detectInvestmentOpinion(text)
+        && !detectExhaustedFollowUp(text)
+        && (before === 'property_query' || before === 'presentation' || before === 'discovery'
+          || before === 'idle' || before === 'intent' || before === 'property_locate'
+          || (before === 'closing' && !!session.slots.ownerContactPending))) {
+      // Praise WITHOUT a visit verb ("ODLICNA LOKACIJA IMA", "BAS TAKOV MI
+      // TREBA") — the 21:02 bug: the bare INTERESTED branch below disclosed
+      // the fee before the client ever said they want a visit. Serve
+      // property.liked (enthusiasm + visit offer); the fee comes only after
+      // the client confirms. Agreements ("да") are excluded — in closing they
+      // belong to the fee/owner-contact gates below. Re-praise after the
+      // visit offer (ownerContactPending) re-serves the offer; after the fee
+      // was disclosed it falls through to the closing catch-alls.
+      // MENTION BINDING (00:09): same protocol as the interest branch above —
+      // praise that NAMES a property ("taj kaj ambasadata e prekrasen") must
+      // anchor the funnel on THAT property, not on the stale slot.
+      const mb = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mb, text, session)) return;
+      const eb = mb?.prop?.eb
+        ?? session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb;
       if (eb) {
         session.slots.interestedPropertyId = eb;
         session.slots.ownerContactPending = true;
@@ -1837,9 +2086,11 @@ ${contactReminder}`;
       if (await this.sendIfClarify(mb, text, session)) return;
       const visitTarget = mb?.prop
         ?? props.find(p => p.eb === (session.slots.propertyId ?? session.slots.interestedPropertyId))
+        ?? props.find(p => p.eb === ev.propertyId)
         ?? props[0];
       if (visitTarget) session.slots.interestedPropertyId = visitTarget.eb;
       else if (session.slots.propertyId) session.slots.interestedPropertyId = session.slots.propertyId;
+      else if (ev.propertyId) session.slots.interestedPropertyId = ev.propertyId;
       session.state = 'closing';
       const service = session.slots.service ?? props[0]?.service ?? 'buy';
       const fee = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
@@ -1894,7 +2145,11 @@ ${contactReminder}`;
       // 3rd refusal → final persuasion attempt.
       // 4th+ refusal → pivot to alternative properties or graceful close.
       const rejections = session.slots.feeRejections ?? 1;
-      if (rejections <= 2) {
+      // Empty-props guard (audit): with no property on the table the pivot's
+      // criteria are all undefined and candidates() would return a raw
+      // city-wide batch — dumping random properties at a client mid-fee-fight.
+      // Without a current property, keep persuading (the ladder's fallback).
+      if (rejections <= 2 || !props[0]) {
         reply = feePersuasion(session.slots.service, rejections);
       } else {
         const cur = props[0];
@@ -1994,6 +2249,7 @@ ${contactReminder}`;
         reply = mbPrice.clarify;
       } else {
       const priceEb = mbPrice?.prop?.eb
+        ?? inferPropertyId(text)
         ?? session.slots.propertyId
         ?? session.slots.interestedPropertyId
         ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
@@ -2007,7 +2263,11 @@ ${contactReminder}`;
           reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${pricePrep} ${priceLoc}` : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
           session.slots.lastPrice = String(p.price);
         } else {
-          reply = pickVariant('fee.ask.buy', { recent: assistantTexts(session) }) ?? 'Цената ја одредува сопственикот. Дали сакате да го контактирам за да го пренесам Вашето прашање за цената?';
+          // Price-less feed row: the “price” here IS the viewing fee — serve
+          // the fee.ask for the PROPERTY'S OWN service. A rental must never
+          // get the buy fee (audit fix; previously hardcoded 'fee.ask.buy').
+          const psvc = p?.service ?? session.slots.service ?? 'buy';
+          reply = pickVariant(psvc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) }) ?? 'Цената ја одредува сопственикот. Дали сакате да го контактирам за да го пренесам Вашето прашање за цената?';
         }
       } else {
         reply = 'За кое конкретно станува збор? Кажете ми Евидентен број и ќе Ви ја соопштам цената.';
@@ -2022,6 +2282,49 @@ ${contactReminder}`;
       reply = pickVariant('investment.opinion', { recent: assistantTexts(session) })
         ?? 'Разбирам. Цените ги одредуваат сопствениците, а ние сме само посредници. Дали сакате да Ви понудам некои опции во друг реон, или да го контактирам сопственикот за моменталната цена?';
       bankKey = 'investment.opinion';
+    } else if (before === 'closing'
+        && next === 'closing'
+        && detectVisitInterest(text)
+        && (session.slots.viewingFeeAgreed || session.slots.ownerContactPending
+          || (session.slots.feeRejections ?? 0) >= 1)
+        && !detectAvailabilityAsk(text)
+        && !detectFeePaymentAgreement(text) && !detectInvestmentOpinion(text)
+        && !detectFeeWhy(text) && !detectFeeComplaint(text) && !detectFeeSurprise(text)
+        && !detectCheaperSearch(text) && !detectRemark(text)) {
+      // Visit COMMAND in closing: "AKO E TAKA TOGAS DOGOVORI MI" (21:05) —
+      // the client orders the visit. The original visit-interest branch skips
+      // closing-state entry (its before-guard is pre-closing only), the
+      // agreement catch-all needs a 'да/добро' token ('dogovori mi' has none),
+      // and the location.confirm branch (no event guard) then swallowed the
+      // message via its 'togas' marker — answering a visit order with a
+      // neighborhood confirmation. Two sub-cases:
+      //  - fee talk ALREADY happened (agreed, or a refusal/persuasion/why
+      //    round was spent — the 21:04–21:05 transcript): this order IS the
+      //    acceptance → close the funnel NOW: contact collection for name+phone
+      //    (the tail serves the deterministic contact ask), i.e. straight
+      //    toward the owner ping-pong.
+      //  - fee NOT yet disclosed (ownerContactPending from the availability
+      //    ack or the enthusiasm offer): the command doubles as the
+      //    confirmation → disclose the fee first (same contract as the
+      //    agreement gate below), never skip it.
+      const feeHandled = !!session.slots.viewingFeeAgreed || (session.slots.feeRejections ?? 0) >= 1;
+      if (feeHandled) {
+        session.slots.ownerContactPending = false;
+        session.slots.viewingFeeAgreed = true;
+        session.state = 'contact_collection';
+        next = 'contact_collection';
+        reply = pickVariant('visit.scheduled', { recent: assistantTexts(session) })
+          ?? 'Одлично! Ќе организирам посета — последниве информации и закажуваме.';
+        bankKey = 'visit.scheduled';
+      } else {
+        session.slots.ownerContactPending = false;
+        session.state = 'closing';
+        next = 'closing';
+        const service = session.slots.service ?? props[0]?.service ?? 'buy';
+        reply = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
+          ?? buildFeeAsk(service);
+        bankKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+      }
     } else if (detectLocationConfirm(text)
         && (before === 'property_query' || before === 'presentation' || before === 'closing' || before === 'property_locate')
         && session.slots.location
@@ -2037,12 +2340,18 @@ ${contactReminder}`;
       // parsed the named neighborhood as a fresh request and answered "немам
       // слободен имот во Водно" about a property that IS in Водно — stupid.
       const isQuestion = !isLocationConfirmMarker(text);
-      const confEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+      // MENTION BINDING (12:33 rule): a confirm that NAMES the property
+      // ("znaci garsonjerata kaj ambasadata e vo centar?") anchors on THAT
+      // property, never on the stale slot. A mention IS an explicit anchor,
+      // so it satisfies the tight-anchor rule for bare questions too.
+      const mbConf = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mbConf, text, session)) return;
+      const confEb = mbConf?.prop?.eb ?? session.slots.propertyId ?? session.slots.interestedPropertyId
         ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
       // Bare questions ("vo vodno li e?") have no znaci-marker to prove intent,
       // so they require a TIGHT anchor: an explicitly identified property.
       const anchor = isQuestion
-        ? (session.slots.propertyId ?? session.slots.interestedPropertyId)
+        ? (mbConf?.prop?.eb ?? session.slots.propertyId ?? session.slots.interestedPropertyId)
         : confEb;
       const confProp = anchor != null
         ? await this.deps.properties.getById(anchor).catch(() => undefined)

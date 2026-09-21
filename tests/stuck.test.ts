@@ -107,7 +107,29 @@ const ROWS: Property[] = [
   { eb: 77, id: 77, location: 'Водно', price: 300, service: 'rent', bedrooms: 2, size: '35 м²' },
 ];
 
-function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent: string[] } {
+// Variant of makeHandler with a custom property fixture — for tests that
+// need feed rows the shared ROWS cannot express (e.g. a price-less rental).
+function makeHandlerWithRows(rows: Property[]): { handler: InboundHandler; sessions: SessionStore; sent: string[] } {
+  const h = makeHandler();
+  const properties = new FakeProps(rows);
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const classifier = new Classifier(new FailingLlm(), cfg, properties);
+  const responder = new Responder(new FailingLlm(), cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+  });
+  void h; // the throwaway makeHandler() instance only warms module state
+  return { handler, sessions, sent };
+}
+
+function makeHandler(withFeeRefusal: boolean = false): { handler: InboundHandler; sessions: SessionStore; sent: string[] } {
   const cfg = loadConfig();
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
@@ -128,6 +150,24 @@ function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent:
     // tests never hit the OSM/Google network.
     landmarks: new LandmarkService(db, { osm: false }),
   });
+  // Production-premise override (see the 21:05 regression): the fee talk
+  // already happened before the visit command — one refusal/persuasion round
+  // (feeRejections), exactly like the 21:02–21:05 transcript. The hook sets
+  // the flag at the moment the visit-order message arrives, mirroring the
+  // classifier's FEE_REFUSED run from the earlier turn.
+  if (withFeeRefusal) {
+    const orig = handler.handle.bind(handler);
+    handler.handle = async (channel: string, chatId: string, text: string) => {
+      if (/DOGOVORI MI/i.test(text)) {
+        const cur = sessions.get(chatId);
+        if (cur && cur.state === 'closing') {
+          cur.slots.feeRejections = 1;
+          sessions.set(cur);
+        }
+      }
+      return orig(channel, chatId, text);
+    };
+  }
   return { handler, sessions, sent };
 }
 
@@ -2234,7 +2274,9 @@ test('bedroom mismatch: 2-bedroom requested but only 3-bedroom available → exp
   // Full discovery: buy + Кисела Вода + 2-bedroom + budget
   await send('SAKAM DA KUPAM DVOSOBEN STAN');
   await send('VO KISELA VODA');
-  await send('DVЕ SPALNI');
+  // Re-affirms the двособен request under the rooms convention (една спална = 2-собен).
+  // "DVE SPALNI" here would convention-read as 3-room and silently retarget the search.
+  await send('EDNA SPALNA');
   await send('DO 100000');
   // Properties presented — should include explanation about no 2-bedroom
   const reply = sent[sent.length - 1];
@@ -2673,4 +2715,256 @@ test('compliment reaches the real brain: conversational reply, never canned ack 
   assert.ok(!/сè уште (е )?во базата|сè уште стои достапен/i.test(pqReply), `canned availability ack: ${pqReply}`);
   assert.ok(RESPONSE_BANK['remark.ack'].includes(pqReply), `must serve a bank variant verbatim: ${pqReply}`);
   assert.ok(/Евидентен број 78/.test(sent[pqReplyIdx]), sent[pqReplyIdx]);
+});
+
+test('21:02 enthusiasm: praise WITHOUT a visit verb offers a visit first — the fee only after DA', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'enthusiasm-2102';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Present EB 78 (buy, Капиштец) — the property on the table. The search
+  // walks the discovery funnel: intent → area → bedrooms → budget → cards.
+  await send('ZDRAVO');
+  await send('SAKAM DA KUPAM STAN');
+  await send('VO KAPISHTEC');
+  await send('2 SPALNI');
+  await send('DO 185000 EVRA');
+  const s0 = sessions.get(chatId)!;
+  assert.ok(sent[sent.length - 1].includes('Евидентен број 78'), sent[sent.length - 1]);
+  assert.equal(s0.state, 'presentation');
+
+  // The exact 21:02 transcript lines: praise with NO visit verb, NO copula,
+  // NO interest word. The old behavior disclosed the 500 денари fee
+  // immediately (bare INTERESTED branch). Now: enthusiasm + visit OFFER.
+  await send('ODLICNA LOKACIJA IMA');
+  let s = sessions.get(chatId)!;
+  let reply = sent[sent.length - 1];
+  assert.equal(s.state, 'closing');
+  assert.ok(s.slots.interestedPropertyId === 78, `interestedPropertyId should be 78, got ${s.slots.interestedPropertyId}`);
+  assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set after the offer');
+  assert.ok(!reply.includes('500 денари'), `fee must NOT be disclosed yet: ${reply}`);
+  assert.ok(!reply.includes('провизија'), `fee must NOT be disclosed yet: ${reply}`);
+  assert.ok(RESPONSE_BANK['property.liked'].includes(reply), `must serve a property.liked variant: ${reply}`);
+
+  // Still praise, different phrasing — the offer is re-served (no fee leak).
+  await send('BAS TAKOV MI TREBA');
+  s = sessions.get(chatId)!;
+  reply = sent[sent.length - 1];
+  assert.equal(s.state, 'closing');
+  assert.ok(!reply.includes('500 денари'), `fee must NOT be disclosed yet: ${reply}`);
+  assert.ok(RESPONSE_BANK['property.liked'].includes(reply), `must serve a property.liked variant: ${reply}`);
+
+  // The client agrees to the visit offer -> NOW the fee is disclosed.
+  await send('DA');
+  s = sessions.get(chatId)!;
+  reply = sent[sent.length - 1];
+  assert.ok(reply.includes('500 денари'), `fee must be disclosed after DA: ${reply}`);
+  assert.ok(!s.slots.ownerContactPending, 'ownerContactPending should be cleared once the fee is shown');
+
+  // Fee agreed -> the normal funnel continues (contact collection).
+  await send('DA, SE SOGLASUVAM');
+  s = sessions.get(chatId)!;
+  assert.equal(s.state, 'contact_collection');
+});
+
+test('21:05 visit command after the fee talk: "AKO E TAKA TOGAS DOGOVORI MI" -> contact collection, NOT a location confirm', async () => {
+  const { handler, sessions, sent } = makeHandler(true);
+  const chatId = 'dogovori-2105';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // EB 78 on the table + the fee disclosed (state=closing).
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
+  assert.ok(sent[1].includes('500 денари'), sent[1]); // fee disclosed first
+  assert.equal(sessions.get(chatId)!.state, 'closing');
+
+  // The accept-order. In the production transcript the fee talk already
+  // happened (a refusal/persuasion round — feeRejections=1) before the client
+  // accepted with this visit command; the makeHandler(true) hook injects the
+  // flag at this exact point, mirroring the classifier's FEE_REFUSED run.
+  await send('AKO E TAKA TOGAS DOGOVORI MI');
+  const s = sessions.get(chatId)!;
+  const reply = sent[sent.length - 1];
+  assert.equal(s.state, 'contact_collection');
+  assert.ok(!s.slots.ownerContactPending, 'owner gate cleared');
+  assert.ok(s.slots.viewingFeeAgreed, 'fee flag set by the accept close');
+  assert.ok(/име и презиме/i.test(reply), `must close with the name+phone ask, got: ${reply}`);
+  assert.ok(!/се наоѓа/.test(reply), `must NOT be a location confirm: ${reply}`);
+  assert.ok(!/Дали сакате да организираме посета/.test(reply), `must not re-offer the visit: ${reply}`);
+});
+
+test('21:05b visit command BEFORE the fee was disclosed: the FEE comes first, never a fee skip', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'dogovori-feepending';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // EB 78 on the table, then the availability ask — the ack sets
+  // ownerContactPending (permission to contact the owner, fee NOT disclosed).
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  let s = sessions.get(chatId)!;
+  assert.equal(s.state, 'closing');
+  assert.ok(s.slots.ownerContactPending, 'owner-contact permission pending');
+  assert.ok(!sent[sent.length - 1].includes('500 денари'), 'fee not yet disclosed at the ack');
+
+  // The visit command doubles as the confirmation — but the frozen protocol
+  // is fee BEFORE owner contact, so the command must disclose the fee first,
+  // never jump straight to contact collection.
+  await send('AKO E TAKA TOGAS DOGOVORI MI');
+  s = sessions.get(chatId)!;
+  const reply = sent[sent.length - 1];
+  assert.equal(s.state, 'closing');
+  assert.ok(reply.includes('500 денари'), `fee must be disclosed first: ${reply}`);
+  assert.ok(!s.slots.ownerContactPending, 'pending cleared once the fee is shown');
+});
+
+test('22:18 TTL resume: a mid-close session survives the 73-min gap — bridge, never a greeting reset', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'resume-2218';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // EB 78 on the table, fee disclosed (closing) — then the client vanishes
+  // for 73 minutes (the 21:05 → 22:18 gap), past the 60-min TTL.
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
+  assert.ok(sent[1].includes('500 денари'), sent[1]);
+  assert.equal(sessions.get(chatId)!.state, 'closing');
+  const aged = sessions.get(chatId)!;
+  aged.lastInboundAt = Date.now() - 73 * 60_000;
+  sessions.set(aged);
+
+  // The client answers the pending offer — the funnel must RESUME, not reset.
+  await send('ORGABIZIRAJ MI');
+  const s = sessions.get(chatId)!;
+  const reply = sent[sent.length - 1];
+  assert.equal(s.state, 'closing', 'must stay mid-funnel, not reset to idle');
+  assert.equal(s.slots.interestedPropertyId, 78, 'slots survived the gap');
+  assert.ok(!s.resetGreeting, 'no greeting reset');
+  assert.ok(/посета/i.test(reply), `resume bridge expected: ${reply}`);
+  assert.ok(!/Добредојдовте|Добар ден|планирате купување/i.test(reply), `never a fresh greeting: ${reply}`);
+
+  // The conversation continues on the resumed session — "DA" accepts the
+  // re-asked offer, the fee was already disclosed, so the funnel closes to
+  // contact collection (name+phone) — the healthy path toward the ping-pong.
+  await send('DA');
+  const s2 = sessions.get(chatId)!;
+  assert.equal(s2.state, 'contact_collection');
+  assert.ok(/име и презиме/i.test(sent[sent.length - 1]), sent[sent.length - 1]);
+});
+
+test('22:18b visit-command typo "ORGABIZIRAJ MI" registers as visit interest — fee first, no flow reset', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'typo-2218';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
+
+  // The b↔n typo must NOT fall through to a flow reset — it is a visit
+  // command, so the fee-first protocol applies (state stays closing).
+  await send('ORGABIZIRAJ MI');
+  const s = sessions.get(chatId)!;
+  const reply = sent[sent.length - 1];
+  assert.equal(s.state, 'closing');
+  assert.equal(s.slots.interestedPropertyId, 78);
+  assert.ok(reply.includes('500 денари'), `fee-first on the visit command: ${reply}`);
+  assert.ok(!/Добредојдовте|Добар ден/i.test(reply), reply);
+});
+
+test('22:19 visit command + EB on a FRESH session: fee flow, never the card dump', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'visit-eb-2219';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Fresh session (post-reset greeting), then the exact 22:19 shape: an
+  // explicit visit command naming the EB. The bare number must supply the
+  // propertyId for the visit — never hijack into a property_query card dump.
+  await send('ZDRAVO');
+  await send('ORGANIZIRAJ MI POSETA ZA 78');
+  const s = sessions.get(chatId)!;
+  const reply = sent[sent.length - 1];
+  assert.equal(s.state, 'closing');
+  assert.equal(s.slots.interestedPropertyId, 78, 'the EB names the visit target');
+  assert.ok(reply.includes('500 денари'), `fee disclosure expected: ${reply}`);
+  assert.ok(!/м²|станбена површина/.test(reply), `must NOT be the property card: ${reply}`);
+
+  // The fee protocol continues normally from there.
+  await send('DA, SE SOGLASUVAM');
+  assert.equal(sessions.get(chatId)!.state, 'contact_collection');
+});
+
+test('22:19b bare visit command WITHOUT an EB on a fresh session: funnel asks, never closes', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'visit-noeb-2219';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZDRAVO');
+  await send('ORGANIZIRAJ MI POSETA');
+  const s = sessions.get(chatId)!;
+  assert.equal(s.state, 'idle'); // nothing to visit yet — the funnel asks for the property
+  assert.ok(!sent[sent.length - 1].includes('500 денари'), sent[sent.length - 1]);
+});
+
+test('rent funnel: visit command + RENT EB on a fresh session -> fee.ask.rent (300 денари), never the buy fee', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'visit-rent-eb';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // EB 48 (rent, Карпош III) — the visit command names a RENTAL property on a
+  // fresh session. The service slot is empty, so the fee must be derived from
+  // the TARGET property (rent → 300 денари), never the buy default.
+  await send('ZDRAVO');
+  await send('ORGANIZIRAJ MI POSETA ZA 48');
+  const s = sessions.get(chatId)!;
+  const reply = sent[sent.length - 1];
+  assert.equal(s.state, 'closing');
+  assert.equal(s.slots.interestedPropertyId, 48, 'the rent EB names the visit target');
+  assert.ok(reply.includes('300 денари'), `rent fee (300 денари) expected: ${reply}`);
+  assert.ok(!reply.includes('500 денари'), `buy fee leaked into the rent funnel: ${reply}`);
+
+  // The rent protocol continues: agreement -> contact collection.
+  await send('DA, SE SOGLASUVAM');
+  assert.equal(sessions.get(chatId)!.state, 'contact_collection');
+});
+
+test('rent funnel: visit command after the availability ack -> rent fee first (300 денари)', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'visit-rent-gate';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Audit guard, isolated fixture: a price-less RENTAL (price undefined) —
+  // the price-ask fallback on it must serve the RENT fee (300 денари), never
+  // the hardcoded buy fee the audit replaced.
+  const noPrice = makeHandlerWithRows([
+    { eb: 90, id: 90, location: 'Центар', price: undefined, service: 'rent' } as Property,
+    { eb: 80, id: 80, location: 'Кисела Вода', price: 46000, service: 'buy' },
+  ]);
+  await noPrice.handler.handle('test', 'no-price-rent', 'KOLKU E CENATA ZA STAN SO BROJ 90');
+  const noPriceReply = noPrice.sent[noPrice.sent.length - 1];
+  assert.ok(/300\s*денари/i.test(noPriceReply), `rent fee expected on a price-less rental: ${noPriceReply}`);
+  assert.ok(!noPriceReply.includes('500 денари'), noPriceReply);
+});
+
+test('rent funnel: visit command after the availability ack -> rent fee first (300 денари)', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'visit-rent-gate';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // EB 48 on the table (rent), availability ack sets ownerContactPending.
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 48');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  let s = sessions.get(chatId)!;
+  assert.equal(s.state, 'closing');
+  assert.ok(s.slots.ownerContactPending, 'owner-contact permission pending');
+  assert.ok(!sent[sent.length - 1].includes('300 денари'), 'fee not yet disclosed at the ack');
+
+  // The visit command doubles as the confirmation -> the RENT fee is
+  // disclosed first (300 денари), never the buy fee, never a skip.
+  await send('AKO E TAKA TOGAS DOGOVORI MI');
+  s = sessions.get(chatId)!;
+  const reply = sent[sent.length - 1];
+  assert.equal(s.state, 'closing');
+  assert.ok(reply.includes('300 денари'), `rent fee expected: ${reply}`);
+  assert.ok(!reply.includes('500 денари'), `buy fee leaked: ${reply}`);
+  assert.ok(!s.slots.ownerContactPending, 'pending cleared once the fee is shown');
 });

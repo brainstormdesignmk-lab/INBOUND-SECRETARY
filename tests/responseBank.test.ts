@@ -19,6 +19,10 @@ test('response bank: every entry is non-empty and placeholders live only where e
         // The NO-ADDRESS protocol + the 20:51 not-found pivot: {eb} is filled
         // at serve time with the Евидентен број of the property discussed.
         assert.ok((v.match(/\{eb\}/g)?.length ?? 0) >= 1, `${key}: "${v}"`);
+      } else if (key === 'price.freshness') {
+        // The 08:50 disclaimer carries the LAST-KNOWN price — filled at serve
+        // time from the property row / slot (a data-carrier, like price.ask).
+        assert.ok((v.match(/\{price\}/g)?.length ?? 0) === 1, `${key}: "${v}"`);
       } else {
         assert.ok(!v.includes('{'), `${key}: unexpected placeholder: "${v}"`);
       }

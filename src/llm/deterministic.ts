@@ -283,6 +283,18 @@ export function detectService(text: string): Service | undefined {
 // Cyrillic variants (clients type "MALO STANCE" more often than "мало станче").
 const SMALL_STAN_RE = /(мал[оаи]?\s+(стан|станче|стани)|мал[оа]?\s+(стан|станце|стани)|гарсоњера|гарсоњера|студио|студио)/i;
 
+// Word-number finder shared by the noun and bare-answer paths: "една"→1,
+// "две"→2 … "пет"→5, both scripts. Order matters — "една" must be tested
+// before "едно"-family words that could substring-collide.
+function matchWordNumber(text: string): number | undefined {
+  if (matchesBoth(/една|еден|едно|edna|eden|edno/iu, text)) return 1;
+  if (matchesBoth(/две|два|dve|dva/iu, text)) return 2;
+  if (matchesBoth(/три|tri/iu, text)) return 3;
+  if (matchesBoth(/четири|chetiri|cetiri/iu, text)) return 4;
+  if (matchesBoth(/пет|pet/iu, text)) return 5;
+  return undefined;
+}
+
 export function detectBedrooms(text: string): number | undefined {
   // Range pattern: "edna ili dve spalni" / "2 ili 3 sobi" — user is flexible,
   // take the LOWER bound so the search is inclusive.
@@ -313,6 +325,53 @@ export function detectBedrooms(text: string): number | undefined {
   }
   for (const [re, n] of BED_WORDS) {
     if (re.test(text)) return n;
+  }
+  // Word-number + bedroom/room NOUN, no digit: "dve spalni" / "три соби".
+  // BED_NUM_RE requires digits, BED_WORDS only room-type adjectives — these
+  // fell through and the funnel re-asked forever (same [13:44] bug as bare
+  // "EDNA"). The noun picks the convention: спални → +1 (bedrooms→rooms),
+  // соби maps directly. Placed AFTER BED_WORDS so "двособен" (adjective)
+  // wins over a stray "две" in the same breath. Half-fractions ("една и пол
+  // спални" = 1.5) are not a clean number — old behavior returned nothing.
+  if (!/(?:^|[\s,.:;!?])пол(?:[\s,.:;!?]|$)/iu.test(text) && !/\bpol\b/iu.test(text)) {
+    if (BED_ONLY_RE.test(text)) {
+      const wn = matchWordNumber(text);
+      if (wn) return wn + 1;
+    } else if (/(соби|соба|sobi|soba)/iu.test(text)) {
+      const wn = matchWordNumber(text);
+      if (wn) return wn;
+    }
+  }
+  // BARE number-word/digit answer — the funnel asked "колку спални соби?"
+  // and the client replies "EDNA" / "две" / "3" with no noun at all (the
+  // [13:44] transcript: the answer was swallowed TWICE and the question
+  // re-asked). Guarded hard, because a bare number word is ambiguous in the
+  // wild: no property type word ("сакам една гарсоњера" is a QUANTITY, not a
+  // bedroom answer — the garsonjera branch below keeps those), no budget or
+  // size numbers, and a short message (a funnel answer is 1–3 words).
+  // Room-count convention kept: "една" (1 спална) → 2, like BED_WORDS.
+  if (!/стан|stan\b|гарсоњер|garsonjer|куќ|kukj|делов|delov|плац|plac|локал|lokal/iu.test(text)
+    // A bedroom/room NOUN means the noun paths above own the answer (e.g.
+    // "dve spalni") — the bare branch is only for noun-less funnel replies.
+    && !/спалн|spaln|соб|sob/iu.test(text)
+    && !detectBudget(text)
+    && !/\d+\s*(?:м2|м²|m2)/iu.test(text)
+    && text.trim().split(/\s+/).length <= 3) {
+    const bareWords: Array<[RegExp, number]> = [
+      [/една|еден|едно|edna|eden|edno/iu, 2],   // 1 спална → 2-собен
+      [/две|два|dve|dva/iu, 3],
+      [/три|tri/iu, 4],
+      [/четири|chetiri|cetiri/iu, 5],
+      [/пет|pet/iu, 6],
+    ];
+    for (const [re, n] of bareWords) {
+      if (matchesBoth(re, text)) return n;
+    }
+    const bareDigit = text.trim().match(/^(\d)$/u);   // "2" = 2 спални → 3-собен
+    if (bareDigit) {
+      const n = parseInt(bareDigit[1], 10);
+      if (n >= 1 && n <= 5) return n + 1;
+    }
   }
   if (matchesBoth(SMALL_STAN_RE, text)) return 1;
   return undefined;
@@ -601,7 +660,10 @@ export function detectVisitInterest(text: string): boolean {
   // Grammar slot check: reversed word orders, 3rd-person види, gerund погледање
   if (matchesBoth(_visitSlotsRe, text)) return true;
   // Typo fallback: "posetS", "razgledSa" — long unambiguous visit words only.
-  return fuzzyHasToken(text, ['разгледам', 'разгледање', 'посета']);
+  // The imperatives join them (the 22:18 bug: "ORGABIZIRAJ MI" — b↔n is ONE
+  // edit from "organiziraj") after Lina's visit offer sat unanswered past the
+  // chat TTL; the resume path needs the command recognized to close the funnel.
+  return fuzzyHasToken(text, ['разгледам', 'разгледање', 'посета', 'организирај', 'закажи']);
 }
 
 // Property interest: the client expresses positive sentiment about a shown
@@ -626,7 +688,7 @@ const PROPERTY_INTEREST_RE = new RegExp(
 const ME_INTEREST_RE = /ме\s+(?:интересира|интригира|заинтересира|заним[ае])/iu;
 
 /** True when the client expresses interest in a specific property. */
-const PROPERTY_NEGATION_RE = /(?:не|не)\s+(?:ми\s+се|ми\s+се)\s+(?:сви[ѓг]а|свига|допа[ѓг]а|допага|свиѓ|допаг)|(?:не|не)\s+(?:го|го)\s+(?:сакам|сакам)|(?:не|не)\s+(?:сум|сум)\s+(?:заинтересиран|заинтересиран)|(?:не|не)\s+(?:ме|ме)\s+(?:интересира|интригира|заинтересира|заним[ае])/i;
+const PROPERTY_NEGATION_RE = /(?:не|не)\s+(?:ми\s+се|ми\s+се)\s+(?:сви[ѓг]а|свига|допа[ѓг]а|допага|свиѓ|допаг)|(?:не|не)\s+(?:го|го)\s+(?:сакам|сакам)|(?:не|не)\s+(?:сум|сум)\s+(?:заинтересиран|заинтересиран)|(?:не|не)\s+(?:ме|ме)\s+(?:интересира|интригира|заинтересира|заним[ае])|(?:не|ne)\s+(?:ми|mi)\s+(?:е|e)\s+(?:интересн)/i;
 // Single-letter-typo fallback: long unambiguous tokens only — "заинтересиран" slips
 // ("zainteresiraa", "интересираа") miss every listed spelling. Deliberately NO
 // свиѓа/допаѓа here: those are CLITIC forms whose meaning depends on word order
@@ -634,10 +696,38 @@ const PROPERTY_NEGATION_RE = /(?:не|не)\s+(?:ми\s+се|ми\s+се)\s+(?:�
 // "svigja" exactly onto "свиѓа" — token fuzz would break that contract.
 const INTEREST_FUZZY_KWS = ['заинтересиран', 'интересира'];
 
+// "ми е интересна / mi e interesna" — the interest ADJECTIVE after the dative
+// copula. The adjective+copula arms in PROPERTY_INTEREST_RE list only the
+// sentiment adjectives (убав/добар/прекрасен), so the 00:09 transcript
+// ("GARSONJERAVA KAJ CRNOGORSKA AMBASADA MI E INTERESNA") matched NONE of
+// them: the deterministic classifier saw only the garsonjera type word,
+// tagged the message DETAILS_PROVIDED and the funnel re-fired the SEARCH
+// engine — presenting a different property while the client was pointing at
+// the one already on the table.
+const MI_E_INTEREST_RE = /ми\s+е\s+(?:интересна|интересно|интересен)/iu;
+
 export function detectPropertyInterest(text: string): boolean {
   if (matchesBoth(VISIT_NEGATION_RE, text) || matchesBoth(PROPERTY_NEGATION_RE, text)) return false;
   if (PROPERTY_INTEREST_RE.test(text) || matchesBoth(ME_INTEREST_RE, text)) return true;
+  if (matchesBoth(MI_E_INTEREST_RE, text)) return true;
   return fuzzyHasToken(text, INTEREST_FUZZY_KWS);
+}
+
+// Praise WITHOUT a visit verb — "ODLICNA LOKACIJA IMA", "BAS TAKOV MI TREBA",
+// "odlicen stan". Neither PROPERTY_INTEREST_RE (no adjective+copula pair; no
+// interest word) nor VISIT_INTEREST_RE (no pogledn/vidam/zakaz stem) fires, so
+// these texts used to fall through to the bare INTERESTED branch and disclose
+// the viewing fee IMMEDIATELY — before the client ever said they want a visit
+// (the 21:02 transcript). Praise gets the enthusiasm + visit-offer reply; the
+// fee comes only after the client agrees. Everything fee-flow (fee.why /
+// complaint / surprise / payment agreement / scheduling) is checked by its own
+// detector FIRST in the routing chains — order there, not here.
+const ENTHUSIASM_RE =
+  /(?<![\p{L}\p{N}])odlicn(?:a|o|en|ni)?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])одличн(?:а|о|ен|и)?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])prekrasn(?:a|o)?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])прекрасн(?:а|о)?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])bas\s+takov(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])баш\s+таков(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])takov\s+mi\s+treba(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])таков\s+ми\s+треба(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])super(?:\s+(?:e|је|je))?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])супер(?:\s+(?:е|је))?(?![\p{L}\p{N}])/iu;
+
+/** True when the client praises the property without asking for anything. */
+export function detectEnthusiasm(text: string): boolean {
+  return matchesBoth(ENTHUSIASM_RE, text);
 }
 
 // "MI FATI OKO 94" / "ми фати окото" — the property CAUGHT THE CLIENT'S EYE
@@ -981,9 +1071,17 @@ export function detectFeePaymentAgreement(text: string): boolean {
 // fee disclosure path.
 const INVESTMENT_OPINION_RE = /(?:не\s*знам\s+дали|neznam\s+dali|незнам\s+дали)[^.!?\n]{0,40}(?:паметно|разумно|исплат|вреди|вреди|инвестира|купи|купувам)|(?:цените|цена|ceni|cena)[^.!?\n]{0,30}(?:превисок[иае]|висок[иае]|скап[иаео]|previsok[iae]|visok[iae]|skap[iae]| padna|опаѓаат|опаѓа)|(?:превисок[иае]|висок[иае]|скап[иаео]|skap[iae]|previsok[iae]|visok[iae])[^.!?\n]{0,30}(?:цените|цена|ceni|cena)|(?:инвестира|инвестиција|инвестирање|investira|investicij|investiranje|вложу|vlozu)[^.!?\n]{0,30}(?:р[аа]змисл|размислув|pakuvam|risks?|nevkl|е\s+ризичн|е\s+risik|е\s+скапо)|(?:е\s+паметно|e\s+pametno|е\s+разумно|e\s+razumno)[^.!?\n]{0,20}(?:да\s+купи|да\s+инвестира|da\s+kupi|da\s+investira)|(?:скапо|skapo|скапи|skapi)[^.!?\n]{0,20}(?:богами|богами|vauf|вау|бре|brate|bro|брате|jeez|џејз|бомба|бомб)|(?:цените?|цена|ceni|cena|ценови)[^.!?\n]{0,30}(?:отидоа|отиде|одат|отишле|отиде|отидов|otidoa|otishe|otisle|odat)[^.!?\n]{0,20}(?:без\s+трага|без\s+траги|без\s+след|во\s+бес\s*трага|в\s+бестрага|vo\s+bestraga|bestraga)/iu;
 
+// Verb-carried complaint (09:41): "MNOGU SE POSKAPEA STANOVIVE" — the
+// sentiment rides the VERB (поскапеа), no цена noun present, so the noun
+// families above never match. PAST-TENSE forms only: поскапеа/поскапе/
+// поскапоа + Latin poskapea/poskape/poskapoa. The neuter поскапо/poskapo
+// ("A NESTO POSKAPO DO 1000 EVRA") is a BUDGET REFINEMENT, not a complaint —
+// deliberately excluded (the stuck.test regression pins that funnel path).
+const INVESTMENT_VERB_RE = /(?<![\p{L}])(?:поскапеа|поскапе|поскапоа|poskapea|poskape|poskapoa)(?![\p{L}])/iu;
+
 /** True when the client expresses an investment/market opinion. */
 export function detectInvestmentOpinion(text: string): boolean {
-  return matchesBoth(INVESTMENT_OPINION_RE, text);
+  return matchesBoth(INVESTMENT_OPINION_RE, text) || matchesBoth(INVESTMENT_VERB_RE, text);
 }
 
 // The client makes a CONVERSATIONAL REMARK about the property — a compliment
@@ -1664,11 +1762,33 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   // the wrong-property fallback. Grammar, not phrase lists: location noun +
   // "на" + property-type noun + a question signal = the same WHERE_IS intent,
   // with WHICH property delegated to the mention resolver (mention: true).
+  //
+  // NARROWED (the 13:37 follow-up): only the LOCATION noun — "адресата на
+  // станот" (without каде) is an exact-address DEMAND and belongs to the
+  // privacy protocol, while "локацијата на гарсоњерата" is a where-is ask.
+  // каде-prefixed address questions never reach this rule — KADE_ADDR_NOUN_RE
+  // answers them first.
   {
     const n2 = normalizeMc(text);
-    const locOnProp = /(?:локација|адреса)[\p{L}]*\s+на\s+(?:(?:овој|оваа|тој|таа)\s+)?(?:стан|куќ|гарсоњер|имот|објект|плац|локал|деловн)/iu;
+    const locOnProp = /локациј[\p{L}]*\s+на\s+(?:(?:овој|оваа|тој|таа)\s+)?(?:стан|куќ|гарсоњер|имот|објект|плац|локал|деловн)/iu;
     const questionish = /\?\s*$/u.test(n2) || /(?:^|\s)(?:каде|која|кој|кое|дај|кажи|мораш|mora|moras)/iu.test(n2);
     if (locOnProp.test(n2) && questionish) return { place: '', generic: true, mention: true };
+  }
+
+  // ===== која-FAMILY LOCATION QUESTIONS (the 13:37 class) — "KOJA MU E
+  // LOKACIJATA NA OVOJ KAJ UJP ?" No каде-verb, so the каде-grammar rule
+  // never fires, and EXACT_ADDRESS's '(?:која … е локацијата)' branch answered
+  // a where-is question with the privacy protocol. Grammar, not phrase lists:
+  // која/кој + DATIVE (му/ми) + a location noun = asking where THE property
+  // is — the same WHERE_IS intent, with WHICH property delegated to the
+  // mention resolver. The dative is the tell: bare demands ("која е
+  // адресата?") and точната-адреса demands keep their EXACT_ADDRESS
+  // protocol behavior — only the possessive-carrying forms rotate landmarks.
+  {
+    const n3 = normalizeMc(text);
+    const kojaLoc = /(?:^|\s)кој[ајое]\s+(?:му|ми|ни|ве)\s+(?:(?:е|e|би|ке|ќе)\s+)?(?:локациј|адрес|улиц)/iu;
+    const precise = /(?:точн|тоцн|прецизн)/iu.test(n3);
+    if (kojaLoc.test(n3) && !precise) return { place: '', generic: true };
   }
 
   const m = text.match(WHERE_IS_RE);
@@ -2061,6 +2181,45 @@ export function detectProvisionWho(text: string): boolean {
 // "колку чини?", "what is the price?", "KE MU E CENATA?". Latin + Cyrillic.
 // "колку е 60.000" (stating a price) is NOT this — only questions.
 // "ne ja pamtam cenata" / "не ја памтам цената" — client forgot the price, wants it restated.
+/**
+ * PRICE FRESHNESS (08:50 protocol): "a dali mu e uste taa cena?", "dali
+ * prodaznata cena e nepromeneta?", "cenata dali e taa na oglasot / web
+ * stranicata?" — the client asks whether the price ALREADY quoted in the
+ * chat is still current. The answer is NEVER a bare amount: the system
+ * price is the LAST KNOWN price and owners change terms without telling
+ * the agency (owner-relay disclaimer + contact ask). detectPriceAsk
+ * matches "mu e uste taa cena" (its mu-e anchor) but NOT the
+ * unchanged/valid/ad-source family — this detector widens it and must be
+ * consulted BEFORE detectPriceAsk wherever freshness outranks the flat
+ * quote. A plain "kolku e cenata?" (no freshness marker) stays a price.ask.
+ */
+const PRICE_FRESH_KW_RE = /(?:цена|цената|цени|cena|cenata|ceni|price|евра|евро|еуро|eur)/iu;
+const PRICE_FRESH_STILL_RE = /(?:уште|сè\s*уште|сеуште|uste|use|still)/iu;
+const PRICE_FRESH_UNCHANGED_RE = /(?:непроменет|не\s*е\s*променет|не\s*се\s*менува|nepromenet|ne\s*e\s*promenet|ne\s*se\s*menuva|unchanged|(?<![\p{L}])ista(?:ta)?(?![\p{L}])|истата)/iu;
+const PRICE_FRESH_VALID_RE = /(?:важи|важечка|валидна|актуелн|vazhi|vazi|vazecka|validna|aktueln|aktualn)/iu;
+const PRICE_FRESH_SOURCE_RE = /(?:оглас|веб\s*стран|на\s*сајтот|oglas|web\s*stran|veb\s*stran|on\s*the\s*(?:ad|site)|ads?\b)/iu;
+// "mozno e da ima izmeni vo cenata?" — the client PROBES for changes (the
+// 08:50 opener). Question-shaped only: a statement like "cenata e
+// nepromeneta" belongs to the unchanged family, and "promen" alone would
+// collide with unrelated renew/change talk that happens to mention цена.
+const PRICE_FRESH_CHANGES_RE = /(?:измен|промен|менув|менит|izmen|promen|menuv|menit)/iu;
+const PRICE_FRESH_QUESTION_RE = /(?:\bdali\b|\bдали\b|\?)/iu;
+
+export function detectPriceFreshness(text: string): boolean {
+  if (!PRICE_FRESH_KW_RE.test(text)) return false;
+  // "mu e uste taa cena" — the still-current family
+  if (PRICE_FRESH_STILL_RE.test(text)) return true;
+  // "nepromeneta" / "ne se menuva" / "istata cena"
+  if (PRICE_FRESH_UNCHANGED_RE.test(text)) return true;
+  // "dali uste vazi cenata" / "cenata validna li e"
+  if (PRICE_FRESH_VALID_RE.test(text)) return true;
+  // "mozno e da ima izmeni vo cenata?" — probing for changes
+  if (PRICE_FRESH_QUESTION_RE.test(text) && PRICE_FRESH_CHANGES_RE.test(text)) return true;
+  // "cenata dali e taa na oglasot / web stranicata" — question mark + source
+  if (PRICE_FRESH_QUESTION_RE.test(text) && PRICE_FRESH_SOURCE_RE.test(text)) return true;
+  return false;
+}
+
 const PRICE_ASK_RE = /(?:која|колку|кое|која|колку|koe|koja|kolku|what\s+is|ke\s+mu\s+e|e\s+mu\s+e|mu\s+e)[^.!?\n]{0,20}(?:цена|цена|цени|цени|цената|cena|ceni|cenata|price|евра|евро|евра|евро|еуро|eur)|(?:колку|колку|kolku|kolku|колку|cenata|цена|cena|цена|price|евра|evra|евро|евро)[^.!?\n]{0,15}(?:чини|чини|iznesuva|изнесува|е|e|costs?|bi\s+trebalo)|\b(?:цена|цена|cena|cenata|цена|cenata|цени|ceni|price)\s*\?|\b(?:колку|колку|kolku|колку)\s*\?|(?:не|не|ne|ne)\s+(?:ја|ја|ja|ja|се|се|se|se)\s+(?:памтам|памтам|pamtam|pamtam|сеќавам|секавам|sekavam|запомнам|запомнам|zapomnam|zapomnam)(?:\s+(?:на|на|na|na))?[^.!?\n]{0,10}(?:цената|цената|cenata|cenata|цена|цена|cena|cena)|\b(?:не\s+ја\s+памтам|не\s+се\s+сеќавам|не\s+се\s+секавам|ne\s+ja\s+pamtam|ne\s+se\s+sekavam)\b[^.!?\n]{0,10}(?:цена|cenata)/iu;
 
 /** True when the client asks about the property price. */

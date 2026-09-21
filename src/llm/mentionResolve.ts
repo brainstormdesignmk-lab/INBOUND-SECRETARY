@@ -78,10 +78,13 @@ export function extractMentionSignals(text: string): MentionSignals {
 
   // Descriptor: the phrase after a proximity preposition — "кај Димитар
   // Миладинов", "до УЈП", "преку УЈП". Longest-allowed fragment; matched
-  // against each candidate's public-add text.
+  // against each candidate's public-add text. Acronym landmarks are as short
+  // as 3 letters ("kaj ujp" — УЈП is the feed's own ranked landmark for the
+  // 13:37 pair), so the window is {3,60}: the briefer the mention, the less
+  // evidence, and scoring below weighs what the fragment carries.
   // "до + NUMBER" is the BUDGET sense ("до 250 евра" = up to 250), never a
   // landmark — a digit-led fragment is a search criterion, not a descriptor.
-  const descM = norm.match(/(?:^|\s)(?:кај|до|преку|спроти|блиску)\s+(?![\d€])([^,?!.]{4,60})/);
+  const descM = norm.match(/(?:^|\s)(?:кај|до|преку|спроти|блиску)\s+(?![\d€])([^,?!.]{3,60})/);
   if (descM && !/^\d/.test(descM[1].trim())) s.descriptor = descM[1].trim();
 
   return s;
@@ -152,6 +155,12 @@ export function hasIdentitySignals(s: MentionSignals): boolean {
   return s.eb !== undefined || s.descriptor !== undefined || s.garsonjera === true || s.suteren === true;
 }
 
+/** Descriptors under this length are ACRONYM landmarks ("ујп", "тц"): too
+ *  brief to map-resolve reliably — a 3-letter fragment matches random
+ *  businesses — so the caller skips the map for them and relies on the
+ *  candidates' own landmark lists. */
+export const MIN_POI_DESCRIPTOR = 4;
+
 export interface MentionMatch {
   kind: 'unique' | 'ambiguous';
   eb?: number;                       // kind === 'unique'
@@ -187,6 +196,7 @@ function scoreCandidate(sig: MentionSignals, c: MentionCandidate, poi: MentionPo
   if (sig.descriptor) {
     const d = normalizeMc(sig.descriptor);
     if (d.length >= 4 && haystack(c).includes(d)) score += 3;            // text evidence (feed opis / landmark names)
+    else if (d.length === 3 && haystack(c).includes(d)) score += 2;      // acronym landmark ("kaj ujp") — real but weaker evidence
     else if (poi && c.lat !== undefined && c.lon !== undefined
       && haversineM(poi, { lat: c.lat, lon: c.lon }) <= DESCRIPTOR_MATCH_M) score += 3; // map evidence (name-language bridge)
   }

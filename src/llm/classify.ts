@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent } from './deterministic';
 
 export interface Classified {
   event: Event;
@@ -146,6 +146,20 @@ export function parseClassified(raw: string): Classified {
 const PROP_INTAKE_STATES = new Set(['idle', 'intent', 'discovery', 'property_locate', 'property_query', 'presentation']);
 
 /**
+ * True when a concrete property is on the table (presented batch, current
+ * search batch, or a known/interested EB). Property interest ("mi e
+ * interesna") only outranks the seen-property/search machinery when there
+ * is something to be interested IN — a cold interest line must not invent
+ * a binding. Also used by the handler's PROPERTY_DESCRIPTION interceptor.
+ */
+export function propertyOnTable(s: ChatSession): boolean {
+  return (s.slots.presentedIds?.length ?? 0) > 0
+    || (s.slots.currentBatch?.length ?? 0) > 0
+    || s.slots.propertyId !== undefined
+    || s.slots.interestedPropertyId !== undefined;
+}
+
+/**
  * Deterministic safety net: a bare 2-3 digit number in a property-intake state
  * is an Евидентен број even when the LLM doesn't say PROPERTY_ID_REQUESTED
  * ("заинтересирана сум за 78" — the user KNOWS what they want; Lina must not
@@ -203,8 +217,12 @@ export class Classifier {
     // --- Seen-property override ---
     // Only in intake states, and only when no bare number was extracted
     // (a number means the client knows the EB — easy lookup path).
+    // EXCEPTION: property interest with a property on the table is NOT a
+    // seen-property probe — "GARSONJERAVA ... MI E INTERESNA" (00:09) must
+    // reach the INTERESTED funnel override below, not property_locate.
     if (['idle', 'intent', 'discovery'].includes(session.state)
-      && !barePid && detectSeenProperty(text)) {
+      && !barePid && detectSeenProperty(text)
+      && !(detectPropertyInterest(text) && propertyOnTable(session))) {
       // GUARD: an availability ask is NEVER a seen-property probe, no matter
       // what the LLM said ("DALI SEUSTE E DOSTAPEN?" about the property the
       // client JUST named by EB — asking "do you know the EB?" back is the
@@ -303,11 +321,37 @@ export class Classifier {
     // --- Funnel overrides ---
 
     // Visit interest in property states → INTERESTED
+    // In property_query/presentation any visit phrase fires; in the intake
+    // states (idle/intent/discovery/property_locate) it must also NAME a
+    // property (bare EB via inferPropertyId) — "organiziraj poseta za 69" on
+    // a fresh session is a visit command for EB 69, never a card request.
     if (['property_query', 'presentation'].includes(session.state)
       && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
       && detectVisitInterest(text)) {
       const pid = ev.propertyId ?? session.slots.propertyId;
       ev = pid ? { type: 'INTERESTED', propertyId: pid } : { type: 'INTERESTED' };
+    }
+    if (['idle', 'intent', 'discovery', 'property_locate'].includes(session.state)
+      && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
+      && detectVisitInterest(text)
+      && inferPropertyId(text) !== undefined) {
+      ev = { type: 'INTERESTED', propertyId: inferPropertyId(text) };
+    }
+    // Property interest in a property context ("mi se svigja", "mi e
+    // interesna") — the client LIKES a property already on the table, they
+    // are not searching again. Without this, an LLM-down interest line that
+    // also carries a type word ("GARSONJERAVA ... MI E INTERESNA", 00:09)
+    // extracts garsonjera:true → DETAILS_PROVIDED → the presentation engine
+    // re-searches and shows a DIFFERENT property. Interest wins over slots —
+    // but only when a property is actually in play (presented batch, current
+    // batch, or a known EB), never on a cold "mi e interesna" with nothing
+    // on the table. Negations ("ne mi e interesna") are excluded inside
+    // detectPropertyInterest itself.
+    if (ev.type !== 'REJECTED' && ev.type !== 'ESCALATE' && ev.type !== 'INTERESTED'
+      && detectPropertyInterest(text)
+      && PROP_INTAKE_STATES.has(session.state)
+      && propertyOnTable(session)) {
+      ev = { type: 'INTERESTED', propertyId: session.slots.propertyId };
     }
 
     // Pure-agreement answer to the openness/location ask ("otvoren sum",
@@ -561,7 +605,8 @@ export class Classifier {
       && parsed.event.type !== 'PROPERTY_ID_REQUESTED'
       && parsed.event.type !== 'REJECTED'
       && !inferPid
-      && detectSeenProperty(text)) {
+      && detectSeenProperty(text)
+      && !(detectPropertyInterest(text) && propertyOnTable(session))) {
       const slots = extractSlots(text);
       // extractSlots leaves location empty (the feed's neighborhoods fill it) —
       // resolve it here so "oglasot za stan vo karpos" already carries Карпош.
@@ -702,12 +747,36 @@ export class Classifier {
     // above may have turned the message into PROPERTY_ID_REQUESTED, and that
     // must not swallow the explicit visit request). Deliberate non-visit
     // decisions (REJECTED, ESCALATE) are respected.
+    // Intake states (idle/intent/discovery/property_locate): the visit phrase
+    // must NAME the property (bare EB) — "organiziraj poseta za 69" (22:19)
+    // is a visit command for EB 69, never a card dump.
     if (['property_query', 'presentation'].includes(session.state)
       && parsed.event.type !== 'REJECTED'
       && parsed.event.type !== 'ESCALATE'
       && detectVisitInterest(text)) {
       const pid = parsed.event.propertyId ?? session.slots.propertyId;
       parsed.event = pid ? { type: 'INTERESTED', propertyId: pid } : { type: 'INTERESTED' };
+    }
+    if (['idle', 'intent', 'discovery', 'property_locate'].includes(session.state)
+      && parsed.event.type !== 'REJECTED'
+      && parsed.event.type !== 'ESCALATE'
+      && detectVisitInterest(text)
+      && inferPropertyId(text) !== undefined) {
+      parsed.event = { type: 'INTERESTED', propertyId: inferPropertyId(text) };
+    }
+    // Property interest in a property context — mirror of the deterministic
+    // override: even a fired-up model may label "GARSONJERAVA ... MI E
+    // INTERESNA" as DETAILS_PROVIDED/SEARCH_REQUESTED (the type word reads as
+    // a new search). The client is pointing at a property ALREADY on the
+    // table; the FSM turns INTERESTED into the enthusiasm + visit-offer flow
+    // with the NAMED property bound (the handler's mention resolver).
+    if (parsed.event.type !== 'REJECTED' && parsed.event.type !== 'ESCALATE'
+      && parsed.event.type !== 'INTERESTED'
+      && detectPropertyInterest(text)
+      && PROP_INTAKE_STATES.has(session.state)
+      && propertyOnTable(session)) {
+      parsed.event = { type: 'INTERESTED',
+        propertyId: parsed.event.propertyId ?? session.slots.propertyId };
     }
     // Pure-agreement answer to the openness/location ask ("otvoren sum") in
     // discovery = "no preference" → city-wide (anywhere). Mirror of the

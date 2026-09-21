@@ -70,6 +70,34 @@ test('the original bug phrases route to LANDMARK', () => {
   assert.equal(routesTo('kade mu e adresata'), 'LANDMARK');
 });
 
+test('13:37: the која-family with a dative rotates landmarks; bare точната-адреса keeps the protocol', () => {
+  // "која му е локацијата …" — no каде-verb, but it asks where THE property
+  // is → the landmark rotation, exactly like its каде sibling.
+  const wheres = [
+    'koja mu e lokacijata na ovoj kaj ujp',
+    'KOJA MU E LOKACIJATA NA STANOT KAJ DIMITAR MILADINOV ?',
+    'која му е локацијата?',
+    'koja mu e adresata?',
+    'која ми е локацијата',
+    'koje mu e lokacijata',
+  ];
+  for (const t of wheres) {
+    assert.equal(routesTo(t), 'LANDMARK', `expected LANDMARK for ${JSON.stringify(t)}`);
+  }
+  // The dative is the tell: bare demands and точната-адреса asks stay on the
+  // privacy protocol (the client asked PAST the neighborhood).
+  const protocols = [
+    'koja e tocnata adresa',
+    'која е точната адреса',
+    'koja e adresa na stanot',
+    'која е адресата?',
+    'koja e lokacijata?',
+  ];
+  for (const t of protocols) {
+    assert.equal(routesTo(t), 'PROTOCOL', `expected PROTOCOL for ${JSON.stringify(t)}`);
+  }
+});
+
 test('"something else well-known?" family advances the rotation (LANDMARK)', () => {
   const cases = [
     'DRUGO NESTO POZNATO ?', 'nesto poznato?',

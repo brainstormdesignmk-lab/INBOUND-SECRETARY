@@ -174,6 +174,44 @@ test('12:33 map bridge: "кај Црногорска амбасада" binds EB 
   offlineMap.close();
 });
 
+// THE 13:37 TRANSCRIPT — the pair presented as "стан 51 м² … до УЈП" +
+// "гарсоњера 28 м²". "koja mu e lokacijata na ovoj kaj ujp" must bind the
+// property the client NAMED (EB 69, whose feed landmarks carry УЈП) and the
+// push "moram da znam kade e" must STAY on it — not shown[last] (EB 63,
+// whose Бисер/embassy answer closed the loop). Acronym descriptors are 3
+// letters; the rotation serves the named property's own landmarks.
+test('13:37: "kaj ujp" binds EB 69; the push stays on EB 69; "garsonjerata" rebinds EB 63', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler(POIS_1233, ROWS_1233);
+  const s = freshSession('test', chat);
+  seed(s, [EB69, EB63]);
+  sessions.set(s);
+
+  // 1 — "која"-family where-is (no каде-verb) about "ovoje kaj ujp".
+  await handler.handle('test', chat, 'koja mu e lokacijata na ovoj kaj ujp');
+  const a1 = sent[sent.length - 1];
+  assert.ok(a1, 'the location question must be answered');
+  assert.ok(!/тачната адреса/iu.test(a1), `not the privacy protocol — the client asked WHERE: ${a1}`);
+  assert.ok(a1.includes('во близина на'), `a landmark line, not a deflection: ${a1}`);
+  assert.ok(!a1.includes('Бисер'), `must NOT serve the other pair member's landmark: ${a1}`);
+
+  // 2 — the push. No new signals: the chat's last uniquely-bound property
+  // (EB 69 from msg 1) stays in play — never the last item of the pair.
+  await handler.handle('test', chat, 'MORAM DA ZNAM KADE E');
+  const a2 = sent[sent.length - 1];
+  assert.ok(a2.includes('во близина на'), `the push continues the rotation: ${a2}`);
+  assert.ok(!a2.includes('Бисер'), `the push stays on EB 69 (never EB 63's landmark): ${a2}`);
+  assert.ok(
+    a2.includes('Embassy of Montenegro') || a2.includes('Димитар Миладинов') || a2.includes('УЈП'),
+    `the push serves EB 69's landmark set: ${a2}`);
+
+  // 3 — "гарсоњерата" can only mean EB 63 → ITS landmark.
+  await handler.handle('test', chat, 'kade e garsonjerata ?');
+  const a3 = sent[sent.length - 1];
+  assert.ok(a3.includes('Бисер'), `the garsonjera answer serves EB 63's landmark: ${a3}`);
+
+  offlineMap.close();
+});
+
 test('ambiguous mention asks back ONCE naming the options — never a silent guess', async () => {
   // Two Центар stands, both within 600 m of Рамстор Мол: "кај Рамстор"
   // cannot decide between them → Lina asks back with the labels.

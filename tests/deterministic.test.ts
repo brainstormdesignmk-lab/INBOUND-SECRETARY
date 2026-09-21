@@ -287,6 +287,23 @@ test('detectBedrooms: numbers and word forms', () => {
   assert.equal(detectBedrooms('zdravo'), undefined);
 });
 
+test('detectBedrooms: BARE funnel answers — "EDNA" / "2" after "колку спални?" (the [13:44] loop)', () => {
+  // The funnel asked "Колку спални соби би биле идеални?" — the client answers
+  // with the number word ALONE, no noun. Room-count convention kept: 1 спална → 2-собен.
+  assert.equal(detectBedrooms('EDNA'), 2);
+  assert.equal(detectBedrooms('една'), 2);
+  assert.equal(detectBedrooms('dve'), 3);
+  assert.equal(detectBedrooms('ДВЕ'), 3);
+  assert.equal(detectBedrooms('tri'), 4);
+  assert.equal(detectBedrooms('3'), 4);
+  assert.equal(detectBedrooms('2'), 3);
+  // NOT a bedroom answer: type word present, budget present, size, or long text
+  assert.equal(detectBedrooms('EDNA GARSONJERA'), 1);  // garsonjera branch wins (quantity, not an answer)
+  assert.equal(detectBedrooms('EDNA DO 250 EVRA'), undefined); // budget → not an answer
+  assert.equal(detectBedrooms('stan so edna spalna'), 2); // noun form unchanged
+  assert.equal(detectBedrooms('edna i pol spalni'), undefined); // range/half words keep old behavior
+});
+
 test('detectBedrooms: "спални" word forms count — spalni = bedrooms, +1 for room count', () => {
   // спални (bedrooms) → room count (bedrooms + 1)
   assert.equal(detectBedrooms('DVE SPALNI ОБАВЕЗНО А МОЖЕ И ТРИ'), 3);  // 2 bedrooms → 3-room

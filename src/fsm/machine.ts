@@ -52,6 +52,7 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
     SEARCH_REQUESTED: 'discovery',
     DETAILS_PROVIDED: 'discovery',
     REJECTED: 'discovery', // "не барам стан" -> pivot: ask what they DO want
+    INTERESTED: 'closing',           // visit command naming a property ("organiziraj poseta za 69")
     STAY: 'idle',
   },
   intent: {
@@ -61,6 +62,7 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
     SEARCH_REQUESTED: 'discovery',
     DETAILS_PROVIDED: 'discovery',
     REJECTED: 'discovery',
+    INTERESTED: 'closing',           // visit command naming a property ("organiziraj poseta za 69")
     STAY: 'intent',
   },
   // ESCALATE is legal from every conversational state: a client can ask for a
@@ -71,6 +73,7 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
     PROPERTY_ID_REQUESTED: 'property_query',
     SEEN_PROPERTY: 'property_locate',
     REJECTED: 'discovery', // denial of the current direction — pivot, don't re-ask
+    INTERESTED: 'closing',           // visit command naming a property ("organiziraj poseta za 69")
     ESCALATE: 'escalated',
     STAY: 'discovery',
   },
