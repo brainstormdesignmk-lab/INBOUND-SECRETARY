@@ -33,7 +33,10 @@
     "typecheck": "tsc --noEmit",
     "backup:to": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
-    "restore:to": "tsx scripts/restore.ts"
+    "restore:to": "tsx scripts/restore.ts",
+    "bank:review": "tsx scripts/review.ts",
+    "bank:meters": "tsx scripts/bank-meters.ts",
+    "loop:a": "tsx scripts/loop-a.ts"
   },
   "dependencies": {
     "better-sqlite3": "8.7.0",

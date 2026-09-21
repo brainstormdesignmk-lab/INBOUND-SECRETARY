@@ -135,6 +135,15 @@
       "target": true,
       "cross": [],
       "benign": []
+    },
+    {
+      "phrase": "na koja ulica e tochno zgradata",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "exactAddr"
+      ],
+      "benign": []
     }
   ]
 }

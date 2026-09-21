@@ -20,6 +20,7 @@ import '../src/compat/node16';
 import * as fs from 'fs';
 import { normalizeMc } from '../src/llm/normalize';
 import { FAMILIES } from './sweep-keys';
+import { FAMILY_EXT } from '../src/llm/detectorExt';
 
 interface Row { phrase: string; verdict: 'COVERED' | 'GAP' | 'CROSS'; target: boolean; cross: string[] }
 
@@ -85,6 +86,18 @@ function propose(corpora: Map<string, Row[]>): Proposal[] {
   for (const f of FAMILIES) {
     const rows = corpora.get(f.id);
     if (!rows) continue;
+    // Mine only rows the EXT itself covers — i.e. the base detector misses
+    // them. Rows the base already owns (bare "да", "добро", "контакт" …)
+    // must NEVER be re-absorbed into the ext: that is how a greedy gate
+    // starts firing on every message. Probing the base by temporarily
+    // nulling this family's ext.
+    const spec = f;
+    const baseFires = (phrase: string): boolean => {
+      const saved = FAMILY_EXT[f.id];
+      FAMILY_EXT[f.id] = { stems: null, idioms: null, literals: null, exclude: null };
+      try { return spec.target(phrase); } catch { return false; } finally { FAMILY_EXT[f.id] = saved; }
+    };
+    const mineFrom = rows.filter(r => r.target && !baseFires(r.phrase)).map(r => r.phrase);
     const gaps = rows.filter(r => r.verdict === 'GAP').map(r => r.phrase);
     const stems = new Set<string>();
     const idioms = new Set<string>();
@@ -92,7 +105,8 @@ function propose(corpora: Map<string, Row[]>): Proposal[] {
     const literals: string[] = [];
     const rivals = rivalTokens.get(f.id)!;
 
-    for (const phrase of gaps) {
+    for (const phrase of mineFrom) {
+      if (phrase === gaps[0]) { /* gaps still drive reporting below */ }
       literals.push(phrase);
       const words = wordify(phrase);
       // Negative-corpus exclusion at STEM level: a stripped stem must never
@@ -126,7 +140,7 @@ function propose(corpora: Map<string, Row[]>): Proposal[] {
     const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const excludeSrcs = new Set<string>();
     // Dangerous-family guards: explicit exclusion vocabulary.
-    if (f.id === 'agreement-yes') excludeSrcs.add('каде|kade|колку|kolku|cena|цена|sloboden|слободен|spalni|спални|kuc[aа]|куќа|lokacij|локациј');
+    if (f.id === 'agreement-yes') excludeSrcs.add('каде|kade|колку|kolku|cena|цена|sloboden|слободен|spalni|спални|kuc[aа]|куќа|lokacij|локациј|зошто|zoshto|зоска|zoska|наплат|naplat|плаќ|plakj|праша|праш|tasа|такса|taksa');
     if (f.id === 'offtopic') excludeSrcs.add('стан|stan|куќ|kuc|имот|imot|цена|cena|посета|poseta|кириј|kirij|куп|kup|најм|najm|простор|prostor|агенци|agenci|документ|dokument|кредит|kredit|провизи|provizi');
     if (f.id === 'vague-time') excludeSrcs.add('\\d{1,2}[.:]\\d{2}|понеделник|pobnedelnik|vtornik|вторник|sreda|среда|četvrtok|четврток|petok|петок|sabota|сабота|nedela|недела|\\d+\\s*(?:cas|час)');
     if (f.id === 'exhausted') excludeSrcs.add('poeftin|поевтин|popust|попуст|drug_pat|друг\\s+пат');

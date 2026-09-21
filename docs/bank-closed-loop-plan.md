@@ -156,3 +156,57 @@ census + P3's staging; P5 needs a week of P0 data.
 1. Approve the phase order (or reorder P2/P3).
 2. Confirm the **hybrid approval model** (auto for non-protocol keys off until Phase 1 proven).
 3. Green-light to start **Phase 0** — it touches no client-visible behavior.
+
+---
+
+# Master Loop Spec — implemented (Loop A), 2026-09
+
+## Loop A: trigger corrections (SHIPPED)
+
+```
+[F9]/[F10] in TUI ──┐
+quality-gate reject ─┤→ bank_corrections (status='new')
+                     │        │ nightly: npm run loop:a
+                     │        ▼
+                     │  resolve family (FAMILIES table = sweep's, one truth)
+                     │  no family → staged (bank:review) · ambiguous → staged
+                     │  resolvable → append row to data/hardening/<family>.json
+                     │  (already-fires phrases land as COVERED regression pins)
+                     ▼
+   GATES: propose-stems --emit → tsc --noEmit → sweep --replay → full suite
+   any red ⇒ revert detectorExt.ts, stage note for review
+   all green ⇒ review the diff, commit
+```
+
+Tools: `scripts/loop-a.ts` (runner), `scripts/review.ts` (`npm run bank:review`),
+`BankStore.correctionsByStatus/resolve/stage/correctionManual`, TUI [F9]/[F10].
+
+**Emitter law (learned the hard way):** vocabulary is mined only from rows the
+*ext itself* covers (base detector misses them). Mining from GAPs gutted covered
+families on re-emit; mining from ALL target rows re-absorbed bare `да`/`добро`
+and made the agreement gate fire on everything. Both failure modes are now
+structurally impossible; corpora are immutable without `--save`.
+
+## Loop B: answer regeneration (pending — P1 constraints → P2 relearn)
+
+Correction `reply` field = the human-seeded variant. Path:
+`bank_corrections.reply` → constraint validation (P1) → strict-Gemini expansion
+within per-key constraints → gates (replyIsClean + variantPassesConstraints +
+fact-guard) → `bank_variants` (live) — frozen keys unlock ONLY via a human
+correction, approved in `bank:review`.
+
+## Interaction with the enrichment cron (already in the code)
+
+The cron (`enrichBank.ts`) stays the **answer-side factory**: strict Gemini,
+hygiene-gated, writing bank_variants live. The loop changes it in three ways:
+1. Its **prompt seeds gain a source**: corrections feed both the trigger corpus
+   (Loop A) and regeneration prompts (Loop B) — the cron stops generating into
+   the void and starts generating *from mistakes*.
+2. Its **acceptance gate gains teeth**: `variantPassesConstraints` (P1) joins
+   replyIsClean — a variant that violates the key's must/forbid/order rules is
+   rejected before it can ever serve.
+3. Its **schedule stays; its trigger gains a pre-pass**: nightly loop-a runs
+   first (deterministic, no LLM quota), then the cron runs exactly as today.
+
+Metrics that judge the whole: `bank_metrics` hit-rate (P0 wiring) and
+corrections per 100 answers, both read weekly via `bank:status`.

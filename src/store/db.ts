@@ -196,10 +196,12 @@ export class Db {
       );
       CREATE INDEX IF NOT EXISTS idx_bank_examples_key ON bank_examples(key);
       CREATE TABLE IF NOT EXISTS bank_metrics (
-        key    TEXT PRIMARY KEY,
-        hits   INTEGER NOT NULL DEFAULT 0,
-        misses INTEGER NOT NULL DEFAULT 0
+        key        TEXT PRIMARY KEY,
+        hits       INTEGER NOT NULL DEFAULT 0,
+        misses     INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL DEFAULT 0
       );
+
       CREATE TABLE IF NOT EXISTS bank_corrections (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         key        TEXT,
@@ -209,6 +211,11 @@ export class Db {
         created_at INTEGER NOT NULL
       );
     `);
+    // P0 meters: per-key last-serve timestamp — safe no-op on fresh DBs.
+    const bmCols = this.db.prepare(`PRAGMA table_info(bank_metrics)`).all() as Array<{ name: string }>;
+    if (!bmCols.some(c => c.name === 'updated_at')) {
+      this.db.exec(`ALTER TABLE bank_metrics ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`);
+    }
     // v4 migration: nearby landmarks cache column — safe no-op if already present
     const lmCols = this.db.prepare(`PRAGMA table_info(landmarks)`).all() as Array<{ name: string }>;
     if (!lmCols.some(c => c.name === 'nearby')) {

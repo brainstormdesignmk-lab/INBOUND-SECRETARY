@@ -58,10 +58,14 @@ export function pickVariant(key: string, opts: PickOpts = {}): string | undefine
   const seed = RESPONSE_BANK[key] ?? [];
   const learnedVars = learned ? learned.variants(key) : [];
   const variants = [...seed, ...learnedVars];
-  if (variants.length === 0) return undefined;
+  // P0 meters: every serve is a hit, every empty lookup a miss — this is the
+  // single funnel all bank-backed replies pass through, so the per-key
+  // serve-rate here IS the production coverage signal.
+  if (variants.length === 0) { learned?.metric(key, false); return undefined; }
   const recent = new Set((opts.recent ?? []).map(normalizeVariant));
   const fresh = variants.filter(v => !recent.has(normalizeVariant(v)));
   const pool = fresh.length > 0 ? fresh : variants;
+  learned?.metric(key, true);
   return fillVars(pool[Math.floor(Math.random() * pool.length)], opts.vars);
 }
 
@@ -76,9 +80,8 @@ export function retrieveVariant(userMsg: string, opts: PickOpts = {}): string | 
   if (!learned) return undefined;
   const hit = learned.retrieve(userMsg);
   if (!hit) return undefined;
-  const line = pickVariant(hit.key, opts);
-  learned.metric(hit.key, line !== undefined);
-  return line;
+  // pickVariant records the hit/miss metric — no double-count here.
+  return pickVariant(hit.key, opts);
 }
 
 /** Record a bank MISS for a key the runtime needed but could not serve. */

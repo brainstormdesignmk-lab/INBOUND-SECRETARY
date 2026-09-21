@@ -42,9 +42,11 @@
     },
     {
       "phrase": "moze li direktno so sopstvenikot da se cueme",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
@@ -118,9 +120,11 @@
     },
     {
       "phrase": "jas sakam direktno so gazdata da se dogovoram",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     }
   ]

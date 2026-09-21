@@ -3,9 +3,11 @@
   "rows": [
     {
       "phrase": "sakam da go vidam stanot",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
@@ -19,9 +21,11 @@
     },
     {
       "phrase": "Може ли да се види станчето во живо?",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
@@ -47,9 +51,11 @@
     },
     {
       "phrase": "sakam da doam da go vidam",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
@@ -68,9 +74,11 @@
     },
     {
       "phrase": "Сакам да дојдам на лице место",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
@@ -84,9 +92,11 @@
     },
     {
       "phrase": "Би сакал да одам да го видам",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
@@ -107,9 +117,11 @@
     },
     {
       "phrase": "сакам да го видам во живо",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {

@@ -125,7 +125,14 @@ export class BankStore {
         reason     TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS bank_corrections_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
     `);
+    // Loop-A staging columns (2026-09): existing DBs get them via ALTER;
+    // SQLite has no ADD COLUMN IF NOT EXISTS.
+    const cols = this.db.db.prepare(`PRAGMA table_info(bank_corrections)`).all() as Array<{ name: string }>;
+    if (!cols.some(c => c.name === 'status')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN status TEXT NOT NULL DEFAULT 'new'`);
+    if (!cols.some(c => c.name === 'family')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN family TEXT`);
+    if (!cols.some(c => c.name === 'resolved_at')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN resolved_at INTEGER`);
   }
 
   // ---------- READ (request path) ----------
@@ -237,11 +244,12 @@ export class BankStore {
   /** Metrics: a bank-backed reply was served (hit) or a lookup failed (miss). */
   metric(key: string, hit: boolean): void {
     this.db.db.prepare(`
-      INSERT INTO bank_metrics (key, hits, misses) VALUES (?, ?, ?)
+      INSERT INTO bank_metrics (key, hits, misses, updated_at) VALUES (?, ?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET
         hits = hits + excluded.hits,
-        misses = misses + excluded.misses
-    `).run(key, hit ? 1 : 0, hit ? 0 : 1);
+        misses = misses + excluded.misses,
+        updated_at = excluded.updated_at
+    `).run(key, hit ? 1 : 0, hit ? 0 : 1, Date.now());
   }
 
   /** Quarantine: quality gate rejected this learned pair — human review. */
@@ -249,6 +257,42 @@ export class BankStore {
     this.db.db.prepare(
       `INSERT INTO bank_corrections (key, msg, reply, reason, created_at) VALUES (?, ?, ?, ?, ?)`
     ).run(key, msg, reply, reason, Date.now());
+  }
+
+  // ---------- Loop A: correction → trigger corpus (2026-09) ----------
+
+  /** Newest-first corrections by status ('new' = unprocessed). */
+  correctionsByStatus(status: string): Array<{ id: number; key: string | null; msg: string; reply: string; reason: string; status: string; family: string | null; created_at: number }> {
+    return this.db.db.prepare(
+      `SELECT id, key, msg, reply, reason, status, family, created_at FROM bank_corrections WHERE status = ? ORDER BY id DESC LIMIT 500`
+    ).all(status) as any;
+  }
+
+  /** Queue counts for the review CLI dashboard. */
+  correctionCounts(): Record<string, number> {
+    const rows = this.db.db.prepare(`SELECT status, COUNT(*) as n FROM bank_corrections GROUP BY status`).all() as Array<{ status: string; n: number }>;
+    return Object.fromEntries(rows.map(r => [r.status, r.n]));
+  }
+
+  /** Manual [F9] intake: capture a wrong answer with its conversation context. */
+  correctionManual(msg: string, reply: string, reason: string, key: string | null): void {
+    this.db.db.prepare(
+      `INSERT INTO bank_corrections (key, msg, reply, reason, status, created_at) VALUES (?, ?, ?, ?, 'new', ?)`
+    ).run(key, msg, reply, reason, Date.now());
+  }
+
+  /** Attach the resolved trigger family + mark processed (nightly runner). */
+  correctionResolve(id: number, family: string): void {
+    this.db.db.prepare(
+      `UPDATE bank_corrections SET status = 'processed', family = ?, resolved_at = ? WHERE id = ?`
+    ).run(family, Date.now(), id);
+  }
+
+  /** Runner couldn't place it — hold for bank:review with a note. */
+  correctionStage(id: number, note: string): void {
+    this.db.db.prepare(
+      `UPDATE bank_corrections SET status = 'staged', reason = ?, resolved_at = ? WHERE id = ?`
+    ).run(note, Date.now(), id);
   }
 
   /** Aggregate stats for the TUI dashboard / health check. */
