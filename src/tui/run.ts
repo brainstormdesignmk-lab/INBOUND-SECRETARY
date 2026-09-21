@@ -40,6 +40,19 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const app = new TuiApp(cfg);
+  // Field diagnostics: TUI_RAW_LOG=1 tees every byte blessed emits to
+  // data/tui-raw.log — the exact stream the broker mangles — for offline
+  // replay through scripts/tui-frame-check.ts's terminal emulator.
+  if (process.env.TUI_RAW_LOG) {
+    const raw = fs.createWriteStream(path.join(process.cwd(), 'data', 'tui-raw.log'), { flags: 'a' });
+    const out: any = (app as any).box.screen.program.output;
+    const origWrite = out.write.bind(out);
+    out.write = (data: any, cb?: any) => {
+      raw.write(typeof data === 'string' ? data : Buffer.from(data));
+      return origWrite(data, cb);
+    };
+    raw.write(`\n=== session ${new Date().toISOString()} cols=${out.columns} rows=${out.rows} ===\n`);
+  }
   app.start();
 }
 

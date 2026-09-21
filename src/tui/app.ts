@@ -144,7 +144,7 @@ export class TuiApp {
     this.channel.onTyping = (chatId, ms) => {
       this.typing = ms > 0 ? { chatId, until: Date.now() + ms } : null;
       this.renderStatus();
-      this.box.screen.render();
+      this.repaint();
     };
     this.channel.onMessage = (chatId, text, source) => {
       this.appendMsg(chatId, { role: 'assistant', text, source, at: Date.now() });
@@ -180,7 +180,7 @@ export class TuiApp {
       notifyOwner: (chatId, _eb, text) => {
         this.appendOwnerMsg(chatId, { role: 'system', text, at: Date.now() });
         this.renderOwner();
-        this.box.screen.render();
+        this.repaint();
         return Promise.resolve();
       },
       notifyOperator: (text) => {
@@ -222,7 +222,7 @@ export class TuiApp {
     this.pipeline.onOwnerAsk = (chatId, _eb, question) => {
       this.appendOwnerMsg(chatId, { role: 'assistant', text: question, at: Date.now() });
       this.renderOwner();
-      this.box.screen.render();
+      this.repaint();
     };
 
     this.box = buildLayout('METROPOLIS · ЛИНА · TUI');
@@ -231,23 +231,30 @@ export class TuiApp {
   start(): void {
     const { screen } = this.box;
     screen.on('keypress', (ch: string | undefined, key: any) => this.onKey(ch, key));
-    screen.on('resize', () => { this.renderAll(); });
+    screen.on('resize', () => {
+      // Belt-and-braces: after a broker re-layout, wipe the physical screen
+      // so no stale row of the old layout can linger under the new one,
+      // then full-repaint. (blessed also self-clears on resize — verified
+      // headlessly — but an explicit wipe costs one escape per resize.)
+      this.box.screen.program.write('\x1b[H\x1b[2J');
+      this.renderAll();
+    });
 
     this.banner = 'Добредојдовте. [Space] = нов клиент. Вие сте клиентот — тестирајте ја Лина.';
     this.renderAll();
 
-    this.clock = setInterval(() => { this.renderTop(); screen.render(); }, 1000);
+    this.clock = setInterval(() => { this.renderTop(); this.repaint(); }, 1000);
     this.ticker = setInterval(() => {
       if (this.typing || this.ownerTyping || this.clientWindow || this.busy.size > 0) {
         this.renderStatus();
-        screen.render();
+        this.repaint();
       }
     }, 100);
     // The visit protocol's timed turns (morning confirmation / location 2h
     // before) fire from here too — every 30s, like production's 60s.
     this.visits?.start(30_000);
 
-    screen.render();
+    this.repaint();
   }
 
   // ---------------- input handling ----------------
@@ -294,12 +301,12 @@ export class TuiApp {
         this.ownerMode = !this.ownerMode;
         this.renderInput();
         this.renderStatus();
-        this.box.screen.render();
+        this.repaint();
         return;
       case 'pageup': this.scrollChat(-1); return;
       case 'pagedown': this.scrollChat(1); return;
-      case 'home': this.box.chatBox.scrollTo(0); this.chatFollow = false; this.box.screen.render(); return;
-      case 'end': this.box.chatBox.setScrollPerc(100); this.chatFollow = true; this.box.screen.render(); return;
+      case 'home': this.box.chatBox.scrollTo(0); this.chatFollow = false; this.repaint(); return;
+      case 'end': this.box.chatBox.setScrollPerc(100); this.chatFollow = true; this.repaint(); return;
       case 'enter':
         // Text typed + Enter = SEND it. In owner mode it answers as the OWNER
         // (plain text parsed into a verdict); otherwise it is the client's
@@ -317,7 +324,7 @@ export class TuiApp {
           return;
         }
         if (this.clientWindow) { this.flushClient(); return; } // flush the client's queued messages now
-        if (this.channel.bypass()) { this.renderStatus(); screen.render(); return; }
+        if (this.channel.bypass()) { this.renderStatus(); this.repaint(); return; }
         return;
       case 'backspace': this.inputBuf = this.inputBuf.slice(0, -1); break;
       case 'escape': this.inputBuf = ''; break;
@@ -351,7 +358,7 @@ export class TuiApp {
       if (chatBox.getScrollPerc() >= 100) this.chatFollow = true;
     }
     this.renderStatus();
-    this.box.screen.render();
+    this.repaint();
   }
 
   private move(delta: number): void {
@@ -360,7 +367,7 @@ export class TuiApp {
     this.renderLeads();
     this.renderChat();
     this.renderStatus();
-    this.box.screen.render();
+    this.repaint();
   }
 
   private startNewClient(): void {
@@ -369,7 +376,7 @@ export class TuiApp {
     this.nameBuf = '';
     this.renderInput();
     this.renderStatus();
-    this.box.screen.render();
+    this.repaint();
   }
 
   private confirmName(): void {
@@ -556,7 +563,7 @@ export class TuiApp {
       if (this.ownerTimer) { clearTimeout(this.ownerTimer); this.ownerTimer = null; } // follow-up resets the window
       this.ownerTyping = { chatId: lead.chatId, until: Date.now() + ownerDelay, eb, action, ownerTime };
       this.renderStatus();
-      this.box.screen.render();
+      this.repaint();
       this.ownerTimer = setTimeout(() => this.ownerAnswer(), ownerDelay);
       return;
     }
@@ -617,7 +624,7 @@ export class TuiApp {
     this.clientTimer = setTimeout(() => this.flushClient(), delay);
     this.renderInput();
     this.renderStatus();
-    this.box.screen.render();
+    this.repaint();
   }
 
   /** The client's queued messages land — processed as ONE turn through the pipeline. */
@@ -637,7 +644,7 @@ export class TuiApp {
       this.pipeline.handle('viber', cw.chatId, combined, { kind: 'text', senderName: lead?.name ?? 'Клиент' })
     );
     this.renderStatus();
-    this.box.screen.render();
+    this.repaint();
   }
 
   // Per-chat serialized chain: preserves order inside one chat, parallel across chats.
@@ -769,7 +776,7 @@ export class TuiApp {
     };
     agent.simulate?.(ot.chatId, ot.eb, ot.action, ot.ownerTime);
     this.renderStatus();
-    this.box.screen.render();
+    this.repaint();
   }
 
   private appendMsg(chatId: string, msg: Msg): void {
@@ -825,7 +832,7 @@ export class TuiApp {
     }
     this.renderInput();
     this.renderStatus();
-    this.box.screen.render();
+    this.repaint();
   }
 
   private renderMenu(): void {
@@ -847,7 +854,7 @@ export class TuiApp {
       i === this.menuIndex ? `{inverse}${esc(q.label)}{/inverse}` : esc(q.label)
     );
     this.menuBox.setContent(lines.join('\n'));
-    screen.render();
+    this.repaint();
   }
 
   // ---------------- rendering ----------------
@@ -985,17 +992,17 @@ export class TuiApp {
     this.renderOwner();
     this.renderInput();
     this.renderStatus();
-    this.forceFullInputRedraw();
-    this.box.screen.render();
-  }
-
-  /**
+    this.repaint();
+  }  /**
    * blessed's screen.render() is cell-diff based: after a keystroke it emits
    * only the changed cells as cursor-jump + single-character writes. Web-based
-   * terminal brokers (Freebuff) drop those tiny writes — the reason letters
-   * never appear while typing. Blanking the OLD frame buffer (olines) for the
-   * input rows makes every cell "changed", so blessed re-emits the whole input
-   * line from column 0 — the same full-line writes that demonstrably work.
+   * terminal brokers (Freebuff) mis-position those tiny writes — the reason
+   * letters never appear while typing, and (the "worse after full-repaint"
+   * field test) a full-screen repaint makes it WORSE: every mis-positioned
+   * CUP dumps an entire row of text at the stale cursor position, so pane
+   * headers repeat horizontally. Blank ONLY the input rows (the empirically
+   * working fix): the input line is always re-emitted whole, and the rest of
+   * the screen stays on the small, cheap diff that survives best.
    */
   private forceFullInputRedraw(): void {
     const { screen, inputBox } = this.box;
@@ -1007,6 +1014,12 @@ export class TuiApp {
       if (!old) continue;
       for (let x = 0; x < old.length; x++) old[x] = [screen.dattr, '\x00'];
     }
+  }
+
+  /** Centralized repaint: input-row re-emission + the diff render. */
+  private repaint(): void {
+    this.forceFullInputRedraw();
+    this.box.screen.render();
   }
 
   // ---------------- quit ----------------

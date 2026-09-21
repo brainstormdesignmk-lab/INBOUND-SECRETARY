@@ -13,8 +13,15 @@ export interface TuiBoxes {
   statusBar: any;
 }
 
-export function buildLayout(title: string): TuiBoxes {
+export function buildLayout(
+  title: string,
+  streams?: { input?: any; output?: any },
+): TuiBoxes {
   const screen: any = blessed.screen({
+    // Headless drivers (scripts/tui-frame-check.ts) pass fake streams; the
+    // real TUI leaves them undefined and blessed binds process.stdin/stdout.
+    ...(streams?.input ? { input: streams.input } : {}),
+    ...(streams?.output ? { output: streams.output } : {}),
     // smartCSR (cursor save/restore around each render) is fragile in web-based
     // terminal brokers — it silently drops incremental repaints there. Explicit
     // cursor positioning keeps every keystroke visible in such terminals.
