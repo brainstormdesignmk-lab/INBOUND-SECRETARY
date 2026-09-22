@@ -15,8 +15,11 @@ export interface SlotData {
   pricePriority?: boolean;     // "што поевтино" — sort by price, skip budget question
   garsonjera?: boolean;        // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
   propertyId?: number;          // EB of the property currently discussed
-  interestedPropertyId?: number;
-  presentedIds?: number[];      // ALL EBs shown so far (excluded from later batches)
+  interestedPropertyId?: number; // EB the client praised/anchored (funnel-arming)
+  lastGhostEb?: number;         // last EB served the not-found pivot — where-is
+                                 // follow-ups still NAME it (the where-stuck fix);
+                                 // never used to arm the funnel
+   presentedIds?: number[];      // ALL EBs shown so far (excluded from later batches)
   currentBatch?: number[];      // EBs in the CURRENT presentation batch
   alternativesExhausted?: boolean;
   ladderKey?: string;           // presentation ladder: the search key (loc|service|budget) the queue was built for

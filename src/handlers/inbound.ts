@@ -417,12 +417,26 @@ export class InboundHandler {
   // named neighborhood) or the ask-for-the-number reply. The visit pitch is
   // served AT MOST ONCE per session — a repeat means the client asked again
   // and must get something actionable instead.
+  // FEED-DOWN GUARD (EB-miss probe): `healthy` is false only when a fetch
+  // failed and there was NEVER any data — zero rows is a healthy feed (an
+  // empty portfolio is real data; a dead fetch is not). Every "EB not found"
+  // decision MUST be gated on this: with no data we cannot know an EB is
+  // gone, so we defer honestly instead of branding it a ghost.
+  private feedHealthy(): boolean {
+    return this.deps.properties.healthy;
+  }
+
   private whereIsNoContext(session: ChatSession, userText: string): string {
     // 1) The client is asking about a SPECIFIC property. If the session ever
     //    saw an EB (named, interested, presented) and it is GONE from the
     //    feed → the honest not-found pivot with matches from that area.
-    const eb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    const eb = session.slots.propertyId ?? session.slots.interestedPropertyId
+      ?? session.slots.lastGhostEb; // a just-served ghost is still THE topic — name it
     if (eb) {
+      // FEED-DOWN GUARD: with zero data an "EB gone" verdict is a guess —
+      // the outage line is the honest answer (a real property may be hiding
+      // behind the dead feed). Same gate as the FSM ghost guards.
+      if (!this.feedHealthy()) return FEED_UNAVAILABLE_LINE;
       return pickVariant('property.notfound', { recent: assistantTexts(session), vars: { eb: String(eb) } })
         ?? PROPERTY_NOT_FOUND_LINE(eb);
     }
@@ -1318,6 +1332,35 @@ export class InboundHandler {
         && (session.state !== 'closing' || !!session.slots.ownerContactPending)) {
         const eb = session.slots.propertyId ?? session.slots.interestedPropertyId
           ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+        // GHOST GUARD (P4 follow-up): same rule as the slow lanes — an anchor
+        // the feed can no longer confirm gets the not-found pivot, never the
+        // funnel (getById = authoritative rescue for off-batch properties).
+        const anchored = eb != null && !!(await this.deps.properties.getById(eb).catch(() => undefined));
+        if (eb != null && !anchored) {
+          // FEED-DOWN GUARD: a failed feed with no cache cannot confirm the
+          // EB is gone — brand nothing as a ghost, clear no anchors. The
+          // not-found line still NAMES the EB the client asked about.
+          if (!this.feedHealthy()) {
+            routeLog(chatId, text, 'FEEDDOWN:fast');
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: FEED_UNAVAILABLE_LINE }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, FEED_UNAVAILABLE_LINE, 'deterministic:fast');
+            return;
+          }
+          const nf = pickVariant('property.notfound', { recent: assistantTexts(session), vars: { eb: String(eb) } })
+            ?? PROPERTY_NOT_FOUND_LINE(eb);
+        session.slots.propertyId = undefined;
+        session.slots.interestedPropertyId = undefined;
+        session.slots.lastGhostEb = eb;
+        routeLog(chatId, text, 'GHOST:fast');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: nf }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'GHOST_NOTFOUND_FAST', userMsg: text, replyText: nf, replySource: 'deterministic', bankKey: 'property.notfound' }); } catch { /* ignore */ } }
+          await this.sendRaw(session, nf, 'deterministic:fast');
+          return;
+        }
         if (eb) {
           session.slots.interestedPropertyId = eb;
           session.slots.ownerContactPending = true;
@@ -2138,14 +2181,41 @@ ${contactReminder}`;
       if (await this.sendIfClarify(mb, text, session)) return;
       const eb = mb?.prop?.eb
         ?? session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb;
-      if (eb) {
-        session.slots.interestedPropertyId = eb;
-        session.slots.ownerContactPending = true;
-        session.state = 'closing';
+      // GHOST GUARD (P4 follow-up): an anchored EB (named or slot) that the
+      // feed cannot confirm is GONE — "mi se svigja 999" must serve the
+      // honest not-found pivot, never arm the funnel for a ghost (fee for a
+      // property that does not exist). getById is the authoritative rescue:
+      // a real property outside the current batch is NOT a ghost.
+      const anchored = eb != null && (props.some(p => p.eb === eb)
+        || !!(await this.deps.properties.getById(eb).catch(() => undefined)));
+      if (eb != null && !anchored) {
+        // FEED-DOWN GUARD: with zero feed data the miss may be the outage, not
+        // a ghost — never clear the client's anchor while we cannot know.
+        if (!this.feedHealthy()) {
+          reply = FEED_UNAVAILABLE_LINE;
+          bankKey = undefined;
+          // The FSM may have already advanced the session toward closing on
+          // this event — REVERT it: a feed-down turn must not move the funnel
+          // (the next message would hit the closing catch-alls).
+          session.state = before;
+        } else {
+          reply = pickVariant('property.notfound', { recent: assistantTexts(session), vars: { eb: String(eb) } })
+            ?? PROPERTY_NOT_FOUND_LINE(eb);
+          bankKey = 'property.notfound';
+          session.slots.propertyId = undefined;
+          session.slots.interestedPropertyId = undefined;
+          session.slots.lastGhostEb = eb;
+        }
+      } else {
+        if (eb) {
+          session.slots.interestedPropertyId = eb;
+          session.slots.ownerContactPending = true;
+          session.state = 'closing';
+        }
+        reply = pickVariant('property.liked', { recent: assistantTexts(session) })
+          ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
+        bankKey = 'property.liked';
       }
-      reply = pickVariant('property.liked', { recent: assistantTexts(session) })
-        ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
-      bankKey = 'property.liked';
 
     } else if (next === 'closing'
         && detectEnthusiasm(text)
@@ -2175,14 +2245,41 @@ ${contactReminder}`;
       if (await this.sendIfClarify(mb, text, session)) return;
       const eb = mb?.prop?.eb
         ?? session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb;
-      if (eb) {
-        session.slots.interestedPropertyId = eb;
-        session.slots.ownerContactPending = true;
-        session.state = 'closing';
+      // GHOST GUARD (P4 follow-up): an anchored EB (named or slot) that the
+      // feed cannot confirm is GONE — "mi se svigja 999" must serve the
+      // honest not-found pivot, never arm the funnel for a ghost (fee for a
+      // property that does not exist). getById is the authoritative rescue:
+      // a real property outside the current batch is NOT a ghost.
+      const anchored = eb != null && (props.some(p => p.eb === eb)
+        || !!(await this.deps.properties.getById(eb).catch(() => undefined)));
+      if (eb != null && !anchored) {
+        // FEED-DOWN GUARD: with zero feed data the miss may be the outage, not
+        // a ghost — never clear the client's anchor while we cannot know.
+        if (!this.feedHealthy()) {
+          reply = FEED_UNAVAILABLE_LINE;
+          bankKey = undefined;
+          // The FSM may have already advanced the session toward closing on
+          // this event — REVERT it: a feed-down turn must not move the funnel
+          // (the next message would hit the closing catch-alls).
+          session.state = before;
+        } else {
+          reply = pickVariant('property.notfound', { recent: assistantTexts(session), vars: { eb: String(eb) } })
+            ?? PROPERTY_NOT_FOUND_LINE(eb);
+          bankKey = 'property.notfound';
+          session.slots.propertyId = undefined;
+          session.slots.interestedPropertyId = undefined;
+          session.slots.lastGhostEb = eb;
+        }
+      } else {
+        if (eb) {
+          session.slots.interestedPropertyId = eb;
+          session.slots.ownerContactPending = true;
+          session.state = 'closing';
+        }
+        reply = pickVariant('property.liked', { recent: assistantTexts(session) })
+          ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
+        bankKey = 'property.liked';
       }
-      reply = pickVariant('property.liked', { recent: assistantTexts(session) })
-        ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
-      bankKey = 'property.liked';
 
     } else if (next === 'closing'
         && (ev.type === 'INTERESTED' || detectVisitInterest(text))
@@ -2608,9 +2705,27 @@ ${contactReminder}`;
           assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix });
         reply = prefix ? `${prefix.trimEnd()}\n\n${cards}` : cards;
       } else {
-        reply = this.deps.properties.healthy
-          ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId ?? 0)
-          : FEED_UNAVAILABLE_LINE;
+        // FEED-DOWN GUARD: healthy=false means a failed fetch with NO cache —
+        // we cannot know whether the EB is gone. Serve the outage line and
+        // preserve the anchor; ghost cleanup is a healthy-feed verdict only.
+        if (!this.deps.properties.healthy) {
+          reply = FEED_UNAVAILABLE_LINE;
+          session.state = before;
+        } else {
+          reply = (session.slots.propertyId != null
+            ? (pickVariant('property.notfound', { recent: assistantTexts(session), vars: { eb: String(session.slots.propertyId) } })
+              ?? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId))
+            : NO_MATCH_LINE(session.slots.location));
+          if (session.slots.propertyId != null) bankKey = 'property.notfound';
+          // GHOST CLEANUP (P4 follow-up): the EB-miss lane must not leave the
+          // poisoned anchor armed — a later availability/praise turn would
+          // re-anchor the funnel on the ghost (the EB-999 sequence).
+          const missedEb = session.slots.propertyId; // capture BEFORE clearing
+          session.slots.propertyId = undefined;
+          session.slots.interestedPropertyId = undefined;
+          if (missedEb != null) session.slots.lastGhostEb = missedEb;
+          if (session.state === 'closing' && missedEb != null) session.state = before;
+        }
       }
     } else if (detectAvailabilityAsk(text)
       && (next === 'property_query' || next === 'closing')
@@ -2626,30 +2741,71 @@ ${contactReminder}`;
       // names a property; availability is answered for THAT one.
       const mb = await this.bindMention(text, session);
       if (await this.sendIfClarify(mb, text, session)) return;
-      const target = mb?.prop
-        ?? props.find(p => p.eb === (session.slots.propertyId ?? session.slots.interestedPropertyId))
-        ?? props[0];
-      const eb = target?.eb ?? session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb!;
-      session.state = 'closing';
-      session.slots.interestedPropertyId = eb;
-      session.slots.ownerContactPending = true;
-      // Pre-resolve nearby landmarks for when the client asks "каде се наоѓа?"
-      if (!session.slots.nearbyLandmarks?.length && target) {
-        const nearby = this.landmarks.nearbyLandmarks(target);
-        if (nearby.length > 0) {
-          session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
-          session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
-          session.slots.nearbyLandmarkEb = target.eb;
-          session.slots.landmarkIndex = 0;
+      const anchorEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      const anchored = mb?.prop
+        ?? (anchorEb != null ? props.find(p => p.eb === anchorEb) : undefined);
+      // GHOST GUARD (P4 follow-up): an anchored EB (named via mention or the
+      // slot) that the feed cannot resolve is GONE — props[0] is legal ONLY
+      // when there is no anchor at all (availability about the property on
+      // the table). getById is the feed-authoritative rescue: a real
+      // property outside the current batch is NOT a ghost. Claiming "сè уште
+      // е достапен" about a ghost and arming ownerContactPending leads
+      // straight to the fee for a property that does not exist (the EB-999
+      // probe). Honest not-found pivot instead.
+      const target = anchored
+        ?? (anchorEb != null
+          ? await this.deps.properties.getById(anchorEb).catch(() => undefined)
+          : props[0]);
+      if (!target) {
+        // FEED-DOWN GUARD: with zero data the miss may be the outage —
+        // the outage line is the honest answer, no ghost branding.
+        if (!this.feedHealthy()) {
+          reply = FEED_UNAVAILABLE_LINE;
+          bankKey = undefined;
+          // The FSM may have already advanced the session toward closing on
+          // this event — REVERT it: a feed-down turn must not move the funnel
+          // (the next message would hit the closing catch-alls).
+          session.state = before;
+        } else {
+          const ghostEb = anchorEb ?? 0; // 0 only on an unreachable path (branch guard requires some eb)
+          reply = pickVariant('property.notfound', { recent: assistantTexts(session), vars: { eb: String(ghostEb) } })
+            ?? PROPERTY_NOT_FOUND_LINE(ghostEb);
+          bankKey = 'property.notfound';
+          // Poisoned-anchor cleanup (same precedent as the suggest-alternatives
+          // pivot): a ghost anchor must never re-arm the funnel on a later turn.
+          // The FSM already moved the session to closing on the availability
+          // event — REVERT it: a ghost must not drag the funnel to closing
+          // (the next message would hit the fee catch-all for a ghost).
+          // lastGhostEb REMEMBERS the topic so where-is follow-ups still name
+          // it (the where-stuck fix) — it never re-arms anything.
+          session.slots.propertyId = undefined;
+          session.slots.interestedPropertyId = undefined;
+          session.slots.lastGhostEb = ghostEb;
+          session.state = before;
         }
+      } else {
+        const eb = target.eb; // else-branch: anchored match, or unanchored props[0]
+        session.state = 'closing';
+        session.slots.interestedPropertyId = eb;
+        session.slots.ownerContactPending = true;
+        // Pre-resolve nearby landmarks for when the client asks "каде се наоѓа?"
+        if (!session.slots.nearbyLandmarks?.length && target) {
+          const nearby = this.landmarks.nearbyLandmarks(target);
+          if (nearby.length > 0) {
+            session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+            session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+            session.slots.nearbyLandmarkEb = target.eb;
+            session.slots.landmarkIndex = 0;
+          }
+        }
+        const ack = pickVariant('availability.ack', { recent: assistantTexts(session) })
+          ?? AVAILABILITY_ACK;
+        bankKey = 'availability.ack';
+        // NO landmark line here — location is revealed ONLY when the client
+        // explicitly asks ("каде се наоѓа?"). The availability ack is just
+        // about contacting the owner.
+        reply = ack;
       }
-      const ack = pickVariant('availability.ack', { recent: assistantTexts(session) })
-        ?? AVAILABILITY_ACK;
-      bankKey = 'availability.ack';
-      // NO landmark line here — location is revealed ONLY when the client
-      // explicitly asks ("каде се наоѓа?"). The availability ack is just
-      // about contacting the owner.
-      reply = ack;
     } else if ((next === 'closing' || before === 'closing')
         && session.slots.ownerContactPending
         && detectAgreement(text)
@@ -2698,9 +2854,11 @@ ${contactReminder}`;
         props = await this.loadProps(session, false, false);
       }
       if (props.length === 0) {
-        reply = this.deps.properties.healthy
-          ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId ?? 0)
-          : FEED_UNAVAILABLE_LINE;
+        reply = !this.deps.properties.healthy
+          ? FEED_UNAVAILABLE_LINE
+          : (session.slots.propertyId != null
+            ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId)
+            : NO_MATCH_LINE(session.slots.location));
       } else {
         // The 19:34 fix: the relaxed-intro is TYPE-AWARE. Garsonjera asks get
         // a garsonjera line (never the fabricated "стан со една спална" — the

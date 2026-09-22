@@ -1650,7 +1650,10 @@ test('unknown EB escape: "predlozi mi" / "drugi lokaciii" / "да" pivot to real
   // repeated the not-found line on every "predlozi mi" / "drugi lokaciii").
   let s = await send('sifra 250');
   assert.equal(s.state, 'property_query');
-  assert.ok(sent[0].includes('Евидентен број 250'), sent[0]);
+  // The pivot is bank-backed (property.notfound variants rotate) — the EB may
+  // appear as "250" alone, not always as the full "Евидентен број 250" phrase.
+  assert.ok(/(^|\s)250(\s|$|[.,!?])/.test(sent[0])
+    && /не се наоѓа|не можам да го најдам|го нема|не се појавува|Не го гледам/i.test(sent[0]), sent[0]);
 
   // "predlozi mi" -> presentation with REAL offers (EB 48, rent in Карпош III)
   s = await send('predlozi mi');
