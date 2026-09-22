@@ -22,15 +22,20 @@
  */
 
 import '../src/compat/node16';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import { Db } from '../src/store/db';
 import { BankStore, DATA_DRIVEN_KEYS, FROZEN_BANK_KEYS, MAX_VARIANTS_PER_KEY } from '../src/store/bank';
+import { EnrichmentStore } from '../src/store/enrichment';
 import { createLlmStrict } from '../src/llm/factory';
 import { loadConfig } from '../src/config';
 import { RESPONSE_BANK } from '../src/data/responses';
 import { renderPromptBlock, validateBatch, constraintsFor } from '../src/llm/bankConstraints';
 
-const bank = new BankStore(new Db(loadConfig().dbPath));
+const dbPath = process.argv.includes('--db') ? path.resolve(fs.realpathSync(process.argv[process.argv.indexOf('--db') + 1])) : loadConfig().dbPath;
+const db = new Db(dbPath);
+const bank = new BankStore(db);
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -113,7 +118,31 @@ function list(): void {
   console.log(`\npromote: npm run bank:relearn -- --promote <id>…   reject: npm run bank:relearn -- --reject <id>`);
 }
 
+/**
+ * NIGHTLY DIGEST (P-runtime): fold bank_dynamic groups into deterministic
+ * coverage. Trigger side: client messages become retrieval examples for the
+ * dynamic key. Answer side: the stored answer becomes ONE staged variant
+ * (bank:review promotes it — nothing auto-serves into the response bank).
+ * FIFO purge keeps the dynamic store a fresh signal, not an archive.
+ */
+function digestDynamic(): void {
+  const groups = bank.dynamicGroups();
+  let examples = 0, staged = 0;
+  for (const g of groups) {
+    for (const m of g.msgs) {
+      if (bank.addExample(g.key, m)) examples++;
+    }
+    if (bank.addStagedVariant(g.key, g.answer, `dynamic digest from ${g.msgs.length} stored question(s)`)) staged++;
+  }
+  const purged = bank.purgeDynamic(400);
+  // Mark the corresponding serve rows processed — keeps listPending clean.
+  let marked = 0;
+  try { marked = new EnrichmentStore(db).markDynamicProcessed(); } catch { /* advisory */ }
+  console.log(`[digest] ${groups.length} dynamic group(s): +${examples} retrieval examples, ${staged} answer variant(s) staged for review, ${purged} purged, ${marked} serve row(s) marked`);
+}
+
 async function main(): Promise<void> {
+  if (process.argv.includes('--digest-dynamic')) { digestDynamic(); return; }
   if (process.argv.includes('--list')) { list(); return; }
   const promote = process.argv.includes('--promote');
   const reject = process.argv.includes('--reject');

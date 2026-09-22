@@ -58,6 +58,15 @@ export class EnrichmentStore {
     return row.cnt;
   }
 
+  /** Mark dynamic-fallback serves processed (the nightly digest folded
+   *  them); keeps them from filling listPending's window. */
+  markDynamicProcessed(): number {
+    const res = this.db.db.prepare(
+      `UPDATE enrichment_queue SET enriched = 1 WHERE enriched = 0 AND reply_source IN ('dynamic', 'dynamic-recall')`
+    ).run();
+    return res.changes;
+  }
+
   /** Most recent logged exchange in this chat — the pair a misroute check
    *  judges. Returns null before any logged serve. */
   latestForChat(chatId: string): { userMsg: string; bankKey: string | null; replyText: string; createdAt: number } | null {

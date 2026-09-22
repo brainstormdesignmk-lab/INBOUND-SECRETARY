@@ -21,6 +21,7 @@ import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { Db } from '../src/store/db';
 import { BankStore } from '../src/store/bank';
+import { EnrichmentStore } from '../src/store/enrichment';
 import { FAMILIES } from './sweep-keys';
 
 const run = (cmd: string) => execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -64,6 +65,25 @@ function main(): void {
   const dry = process.argv.includes('--dry');
   const dbArg = process.argv.includes('--db') ? process.argv[process.argv.indexOf('--db') + 1] : 'data/lina.db';
   const bank = new BankStore(new Db(dbArg));
+  // P-runtime NIGHTLY DIGEST: fold bank_dynamic groups (runtime fallback
+  // serves) into retrieval examples + ONE staged answer variant per group,
+  // then FIFO-purge. Runs before corrections so the whole signal is fresh.
+  if (!dry) {
+    const groups = bank.dynamicGroups();
+    if (groups.length > 0) {
+      let examples = 0, staged = 0;
+      for (const g of groups) {
+        for (const m of g.msgs) if (bank.addExample(g.key, m)) examples++;
+        if (bank.addStagedVariant(g.key, g.answer, `dynamic digest from ${g.msgs.length} stored question(s)`)) staged++;
+      }
+      const purged = bank.purgeDynamic(400);
+      console.log(`[loop-a] dynamic digest: ${groups.length} group(s) → +${examples} examples, ${staged} staged answer(s), ${purged} purged`);
+    }
+    try {
+      const marked = new EnrichmentStore(new Db(dbArg)).markDynamicProcessed();
+      if (marked > 0) console.log(`[loop-a] marked ${marked} dynamic serve(s) processed`);
+    } catch { /* advisory */ }
+  }
   const pending = bank.correctionsByStatus('new');
   console.log(`[loop-a] ${pending.length} correction(s) pending`);
 

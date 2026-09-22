@@ -3,7 +3,8 @@ import { AppConfig } from '../config';
 import { ChatSession, assistantTexts } from '../fsm/session';
 import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
-import { fallbackVariant, pickVariant, retrieveVariant } from '../data/responseBank';
+import { fallbackVariant, pickVariant, retrieveVariant, getLearnedBank } from '../data/responseBank';
+import { dynamicAnswer } from './dynamicFallback';
 import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feePersuasion, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
 
@@ -235,6 +236,24 @@ export class Responder {
    * asks free). On LLM failure: code-built property cards / fallback line.
    */
   private async escalate(session: ChatSession, properties: Property[], userText: string): Promise<RespondResult> {
+    // P-runtime DYNAMIC FALLBACK — the closed-loop bank's runtime half.
+    // 1) RECALL: bank_dynamic may already hold a validated answer for this
+    //    question shape (0 ms, offline, free).
+    // 2) GENERATE: one constrained Gemini call (no facts, P1 baseline +
+    //    hygiene validated) — clean answers serve AND store immediately.
+    // 3) undefined → the pre-existing escalation path, unchanged.
+    const bank = getLearnedBank();
+    if (bank) {
+      const dyn = await dynamicAnswer(this.escalationLlm, session, userText, bank);
+      if (dyn) {
+        console.log(`[timing] dynamic ${dyn.source} → ${dyn.key ?? '—'}`);
+        return {
+          text: guardText(session.state, dyn.text, this.cfg.publicSiteUrl, assistantTexts(session)),
+          source: dyn.source,
+          escalated: true,
+        };
+      }
+    }
     const task = stateTask(session.state, session.slots);
     const propCtx = buildPropertyContext(properties);
     const messages = [

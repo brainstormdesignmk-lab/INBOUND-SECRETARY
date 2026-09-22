@@ -252,8 +252,10 @@ async function enrich(): Promise<void> {
   // ---- NORMAL MODE: process the pending queue ----
   console.log(`[enrich] starting${dryRun ? ' (DRY RUN)' : ''} — ${enrichment.pendingCount()} pending records`);
 
-  // 1. Read pending records
-  const records = enrichment.listPending();
+  // 1. Read pending records. EXCLUDED: dynamic-fallback serves (replySource
+  // 'dynamic'/'dynamic-recall') — the nightly digest in loop-a owns those;
+  // here they would double-learn the same answer as learn.* prose.
+  const records = enrichment.listPending().filter(r => r.replySource !== 'dynamic' && r.replySource !== 'dynamic-recall');
   if (records.length === 0) {
     console.log('[enrich] no pending records — nothing to do');
     db.close();

@@ -137,6 +137,23 @@ export class BankStore {
     const vcols = this.db.db.prepare(`PRAGMA table_info(bank_variants)`).all() as Array<{ name: string }>;
     if (!vcols.some(c => c.name === 'lifecycle')) this.db.db.exec(`ALTER TABLE bank_variants ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active'`);
     if (!vcols.some(c => c.name === 'note')) this.db.db.exec(`ALTER TABLE bank_variants ADD COLUMN note TEXT`);
+    // P-runtime: bank_dynamic — the immediate store for questions the
+    // deterministic layer could not route. Gemini answers under constraints;
+    // the validated answer is stored HERE and served instantly on recall.
+    // key = 'dynamic:<state>:<slug>' groups near-duplicate questions; msg is
+    // UNIQUE per key so the same client phrasing never duplicates rows.
+    this.db.db.exec(`
+      CREATE TABLE IF NOT EXISTS bank_dynamic (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        key        TEXT NOT NULL,
+        state      TEXT NOT NULL DEFAULT '',
+        msg        TEXT NOT NULL,
+        answer     TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(key, msg)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bank_dynamic_key ON bank_dynamic(key);
+    `);
     if (!cols.some(c => c.name === 'family')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN family TEXT`);
     if (!cols.some(c => c.name === 'resolved_at')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN resolved_at INTEGER`);
   }
@@ -183,6 +200,77 @@ export class BankStore {
   /** Drop a staged candidate entirely (review reject = never banked). */
   deleteStagedVariant(id: number): boolean {
     return this.db.db.prepare(`DELETE FROM bank_variants WHERE id = ? AND lifecycle = 'staged'`).run(id).changes > 0;
+  }
+
+  // ---------- bank_dynamic (runtime fallback store) ----------
+
+  /** Store a validated dynamic answer. Idempotent per (key, msg). */
+  addDynamic(key: string, state: string, msg: string, answer: string): boolean {
+    if (!key.startsWith('dynamic:')) return false;
+    const m = msg.trim(); const a = answer.trim();
+    if (!m || !a) return false;
+    try {
+      const res = this.db.db.prepare(
+        `INSERT OR IGNORE INTO bank_dynamic (key, state, msg, answer, created_at) VALUES (?, ?, ?, ?, ?)`
+      ).run(key, state, m, a, Date.now());
+      return res.changes > 0;
+    } catch { return false; }
+  }
+
+  /** Recall: best-matching stored dynamic answer for a client message.
+   *  Exact/containment first (strongest signal), then trigram similarity —
+   *  the same two-stage shape as retrieve(). */
+  retrieveDynamic(userMsg: string, minScore = 0.55): { key: string; answer: string } | undefined {
+    const msg = userMsg.trim();
+    if (msg.length < 4) return undefined;
+    const rows = this.db.db.prepare(`SELECT key, msg, answer FROM bank_dynamic`).all() as
+      Array<{ key: string; msg: string; answer: string }>;
+    if (rows.length === 0) return undefined;
+    const low = msg.toLowerCase();
+    for (const r of rows) {
+      const m = r.msg.toLowerCase().trim();
+      if (m === low || (m.length >= 8 && (low.includes(m) || m.includes(low)))) return { key: r.key, answer: r.answer };
+    }
+    const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const tg = (s: string): Set<string> => {
+      const t = norm(s); const set = new Set<string>();
+      for (let i = 0; i <= t.length - 3; i++) set.add(t.slice(i, i + 3));
+      return set;
+    };
+    const a = tg(msg);
+    if (a.size === 0) return undefined;
+    let best: { key: string; answer: string; score: number } | undefined;
+    for (const r of rows) {
+      const b = tg(r.msg);
+      let inter = 0;
+      for (const t of a) if (b.has(t)) inter++;
+      const score = inter / (a.size + b.size - inter);
+      if (!best || score > best.score) best = { key: r.key, answer: r.answer, score };
+    }
+    return best && best.score >= minScore ? { key: best.key, answer: best.answer } : undefined;
+  }
+
+  /** Dynamic groups for the nightly digest: key, state, msgs, first answer. */
+  dynamicGroups(): Array<{ key: string; state: string; msgs: string[]; answer: string }> {
+    const rows = this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic ORDER BY id ASC`).all() as
+      Array<{ key: string; state: string; msg: string; answer: string }>;
+    const map = new Map<string, { key: string; state: string; msgs: string[]; answer: string }>();
+    for (const r of rows) {
+      let g = map.get(r.key);
+      if (!g) { g = { key: r.key, state: r.state, msgs: [], answer: r.answer }; map.set(r.key, g); }
+      g.msgs.push(r.msg);
+    }
+    return [...map.values()];
+  }
+
+  /** FIFO purge beyond the cap — the dynamic store stays a fresh signal. */
+  purgeDynamic(keep = 400): number {
+    const row = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_dynamic`).get() as { c: number };
+    if (row.c <= keep) return 0;
+    const res = this.db.db.prepare(
+      `DELETE FROM bank_dynamic WHERE id IN (SELECT id FROM bank_dynamic ORDER BY id ASC LIMIT ?)`
+    ).run(row.c - keep);
+    return res.changes;
   }
 
   /** Every key that has at least one learned variant (learn.* audits, meters). */

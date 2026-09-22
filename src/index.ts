@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   // retrieval (free answers for known questions) works in the request path.
   const bankStore = new BankStore(db);
   bankStore.selfTest(); // appliance boot: corrupted bank fails LOUDLY, not silently
-  setLearnedBank(bankStore);
+  setLearnedBank(bankStore); // also enables the dynamic fallback's recall/store path
   const pipeline = new InboundHandler({
     cfg, db, sessions, classifier, responder, properties, appointments, escalations, meta, channels,
     landmarks, visits, enrichment,
