@@ -1502,9 +1502,20 @@ export class InboundHandler {
           effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
         }
       }
-      reply = pickVariant(effectiveKey, { recent: assistantTexts(session) })
-        ?? simpleFast.fallback;
-      bankKey = effectiveKey;
+      const pickedFast = pickVariant(effectiveKey, { recent: assistantTexts(session) });
+      if (pickedFast) {
+        reply = pickedFast;
+        bankKey = effectiveKey;
+      } else {
+        // Bank miss (P4): the literal serves with NO bank identity and the
+        // serve is logged as FALLBACK_ORPHAN right here — this lane returns
+        // early, so the epilogue capture never sees it.
+        reply = simpleFast.fallback;
+        replySource = 'fallback';
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'fallback')) {
+          try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FALLBACK_ORPHAN', userMsg: text, replyText: reply, replySource: 'fallback' }); } catch { /* advisory */ }
+        }
+      }
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
@@ -2067,15 +2078,25 @@ export class InboundHandler {
             effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
           }
         }
-        const answer = pickVariant(effectiveKey, { recent: assistantTexts(session) })
-          ?? simple.fallback;
+        const picked = pickVariant(effectiveKey, { recent: assistantTexts(session) });
         const n = session.slots.contactAsks ?? 0;
         session.slots.contactAsks = n + 1;
         const contactReminder = buildContactAsk(session.slots, assistantTexts(session));
-        reply = `${answer}
+        if (picked) {
+          reply = `${picked}
 
 ${contactReminder}`;
-        bankKey = effectiveKey;
+          bankKey = effectiveKey;
+        } else {
+          // Bank miss (P4): the informational half is an anonymous literal.
+          // bankKey stays unset + fallback source → the epilogue capture
+          // logs the serve as FALLBACK_ORPHAN instead of crediting a bank
+          // key it never had.
+          reply = `${simple.fallback}
+
+${contactReminder}`;
+          replySource = 'fallback';
+        }
       } else {
         // Non-informational message during contact_collection — answer with
         // the LLM (it can handle questions about terms, process, etc.) and
@@ -2783,9 +2804,18 @@ ${contactReminder}`;
             effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
           }
         }
-        reply = pickVariant(effectiveKey, { recent: assistantTexts(session) })
-          ?? simple.fallback;
-        bankKey = effectiveKey;
+        const picked = pickVariant(effectiveKey, { recent: assistantTexts(session) });
+        if (picked) {
+          reply = picked;
+          bankKey = effectiveKey;
+        } else {
+          // Bank miss: the inline literal serves, and the serve is HONEST
+          // about having no bank identity — bankKey stays unset and the
+          // source is flagged as fallback, so the P4 capture logs it as a
+          // FALLBACK_ORPHAN (the cron's learn.* path banks frequent ones).
+          reply = simple.fallback;
+          replySource = 'fallback';
+        }
       } else {
         // LLM responder — the cold-brained fallback for unmatched intents
         const r = await this.deps.responder.respond(session, props, text);
@@ -2796,6 +2826,34 @@ ${contactReminder}`;
 
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
+
+    // P4 fallback-literal capture: a reply served from an inline ?? '…'
+    // literal (bank miss in dispatchSimple, or the responder's own hard
+    // fallback) has NO bank identity — it was invisible to every improvement
+    // pipeline, no matter how often it fired. Log it as an orphan serve
+    // (FALLBACK_ORPHAN, bankKey null): the midnight cron's existing learn.*
+    // path digests frequent orphan groups into banked keys (contract-gated),
+    // and bank:fallback-census makes the fire counts visible.
+    // EXCLUDED: property-card presentations (code-built data display, not
+    // bankable prose) — the responder builds cards only in property_query/
+    // presentation when properties exist; every other fallback serve is a
+    // genuine orphan literal.
+    if (this.deps.enrichment
+      && !bankKey
+      && replySource === 'fallback'
+      && !((before === 'property_query' || before === 'presentation') && props.length > 0)
+      && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'fallback')) {
+      try {
+        this.deps.enrichment.insert({
+          chatId: session.chatId,
+          state: before,
+          eventType: 'FALLBACK_ORPHAN',
+          userMsg: text,
+          replyText: reply,
+          replySource: 'fallback',
+        });
+      } catch { /* advisory — never break the funnel */ }
+    }
 
     // Enrichment queue: log responses for the midnight cron job — but ONLY in
     // TEACHER modes (hybrid/gemini/groq). Exam mode ('free') logs nothing:
