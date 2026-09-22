@@ -1,0 +1,467 @@
+{
+  "bug": "08:20 — 'dali moze za 150 e' fired nothing and got the closing fee disclosure instead of the owner-fixes-price answer",
+  "rows": [
+    {
+      "phrase": "dali moze za 150 e",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze za 120000 e",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "Дадам 450 евра и да завршиме работа",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget",
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "jas bi platil 85000 eur za stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feePay",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "може ли на 130000 евро?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ke dadam 400 e",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "даам 50000 за ова",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "dali moza za 140000 eura",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "би платил 25000 денари",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feePay",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "platemm 95000 eur za ova",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "350 евра можам да дадам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "110000 moze?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "давам 70000 и да потпишеме",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "mozam li da dadam 135000 den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feePay",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "за 1800 евра ја земам одма",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget",
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "250e i odma da platam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feePay"
+      ]
+    },
+    {
+      "phrase": "nudam 120000 evra kesh odma",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "дадам 450 евра и да потпишеме?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget",
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "bi mozelo li za 135000 eur?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "нудам 35000 евра",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ke pomine li za 400e?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "би дал 125000 максимум",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "110000 e mojata posledna ponuda",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "можи за 250 евра?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "imam 80000 eur spremni",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "дали ќе прифатите 95000?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "moza li na 180 e?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "молам за 140000 евр ако бива",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ja platemm 550 evra max",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "давам 115000 и земам одма",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ce dadam 200e nikako povece",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a moze za 140000 evra?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "Дали може за 120000 евра да се договориме?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget",
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "ja bi dal 110000 eur max",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "moza 130000 e?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "125000 moze?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ke dadam 4",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "може ли за 120000 евра да се договориме?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget",
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "za 450e spusta li sopstvenikot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "jas bi dal 85000 maks",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ke daam 350 evr i odma kapara",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feePay"
+      ]
+    },
+    {
+      "phrase": "140000 евро може?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget",
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "mogu da platemm 50000 eur ke bide li?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feePay",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "давам 25000 денари тогаш",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "dali ke prifati 90000eur?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "можи за 300 е да ја земеме?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "нудам 110000 е",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ke dadam 65000 evra pa kazi ako biva",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feePay",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "za 130000 denari biva li?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "за 400е тогаш?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moza li na 75000 evra da go dadete?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "би платил 95000eur веднаш",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feePay",
+        "budget"
+      ]
+    }
+  ]
+}

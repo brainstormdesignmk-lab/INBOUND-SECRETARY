@@ -63,14 +63,13 @@ test('detectFeeComplaint: the 10:18 counter-offer family, echoed fee vocabulary'
   assert.equal(detectFeeComplaint('kolku e cenata ?'), false);
 });
 
-test('CROSS pin: the 10:18 line co-fires detectBudget with a truthy amount — routing guard layer', () => {
+test('CROSS pin: the 10:18 line never seeds a budget slot — fee-context guard layer', () => {
   const line = '10 EVRA NE E BAS SIMBOLICNA CENA . 1 EVRO E SIMBOLICNA CENA ?';
-  // detectBudget extracts the "10" as a (bogus) budget amount — truthy. This
-  // co-fire is a FEATURE: the budget guard (!detectBudget) on the fast price
-  // path keeps the line out of the budget path, while detectFeeComplaint
-  // (checked FIRST in routing) keeps it out of the price paths entirely.
-  const amt = detectBudget(line);
-  assert.ok(amt, 'budget must co-fire truthy on the fee-amount fragment');
+  // Fee-context small figures (10 evra / 500 denari) are swallowed by
+  // detectBudget's FEE_CTX guard — the fee amount can never seed a budget
+  // slot ("budget: 10") on ANY path, by construction. detectFeeComplaint
+  // (checked FIRST in routing) still owns the line.
+  assert.equal(detectBudget(line), undefined, 'fee amounts must never become a budget slot');
   assert.equal(detectFeeComplaint(line), true, 'fee complaint must still win the routing race');
 });
 

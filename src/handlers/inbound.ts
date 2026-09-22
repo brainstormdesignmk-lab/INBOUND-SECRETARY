@@ -6,11 +6,12 @@ import {
 } from '../fsm/session';
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
 import { shouldLogForEnrichment } from '../llm/enrichPolicy';
+import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
@@ -506,6 +507,19 @@ export class InboundHandler {
       return;
     }
 
+    // 0-bis) MISROUTE INTAKE (A+B) — the system's eyes on wrong-key serves.
+    // The previous logged pair is still the latest one here (the new reply
+    // hasn't been produced yet), so this judges the PREVIOUS exchange with the
+    // client's newest words: A) an explicit correction ("ne toa prasav")
+    // auto-files the previous pair as a bank correction; B) a reply-class
+    // mismatch (client answered outside every class the key expects) flags it
+    // for the weekly review. Corrections → nightly loop-a → corpus → gates.
+    // Best-effort: any failure must never break the funnel.
+    try {
+      const last = this.deps.enrichment?.latestForChat(chatId) ?? null;
+      if (last) fileMisrouteCorrection(this.deps.bank, text, last);
+    } catch { /* misroute intake is best-effort */ }
+
     // 0) Insult protocol (3 strikes, ANA parity): the DETERMINISTIC lexicon
     // scan runs BEFORE any other processing — an insult is a strike no matter
     // which brain is live (even the LLM-free path, where "DA SE EBETE VO
@@ -675,6 +689,7 @@ export class InboundHandler {
       && !detectRemark(text)
       && !detectBudget(text)
       && !detectFeeComplaint(text)
+      && !detectFeePaymentAgreement(text)
       && !detectService(text) && !detectBothServices(text)) {
       const mbFresh = await this.bindMention(text, session, { historyFallback: true });
       if (await this.sendIfClarify(mbFresh, text, session)) return;
@@ -822,6 +837,22 @@ export class InboundHandler {
     // The agency NEVER shares owner contacts before a visit is arranged.
     if (detectOwnerContact(text)) {
       routeLog(chatId, text, 'OWNER_CONTACT');
+      const answer = pickVariant('owner.contact.refusal', { recent: assistantTexts(session) })
+        ?? 'Контактот на сопственикот не се споделува директно. Можам да организирам посета каде ќе се сретнете со сопственикот. Дали би сакале да закажеме термин?';
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, answer);
+      return;
+    }
+
+    // PROXY-CONTACT (audit #47): the client asks the AGENCY to contact the
+    // owner and report back ("STAPI VO KONTAKT I INFORMIRAJ ME"). In `closing`
+    // the FSM fee protocol must keep claiming these first (fee-before-contact
+    // is the judged-correct order), so this block only fires in every OTHER
+    // position — where the class used to fall into documents/info fast-paths.
+    if (detectContactRequest(text) && session.state !== 'closing') {
+      routeLog(chatId, text, 'PROXY_CONTACT');
       const answer = pickVariant('owner.contact.refusal', { recent: assistantTexts(session) })
         ?? 'Контактот на сопственикот не се споделува директно. Можам да организирам посета каде ќе се сретнете со сопственикот. Дали би сакале да закажеме термин?';
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -1857,6 +1888,68 @@ export class InboundHandler {
         // Pure new search — reset exhausted and reload props
         session.slots.areaExhausted = false;
         props = await this.loadProps(session, false, false);
+      }
+    }
+    // NEW-CRITERIA RELEASE (the 23:26 transcript): after exhaustion, a fresh
+    // criteria message ("a so edna spalna nesto", "drugi garsonjeri nemate ?")
+    // is a NEW SEARCH, not a yes/no on the exhausted ask. If the message names
+    // criteria but NO trigger fired on it, release the area lock here — both
+    // for the exhausted line (no matches) and when the last visible line WAS
+    // the exhausted ask (the render path may still hold matches from earlier
+    // states). The re-search/re-present itself happens downstream (the
+    // DETAILS_PROVIDED/SEARCH_REQUESTED re-present branch), so the answer
+    // always reflects the client's ACTUAL question.
+    const es = extractSlots(text);
+    const criteriaSignals = [
+      !!ev.bedrooms || !!es.bedrooms,
+      !!ev.sqm || !!es.sqm,
+      !!ev.budget || !!es.budget,
+      !!es.garsonjera,
+      !!es.sizeWaived,        // "a nesto pogolem da vidime" — size-direction pivot
+      es.house !== undefined || !!es.business,  // TYPE pivot ("a kuka so dvor", "deloven prostor imas?")
+    ];
+    if ((next === 'presentation' || next === 'closing') && session.slots.areaExhausted
+      && criteriaSignals.some(Boolean)
+      && !detectService(text) && !detectBothServices(text) && !detectPropertyDescription(text)
+      && !detectSeeOffers(text)
+      // Agreement veto is OVERRIDDEN by criteria presence: consent never
+      // carries search specs ("a dvosoben da barame sega?" — the bare "da"
+      // inside "da barame" must not read this as register-consent and dump
+      // it into contact-collection; hardening sweep CROSS find).
+      && !(detectAgreement(text) && !criteriaSignals.some(Boolean)) && !detectOfftopic(text)
+      && !detectExhaustedFollowUp(text) && !detectInvestmentOpinion(text)
+      && !detectPriceAsk(text) && !detectFeeComplaint(text)) {
+      // applySlots only honors ev.* — a bare STAY event would drop the fresh
+      // criteria on the floor. Apply the message's OWN extraction so the
+      // re-search below runs with the client's ACTUAL new criteria.
+      if (!ev.bedrooms && es.bedrooms) session.slots.bedrooms = es.bedrooms;
+      if (!ev.sqm && es.sqm) session.slots.sqm = es.sqm;
+      if (!ev.budget && es.budget) session.slots.budget = es.budget;
+      if (es.garsonjera) session.slots.garsonjera = true;
+      if (es.sizeWaived) session.slots.sizeWaived = true;
+      if (es.house !== undefined) session.slots.house = es.house;
+      if (es.business) session.slots.business = true;
+      if ((es.bedrooms || es.sqm || es.sizeWaived || es.house !== undefined || es.business) && !es.garsonjera) {
+        // Category and size are alternative framings of "how big" — the
+        // newest message wins ("a so edna spalna nesto" after a garsonjera
+        // search means the client MOVED OFF the studio category; keeping the
+        // ≤35м² filter here strangled the re-search into another exhausted).
+        session.slots.garsonjera = undefined;
+      }
+      session.slots.ladderQueue = [];   // rebuild the presentation ladder for the new search
+      session.slots.areaExhausted = false;
+      props = await this.loadProps(session, false, false);
+      if (props.length === 0 && session.slots.location) {
+        // New criteria in a drained area — the pivot means "elsewhere with
+        // these specs" (same contract as the widen flow: rest of the city).
+        session.slots.location = undefined;
+        props = await this.loadProps(session, false, false);
+      }
+      if (props.length > 0) {
+        // Render through the re-present branch (type-aware prefixes, fresh
+        // cards) instead of the stale exhausted/no-match line. Post-transition
+        // promotion — mirrors the availability-bind promotion precedent.
+        ev.type = 'SEARCH_REQUESTED';
       }
     }
 

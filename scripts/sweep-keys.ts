@@ -35,12 +35,12 @@ import {
   detectFeatureAsk, detectFeeComplaint, detectFeeSurprise, detectFeeWhy,
   detectGarsonjera, detectHouse, detectInvestmentOpinion, detectLocation,
   detectMortgageAsk, detectNearbyAsk, detectNegotiate, detectNeighborhoodAsk,
-  detectOfftopic, detectOwnerContact, detectPriceAsk, detectPriceFreshness,
+  detectOfftopic, detectOwnerContact, detectPriceAsk, detectPriceFreshness, detectPropertyDescription,
   detectProvisionAsk, detectProvisionWho, detectRejection,
   detectSchedulingFlex, detectSeeOffers, detectService,
   detectSuggestAlternatives, detectTimeRejection, detectVagueTime,
   detectVisitCancellation, detectVisitInterest, detectVisitTime,
-  detectWhereIs, detectWidenIntent,
+  detectWhereIs, detectWidenIntent, extractSlots,
 } from '../src/llm/deterministic';
 
 interface FamilySpec {
@@ -77,7 +77,16 @@ const C = {
   mortgage: b(detectMortgageAsk), hood: b(detectNeighborhoodAsk),
   comparison: b(detectComparison), feature: b(detectFeatureAsk),
   schedFlex: b(detectSchedulingFlex), exhausted: b(detectExhaustedFollowUp),
-  eyeCatch: b(detectEyeCatch), rejection: b(detectRejection),
+  eyeCatch: b(detectEyeCatch), rejection: b(detectRejection), description: b(detectPropertyDescription),
+  // The NEW-CRITERIA composite: the message names search criteria (bedrooms/
+  // sqm/budget/garsonjera) but NO routing trigger fired on it — the exact
+  // shape the exhausted-pivot release block releases on (the 23:26 fix).
+  criteria: (t: string) => {
+    const s = extractSlots(t);
+    // Mirror of the release block's criteriaSignals — keep in sync.
+    return !!(s.bedrooms || s.sqm || s.budget || s.garsonjera || s.sizeWaived
+      || s.house !== undefined || s.business);
+  },
 };
 
 /** Families = every bank-key intent worth a phrase population.
@@ -427,6 +436,20 @@ export const FAMILIES: FamilySpec[] = [
     crossFire: { alternatives: C.alternatives, cheaper: C.cheaper, rejection: C.rejection, defer: C.defer },
   },
   {
+    id: 'exhausted-pivot',
+    bankKey: '(new-criteria release block)',
+    protects: 'fresh search criteria after exhaustion — swallowed means the exhausted ask loops over a NEW search (the 23:26 transcript)',
+    seedLine: 'a so edna spalna nesto',
+    batches: 2,
+    genPrompt: `The assistant just said every matching option is exhausted and asked: register your criteria for later, or look in another neighborhood? The client instead PIVOTS with fresh search criteria — different size/rooms ("a so edna spalna nesto", "a imas so dve spalni", "a nesto pogolem"), a different category ("drugi garsonjeri nemate ?", "a dvosobni stanovi ima?"), or a new budget ("a do 300 evra nesto?"). Vary tone: hesitant, direct, "a"/"ili" pivots, short questions. Typos ("garsonjeraa", "garsonjeraa", "spalnii"), both scripts, 2-8 words. MUST name concrete search criteria (rooms/size/category/budget). NOT pure consent ("da", "ajde zabelezi"), NOT rejection ("ne ovie"), NOT a fee or price-of-one-property question, NOT a market opinion, NOT small talk, NOT only a neighborhood name without criteria.`,
+    target: C.criteria,
+    crossFire: {
+      agreement: C.agreement, service: C.service, both: C.both, seeOffers: C.seeOffers,
+      description: C.description, invest: C.invest, priceAsk: C.priceAsk,
+      feeComplaint: C.feeComplaint, exhausted: C.exhausted, offtopic: C.offtopic,
+    },
+  },
+  {
     id: 'enthusiasm',
     bankKey: '(remark/enthusiasm ack)',
     protects: 'pure enthusiasm ("super!") — swallowed, the bot answers a question nobody asked',
@@ -482,8 +505,10 @@ function classify(spec: FamilySpec, phrase: string): Row {
   return { phrase, verdict, target, cross, benign };
 }
 
-async function runFamily(llm: ReturnType<typeof createLlmStrict>, spec: FamilySpec, batchCount: number): Promise<Row[]> {
-  const phrases = new Set<string>([spec.seedLine]);
+async function runFamily(llm: ReturnType<typeof createLlmStrict>, spec: FamilySpec, batchCount: number, existing: Row[] = []): Promise<Row[]> {
+  // CUMULATIVE corpora: a regression asset only grows. Previous phrases are
+  // re-classified with the CURRENT detectors; the new batch adds on top.
+  const phrases = new Set<string>([spec.seedLine, ...existing.map(r => r.phrase)]);
   for (let i = 0; i < batchCount; i++) {
     try {
       for (const p of await generateBatch(llm, spec, i)) phrases.add(p);
@@ -492,6 +517,15 @@ async function runFamily(llm: ReturnType<typeof createLlmStrict>, spec: FamilySp
     }
   }
   return [...phrases].map(p => classify(spec, p));
+}
+
+function loadCorpus(id: string): Row[] {
+  const file = `data/hardening/${id}.json`;
+  if (!fs.existsSync(file)) return [];
+  try {
+    const saved = JSON.parse(fs.readFileSync(file, 'utf-8')) as { rows?: Row[] };
+    return Array.isArray(saved.rows) ? saved.rows : [];
+  } catch { return []; }
 }
 
 function replay(only?: string): void {
@@ -558,7 +592,7 @@ async function main() {
     if (only && !new RegExp(only).test(spec.id)) continue;
     if (skipExisting && fs.existsSync(`data/hardening/${spec.id}.json`)) continue;
     process.stdout.write(`[sweep] ${spec.id} — generating…\n`);
-    const rows = await runFamily(llm, spec, batchCount);
+    const rows = await runFamily(llm, spec, batchCount, loadCorpus(spec.id));
     const covered = rows.filter(r => r.verdict === 'COVERED').length;
     const gap = rows.filter(r => r.verdict === 'GAP');
     const cross = rows.filter(r => r.verdict === 'CROSS');

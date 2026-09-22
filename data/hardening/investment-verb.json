@@ -227,6 +227,456 @@
       "target": true,
       "cross": [],
       "benign": []
+    },
+    {
+      "phrase": "lele poskapeja stanovive abnormalno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Леле какви се овие цени скокнаа во облаци",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "boze sto e ova udrija cenive do nebo",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Поминаа сите граници становиве се прескапи сега",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "mnooogu poskapie kvadratot poslednovo vreme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Boze skoknae cenite u plafon",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "леле становиве удрија во таван ненормално",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "preskapi stanaa stanotite ne se kupuva",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Боже колку поскапеа становиве страшно нешто",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "udrija cenive epten nerealno stanala rabotava",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "lele pominua site granici so kvadratot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Скокнаа цените катастрофа е ова",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "poskapea cenive epten navistina",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Леле становите поскапие премногу",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "preskapi se stanovi sega ne se normalni",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Lele cenive skoknae vo plafon ne se normalni!",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Леле цените отидоа во облаци катастрофа",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Boze poskapeja stanovive preteraa veke",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "цените за квадратот ги удрија од земја",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Abe pominua site granici so cenive sega!",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Леле не е нормално колку се поскапија квадратите",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "Poskapie sve preku nok sto e ova",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Боже квадратот отиде у неповрат со цениве",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Udrija so cenite na stanovi straota",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "леле прескапи станаа сите станови за жал",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "Ceni sto skoknaa vakvo nesto nema",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Леле цениве поминаа секакви граници за кратко",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Boze sto e ova poskapeja premnogu stanovive",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "цените за купување летаат во воздух",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Lele udrija po dzepot cenive enormno",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Lele mnogu poskapeja stanovive u skopje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Боже цените удрија во плафон со становиве!",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Pretheraa, skoknae cenite ne normalno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Поскапие сè, становиве ги качија премногу",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "Udrija cenite do plafon, preskapi se",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Леле претераа, цениве отидоа во облаци",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Pominua site granici so cenive na kvadrat",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Боже становите станаа ненормално скапи",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "Mnogu skoknaa cenite na kvadratov sega",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Поскапеја сите станови, лудило е ова",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "Boze udrija cenive premnogu poskapea",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Леле ненормално ги качија цените, прескапо",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "Stanovi se preskapi sega, отидоа плафон",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Se pominua site granici so cenive",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Lele ama skoknaa cenite, epten preskapo",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "cheaper"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "lele cenite otidoa vo plafon navistina",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Боже сите цени за стан скокнае премногу",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "cenite na kvadrat pominaa site granici",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "леле колку се поскапие сите квадрати",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "cenive za stanovi udrija vo plafon",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "боже мој цените отидоа у неповрат",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne se normalni cenite poskapeja premnogu",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "леле сѐ поскапело до бесвест",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "feeComplaint"
+      ]
+    },
+    {
+      "phrase": "stanive skoknae do nebo bre",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "цените за станови удрија у плафон",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "lele pominaa site granici so cenite",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "boze stanot poskapie premnogu",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kvadratot poskapeja premnogu neverojatno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "леле цените за квадратот отидоа во облаци",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "boze cenite na stanovi stanaa nepodnoslivi",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
     }
   ]
 }

@@ -58,6 +58,19 @@ export class EnrichmentStore {
     return row.cnt;
   }
 
+  /** Most recent logged exchange in this chat — the pair a misroute check
+   *  judges. Returns null before any logged serve. */
+  latestForChat(chatId: string): { userMsg: string; bankKey: string | null; replyText: string; createdAt: number } | null {
+    const row = this.db.db.prepare(`
+      SELECT user_msg AS userMsg, bank_key AS bankKey, reply_text AS replyText, created_at AS createdAt
+      FROM enrichment_queue
+      WHERE chat_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(chatId) as { userMsg: string; bankKey: string | null; replyText: string; createdAt: number } | undefined;
+    return row ?? null;
+  }
+
   /** Mark records as enriched (by IDs). */
   markEnriched(ids: number[]): void {
     if (ids.length === 0) return;

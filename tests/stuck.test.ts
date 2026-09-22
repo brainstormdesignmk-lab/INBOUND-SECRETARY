@@ -219,6 +219,50 @@ test('stuck loop: an area switch re-targets, exhaustion ASKS, agreement widens',
   assert.ok(!sent[5].includes('Ги исцрпивме'), sent[5]);
 });
 
+test('stuck loop: after exhaustion, fresh criteria is a NEW SEARCH, not an exhausted-loop answer (the 23:26 transcript)', async () => {
+  // Mirror the transcript shape: rent, Центар, garsonjera/budget exhausted, then
+  // the client pivots with fresh criteria. Custom rows so the re-search has a
+  // concrete target for each pivot.
+  const rows: Property[] = [
+    { eb: 60, id: 60, location: 'Центар', price: 200, service: 'rent', size: '24 м²' },   // garsonjera-ish (24 м²)
+    { eb: 61, id: 61, location: 'Центар', price: 250, service: 'rent', size: '35 м²' },
+    { eb: 62, id: 62, location: 'Карпош III', price: 220, service: 'rent', bedrooms: 2, size: '45 м²' },  // msg1 release batch
+    { eb: 63, id: 63, location: 'Аеродром', price: 230, service: 'rent', bedrooms: 2, size: '50 м²' },
+    { eb: 64, id: 64, location: 'Аеродром', price: 240, service: 'rent', bedrooms: 2, size: '55 м²' },  // msg2 fresh targets —
+    { eb: 65, id: 65, location: 'Аеродром', price: 245, service: 'rent', bedrooms: 2, size: '52 м²' },  // two spare: msg1's wide release may consume one
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-2326';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Exhaust the Центар garsonjera search: shown EB 60, rejected, exhausted ask.
+  let s = await send('SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA');
+  assert.ok(sent[0].includes('Евидентен број 60'), sent[0]);
+  s = await send('NE MI SE DOPAGA');
+  assert.equal(s.slots.areaExhausted, true);
+  assert.ok(EXHAUSTED_ASK.test(sent[1]), sent[1]);
+
+  // MSG 1 — "drugi garsonjeri nemate ?": extractSlots.garsonjera with NO trigger.
+  // Must NOT re-serve the exhausted line — the release re-searches with the
+  // fresh criteria and the re-present branch answers the actual question.
+  s = await send('drugi garsonjeri nemate ?');
+  assert.equal(s.slots.areaExhausted, false, 'criteria message must release the area lock');
+  assert.ok(!EXHAUSTED_ASK.test(sent[2]), 'must not loop the exhausted ask again: ' + sent[2]);
+
+  // MSG 2 — "a so edna spalna nesto": bare bedrooms (2 rooms) with NO trigger.
+  // applySlots never sees it (classifier STAY), so the release must apply the
+  // extracted criteria itself before re-searching. Fresh session — the pivot
+  // after exhaustion must re-search with the NEW criteria, never loop the ask.
+  const chat2 = 'lina-2326b';
+  const send2 = async (m: string) => { await handler.handle('test', chat2, m); return sessions.get(chat2)!; };
+  await send2('SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA');
+  await send2('NE MI SE DOPAGA');
+  const s2 = await send2('a so edna spalna nesto');
+  assert.equal(s2.slots.areaExhausted, false, 'bedroom pivot must release the area lock');
+  assert.equal(s2.slots.bedrooms, 2, 'fresh bedroom criteria must reach slots (STAY event would drop it)');
+  assert.ok(/Евидентен број \d+/.test(sent.at(-1)!), 'must re-present property cards for the NEW criteria: ' + sent.at(-1)!);
+  assert.ok(!EXHAUSTED_ASK.test(sent.at(-1)!), 'must not loop the exhausted ask again: ' + sent.at(-1)!);
+});
 test('bare-city ask: "stance vo skopje" never pins a district; openness answers city-wide', async () => {
   // The [21:19] transcript: a client from another city asks for an apartment in
   // the CAPITAL ("skopje") — Lina resolved it to the district Скопје Север,

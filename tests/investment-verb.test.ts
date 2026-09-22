@@ -92,8 +92,9 @@ test('09:41 e2e: verb complaint in closing → investment.opinion, NEVER the fee
   const s1 = await send('MNOGU SE POSKAPEA STANOVIVE');
 
   const reply = sent[sent.length - 1];
-  // The right bank: market-opinion empathy + owners-set-prices, steering back
-  assert.ok(/моменталните цени|сопствениц|посредниц/i.test(reply), `must serve investment.opinion wording: ${reply}`);
+  // The right bank: market-opinion empathy + owners-set-prices (or the
+  // agency-as-mediator wording — "мост" — of some variants), steering back.
+  assert.ok(/моменталните цени|сопствениц|посредниц|мост/i.test(reply), `must serve investment.opinion wording: ${reply}`);
   // NOT the fee pitch (the 0%/500 денари agreement question)
   assert.ok(!/ослободени од агенциска провизија/i.test(reply), `must NOT fee-ask: ${reply}`);
   assert.ok(!/Дали се согласувате со ова/i.test(reply), `must NOT ask fee agreement: ${reply}`);

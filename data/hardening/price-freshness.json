@@ -97,13 +97,12 @@
     },
     {
       "phrase": "Само да проверам, таа цена од огласот е уште?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "agreement"
-      ],
+      "cross": [],
       "benign": [
-        "priceAsk"
+        "priceAsk",
+        "agreement"
       ]
     },
     {
@@ -209,7 +208,9 @@
       "verdict": "COVERED",
       "target": true,
       "cross": [],
-      "benign": []
+      "benign": [
+        "agreement"
+      ]
     },
     {
       "phrase": "ne e promeneta cifrata od oglasot?",
@@ -241,7 +242,9 @@
       "verdict": "COVERED",
       "target": true,
       "cross": [],
-      "benign": []
+      "benign": [
+        "agreement"
+      ]
     },
     {
       "phrase": "cenata e nepromeneta do sega?",
@@ -251,6 +254,446 @@
       "benign": [
         "priceAsk"
       ]
+    },
+    {
+      "phrase": "уште ли важи цената од огласот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vazi uste taa cena ili ima izmeni?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "да не е сменета цената во меѓувреме?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "istata cena e uste na sajtot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "uste li stoi taa cena sto zburevme?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "уште е таа цена или се измени нешто?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "dali uste vazi cenata od ponudata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "исто си останува со цената така?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da prasam samo uste li e taa cena?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "непроменета е уште цената од сајтот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne ima nekaja promena vo cenata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "уште важи таа цена што ми ја кажа?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "istata e uste ili e pokacena?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste stoi taa suma sto ja pisavte?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Актива ли е уште цифрата од огласот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "seuste sme na istata cena ili e smeneta?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Дали има некоја корекција на сумата во меѓувреме?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne ima promena vo cenata od togash?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Taa cifrata od sajtot uste vazi?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Уште е непроменета цената, така?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne ja krena gazdata cenata?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Точно е тоа од огласот или е изменето?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste li e istata ponuda za cenata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Важи ли уште таа цифра што ми ја кажавте?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "ima li korigiranje na cenata od posledno?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Дали цената стои иста или има нов износ?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste ne e smeneta cenata taka?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не е поскапено во меѓувреме, истата сума е?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "важи ли уште цената од огласот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "istata cena e uste ili e smeneta?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "а да не има некоја промена во цената?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "uste stoi taa cena na sajt?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vazi li uste taa cena sto zboruvavme?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "непроменета е цената така?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne e pokacena cenata vo meguvreme?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Сеуште е истата цена од огласот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste e taa cena ili e izmeneta?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "абе важи ли уште цената?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne ima izmeni vo cenata od togas?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали цената е уште иста како што беше?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "cenata od oglasot uste vazi?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "dali vazi uste sumata sto mi ja pisa?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Актуелна ли е уште цифрата од огласот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne ima nekoj popust ili pak ja kacile?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Сеуште стои истата цена или има корекција?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "cenava na sajtot e taze ili ima promeni?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "uste li e taa ponuda sto ja zburevme?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали е непроменета сумата во меѓувреме?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "abe cenata dali e uste validna?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Не е сменета цената од тогаш, така?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vazi uste cifrata od web?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали важи сè уште истата бројка?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "da ne ja pokacija cenata vo meguvreme?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Истата цена ли останува?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste stoi cenata sto mi ja prati?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дане има некои измени во цифрата?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
     }
   ]
 }

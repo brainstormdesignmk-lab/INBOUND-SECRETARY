@@ -3,59 +3,53 @@
   "rows": [
     {
       "phrase": "10 EVRA NE E BAS SIMBOLICNA CENA . 1 EVRO E SIMBOLICNA CENA ?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": [
         "priceAsk"
       ]
     },
     {
       "phrase": "10 evra ne e bas simvolichna suma za poseta brat",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "500 den za гледање? За тие пари ќе си купам кафе",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "service"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "Abe mnooogu e za edna poseta, 1 evro togash moze?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "Не е ова симболично, за тие пари си купувам 5 кафеа!",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "service"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "10 evrata e skapo samo za da mi ja otvorite vratata",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "budget"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "Mnogu e 500den za edna poseta, ne e bas simbolichna cenata",
@@ -75,11 +69,9 @@
     },
     {
       "phrase": "1 evro togash ako e simbolicna poseta hhh",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -98,21 +90,19 @@
     },
     {
       "phrase": "Многу е за една посета, ајде 1 евро тогаш?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "Za tie pari si kupuvam rucek a ne poseta",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "service"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "Skapo e za poseta 10e, ne davam tolku za razgleduvanje",
@@ -130,22 +120,19 @@
     },
     {
       "phrase": "10 evra za poseta? Za tie pari kafe ke pijam cela nedela",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "10 evra za poseta? za tie pari si kupuvam 3 kafea u centar",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget",
+      "cross": [],
+      "benign": [
         "service"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "500 den ne e bas simvolichna cena, preteravte malku",
@@ -165,21 +152,19 @@
     },
     {
       "phrase": "kakva simvolicna taksa, 10 evrata e benzin do ohrid haha",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "1 evro togash? 500 denari za гледање е скапо",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "budget"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "Skapo e za poseta, ne e bas simvolicno ova",
@@ -190,41 +175,38 @@
     },
     {
       "phrase": "Za tie pari si kupuvam kafe i boks cigari...",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "service"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "10 евро за 5 минути гледање? Па не е ова символична сума",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": [
-        "priceAsk"
+        "priceAsk",
+        "budget"
       ]
     },
     {
       "phrase": "abe mnogu e za edna poseta, 1 evro e simvolicno",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "Za tie pari kafe i kolac ke si kupam haha",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "service"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "500 denari za da otvorite vrata? Ne e simvolichna cena",
@@ -235,11 +217,9 @@
     },
     {
       "phrase": "skapo e za poseta be brat, kakvi 10 evra",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -251,17 +231,244 @@
     },
     {
       "phrase": "10 evra taksa za gledanje? moze 1 evro togash?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "budget"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "mnoooogu e za edna poseta, toa e kafe za cela nedela",
       "verdict": "COVERED",
       "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "10 evra ne e bash simbolicno za 5 minuti gledanje.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Многу е 500 денари за една посета бе луѓе.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "simvolichna suma? Za tie pari si kupuvam kafinja za cel teden.",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "service"
+      ]
+    },
+    {
+      "phrase": "За 10 евра кафе и ручек ќе си купам.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk",
+        "budget",
+        "service"
+      ]
+    },
+    {
+      "phrase": "Skapo e za poseta, moze za 1 evro togash?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "500 den za gledanje? Pa ne me nosite na koncert.",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не е баш симболична сума ова за разгледување.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "10 evra za 10 minuti? Mnogu e za poseta stvarno.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ајде де, 500 денари за да ми ја отворите вратата?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Pa za tie pari tri kafinja kje ispijam, kakva simbolichna poseta.",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Многу е за една посета, ај 1 евро тогаш?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "10 evrata ne se malku, toa e skapo za poseta.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не е ова симболично, за 500 ден цел ден пијам кафе.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Skapo e za edna poseta samo da vidam stan.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "500 denari? ne e simvolicna cena voopshto.",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "10 evra za gledanje? Pa za tie pari kafe kje pijam.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Десет евра за гледање не е баш символична сума...",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Skapo e za poseta brat, 1 evro e simbolichno.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "500 den za poseta? Pa povekje od taksi me koshta.",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "За тие пари си купувам кафе и ручек, многу е.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "service"
+      ]
+    },
+    {
+      "phrase": "10 evrata za edna poseta e previse, 1 evro togash?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Abe kakva simvolichna taksa, 500 denari za razgledanje e skapo.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не одам на концерт, зашто 10 евра за гледање?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "500 denari za 5 minuti poseta? Mnogu e stvarno.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Za tie pari 5 kafinja kje si kupam, ne e simbolichno.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "service"
+      ]
+    },
+    {
+      "phrase": "Симболично значи 1 евро, не 500 денари за гледање!",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Mnogu e za edna poseta, simvolicna taksa e 100ka.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Za poseta 10 evra? Dajte neshto poeftino, 1 evro.",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Десет евра за посетa? Па подобро кафе да пијам за тие пари.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "500den ne se malku za poseta, koj plakja tolku?",
+      "verdict": "GAP",
+      "target": false,
       "cross": [],
       "benign": []
     }

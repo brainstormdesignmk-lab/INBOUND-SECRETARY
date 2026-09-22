@@ -1,0 +1,274 @@
+{
+  "bug": "no corpus for detectFeePaymentAgreement — the \"vo red, ke platam\" gate that unblocks visit scheduling had zero regression coverage",
+  "rows": [
+    {
+      "phrase": "DOBRO KE PLATAM",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "vo red ke platam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "ok nema problem ke platam 500 denari",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "Во ред, ќе си платам 10 евра",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "vazi ke platm",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Dogovoreno, se slozuvam za nadomestokot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "nema gajle ke platam 500 den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Согласен сум со надоместокот за посета",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement",
+        "visit"
+      ]
+    },
+    {
+      "phrase": "Ok ke platim na lice mesto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "dobro ke ja platam taksata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "Важи нема проблем ќе платам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "se slozuvam, ke platam 10 eur",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ok e, ke platem 500d",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "Добро, се сложувам за 500 денари",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "nema problem ke mu dadam 10 evra",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "vazi, ke si platam za gledanjeto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Važi, ќе си го подмирам надоместокот.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "Nema gajle, ke dadam 500 denari.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ok ke si platem 10 eura",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement",
+        "budget"
+      ]
+    },
+    {
+      "phrase": "Важи ќе дадам 500 денари за гледањето",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "nema frka, ke pokrijam troshokot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "service"
+      ]
+    },
+    {
+      "phrase": "Согласен сум со трошокот, ќе платам.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "Dogovoreno, ke prefrlam 10 evra",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "Во ред е, ќе ти дадам петстотка.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "prifakjam, ke si podmiraam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Moze, ke platam nadomestokot bez problem.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "Нема проблем, ќе подмирам 500д",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ok e važi ќе дадам 10 евра",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement",
+        "budget",
+        "freshness"
+      ]
+    },
+    {
+      "phrase": "Resheno, ke si platem za posetata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Прифаќам, ќе го покријам тоа.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Soglasen, ke daam 500 den.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    }
+  ]
+}

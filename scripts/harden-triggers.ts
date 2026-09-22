@@ -28,9 +28,10 @@ import { loadConfig } from '../src/config';
 import { createLlmStrict } from '../src/llm/factory';
 import {
   detectPropertyInterest, detectPriceFreshness, detectPriceAsk, detectBedrooms,
-  detectInvestmentOpinion, detectCheaperSearch, detectFeeComplaint, detectFeeWhy,
+  detectInvestmentOpinion, detectCheaperSearch, detectFeeComplaint, detectFeeWhy, detectNegotiate,
   detectFeeSurprise, detectBudget, detectService, detectBothServices, detectRemark,
   detectAgreement, detectAvailabilityAsk, detectVisitInterest, detectWhereIs,
+  detectFeePaymentAgreement,
 } from '../src/llm/deterministic';
 
 interface PassSpec {
@@ -69,8 +70,8 @@ const PASSES: PassSpec[] = [
     batches: 2,
     genPrompt: `A client was ALREADY told a property's price in the chat and now asks whether that price is STILL VALID / current / unchanged, or whether it may have changed (the price on the ad/website). Vary: "uste taa cena?", "vazi li?", "nepromeneta?", "istata li e?", "dali ima izmeni?", "taa od oglasot?" — Latin and Cyrillic, typos, colloquial tone, 2-10 words, one line each. It must be about the CURRENCY of a known price, NOT a first-time "how much does it cost".`,
     target: t => detectPriceFreshness(t),
-    crossFire: { budget: detectBudget, service: detectService, remark: detectRemark, agreement: detectAgreement },
-    benignCross: { priceAsk: detectPriceAsk },
+    crossFire: { budget: detectBudget, service: detectService, remark: detectRemark },
+    benignCross: { priceAsk: detectPriceAsk, agreement: detectAgreement },
   },
   {
     id: 'bare-bedrooms',
@@ -98,8 +99,41 @@ const PASSES: PassSpec[] = [
     batches: 2,
     genPrompt: `The client disputes the small viewing fee the assistant just proposed (500 denari / 10 evra), calling it NOT symbolic, too much for what it is, joking it buys coffee instead. Vary: "ne e simbolichna", "skapo e za poseta", "za tie pari si kupuvam...", "1 evro togash?", "mnogu e za edna poseta"... Typos ("simvolichna", "evrata", "den"), both scripts, sarcasm and politeness mixed, 2-12 words, one line each. It must reference the fee/visit/amount — NOT the property's price, NOT a negotiation of the property price.`,
     target: t => detectFeeComplaint(t),
-    crossFire: { budget: detectBudget, service: detectService, freshness: detectPriceFreshness, feeWhy: detectFeeWhy, surprise: detectFeeSurprise },
-    benignCross: { priceAsk: detectPriceAsk },
+    crossFire: { freshness: detectPriceFreshness, feeWhy: detectFeeWhy, surprise: detectFeeSurprise },
+    benignCross: { priceAsk: detectPriceAsk, budget: detectBudget, service: detectService },
+  },
+  {
+    id: 'fee-payment',
+    bug: 'no corpus for detectFeePaymentAgreement — the "vo red, ke platam" gate that unblocks visit scheduling had zero regression coverage',
+    seedLine: 'DOBRO KE PLATAM',
+    batches: 2,
+    genPrompt: `The assistant already disclosed the small viewing fee (500 denari / 10 evra) and the client AGREES to pay it, moving the deal forward. Variants: "vo red ke platam", "dobre ke ja platam", "ok ke platam 500 denari", "soglasen sum so nadomestokot", "dogovoreno", "nema problem, ke platam", "se slozhuvam za posetata". Typos ("platam"->"platemm", "vo red"->"vo red"), both scripts, 1-9 words, one line each. It must be CONSENT to pay the fee — NOT a question about the fee (no zosto/kolku/zashto), NOT a complaint it is expensive, NOT about the property's price, NOT a scheduling request with a time.`,
+    target: t => detectFeePaymentAgreement(t),
+    crossFire: {
+      feeWhy: detectFeeWhy, feeComplaint: detectFeeComplaint,
+      invest: detectInvestmentOpinion, negotiate: detectNegotiate,
+    },
+    benignCross: {
+      agreement: detectAgreement, priceAsk: detectPriceAsk,
+      budget: detectBudget, service: detectService, visit: detectVisitInterest,
+      freshness: detectPriceFreshness,
+    },
+  },
+  {
+    id: 'counter-offer',
+    bug: "08:20 — 'dali moze za 150 e' fired nothing and got the closing fee disclosure instead of the owner-fixes-price answer",
+    seedLine: 'dali moze za 150 e',
+    batches: 2,
+    genPrompt: `The client was just told a property's price and pushes back with a LOWER counter-offer. Vary: "dali moze za 150 e", "moze li na 150 evra", "ke dadam 500 evra", "150000 moze?", "bi platil 130000", "mozam li da dadam 120000", "500 den togash?"... Numbers can be 2-6 digits, with or without currency suffix (e/evra/evr/den/denari/eur). Both scripts, typos ("moza", "platam"->"platemm"), casual tone, 2-9 words, one line each. It must be an OFFER of a specific amount for the property — NOT a budget search (no do/pod/okolu before the amount), NOT a question about the fee (no 500 denari/deset evra viewing-fee consent or refusal), NOT a criteria request (no spalni/sobi/m2 after the amount), NOT asking the price.`,
+    target: t => detectNegotiate(t),
+    crossFire: {
+      feeWhy: detectFeeWhy, feeComplaint: detectFeeComplaint, freshness: detectPriceFreshness,
+      agreement: detectAgreement, invest: detectInvestmentOpinion,
+    },
+    benignCross: {
+      feePay: detectFeePaymentAgreement, budget: detectBudget,
+      service: detectService, priceAsk: detectPriceAsk,
+    },
   },
 ];
 
@@ -126,7 +160,10 @@ async function generateBatch(llm: ReturnType<typeof createLlmStrict>, spec: Pass
 }
 
 async function runPass(llm: ReturnType<typeof createLlmStrict>, spec: PassSpec, batchCount: number): Promise<Row[]> {
-  const phrases = new Set<string>([spec.seedLine]);
+  // CUMULATIVE corpora: previous phrases are re-classified with the CURRENT
+  // detectors; the new batch adds on top (mirrors sweep-keys.runFamily).
+  const existing = loadCorpus(spec.id);
+  const phrases = new Set<string>([spec.seedLine, ...existing.map(r => r.phrase)]);
   for (let i = 0; i < batchCount; i++) {
     try {
       for (const p of await generateBatch(llm, spec, i)) phrases.add(p);
@@ -148,6 +185,15 @@ async function runPass(llm: ReturnType<typeof createLlmStrict>, spec: PassSpec, 
     rows.push({ phrase, verdict, target, cross, benign });
   }
   return rows;
+}
+
+function loadCorpus(id: string): Row[] {
+  const file = `data/hardening/${id}.json`;
+  if (!fs.existsSync(file)) return [];
+  try {
+    const saved = JSON.parse(fs.readFileSync(file, 'utf-8')) as { rows?: Row[] };
+    return Array.isArray(saved.rows) ? saved.rows : [];
+  } catch { return []; }
 }
 
 /** REPLAY: re-classify a saved corpus against the CURRENT detectors and
@@ -180,7 +226,9 @@ function replay(only?: string): void {
     console.log(`[replay] ${id}: COVERED ${wasCovered}→${covered}, GAP ${wasGap}→${gap.length}, CROSS ${saved.rows.filter(r => r.verdict === 'CROSS').length}→${cross}`);
     for (const f of fixed) console.log(`    FIXED  "${f.phrase}"`);
     for (const g of gap.slice(0, 10)) console.log(`    STILL-GAP "${g.phrase}"`);
-    fs.writeFileSync(file, JSON.stringify({ bug: spec.bug, rows }, null, 2));
+    // Corpora are the fixed regression asset — persist only with --save
+    // (otherwise a post-patch emit would see 'no GAPs' and gut the corpora).
+    if (process.argv.includes('--save')) fs.writeFileSync(file, JSON.stringify({ bug: spec.bug, rows }, null, 2));
   }
 }
 
@@ -192,6 +240,7 @@ async function main() {
   const bArg = process.argv.indexOf('--batches');
   const batchCount = bArg > -1 ? parseInt(process.argv[bArg + 1], 10) : 2;
   if (replayArg) { replay(only); return; }
+  const llm = createLlmStrict(cfg);
 
   fs.mkdirSync('data/hardening', { recursive: true });
   const report: Array<{ id: string; bug: string; total: number; covered: number; gap: number; cross: number; rows: Row[] }> = [];

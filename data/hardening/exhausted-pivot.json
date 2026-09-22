@@ -1,435 +1,549 @@
 {
-  "bug": "13:44 — the bare answer \"EDNA\" to the bedrooms question was swallowed twice, funnel looped",
+  "bankKey": "(new-criteria release block)",
   "rows": [
     {
-      "phrase": "EDNA",
+      "phrase": "a so edna spalna nesto",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "edna",
+      "phrase": "a so edna spalna nesto poevtino",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "dve",
+      "phrase": "a imas so dve spalni vo centar",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "еднаа",
+      "phrase": "a nesto pogolem stan od 70 kvadrati",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "dvie valjda",
+      "phrase": "drugi garsonjeri nemate vo Aerodrom?",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "2..",
+      "phrase": "a dvosobni stanovi ima slobodni",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "edn",
+      "phrase": "a do 350 evra nesto so dve spalnii",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "две",
+      "phrase": "a trosoben stan do 500 evra",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "ednaa",
+      "phrase": "a da vidime garsonjeraa so terasa",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "dvie",
+      "phrase": "a ima li nekoj dvor stan vo prizemje",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "description"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "a duplex do 600 evra",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "edm valda",
+      "phrase": "a nekoj deloven prostor od 50m2",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "dve sigurno",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "една",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "1 max",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dve..",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "ednaa..",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "samo 1",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "двее",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dve valjda",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "еднаа ваљда",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "2ka",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "edna bazno",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "2 мислам",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dvje",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "само една",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "edm",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "двојка",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "2 сосем",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "Една",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "pa edna",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dbe valjda",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "Moze dve",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "Две",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "valda 2",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "pa 1 mozhda",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dvee",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "barem edna",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "едн",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "edm valjda",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "само две",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "1, ајде",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dvee.",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "две барем",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "двв",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "moze bi edna",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dve, eventualno",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "една мислам",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "одна",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dve,",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "Една.",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "1 moze",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "ednm",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "dve mozi",
-      "verdict": "COVERED",
-      "target": true,
-      "cross": [],
-      "benign": []
-    },
-    {
-      "phrase": "1na",
+      "phrase": "a kukuca so sopstven dvor nadvor od gradot",
       "verdict": "GAP",
       "target": false,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "ednn",
+      "phrase": "a garsonjeraa do 250 evra",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "pa dve",
+      "phrase": "a trosobni stanovi so dve kupatila",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "2-ve..",
+      "phrase": "a podgotven stan za useluvanje so edna spalna",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "dve valda",
+      "phrase": "a dvosobni stanovi ima li?",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "moze 1",
+      "phrase": "a do 350 evra nesto?",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "двве",
+      "phrase": "a nesto pogolemo so dve spalni?",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "па една",
+      "phrase": "a garsonjeraa do 250 evra?",
       "verdict": "COVERED",
       "target": true,
       "cross": [],
       "benign": []
     },
     {
-      "phrase": "1..",
+      "phrase": "a so edna spalnaa da vidime?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a ima li trosoben stan?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nesto pod 300e mozda?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a dvosoben da barame sega?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "a so dve spalni do 400?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a garsonjera nestoevtino?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a pogolem stan od 70 kvadrati?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a so edna spalna namesten?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a do 450 evra trosoben?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a dvosobni do 350e ima?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nesto so 3 sobi?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a do 350 evra nesto da ima?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "a imas li so dve spalnii slucajno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nekoj dvoozen stan do 400 evra?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nesto pogolemo dvoriste da ima",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "a garsonjeraa do kaj 250e",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a dvosobni stanovi ima li slobodni",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a soedna spalna do kaj 300 evra",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a da vidime do 500e so 3 sobi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nekoj deloven prostor imas li",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a trosoben stan do 450e mozelo li",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a so dve spalni soba i garaza",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a do 350 evra garsonjeraa da najdeme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nesto namesteno so edna spalnaa",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a dvosoben stan do 300 evra",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a plac za gradenje da nemate slucajno",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a dvosobni stanovi ima li",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a so dve spalni nesto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a do 300 evra imas",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a garsonjeraa do 250",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nekoj pogolem stan mozebi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nesto so dvorce da se",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "a namesten trosoben da vidime",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a dvosoben do 350e",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a podgotven studio apartman nesto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a ednosoben stan do 200 evra",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a lokacija so tri spalni",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a garsonjera namestena da ima",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "a nekoj pogolem deloven prostor",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a kuka so dvor da se vidi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a dvosoben stan kaj centar",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "description"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "a so edna spalna nesto pobrgu",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "i imas li dvosobni stanovi tuka",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a do 350 evra nesto da ima",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "a nekoj trosoben stan slucajno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a dvosoben stan do 400 evra",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a garsonjeri drugi poeftini ima li",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "i nesto pogolemo so dve spalni",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a garsonjeraa namesto toa mozhe li",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a so dve spalnii slobodno nesto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a budzetot do 500 evra ako go kacen",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a nekoj duplex stan mozebi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a ednosoben stan do 300e",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "i dodeka sme tuka so tri spalni",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a garsonjeraa so sopstven dvora",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "a deloven prostor nesto slicno",
       "verdict": "COVERED",
       "target": true,
       "cross": [],

@@ -68,6 +68,14 @@ const BED_WORDS: Array<[RegExp, number]> = [
   [/(двособен|двособна|dvosoben|dvosobna)/i, 2],
   [/(трисобен|трисобна|trisoben|trisobna)/i, 3],
   [/(четирисобен|четирисобна|cetirisoben|cetirisobna|chetirisoben|chetirisobna)/i, 4],
+  // PLURAL + alternate-vowel forms (hardening sweep, exhausted-pivot family):
+  // "a dvosobni stanovi ima?" / "trosoben stan" — the singular -ен/-на forms
+  // above missed the plural -и and the common трособен spelling (o vs и),
+  // so pivots like "a trosobni poevtini ima li" gapped.
+  [/(еднособни|ednosobni)/i, 1],
+  [/(двособни|dvosobni)/i, 2],
+  [/(трособен|трособна|трособни|trosoben|trosobna|trosobni)/i, 3],
+  [/(четирисобни|cetirisobni|chetirisobni)/i, 4],
   // Room-count words → room count (direct match to feed)
   [/(една\s+соба|edna\s+soba)/i, 1],
   [/(две\s+соби|dve\s+sobi)/i, 2],
@@ -226,7 +234,7 @@ export function detectFeeSurprise(text: string): boolean {
 // value/price of the fee itself. These should get the fee.why rationale (the
 // fee is a filter for real clients, symbolic for serious ones), NOT the refusal
 // ladder that pivots to alternative properties. Latin + Cyrillic.
-const FEE_COMPLAINT_RE = /(?:(?:скуп|скап|надомест)\w*|(?:надомест|посета|платим|плаќам|платам)(?:.*?(?:скуп|скап|неприступн|премал|повеќе|недостат))|(?:5\d{2}|3\d{2})\s*(?:ден|денар|евр|еура|мкд|denari).*?(?:скуп|скап|повеќе|неприступн)|(?:50\s+стан|стан.*50|50.*стан).*(?:\d+\s*(?:ден|денар|евр|мкд))|надомест.*(?:\d+)\s*(?:денари).*?(?:скуп|скап|повеќе|непостиг))/iu;
+const FEE_COMPLAINT_RE = /(?:(?:скуп|скап|скупо)\w*|надомест\w*[^.!?\n]{0,40}(?:зошто|што|која|вклуч|содржи|поент|постиг|смисла)\w*|(?:надомест|посета|платим|плаќам|платам)(?:.*?(?:скуп|скап|неприступн|премал|повеќе|недостат))|(?:5\d{2}|3\d{2})\s*(?:ден|денар|евр|еура|мкд|denari).*?(?:скуп|скап|повеќе|неприступн)|(?:50\s+стан|стан.*50|50.*стан).*(?:\d+\s*(?:ден|денар|евр|мкд))|надомест.*(?:\d+)\s*(?:денари).*?(?:скуп|скап|повеќе|непостиг))/iu;
 // Also catch direct price-complaint markers: the fee amount + "too expensive"
 const FEE_PRICE_COMPLAINT_RE = /(?:(?:500|300)\s*(?:денари|ден|мкд|mkd|ден\.))[^.!?\n]{0,60}(?:скуп|скап|неприступн|премал|повеќе|жеш|недостат|nadvoz)/iu;
 
@@ -331,6 +339,11 @@ export function detectService(text: string): Service | undefined {
     if (buyCue && rentCue) return undefined; // both-services territory
     return rentCue ? 'rent' : 'buy';
   }
+  // Fee-counter hardening: "за тие пари си купувам кафе" — the purchase is
+  // the complaint idiom (the fee better spent elsewhere), never a buy
+  // intent. The fee anchor must co-occur, so "kupuvam stan" stays a buy.
+  if (/(надомест|nadomest|такса|taksa|пари|pari)/iu.test(text)
+    && /(куп|kup|кафе|kafe|пиво|pivo|ручек|rucek|бензин|benzin)/iu.test(text)) return undefined;
   if (fuzzyHasToken(text, ['купувам', 'купам'])) return 'buy';
   if (fuzzyHasToken(text, ['изнајмувам'])) return 'rent';
   return undefined;
@@ -517,6 +530,10 @@ export function detectGarsonjera(text: string): boolean {
  * and is never misread as an Евидентен број). "2 спални" or a bare "78" still
  * never becomes a budget. "80 илјади" → 80000.
  */
+// Fee-context guard (fee hardening): when the message disputes the VIEWING
+// fee, small currency figures are the fee, not a budget.
+const FEE_CTX_RE = /(надомест|nadomest|такса|taksa|симболич|simbolic|simvolich|за\s+(?:една\s+)?посет|za\s+(?:edna\s+)?poset|tie\s+pari|тие\s+пари)/iu;
+
 export function detectBudget(text: string): string | undefined {
   // Strip phone numbers first — "078/914 196" must never glue into "914196".
   const cleaned = text.replace(/\b0\d{1,2}\s*[/.]\s*\d{2,4}(?:\s*\d{2,4})?\b/g, ' ');
@@ -539,6 +556,12 @@ export function detectBudget(text: string): string | undefined {
     const hasCur = !!m[4];
     // 1900-2100 without currency is a construction year, not a budget
     if (n >= 1900 && n <= 2100 && !hasCur) continue;
+    // Fee-context small figures (fee hardening): "10 evra ne e bas
+    // simbolichna" disputes the viewing fee — it must never seed a budget
+    // slot. Fee anchors co-occur; property-priced complaints ("stanot e
+    // 10 evra") never carry them, and real capped budgets are unaffected
+    // (a cap word IS the client naming their limit).
+    if ((n < 100 || hasCur) && FEE_CTX_RE.test(cleaned)) continue;
     // Cap-prefixed figures need a sanity floor ("до 3 соби" is bedrooms, not a
     // budget) but no currency — "до 250" is a rent price in a rent funnel.
     if ((n >= 1000 || hasCur || (capped && n >= 100)) && n > bestN) bestN = n;
@@ -566,7 +589,13 @@ const SIZE_WAIVED_RE = buildSizeWaivedSlots();
 
 /** True when the client says size/bedrooms don't matter. */
 export function detectSizeWaived(text: string): boolean {
-  return matchesBoth(SIZE_WAIVED_RE, text);
+  if (matchesBoth(SIZE_WAIVED_RE, text)) return true;
+  // Size-DIRECTION pivot (exhausted-pivot hardening): "a nesto pogolem da
+  // vidime" — the client moves off the current size frame without naming a
+  // count. "pomalo" is NOT here: "помало нешто" is owned by the see-offers
+  // flow (smallest-first). Word-boundary anchored; "pomale" typo still rides
+  // the grammar slots.
+  return /(?<![\p{L}\p{N}])(?:pogolem(?:a|o)?|поголем(?:а|о)?)(?![\p{L}\p{N}])/iu.test(text);
 }
 
 // ── Price Priority ───────────────────────────────────────────────────────────
@@ -1029,6 +1058,9 @@ export function detectSqm(text: string): number | undefined {
 // Agreement/contact-intent phrases — the escape hatch from the exhausted
 // dead-end ("добро", "контактирај ме" after every option was shown).
 const AGREE_PHRASES = ['во ред', 'vo red', 'се согласувам', 'se soglasuvam',
+  // "се сложувам" — the most common "I agree" in speech; Latin "sloz" is the
+  // common transliteration (with and without the h-digraph for ж).
+  'се сложувам', 'se slozuvam', 'se slozhuvam',
   // "отворен/отворена сум", "спреман/спремна сум", "подготвен/подготвена сум" —
   // the client ANSWERING Lina's "Дали сте отворени за предлози во други
   // делови од градот?" with the very words SHE used. Grammar-family: the
@@ -1100,6 +1132,11 @@ const CLIENT_CONFIRM_RE = /^(?:да|da)[\s,.!]*(?:јас\s+|jas\s+)?(?:сака�
 
 export function detectAgreement(text: string): boolean {
   const low = text.toLowerCase();
+  // A property-sized counter-offer is NEVER consent — symmetric to the
+  // negotiate veto on fee consent. "Дадам 450 евра и да завршиме работа",
+  // "110000 moze?" are OFFERS; da-idiom tails ("i da zavrsime") must not
+  // read them as fee agreement in closing.
+  if (COUNTER_OFFER_RE.test(text) && !counterOfferFeeSized(text)) return false;
   if (extFires('agreement-yes', text)) return true;
   if (AGREE_PHRASES.some(p => low.includes(p))) return true;
   // Short confirmation answer ("DA SAKAM") — see CLIENT_CONFIRM_RE above.
@@ -1178,33 +1215,59 @@ export function detectExplicitWiden(text: string): boolean {
  *  Covers: "dobro ke platam", "ќе ја платам", "согласен со цената",
  *  "договорено", "ќе платам", "прифаќам да платам", etc.
  *  DISTINCT from generic agreement ("да", "добро") — carries payment intent. */
+// ── Fee Payment Agreement (the closing gate) ─────────────────────────────────
+// The client ACCEPTS the 500 den / 10 ev viewing fee ("vo red, ke platam"),
+// which unblocks visit scheduling. The fee-payment hardening batch exposed the
+// idiom space: pay verbs beyond платам (платиме/platim/platem — the -и- and -е-
+// spellings), the give/cover/settle group (dadam/pokrijam/podmiram), consent
+// openers (vazi / nema problem / nema gajle / nema frka / се сложувам with the
+// ш-spelling), and the "Согласен сум со надоместокот" copula between agreement
+// and fee noun. Both scripts, typos included.
+const FEE_PAY_VOL = '(?:ќе|ke|ще|shte|да|da|може|можам|moze|mozam|би|bi|сакам|sakam)';
+const FEE_PAY_CLIT = '(?:го|go|ја|ja|ги|gi|си|si)';
+const FEE_PAY_PLAT = '(?:плат\\w*|плаќ\\w*|plat\\w*|plakj\\w*)';
+const FEE_PAY_GIVE = '(?:дадам|дадеме|даде|давам|покриј\\w*|покрив\\w*|подмир\\w*|даам|дааш|dadam|dadi|daam|davam|dade|davame|pokrij\\w*|pokriv\\w*|podmir\\w*)';
+// Fee/amount anchor — give/cover verbs must be anchored to one so "ќе дам
+// број" (contact collection) can never read as fee consent. Amounts need a
+// currency suffix so "ok, stanot e 143000" stays a price ack, not a fee pay.
+const FEE_PAY_ANCHOR = '(?:\\d\\s*(?:ден\\w*|den\\w*|евр\\w*|evr\\w*|eur|€|мкд|mkd)|денар\\w*|denar\\w*|евр\\w*|evr\\w*|eur|€|надомест\\w*|nadomest\\w*|посет\\w*|poset\\w*|трошок\\w*|troshok\\w*|такса\\w*|taksa\\w*|цената|cenata|плаќањ\\w*|plakjanj\\w*|plakanj\\w*)';
+const FEE_PAY_OPENERS = '(?:добро|dobro|ok(?:ay)?|во\\s+ред|vo\\s+red|важи|vazi|vezi|договорено|dogovoreno|сум\\s+согласен|sum\\s+soglasen|согласна\\s+сум|soglasna\\s+sum|се\\s+сложувам|se\\s+slozuvam|se\\s+složuvam|se\\s+slozhuvam|сложувам\\s+се|slozuvam\\s+se|се\\s+согласувам|se\\s+soglasuvam|нема\\s+проблем|nema\\s+problem|нема\\s+гајле|nema\\s+gajle|нема\\s+фрка|nema\\s+frka|прифаќам|прифак|prifakjam|prihakam|прифатив|prihatam|prihvatam)';
+const FEE_PAY_CONN = '(?:\\s+' + FEE_PAY_CLIT + '|\\s+да|\\s+da)*';
+const FEE_PAY_VOL_PLAT_RE = new RegExp(FEE_PAY_VOL + FEE_PAY_CONN + '\\s+' + FEE_PAY_PLAT, 'iu');
+const FEE_PAY_VOL_GIVE_RE = new RegExp(FEE_PAY_VOL + FEE_PAY_CONN + '\\s+' + FEE_PAY_GIVE + '[^.!?\\n]{0,40}' + FEE_PAY_ANCHOR, 'iu');
+const FEE_PAY_OPENER_RE = new RegExp(FEE_PAY_OPENERS + '[^.!?\\n]{0,40}(?:' + FEE_PAY_PLAT + '|' + FEE_PAY_GIVE + '|' + FEE_PAY_ANCHOR + ')', 'iu');
+
+// Questions and negations are never consent: "dali mora da platam?" and
+// "zosto da platam 500 denari?" belong to fee.why; "ne sakam da platam" is a
+// refusal. Guarded before any volitional match can fire.
+const FEE_PAY_NEG_RE = new RegExp(
+  '(?:^|[^\\p{L}])(?:ne|не)(?![\\p{L}])[^.!?\\n]{0,40}(?:plat\\w*|plakj\\w*|плаќ\\w*|плат\\w*|sakam\\w*|сакам\\w*|dadam|дадам|prihakam|прифаќам)', 'iu');
+
 export function detectFeePaymentAgreement(text: string): boolean {
+  if (/(?:^|[^\p{L}])dali(?:$|[^\p{L}])/iu.test(text)
+      || /(?:zosto|zashto|зошто|зашто|kolku|колку|kako|како)[^.!?\n]{0,40}(?:плат|plat|плаќ|plakj|дад|dad)/iu.test(text)
+      || FEE_PAY_NEG_RE.test(text)) return false;
   return (
-    // "добро/ок/во ред ќе платам" — agreement + payment
-    /(?:добро|dobro|ок|ok|okay|во\s+ред|vo\s+red|договорено|dogovoreno|сум\s+согласен|sum\s+soglasen|согласна\s+сум|сум\s+согласна|согласувам\s+се|se\s+soglasuvam)\s+(?:ќе|ke|ще|shte|да|da)?\s*(?:\s+)?(?:ја\s+)?(?:платам|platam|плаќам|plakjam)/iu.test(text)
-    // "ќе платам" / "ke platam" / "да платам" / "да ја платам"
-    || /(?:ќе|ke|ще|shte|да|da)\s+(?:ја\s+)?(?:платам|platam|плаќам|plakjam)/iu.test(text)
-    // "platam" / "плаќам" — standalone or with filler
-    || /(?:^|[\s,.;:!?])(?:платам|platam|плаќам|plakjam)(?:$|[\s,.;:!?])/iu.test(text)
-    // "согласен со цената" / "soglasen so cenata" — agreement with the price
-    || /(?:согласен|soglasen|согласна|soglasna|согласувам|soglasuvam)\s+(?:(?:со|so)\s+)?(?:цената|cenata|цена|cena|надоместот|nadomestot|надомест|nadomest)/iu.test(text)
-    // "се согласувам за посетата" / "согласен за посетата"
-    || /(?:согласен|soglasen|согласна|soglasna|согласувам|soglasuvam)\s+(?:за\s+)?(?:посетата|posetata|посета|poseta|надоместот|nadomestot|надомест|nadomest)/iu.test(text)
+    // volitional + pay verb ("ќе платам", "ke platime", "ok ke si platem 10 eura")
+    FEE_PAY_VOL_PLAT_RE.test(text)
+    // volitional + give/cover/settle verb, anchored to a fee/amount noun
+    // ("ќе дадам 500 денари", "ke pokrijam troshokot", "ke go podmiram nadomestokot")
+    || FEE_PAY_VOL_GIVE_RE.test(text)
+    // consent opener, then within one sentence a pay verb or fee anchor
+    // ("Vazi, ke si go podmiram nadomestokot", "Nema gajle, ke dadam 500 denari",
+    //  "Добро, се сложувам за 500 денари")
+    || FEE_PAY_OPENER_RE.test(text)
+    // standalone first-person payment verbs, singular and plural
+    || /(?:^|[\s,.;:!?])(?:платам|платиме|плаќам|плаќаме|platam|platime|plakjam|plakjame|plattam)(?:$|[\s,.;:!?])/iu.test(text)
+    // agreement word + fee noun, with optional copula/filler between
+    // ("Согласен сум со надоместокот", "soglasen sum so cenata")
+    || /(?:согласен|soglasen|согласна|soglasna|согласувам|soglasuvam|сложувам|slozuvam|složuvam|slozhuvam)(?:\s+(?:сум|sum|сме|sme))?\s+(?:(?:со|so|за|za)\s+)?(?:цената|cenata|цена|cena|надоместокот|nadomestokot|надоместот|nadomestot|надомест|nadomest|посетата|posetata|посета|poseta)/iu.test(text)
     // "договорено" / "dogovoreno" — deal/agreement (standalone)
     || /^(?:договорено|dogovoreno|договор|dogovor|договоривме|dogovorivme)$/iu.test(text)
     // "во ред со цената" / "ok so cenata"
-    || /(?:во\s+ред|vo\s+red|ok|okej)\s+(?:(?:со|so)\s+)?(?:цената|cenata|цена|cena|надоместот|nadomestot|надомест|nadomest|посетата|posetata|посета|poseta)/iu.test(text)
-    // "ќе го платам" / "ќе ја платам" / "ke go platam"
-    || /(?:ќе|ke|ще|shte)\s+(?:го|go|ја|ja)\s+(?:платам|platam|плаќам|plakjam)/iu.test(text)
-    // "може да платам" / "moze da platam" — can pay
-    || /(?:може|можам|moze|mozam)\s+(?:да|da)\s+(?:платам|platam|плаќам|plakjam)/iu.test(text)
-    // "прифаќам да платам" / "prihakam da platam"
-    || /(?:прифаќам|прифатив|prihakam|prihatam|prihvatam)\s+(?:да|da)\s+(?:платам|platam|плаќам|plakjam)/iu.test(text)
-    // "ќе ја земам" (I'll take it) — general acceptance of the deal
-    || /(?:ќе|ke|ще|shte)\s+(?:ја|ja|го|go)\s+(?:земам|zemam|прифаќам|prihakam)/iu.test(text)
+    || /(?:во\s+ред|vo\s+red|ok|okej)\s+(?:(?:со|so)\s+)?(?:цената|cenata|цена|cena|надоместокот|nadomestokot|надоместот|nadomestot|надомест|nadomest|посетата|posetata|посета|poseta)/iu.test(text)
   );
 }
-
 // Investment / market opinion — the client expresses doubt or opinion about
 // property investment ("не знам дали е паметно да се инвестира", "цените
 // се превисоки"). These are NOT agreements, NOT fee questions, NOT
@@ -2265,9 +2328,121 @@ const NEGOTIATE_GRAMMAR_RE = new RegExp(
   '(?:цена|цената|цена|цената)\\s+(?:да\\s+)?(?:се\\s+)?(?:намали|намалува|смале|спушти|договори|договори)',
   'iu');
 
+// COUNTER-OFFER (08:20): "dali moze za 150 e" — the client pushes back on a
+// quoted price with a LOWER number. Shares zero vocabulary with the discount
+// families above, so it fell through every detector into the closing fee
+// disclosure. Grammar: modal/volitional + optional clitics + optional "za" +
+// amount(+currency/bare-e suffix), or the amount-first inversion
+// ("150 evra moze?"). Guards: (a) fee-payment consent NEVER negotiates
+// ("ok ke platam 500 denari" is agreement — vetoed); (b) a cap word before
+// the amount ("do 150 evra") is a BUDGET search, not a counter — excluded;
+// (c) "za 2 spalni" is criteria, not an offer — noun-lookahead excluded;
+// (d) freshness questions keep their fast-path (vetoed here too).
+const COUNTER_MODAL = String.raw`(?:може|можам|можи|моза|mozhe|moze|moza|mozam|mozelo|ќе|ke|ще|shte|би|bi|договор|dogovor)`;
+const COUNTER_PART = String.raw`(?:\s+(?:ли|li))?`;
+const COUNTER_DA = String.raw`(?:\s+(?:да|da))?`;
+const COUNTER_FILLER = String.raw`(?:(?:ја|ja|го|go|си|si|ти|ti|му|mu)\s+)*`;
+// Stems use [\p{L}]* NOT \w* — JS \w is ASCII-only, so "евра"/"денари"
+// (Cyrillic tails) never matched \w* and whole word-classes went dark.
+const COUNTER_CUR = String.raw`(?:ден[\p{L}]*|den[\p{L}]*|евр[\p{L}]*|evr[\p{L}]*|eur|€|мкд|mkd|е|e)(?![\p{L}\p{N}])`;
+const COUNTER_CRIT = String.raw`(?!\s*(?:спалн[\p{L}]*|spaln[\p{L}]*|соб[\p{L}]*|sob[\p{L}]*|м2|m2|м²|лица[\p{L}]*|lica[\p{L}]*|ден[\p{L}]*|den[\p{L}]*|евр[\p{L}]*|evr[\p{L}]*))`;
+const COUNTER_GIVE = String.raw`(?:дадам|даам|дааш|дадеме|даде|давам|даваме|nudam|нуудам|dadam|daam|dademe|dadi|davam|davame|нуудам|нудам|nudam)`;
+const COUNTER_TAKE = String.raw`(?:земам|земиме|зема|zemam|zemime|zema)`;
+const COUNTER_PAY = String.raw`(?:плат[\p{L}]*|плаќ[\p{L}]*|plat[\p{L}]*|plakj[\p{L}]*)`;
+// B9 the all-I-have idiom — "TOLKU IMAM", "tolku ke dadam", "poveke nemam":
+// the client declares their ceiling without naming the property price.
+// Shared with counterOfferFeeSized: an amount-less message matching THIS is a
+// property offer, not consent context.
+const COUNTER_CEILING = String.raw`(?:толку|tolku|totku)\s+(?:имам|imam|иам|кам|ќе\s+дадам|ke\s+dadam|dadam|дадам|мамам)|(?:повеќе|poveke|веќе|veke|ништо|nisto)\s+(?:повеќе\s+|poveke\s+)?(?:немам|nemam)`;
+
+const COUNTER_OFFER_RE = new RegExp(
+  // B1 modal [+li] [+da] [clitics] [za/na] + amount + currency
+  //   "dali moze za 150 e", "moze li na 150 evra", "може ли на 130000 евро?"
+  COUNTER_MODAL + COUNTER_PART + COUNTER_DA + String.raw`\s+` + COUNTER_FILLER
+  + String.raw`(?:за\s+|на\s+|za\s+|na\s+)?`
+  + String.raw`(?!(?:до|do|под|pod|околу|okolu)(?![\p{L}\p{N}]))`
+  + String.raw`\d[\d\s.,]*\s*` + COUNTER_CUR
+  // B2 modal [+li] [+da] [clitics] za/na + BARE amount — "moze za 150?"
+  //   (not "za 2 spalni")
+  + '|' + COUNTER_MODAL + COUNTER_PART + COUNTER_DA + String.raw`\s+` + COUNTER_FILLER
+  + String.raw`(?:за|на|za|na)\s+\d[\d\s.,]*(?![\p{L}\p{N}])` + COUNTER_CRIT
+  // B3 pay-verb + amount + currency — "ke platam 140000", "би платил 25000 денари"
+  + '|' + COUNTER_PAY + String.raw`\s+` + String.raw`\d[\d\s.,]*\s*` + COUNTER_CUR
+  // B4 pay-verb + BARE amount — "ke platam 140000"
+  + '|' + COUNTER_PAY + String.raw`\s+\d[\d\s.,]*(?![\p{L}\p{N}])` + COUNTER_CRIT
+  // B5 give/offer verb + amount (currency optional) — "Дадам 450 евра",
+  //   "ke dadam 400 e", "nudam 120000 evra kesh odma"
+  + '|' + COUNTER_GIVE + String.raw`\s+` + String.raw`\d[\d\s.,]*\s*` + String.raw`(?:` + COUNTER_CUR + String.raw`)?` + COUNTER_CRIT
+  // B6 amount + currency, then a give/take verb within one clause —
+  //   "350 евра можам да дадам", "за 1800 евра ја земам одма"
+  + '|' + String.raw`\d[\d\s.,]*\s*` + COUNTER_CUR + String.raw`[^.!?\n]{0,20}`
+  + String.raw`(?:ја\s+|go\s+)?` + String.raw`(?:` + COUNTER_GIVE + '|' + COUNTER_TAKE + '|' + COUNTER_PAY + String.raw`)(?![\p{L}\p{N}])`
+  // B6b "will it pass/does it work" + za/na + amount — "ke pomine li za
+  //   400e?", "molam za 140000 evr ako biva", "dali ke bide za 95000?"
+  + '|' + String.raw`(?:помина[\p{L}]*|pomine[\p{L}]*|бива[\p{L}]*|biva[\p{L}]*|биде[\p{L}]*|bide[\p{L}]*|молам|молете|моли[\p{L}]*|molam|moli[\p{L}]*)` + COUNTER_PART + COUNTER_DA
+  + String.raw`\s+` + String.raw`(?:за|на|za|na)\s+\d[\d\s.,]*` + COUNTER_CRIT
+  // B6d accept-verb + amount — "dali ke prifatite 95000?", "prihakjam
+  //   130000", "prifakjame 95000 evra?"
+  + '|' + String.raw`(?:прифат[\p{L}]*|прифаќ[\p{L}]*|prifat[\p{L}]*|prifakj[\p{L}]*|prihakj[\p{L}]*|prihvat[\p{L}]*)`
+  + String.raw`\s+\d[\d\s.,]*\s*` + String.raw`(?:` + COUNTER_CUR + String.raw`)?` + COUNTER_CRIT
+  // B6c amount + ponuda/spremni/prifat declaration — "110000 e mojata
+  //   posledna ponuda", "imam 80000 eur spremni", "dali ke prifatite 95000?"
+  + '|' + String.raw`\d[\d\s.,]*\s*` + String.raw`(?:` + COUNTER_CUR + String.raw`)?`
+    + String.raw`[^.!?\n]{0,30}(?:понуд[\p{L}]*|ponud[\p{L}]*|спремн[\p{L}]*|spremn[\p{L}]*|прифат[\p{L}]*|prifat[\p{L}]*|бива[\p{L}]*|biva[\p{L}]*|помина[\p{L}]*|pomine[\p{L}]*|спушт[\p{L}]*|spust[\p{L}]*|намал[\p{L}]*|namal[\p{L}]*)`
+  // B8 infinitive bridge (10:54) — "DALI KE MOZE DA GO KUPAM ZA 150000":
+  // modal chain + da + [clitics] + any short verb phrase + optional za/na +
+  // amount (bare or suffixed). The bounded bridge covers every infinitive
+  // between the modal and the money.
+  + '|' + COUNTER_MODAL + COUNTER_PART + COUNTER_DA + String.raw`\s+`
+  + String.raw`[^.!?\n]{0,24}?` + String.raw`(?:за|на|za|na)?\s*\d[\d\s.,]*(?![\p{L}\p{N}])` + COUNTER_CRIT
+  // B9 the all-I-have idiom (see COUNTER_CEILING)
+  + '|' + COUNTER_CEILING
+  // B7 amount-first inversion — "150 evra moze?", "110000 moze?", "500 den togash?"
+  + '|' + String.raw`\d[\d\s.,]*\s*` + String.raw`(?:` + COUNTER_CUR + String.raw`)?` + String.raw`\s*(?:може|можам|moze|mozam|тогаш|togash)(?![\p{L}\p{N}])`,
+  'iu');
+
+/** Is the offer amount in FEE territory (viewing fee: ≤2000 den / ≤100 evr,
+ *  unqualified ≤2000)? Fee-sized consent ("ok ke platam 500 denari") stays fee
+ *  consent; larger amounts are PROPERTY counter-offers and belong to
+ *  negotiate. No amount at all = consent context (pure "vo red ke platam"). */
+const FEE_SIZED_RE = /(\d[\d\s.,]*)\s*(евр[\p{L}]*|evr[\p{L}]*|eur|€|ден[\p{L}]*|den[\p{L}]*|мкд|mkd|е|e)?(?![\p{L}\p{N}])/iu;
+
+// Ceiling idiom as a standalone regex (shared with COUNTER_OFFER_RE's B9
+// branch via the same source stem constant above).
+const COUNTER_CEILING_RE = new RegExp(COUNTER_CEILING, 'iu');
+
+/** Exported for the misroute layer (B): is this message a PROPERTY-sized
+ *  counter-offer ("dali moze za 150 e", "TOLKU IMAM", "ke platam 140000")?
+ *  True iff the counter-offer shape fires AND the amount is not fee-sized. */
+export function isPropertyOffer(text: string): boolean {
+  return COUNTER_OFFER_RE.test(text) && !counterOfferFeeSized(text);
+}
+
+/** Exported for the misroute layer (B): the same magnitude truth decides
+ *  whether a post-fee-ask client message is fee-sized (legal) or a
+ *  property-sized offer (the previous fee ask was misrouted). */
+export function counterOfferFeeSized(text: string): boolean {
+  const match = FEE_SIZED_RE.exec(text);
+  if (!match) {
+    // No amount anywhere. The ONLY amount-less counter-offer branch is the
+    // ceiling idiom ("TOLKU IMAM") — that is a property offer, not consent.
+    return !COUNTER_CEILING_RE.test(text);
+  }
+  const n = parseInt(match[1].replace(/[\s.,]/g, ''), 10);
+  const cur = (match[2] ?? '').toLowerCase();
+  if (/^(евр|evr|eur|€)/.test(cur)) return n <= 100;
+  if (/^(е|e)/.test(cur)) return n <= 50; // bare "e" suffix: "10 e" fee, "250e" property
+  return n <= 2000; // denari, mkd — or an unqualified figure
+}
+
 /** True when the client wants to negotiate the price. */
 export function detectNegotiate(text: string): boolean {
-  return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text) || extFires('negotiate', text);
+  return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text) || extFires('negotiate', text)
+    // Counter-offer class — freshness keeps its fast-path; fee-consent wins
+    // only for FEE-SIZED amounts ("ok ke platam 500 denari" = consent, while
+    // "ke platam 140000" = a property counter-offer).
+    || (COUNTER_OFFER_RE.test(text) && !detectPriceFreshness(text)
+        && !(detectFeePaymentAgreement(text) && counterOfferFeeSized(text)));
 }
 
 // Provision / commission ask.
@@ -2441,6 +2616,10 @@ const DOCUMENTS_RE =
 
 /** True when the client asks about required documents. */
 export function detectDocumentsAsk(text: string): boolean {
+  // A proxy-contact request ("STAPI VO KONTAKT I INFORMIRAJ ME", audit row
+  // #47) is NEVER a documents question — structural veto, so no doc-token
+  // collision ("договор", "документи" in a longer line) can ever claim it.
+  if (detectContactRequest(text)) return false;
   // "договори ми" = "arrange for me" (visit interest) — NOT a documents question.
   // "договор" as a standalone noun = contract (documents context) — allowed.
   if (/(?:договори|dogovori)\s+(?:ми|mi)/i.test(text)) return false;
@@ -2811,7 +2990,52 @@ export function detectPriceReference(text: string): boolean {
 // visit scheduling.
 // =========================================================================
 const OWNER_CONTACT_RE = /(?:контакт|контакт|број|број|телефон|телефон|емаил|емаилл?|линија|линија)\s*(?:од|от|од|на|на|за|за|наш|нас)?\s*(?:сопственик|сопственик|власник|власник)|(?:сопственик|сопственик|власник|власник)(?:от|от)?(?:\s+(?:е|e))?\s*(?:телефон|телефон|број|број|контакт|контакт)|(?:може|мозе)\s+ли\s+(?:контакт|контакт|број|број)\s+(?:од|от|од|на|на)\s*(?:сопственик|сопственик|власник|власник)|(?:дад(?:и|иј|ете|иите)|дади(?:j|те)?)\s+(?:ми|ми)?\s*(?:го|го)?\s*(?:сопственикот|сопственикот|власникот|власникот|бројот|бројот|телефонот|телефонот)|(?:сакам|сакам)\s+(?:да|да)\s+(?:разговарам|разговарам|контактирам|контактирам|звонам|звонам|зборувам|зборувам)\s+(?:со|са|со)\s*(?:сопственик|сопственик|власник|власник)|(?:имам|имам)\s+(?:ли|ли)\s+(?:можност|можност|могућност|могуцност)\s+(?:да|да)\s+(?:звам|звам|контактирам|контактирам)/iu;
-/** True when the client asks for the owner's direct contact/phone. */
+/** PROXY-CONTACT (2026-09-22, misroute audit #47/#49/#61/#63): the client asks
+ *  the AGENCY to reach the owner and report back — "STAPI VO KONTAKT I
+ *  INFORMIRAJ ME", "KONTAKTIRAJTE GO I KAZETE MI", "javete se na
+ *  sopstvenikot", "povrzi go". Imperatives aimed at Lina/agency, NOT asks for
+ *  the owner's own number (those stay in OWNER_CONTACT_RE). Historical bug:
+ *  the class was invisible to every detector — "STAPI VO KONTAKT I INFORMIRAJ
+ *  ME" fell into the documents lecture (audit row #47) because the inform
+ *  guard only BLOCKED documents without giving the intent a home.
+ *
+ *  Routing contract: the FSM fee flow in `closing` keeps claiming these
+ *  first (fee-before-contact is the judged-correct protocol), and in every
+ *  OTHER position the owner-contact refusal owns them — never documents,
+ *  never an info facet. `detectDocumentsAsk` carries the structural veto. */
+const PROXY_CONTACT_RE = new RegExp(
+  // стапи/стапете/ставете (во) контакт — Latin + Cyrillic + typos
+  String.raw`(?:стап[\p{L}]{0,3}|став[\p{L}]{0,3}|stap[\p{L}]{0,3}|stav[\p{L}]{0,3})\s*(?:во|vo|в)?\s*контакт`
+  // контактирај(те) + object clitic ("go/ja/mu"), OR the bare imperative as
+  // the whole message. "kontaktirajte ME na 070..." (client offers their own
+  // number → contact collection) must NOT fire: 'me' is deliberately not a
+  // clitic here, and mid-sentence bare imperatives don't match.
+  + '|' + String.raw`(?:контактира[\p{L}]{0,3}|kontaktira[\p{L}]{0,3})\s*(?:го|ја|ja|je|mu|ни|ni|со|so)(?![\p{L}\p{N}])`
+  + '|' + String.raw`(?:контактира[\p{L}]{0,3}|kontaktira[\p{L}]{0,3})\s*[,!?]?\s*$`
+  // јавете(ми) се (на сопственик) — javete (mi) se. NEVER \b after Cyrillic:
+  // \b is ASCII-based (Cyrillic letters are not \w) and silently never fires.
+  + '|' + String.raw`(?:јав[\p{L}]{0,4}|jav[\p{L}]{0,4})\s*(?:ми|mi)?\s*(?:се|se)(?![\p{L}\p{N}])`
+  // поврзи(те) го/ме — povrzi go / povrzete me
+  + '|' + String.raw`(?:поврз[\p{L}]{0,4}|povrz[\p{L}]{0,4})\s*(?:го|go|ја|ja|ме|me)(?![\p{L}\p{N}])`
+  // кажете МУ (на сопственик) — relay to owner; "кажете ми" (tell ME) is an
+  // info ask and must NOT fire (the 2nd person is the contact target)
+  + '|' + String.raw`(?:каж[\p{L}]{0,4}|kaz[\p{L}]{0,4})\s*(?:му|mu)(?![\p{L}\p{N}])`
+  // информирај(те) го (сопственикот) — relay form; "informiraj ME" alone is an
+  // info request and is deliberately excluded
+  + '|' + String.raw`(?:информира[\p{L}]{0,3}|informira[\p{L}]{0,3})\s*(?:го|ја|ja)(?![\p{L}\p{N}])`,
+  'iu');
+
+/** True when the client asks the agency to contact the owner and report back. */
+export function detectContactRequest(text: string): boolean {
+  return matchesBoth(PROXY_CONTACT_RE, text);
+}
+
+/** True when the client asks for the owner's direct contact/phone. NOTE: the
+ *  proxy-contact family (detectContactRequest) is deliberately NOT part of
+ *  this — inbound handles it in its own STATE-GATED block, because in
+ *  `closing` the FSM fee protocol must claim proxy requests first
+ *  (fee-before-contact is the judged-correct order) while direct phone asks
+ *  are always refused. */
 export function detectOwnerContact(text: string): boolean {
   return matchesBoth(OWNER_CONTACT_RE, text) || extFires('owner-contact', text);
 }
