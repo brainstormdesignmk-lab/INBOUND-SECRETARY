@@ -145,6 +145,14 @@ export class BankStore {
     return rows.map(r => r.text);
   }
 
+  /** Every key that has at least one learned variant (learn.* audits, meters). */
+  learnedKeys(): string[] {
+    const rows = this.db.db.prepare(
+      `SELECT DISTINCT key FROM bank_variants ORDER BY key ASC`
+    ).all() as Array<{ key: string }>;
+    return rows.map(r => r.key);
+  }
+
   /** Retrieval: best-matching key for a client message, or undefined.
    *  Jaccard similarity on character 3-grams over normalized text — same
    *  machinery the cron's grouper uses, now in the REQUEST path (offline,

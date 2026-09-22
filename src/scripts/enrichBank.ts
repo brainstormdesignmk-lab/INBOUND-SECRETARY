@@ -41,6 +41,7 @@ import { EnrichmentStore } from '../store/enrichment';
 import { BankStore, FROZEN_BANK_KEYS, DATA_DRIVEN_KEYS, MAX_VARIANTS_PER_KEY, isExcludedFromEnrichment } from '../store/bank';
 import { createLlmStrict } from '../llm/factory';
 import { RESPONSE_BANK } from '../data/responses';
+import { renderPromptBlock, validateBatch } from '../llm/bankConstraints';
 
 // --- Types ---
 
@@ -212,7 +213,7 @@ async function enrich(): Promise<void> {
         const genRes = await llm.complete({
           role: 'generate',
           messages: [
-            { role: 'system', content: 'You are a Macedonian text generator for a real-estate assistant. Generate 5 VARIATIONS of the same response, each on a new line prefixed with "- ". Each must be natural Macedonian, professional but warm. Vary the phrasing significantly. Keep the same meaning and tone. Do NOT include numbering, markdown, or any prefix other than "- ".' },
+            { role: 'system', content: 'You are a Macedonian text generator for a real-estate assistant. Generate 5 VARIATIONS of the same response, each on a new line prefixed with "- ". Each must be natural Macedonian, professional but warm. Vary the phrasing significantly. Keep the same meaning and tone. Do NOT include numbering, markdown, or any prefix other than "- ".\n\n' + renderPromptBlock(key) },
             { role: 'user', content: `Bank key: ${key}\n\nExisting response variations:\n${samples.map((s, i) => `Sample ${i + 1}: ${s}`).join('\n')}\n\nGenerate 5 NEW variations (different from the existing ones):` },
           ],
           temperature: 1.2,
@@ -220,7 +221,12 @@ async function enrich(): Promise<void> {
           topP: 0.95,
         });
         const lines = genRes.split('\n').filter(l => l.startsWith('- '));
-        const candidates = lines.map(l => l.slice(2).trim()).filter(replyIsClean);
+        // P1: constraint gate — a candidate that violates the key's contract
+        // is rejected before storage (and the rejection is logged, so the
+        // cron's own mistakes are visible instead of silently banked).
+        const passed = validateBatch(key, lines.map(l => l.slice(2).trim()).filter(replyIsClean));
+        for (const r of passed.rejected) console.log(`[enrich] ${key}: REJECTED — ${r.reasons.join('; ')}`);
+        const candidates = passed.kept;
         const unique = deduplicate(candidates, RESPONSE_BANK[key]);
         let added = 0;
         for (const v of unique) {
@@ -315,11 +321,20 @@ async function enrich(): Promise<void> {
         continue;
       }
       if (group.count < 1 || !group.sampleReplies[0]) continue;
+      const newKey = learnKeySlug(group.sampleMsgs);
+      // P1: learned keys inherit the BASELINE contract — a learned answer
+      // containing promises or unsanctioned amounts never reaches the bank.
+      const learnPassed = validateBatch(newKey, group.sampleReplies);
+      if (learnPassed.rejected.length > 0) {
+        const why = learnPassed.rejected[0].reasons.join('; ');
+        console.log(`[enrich] rejected learn key ${newKey} — ${why}`);
+        if (!dryRun) bank.correction(null, group.sampleMsgs[0], group.sampleReplies[0], `learn-violates-contract: ${why}`);
+        continue;
+      }
       if (!group.sampleReplies.every(replyIsClean)) {
         if (!dryRun) bank.correction(null, group.sampleMsgs[0], group.sampleReplies[0], 'reply-failed-hygiene');
         continue;
       }
-      const newKey = learnKeySlug(group.sampleMsgs);
       if (dryRun) {
         console.log(`[enrich] (DRY) would create new key ${newKey} (${group.count} instances)`);
         continue;
@@ -363,7 +378,7 @@ async function generateVariants(llm: ReturnType<typeof createLlmStrict>, key: st
     const genRes = await llm.complete({
       role: 'generate',
       messages: [
-        { role: 'system', content: 'You are a Macedonian text generator for a real-estate assistant. Generate 5 VARIATIONS of the same response, each on a new line prefixed with "- ". Each must be natural Macedonian, professional but warm. Vary the phrasing significantly — different sentence structures, different word choices. Keep the same meaning and tone. Do NOT include numbering, markdown, or any prefix other than "- ".' },
+        { role: 'system', content: 'You are a Macedonian text generator for a real-estate assistant. Generate 5 VARIATIONS of the same response, each on a new line prefixed with "- ". Each must be natural Macedonian, professional but warm. Vary the phrasing significantly — different sentence structures, different word choices. Keep the same meaning and tone. Do NOT include numbering, markdown, or any prefix other than "- ".\n\n' + renderPromptBlock(key) },
         { role: 'user', content: `Bank key: ${key}\n\nUser messages that trigger this response:\n${msgs}\n\nExisting response variations:\n${samples}\n\nGenerate 5 NEW variations (different from the existing ones):` },
       ],
       temperature: 1.2,
@@ -371,7 +386,10 @@ async function generateVariants(llm: ReturnType<typeof createLlmStrict>, key: st
       topP: 0.95,
     });
     const lines = genRes.split('\n').filter(l => l.startsWith('- '));
-    const candidates = lines.map(l => l.slice(2).trim()).filter(replyIsClean);
+    // P1: constraint gate — same as gapfill path.
+    const passed = validateBatch(key, lines.map(l => l.slice(2).trim()).filter(replyIsClean));
+    for (const r of passed.rejected) console.log(`[enrich] ${key}: REJECTED — ${r.reasons.join('; ')}`);
+    const candidates = passed.kept;
     const unique = deduplicate(candidates, existing);
     log.generated += lines.length;
     log.accepted += dryRun ? unique.length : unique.length;
