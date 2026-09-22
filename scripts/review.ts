@@ -32,6 +32,13 @@ function main(): void {
     const counts = bank.correctionCounts();
     console.log('new:', counts.new ?? 0, ' staged:', counts.staged ?? 0, ' processed:', counts.processed ?? 0, ' rejected:', counts.rejected ?? 0);
     console.log('\nknown families:', familyIds.length, '— use `list new` to work the queue');
+    // P2 digest: relearn output awaiting the answer-side gate.
+    const stagedAnswers = bank.stagedVariants();
+    if (stagedAnswers.length > 0) {
+      const keys = [...new Set(stagedAnswers.map(r => r.key))];
+      console.log(`\n⚠ ${stagedAnswers.length} staged ANSWER candidate(s) for: ${keys.join(', ')}`);
+      console.log('  review: npm run bank:relearn -- --list   promote: --promote <id>…   reject: --reject <id>…');
+    }
     // P0 meters digest: the review opens with the coverage picture, not an
     // empty queue you have to eyeball. Meters are read-only over bank_metrics.
     try {

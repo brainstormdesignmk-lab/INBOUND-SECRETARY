@@ -36,6 +36,7 @@
     "restore:to": "tsx scripts/restore.ts",
     "bank:review": "tsx scripts/review.ts",
     "bank:audit-seeds": "tsx scripts/audit-seeds.ts",
+    "bank:relearn": "tsx scripts/relearn.ts",
     "bank:meters": "tsx scripts/bank-meters.ts",
     "loop:a": "tsx scripts/loop-a.ts"
   },
