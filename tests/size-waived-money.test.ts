@@ -105,7 +105,32 @@ test('[21:40] bare "NEBITNO" waives bedrooms and presents the biggest-in-budget 
   assert.equal(after?.slots.budget, '300', 'the budget must survive the answer turn');
   assert.equal(after?.state, 'presentation', `the funnel must present, not re-ask: ${after?.state}`);
   const a = sent[sent.length - 1];
+  // The waiver ACK: Lina confirms the waiver (banked discovery.waiver.ack)
+  // instead of jumping straight to cards — the biggest-for-the-money ordering
+  // is NAMED before it is shown.
+  assert.ok(/големин[аата]|квадратур/i.test(a), `the waiver must be ACKNOWLEDGED first: ${a.slice(0, 160)}`);
+  assert.ok(a.includes('300'), `the ack must carry the budget: ${a.slice(0, 160)}`);
   assert.ok(a.includes('22'), `the BIGGEST in-budget unit (EB 22, 88 м²) must lead: ${a.slice(0, 160)}`);
+
+  offlineMap.close();
+});
+
+test('the waiver ack serves ONCE — later batches stay plain cards', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  const s = freshSession('test', chat);
+  s.slots.service = 'rent';
+  sessions.set(s);
+
+  await handler.handle('test', chat, 'AERODROM DO 300E');
+  await handler.handle('test', chat, 'NEBITNO');
+  const first = sent[sent.length - 1];
+  assert.ok(/големин[аата]|квадратур/i.test(first), 'first batch carries the ack');
+  assert.equal(sessions.get(chat)?.slots.waiverAcked, true, 'the flag must be set after the ack');
+
+  await handler.handle('test', chat, 'DRUGO');
+  const second = sent[sent.length - 1];
+  assert.ok(!/големината не е проблем|не е одлучувачки/i.test(second), `later batches must NOT repeat the ack: ${second.slice(0, 160)}`);
+  assert.ok(second.includes('17'), 'batch 2 still walks the ladder');
 
   offlineMap.close();
 });

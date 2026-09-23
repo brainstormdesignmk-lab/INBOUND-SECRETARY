@@ -5,7 +5,7 @@ import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
 import { fallbackVariant, pickVariant, retrieveVariant, getLearnedBank } from '../data/responseBank';
 import { dynamicAnswer } from './dynamicFallback';
-import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feePersuasion, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
+import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feePersuasion, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
 
 // Anchored so a property price like "68.300 евра" never trips it — only a
@@ -294,10 +294,19 @@ export class Responder {
         // "Било каде" searches pass anywhere+budget so the LLM-free cards open
         // with the descriptive offering ("…до {budget} евра, почнувајќи од
         // најбараните населби…") instead of the generic opener.
+        // Size-waiver ack: same once-per-waiver contract as the FSM leg —
+        // the ack prefixes only the FIRST post-waiver presentation (the flag
+        // is SET here; the caller saves the session after this returns).
+        const showWaiverAck = !!session.slots.sizeWaived && !session.slots.waiverAcked;
+        if (showWaiverAck) session.slots.waiverAcked = true;
         return { text: guardText(session.state,
-          buildPropertyCards(properties, session.state, session.history.length, assistantTexts(session), {
+          (showWaiverAck
+            ? `${waiverAck(session.slots.budget, assistantTexts(session))}\n\n`
+            : '')
+          + buildPropertyCards(properties, session.state, session.history.length, assistantTexts(session), {
             anywhere: session.slots.anywhere,
             budget: session.slots.budget,
+            noOpener: showWaiverAck,
           }),
           this.cfg.publicSiteUrl, assistantTexts(session)), source: 'fallback' };
       }

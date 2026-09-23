@@ -11,7 +11,7 @@ test('response bank: every entry is non-empty and placeholders live only where e
       assert.ok(v.trim().length >= 10, `${key}: too short: "${v}"`);
       if (key === 'no.match.location' || key === 'exhausted.location') {
         assert.equal(v.match(/\{location\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
-      } else if (key === 'presentation.open.anywhere') {
+      } else if (key === 'presentation.open.anywhere' || key === 'discovery.waiver.ack') {
         assert.equal(v.match(/\{budget\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else if (key === 'both.ask.service') {
         assert.equal(v.match(/\{type\}/g)?.length ?? 0, 1, `${key}: "${v}"`);

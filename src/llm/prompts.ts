@@ -385,6 +385,21 @@ export function buildVisitConfirmation(eb: number, time: string, agentPhone: str
 }
 
 /**
+ * The waiver ack — the client said size doesn't matter ("nebitno"), so Lina
+ * CONFIRMS the waiver and names the biggest-for-the-money ordering before the
+ * cards. Bank-backed (discovery.waiver.ack) with a {budget} var; the code
+ * fallback keeps the invariant that every serve has a text. Served ONCE per
+ * waiver (the caller owns the waiverAcked flag) — later presentations stay
+ * plain cards.
+ */
+export function waiverAck(budget: string | undefined, recent: string[] = []): string {
+  return pickVariant('discovery.waiver.ack', { recent, vars: budget ? { budget } : undefined })
+    ?? (budget
+      ? 'Во ред, големината не е проблем — за буџетот од ' + budget + ' почнувам од најголемите станови во понуда.'
+      : 'Во ред, големината не е проблем — почнувам од најголемите станови што ги има во понуда.');
+}
+
+/**
  * The viewing-fee disclosure — CODE-BUILT, so it can never be skipped or
  * paraphrased by the LLM. Fired the moment the client shows interest in
  * visiting (INTERESTED -> closing). The owner is contacted only AFTER the

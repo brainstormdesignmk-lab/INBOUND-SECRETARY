@@ -40,7 +40,7 @@ import {
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy,
-  buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, PRESENTATION_CLOSERS_ALL,
+  buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
   buildRecommendClose,
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
@@ -2901,6 +2901,14 @@ ${contactReminder}`;
         // rest (the 19:34 convention).
         if (!prefix && session.slots.pricePriority) {
           prefix = pickVariant('price.shy', { recent: assistantTexts(session) }) ?? '';
+        }
+        // Size-waiver ack: the client waived bedrooms ("nebitno") — confirm it
+        // and name the biggest-for-the-money ordering ONCE (the flag keeps
+        // later batches plain). The ladder really does lead with the biggest
+        // unit (sortBySqmDesc), so the ack states a fact, not a promise.
+        if (!prefix && session.slots.sizeWaived && !session.slots.waiverAcked) {
+          prefix = waiverAck(session.slots.budget, assistantTexts(session));
+          session.slots.waiverAcked = true;
         }
         const cards = buildPropertyCards(props, 'presentation', session.history.length,
           assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix });

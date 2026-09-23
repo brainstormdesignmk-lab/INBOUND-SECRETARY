@@ -12,6 +12,7 @@ export interface SlotData {
   budget?: string;
   anywhere?: boolean;           // "било каде" — no location preference (satisfies location)
   sizeWaived?: boolean;        // "големината не ми е битна" — skip bedrooms question
+  waiverAcked?: boolean;       // the banked discovery.waiver.ack intro was served for THIS waiver
   pricePriority?: boolean;     // "што поевтино" — sort by price, skip budget question
   garsonjera?: boolean;        // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
   propertyId?: number;          // EB of the property currently discussed
