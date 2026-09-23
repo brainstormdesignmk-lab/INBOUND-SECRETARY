@@ -47,7 +47,7 @@ function llmFromKeyFile(file: string): LlmClient {
 }
 import { detectAvailabilityAsk, detectPriceAsk, detectFeeWhy, detectFeeComplaint,
   detectNegotiate, detectFeePaymentAgreement, detectAgreement, detectVisitInterest,
-  isPropertyOffer } from '../src/llm/deterministic';
+  isPropertyOffer, detectWorkdaysQuestion } from '../src/llm/deterministic';
 import { checkMisroute } from '../src/llm/misroute';
 
 // ── Log access (mirrors EnrichmentStore but over an arbitrary DB path) ──────
@@ -86,7 +86,7 @@ export interface Assertion {
   why: string;
 }
 
-const ASSERTIONS: Assertion[] = [
+export const ASSERTIONS: Assertion[] = [
   {
     id: 'availability-ask-not-availability',
     why: 'client asks if the property is available; key is not availability.ack',
@@ -114,6 +114,37 @@ const ASSERTIONS: Assertion[] = [
     id: 'why-question-under-info-key',
     why: 'client asks for property details/what it is; served an unrelated single-facet key',
     violates: r => /kazi mi (nesto )?(za|za nego|sto zn)/i.test(r.userMsg) && r.bankKey === 'location.confirm',
+  },
+  // ── Owner-relay assertions (20:24/20:26 class) — OWNER_RELAY / OWNER_ASK
+  // rows carry a synthetic userMsg and a `owner.relay:*` / `owner.ask` key.
+  // The relay is WRONG when it contradicts the verdict it relays.
+  {
+    id: 'owner-relay-dropped-alternative',
+    why: 'verdict carried an alternative day/time but the relay never mentions it (the 20:24 dropped Saturday)',
+    violates: r => {
+      if (!(r.bankKey ?? '').startsWith('owner.relay:counter')) return false;
+      const m = r.userMsg.match(/\[owner:\d+\] counter(?:\+wholeday)? @ (.+)/);
+      // The logged time tag is mkTimePhrase'd; the relays embed the same
+      // canonical form — a missing mention means the offer was dropped.
+      return !!m && !!m[1] && !r.replyText.includes(m[1]);
+    },
+  },
+  {
+    id: 'owner-relay-wholeday-as-fixed-term',
+    why: 'verdict flagged whole-day but the relay presents a FIXED term for acceptance instead of asking the client for the clock',
+    violates: r => /\[owner:\d+\] counter\+wholeday/.test(r.userMsg)
+      && /дали овој термин|дали термин|дали се согласувате на овој термин/iu.test(r.replyText),
+  },
+  {
+    id: 'owner-relay-english-day',
+    why: 'an English day name surfaced in the client-facing Macedonian relay (the "(Friday 18:00)" bug)',
+    violates: r => (r.bankKey ?? '').startsWith('owner.relay:')
+      && /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/.test(r.replyText),
+  },
+  {
+    id: 'owner-ask-question-as-term',
+    why: 'a working-hours QUESTION was forwarded to the owner as the proposed visit term (20:26 "VO NEDELA RABOTITE ?")',
+    violates: r => r.bankKey === 'owner.ask' && detectWorkdaysQuestion(r.userMsg),
   },
 ];
 
@@ -228,6 +259,15 @@ async function main(): Promise<void> {
   const seqIds = new Set(seq.map(s => s.afterId));
 
   for (const row of rows) {
+    // Owner-exchange intake rows are AUDIT-ONLY: their verdicts are the
+    // ground truth the owner-assertions check against, not client traffic —
+    // skip the generic/LLM layers (the owner assertions below still run).
+    const isOwnerRow = r => (r.bankKey ?? '').startsWith('owner.relay:') || r.bankKey === 'owner.ask';
+    if (isOwnerRow(row) && !ASSERTIONS.some(a => a.id.startsWith('owner-') && (() => { try { return a.violates(row); } catch { return false; } })())) {
+      judgements.push({ id: row.id, chatId: row.chatId, state: row.state, userMsg: row.userMsg,
+        bankKey: row.bankKey, verdict: 'fit', source: 'assertion', why: 'owner-relay exchange consistent with its verdict' });
+      continue;
+    }
     // Deterministic FIT evidence first — an availability ask served by
     // availability.ack with the availability wording is a textbook fit.
     const hit = ASSERTIONS.find(a => {
@@ -333,4 +373,7 @@ async function main(): Promise<void> {
   console.log(`\n[judge] report → ${outFile}${unchecked ? ` (${unchecked} rows left unchecked — judge quota exhausted)` : ''}`);
 }
 
-main().catch(e => { console.error('[judge] FATAL', e); process.exit(1); });
+// Run only when executed directly (tests import the ASSERTIONS table).
+if (process.argv[1]?.endsWith('judge-enrichment.ts')) {
+  main().catch(e => { console.error('[judge] FATAL', e); process.exit(1); });
+}

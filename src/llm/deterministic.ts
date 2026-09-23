@@ -1515,13 +1515,13 @@ const OWNER_GONE_RE = /(продаден|продадена|издаден|из�
 // "да" inside "дава" must never count as agreement. Long words match bare.
 const OWNER_AGREE_RE =
   /(?:^|[\s,.;:!?])(?:да|da|ок|ok|okay)(?:$|[\s,.;:!?])|(?:може|можам|можеш|во ред|okej|слободен|слободна|слободно|достапен|достапна|достапно|прифаќам|прифатено|прифатен|прифатена|се согласувам|согласен|согласна|зелено|moze|mozam|vo red|sloboden|slobodna|slobodno|dostapen|dostapna|dostapno|prihaka|prihakat|soglasen|soglasna)/i;
-const OWNER_DISAGREE_RE = /(не можам|не ми одговара|не ми е згодно|не одговара|не е достапен|не е достапна|нема да можам|не тој термин|не тогаш|не сакам|не ми се допаѓа|не мозам|не ми одговара|не e достапен|не e достапна|не тој термин|ne\s+mi\s+odgovara|ne\s+mi\s+e\s+zgodno|ne\s+odgovara|ne\s+e\s+dostapen|ne\s+e\s+dostapna)/i;
+const OWNER_DISAGREE_RE = /(?<![\p{L}])(?:не можам|не ми одговара|не ми е згодно|не одговара|не е достапен|не е достапна|нема да можам|не тој термин|не тогаш|не сакам|не ми се допаѓа|не мозам|не ми одговара|не e достапен|не e достапна|не тој термин|ne\s+mi\s+odgovara|ne\s+mi\s+e\s+zgodno|ne\s+odgovara|ne\s+e\s+dostapen|ne\s+e\s+dostapna)/iu;
 // "не можам" must NOT count as agreement via the bare "можам" word. The
 // negated "nema da mozam" / "нема да можам" ("won't be able to") is the
 // MOST common owner refusal — it contains the bare "mozam" that would
 // otherwise match OWNER_AGREE_RE and CLOSE THE DEAL on a refusal.
 const OWNER_CANT_RE =
-  /(не\s+можам|не\s+може|не\s+можеш|ne\s*mozam|ne\s*moze|nemoz[ae]m|nemoz[ae]t|nemoze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да|nema\s*da\s*mozam|nema\s*da\s*moze|nema\s*da\s*mozeme|нема\s+да\s+можам|нема\s+да\s+може|нема\s+да\s+можеме|зазет|zafaten|zauzet|немам\s+време|nemam\s+vreme|никако|nikako|не\s+оди|ne\s+odi|не\s+е\s+можно|ne\s*e\s*mozno|немам\s+обврск|нема\s+обврск|имам\s+обврск|imam\s+obvrs)/i;
+  /(?<![\p{L}])(не\s+можам|не\s+може|не\s+можеш|ne\s*mozam|ne\s*moze|nemoz[ae]m|nemoz[ae]t|nemoze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да|nema\s*da\s*mozam|nema\s*da\s*moze|nema\s*da\s*mozeme|нема\s+да\s+можам|нема\s+да\s+може|нема\s+да\s+можеме|зазет|zafaten|zauzet|немам\s+време|nemam\s+vreme|никако|nikako|не\s+оди|ne\s+odi|не\s+е\s+можно|ne\s*e\s*mozno|немам\s+обврск|нема\s+обврск|имам\s+обврск|imam\s+obvrs)/iu;
 // The refusal token positions where the owner REFUSED the client's time — the
 // text BEFORE the first refusal token. In "nemozam utre vo 4, dogovori go
 // sreda vo 6" the refusal covers "NEMOZAM UTRE VO 4": the утре-во-4 pair
@@ -1617,6 +1617,19 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
       if (gap < bestGap) { bestGap = gap; best = d; }
     }
     if (best) return `${best[0]} ${clock[1]}`.trim();
+    // REVERSED composition: no day precedes the clock — the day AFTER it
+    // carries it ("samo vo 11 vo petok", "vo 11:30 vo sreda"). Dropping the
+    // clock relayed the bare day ("Петок") and the client was asked to accept
+    // a term nobody fixed; pairing in reverse keeps the fixed clock.
+    let revBest: RegExpMatchArray | undefined;
+    let revGap = Infinity;
+    for (const d of days) {
+      const dIdx = d.index ?? 0;
+      if (dIdx < cIdx + clock[0].length) continue; // must follow the clock
+      const gap = dIdx - (cIdx + clock[0].length);
+      if (gap < revGap) { revGap = gap; revBest = d; }
+    }
+    if (revBest) return `${revBest[0]} ${clock[1]}`.trim();
   }
   // First day match: in "сабота попладне" both match OWNER_DAY_RE but
   // "попладне" is a day-part modifier, not a standalone day — taking the
@@ -1642,6 +1655,12 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
     if (refusalIdx < 0) return first[0];
     return { day: first[0], wholeDay: true };
   }
+  // Day-part WITHOUT a day word and WITHOUT a clock ("samo popladne mozam"):
+  // the part IS the offered window — a fixed-carrier counter ("Попладне") the
+  // relay completes with the hour question. Returning undefined here dropped
+  // the entire offer and Lina re-asked from zero.
+  const lonePart = scoped.match(OWNER_DAY_PART_RE);
+  if (lonePart) return lonePart[0].trim();
   const clock = scoped.match(OWNER_CLOCK_RE);
   return clock ? clock[1].trim() : undefined;
 }

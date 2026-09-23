@@ -87,6 +87,16 @@ const C = {
     const v = detectOwnerVerdict(t, 'утре во 18:00');
     return !!(v && v.status === 'counter' && v.canAcceptWholeDay);
   },
+  // FIXED-CLOCK counter: the owner can't the proposed term but offers a day
+  // WITH A CONCRETE CLOCK ("samo vo petok vo 11"). The relay must carry the
+  // clock — a dropped clock relays the bare day and the client is asked to
+  // accept a term nobody fixed. Hour-open (whole-day) shapes intentionally do
+  // NOT count; a bare refusal with no alternative (relay = re-ask) doesn't.
+  ownerFixedClock: (t: string) => {
+    const v = detectOwnerVerdict(t, 'утре во 18:00');
+    return !!(v && v.status === 'counter' && !v.canAcceptWholeDay
+      && typeof v.ownerTime === 'string' && /\d/.test(v.ownerTime));
+  },
   // The NEW-CRITERIA composite: the message names search criteria (bedrooms/
   // sqm/budget/garsonjera) but NO routing trigger fired on it — the exact
   // shape the exhausted-pivot release block releases on (the 23:26 fix).
@@ -192,6 +202,16 @@ export const FAMILIES: FamilySpec[] = [
     batches: 3,
     genPrompt: `The PROPERTY OWNER answers Lina's availability/visit question. He CANNOT accept the proposed term but OFFERS A DAY with ANY hour. Vary the shapes: refusal + day ("ne mozam togas, samo vo sreda"), any-time idiom + day ("bilo koe vreme mi odgovara vo nedela", "cel den sum sloboden vo petok"), bare day + idiom ("sabota, bilo koga"), obligation ("ke mora vo nedela"), both scripts, typos ("sabta", "nedela", "sredta"), 3-14 words. MUST name a day-of-week (or vikend) and express hour-open availability. NOT a fixed clock ("vo 16:00" is a FIXED counter), NOT sold/rented, NOT a price, NOT plain agreement with no day, NOT a day he REFUSES without offering another.`,
     target: C.ownerWholeDay,
+    crossFire: {}, // single-outcome parser — see the C note above
+  },
+  {
+    id: 'owner-fixed-clock',
+    bankKey: '(owner verdict → fixed-clock counter relay)',
+    protects: 'the owner\'s fixed-clock counter must reach the client with the CLOCK intact ("samo vo petok vo 11" — a dropped clock relays the bare day and the client accepts a term nobody fixed)',
+    seedLine: 'samo vo petok vo 11',
+    batches: 3,
+    genPrompt: `The PROPERTY OWNER answers Lina's availability/visit question. He CANNOT accept the proposed term and offers a SPECIFIC DAY WITH A CONCRETE HOUR. Vary the shapes: exclusive openers ("samo vo petok vo 11", "edino sreda vo 18:00 mozam", "iskljucivo cetvrtok okolu 12"), can-verbs ("mozam utre po 17"), refusal + counter ("ne mozam togas, samo vo petok vo 11"), reversed order ("vo 11:30 vo sreda"), day-part + hour ("samo popladne vo 5"), English-day slips relayed as counters, both scripts, typos ("pEtok vo 11", "sabta vo 10", "sredta vo 6"), 3-14 words. MUST contain a day-of-week (or utre/denes/vikend) AND a concrete clock ("vo 11", "11:30", "posle 5", "okolu 18") — the hour is FIXED, not open. NOT a whole-day offer ("bilo koe vreme", "cel den"), NOT a bare refusal with no clock, NOT sold/rented, NOT a price, NOT plain agreement accepting the proposed time.`,
+    target: C.ownerFixedClock,
     crossFire: {}, // single-outcome parser — see the C note above
   },
   {

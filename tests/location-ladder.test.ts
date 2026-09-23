@@ -111,7 +111,10 @@ test('turn 2 after rotation 1: the same exact ask hits the AGENCY PROTOCOL', asy
   await handler.handle('test', chat, 'dali mi mozete da ja kazete tocnata lokacija');
   await handler.handle('test', chat, 'ne , tocna lokacija molam');
   const a2 = sent[sent.length - 1];
-  assert.ok(/два часа пред|денот на посетата|правило/i.test(a2), `turn 2 must serve the agency protocol: ${a2}`);
+  // Family invariant: the visit-day rule (variant draws say "денот/ден на
+  // посетата", "ден на гледањето", "правило", "политика", "предвидува") —
+  // never another rotation answer.
+  assert.ok(/два часа пред|ден(от)? на (посетата|гледањето)|правил|политик|предвидува|непосредно пред/i.test(a2), `turn 2 must serve the agency protocol: ${a2}`);
 
   offlineMap.close();
 });

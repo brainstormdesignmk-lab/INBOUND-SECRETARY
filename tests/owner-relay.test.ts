@@ -84,7 +84,7 @@ test('whole-day counter: owner offers a day with any hour → relay carries the 
   assert.equal(s.state, 'visit_scheduling', `relay must return to visit_scheduling, got ${s.state}`);
   const relay = sent[sent.length - 1];
   assert.match(relay, /сабот/iu, `relay must carry the owner's day: ${relay}`);
-  assert.match(relay, /часот\s*\?|кога точно|кое време|колку часот|кога би дојделе/u, `relay must ask the client to precise the clock: ${relay}`);
+  assert.match(relay, /часот\s*\?|кога точно|кое време|Кое време|колку часот|кога би дојделе/u, `relay must ask the client to precise the clock: ${relay}`);
   assert.ok(!/не може во тој термин(?!.*сабот)/iu.test(relay), `never the dropped-day refusal: ${relay}`);
 });
 
@@ -174,4 +174,29 @@ test('fixed counter with clock still relays a precise term (regression guard)', 
   const s = sessions.get('relay')!;
   assert.equal(s.state, 'time_confirm');
   assert.match(sent[sent.length - 1], /Петок во 11/u);
+});
+
+test('fixed-clock family: exclusive openers, reversed clocks, lone day-parts — the clock never drops', () => {
+  for (const t of ['samo vo petok vo 11', 'SAMO VO PETOK VO 11', 'samo petok vo 11 mozam',
+    'mozam samo vo petok vo 11', 'edino vo petok vo 11', 'samo vo 11 vo petok',
+    'vo 11:30 vo sreda', 'samo utre vo 11:30', 'samo sreda posle 5',
+    'vo 11:30 samo', 'samo popladne mozam', 'pred 12 nemozam, samo posle 6',
+    'iskljucivo petok vo 11', 'lie vo petok vo 11']) {
+    const v = detectOwnerVerdict(t, 'утре во 18:00');
+    assert.ok(v && v.status === 'counter' && !v.canAcceptWholeDay && v.ownerTime,
+      `fixed-clock counter required: ${t} → ${JSON.stringify(v)}`);
+  }
+});
+
+test('"samo popladne mozam" — a word-internal "ne" never fabricates a refusal', () => {
+  // OWNER_CANT_RE/OWNER_DISAGREE_RE matched the "ne" INSIDE "popladne" —
+  // the offered window was read as a refusal and dropped entirely.
+  const v = detectOwnerVerdict('samo popladne mozam', 'утре во 18:00')!;
+  assert.equal(v.status, 'counter');
+  assert.match(v.ownerTime!, /попладне/iu);
+});
+
+test('the reversed clock "samo vo 11 vo petok" relays the full term, not the bare day', () => {
+  const v = detectOwnerVerdict('samo vo 11 vo petok', 'утре во 18:00')!;
+  assert.match(v.ownerTime!, /Петок во 11/u);
 });

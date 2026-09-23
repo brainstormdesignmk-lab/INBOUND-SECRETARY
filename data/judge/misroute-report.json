@@ -1,9 +1,219 @@
 {
-  "generatedAt": 1790085513058,
+  "generatedAt": 1790201462420,
   "db": "data/tui.db",
-  "total": 51,
-  "misrouted": 9,
+  "total": 4,
+  "misrouted": 4,
   "judgements": [
+    {
+      "id": 22,
+      "chatId": "client-1",
+      "state": "presentation",
+      "userMsg": "dali uste go imate 69 ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 23,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "kazi mi nesto za nego",
+      "bankKey": null,
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 27,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "zdravo\ndali uste vi e aktiven 78 ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 29,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "zdravo\n76 dali e uste aktiven ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 30,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "76 dali e sloboden?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 31,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "zdravo\ndali e dostapen 76?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 32,
+      "chatId": "client-1",
+      "state": "property_query",
+      "userMsg": "kazi mi 78 dali e aktiven ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 33,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "sto uste ima vo blizina na 78 ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 34,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "sakam da go iznajmam 76\ndali e sloboden?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 35,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "kazi mi za 78",
+      "bankKey": null,
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 36,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "ZDRAVO\nDALI VI E DOSTAPEN 76 ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 37,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "PA MOZE\nZAINTERESIRAN SUM I BI SAKAL DA GO VIDAM",
+      "bankKey": "followup.defer",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 38,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "DOBRO , A STO IMA DRUGO VO BLIZINA NA ZGRADATA?",
+      "bankKey": "fee.ask.rent",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 39,
+      "chatId": "client-1",
+      "state": "property_query",
+      "userMsg": "KOLKU MU BESE CENATA ?",
+      "bankKey": "price.ask",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 40,
+      "chatId": "client-1",
+      "state": "property_query",
+      "userMsg": "DALI E DOSTAPEN ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 41,
+      "chatId": "client-1",
+      "state": "presentation",
+      "userMsg": "KOJ OD OVIE DVA E PODOBAR SPORED VAS ?",
+      "bankKey": null,
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 42,
+      "chatId": "client-1",
+      "state": "presentation",
+      "userMsg": "ZOSTO?",
+      "bankKey": null,
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 43,
+      "chatId": "client-1",
+      "state": "presentation",
+      "userMsg": "DOBRO\nZAKAZI MI POSETA TOGAS",
+      "bankKey": "fee.ask.buy",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 44,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "PARI ZA STO ?",
+      "bankKey": "fee.why",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 45,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "PRV PAT SLUSAM AGENCIJA DA NAPLATUVA POSETA",
+      "bankKey": "fee.why",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 46,
+      "chatId": "client-1",
+      "state": "discovery",
+      "userMsg": "GO GLEDAV 79 NA VASATA STRANA\nDALI E SLOBODEN?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
     {
       "id": 47,
       "chatId": "client-1",
@@ -13,6 +223,106 @@
       "verdict": "misroute",
       "source": "assertion",
       "why": "client asks to contact the owner; served an info/fee key instead of the contact protocol"
+    },
+    {
+      "id": 48,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "ZDRAVO\nZAINTERESIRAN SUM ZA STAN SO BROJ 94\nDALI USTE SE PRODAVA?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 49,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "STAPETE VO KONTAKT VE MOLAM\nSAKAM DA GO VIDAM",
+      "bankKey": "fee.ask.buy",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 50,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "GLUPOSTI",
+      "bankKey": null,
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 51,
+      "chatId": "client-1",
+      "state": "presentation",
+      "userMsg": "VO RED E TOA SE , AMA NIKOJ NE NAPLATUVA ZA POSETI",
+      "bankKey": "fee.why",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 52,
+      "chatId": "client-1",
+      "state": "presentation",
+      "userMsg": "DOGOVORI MI ZA 79\nSAKAM DA GO VIDAM VO ZIVO",
+      "bankKey": "fee.ask.rent",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 53,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "ZDRAVO\nDALI USTE VI E SLOBODEN 79 ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 54,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "DOBRA LOKACIJA IMA",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 55,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "DALI USTE E AKTIVEN 76 ?\nBI SAKAL DA GO POSETAM",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 56,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "NAPLAKJATE ZA POSETA\nAUUU OVA E NESTO NOVO",
+      "bankKey": "provision.who.rent",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 57,
+      "chatId": "client-1",
+      "state": "property_query",
+      "userMsg": "DA TOJ E\nDALI USTE E NA PRODAZBA",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
       "id": 58,
@@ -25,6 +335,96 @@
       "why": "client asks for property details/what it is; served an unrelated single-facet key"
     },
     {
+      "id": 59,
+      "chatId": "client-1",
+      "state": "presentation",
+      "userMsg": "KOI DETALI GI ZNAES ZA NEGO ?",
+      "bankKey": "location.confirm",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 60,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "ZDRAVO\nDALI STANOT SO EV BR 74 USTE SE PRODAVA ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 61,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "KONTAKTIRAJTE GO I KAZETE MI",
+      "bankKey": "fee.ask.buy",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 62,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "zdravo\ndali e dostapen stanot so broj 78",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 63,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "stapi vo kontakt i informiraj me sto e , kako e",
+      "bankKey": "fee.ask.buy",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 64,
+      "chatId": "client-1",
+      "state": "closing",
+      "userMsg": "pari za posteta ?\nova prv pat slusam",
+      "bankKey": "fee.why",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 65,
+      "chatId": "client-1",
+      "state": "contact_collection",
+      "userMsg": "mnogu skapa cena ima",
+      "bankKey": "investment.opinion",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 66,
+      "chatId": "client-1",
+      "state": "property_query",
+      "userMsg": "dali moze da se poseti ?",
+      "bankKey": "fee.ask.buy",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 67,
+      "chatId": "client-1",
+      "state": "presentation",
+      "userMsg": "ODLICNA LOKACIJA IMA\nBAS TAKOV MI TREBA",
+      "bankKey": "fee.ask.buy",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
       "id": 68,
       "chatId": "client-1",
       "state": "closing",
@@ -33,6 +433,36 @@
       "verdict": "misroute",
       "source": "assertion",
       "why": "client asks to contact the owner; served an info/fee key instead of the contact protocol"
+    },
+    {
+      "id": 69,
+      "chatId": "client-1",
+      "state": "property_query",
+      "userMsg": "dali go imate seuste ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 70,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "dobar den\ndali uste e aktiven 76?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
+    },
+    {
+      "id": 71,
+      "chatId": "client-1",
+      "state": "idle",
+      "userMsg": "ZDRAVO\nZAINTERESIRAN SUM ZA 78\nDALI E SEUSTE AKTIVEN ?",
+      "bankKey": "availability.ack",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
       "id": 72,
@@ -45,434 +475,64 @@
       "why": "property-sized counter-offer served by a fee.ask key (08:20/10:54 class)"
     },
     {
-      "id": 22,
-      "chatId": "client-1",
-      "state": "presentation",
-      "userMsg": "dali uste go imate 69 ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 23,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "kazi mi nesto za nego",
-      "bankKey": null,
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 27,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "zdravo\ndali uste vi e aktiven 78 ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 29,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "zdravo\n76 dali e uste aktiven ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 30,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "76 dali e sloboden?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 31,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "zdravo\ndali e dostapen 76?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 32,
-      "chatId": "client-1",
-      "state": "property_query",
-      "userMsg": "kazi mi 78 dali e aktiven ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 33,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "sto uste ima vo blizina na 78 ?",
-      "bankKey": "availability.ack",
-      "verdict": "misroute",
-      "source": "gemini",
-      "why": "The reply answers about property availability instead of listing what is nearby (the neighborhood question is ignored)."
-    },
-    {
-      "id": 34,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "sakam da go iznajmam 76\ndali e sloboden?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 35,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "kazi mi za 78",
-      "bankKey": null,
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 36,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "ZDRAVO\nDALI VI E DOSTAPEN 76 ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 37,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "PA MOZE\nZAINTERESIRAN SUM I BI SAKAL DA GO VIDAM",
-      "bankKey": "followup.defer",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 38,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "DOBRO , A STO IMA DRUGO VO BLIZINA NA ZGRADATA?",
-      "bankKey": "fee.ask.rent",
-      "verdict": "misroute",
-      "source": "gemini",
-      "why": "The reply ignores the question about nearby amenities and instead asks for agreement to the fee protocol."
-    },
-    {
-      "id": 39,
-      "chatId": "client-1",
-      "state": "property_query",
-      "userMsg": "KOLKU MU BESE CENATA ?",
-      "bankKey": "price.ask",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 40,
-      "chatId": "client-1",
-      "state": "property_query",
-      "userMsg": "DALI E DOSTAPEN ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 41,
-      "chatId": "client-1",
-      "state": "presentation",
-      "userMsg": "KOJ OD OVIE DVA E PODOBAR SPORED VAS ?",
-      "bankKey": null,
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 42,
-      "chatId": "client-1",
-      "state": "presentation",
-      "userMsg": "ZOSTO?",
-      "bankKey": null,
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 43,
-      "chatId": "client-1",
-      "state": "presentation",
-      "userMsg": "DOBRO\nZAKAZI MI POSETA TOGAS",
-      "bankKey": "fee.ask.buy",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 44,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "PARI ZA STO ?",
-      "bankKey": "fee.why",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 45,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "PRV PAT SLUSAM AGENCIJA DA NAPLATUVA POSETA",
-      "bankKey": "fee.why",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 46,
+      "id": 73,
       "chatId": "client-1",
       "state": "discovery",
-      "userMsg": "GO GLEDAV 79 NA VASATA STRANA\nDALI E SLOBODEN?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 48,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "ZDRAVO\nZAINTERESIRAN SUM ZA STAN SO BROJ 94\nDALI USTE SE PRODAVA?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 49,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "STAPETE VO KONTAKT VE MOLAM\nSAKAM DA GO VIDAM",
-      "bankKey": "fee.ask.buy",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 50,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "GLUPOSTI",
-      "bankKey": null,
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 51,
-      "chatId": "client-1",
-      "state": "presentation",
-      "userMsg": "VO RED E TOA SE , AMA NIKOJ NE NAPLATUVA ZA POSETI",
-      "bankKey": "fee.why",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 52,
-      "chatId": "client-1",
-      "state": "presentation",
-      "userMsg": "DOGOVORI MI ZA 79\nSAKAM DA GO VIDAM VO ZIVO",
+      "userMsg": "STANOT SO EVIDENTEN BROJ 79 BI SAKAL DA GO VIDAM",
       "bankKey": "fee.ask.rent",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
-      "id": 53,
+      "id": 74,
       "chatId": "client-1",
       "state": "idle",
-      "userMsg": "ZDRAVO\nDALI USTE VI E SLOBODEN 79 ?",
+      "userMsg": "DOBAR DEN\nZAINTERESIRANA SUM ZA STAN SO BROJ 78\nDALI E USTE AKTIVEN OGLASOT ?",
       "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
-      "id": 54,
+      "id": 75,
       "chatId": "client-1",
       "state": "closing",
-      "userMsg": "DOBRA LOKACIJA IMA",
-      "bankKey": "availability.ack",
-      "verdict": "misroute",
-      "source": "gemini",
-      "why": "The reply ignores the client's comment about the good location and gives an irrelevant availability answer."
-    },
-    {
-      "id": 55,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "DALI USTE E AKTIVEN 76 ?\nBI SAKAL DA GO POSETAM",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 56,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "NAPLAKJATE ZA POSETA\nAUUU OVA E NESTO NOVO",
-      "bankKey": "provision.who.rent",
-      "verdict": "misroute",
-      "source": "gemini",
-      "why": "Client asked about property visit fees, but the reply discusses lawyer and notary costs (provision.who.rent misroute)."
-    },
-    {
-      "id": 57,
-      "chatId": "client-1",
-      "state": "property_query",
-      "userMsg": "DA TOJ E\nDALI USTE E NA PRODAZBA",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 59,
-      "chatId": "client-1",
-      "state": "presentation",
-      "userMsg": "KOI DETALI GI ZNAES ZA NEGO ?",
-      "bankKey": "location.confirm",
-      "verdict": "misroute",
-      "source": "gemini",
-      "why": "The reply starts with a confirmation and fails to provide the requested property details (location.confirm re-served)."
-    },
-    {
-      "id": 60,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "ZDRAVO\nDALI STANOT SO EV BR 74 USTE SE PRODAVA ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 61,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "KONTAKTIRAJTE GO I KAZETE MI",
+      "userMsg": "PA MOZE , BAS BI SAKALA DA GO POGLEDNAM",
       "bankKey": "fee.ask.buy",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
-      "id": 62,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "zdravo\ndali e dostapen stanot so broj 78",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 63,
+      "id": 76,
       "chatId": "client-1",
       "state": "closing",
-      "userMsg": "stapi vo kontakt i informiraj me sto e , kako e",
-      "bankKey": "fee.ask.buy",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 64,
-      "chatId": "client-1",
-      "state": "closing",
-      "userMsg": "pari za posteta ?\nova prv pat slusam",
+      "userMsg": "ZA SEKOJA POSETA NA STAN SE PLAKJA PO 500 DEN?",
       "bankKey": "fee.why",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
-      "id": 65,
+      "id": 77,
       "chatId": "client-1",
-      "state": "contact_collection",
-      "userMsg": "mnogu skapa cena ima",
-      "bankKey": "investment.opinion",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "state": "visit_scheduling",
+      "userMsg": "VO PETOK BI MOZELA POSLE 5",
+      "bankKey": "vague.time",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
-      "id": 66,
+      "id": 78,
       "chatId": "client-1",
-      "state": "property_query",
-      "userMsg": "dali moze da se poseti ?",
-      "bankKey": "fee.ask.buy",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 67,
-      "chatId": "client-1",
-      "state": "presentation",
-      "userMsg": "ODLICNA LOKACIJA IMA\nBAS TAKOV MI TREBA",
-      "bankKey": "fee.ask.buy",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 69,
-      "chatId": "client-1",
-      "state": "property_query",
-      "userMsg": "dali go imate seuste ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 70,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "dobar den\ndali uste e aktiven 76?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
-    },
-    {
-      "id": 71,
-      "chatId": "client-1",
-      "state": "idle",
-      "userMsg": "ZDRAVO\nZAINTERESIRAN SUM ZA 78\nDALI E SEUSTE AKTIVEN ?",
-      "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "state": "closing",
+      "userMsg": "DALI E VOZMOZNA KOREKCIJA NA CENATA ?",
+      "bankKey": "price.freshness",
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
       "id": 24,
@@ -480,9 +540,9 @@
       "state": "idle",
       "userMsg": "zdravo\nme interesira 79\ndali e uste dostapen /",
       "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
       "id": 25,
@@ -490,9 +550,9 @@
       "state": "idle",
       "userMsg": "78 dali go imate uste ?",
       "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
       "id": 26,
@@ -500,9 +560,9 @@
       "state": "closing",
       "userMsg": "koja mu e cenata ?",
       "bankKey": "price.ask",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     },
     {
       "id": 28,
@@ -510,9 +570,9 @@
       "state": "idle",
       "userMsg": "zdravo\nzainteresiran sum za 76\ndali e sloboden vo momentov ?",
       "bankKey": "availability.ack",
-      "verdict": "fit",
-      "source": "gemini",
-      "why": "(run-1 verdict: yes)"
+      "verdict": "unchecked",
+      "source": "deterministic-fit",
+      "why": "no deterministic violation (not judged without --llm)"
     }
   ],
   "sequenceMismatches": []

@@ -3194,12 +3194,40 @@ ${contactReminder}`;
       // mkTimePhrase: the classify leg canonizes the client's raw words —
       // "petok vo 6" once surfaced as English "Friday 18:00" inside this ask.
       const askTime = mkTimePhrase(proposedTime);
-      this.onOwnerAsk?.(session.chatId, eb, buildOwnerAsk(eb, askTime, ownerLabels ? { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen } : { eb, proposedTime: askTime }));
+      const ownerAskText = buildOwnerAsk(eb, askTime, ownerLabels ? { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen } : { eb, proposedTime: askTime });
+      // OWNER-ASK INTAKE (judge layer 1): the owner ask logs the CLIENT's raw
+      // proposed term — a question forwarded as a term (20:26 "VO NEDELA
+      // RABOTITE ?") is detectable only against the raw words, not the relay.
+      if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'OWNER_ASK', userMsg: session.slots.visitTime ?? proposedTime, replyText: ownerAskText, replySource: 'owner-relay', bankKey: 'owner.ask' }); } catch { /* ignore */ } }
+      this.onOwnerAsk?.(session.chatId, eb, ownerAskText);
       const verdict = await this.ownerAgent.check(session.chatId, eb, proposedTime);
       this.enqueue(session.chatId, () => this.applyOwnerVerdict(session.chatId, eb, verdict));
     } catch (e) {
       console.error('[owner] check failed:', (e as Error).message);
     }
+  }
+
+  /** OWNER-RELAY INTAKE (judge layer 1): the owner-exchange serves were
+   *  invisible to the enrichment log — a wrong relay (dropped day/clock,
+   *  a question forwarded as a term, an English day mid-sentence) looked
+   *  identical to a healthy one and the judge could never audit them.
+   *  Logged with a SYNTHETIC key (owner.*:<verdict>:<time>) whose shape the
+   *  judge's owner-relay assertions parse. bankKey stays null-free: these
+   *  rows never feed the variant pools, only the audit. */
+  private logOwnerExchange(session: ChatSession, eb: number, verdict: OwnerVerdict, relayText: string): void {
+    if (!this.deps.enrichment) return;
+    try {
+      const timeTag = typeof verdict.ownerTime === 'string' ? mkTimePhrase(verdict.ownerTime) : '';
+      this.deps.enrichment.insert({
+        chatId: session.chatId,
+        state: session.state,
+        eventType: 'OWNER_RELAY',
+        userMsg: `[owner:${eb}] ${verdict.status}${verdict.canAcceptWholeDay ? '+wholeday' : ''}${timeTag ? ` @ ${timeTag}` : ''}${verdict.note ? ` (${verdict.note})` : ''}`,
+        replyText: relayText,
+        replySource: 'owner-relay',
+        bankKey: `owner.relay:${verdict.status}${verdict.canAcceptWholeDay ? '.wholeday' : ''}`,
+      });
+    } catch { /* the audit must never break the relay */ }
   }
 
   private async applyOwnerVerdict(chatId: string, eb: number, verdict: OwnerVerdict): Promise<void> {
@@ -3241,7 +3269,8 @@ ${contactReminder}`;
       // the new proposal re-asks the owner.
       if (!verdict.ownerTime) {
         session.state = 'visit_scheduling';
-        const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_CANT_TIME_RELAY(session.slots.visitTime ?? '')}`;
+        this.logOwnerExchange(session, eb, verdict, `${priceRelay ? `${priceRelay} ` : ''}${OWNER_CANT_TIME_RELAY(session.slots.visitTime ?? '')}`);
+        const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_CANT_TIME_RELAY(mkTimePhrase(session.slots.visitTime ?? ''))}`;
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, reply);
@@ -3255,6 +3284,7 @@ ${contactReminder}`;
       // re-asks the owner with the completed term.
       if (verdict.canAcceptWholeDay) {
         session.state = 'visit_scheduling';
+        this.logOwnerExchange(session, eb, verdict, pickVariant('owner.wholeDayRelay', { recent: assistantTexts(session), vars: { day: mkTimePhrase(verdict.ownerTime ?? '') } }) ?? '');
         const dayRelay = pickVariant('owner.wholeDayRelay', { recent: assistantTexts(session), vars: { day: mkTimePhrase(verdict.ownerTime ?? '') } })
           ?? `Сопственикот не може во предложениот термин, но го нуди ${mkTimePhrase(verdict.ownerTime ?? '')} во целост — било кое време му одговара. Во колку часот би сакале да дојдете?`;
         pushHistory(session, { role: 'assistant', text: dayRelay }, this.cfg.maxHistory);
@@ -3274,7 +3304,8 @@ ${contactReminder}`;
       }
       session.state = 'time_confirm';
       session.slots.ownerTime = verdict.ownerTime;
-      const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_COUNTER_RELAY(verdict.ownerTime ?? '')}`;
+      this.logOwnerExchange(session, eb, verdict, `${priceRelay ? `${priceRelay} ` : ''}${OWNER_COUNTER_RELAY(verdict.ownerTime ?? '')}`);
+      const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_COUNTER_RELAY(mkTimePhrase(verdict.ownerTime ?? ''))}`;
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, reply);
@@ -3302,6 +3333,7 @@ ${contactReminder}`;
     const reply = buildVisitConfirmation(eb, time, agentPhone);
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
+    if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'VISIT_CONFIRMED', userMsg: `[owner:${eb}] visit confirmed`, replyText: reply, replySource: 'owner-relay', bankKey: 'owner.relay:ok' }); } catch { /* ignore */ } }
 
     if (agent) this.dispatcher.recordVisit(agent.id, session.slots.service ?? 'buy');
     const apptId = this.finalizeAppointment(session, time, agentPhone);
