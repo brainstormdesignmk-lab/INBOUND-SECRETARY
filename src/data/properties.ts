@@ -570,17 +570,42 @@ const EN_DAY_TO_MK: Record<string, string> = {
   monday: 'понеделник', tuesday: 'вторник', wednesday: 'среда',
   thursday: 'четврток', friday: 'петок', saturday: 'сабота', sunday: 'недела',
 };
+/** Known owner day misspellings (Gemini sweep owner-whole-day): display
+ *  canonicalization for both scripts — the owner's words are parsed as-is
+ *  but the client-facing relay reads proper Macedonian. */
+const MK_DAY_FIX: Array<[RegExp, string]> = [
+  [/(?<![\p{L}])средота|(?<![\p{L}])сретта|(?<![\p{L}])срета/giu, 'среда'],
+  [/(?<![\p{L}])цетврток/giu, 'четврток'],
+  [/(?<![\p{L}])втрик|(?<![\p{L}])вторик/giu, 'вторник'],
+  [/(?<![\p{L}])сабта|(?<![\p{L}])субота/giu, 'сабота'],
+  [/(?<![\p{L}])петк/giu, 'петок'],
+  [/(?<![a-z])sredta|(?<![a-z])sreta/gi, 'среда'],
+  [/(?<![a-z])cetvrtok|(?<![a-z])četvrtok/gi, 'четврток'], // c→ц translit ambiguity: the word needs ч
+  [/(?<![a-z])vtorik|(?<![a-z])vtrik/gi, 'вторник'],
+  [/(?<![a-z])sabta|(?<![a-z])subota/gi, 'сабота'],
+  [/(?<![a-z])petk/gi, 'петок'],
+  [/(?<![a-z])vikendov|(?<![a-z])vikendo/gi, 'викенд'],
+  [/(?<![a-z])nedella/gi, 'недела'],
+];
 /** Mixed-script guard: a phrase that already carries Cyrillic (client's own
- *  words like "VO NEDELA RABOTITE ?") is displayed untouched — only a fully
- *  non-Cyrillic phrase is canonicalized. */
+ *  words like "VO NEDELA RABOTITE ?") is displayed untouched by the Latin
+ *  map — but known day misspellings are fixed in BOTH scripts. */
 export function mkTimePhrase(s: string): string {
-  const src = (s ?? '').trim();
-  if (!src || /[\u0400-\u04FF]/u.test(src)) return src;
-  let out = src;
-  for (const [en, mk] of Object.entries(EN_DAY_TO_MK)) {
-    out = out.replace(new RegExp(`\\b${en}\\b`, 'gi'), mk);
+  const raw = (s ?? '').trim();
+  let src = raw;
+  // Day fixes run FIRST and in BOTH scripts (case-insensitive — owners
+  // capitalize "Средота"). Latin mapping below runs only when the ORIGINAL
+  // text carried no Cyrillic: the client's own mixed-script words are
+  // preserved, a fixed misspelling never blocks the display path.
+  for (const [re, fix] of MK_DAY_FIX) src = src.replace(re, fix);
+  if (!src) return src;
+  const hadCyr = /[\u0400-\u04FF]/u.test(raw);
+  if (!hadCyr) {
+    for (const [en, mk] of Object.entries(EN_DAY_TO_MK)) {
+      src = src.replace(new RegExp(`\\b${en}\\b`, 'gi'), mk);
+    }
   }
-  return out.charAt(0).toUpperCase() + out.slice(1);
+  return src.charAt(0).toUpperCase() + src.slice(1);
 }
 
 /**

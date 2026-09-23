@@ -1083,7 +1083,7 @@ test('owner counter-offer: accept/reject the owner time works with every LLM dow
   await new Promise(r => setTimeout(r, 50)); // let the enqueued verdict land
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'time_confirm');
-  assert.ok(sent[6].includes('петок во 17:00'), sent[6]);
+  assert.ok(sent[6].includes('Петок во 17:00'), sent[6]); // mkTimePhrase capitalizes the day in relays
 
   // accept the counter-time -> pending (confirmed appointment), LLM down
   s = await send('VO RED, TOA VREME E DOBRO');

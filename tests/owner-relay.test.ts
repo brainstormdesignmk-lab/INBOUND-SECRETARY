@@ -117,6 +117,52 @@ test('workdays detector never eats slot proposals or acceptances', () => {
   assert.equal(detectWorkdaysQuestion('rabotite od 9 do 17'), false, 'carries a clock → not a days question');
 });
 
+test('whole-day sweep round 2: obligation anchor, whenever idioms, inflected day forms', () => {
+  // ke-mora obligation inside the refusal clause — the scope rule must not
+  // discard the offered day
+  const km = detectOwnerVerdict('Nemozam togas ke mora vo nedela, sloboden sum bilokoga', 'Утре во 18:00');
+  assert.equal(km?.status, 'counter');
+  assert.equal(km?.canAcceptWholeDay, true);
+  assert.match(km?.ownerTime ?? '', /недел/i);
+  // Latin disagreement + whenever idiom
+  const lat = detectOwnerVerdict('ne mi odgovara toj den, vikendov moze koga bilo', 'Утре во 18:00');
+  assert.equal(lat?.canAcceptWholeDay, true);
+  assert.match(lat?.ownerTime ?? '', /викенд/i);
+  // Range idiom must not let the day-part steal the carrier ("Среда вечер" was fabricated)
+  const range = detectOwnerVerdict('Зафатен сум тогаш, во среда сум слободен од сабајле до вечер.', 'Утре во 18:00');
+  assert.equal(range?.canAcceptWholeDay, true);
+  assert.ok(!/вечер/.test(range?.ownerTime ?? ''), `range endpoint must not become the term: ${range?.ownerTime}`);
+  // "ne e mozno" + sloboden must NEVER ok on the refused time
+  const okTrap = detectOwnerVerdict('ne e mozno togas. vo petk cel den sum sloboden bilo koe vreme.', 'Утре во 18:00');
+  assert.equal(okTrap?.status, 'counter');
+  assert.equal(okTrap?.canAcceptWholeDay, true);
+});
+
+test('fixed counters and refusals never gain the whole-day flag', () => {
+  // No anytime idiom, no refusal: a bare positive day is a FIXED counter
+  const fixed = detectOwnerVerdict('vo petok mozam', 'Утре во 18:00');
+  assert.equal(fixed?.status, 'counter');
+  assert.equal(fixed?.canAcceptWholeDay, undefined);
+  // Refused day without an alternative: bare counter, no day at all
+  const bare = detectOwnerVerdict('ne mozam utre vo 4', 'Утре во 4');
+  assert.equal(bare?.status, 'counter');
+  assert.equal(bare?.ownerTime, undefined);
+  // Clock counter stays fixed
+  const clock = detectOwnerVerdict('ne, samo vo petok vo 11', 'Утре во 18:00');
+  assert.equal(clock?.canAcceptWholeDay, undefined);
+  assert.match(clock?.ownerTime ?? '', /Петок во 11/);
+});
+
+test('mkTimePhrase canonicalizes owner day misspellings in both scripts', () => {
+  assert.equal(mkTimePhrase('Средота'), 'Среда');
+  assert.equal(mkTimePhrase('Сабота'), 'Сабота');
+  assert.equal(mkTimePhrase('sabta'), 'Сабота');
+  assert.equal(mkTimePhrase('sredta vo 6'), 'Среда vo 6');
+  assert.equal(mkTimePhrase('Петк'), 'Петок');
+  assert.equal(mkTimePhrase('Црногорска амбасада'), 'Црногорска амбасада'); // non-day text untouched
+  assert.equal(mkTimePhrase('Friday 18:00'), 'Петок 18:00'); // English-day path intact
+});
+
 test('fixed counter with clock still relays a precise term (regression guard)', async () => {
   const { handler, sessions, sent, send } = await makeHandler();
   await reachOwnerChecking(send);

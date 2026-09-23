@@ -41,7 +41,7 @@ import {
   detectSuggestAlternatives, detectTimeRejection, detectVagueTime,
   detectVisitCancellation, detectVisitInterest, detectVisitTime,
   detectWhereIs, detectWidenIntent, extractSlots, isKadeTocno,
-  detectWorkdaysQuestion,
+  detectWorkdaysQuestion, detectOwnerVerdict,
 } from '../src/llm/deterministic';
 
 interface FamilySpec {
@@ -80,6 +80,13 @@ const C = {
   schedFlex: b(detectSchedulingFlex), exhausted: b(detectExhaustedFollowUp),
   eyeCatch: b(detectEyeCatch), rejection: b(detectRejection), description: b(detectPropertyDescription),
   workdays: b(detectWorkdaysQuestion),
+  // Owner-verdict predicates: single-outcome parser, so cross-fires with the
+  // target are impossible by construction — the family's value is GAP
+  // detection (phrases that should parse whole-day but land fixed/bare/undef).
+  ownerWholeDay: (t: string) => {
+    const v = detectOwnerVerdict(t, 'утре во 18:00');
+    return !!(v && v.status === 'counter' && v.canAcceptWholeDay);
+  },
   // The NEW-CRITERIA composite: the message names search criteria (bedrooms/
   // sqm/budget/garsonjera) but NO routing trigger fired on it — the exact
   // shape the exhausted-pivot release block releases on (the 23:26 fix).
@@ -176,6 +183,16 @@ export const FAMILIES: FamilySpec[] = [
     genPrompt: `The client asks whether the AGENCY works on a given day or which hours it keeps — NOT offering a visit time. Vary: "koi saati rabotite?", "dali rabotite vo sabota?", "rabotite nedela?", "vo vikend rabotite?" — both scripts, typos ("rabotitee", "sabta"), 2-7 words. MUST contain a work-verb (raboti/rabotite/otvoreno/zatvoreno) AND a day/weekend word, NO clock. NOT a time proposal ("vo sabota vo 10"), NOT visit interest, NOT a general question about a property.`,
     target: C.workdays,
     crossFire: { visitTime: C.visitTime, schedFlex: C.schedFlex, agreement: C.agreement, visit: C.visit, vagueTime: C.vagueTime },
+  },
+  {
+    id: 'owner-whole-day',
+    bankKey: '(owner verdict → canAcceptWholeDay relay)',
+    protects: 'the owner\'s day-with-any-hour counter must reach the client with the day intact (20:24: "KE MORA VO SABOTA. BILO KOE VREME" was dropped and Lina re-asked from zero)',
+    seedLine: 'ne mozam vo 6 vo petok. ke mora vo sabota. bilo koe vreme',
+    batches: 3,
+    genPrompt: `The PROPERTY OWNER answers Lina's availability/visit question. He CANNOT accept the proposed term but OFFERS A DAY with ANY hour. Vary the shapes: refusal + day ("ne mozam togas, samo vo sreda"), any-time idiom + day ("bilo koe vreme mi odgovara vo nedela", "cel den sum sloboden vo petok"), bare day + idiom ("sabota, bilo koga"), obligation ("ke mora vo nedela"), both scripts, typos ("sabta", "nedela", "sredta"), 3-14 words. MUST name a day-of-week (or vikend) and express hour-open availability. NOT a fixed clock ("vo 16:00" is a FIXED counter), NOT sold/rented, NOT a price, NOT plain agreement with no day, NOT a day he REFUSES without offering another.`,
+    target: C.ownerWholeDay,
+    crossFire: {}, // single-outcome parser — see the C note above
   },
   {
     id: 'visit-cancel',

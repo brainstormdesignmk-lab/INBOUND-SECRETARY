@@ -1,0 +1,853 @@
+{
+  "bankKey": "(owner verdict → canAcceptWholeDay relay)",
+  "protects": "the owner's day-with-any-hour counter must reach the client with the day intact (20:24: \"KE MORA VO SABOTA. BILO KOE VREME\" was dropped and Lina re-asked from zero)",
+  "rows": [
+    {
+      "phrase": "ne mozam vo 6 vo petok. ke mora vo sabota. bilo koe vreme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas, sabta sum sloboden cel den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш, ќе мора во четврток било кое време.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Petok, bilo koga mi odgovara ne sum na rabota",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш сум зафатен, подобро во недела цел ден сум дома.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "togas nikako, sredta slobodno bilo koga pisete",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам во тој термин, за викенд кога сакате дојдете.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ke mora vo ponedelnik, bilo koe vreme moze",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не може тогаш, за субота цело време сум слободен.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тешко тогаш, вторник било кога ми одговара.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ne sum tu togas, vo petok sum sloboden cel den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas, za vikend било кое време повелете",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш не, ќе мора во срета во било кое време.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nemam vreme togas, cetvrtok bilokoga pominite",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ќе мора во недела, цел ден сум дома.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zazet sum togas, sabota cel den mi odgovara",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togash, moze vo cetvrtok bilo koe vreme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не можам тогаш, ќе мора во сабота. цел ден сум слободен",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sredta ne mi odgovara, moze vo petok koga sakas",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "bilo koe vreme mi odgovara vo nedela, denes ne biva",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "тој термин не, во сабта сум слободен цело време",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne odi togas, ke mora vikendov, koga god vi odgovara",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas, moze sabta bilo koga",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не можам тој ден, во вторник било кога е во ред",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "tesko togas. ponedelnik sum sloboden cel den, dojdete koga sakate",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ке мора во среда, цел ден сум таму кога сакате",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas, vo petok koga i da e mozi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не бива тогаш. недела било кое време повелете",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zafaten sum togas, ke mora vo cetvrtok koga sakate dojdet",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "тогаш не можам, во понеделник која сакаш сатница",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "pogresen cas, за викенд сум слободен цел ден кога сакате",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш, само во среда. Било кое време ми одговара.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Togas sum na rabota. Sabota cel den sum sloboden.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas. cel den sum sloboden vo sabta",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам денес, ќе мора во четврток. Било кога дојдете.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas, samo vo sreda. bilo koe vreme dojdi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Togas ne, vikend sum sloboden cel den bilo koga.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Во понеделник цело време сум дома, кога сакаш дојди.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Nema sansi togas. Ke mora vo petok, bilo koe vreme mi odgovara.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш не можам. Во средота цел ден сум слободен, кога било.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vo vtornik ne mozam. Nedela, bilo koga dojdi slobodno.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш за жал. Во четврток сум слободен цел ден.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne e mozno togas. vo petk cel den sum sloboden bilo koe vreme.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш сум зафатен. Ќе мора во сабота, кога сакате дојдете.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Za vikend sum zafaten, ponedelnik bilo koe vreme odgovara.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш. Недела цело време сум слободен за гледање.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas, vo cetvrtok sum cel den doma pisi koga sakas",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш, ќе мора во сабота, било кое време ми одговара.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Sreda, bilo koga dojdete otvoren sum",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Зафатен сум тогаш, во среда сум слободен од сабајле до вечер.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mi odgovara toj den, vikendov moze koga bilo",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш не бива, во понеделник цел ден ми е празен.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Nemozam togas ke mora vo nedela, sloboden sum bilokoga",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Петок сум слободен цел ден, дојдете кога сакате.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zauzet sum togas. vo vtorik sum na raspolaganje cel den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам денес, ќе мора во сабта, било кое време важи.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Toj termin otpaga, za vikend sum dostapen cel den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тој ден имам обврски, во четврток дојдете во колку сакате саат.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Vo ponedelnik mozam bilo koga, pisete za toj den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш, подобро во недела цел ден сум таму.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Togas sum na rabota, ke mora vo petok bilo koe vreme.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ne mozam togas, ke mora vo petok, bilo koe vreme mi odgovara.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш, цел ден сум слободен во сабота.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sabta sum sloboden cel den, dojdete koga sakate.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ќе мора во среда, било кое време кажете.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Vo sredta ne mozam, ke mora vo cetvrtok bilo koga.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "За викенд сум слободен цел ден, кога сакате помини.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Dnes ne, ke mora vo nedla било кое време.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам денес, во вторник било кое време ми одговара.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ponedelnik, bilo koga mozi, cel den sum tuka.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не може тогаш, ќе мора во петок било кое време.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Togas ne, vo cetvrtok koga sakas doydi cel den sum sloboden.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш не можам, за викенд било кога кажете.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sreda mozam bilo koe vreme od sabajle do vecer.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Денес не, во среда сум слободен цело време.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ne mozam togas, vo nedela koga sakas dojdi cel den.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш не можам, ама во четврток сум слободен цел ден.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne moze togash... vo sabota bilo koe vreme dojdete",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "За тој ден не, ќе мора во срета, слободен сум кога сакате.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "togas sum zafaten, vikendot sum sloboden cel den mozi koga sakate",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш. Во вторник било кога, и цел ден сум дома.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne biva togas. sabta ke mora, bilo koe vreme mi odgovara.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Во петок не сум тука, недела било кога помини.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ne mozam. Ke mora vo ponedelnik, dostapen sum cel den.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "тогаш сум на работа, викенд може било кое време",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam toga, vo sreda koga sakas dojdi cel den sum sloboden",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не бива тој термин, за четврток сум отворен било кое време.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "za toj den tesko, vtornik bilo koga mozi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш, викендот ми е слободен цел ден па повелете.",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "toga ne, ke mora vo nedela cel den sum sloboden za gledanje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togash, no vo petok koga god vi odgovara sum sloboden",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas, ajde vo sredta bilo koe vreme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не можам тогаш, во петок сум слободен цел ден",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sabota, bilo koga mozi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не можам денес, ќе мора во недела во кое сакате време",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nemozam togas cel den sum doma vo cetvrtok",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "тој термин не ми одговара, било кое време во понеделник",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "za vikend mozam koga sakas, preku nedela sum na rabota",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сабта цел ден сум слободен, дојдете кога сакате",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dneska sum zafaten, vo vtornik bilo koe vreme moze",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не сум во скопје тогаш, ќе мора во среда било кога",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam vo toj termin, za petok bilo koe vreme važi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не можам тогаш, викендов цел ден сум овде",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nedela bilo koga mozem da dojdam da otvoram",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не ми одговара тогаш, во четврток сум слободен цел ден",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "nemam vreme togas, ponedelnik koga sakas дојди",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togas, ke mora vo petok bilo koe vreme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не можам тогаш, дојдете во среда било кога",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "тогаш сум зафатен. во недела сум слободен цел ден",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Ne mi odgovara toa. Sabota sum sloboden cel den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Togas nikako, no vo cetvrtok koga sakate pisi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne biva togas. sabta sum doma bilo koe vreme",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Денес не, може во вторник во било кое време",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne mozam togash. Ke mora vo sredta, koga bilo",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Togas ne, ama vo vikend sum sloboden cel den",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Не за тој ден. Понеделник може кога годе сакате",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sabota bilo koga, togas sto kazavte ne mozam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "tezko togas. Ajde vo petok cel den sum tuuka",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vo petok sum zafaten, mora vo nedela koga sakas",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш сум на работа. Сабота може било кога",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne biva togas... ponedelnik cel den mi odgovara",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

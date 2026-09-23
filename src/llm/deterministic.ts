@@ -1515,13 +1515,13 @@ const OWNER_GONE_RE = /(продаден|продадена|издаден|из�
 // "да" inside "дава" must never count as agreement. Long words match bare.
 const OWNER_AGREE_RE =
   /(?:^|[\s,.;:!?])(?:да|da|ок|ok|okay)(?:$|[\s,.;:!?])|(?:може|можам|можеш|во ред|okej|слободен|слободна|слободно|достапен|достапна|достапно|прифаќам|прифатено|прифатен|прифатена|се согласувам|согласен|согласна|зелено|moze|mozam|vo red|sloboden|slobodna|slobodno|dostapen|dostapna|dostapno|prihaka|prihakat|soglasen|soglasna)/i;
-const OWNER_DISAGREE_RE = /(не можам|не ми одговара|не ми е згодно|не одговара|не е достапен|не е достапна|нема да можам|не тој термин|не тогаш|не сакам|не ми се допаѓа|не мозам|не ми одговара|не e достапен|не e достапна|не тој термин)/i;
+const OWNER_DISAGREE_RE = /(не можам|не ми одговара|не ми е згодно|не одговара|не е достапен|не е достапна|нема да можам|не тој термин|не тогаш|не сакам|не ми се допаѓа|не мозам|не ми одговара|не e достапен|не e достапна|не тој термин|ne\s+mi\s+odgovara|ne\s+mi\s+e\s+zgodno|ne\s+odgovara|ne\s+e\s+dostapen|ne\s+e\s+dostapna)/i;
 // "не можам" must NOT count as agreement via the bare "можам" word. The
 // negated "nema da mozam" / "нема да можам" ("won't be able to") is the
 // MOST common owner refusal — it contains the bare "mozam" that would
 // otherwise match OWNER_AGREE_RE and CLOSE THE DEAL on a refusal.
 const OWNER_CANT_RE =
-  /(не\s+можам|не\s+може|не\s+можеш|ne\s*mozam|ne\s*moze|nemoz[ae]m|nemoz[ae]t|nemoze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да|nema\s*da\s*mozam|nema\s*da\s*moze|nema\s*da\s*mozeme|нема\s+да\s+можам|нема\s+да\s+може|нема\s+да\s+можеме)/i;
+  /(не\s+можам|не\s+може|не\s+можеш|ne\s*mozam|ne\s*moze|nemoz[ae]m|nemoz[ae]t|nemoze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да|nema\s*da\s*mozam|nema\s*da\s*moze|nema\s*da\s*mozeme|нема\s+да\s+можам|нема\s+да\s+може|нема\s+да\s+можеме|зазет|zafaten|zauzet|немам\s+време|nemam\s+vreme|никако|nikako|не\s+оди|ne\s+odi|не\s+е\s+можно|ne\s*e\s*mozno|немам\s+обврск|нема\s+обврск|имам\s+обврск|imam\s+obvrs)/i;
 // The refusal token positions where the owner REFUSED the client's time — the
 // text BEFORE the first refusal token. In "nemozam utre vo 4, dogovori go
 // sreda vo 6" the refusal covers "NEMOZAM UTRE VO 4": the утре-во-4 pair
@@ -1530,7 +1530,9 @@ function firstRefusalIndex(text: string): number {
   const m = text.match(OWNER_CANT_RE) ?? text.match(OWNER_DISAGREE_RE);
   return m?.index ?? -1;
 }
-const OWNER_DAY_RE = /утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|вечер|викенд|понеделник|вторник|среда|четврток|петок|сабота|недела|utre|zadutre|denes|deneska|vecer|popladne|napladne|utrovo|vikend|ponedelnik|vtornik|sreda|cetvrtok|petok|sabota|nedela/i;
+// Inflected owner spellings included (sweep owner-whole-day): сре*ота,
+// вто*рик, викендов, петк — the generator keeps finding case forms.
+const OWNER_DAY_RE = /утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|вечер|викенд|понеделник|вторник|вторик|втрик|среда|срета|сретта|средота|средо|четврток|петок|петк|сабота|сабта|субота|недела|недла|utre|zadutre|denes|deneska|vecer|popladne|napladne|utrovo|vikend|vikendov|vikendo|ponedelnik|vtornik|vtorik|vtrik|sreda|sredta|sreta|sredota|sredo|cetvrtok|petok|petk|sabota|sabta|subota|nedela|nedla/i;
 // A clock like "во 18:00" or bare "16:00" — but NOT when the number is
 // part of a price phrase ("по 60 илјади евра", "околу 70 000 евра"): the
 // lookahead rejects a match that continues into more digits or currency.
@@ -1565,6 +1567,36 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
   // ("nemozam utre vo 4, dogovori go sreda vo 6" — утре во 4 is refused,
   // среда во 6 is the counter).
   const scoped = refusalProposalScope(text, refusalIdx);
+  // OBLIGATION anchor: "Nemozam togas ke mora vo nedela" — the day after
+  // "ke mora" is the OFFERED day even though it sits inside the refusal
+  // clause (the scope rule would otherwise discard it). The proposed time
+  // never contains "ke mora", so anchoring here is unambiguous.
+  const km = text.match(/(?:ke\s*mora|ке\s+мора|ke\s+moze|ке\s+може)/i);
+  if (km && km.index !== undefined) {
+    const kmTail = text.slice(km.index + km[0].length);
+    const kmEnd = kmTail.search(/[.!?;—]/);
+    const kmSeg = kmEnd >= 0 ? kmTail.slice(0, kmEnd) : kmTail;
+    const kmDay = kmSeg.match(new RegExp(OWNER_DAY_RE.source, 'i'));
+    if (kmDay) return { day: kmDay[0], wholeDay: true };
+  }
+  // ANYTIME-ADJACENT anchor: the any-hour idiom carries the day even inside
+  // the refusal clause when punctuation failed to split them ("nemozam togas
+  // cel den sum doma vo cetvrtok") and when the offer PRECEDES the refusal
+  // ("sabota bilo koga, togas sto kazavte ne mozam"). Find a day word
+  // adjacent to an idiom occurrence (±24 chars) — the idiom makes the day an
+  // open-hour offer wherever it sits. (anytime recomputed here — this helper
+  // runs before detectOwnerVerdict computes its own flag.)
+  if (ANYTIME_RE.test(text)) {
+    const idiom = [...text.matchAll(new RegExp(`${ANYTIME_SRC}`, 'gi'))];
+    for (const m of idiom) {
+      const at = m.index ?? -1;
+      if (at < 0) continue;
+      const lo = Math.max(0, at - 24);
+      const hi = at + m[0].length + 24;
+      const near = text.slice(lo, hi).match(new RegExp(OWNER_DAY_RE.source, 'i'));
+      if (near) return { day: near[0], wholeDay: true };
+    }
+  }
   // matchAll needs global regexes; the originals are stateful (.test) so clone
   // them with the g flag instead of mutating the shared patterns.
   const g = (re: RegExp) => new RegExp(re.source, `${re.flags.replace('g', '')}g`);
@@ -1594,7 +1626,12 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
   if (days.length > 0) {
     const first = days[0];
     const tail = scoped.slice((first.index ?? 0) + first[0].length);
-    const part = tail.match(OWNER_DAY_PART_RE);
+    // A RANGE idiom ("од сабајле до вечер") contains a day-part word as its
+    // ENDPOINT — pairing it with the day would fabricate "Среда вечер" when
+    // the owner offered the whole span. Anytime-tail → the day stays bare.
+    const part = /(?:од\s+сабајле\s+до|od\s+sabajle\s+do|било\s*ко|bilo\s*ko|кога\s+било|koga\s+bilo)/i.test(tail)
+      ? null
+      : tail.match(OWNER_DAY_PART_RE);
     if (part) return `${first[0]} ${part[0]}`.trim();
     // After a refusal, a BARE day word was treated as emphasis on WHEN the
     // owner can't ("не можам, денес") — the whole proposal was DISCARDED.
@@ -1626,6 +1663,11 @@ function extractOwnerPrice(text: string): number | undefined {
   return n;
 }
 
+// Any-hour signal class — module-level so the idiom-adjacency anchor can
+// scan for idiom occurrences (source reuse) in the owner's free text.
+const ANYTIME_RE = /(?:bilo\s*koe|bilo\s*koj|bilo\s*koga|bilo\s*kade|bilo\s*vreme|bilokoga|bilokoe|koga\s*bilo|cel\s*den|celo\s*vreme|koga\s+god|koga\s+sak[aа](?:s|te)|koga\s+vi\s+odgovara|(?:vo|во)\s+kolku\s+sak[aа]|од\s+сабајле\s+до\s+вечер|od\s+sabajle\s+do\s+vecer|било\s*кое|било\s*кој|било\s*кога|кога\s+било|цел\s*ден|цело\s*време|кога\s+сакаш|кога\s+сакате|кога\s+год|кога\s+ви\s+одговара|во\s+колку\s+сака)/i;
+const ANYTIME_SRC = ANYTIME_RE.source;
+
 /**
  * Parse the OWNER's plain-text answer into a verdict. undefined = not
  * understood (the question must be repeated). Same-time confirmations and
@@ -1654,6 +1696,21 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   // сабота, било кое време") — the day is the proposal, the hour is open.
   const wholeDay = typeof time === 'object' && time !== null;
   const timeStr = typeof time === 'string' ? time : time?.day;
+  // A BARE day with no clock and no day-part ("KE MORA VO SABOTA. BILO KOE
+  // VREME" — no explicit "ne mozam" clause, so the refusal-scoped branch
+  // never fired) is still an hour-open proposal: the any-time idiom or the
+  // day alone carries it. Fixed-counter on a bare day relayed "предложи
+  // термин: Сабота" and asked the client to ACCEPT a term nobody fixed.
+  // Any-hour signal: the any-time idiom family (било кое/кога, fused
+  // "bilokoga", whenever-forms "кога сакаш/год/сакате", "цел(о) ден/време")
+  // or a refusal clause — an owner who refuses and names a day is offering
+  // that day open. (Sweep owner-whole-day gaps: "koga sakas", "koga god",
+  // "celo vreme sum sloboden", fused "bilokoga".)
+  const anytime = ANYTIME_RE.test(text);
+  const bareDayNoClock = !!timeStr && !wholeDay
+    && !OWNER_CLOCK_RE.test(timeStr) && !OWNER_DAY_PART_RE.test(timeStr)
+    && !/\d/.test(timeStr);
+  const isWholeDay = wholeDay || (bareDayNoClock && (anytime || refusalIdx >= 0));
   const hasClock = scoped !== text && scoped.length > 0
     ? new RegExp(OWNER_CLOCK_RE.source, OWNER_CLOCK_RE.flags.replace('g', '')).test(scoped)
     : OWNER_CLOCK_RE.test(text);
@@ -1674,12 +1731,12 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
     const v = withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(timeStr ?? '') });
     // Key present ONLY when true — an explicit `undefined` breaks deepEqual
     // verdict comparisons and reads as set-but-empty in the relay.
-    return wholeDay ? { ...v, canAcceptWholeDay: true } : v;
+    return isWholeDay ? { ...v, canAcceptWholeDay: true } : v;
   }
   // WHOLE-DAY counter: refusal + a later day with no clock — the dropped-day
   // bug made Lina relay "не може во тој термин" and re-ask from zero while
   // the owner had just OFFERED the whole day. The day rides to the client.
-  if (wholeDay && timeStr) {
+  if (isWholeDay && timeStr) {
     return withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(timeStr), canAcceptWholeDay: true });
   }
   // Can't do the proposed time (no alternative given) → counter; the client
