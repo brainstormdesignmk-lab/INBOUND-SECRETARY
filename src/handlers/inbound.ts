@@ -10,8 +10,8 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
@@ -52,14 +52,14 @@ import { detectRecommendAsk, collectMentionedEbs, buildRecommendation } from '..
 const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуална порака за да можам да Ви помогнам.';
 const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветен имот.';
 const OWNER_COUNTER_RELAY = (t: string) =>
-  `Сопственикот е достапен, но предложи поинаков термин: ${t}. Дали овој термин Ви одговара?`;
+  `Сопственикот е достапен, но предложи поинаков термин: ${mkTimePhrase(t)}. Дали овој термин Ви одговара?`;
 // The owner CAN'T do the client's proposed time and gave NO alternative. Lina
 // must never fabricate a term ("по договор со сопственикот" was relayed as a
 // fake proposal the client was asked to accept — and an accept then fell back
 // to the REFUSED time). Relay the refusal honestly and ask for another time;
 // the new time re-asks the owner (the healthy ping-pong keeps looping).
 const OWNER_CANT_TIME_RELAY = (t: string) =>
-  `Сопственикот не може во тој термин (${t}). ${VISIT_TIME_QUESTION}`;
+  `Сопственикот не може во тој термин (${mkTimePhrase(t)}). ${VISIT_TIME_QUESTION}`;
 const OWNER_GONE_REPLY = (eb: number, note: string) =>
   `За жал, имотот со Евидентен број ${eb} ${note}. Дозволете ми да проверам што друго имаме што одговара на Вашите критериуми.`;
 
@@ -2483,7 +2483,15 @@ ${contactReminder}`;
       // instead of re-asking the same discovery question.
       reply = DIRECTION_PIVOT_LINE;
     } else if (next === 'visit_scheduling') {
-      reply = VISIT_TIME_QUESTION;
+      // An agency-hours question ("rabotite vo nedela?") gets ANSWERED, not
+      // another time re-ask — the client asked something concrete first.
+      if (detectWorkdaysQuestion(text)) {
+        reply = pickVariant('workdays.question', { recent: assistantTexts(session) })
+          ?? 'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.';
+        bankKey = 'workdays.question';
+      } else {
+        reply = VISIT_TIME_QUESTION;
+      }
     } else if (next === 'owner_checking') {
       const eb = session.slots.interestedPropertyId ?? session.slots.propertyId ?? 0;
       const t = session.slots.visitTime ?? '';
@@ -2519,9 +2527,18 @@ ${contactReminder}`;
       reply = fallbackVariant('escalated', assistantTexts(session))
         ?? FALLBACKS.escalated ?? 'Ќе Ве контактира менаџер.';
     } else if (session.state === 'owner_checking') {
-      // client wrote while the owner check is in flight — bank-backed patience line
-      reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
-      bankKey = 'patience.line';
+      // An agency-hours question ("VO NEDELA RABOTITE?") must be ANSWERED
+      // even while the owner check is in flight — the patience line alone
+      // ignores the client's question entirely.
+      if (detectWorkdaysQuestion(text)) {
+        reply = pickVariant('workdays.question', { recent: assistantTexts(session) })
+          ?? 'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.';
+        bankKey = 'workdays.question';
+      } else {
+        // client wrote while the owner check is in flight — bank-backed patience line
+        reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
+        bankKey = 'patience.line';
+      }
     } else if (session.state === 'queued') {
       reply = QUEUED_STAY_LINE;
     } else if (detectPriceAsk(text) && !detectProvisionAsk(text) && !detectProvisionWho(text)
@@ -3146,7 +3163,10 @@ ${contactReminder}`;
       // back until the visit date+time are arranged.
       const ownerProp = eb ? await this.deps.properties.getById(eb) : undefined;
       const ownerLabels = ownerProp ? ownerPropertyLabels(ownerProp) : undefined;
-      this.onOwnerAsk?.(session.chatId, eb, buildOwnerAsk(eb, proposedTime, ownerLabels ? { eb, proposedTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen } : { eb, proposedTime }));
+      // mkTimePhrase: the classify leg canonizes the client's raw words —
+      // "petok vo 6" once surfaced as English "Friday 18:00" inside this ask.
+      const askTime = mkTimePhrase(proposedTime);
+      this.onOwnerAsk?.(session.chatId, eb, buildOwnerAsk(eb, askTime, ownerLabels ? { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen } : { eb, proposedTime: askTime }));
       const verdict = await this.ownerAgent.check(session.chatId, eb, proposedTime);
       this.enqueue(session.chatId, () => this.applyOwnerVerdict(session.chatId, eb, verdict));
     } catch (e) {
@@ -3201,6 +3221,19 @@ ${contactReminder}`;
       }
       // Vague owner time: "попладне", "после 5" etc. — ask owner for exact
       // clock instead of relaying a vague time to the client.
+      // WHOLE-DAY counter: the owner offered an entire day ("ке морам во
+      // сабота, било кое време"). There is no fixed term to accept — relay
+      // the day and ask the client to precise the exact clock; the answer
+      // re-asks the owner with the completed term.
+      if (verdict.canAcceptWholeDay) {
+        session.state = 'visit_scheduling';
+        const dayRelay = pickVariant('owner.wholeDayRelay', { recent: assistantTexts(session), vars: { day: mkTimePhrase(verdict.ownerTime ?? '') } })
+          ?? `Сопственикот не може во предложениот термин, но го нуди ${mkTimePhrase(verdict.ownerTime ?? '')} во целост — било кое време му одговара. Во колку часот би сакале да дојдете?`;
+        pushHistory(session, { role: 'assistant', text: dayRelay }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, dayRelay);
+        return;
+      }
       if (detectVagueTime(verdict.ownerTime)) {
         session.state = 'owner_checking'; // stay in owner_checking, re-ask
         const vagueReply = pickVariant('vague.time.owner', { recent: assistantTexts(session) })
@@ -3213,7 +3246,7 @@ ${contactReminder}`;
       }
       session.state = 'time_confirm';
       session.slots.ownerTime = verdict.ownerTime;
-      const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_COUNTER_RELAY(verdict.ownerTime)}`;
+      const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_COUNTER_RELAY(verdict.ownerTime ?? '')}`;
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, reply);

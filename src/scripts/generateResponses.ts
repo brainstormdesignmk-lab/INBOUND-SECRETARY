@@ -483,6 +483,30 @@ const SPEC: GenerationKey[] = [
     banned: [/стан|куќ|спални/],
     question: true,
   },
+  // owner.wholeDayRelay: the owner countered with a WHOLE DAY ("ке морам во
+  // сабота, било кое време") — the relay carries the day and asks the CLIENT
+  // to precise the clock. {day} = Macedonian day name, exactly once.
+  {
+    key: 'owner.wholeDayRelay',
+    sources: ['Сопственикот не може во предложениот термин, но го нуди {day} во целост — било кое време му одговара. Во колку часот би сакале да дојдете?'],
+    count: 10,
+    instructions: 'Пренеси на клиентот дека сопственикот не може во предложениот термин, но го нуди целиот {day} (било кое време). Заврши со ПРАШАЊЕ за точниот час. Променливата {day} МОРА да се содржи точно еднаш (именка во еднина, без префикс). Никогаш не измислувај конкретен час, никогаш не спомнувај надомест.',
+    required: [/\{day\}/, /\?$/u],
+    banned: [/\d{1,2}[:.]\d{2}(?!.*\{day\})/, /надомест|денари/],
+    question: true,
+  },
+  // workdays.question: the client asks whether the AGENCY works a given day
+  // ("VO NEDELA RABOTITE?") — answer the hours FIRST (Mon–Fri 09–17, weekends
+  // closed), then invite a visit in a working day. NEVER a proposed slot.
+  {
+    key: 'workdays.question',
+    sources: ['Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите на имотите се организираат во тој период, а сабота и недела се неработни.'],
+    count: 10,
+    instructions: 'Одговори кои се работните денови и часови на агенцијата: понеделник до петок, 09:00–17:00; сабота и недела НЕ се работат. Посетите се организираат во работните денови. Ако клиентот прашува за сабота/недела, побарај му прошка и предложи работен ден. Кратко, учтиво, без измислени детали.',
+    required: /(?:понеделник|петок|09|работни)/iu,
+    banned: [/сабота\s+и\s+недела\s+(?:работиме|смe)/iu],
+    question: false,
+  },
   {
     key: 'discovery.ask.budget.stan',
     sources: ['До која цена го барате станот?'],

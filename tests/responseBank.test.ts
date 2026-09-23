@@ -23,6 +23,10 @@ test('response bank: every entry is non-empty and placeholders live only where e
         // The 08:50 disclaimer carries the LAST-KNOWN price — filled at serve
         // time from the property row / slot (a data-carrier, like price.ask).
         assert.ok((v.match(/\{price\}/g)?.length ?? 0) === 1, `${key}: "${v}"`);
+      } else if (key === 'owner.wholeDayRelay') {
+        // The 20:24 whole-day counter: {day} fills with the owner's proposed
+        // day name at serve time (a data-carrier, like {price}).
+        assert.ok((v.match(/\{day\}/g)?.length ?? 0) === 1, `${key}: "${v}"`);
       } else {
         assert.ok(!v.includes('{'), `${key}: unexpected placeholder: "${v}"`);
       }

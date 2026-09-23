@@ -41,6 +41,7 @@ import {
   detectSuggestAlternatives, detectTimeRejection, detectVagueTime,
   detectVisitCancellation, detectVisitInterest, detectVisitTime,
   detectWhereIs, detectWidenIntent, extractSlots, isKadeTocno,
+  detectWorkdaysQuestion,
 } from '../src/llm/deterministic';
 
 interface FamilySpec {
@@ -78,6 +79,7 @@ const C = {
   comparison: b(detectComparison), feature: b(detectFeatureAsk),
   schedFlex: b(detectSchedulingFlex), exhausted: b(detectExhaustedFollowUp),
   eyeCatch: b(detectEyeCatch), rejection: b(detectRejection), description: b(detectPropertyDescription),
+  workdays: b(detectWorkdaysQuestion),
   // The NEW-CRITERIA composite: the message names search criteria (bedrooms/
   // sqm/budget/garsonjera) but NO routing trigger fired on it — the exact
   // shape the exhausted-pivot release block releases on (the 23:26 fix).
@@ -164,6 +166,16 @@ export const FAMILIES: FamilySpec[] = [
     genPrompt: `The client REJECTS the proposed visit time but is still interested. Vary: "togash ne mozam", "ne odgovara", "po drugo vreme", "ne mozam utre" — both scripts, typos ("mozam"→"mozan"), 2-6 words. MUST refuse the TIME. NOT cancelling the visit entirely, NOT offering a new time (that's visit-time).`,
     target: C.timeRej,
     crossFire: { visitTime: C.visitTime, cancel: C.cancel, vagueTime: C.vagueTime },
+  },
+  {
+    id: 'workdays-question',
+    bankKey: 'workdays.question',
+    protects: 'an agency-hours question must be ANSWERED, never forwarded to the owner as a proposed visit term (20:26 "VO NEDELA RABOTITE ?" reached the owner ask)',
+    seedLine: 'vo nedela rabotite ?',
+    batches: 2,
+    genPrompt: `The client asks whether the AGENCY works on a given day or which hours it keeps — NOT offering a visit time. Vary: "koi saati rabotite?", "dali rabotite vo sabota?", "rabotite nedela?", "vo vikend rabotite?" — both scripts, typos ("rabotitee", "sabta"), 2-7 words. MUST contain a work-verb (raboti/rabotite/otvoreno/zatvoreno) AND a day/weekend word, NO clock. NOT a time proposal ("vo sabota vo 10"), NOT visit interest, NOT a general question about a property.`,
+    target: C.workdays,
+    crossFire: { visitTime: C.visitTime, schedFlex: C.schedFlex, agreement: C.agreement, visit: C.visit, vagueTime: C.vagueTime },
   },
   {
     id: 'visit-cancel',

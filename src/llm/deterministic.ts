@@ -931,6 +931,10 @@ const VISIT_TIME_RE =
   /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|после\s*\d{1,2}|по\s*\d{1,2}|после\s+\d{1,2}|понеделник|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
 
 export function detectVisitTime(text: string): string | undefined {
+  // A working-days QUESTION ("VO NEDELA RABOTITE ?") contains the day token
+  // "nedela" and matched — the question was then forwarded to the OWNER as a
+  // proposed visit term. A question about agency hours is never a slot.
+  if (detectWorkdaysQuestion(text)) return undefined;
   if (VISIT_TIME_RE.test(text)) return text.trim().slice(0, 80);
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
@@ -1556,7 +1560,7 @@ function refusalProposalScope(text: string, refusalIdx: number): string {
  * refuses TODAY and proposes TOMORROW — the 16:00 clock belongs to "утре",
  * and pairing it with the first day ("денес") would relay the wrong day.
  */
-function extractOwnerTime(text: string, refusalIdx = -1): string | undefined {
+function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string; wholeDay: boolean } | undefined {
   // SCOPE: the proposal must come from a LATER clause than the refusal
   // ("nemozam utre vo 4, dogovori go sreda vo 6" — утре во 4 is refused,
   // среда во 6 is the counter).
@@ -1592,11 +1596,14 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | undefined {
     const tail = scoped.slice((first.index ?? 0) + first[0].length);
     const part = tail.match(OWNER_DAY_PART_RE);
     if (part) return `${first[0]} ${part[0]}`.trim();
-    // After a refusal, a BARE day word is emphasis on WHEN the owner can't
-    // ("не можам, денес") — not a counter-proposal of that day. Without a
-    // refusal ("можам во петок") a bare day IS the proposal.
+    // After a refusal, a BARE day word was treated as emphasis on WHEN the
+    // owner can't ("не можам, денес") — the whole proposal was DISCARDED.
+    // But owners frequently refuse + propose a day with any hour: "не можам
+    // во 6 во петок. цел ден сум заузет. ќе морав во сабота. било кое
+    // време". That day IS the counter-proposal — flagged canAcceptWholeDay,
+    // the relay asks the client to precise the clock instead of dropping it.
     if (refusalIdx < 0) return first[0];
-    return undefined;
+    return { day: first[0], wholeDay: true };
   }
   const clock = scoped.match(OWNER_CLOCK_RE);
   return clock ? clock[1].trim() : undefined;
@@ -1643,6 +1650,10 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   const refusalIdx = firstRefusalIndex(text);
   const scoped = refusalProposalScope(text, refusalIdx);
   const time = extractOwnerTime(text, refusalIdx);
+  // A refusal-scoped day with NO clock is a WHOLE-DAY counter ("ке морав во
+  // сабота, било кое време") — the day is the proposal, the hour is open.
+  const wholeDay = typeof time === 'object' && time !== null;
+  const timeStr = typeof time === 'string' ? time : time?.day;
   const hasClock = scoped !== text && scoped.length > 0
     ? new RegExp(OWNER_CLOCK_RE.source, OWNER_CLOCK_RE.flags.replace('g', '')).test(scoped)
     : OWNER_CLOCK_RE.test(text);
@@ -1650,7 +1661,7 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   const disagree = cant || matchesBoth(OWNER_DISAGREE_RE, t);
   // Same-time confirmation or plain agreement → ok (accept the client's time).
   // locMatches is transliteration-aware: "utre po 18:00" === "утре по 18:00".
-  if (agree && (!time || (proposedTime && locMatches(time, proposedTime)))) {
+  if (agree && (!time || (proposedTime && locMatches(timeStr ?? '', proposedTime)))) {
     return withPrice({ status: 'ok', ownerTime: proposedTime });
   }
   // A positively proposed DIFFERENT time → counter-proposal, EVEN when the
@@ -1660,7 +1671,16 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   // A refusal with only the refused day ("денес нема да можам" — no clock, no
   // alternative) is a BARE counter, not a proposal of the refused day itself.
   if (time && (!disagree || hasClock)) {
-    return withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(time) });
+    const v = withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(timeStr ?? '') });
+    // Key present ONLY when true — an explicit `undefined` breaks deepEqual
+    // verdict comparisons and reads as set-but-empty in the relay.
+    return wholeDay ? { ...v, canAcceptWholeDay: true } : v;
+  }
+  // WHOLE-DAY counter: refusal + a later day with no clock — the dropped-day
+  // bug made Lina relay "не може во тој термин" and re-ask from zero while
+  // the owner had just OFFERED the whole day. The day rides to the client.
+  if (wholeDay && timeStr) {
+    return withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(timeStr), canAcceptWholeDay: true });
   }
   // Can't do the proposed time (no alternative given) → counter; the client
   // proposes another time and the owner is asked again.
@@ -2600,6 +2620,34 @@ export function detectSchedulingFlex(text: string): boolean {
   return matchesBoth(SCHED_FLEX_RE, text) || matchesBoth(SCHED_FLEX_GRAMMAR_RE, text) || extFires('scheduling-flex', text);
 }
 
+// WORKING-HOURS question: "VO NEDELA RABOTITE?", "KOI SAATI RABOTITE",
+// "dali rabotite vo sabota?" — a question about the AGENCY's working days,
+// NOT a proposed visit slot. Never forward it to the owner; answer from the
+// bank first, then continue the scheduling talk.
+// Day tokens as STEMS (сабот matches сабота/саботите/саботи; недел matches
+// недела/неделите AND понеделник — an hours question about Monday is still an
+// hours question). Plus today/tomorrow ("rabotite denes?", "dali rabotite
+// utre?"), holidays, working-days plurals.
+const WORKDAYS_Q_RE =
+  /(?:недел|недеа|ндеа|ндел|ndea|ndel|nedel|сабот|сабт|sabot|sabt|петок|петк|petok|petk|vikend|викенд|празни[кцч]|prazni[ck]|работни|rabotni|денес|denes|утре|utre)/iu;
+// NOTE: bare "работа" is deliberately NOT a verb — "после работа" (after
+// work) is vague-time. Only question-inflected forms join the class.
+// Verb class takes STEMS: работи covers работите/работите ли/rabotitee;
+// отворен/отвар covers отворено/отворени/отворена; дежур ("дежурате ли во
+// сабота?"); прима/примат ("primate klienti vo nedela?").
+const WORKDAYS_VERB_RE = /(?:работи|raboti|работате|rabotate|отворен|отвар|otvoren|otvar|затворен|zatvoren|дежур|dezhur|прима|prima)/iu;
+/** Question about the agency's working days/hours. The day-token alone ("
+ *  "VO PETOK BI MOZELA POSLE 5") is NOT enough — the scheduling VERB must be
+ *  present ("RABOTITE") and no clock may appear (a clock = a slot proposal
+ *  or acceptance, "VO SABOTA VO 10 E SUPER"). The question mark is NOT
+ *  required: "rabotite vo nedela" without ? is still an hours question —
+ *  with the ? guard it fell back to slot capture and reached the owner. */
+export function detectWorkdaysQuestion(text: string): boolean {
+  if (/(?:во|vo)\s*\d|\d{1,2}[.:]\d{2}/i.test(text)) return false; // a clock = a slot proposal/accept, not a days question
+  if (!WORKDAYS_VERB_RE.test(text)) return false;
+  return WORKDAYS_Q_RE.test(text);
+}
+
 // Escalation polite: the client asks to speak with a manager.
 const ESCALATION_RE =
   /(?:сакам\s+(?:да\s+)?(?:разговарам|зборувам|контактирам|пишувам)\s+(?:со|кај)\s+(?:менаџер|управител|шеф|директор)|sakam\s+(?:manager|менаџер|supervisor|управител)|разговара[јите]?\s+со\s+(?:менаџер|управител|директор|шеф)|talk\s+(?:to|with)\s+(?:a\s+)?(?:manager|supervisor|boss|director|owner)|speak\s+(?:to|with)\s+(?:a\s+)?(?:manager|supervisor|boss)|сакам\s+(?:надзор|одговорни|погоре)|не\s+ми\s+е\s+јасно\s+со\s+(?:вас|ти))/iu;
@@ -2872,6 +2920,9 @@ export function detectFeatureAsk(text: string): boolean {
  * — they produce bank-backed answers without FSM transitions.
  */
 export function fsmRequired(text: string): boolean {
+  // The working-hours question rides the simple-detector lane (banked
+  // answer) — the day token inside it must not be read as a visit slot.
+  if (detectWorkdaysQuestion(text)) return false;
   return detectService(text) !== undefined
     || detectBothServices(text)
     || detectVisitInterest(text)

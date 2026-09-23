@@ -7,6 +7,10 @@ import { EventStore } from '../store/events';
 export interface OwnerVerdict {
   status: 'ok' | 'counter' | 'gone';
   ownerTime?: string; // counter-proposal, e.g. 'Петок 11.06.2026 во 18:30'
+  /** The counter proposes a DAY with any hour accepted ("КЕ МОРа во сабота,
+   *  било кое време") — the relay must ask the client to precise the exact
+   *  clock instead of treating the day as a fixed term. */
+  canAcceptWholeDay?: boolean;
   note?: string;
   /** New price the owner dictates (EUR) — the price can change, the owner is
    *  the source of truth. The handler stores it so Hermes corrects the public

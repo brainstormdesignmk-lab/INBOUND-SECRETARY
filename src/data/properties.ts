@@ -562,6 +562,27 @@ export function normalizeTimePhrase(s: string): string {
   return cyr.charAt(0).toUpperCase() + cyr.slice(1);
 }
 
+/** English day names the LLM classify leg sometimes canonizes visit times
+ *  into ("Friday 18:00" instead of "Петок во 18:00"). The relays and the
+ *  owner ask echo the slot VERBATIM — an English day in a Macedonian
+ *  client-facing sentence reads as a different language mid-conversation. */
+const EN_DAY_TO_MK: Record<string, string> = {
+  monday: 'понеделник', tuesday: 'вторник', wednesday: 'среда',
+  thursday: 'четврток', friday: 'петок', saturday: 'сабота', sunday: 'недела',
+};
+/** Mixed-script guard: a phrase that already carries Cyrillic (client's own
+ *  words like "VO NEDELA RABOTITE ?") is displayed untouched — only a fully
+ *  non-Cyrillic phrase is canonicalized. */
+export function mkTimePhrase(s: string): string {
+  const src = (s ?? '').trim();
+  if (!src || /[\u0400-\u04FF]/u.test(src)) return src;
+  let out = src;
+  for (const [en, mk] of Object.entries(EN_DAY_TO_MK)) {
+    out = out.replace(new RegExp(`\\b${en}\\b`, 'gi'), mk);
+  }
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
 /**
  * Areas that take НА instead of ВО in Macedonian: mountain/height locations.
  * Водно is a mountain (Водно — планина) — "на Водно", like "на планина".

@@ -18,7 +18,7 @@ import {
   detectVisitCancellation, detectOfftopic, detectDefer, detectNegotiate,
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
-  detectDrugAlternative, detectInvestmentOpinion,
+  detectDrugAlternative, detectInvestmentOpinion, detectWorkdaysQuestion,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -33,6 +33,8 @@ export interface RouteRule {
 export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'OFFENSIVE', note: 'zero-output policy wins over everything',
     fires: t => classifyOffensive(t).isOffensive },
+  { intent: 'WORKDAYS_QUESTION', note: 'agency-hours question ("VO NEDELA RABOTITE?") — answered from the bank, never forwarded to the owner as a proposed term; must beat the visit-time capture (the day token inside it used to reach the owner)',
+    fires: t => detectWorkdaysQuestion(t) },
   { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT каде → privacy protocol. Must sit before WHERE_IS only via the !whereIs guard — каде-prefixed questions fall through',
     fires: (t) => detectExactAddressAsk(t) && !isKadeTocno(t) && !detectWhereIs(t) },
   { intent: 'OWNER_CONTACT', note: 'client leaves name/phone — captured before any other reply',
@@ -205,6 +207,13 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
     fallback: 'Разбрано. Кажете ми кога Ви одговара и ќе се обидеме да го прилагодиме терминот.',
     detect: detectSchedulingFlex,
     allowedStates: ['visit_scheduling', 'owner_checking', 'time_confirm'],
+  },
+  {
+    intent: 'WORKDAYS_QUESTION',
+    bankKey: 'workdays.question',
+    fallback: 'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.',
+    detect: detectWorkdaysQuestion,
+    allowedStates: undefined, // every state — an hours question is always an hours question
   },
 ];
 
