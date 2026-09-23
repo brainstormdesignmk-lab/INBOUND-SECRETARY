@@ -39,17 +39,17 @@
     },
     {
       "phrase": "na koja ulica e tochno",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "whereIs"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "адесата сакам точно да ја знам",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },

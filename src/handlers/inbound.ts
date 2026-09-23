@@ -773,6 +773,7 @@ export class InboundHandler {
       && !detectBudget(text)
       && !detectFeeComplaint(text)
       && !detectFeePaymentAgreement(text)
+      && !detectNegotiate(text) // a reduction/discount ask ("korekcija na cenata?") wants the fixed-prices policy, never the freshness disclaimer
       && !detectService(text) && !detectBothServices(text)) {
       const mbFresh = await this.bindMention(text, session, { historyFallback: true });
       if (await this.sendIfClarify(mbFresh, text, session)) return;
@@ -802,6 +803,33 @@ export class InboundHandler {
           return;
         }
       }
+    }
+
+    // PRICE NEGOTIATION — the correction/reduction family ("BI SAKAL DA SE
+    // NAMALI MALKU", "dali e vozmozna korekcija na cenata?"): the client
+    // pushes back on the PROPERTY's price. The banked fixed-prices policy
+    // (price.negotiate — owners set the price, the agency only mediates) is
+    // the only correct serve; the closing fee disclosure (22:10) or a flat
+    // re-quote from the INFO block below are wrong-answer classes. Runs right
+    // after the freshness gate (whose negotiate-veto hands this family over
+    // here) and BEFORE the INFO block, whose price facet would otherwise
+    // serve the bare amount. Requires a property on the table — a negotiation
+    // with nothing bound has no referent and falls through to the FSM/LLM.
+    if (detectNegotiate(text)
+      && ['closing', 'presentation', 'property_query'].includes(session.state)
+      && !detectFeeComplaint(text)
+      && !detectFeePaymentAgreement(text)
+      && (session.slots.propertyId || session.slots.interestedPropertyId
+        || session.slots.presentedIds?.length)) {
+      const negoReply = pickVariant('price.negotiate', { recent: assistantTexts(session) })
+        ?? 'Цената е фиксна, но ако сакате можам да го контактирам сопственикот за да видам дали има простор за преговарање.';
+      routeLog(chatId, text, 'NEGOTIATE:fast');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: negoReply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'NEGOTIATE_FAST', userMsg: text, replyText: negoReply, replySource: 'deterministic', bankKey: 'price.negotiate' }); } catch { /* ignore */ } }
+      await this.sendRaw(session, negoReply, 'deterministic');
+      return;
     }
 
     // INFO-ASK (scope C) — "kolku e garsonjerata?", "a 63 kolku kvadrati",

@@ -1,5 +1,6 @@
 {
   "bankKey": "offtopic.redirect",
+  "protects": "the redirect — a miss means real-estate answers to nonsense",
   "rows": [
     {
       "phrase": "dali imate tiketi za fudbal ?",

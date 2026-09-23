@@ -1,5 +1,6 @@
 {
   "bankKey": "discovery.ask.service",
+  "protects": "buy vs rent — the first funnel question; a miss starts the wrong branch",
   "rows": [
     {
       "phrase": "baram pod kirija",
@@ -112,6 +113,108 @@
     },
     {
       "phrase": "baram stance za kupuvanje",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "барам стан под кирија",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сакам да купем куќа",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "baram stan za krija",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kupuvam garsonjera",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "garage"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ми треба стан за изнајмување",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "купувам стан за живеење",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sakam da iznajmam stan",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "baram kuka za kupuvane",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "барам нешто под крија",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сакам да купам двособен стан",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "baram garsonjera pod kirija",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "garage"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "baram za ziveenje da kupam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "се бара стан за кирија",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "купуем стан во скопје",
       "verdict": "COVERED",
       "target": true,
       "cross": [],

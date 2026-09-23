@@ -1,5 +1,6 @@
 {
   "bankKey": "provision.ask",
+  "protects": "the commission amount question — swallowed, fallback text leaks",
   "rows": [
     {
       "phrase": "kolku e provizijata ?",

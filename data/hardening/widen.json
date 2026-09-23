@@ -1,5 +1,6 @@
 {
   "bankKey": "(widen-criteria branch)",
+  "protects": "explicit criteria relaxation — swallowed, the search stays too narrow",
   "rows": [
     {
       "phrase": "sirok opseg , i nad 250",

@@ -1,5 +1,6 @@
 {
   "bankKey": "discovery.ask.type (business)",
+  "protects": "type detection: business premises",
   "rows": [
     {
       "phrase": "deloven prostor baram",

@@ -1,5 +1,6 @@
 {
   "bankKey": "(visit_scheduling capture)",
+  "protects": "concrete time capture — a missed time means the client repeats and churns",
   "rows": [
     {
       "phrase": "utre vo 12 casot",

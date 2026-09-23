@@ -1,5 +1,6 @@
 {
   "bankKey": "provision.who",
+  "protects": "who-pays-the-commission — the 50/50 policy answer",
   "rows": [
     {
       "phrase": "koj ja plakja provizijata ?",

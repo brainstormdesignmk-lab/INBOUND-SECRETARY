@@ -1,5 +1,6 @@
 {
   "bankKey": "(nearby-ask branch)",
+  "protects": "\"what is around it\" — wrong route serves the property card again",
   "rows": [
     {
       "phrase": "shto ima blizu ?",
@@ -118,6 +119,119 @@
       "phrase": "daleku e do autobuska stanica",
       "verdict": "COVERED",
       "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li gradinka ili skola u blizina?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "што има од продавници околу зградата?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "далеку е до автобуска станица?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "shto ima blisku za pazaruvanje?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li parkce za deca negde blizu",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "какви објекти има во близина?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "whereIs"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "ima li supermarket blisko do stanot?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали има аптека и маркет во близина",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "whereIs",
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "daleku li e pazarot od kukjata?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "што има во околината на станот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li avtobuska blisko?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали има училиште во близина?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "whereIs",
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "shto ima u okolina?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li nekakvi prodavnici blizu?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "има ли парк или игралиште околу?",
+      "verdict": "GAP",
+      "target": false,
       "cross": [],
       "benign": []
     }

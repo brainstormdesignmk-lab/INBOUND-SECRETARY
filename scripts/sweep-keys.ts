@@ -230,9 +230,14 @@ export const FAMILIES: FamilySpec[] = [
     protects: 'price negotiation on the PROPERTY — must not trigger a search or fee talk',
     seedLine: 'moze li popust na cenata ?',
     batches: 1,
-    genPrompt: `The client tries to NEGOTIATE the property's price. Vary: "dajte 130", "popust?", "sopstvenikot ke svali?", "moze na keš podobra cena" — both scripts, typos, 2-9 words. MUST be negotiation of the property price. NOT cheaper-search ("imate drugi poevtino"), NOT the viewing fee, NOT a budget cap.`,
+    genPrompt: `The client tries to NEGOTIATE the property's price. Vary: "dajte 130", "popust?", "sopstvenikot ke svali?", "moze na keš podobra cena" — both scripts, typos, 2-9 words. Also the REDUCTION/CORRECTION class (no amount offered): "BI SAKAL DA SE NAMALI MALKU", "malku pomalu?", "cenata da se namali", "dali e vozmozna korekcija na cenata?", "korigiraj go cenata", "da se spusti malku" — reduction verbs (namali/spusti/smali/splusti), softeners (malku/malce/pomalku pomalu), correction nouns (korekcija/korekcii/koregiraj), both scripts and typos. MUST be negotiation of the property price. NOT cheaper-search ("imate drugi poevtino"), NOT the viewing fee, NOT a budget cap, NOT a room-count preference ("pomalku spalni").`,
     target: C.negot,
     crossFire: { cheaper: C.cheaper, feeComplaint: C.feeComplaint, budget: C.budget, priceAsk: C.priceAsk },
+    // "moze li popust na cenata" and the lufta/keš-counter class are ALSO price
+    // asks and cheaper-searches — benign: dispatchSimple (line 0c) serves
+    // NEGOTIATE before PRICE_ASK/CHEAPER in every state negotiate is allowed;
+    // the cash-amount row cross-fires budget, which never outranks NEGOTIATE.
+    benignCross: { priceAsk: C.priceAsk, cheaper: C.cheaper, budget: C.budget },
   },
   {
     id: 'cheaper',

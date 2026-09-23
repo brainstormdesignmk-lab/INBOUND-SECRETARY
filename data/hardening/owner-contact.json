@@ -1,5 +1,6 @@
 {
   "bankKey": "(owner-contact ask)",
+  "protects": "\"can I talk to the owner directly\" — sensitive: agency policy answer",
   "rows": [
     {
       "phrase": "moze direktno so sopstvenikot ?",
@@ -42,11 +43,9 @@
     },
     {
       "phrase": "moze li direktno so sopstvenikot da se cueme",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "agreement"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -120,11 +119,9 @@
     },
     {
       "phrase": "jas sakam direktno so gazdata da se dogovoram",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "agreement"
-      ],
+      "cross": [],
       "benign": []
     }
   ]

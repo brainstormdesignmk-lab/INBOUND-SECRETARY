@@ -25,21 +25,21 @@
     },
     {
       "phrase": "vo koja naselba e ova",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "location"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "na koja ulica se prodava",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "avail"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "kazete mi tochna adresa",
@@ -127,8 +127,8 @@
     },
     {
       "phrase": "kadee tocno ova?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -176,19 +176,19 @@
     },
     {
       "phrase": "vo koj kvartal e tochno?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "blizu shto se naogja stanot?",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
         "nearby"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "dali moze da mi kazete tochna adresa",

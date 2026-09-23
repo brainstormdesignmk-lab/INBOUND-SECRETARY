@@ -1,5 +1,6 @@
 {
   "bankKey": "price.negotiate",
+  "protects": "price negotiation on the PROPERTY — must not trigger a search or fee talk",
   "rows": [
     {
       "phrase": "moze li popust na cenata ?",

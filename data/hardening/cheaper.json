@@ -1,5 +1,6 @@
 {
   "bankKey": "(cheaper-search branch)",
+  "protects": "\"show me cheaper\" — swallowed, it re-presents the same options",
   "rows": [
     {
       "phrase": "imate nesto poevtino ?",
@@ -21,9 +22,11 @@
     },
     {
       "phrase": "ima li nesto 20-30 kila pomalku?",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "negot"
+      ],
       "benign": []
     },
     {
@@ -94,9 +97,11 @@
     },
     {
       "phrase": "ima li nesto za pomalku pari?",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "negot"
+      ],
       "benign": []
     },
     {
@@ -110,9 +115,11 @@
     },
     {
       "phrase": "nesto pomalku od ovaa cena imate?",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "negot"
+      ],
       "benign": []
     },
     {
@@ -147,9 +154,11 @@
     },
     {
       "phrase": "nesto za pomalku pari da mi pustis",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "negot"
+      ],
       "benign": []
     },
     {

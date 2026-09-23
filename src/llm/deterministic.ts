@@ -2415,8 +2415,37 @@ const NEGOTIATE_GRAMMAR_RE = new RegExp(
   '(?:помал[ао]|пониск[ао]|поевтин[ао]?|фиксн[ао]|финалн[ао]|конечн[ао]|помал[ао]|пониск[ао]|поевтин[ао]?|фиксн[ао]|финалн[ао]|конечн[ао])' +
   '(?:\\s+(?:тука|тука|овде|овде|малку|малку|доста|доста|многу|многу))*' +
   '\\s+(?:цена|цена\\s+е|цената|цена|цената|евра|евро|евра|евро)' +
+  // price-subject + reduction verb: the reflexive family "да се намали",
+  // "да се смали", "korekcija/korekcii", "усогласување" — incl. the Latin
+  // h-less spellings. The 22:10 field case "BI SAKAL DA SE NAMALI MALKU"
+  // carries the reflexive clitic "се" — the old branch required the noun
+  // "цена" directly before the verb and missed it.
+  '|' +  '(?:цена|цената|cena|cenata)\\s+(?:да\\s+)?(?:се\\s+)?(?:намали|намалува|смале|спушти|договори|spl?usti|усогласув|usoglasuv)' +
   '|' +
-  '(?:цена|цената|цена|цената)\\s+(?:да\\s+)?(?:се\\s+)?(?:намали|намалува|смале|спушти|договори|договори)',
+  // verb-first: "namali ja cenata", "spusti go cenata" — object after the verb
+  '(?:намали|намалува|смале|спушти|spl?usti)\\s+(?:го|ја|go|ja)?\\s*(?:цената|цена|cenata|cena)' +
+  '|' +
+  // Reduction intent WITHOUT the price noun nearby. CLOSED-CLASS + bounded:
+  // (a) volitional "da se namali" — ДА REQUIRED, a bare "se namali"
+  // substring-fires inside unrelated subjects ("se namali brojot na
+  // klienti"); (b) reflexive + softener "se namali malku"; (c) the
+  // amount-softener pair "малку помалу/malku pomalu" — 22:10's second
+  // message; (d) explicit discount nouns. Guarded upstream by the
+  // dispatchSimple state gate; freshness/fee/budget vetoes in detectNegotiate.
+  '(?:да|da)\\s+(?:се|se)\\s+(?:намали|намалува|смале|спушти|смени|spl?usti)(?:\\s+(?:малку|malku|помал[ууиu]))?' +
+  '|' +
+  '(?:се|se)\\s+(?:намали|намалува|смале|спушти|смени|spl?usti)\\s+(?:малку|malku|помал[ууиu])' +
+  '|' +
+  // The guard trails the WHOLE group: "pomalku sobi/spalni/kvadrati" is a
+  // property preference (fewer rooms), never a price negotiation.
+  '(?:(?:мак?лу\\s+помал[ууиu])|(?:malku\\s+pomal[ууиu])|pomalku|po\\s*malku)(?!\\s+(?:sobi|spalni|kvadrati|metri|prostor|stan|m2|соби|спални|квадрати|метри|простор))' +
+  '|' +
+  // Correction/adjustment nouns standalone: "dali e vozmozna korekcija na
+  // cenata?", "koregiraj go cenata" — the correction family is negotiate
+  // territory (fixed-prices policy answer), NOT price-freshness (22:10).
+  '(?<![\\p{L}])(?:korekcij[aи]|корекциј|koregir\\w*|korigir\\w*|коригир)(?![\\p{L}])' +
+  '|' +
+  '(?<![\\p{L}])(?:popust|попуст|rabat|ратаб|скид[ао]|skid[ао])(?![\\p{L}])',
   'iu');
 
 // COUNTER-OFFER (08:20): "dali moze za 150 e" — the client pushes back on a
