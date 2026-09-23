@@ -40,6 +40,10 @@ const ROWS: Property[] = [
   // A control row WITH an address — must still serve normal landmarks.
   { eb: 63, id: 63, location: 'Центар', price: 36000, service: 'buy',
     sqm: 28, size: '28 м²', address: 'Црногорска 1', lat: 41.996, lon: 21.428, geo_source: 'stored' },
+  // A row with NO neighborhood at all — the only lane that keeps the
+  // ask-the-owner pivot (nothing honest to approximate from the feed).
+  { eb: 99, id: 99, location: undefined, price: 800, service: 'rent',
+    address: 'НЕПОЗНАТА', lat: 42.022, lon: 21.4368, geo_source: 'google_cached' },
 ];
 
 test('isAddressUnknown classifies the known non-answer shapes', async () => {
@@ -76,13 +80,22 @@ test('EB 58 e2e: "kade se naogja?" serves the honest no-location protocol, never
   await send('me interesira 58');
   await send('kade se naogja?');
   const answer = sent[sent.length - 1] ?? '';
-  // The honest protocol: location unknown + owner contact + pivot. EB filled.
-  assert.match(answer, /позната|немам податок|немам потврдена локација|не ми е јасна|не е внесена|не располагам/i, `honest location line expected: ${answer}`);
-  assert.match(answer, /сопственик/i, `owner-contact promise expected: ${answer}`);
-  assert.match(answer, /58/, `EB must be filled into the template: ${answer}`);
+  // LADDER CONTRACT (turn 1 = approximate for every lurker): the feed knows
+  // the neighborhood, so the honest approximation is served — ЦР data, never
+  // invented geography. The street protocol line still closes the reply.
+  assert.match(answer, /Имотот се наоѓа во населбата Центар/u, `feed neighborhood expected: ${answer}`);
+  assert.match(answer, /Точната адреса ќе ја добиете на денот на посетата/u, `street-protocol closer expected: ${answer}`);
   // NEVER invented geography or a maps link:
   assert.ok(!/во близина на/iu.test(answer), `no landmark claim allowed: ${answer}`);
   assert.ok(!/maps\.google|google\.com/i.test(answer), `no maps link allowed: ${answer}`);
+  // EB 99: the row with NO neighborhood keeps the old honest pivot —
+  // ask-the-owner, no fabricated settlement.
+  await send('me interesira 99');
+  await send('kade se naogja?');
+  const pivot = sent[sent.length - 1] ?? '';
+  assert.match(pivot, /сопственик/i, `owner-contact pivot expected: ${pivot}`);
+  assert.ok(!/населб/iu.test(pivot), `no invented neighborhood allowed: ${pivot}`);
+  assert.ok(!/во близина на/iu.test(pivot), `no landmark claim allowed: ${pivot}`);
 });
 
 test('control row with a real address still serves the normal landmark path', async () => {

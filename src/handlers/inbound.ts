@@ -298,8 +298,19 @@ export class InboundHandler {
     };
     // NO-ADDRESS PROTOCOL (EB 58 class): the agency never learned this
     // property's street — any landmark, neighborhood pin or "во близина на"
-    // claim would be invented geography. Answer honestly and pivot.
+    // claim would be invented geography. BUT the ladder contract (turn 1 =
+    // approximate location for every lurker) still owes the client the best
+    // HONEST approximation: the feed neighborhood (ЦР data, never invented).
+    // Only a row with no neighborhood at all gets the ask-the-owner pivot.
     if (isAddressUnknown(p)) {
+      if (p.location) {
+        // The feed disambiguates settlement rows with a parenthetical type
+        // ("Центар (населба)", "Аеродром (општина)"). The carrier already
+        // names "населбата" — echoing the tag reads as a stutter
+        // ("во населбата Центар (населба)"). Strip only the settlement tag.
+        const loc = p.location.replace(/\s*\(населба\)\s*$/u, '');
+        return `Имотот се наоѓа во населбата ${loc}. Точната адреса ќе ја добиете на денот на посетата.`;
+      }
       return pickVariant('location.unknown', {
         recent: assistantTexts(session),
         vars: { eb: String(p.eb) },
@@ -604,7 +615,65 @@ export class InboundHandler {
     // WHERE_IS takes priority: landmark rotation first, protocol on follow-ups.
     if (detectExactAddressAsk(text) && !isKadeTocno(text) && !detectWhereIs(text) && !skipInterceptors) {
       routeLog(chatId, text, 'EXACT_ADDRESS');
-      const answer = buildExactAddressAnswer(assistantTexts(session));
+      // THE LOCATION LADDER: an EXACT-address demand is still a location ask.
+      // Turn 1 resolves the property and gives ROTATION 1 ("во близина на
+      // {landmark}") — the privacy protocol serves on the SECOND ask, when
+      // the client has heard the area and insists. No anchor → the ask-for-EB
+      // escape (same as the where-is no-context lane). This is the contract:
+      // approximate location for every location lurker, agency protocol only
+      // for the ones who push past it.
+      const mbExact = await this.bindMention(text, session, { historyFallback: true });
+      if (await this.sendIfClarify(mbExact, text, session)) return;
+      const allExact = await this.deps.properties.getAll();
+      const shownIdsExact = new Set(session.slots.presentedIds ?? []);
+      const shownExact = allExact.filter(p => shownIdsExact.has(p.id));
+      const ebInTextExact = (() => {
+        const m = text.match(/\b(?:na|на)\s+(\d{1,4})\b/i);
+        return m ? parseInt(m[1], 10) : undefined;
+      })();
+      const target = mbExact?.prop
+        ?? (ebInTextExact
+          ? await this.deps.properties.getByEb(ebInTextExact).catch(() => undefined)
+          : undefined)
+        ?? shownExact[shownExact.length - 1]
+        ?? (session.slots.propertyId
+          ? await this.deps.properties.getByEb(session.slots.propertyId)
+          : undefined)
+        ?? (session.slots.interestedPropertyId
+          ? await this.deps.properties.getByEb(session.slots.interestedPropertyId)
+          : undefined);
+      let answer: string;
+      if (target) {
+        // Anchor + rotation state reset on switch (same contract as WHERE_IS).
+        // The exact-insistence counter follows the ANCHOR: switching property
+        // starts the ladder over for the new one.
+        if (session.slots.propertyId !== target.eb && session.slots.interestedPropertyId !== target.eb) {
+          session.slots.propertyId = target.eb;
+          session.slots.nearbyLandmarks = undefined;
+          session.slots.nearbyLandmarkCoords = undefined;
+          session.slots.nearbyLandmarkPlaceIds = undefined;
+          session.slots.nearbyLandmarkEb = undefined;
+          session.slots.landmarkIndex = 0;
+          session.slots.addressProtocolIndex = 0;
+          session.slots.exactLocationTurns = 0;
+        }
+        // THE LADDER: turn 1 → rotation 1 (approximate location for every
+        // lurker); turn 2 → the agency privacy protocol; turn 3+ → the polite
+        // shut-down (nearby.exhausted). The counter lives on the session so a
+        // nearby-ask between exact demands keeps the count.
+        const turn = (session.slots.exactLocationTurns ?? 0) + 1;
+        session.slots.exactLocationTurns = turn;
+        if (turn >= 3) {
+          answer = pickVariant('nearby.exhausted', { recent: assistantTexts(session) })
+            ?? 'Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.';
+        } else if (turn === 2) {
+          answer = buildExactAddressAnswer(assistantTexts(session));
+        } else {
+          answer = this.whereIsReply(target, session, text); // landmarkIndex++ inside
+        }
+      } else {
+        answer = this.whereIsNoContext(session, text);
+      }
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
       this.deps.sessions.set(session);

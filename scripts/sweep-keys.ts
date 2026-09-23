@@ -40,7 +40,7 @@ import {
   detectSchedulingFlex, detectSeeOffers, detectService,
   detectSuggestAlternatives, detectTimeRejection, detectVagueTime,
   detectVisitCancellation, detectVisitInterest, detectVisitTime,
-  detectWhereIs, detectWidenIntent, extractSlots,
+  detectWhereIs, detectWidenIntent, extractSlots, isKadeTocno,
 } from '../src/llm/deterministic';
 
 interface FamilySpec {
@@ -261,9 +261,32 @@ export const FAMILIES: FamilySpec[] = [
     protects: '"where exactly is it" — swallowed, serves a generic description instead',
     seedLine: 'kade tochno e stanot ?',
     batches: 2,
-    genPrompt: `The client asks WHERE the property is located (street/landmark/exact spot). Vary: "na koja ulica?", "kade e?", "vo koe kvartal?", "blizu shto e?" — both scripts, typos ("kade"→"kadee"), 2-8 words. MUST ask location of the property. NOT availability, NOT "shto ima blizu" (nearby), NOT a first search for an area.`,
-    target: C.whereIs,
-    crossFire: { location: C.location, nearby: C.nearby, avail: C.availability, exactAddr: C.exactAddr },
+    genPrompt: `The client asks WHERE the property is located (street/landmark/exact spot). Vary: "na koja ulica?", "kade e?", "vo koe kvartal?", "blizu shto e?", the EXACT-location family — "na koja lokacija e", "dali mi mozete da ja kazete tocnata lokacija", "tocna lokacija molam", "na koja adresa e" (these get the landmark rotation on turn 1, the agency protocol on turn 2). Both scripts, typos ("kade"→"kadee", "tocna"), 2-8 words. MUST ask location of the property. NOT availability, NOT "shto ima blizu" (nearby), NOT a first search for an area.`,
+    target: (t: string) => { const w = detectWhereIs(t); const e = detectExactAddressAsk(t); return !!(w || e); },
+    crossFire: { location: C.location, nearby: C.nearby, avail: C.availability },
+    // "во која населба е ова" co-fires location (the handler serves the
+    // rotation, which answers it approximately); "на која улица се продава"
+    // co-fires availability (prodava-word race, pre-existing).
+    benignCross: { location: C.location, avail: C.availability, nearby: C.nearby },
+  },
+  {
+    // THE EXACT-ADDRESS DEMAND family — the ladder's turn-2 gate. Turn 1 of
+    // any location ask serves rotation 1; only THIS family's insistence
+    // ("точно која адреса", "kazi mi tocno adresata") escalates to the
+    // privacy protocol, then the polite shut-down. The o-form "tocno
+    // adresata" (indefinite adjective + definite noun) is a live gap class.
+    id: 'exact-address',
+    bankKey: '(EXACT_ADDRESS lane → address.exact)',
+    protects: '"give me the exact address" — a miss re-serves rotation 1 forever',
+    seedLine: 'kazi mi tocno adresata',
+    batches: 1,
+    genPrompt: `The client DEMANDS the exact address/street of the property (not just where it roughly is). Vary: "kazi mi tocno adresata", "tocna adresa molam", "daj mi ja adresata", "na koja ulica tochno", "adresata sakaam da ja znam", "која е точната адреса" — both scripts, typos ("tocna"→"tocno", "adresata"→"adresataa"), 2-8 words. MUST demand the exact address. NOT a plain where-is ("kade e" alone), NOT nearby amenities, NOT a search request.`,
+    target: (t: string) => detectExactAddressAsk(t) && !isKadeTocno(t),
+    crossFire: { whereIs: C.whereIs, nearby: C.nearby, location: C.location },
+    // "na koja ulica e tochno" co-fires whereIs — the WHERE_IS lane climbs
+    // the SAME ladder (rotation → protocol), so the client still reaches
+    // the privacy line on insistence. Documented race, not a misroute.
+    benignCross: { whereIs: C.whereIs, location: C.location },
   },
   {
     id: 'nearby',

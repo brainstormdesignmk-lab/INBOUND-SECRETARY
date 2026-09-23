@@ -1,5 +1,6 @@
 {
   "bankKey": "both.ask.availability",
+  "protects": "the availability ask — wrong routing fakes a search or a visit",
   "rows": [
     {
       "phrase": "dali e uste sloboden ?",
@@ -112,6 +113,431 @@
     },
     {
       "phrase": "zauze li e stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали е уште слободен?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zdravo dali e uste slobode?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali e zauzet stanot ili izdaden?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Здраво, да не е продаден веќе?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали е заземен станот?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne e izdaden stanot?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dali e uste zauze?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Здраво дали станот е уште слободн?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sloboden li e uste stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "уште е слободна куќава?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zdravo, e sloboden uste?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали е веќе издаден?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dali e uste aktiven oglasov ili e prodaden?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne e izdadena veke?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "дали е уште активен огласов?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste se prodava stanot ili go dadovte?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Дали го издадовте веќе?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "zafaten li e stano?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "да не го зема некој?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "stoj li uste ponudata?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали е продадено ова веќе?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zauze e ili moe?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "уште го нудите ова или отиде?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "se izdade li veke stano?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "дали е слободе уште?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne go prodadovte vo meguvreme?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "огласо уште важи?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste go imate stanot ili se izdade?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Дали е уште слободен?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sloboden e uste ili prodaden?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Zdravo, dali e zafaten stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali e slobode uste?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали е издаден веќе?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "uste e sloboden oglasov?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali e zauzet stanot ili ne?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали е уште зафатена куќата?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "slucajno da ne e prodaden stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste go izdavate stanot?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Dali e uste na raspolaganje?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали е зафатен станчето?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sloboden e?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали е слободен уште за издавање?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "uste li e sloboden stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali e veke izdadena kucata?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "уште ли стои огласот за станот?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne e prodaden veke?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uiste e dostapna ponudata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали е уште слободе станот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "otide li stanot ili stoi uste?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zauzet e stanot ili sloboden?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "уште е активен станот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da ne go izdadovte veke?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "service"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "dali e slobodna kukata uste?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "заузена е куќата или уште стои?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "uste go imate stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "да не е отиден станот?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali uste e aktiven stanot?",
       "verdict": "COVERED",
       "target": true,
       "cross": [],

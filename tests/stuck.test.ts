@@ -1367,19 +1367,21 @@ test('exact-address ask: "потoчно која улица?" gets the privacy l
   const chatId = 'adresa';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
-  // the exact pastes, both scripts — answered deterministically, never the street
+  // the exact pastes, both scripts — LOCATION LADDER: turn 1 gives the
+  // landmark rotation (approximate for every lurker), turn 2 the protocol,
+  // turn 3 the shut-down. The street is NEVER named on any turn.
   await send('SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA');
   assert.ok(sent[0].includes('Евидентен број 63'), sent[0]);
   let s = await send('potocno koja ulica ?');
   assert.equal(s.state, 'presentation'); // the answer does not change the funnel
-  // ADDRESS PRIVACY: the street is NEVER named — the exact-address line tells
-  // the reveal time (2 часа пред посетата / на денот на посетата).
+  // TURN 1: rotation 1 — the approximate answer: the landmark rotation
+  // ("во близина на …") or, for an addressless row (EB 63), the honest
+  // neighborhood approximation ("во населбата …"). INVARIANT: no street,
+  // no protocol on turn 1.
   assert.ok(!sent[1].includes('улица'), sent[1]);
-  assert.ok(!sent[1].includes('се наоѓа'), sent[1]);
-  assert.ok(/час[аи]?\s+пред|денот\s+на\s+посета|на\s+самата\s+посета|на\s+самиот\s+ден|непосредно\s+пред|пред\s+средбата|термин[аот]*\s+|на\s+закажаното\s+гледање|два\s+часа\s+пред/i.test(sent[1]), sent[1]);
-  assert.ok(!sent[1].includes('во близина на'), sent[1]); // asked PAST the landmark
+  assert.ok(/во близина на|во населбата/i.test(sent[1]), sent[1]);
 
-  // Cyrillic variant after a property_query — same privacy answer
+  // TURN 2: the same insistence → the agency privacy protocol
   s = await send('точно која адреса?');
   assert.equal(s.state, 'presentation');
   assert.ok(!sent[2].includes('улица'), sent[2]);
@@ -2571,15 +2573,21 @@ test('"кажи ми точно адреса" triggers the privacy protocol (not
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   await send('GO GLEDAV OVOJ 53');
-  // Explicit address demand → protocol
+  // Location ladder: FIRST demand → rotation 1, SECOND demand → protocol
   await send('КАЖИ МИ ТОЧНО АДРЕСА');
   const reply = sent[sent.length - 1];
   assert.ok(reply, 'must get a reply');
   assert.ok(
-    reply.includes('два часа') || reply.includes('посета') || reply.includes('политика') ||
-    reply.includes('средба') || reply.includes('договориме') || reply.includes('состанок') ||
-    reply.includes('правил') || reply.includes('гледање'),
-    `must give privacy protocol: ${reply.substring(0, 200)}`
+    /во близина на|мин пеш до|населба/i.test(reply),
+    `first demand must give the approximate rotation: ${reply.substring(0, 200)}`
+  );
+  await send('kazi mi tocno adresata');
+  const reply2 = sent[sent.length - 1];
+  assert.ok(
+    reply2.includes('два часа') || reply2.includes('посета') || reply2.includes('политика') ||
+    reply2.includes('средба') || reply2.includes('договориме') || reply2.includes('состанок') ||
+    reply2.includes('правил') || reply2.includes('гледање'),
+    `second demand must give privacy protocol: ${reply2.substring(0, 200)}`
   );
 });
 

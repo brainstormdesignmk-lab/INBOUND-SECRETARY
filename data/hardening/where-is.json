@@ -1,22 +1,19 @@
 {
   "bankKey": "(where-is / locate branch)",
+  "protects": "\"where exactly is it\" — swallowed, serves a generic description instead",
   "rows": [
     {
       "phrase": "kade tochno e stanot ?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "na koja ulica se naogja stanot?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -40,18 +37,15 @@
       "verdict": "CROSS",
       "target": true,
       "cross": [
-        "avail",
-        "exactAddr"
+        "avail"
       ],
       "benign": []
     },
     {
       "phrase": "kazete mi tochna adresa",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -70,29 +64,23 @@
     },
     {
       "phrase": "na koja ulica e zgradata",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "kade tochno se naoagja",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "kazete ulica i broj",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -104,29 +92,23 @@
     },
     {
       "phrase": "kade tochno se naogja stanov",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "na koja ulica e tochno",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
       "phrase": "kade tochno se naogjat tie",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "exactAddr"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -138,11 +120,109 @@
     },
     {
       "phrase": "na koja ulica e tochno zgradata",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kadee tocno ova?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "на која адреса е станот",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "tocna lokacija molam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kade e tocnata lokacija na kucata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "може ли точна адреса за објектот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "na koja lokacija e stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "каде точно се наоѓа ова?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vo koj kvartal e tochno?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "blizu shto se naogja stanot?",
+      "verdict": "GAP",
+      "target": false,
       "cross": [
-        "exactAddr"
+        "nearby"
       ],
+      "benign": []
+    },
+    {
+      "phrase": "dali moze da mi kazete tochna adresa",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "на која улица е?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kaj se naogja stanot tochno?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "tocna adresa moze?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "каде е точната локација молам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
       "benign": []
     }
   ]

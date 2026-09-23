@@ -1,13 +1,12 @@
 {
   "bankKey": "both.ask.visit → visit_scheduling",
+  "protects": "the transition to scheduling — losing it stalls the funnel at presentation",
   "rows": [
     {
       "phrase": "sakam da go vidam stanot",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "agreement"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -21,11 +20,9 @@
     },
     {
       "phrase": "Може ли да се види станчето во живо?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "agreement"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -51,11 +48,9 @@
     },
     {
       "phrase": "sakam da doam da go vidam",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "agreement"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -74,11 +69,9 @@
     },
     {
       "phrase": "Сакам да дојдам на лице место",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "agreement"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -92,11 +85,9 @@
     },
     {
       "phrase": "Би сакал да одам да го видам",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "agreement"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -117,6 +108,13 @@
     },
     {
       "phrase": "сакам да го видам во живо",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze da se dogovorime za gledane?",
       "verdict": "CROSS",
       "target": true,
       "cross": [
@@ -125,7 +123,212 @@
       "benign": []
     },
     {
-      "phrase": "moze da se dogovorime za gledane?",
+      "phrase": "кога може да се види?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze li poseta na lice mesto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сакам да дојдам да го видам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koga e mozno razgleduvanje?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "би сакал термин за посета",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali moze da se vide vo zivo?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "сакам термин за разгледување",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ke moze li da go vidam?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "кога има термин за гледање",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mozi poseta?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "би сакал да го видам просторот",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koga moze razgleduvanje?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "може ли да се дојде на посета?",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "sakam razgleduvanje na stanot na lice mesto",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сакам обиколка на станот во живо",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mozi li ogled na prostorot",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zainteresiran sum da go prosetam stanot",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "да дојдам на лице место да погледам",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "sakam fizicki da go vidam objektot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "можно ли е гледање на куќата",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "bi sakala terenska poseta na stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koga mozi da se napravi ogled",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "заинтересиран сум за тура низ просторот",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "bi sakal da dojdam i da prosetam",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сакам во живо да го погледнам имотот",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "mozi li termin za ogled",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сакаме со сопругот да дојдеме во посета",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "sakam sredba na lice mesto da go vidam",
       "verdict": "CROSS",
       "target": true,
       "cross": [

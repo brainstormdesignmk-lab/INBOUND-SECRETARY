@@ -1,5 +1,6 @@
 {
   "bankKey": "(gate) ownerContactPending → fee workflow",
+  "protects": "the fee-consent YES gate — the greediest boundary in the funnel",
   "rows": [
     {
       "phrase": "da",
@@ -105,6 +106,371 @@
     },
     {
       "phrase": "ok nema problem",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vazi kontaktiraj go",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Moze, se soglasuvam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "okj super",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ајде може",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "нека праша",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da nema prob",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "тогаш да",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "мхм",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ok, moze",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "да, контактирајте го",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "добре важи",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Moze, slobodno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Да, слободно",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "okj, kontaktiraj go",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Neka bide taka",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dea, pisi mu",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "Важи, договорено",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da, nema problem",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Тогаш ок",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mozi super",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Согласен сум, пиши му",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ajde pisi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Да, нема проблем",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "važi, može",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Top, se slagam",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mhm, neka bide",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "да",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "okj se soglasuvam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vazi pisi mu",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ajde neka bide",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da, slobodno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ok pisi му",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "добре, може",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mhm vazi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dea, ok je",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "bedrooms"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "da moze super",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ајде",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "може слободно",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "moze pisi mu",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "okj se slagamm",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ајде важи",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da kontaktiraj go",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "можи, супер",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "vaiz moze",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "се слагам",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "okej, nema problem",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "да пиши му",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mozeee",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ок е, прифаќам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da, odgovara",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "avail"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "се сложувам може",
       "verdict": "COVERED",
       "target": true,
       "cross": [],

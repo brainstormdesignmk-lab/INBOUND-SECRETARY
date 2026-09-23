@@ -144,6 +144,22 @@ const SPEC: GenerationKey[] = [
     banned: [/(?:улица\s+[А-ЯA-Z]|ул\.)/iu, /\d{1,3}\s*[а-яА-Я]?\s*(?:бр|број)/iu, /прашање|дали/i],
     question: false,
   },
+  // address.why: the follow-up AFTER the protocol ("зошто?", "za sto?",
+  // "dali e regularno?") — explain WHY the address is secret: agency rule,
+  // owner protection, serious-buyer filter. Same privacy wall: no street,
+  // no number, no question back.
+  {
+    key: 'address.why',
+    sources: [
+      'Затоа што тоа се правилата на Агенцијата кои сите ги почитуваме.',
+      'Причината е заштита на сопственикот — адресата се открива само на сериозен заинтересиран на денот на посетата.',
+    ],
+    count: 8,
+    instructions: 'Клиентот прашува ЗАШТО адресата е тајна ("зошто", "za sto", "dali e regularno") — објасни ПРАВИЛОТО на Агенцијата како причина (заштита на сопственикот, филтрирање сериозен интерес, стандардна постапка). БЕЗ улица, БЕЗ број, БЕЗ прашање. Тон: јасен, професионален.',
+    required: /(?:правило|правила|заштит|постапк|политик)/iu,
+    banned: [/(?:улица\s+[А-ЯA-Z]|ул\.)/iu, /прашање|дали/i],
+    question: false,
+  },
   {
     key: 'no.match.location',
     sources: ['За жал, моментално немам слободни имоти во {location} што одговараат на Вашите критериуми. Дали сте отворени за други локации?'],

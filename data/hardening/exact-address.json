@@ -1,0 +1,120 @@
+{
+  "bankKey": "(EXACT_ADDRESS lane → address.exact)",
+  "protects": "\"give me the exact address\" — a miss re-serves rotation 1 forever",
+  "rows": [
+    {
+      "phrase": "kazi mi tocno adresata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kazi mi tocno adresata i broj",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koja e tochnata adresa molam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "која е точната адреса на станот",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daj mi ja adresataa tocno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "na koja ulica e tochno",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "whereIs"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "адесата сакам точно да ја знам",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "tocno na koja ulica se naogja",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "точна адреса и број ве молам",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze tocno adresata da mi ja pisete",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Abe daj ja tochnata adresa",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "точната адреса ми треба",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ulica i broj tocno molam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "која е точно адресата",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daj mi tocno adresa ne otprilike",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Sakaam tocna adresa na stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

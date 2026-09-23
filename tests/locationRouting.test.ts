@@ -9,8 +9,12 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { detectWhereIs, detectExactAddressAsk } from '../src/llm/deterministic';
 
-/** The handler's actual routing rule: EXACT_ADDRESS only wins when it is
- *  NOT a where-is. Mirrors inbound.ts line ~250. */
+/** The handler's DETECTOR classification: EXACT_ADDRESS only wins when it is
+ *  NOT a where-is. Mirrors the inbound.ts routing guards. NOTE the handler
+ *  contract on top of this: the EXACT family serves the landmark ROTATION on
+ *  turn 1 (approximate location for every location lurker) and the privacy
+ *  PROTOCOL on turn 2 (the second insistence) — the ladder is e2e-tested in
+ *  location-ladder.test.ts. */
 function routesTo(text: string): 'LANDMARK' | 'PROTOCOL' | 'OTHER' {
   const w = detectWhereIs(text);
   const e = detectExactAddressAsk(text);

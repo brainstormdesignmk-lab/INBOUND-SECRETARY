@@ -347,11 +347,19 @@ export class Classifier {
     // batch, or a known EB), never on a cold "mi e interesna" with nothing
     // on the table. Negations ("ne mi e interesna") are excluded inside
     // detectPropertyInterest itself.
-    if (ev.type !== 'REJECTED' && ev.type !== 'ESCALATE' && ev.type !== 'INTERESTED'
+    // A fresh Евидентен број that DIFFERS from the bound one ("me interesira
+    // 99" while EB 58 is on the table) is the client SWITCHING properties —
+    // the override used to stomp the fresh pid with session.slots.propertyId
+    // and Lina closed the fee funnel on a property no longer under
+    // discussion. A matching pid ("mi se svigja 76" with 76 bound) or no pid
+    // keeps the like-lane into closing.
+    const freshPid = ev.type === 'PROPERTY_ID_REQUESTED' ? ev.propertyId : undefined;
+    const isSwitch = freshPid !== undefined && freshPid !== session.slots.propertyId;
+    if (!isSwitch && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE' && ev.type !== 'INTERESTED'
       && detectPropertyInterest(text)
       && PROP_INTAKE_STATES.has(session.state)
       && propertyOnTable(session)) {
-      ev = { type: 'INTERESTED', propertyId: session.slots.propertyId };
+      ev = { type: 'INTERESTED', propertyId: freshPid ?? session.slots.propertyId };
     }
 
     // Pure-agreement answer to the openness/location ask ("otvoren sum",
