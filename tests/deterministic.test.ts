@@ -445,6 +445,41 @@ test('detectSizeWaived: "nebitni se spalnite" — the fused-negative waiver (13:
   assert.equal(detectSizeWaived('minimum 2 spalni'), false);
   assert.equal(detectSizeWaived('dve spalni'), false);
   assert.equal(detectSizeWaived('bitno e da e do 100000'), false);
+  // ── Gemini sweep 2026-09-23 (data/hardening/size-waived.json, 30 phrases) ──
+  // Gap shapes: care-verbs, indifference synonyms, shrug endings, seedno
+  // typos, dismissal-with-topic, noun-first plain adjective, fuzz typos.
+  assert.equal(detectSizeWaived('ne me zanimaat spalnite'), true);
+  assert.equal(detectSizeWaived('пак ќе кажам не ме занимаат спалните'), true);
+  assert.equal(detectSizeWaived('ne go ogranicuvam brojot na spalni'), true);
+  assert.equal(detectSizeWaived('seedno mi e za spalniti'), true);
+  assert.equal(detectSizeWaived('свеено ми е за спалните'), true);
+  assert.equal(detectSizeWaived('seeno mi e kolku spalnii'), true);
+  assert.equal(detectSizeWaived('сите по големина ми одговараат'), true);
+  assert.equal(detectSizeWaived('me zamara brojot na sobi'), true);
+  assert.equal(detectSizeWaived('ne me zamara kolku spalni'), true);
+  assert.equal(detectSizeWaived('ne e presudno kolku spani ima'), true);
+  assert.equal(detectSizeWaived('nema veze spalnite'), true);
+  assert.equal(detectSizeWaived('ne pravam problem za sobite'), true);
+  assert.equal(detectSizeWaived('ne bitno'), true);
+  assert.equal(detectSizeWaived('nebitnoоо'), true);
+  assert.equal(detectSizeWaived('nebitnoo'), true);
+  assert.equal(detectSizeWaived('rekav nebitnoоо za sobi'), true);
+  assert.equal(detectSizeWaived('bilo kolkav'), true);
+  assert.equal(detectSizeWaived('kako sto ke bide'), true);
+  assert.equal(detectSizeWaived('kako sto ke bide ?'), true);
+  assert.equal(detectSizeWaived('tolku.'), true);
+  assert.equal(detectSizeWaived('vaka'), true);
+  assert.equal(detectSizeWaived('не е важно, kolku ima taka'), true);
+  assert.equal(detectSizeWaived('како што дојде, собите не се битни'), true);
+  assert.equal(detectSizeWaived('собите не се битни'), true);
+  // Deliberate exclusions: anaphora and cross-family steals.
+  assert.equal(detectSizeWaived('сеедно ми е за тоа'), false); // “toа“ unroutable
+  assert.equal(detectSizeWaived('nema veze, drug pat'), false); // visit-time defer
+  assert.equal(detectSizeWaived('tolku imam'), false); // 10:54 budget statement
+  assert.equal(detectSizeWaived('tolku od ova'), false);
+  assert.equal(detectSizeWaived('po dobra cena'), false); // cheaper-search
+  assert.equal(detectSizeWaived('ne bitno ali edna spalna bi bila dobra'), false); // concession = answer
+  assert.equal(detectSizeWaived('nebitno za golemina, edna spalna'), false); // concession = answer
 });
 
 test('detectAvailabilityAsk: word boundaries — compliments are NOT availability asks (22:05 bug)', () => {

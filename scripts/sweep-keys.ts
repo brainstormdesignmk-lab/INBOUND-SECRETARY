@@ -450,6 +450,22 @@ export const FAMILIES: FamilySpec[] = [
     },
   },
   {
+    id: 'size-waived',
+    bankKey: '(discovery funnel: sizeWaived slot — bedroom ask skipped, biggest-for-the-money presentation)',
+    protects: 'the 21:40 transcript: "NEBITNO" / "NE E BITNO KOLKU SPALNI" missed detectSizeWaived, the funnel re-asked bedrooms and swallowed the price criterion',
+    seedLine: 'nebitno',
+    batches: 2,
+    genPrompt: `The assistant asked "Колку спални соби…?" (how many bedrooms) during a search funnel. The client says bedrooms DON'T MATTER — any size is fine, budget decides. Shapes: bare "nebitno" / "ne bitno", "ne e bitno kolkju spalni", "ne me zanimaat spalnite", "ne e vazno kolku spalni", "kako sto ke bide", "bilo kolkav", "site po golemina mi odgovaraat", "ne go ogranicuvam brojot na spalni". Vary: one-word shrug, polite sentence, annoyed repetition (they already answered once). Typos ("nebitnoо", "spalnii", "kolkju"), both scripts, 1-8 words. MUST express indifference to size/bedrooms. NOT a concrete bedroom count ("edna spalna"), NOT sqm ("do 60 m2"), NOT budget ("do 300 e"), NOT price/freshness questions, NOT fee, NOT agreement to anything, NOT small talk.`,
+    target: (t: string) => { const s = extractSlots(t); return !!s.sizeWaived; },
+    crossFire: {
+      bedrooms: C.bedrooms, budget: C.budget, garage: C.garage, agreement: C.agreement,
+      feeComplaint: C.feeComplaint, priceAsk: C.priceAsk, offtopic: C.offtopic,
+    },
+    // “seedno mi e za spalniti“ garbles into a bedrooms match — benign: the
+    // waiver branch consumes sizeWaived BEFORE any bedrooms ask in discovery.
+    benignCross: { bedrooms: C.bedrooms },
+  },
+  {
     id: 'enthusiasm',
     bankKey: '(remark/enthusiasm ack)',
     protects: 'pure enthusiasm ("super!") — swallowed, the bot answers a question nobody asked',
@@ -498,11 +514,15 @@ function classify(spec: FamilySpec, phrase: string): Row {
   const cross = Object.entries(spec.crossFire).filter(([, fn]) => fn(phrase)).map(([k]) => k);
   const benign = Object.entries(spec.benignCross ?? {}).filter(([, fn]) => fn(phrase)).map(([k]) => k);
   const isSeed = phrase === spec.seedLine;
+  // benignCross = documented benign overlaps; they must not flag a CROSS
+  // (the field existed but the verdict never subtracted it — a phrase that
+  // fired both a crossFire and a benignCross counted as a dangerous race).
+  const realCross = cross.filter(k => !(spec.benignCross?.[k]?.(phrase)));
   let verdict: Row['verdict'];
-  if (target && cross.length === 0) verdict = 'COVERED';
-  else if (target && cross.length > 0) verdict = 'CROSS';
+  if (target && realCross.length === 0) verdict = 'COVERED';
+  else if (target && realCross.length > 0) verdict = 'CROSS';
   else verdict = isSeed ? 'COVERED' : 'GAP';
-  return { phrase, verdict, target, cross, benign };
+  return { phrase, verdict, target, cross: realCross, benign };
 }
 
 async function runFamily(llm: ReturnType<typeof createLlmStrict>, spec: FamilySpec, batchCount: number, existing: Row[] = []): Promise<Row[]> {

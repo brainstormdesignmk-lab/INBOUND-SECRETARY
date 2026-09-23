@@ -148,6 +148,26 @@ const SEEN_ONLINE_L = ['na internet'];
 // Patterns: “goleminata ne mi e bitna“, “не ми се битни спални“,
 //           “било колку соби“, “не важно“, “size doesn't matter“
 const SIZE_WAIVED_NEG = ['не', 'ne'];
+// Sweep-2026-09-23 gaps: care-verbs that negate size as a criterion
+// ("ne me zanimaat spalnite", "ne go ogranicuvam brojot na spalni") and the
+// care-object forms ("za spalnite mi e seedno", "ne bitno" without the BE).
+const SIZE_WAIVED_CAREOBJ_L = ['me zanimaat', 'me interesiraat', 'me interesira', 'go ogranicuvam', 'ja odreduvam'];
+const SIZE_WAIVED_CAREOBJ = ['ме занимаат', 'ме интересираат', 'ме интересира', 'го ограничувам', 'ја одредувам'];
+const SIZE_WAIVED_SEEDNO_L = ['seedno mi e', 'sveeno mi e', 'seeno mi e', 'isti mi se', 'isto mi e', 'ednakvo mi e'];
+const SIZE_WAIVED_SEEDNO = ['сèедно ми е', 'сеедно ми е', 'седно ми е', 'свеено ми е', 'исти ми се', 'исто ми е', 'еднакво ми е'];
+const SIZE_WAIVED_TOLKU_L = ['tolku', 'vaka', 'kako sto ke bide', 'kakvo sto ke bide'];
+// Replay-2 residual shapes (the sweep's second pass): indifference verbs
+// ("me zamara"), relevance adjectives ("presudno", "vazno"), dismissals
+// ("nema veze", "ne pravam problem").
+const SIZE_WAIVED_MIND_L = ['me zamara', 'me zajma', 'me mara'];
+const SIZE_WAIVED_MIND = ['ме замара', 'ме зажма', 'ме мара'];
+const SIZE_WAIVED_DISMISS_L = ['nema veze', 'ne pravam problem', 'ne pravam problema'];
+const SIZE_WAIVED_DISMISS = ['нема везе', 'не правам проблем', 'не правам проблема', 'не праам проблем'];
+// DISMISS-NOT: bare “nema veze, drug pat“ is a visit-time defer (the 12:07
+// family) — the dismissal is only a size-waiver when the SIZE TOPIC is named
+// ("nema veze spalnite"). Anaphoric “za toa“ stays unroutable on purpose.
+const SIZE_WAIVED_DISMISS_ZA = ['za', 'за'];
+const SIZE_WAIVED_TOLKU = ['толку', 'вака', 'како што ќе биде', 'какво што ќе биде'];
 // Object nouns — “големината“ / “димензиите“ / “квадратурата“
 const SIZE_WAIVED_OBJ = ['големината', 'димензиите', 'квадратурата', 'површината', 'собите', 'спалните'];
 const SIZE_WAIVED_OBJ_L = ['goleminata', 'dimenziite', 'kvadraturata', 'povrsinata', 'sobite', 'spalnite'];
@@ -167,7 +187,7 @@ const SIZE_WAIVED_ANY = ['било колку', 'било какви', 'било
 // old “nebitno e“ forms keep matching independently).
 const SIZE_WAIVED_NEADJ_BARE = ['небитно', 'небитни', 'небитна', 'небитен', 'неважно', 'неважни', 'неважна'];
 const SIZE_WAIVED_NEADJ_BARE_L = ['nebitno', 'nebitni', 'nebitna', 'nebiten', 'nevazno', 'nevazni', 'nevazna'];
-const SIZE_WAIVED_ANY_L = ['bilo kolku', 'bilo kakvi', 'bilo kakov', 'bilo kolku sobi', 'bilo kolku spalni'];
+const SIZE_WAIVED_ANY_L = ['bilo kolku', 'bilo kakvi', 'bilo kakov', 'bilo kolkav', 'bilo kolku sobi', 'bilo kolku spalni'];
 // “nebitni se spalnite“ — the NEGATED ADJECTIVE as ONE token (ne+bitni fused),
 // with the DEFINITE noun form (spalnite). The 13:53 transcript: the bedrooms
 // ask repeated because the slot list only knew “ne mi se bitni spalni“.
@@ -175,6 +195,10 @@ const SIZE_WAIVED_NEADJ = ['небитни', 'небитно', 'небитна',
 const SIZE_WAIVED_NEADJ_L = ['nebitni', 'nebitno', 'nebitna', 'nebiten', 'nevazhni', 'nevazno', 'nevazna', 'nevazni'];
 const SIZE_WAIVED_NOUN_DEF = ['спалните', 'собите'];
 const SIZE_WAIVED_NOUN_DEF_L = ['spalnite', 'sobite'];
+// Indefinite topic nouns for the “rekav nebitno za sobi“ class — bare waiver
+// with the topic appended. Undefinite forms only: definite nouns already ride
+// NOUNDEF slots.
+const SIZE_WAIVED_NOUN_ANY = ['спални', 'соби', 'golemina', 'големина', 'spalni', 'sobi'];
 // English size doesn't matter
 const SIZE_WAIVED_EN = ["size doesn't matter", "size does not matter", "any size", "no preference"];
 
@@ -418,7 +442,7 @@ export function buildSizeWaivedSlots(): RegExp {
   const NEG = or([...SIZE_WAIVED_NEG, ...SIZE_WAIVED_NEG]);
   const SUBJ = or([...SIZE_WAIVED_SUBJ, ...SIZE_WAIVED_SUBJ_L]);
   const BE = or([...SIZE_WAIVED_BE, ...SIZE_WAIVED_BE_L]);
-  const ADJ = or([...SIZE_WAIVED_ADJ, ...SIZE_WAIVED_ADJ_L]);
+  const ADJ = or([...SIZE_WAIVED_ADJ, ...SIZE_WAIVED_ADJ_L, 'vazna', 'vazno']);
   const ANY = or([...SIZE_WAIVED_ANY, ...SIZE_WAIVED_ANY_L]);
   const EN = or([...SIZE_WAIVED_EN]);
   // NEADJ = fused negated adjective (небитни/nebitni…), NOUNDEF = definite noun
@@ -428,6 +452,28 @@ export function buildSizeWaivedSlots(): RegExp {
   // BARE = the fused negation ALONE (21:40 “NEBITNO“) — word-boundary anchored,
   // never a substring (so “nebitno“ inside other slots still needs its slot).
   const BARE = `(?:${or([...SIZE_WAIVED_NEADJ_BARE, ...SIZE_WAIVED_NEADJ_BARE_L])})`;
+  // BAREFUZZ = bare form + at most ONE trailing char ("небитноо", "nebitnoo") —
+  // the one-keypad-typo class. Built from the RAW lists (or()'s trailing
+  // lookahead would reject the fuzz char); the ENDISH anchor provides the
+  // word boundary instead, so no substring fire is possible. The alternation
+  // is wrapped BEFORE appending .? — unwrapped, the fuzz suffix binds only
+  // to the last list item (regex-precedence trap).
+  const BAREFUZZ = `(?:(?:${[...SIZE_WAIVED_NEADJ_BARE, ...SIZE_WAIVED_NEADJ_BARE_L].join('|')}).{0,2})`;
+  // NOUNDEF_ANY — topic nouns for the bare-with-topic class.
+  const NOUNDEF_ANY = `(?:${SIZE_WAIVED_NOUN_ANY.join('|')})`;
+  // TOPIC — any size topic noun, definite or indefinite, with a 0–2 char fuzz
+  // tail ("spalnii", "spalniti"). The fuzz is safe: every consumer
+  // end-anchors with ENDISH.
+  const TOPIC = `(?:${NOUNDEF}|${NOUNDEF_ANY}).{0,2}`;
+  // KOLKU_OPT / ZA_OPT — optional connectors with their OWN trailing space
+  // ("seeno mi e KOLKU spalnii", "nebitnoоо ZA sobi"). Unconditional-WS
+  // variants break the direct "…e za spalni" form.
+  const KOLKU_OPT = `(?:kolku${WS}|колку${WS})?`;
+  const ZA_OPT = `(?:za${WS}|за${WS})?`;
+  // ENDISH — the message may end here: optional whitespace, optional
+  // punctuation, end. Covers "tolku" / "tolku." / "bide ?"; "tolku imam" has
+  // a word after the space, so the anchor never matches.
+  const ENDISH = `(?:${'\\s*'}[.,!?]*${'\\s*'}$)`;
   const s = (base: string) => base;
 
   const patterns = [
@@ -453,7 +499,51 @@ export function buildSizeWaivedSlots(): RegExp {
     // tokens (subject/beat-verb) between the noun and the fused negative.
     s(`${NOUNDEF}${WS}(?:(?:${SUBJ}|се|se|е|e|и|i)${WS}){0,2}${NEADJ}(?:${WS}(?:се|se))?`),
     // BARE fused negation — “NEBITNO“ / “НЕБИТНО“ alone answers the ask.
-    s(`(?:^|${WS})${BARE}(?:${WS}|$)`),
+    // ENDISH-anchored: “nebitno za golemina, edna spalna“ carries a CONCESSION
+    // (a real criterion follows) — that is an answer, not a waiver.
+    s(`(?:^|${WS})${BARE}${ENDISH}`),
+    // BAREFUZZ — one-typo bare ("небитноо", "nebitnoo"), end-anchored.
+    s(`(?:^|${WS})${BAREFUZZ}${ENDISH}`),
+    // BARE short form — “ne bitno“ (space-split, no BE verb), optionally with
+    // the definite noun; must END the message (a trailing “ali…“ is a
+    // concession that names the real criterion).
+    s(`(?:^|${WS})${NEG}${WS}${ADJ}(?:${WS}${NOUNDEF})?${ENDISH}`),
+    // Care-verb negation — “ne ME ZANIMAAT spalnite“ / “ne go ogranicuvam brojot“:
+    // the client names the size noun and negates caring about it.
+    s(`(?:^|${WS})${NEG}${WS}(?:${or(SIZE_WAIVED_CAREOBJ_L)}|${or(SIZE_WAIVED_CAREOBJ)})`),
+    // “сеедно ми е (за спалните)“ / “сите по големина ми одговараат“:
+    // indifference-by-synonym, no negation word at all. Optional tail: the
+    // topic/quantifier ("seeno mi e kolku spalnii") — size nouns and “kolku“
+    // only, so price tails can never ride it.
+    s(`(?:^|${WS})(?:${or(SIZE_WAIVED_SEEDNO_L)}|${or(SIZE_WAIVED_SEEDNO)})(?:${WS}${KOLKU_OPT}${ZA_OPT}${TOPIC})?${ENDISH}`),
+    s(`(?:^|${WS})сите${WS}по${WS}големина(?:${WS}|$)`),
+    // “kako sto ke bide“ / “tolku“ / “vaka“ — shrug forms that answer the ask.
+    // The shrug must BE the message (ENDISH): “tolku imam“ is the 10:54
+    // budget statement, never a waiver.
+    s(`(?:^|${WS})(?:${or(SIZE_WAIVED_TOLKU_L)}|${or(SIZE_WAIVED_TOLKU)})${ENDISH}`),
+    // NOUN-first copula form — “собите не се битни“ / “spalnite ne se bitni“:
+    // the 13:53 family's reversed word order (negation between noun and
+    // fused negative) that the NEADJ slots (which require BE=se/e between
+    // the pair) structurally miss. The trailing adjective may be FUSED
+    // ("небитни") or PLAIN ("битни" — negation carried by the leading "не").
+    // No ^|WS anchor: “како што дојде, собите не се битни“ follows a comma,
+    // and or() already bounds the noun.
+    s(`${NOUNDEF}${WS}${NEG}${WS}(?:се|se|е|e)${WS}(?:${NEADJ}|${or(['битни', 'важни', 'bitni', 'vazhni'])})`),
+    // “rekav nebitnoоо za sobi“ — BARE with a fuzz tail AND a trailing topic
+    // noun: indifference stated in the past tense, topic appended. The ENDISH
+    // BARE slots above miss it (topic noun after the fused negation). Topic
+    // must be present so bare-“nebitno“ semantics stay protected.
+    s(`(?:^|${WS})${BAREFUZZ}(?:${WS}${ZA_OPT}${TOPIC})?${ENDISH}`),
+    // “me zamara brojot na sobi“ / “ne me zamara kolku spalni“ — the
+    // indifference-verb family (sweep replay 2).
+    s(`(?:^|${WS})(?:${NEG}${WS})?${or(SIZE_WAIVED_MIND_L)}|${or(SIZE_WAIVED_MIND)}(?:${WS}|$)`),
+    // “ne e presudno kolku spalni ima“ — relevance adjectives beyond
+    // bitno/vazno (sweep replay 2).
+    s(`(?:^|${WS})${NEG}${WS}(?:се|se|е|e)${WS}presudno(?:${WS}|$)`),
+    // “nema veze spalnite“ / “ne pravam problem za sobite“ — dismissals that
+    // answer the bedrooms ask; the size topic is REQUIRED (bare “nema veze“
+    // is the visit-time defer's turf — see DISMISS-NOT).
+    s(`(?:^|${WS})(?:${or(SIZE_WAIVED_DISMISS_L)}|${or(SIZE_WAIVED_DISMISS)})(?:${WS}${ZA_OPT}${TOPIC})${ENDISH}`),
     // “не ми се битни спални“ / “не ми се важни соби“
     s(`${NEG}${WS}${SUBJ}${WS}(?:се|се|се)${WS}(?:битни|важни|битни|важни|bitni|vazhni)${WS}(?:спални|соби|sobni|spalni)`),
     // “не ми требаат спални“ / “не ми требаат соби“
@@ -687,6 +777,18 @@ export function sampleSeenPhrases(): string[] {
 
 export function sampleSizeWaivedPhrases(): string[] {
   return [
+    // ── Sweep-2026-09-23 gap shapes (data/hardening/size-waived.json) ──
+    'небитноо',
+    'ne bitno',
+    'не ме занимаат спалните',
+    'ne go ogranicuvam brojot na spalni',
+    'seedno mi e za spalniti',
+    'сèедно ми е',
+    'сите по големина ми одговараат',
+    'kako sto ke bide',
+    'bilo kolkav',
+    'не е важно, колку има така',
+    'пак ќе кажам не ме занимаат спалните',
     // ── Standard Cyrillic ──
     'големината не ми е битна',
     'не ми е битно',
