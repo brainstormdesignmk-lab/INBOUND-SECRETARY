@@ -153,8 +153,8 @@ const SIZE_WAIVED_NEG = ['не', 'ne'];
 // care-object forms ("za spalnite mi e seedno", "ne bitno" without the BE).
 const SIZE_WAIVED_CAREOBJ_L = ['me zanimaat', 'me interesiraat', 'me interesira', 'go ogranicuvam', 'ja odreduvam'];
 const SIZE_WAIVED_CAREOBJ = ['ме занимаат', 'ме интересираат', 'ме интересира', 'го ограничувам', 'ја одредувам'];
-const SIZE_WAIVED_SEEDNO_L = ['seedno mi e', 'sveeno mi e', 'seeno mi e', 'isti mi se', 'isto mi e', 'ednakvo mi e'];
-const SIZE_WAIVED_SEEDNO = ['сèедно ми е', 'сеедно ми е', 'седно ми е', 'свеено ми е', 'исти ми се', 'исто ми е', 'еднакво ми е'];
+const SIZE_WAIVED_SEEDNO_L = ['seedno mi e', 'sveeno mi e', 'seeno mi e', 'sejedno', 'isti mi se', 'isto mi e', 'ednakvo mi e'];
+const SIZE_WAIVED_SEEDNO = ['сèедно ми е', 'сеедно ми е', 'седно ми е', 'свеено ми е', 'сеједно', 'исти ми се', 'исто ми е', 'еднакво ми е'];
 const SIZE_WAIVED_TOLKU_L = ['tolku', 'vaka', 'kako sto ke bide', 'kakvo sto ke bide'];
 // Replay-2 residual shapes (the sweep's second pass): indifference verbs
 // ("me zamara"), relevance adjectives ("presudno", "vazno"), dismissals
@@ -462,14 +462,17 @@ export function buildSizeWaivedSlots(): RegExp {
   // NOUNDEF_ANY — topic nouns for the bare-with-topic class.
   const NOUNDEF_ANY = `(?:${SIZE_WAIVED_NOUN_ANY.join('|')})`;
   // TOPIC — any size topic noun, definite or indefinite, with a 0–2 char fuzz
-  // tail ("spalnii", "spalniti"). The fuzz is safe: every consumer
-  // end-anchors with ENDISH.
-  const TOPIC = `(?:${NOUNDEF}|${NOUNDEF_ANY}).{0,2}`;
-  // KOLKU_OPT / ZA_OPT — optional connectors with their OWN trailing space
-  // ("seeno mi e KOLKU spalnii", "nebitnoоо ZA sobi"). Unconditional-WS
-  // variants break the direct "…e za spalni" form.
-  const KOLKU_OPT = `(?:kolku${WS}|колку${WS})?`;
-  const ZA_OPT = `(?:za${WS}|за${WS})?`;
+  // tail ("spalnii", "spalniti"). The fuzz lives INSIDE the group: unwrapped,
+  // a following `?` binds to the fuzz quantifier instead of the whole topic
+  // (regex-precedence trap — same class as the BAREFUZZ bug) and silently
+  // makes the topic mandatory.
+  const TOPIC = `(?:(?:${NOUNDEF}|${NOUNDEF_ANY}).{0,2})`;
+  // CONNS — optional connector words (za/kolku + typos), zero to two, each
+  // with optional trailing space, before the topic noun: "za sobite",
+  // "kolku spalnii", "za kolku sobi", or none ("spalnite"). One closed
+  // group instead of chained per-connector optionals — the chained form
+  // made "kolku" mandatory inside ZA-only paths (the "za sobite" break).
+  const CONNS = `(?:${WS}(?:(?:za|за|kolku|kolkju|колку|колкju)(?:${WS}|$)){0,2})?`;
   // ENDISH — the message may end here: optional whitespace, optional
   // punctuation, end. Covers "tolku" / "tolku." / "bide ?"; "tolku imam" has
   // a word after the space, so the anchor never matches.
@@ -485,6 +488,9 @@ export function buildSizeWaivedSlots(): RegExp {
     // 21:40 transcript form (“NE E BITNO KOLKU SPALNI“): colloquial speech
     // drops “ми/ни“, the old slot demanded it and the funnel looped.
     s(`${NEG}${WS}${BE}${WS}${ADJ}`),
+    // Short form + dangling quantifier — “ne bitno kolkju“: the quantifier
+    // ends the message ("not important how-many").
+    s(`(?:^|${WS})${NEG}${WS}${ADJ}${WS}(?:kolku|kolkju|колку|колкju)${ENDISH}`),
     // Slot: ANY — “било колку соби“
     s(ANY),
     // Slot: EN — “size doesn't matter“
@@ -515,7 +521,7 @@ export function buildSizeWaivedSlots(): RegExp {
     // indifference-by-synonym, no negation word at all. Optional tail: the
     // topic/quantifier ("seeno mi e kolku spalnii") — size nouns and “kolku“
     // only, so price tails can never ride it.
-    s(`(?:^|${WS})(?:${or(SIZE_WAIVED_SEEDNO_L)}|${or(SIZE_WAIVED_SEEDNO)})(?:${WS}${KOLKU_OPT}${ZA_OPT}${TOPIC})?${ENDISH}`),
+    s(`(?:^|${WS})(?:${or(SIZE_WAIVED_SEEDNO_L)}|${or(SIZE_WAIVED_SEEDNO)})${CONNS}${TOPIC}?${ENDISH}`),
     s(`(?:^|${WS})сите${WS}по${WS}големина(?:${WS}|$)`),
     // “kako sto ke bide“ / “tolku“ / “vaka“ — shrug forms that answer the ask.
     // The shrug must BE the message (ENDISH): “tolku imam“ is the 10:54
@@ -533,17 +539,19 @@ export function buildSizeWaivedSlots(): RegExp {
     // noun: indifference stated in the past tense, topic appended. The ENDISH
     // BARE slots above miss it (topic noun after the fused negation). Topic
     // must be present so bare-“nebitno“ semantics stay protected.
-    s(`(?:^|${WS})${BAREFUZZ}(?:${WS}${ZA_OPT}${TOPIC})?${ENDISH}`),
+    s(`(?:^|${WS})${BAREFUZZ}${CONNS}${TOPIC}?${ENDISH}`),
     // “me zamara brojot na sobi“ / “ne me zamara kolku spalni“ — the
     // indifference-verb family (sweep replay 2).
     s(`(?:^|${WS})(?:${NEG}${WS})?${or(SIZE_WAIVED_MIND_L)}|${or(SIZE_WAIVED_MIND)}(?:${WS}|$)`),
     // “ne e presudno kolku spalni ima“ — relevance adjectives beyond
     // bitno/vazno (sweep replay 2).
     s(`(?:^|${WS})${NEG}${WS}(?:се|se|е|e)${WS}presudno(?:${WS}|$)`),
-    // “nema veze spalnite“ / “ne pravam problem za sobite“ — dismissals that
-    // answer the bedrooms ask; the size topic is REQUIRED (bare “nema veze“
-    // is the visit-time defer's turf — see DISMISS-NOT).
-    s(`(?:^|${WS})(?:${or(SIZE_WAIVED_DISMISS_L)}|${or(SIZE_WAIVED_DISMISS)})(?:${WS}${ZA_OPT}${TOPIC})${ENDISH}`),
+    // “nema veze spalnite“ / “nema veze kolku spalni ima“ (10:27) / “ne pravam
+    // problem za sobite“ — dismissals that answer the bedrooms ask. The size
+    // topic is REQUIRED (bare “nema veze“ is the visit-time defer's turf —
+    // see DISMISS-NOT); an optional quantifier (“kolku“) and trailing verb
+    // (“ima“) ride between, matching the real client word orders.
+    s(`(?:^|${WS})(?:${or(SIZE_WAIVED_DISMISS_L)}|${or(SIZE_WAIVED_DISMISS)})${CONNS}${TOPIC}(?:${WS}(?:ima|imaa|има|имаа|treba|треба)(?:${WS}(?:stanot|куќата|kukata))?|${WS}(?:stanot|куќата|kukata))?${ENDISH}`),
     // “не ми се битни спални“ / “не ми се важни соби“
     s(`${NEG}${WS}${SUBJ}${WS}(?:се|се|се)${WS}(?:битни|важни|битни|важни|bitni|vazhni)${WS}(?:спални|соби|sobni|spalni)`),
     // “не ми требаат спални“ / “не ми требаат соби“

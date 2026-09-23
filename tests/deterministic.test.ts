@@ -472,6 +472,18 @@ test('detectSizeWaived: "nebitni se spalnite" — the fused-negative waiver (13:
   assert.equal(detectSizeWaived('не е важно, kolku ima taka'), true);
   assert.equal(detectSizeWaived('како што дојде, собите не се битни'), true);
   assert.equal(detectSizeWaived('собите не се битни'), true);
+  // ── 10:27 transcript family: dismissal + quantifier + verb compositions ──
+  assert.equal(detectSizeWaived('NEMA VEZE KOLKU SPALNI IMA'), true);
+  assert.equal(detectSizeWaived('nema veze kolkju spalni ima'), true);
+  assert.equal(detectSizeWaived('nema veze kolku spalni ima'), true);
+  assert.equal(detectSizeWaived('nema veze kolkju spalni'), true);
+  assert.equal(detectSizeWaived('nema veze spalni ima'), true);
+  assert.equal(detectSizeWaived('nema veze kolku sobi ima stanot'), true);
+  // Second sweep-ring shapes (connector compositions, typo “праам“)
+  assert.equal(detectSizeWaived('ne bitno kolkju'), true);
+  assert.equal(detectSizeWaived('небитно колку соби'), true);
+  assert.equal(detectSizeWaived('sejedno za sobite'), true);
+  assert.equal(detectSizeWaived('не праам проблем за собите'), true);
   // Deliberate exclusions: anaphora and cross-family steals.
   assert.equal(detectSizeWaived('сеедно ми е за тоа'), false); // “toа“ unroutable
   assert.equal(detectSizeWaived('nema veze, drug pat'), false); // visit-time defer
