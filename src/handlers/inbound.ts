@@ -1989,6 +1989,12 @@ export class InboundHandler {
         // search means the client MOVED OFF the studio category; keeping the
         // ≤35м² filter here strangled the re-search into another exhausted).
         session.slots.garsonjera = undefined;
+        // Same logic for the WAIVER: a fresh bedroom/sqm criterion means the
+        // client named a size after all — the sizeWaived flag ("nebitno") must
+        // not survive the pivot, or the re-search sorts biggest-first and
+        // silently ignores the size they just gave (the 21:40 contract: adapt
+        // with the flow). Mirrors the garsonjera clear above.
+        session.slots.sizeWaived = undefined;
       }
       session.slots.ladderQueue = [];   // rebuild the presentation ladder for the new search
       session.slots.areaExhausted = false;
@@ -3361,6 +3367,12 @@ ${contactReminder}`;
     if (ev.budget) session.slots.budget = ev.budget;
     if (ev.anywhere) session.slots.anywhere = true;
     if (ev.sizeWaived) session.slots.sizeWaived = true;
+    // A FRESH bedroom/sqm criterion retires the size waiver ("nebitno"): the
+    // client named a size after all, so the biggest-first ordering must not
+    // ride along with a search the waiver no longer governs (21:40 contract:
+    // adapt with the flow). A waiver-only message never carries bedrooms/sqm,
+    // so ordering in the same applySlots pass is safe.
+    if ((ev.bedrooms || ev.sqm) && ev.sizeWaived === undefined) session.slots.sizeWaived = undefined;
     if (ev.pricePriority) session.slots.pricePriority = true;
     if (ev.garsonjera) session.slots.garsonjera = true;
     if (ev.propertyId) session.slots.propertyId = ev.propertyId;
@@ -3420,6 +3432,11 @@ ${contactReminder}`;
         // answers the "what do you have?" question with the smallest offer,
         // then progressively larger ones, instead of re-asking the missing sqm.
         sortBySqm: seeOffers,
+        // Size waived ("nebitno"): the client only capped the money, so the
+        // biggest in-budget unit LEADS — the money buys space, not bedrooms.
+        // When the client later names a size ("edna spalna"), the pivot flow
+        // re-searches with bedrooms and rebuilds the ladder (existing lane).
+        sortBySqmDesc: !!session.slots.sizeWaived && !seeOffers,
         // "било каде": city-wide presentation starts from the most popular
         // neighborhoods (Центар, Капиштец, Карпош, Аеродром, …), then the rest.
         sortByPopularity: !!session.slots.anywhere && !session.slots.location,

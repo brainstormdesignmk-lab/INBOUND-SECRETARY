@@ -826,6 +826,7 @@ export class PropertyService {
   async candidates(opts: {
     location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean;
     garsonjera?: boolean; service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
+    sortBySqmDesc?: boolean; // "nebitno" (size waived): BIGGEST м² first — the money buys space
     sortByPopularity?: boolean; // "било каде" — most popular neighborhoods first
   }): Promise<Property[]> {
     const all = await this.getAll();
@@ -874,7 +875,12 @@ export class PropertyService {
       // sortByPopularity: "било каде" — most popular neighborhoods FIRST
       // (Центар, Капиштец, Карпош, Аеродром, Кисела Вода, Влае, Ѓорче Петров,
       // then the rest), within each neighborhood by price.
-      .sort((a, b) => opts.sortBySqm
+      .sort((a, b) => opts.sortBySqmDesc
+        ? (Number(b.inLoc) - Number(a.inLoc))
+          || ((b.p.sqm ?? -1) - (a.p.sqm ?? -1))
+          || (a.dist - b.dist)
+          || (a.p.eb - b.p.eb)
+        : opts.sortBySqm
         ? (Number(b.inLoc) - Number(a.inLoc))
           || ((a.p.sqm ?? Infinity) - (b.p.sqm ?? Infinity))
           || (a.dist - b.dist)

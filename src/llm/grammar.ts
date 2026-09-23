@@ -159,6 +159,14 @@ const SIZE_WAIVED_ADJ = ['битна', 'битно', 'важна', 'важно',
 const SIZE_WAIVED_ADJ_L = ['bitna', 'bitno', 'vazhna', 'vazhno', 'biten'];
 // “bilo kolku / bilo kakvi“ — any number
 const SIZE_WAIVED_ANY = ['било колку', 'било какви', 'било каков', 'било колку соби', 'било колку спални'];
+// BARE fused-negation: “NEBITNO“, “НЕБИТНО“, “nebitni“, “неважно“ — one word,
+// no verb, no noun. The 21:40 transcript: the client answered the bedrooms
+// ask with the single word “NEBITNO“ and the grammar (which demanded a verb:
+// “nebitno e“) swallowed it, looping the funnel. Word-boundary anchored in
+// the slot so “nebitno“ inside a longer sentence still needs its slot (the
+// old “nebitno e“ forms keep matching independently).
+const SIZE_WAIVED_NEADJ_BARE = ['небитно', 'небитни', 'небитна', 'небитен', 'неважно', 'неважни', 'неважна'];
+const SIZE_WAIVED_NEADJ_BARE_L = ['nebitno', 'nebitni', 'nebitna', 'nebiten', 'nevazno', 'nevazni', 'nevazna'];
 const SIZE_WAIVED_ANY_L = ['bilo kolku', 'bilo kakvi', 'bilo kakov', 'bilo kolku sobi', 'bilo kolku spalni'];
 // “nebitni se spalnite“ — the NEGATED ADJECTIVE as ONE token (ne+bitni fused),
 // with the DEFINITE noun form (spalnite). The 13:53 transcript: the bedrooms
@@ -417,6 +425,9 @@ export function buildSizeWaivedSlots(): RegExp {
   // (спалните/spalnite, собите/sobite) — the 13:53 “nebitni se spalnite“ forms.
   const NEADJ = or([...SIZE_WAIVED_NEADJ, ...SIZE_WAIVED_NEADJ_L]);
   const NOUNDEF = or([...SIZE_WAIVED_NOUN_DEF, ...SIZE_WAIVED_NOUN_DEF_L]);
+  // BARE = the fused negation ALONE (21:40 “NEBITNO“) — word-boundary anchored,
+  // never a substring (so “nebitno“ inside other slots still needs its slot).
+  const BARE = `(?:${or([...SIZE_WAIVED_NEADJ_BARE, ...SIZE_WAIVED_NEADJ_BARE_L])})`;
   const s = (base: string) => base;
 
   const patterns = [
@@ -424,6 +435,10 @@ export function buildSizeWaivedSlots(): RegExp {
     s(`${or([...SIZE_WAIVED_OBJ, ...SIZE_WAIVED_OBJ_L])}${WS}${NEG}${WS}${SUBJ}${WS}${BE}${WS}${ADJ}`),
     // Slot: NEG SUBJ BE ADJ — “не ми е битно“
     s(`${NEG}${WS}${SUBJ}${WS}${BE}${WS}${ADJ}`),
+    // Slot: NEG BE ADJ — “ne e bitno kolkju spalni“ — no subject clitic. The
+    // 21:40 transcript form (“NE E BITNO KOLKU SPALNI“): colloquial speech
+    // drops “ми/ни“, the old slot demanded it and the funnel looped.
+    s(`${NEG}${WS}${BE}${WS}${ADJ}`),
     // Slot: ANY — “било колку соби“
     s(ANY),
     // Slot: EN — “size doesn't matter“
@@ -437,6 +452,8 @@ export function buildSizeWaivedSlots(): RegExp {
     // “spalnite mi se nebitni“, “spalnite se nebitni“ — up to two clitic
     // tokens (subject/beat-verb) between the noun and the fused negative.
     s(`${NOUNDEF}${WS}(?:(?:${SUBJ}|се|se|е|e|и|i)${WS}){0,2}${NEADJ}(?:${WS}(?:се|se))?`),
+    // BARE fused negation — “NEBITNO“ / “НЕБИТНО“ alone answers the ask.
+    s(`(?:^|${WS})${BARE}(?:${WS}|$)`),
     // “не ми се битни спални“ / “не ми се важни соби“
     s(`${NEG}${WS}${SUBJ}${WS}(?:се|се|се)${WS}(?:битни|важни|битни|важни|bitni|vazhni)${WS}(?:спални|соби|sobni|spalni)`),
     // “не ми требаат спални“ / “не ми требаат соби“

@@ -424,6 +424,19 @@ test('detectSizeWaived: "nebitni se spalnite" — the fused-negative waiver (13:
   assert.equal(detectSizeWaived('spalnite mi se nebitni'), true);
   assert.equal(detectSizeWaived('nebitno e'), true);
   assert.equal(detectSizeWaived('nebitni se sobite'), true);
+  // 21:40 transcript: bare fused negation and subject-less negation — both
+  // used to MISS (grammar demanded a verb / a ми-ni clitic) and the funnel
+  // re-asked bedrooms three times.
+  assert.equal(detectSizeWaived('NEBITNO'), true);
+  assert.equal(detectSizeWaived('небитно'), true);
+  assert.equal(detectSizeWaived('ne e bitno kolkju spalni'), true);
+  assert.equal(detectSizeWaived('ne e bitno'), true);
+  // still NOT waivers: an actual bedroom count, or the word inside a sentence
+  // that says the opposite (positive adjective with its own slot)
+  assert.equal(detectSizeWaived('minimum 2 spalni'), false);
+  assert.equal(detectSizeWaived('dve spalni'), false);
+  assert.equal(detectSizeWaived('bitno e da e do 100000'), false);
+  assert.equal(detectSizeWaived('edna spalna e bitno'), false);
   // pre-existing forms keep working
   assert.equal(detectSizeWaived('ne mi se bitni spalni'), true);
   assert.equal(detectSizeWaived('goleminata ne mi e bitna'), true);
