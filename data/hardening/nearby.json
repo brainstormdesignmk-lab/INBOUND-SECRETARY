@@ -17,12 +17,12 @@
     },
     {
       "phrase": "kakvi objekti ima okolu ?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "whereIs"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "daleku e do pazar ?",
@@ -47,21 +47,21 @@
     },
     {
       "phrase": "ima li gradinka vo blizina",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "whereIs"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "dali imamarket blizu",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "avail"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "sho se naoga vo okolinata",
@@ -79,12 +79,12 @@
     },
     {
       "phrase": "kakva e okolinata ima li kafici",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "avail"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "blizu li e apteka",
@@ -123,69 +123,69 @@
     },
     {
       "phrase": "ima li gradinka ili skola u blizina?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "што има од продавници околу зградата?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "далеку е до автобуска станица?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "shto ima blisku za pazaruvanje?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "ima li parkce za deca negde blizu",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "какви објекти има во близина?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "whereIs"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "ima li supermarket blisko do stanot?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "дали има аптека и маркет во близина",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
         "whereIs",
         "avail"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "daleku li e pazarot od kukjata?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -198,39 +198,266 @@
     },
     {
       "phrase": "ima li avtobuska blisko?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "дали има училиште во близина?",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
         "whereIs",
         "avail"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "shto ima u okolina?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "ima li nekakvi prodavnici blizu?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "има ли парк или игралиште околу?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Што има све во близина?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "whereIs"
+      ]
+    },
+    {
+      "phrase": "ima li apteka ili markat blizu?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kakvi objekti ima okolu zgradata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "whereIs"
+      ]
+    },
+    {
+      "phrase": "има ли градинка за деца блиску?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sto ima vo okolina na stanot",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали има автобуска во близина?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "whereIs",
+        "avail"
+      ]
+    },
+    {
+      "phrase": "ima li pazar ili super market blisku?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "има ли паркови и игралишта наоколу?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li skola blisku do zgradata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "какви продавници има во близина?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "whereIs"
+      ]
+    },
+    {
+      "phrase": "a daleku li e do pazar?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "што сѐ се наоѓа во околината?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li kafici i restorani okolu?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "има ли некој трговски блиску?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sto ima blisko za kupuvanje okolu?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li pekara i apteka nablizku?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали има градинка во комшилукот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "avail"
+      ]
+    },
+    {
+      "phrase": "Shto ima od objekti okolu zgradata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li igraliste za deca nablisku?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Има ли некој парк блиску за шетање?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sto ima vo okolinata od prodavnici?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daleku li e avtobuskata stanica?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Има ли маркети или трговски наоколу?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kakov e komsilukot ima li lokalcinja?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "avail"
+      ]
+    },
+    {
+      "phrase": "dali ima poliklinika ili apteka blizu?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "avail"
+      ]
+    },
+    {
+      "phrase": "Што има за деца во близина?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "whereIs"
+      ]
+    },
+    {
+      "phrase": "Ima li kade da se pazaruva vo okolinata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "има ли теретана или спортски терени наблизу?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Daleku li e najbliskiot market?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Sto ima pokraj zgradata od sodrzini?",
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     }

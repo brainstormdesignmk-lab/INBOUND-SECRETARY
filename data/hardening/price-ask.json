@@ -10,13 +10,12 @@
     },
     {
       "phrase": "po koja cena se prodava",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "service"
-      ],
+      "cross": [],
       "benign": [
-        "avail"
+        "avail",
+        "service"
       ]
     },
     {
@@ -105,13 +104,12 @@
     },
     {
       "phrase": "za kolku se prodava",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "service"
-      ],
+      "cross": [],
       "benign": [
-        "avail"
+        "avail",
+        "service"
       ]
     },
     {
@@ -137,8 +135,8 @@
     },
     {
       "phrase": "za kolku go davaat?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -158,8 +156,8 @@
     },
     {
       "phrase": "колку пари е ова?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -172,8 +170,8 @@
     },
     {
       "phrase": "kolku baraat za ova?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -193,13 +191,12 @@
     },
     {
       "phrase": "za kolku pari se prodava?",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
-        "service"
-      ],
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
       "benign": [
-        "avail"
+        "avail",
+        "service"
       ]
     },
     {
@@ -225,27 +222,26 @@
     },
     {
       "phrase": "Колку коштува објектов?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "cena za kukaata?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "za kolku parici se prodava?",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
-        "service"
-      ],
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
       "benign": [
-        "avail"
+        "avail",
+        "service"
       ]
     },
     {
@@ -257,47 +253,47 @@
     },
     {
       "phrase": "koia e cenua na oglasov",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "cna?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "Колку ја даваат куќата?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "Kolku se bara za stanot?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "Цена за имотов?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "za kolku go prodavaat?",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
         "service"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "Која е цената на понудава?",
@@ -322,8 +318,8 @@
     },
     {
       "phrase": "Za kolku e ponudata?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -343,8 +339,8 @@
     },
     {
       "phrase": "kolku barate za ova?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -357,20 +353,19 @@
     },
     {
       "phrase": "cenua na stanot?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "za kolku se prodava?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "service"
-      ],
+      "cross": [],
       "benign": [
-        "avail"
+        "avail",
+        "service"
       ]
     },
     {
@@ -382,8 +377,8 @@
     },
     {
       "phrase": "Цена?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -410,8 +405,8 @@
     },
     {
       "phrase": "колко е цената",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -424,8 +419,8 @@
     },
     {
       "phrase": "za kolku go davate?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -452,8 +447,8 @@
     },
     {
       "phrase": "za kolku go davaat",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -473,34 +468,33 @@
     },
     {
       "phrase": "koja cifra e za stanot?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "Kolku barate za kukata",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "cenua?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "za kolku pari se prodava",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
-        "service"
-      ],
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
       "benign": [
-        "avail"
+        "avail",
+        "service"
       ]
     },
     {
@@ -512,8 +506,170 @@
     },
     {
       "phrase": "za kolku e?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kolku cine stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "koja e cenua na stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "колку бара сопственикот за куќава?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kolku chini ova?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "колку му е цената?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kolku ja davate?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "колку чини станоф?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "коа е цената?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "која цена ја има имотот",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "avail"
+      ]
+    },
+    {
+      "phrase": "kolku parii e stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Колку бараат за станчево?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "za kolku se prodava ova?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "avail",
+        "service"
+      ]
+    },
+    {
+      "phrase": "koj пари е имотот",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Koja e cenua?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "cena za stanot?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "За колку го дава сопственикот?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kolku pari baraat?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Колку ја цени сопственикот куќава?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "za kolku parii se prodava?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "avail",
+        "service"
+      ]
+    },
+    {
+      "phrase": "Колку пари му е цената?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "kolku ke koshta ова?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Цена за објектот?",
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     }

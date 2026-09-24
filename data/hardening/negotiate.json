@@ -1,6 +1,5 @@
 {
   "bankKey": "price.negotiate",
-  "protects": "price negotiation on the PROPERTY — must not trigger a search or fee talk",
   "rows": [
     {
       "phrase": "moze li popust na cenata ?",
@@ -128,8 +127,8 @@
     },
     {
       "phrase": "Дали има простор за корекција на цената?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -142,22 +141,22 @@
     },
     {
       "phrase": "може ли малку да се спусти цената",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "sopstvenikot ke svali nekoj evro?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "ке даде ли 130000 евра за брза продажба",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "budget"
@@ -181,8 +180,8 @@
     },
     {
       "phrase": "dali e mozno da se smali malku",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -195,8 +194,8 @@
     },
     {
       "phrase": "na kesh podobra cena moze?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "priceAsk"
@@ -204,8 +203,8 @@
     },
     {
       "phrase": "да се сплости цената малце за плаќање одма",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "priceAsk"
@@ -220,8 +219,8 @@
     },
     {
       "phrase": "дајте за 120000 и го земам",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "budget"
@@ -236,8 +235,8 @@
     },
     {
       "phrase": "дали е можна мала корекција во цената",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -266,8 +265,8 @@
     },
     {
       "phrase": "сопственикот ќе свали малку?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -287,8 +286,8 @@
     },
     {
       "phrase": "да се скрати малку цената, може?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "priceAsk"
@@ -303,8 +302,8 @@
     },
     {
       "phrase": "коригирајте ја малку цената ако може",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "priceAsk"
@@ -312,8 +311,8 @@
     },
     {
       "phrase": "dali kje spusti sopstvenikot na kes",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -340,8 +339,8 @@
     },
     {
       "phrase": "може ли газдата да смали малку?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -354,8 +353,8 @@
     },
     {
       "phrase": "ima li prostor za spustanje na cenata?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "priceAsk"
@@ -363,22 +362,22 @@
     },
     {
       "phrase": "Дали може малку да се скрати цената?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "za kesh moze li nekoja podobra ponuda?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "Дали е можна корекција на цената за купување?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "priceAsk"
@@ -386,8 +385,8 @@
     },
     {
       "phrase": "ke svali li gazdata malku?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -400,8 +399,8 @@
     },
     {
       "phrase": "dajte go za 120000 eura na raka",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "budget"
@@ -409,15 +408,15 @@
     },
     {
       "phrase": "сопственикот попушта ли нешто за сумата?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "dali bi se spustila cenata malce?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "priceAsk"
@@ -439,15 +438,15 @@
     },
     {
       "phrase": "има ли простор за договор околу цената?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "bi sakal da se smali cenata uste malku",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": [
         "priceAsk"
@@ -455,8 +454,8 @@
     },
     {
       "phrase": "да се направи мала корекција во цената?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },

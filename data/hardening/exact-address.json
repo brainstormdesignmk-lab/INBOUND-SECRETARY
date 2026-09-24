@@ -41,9 +41,7 @@
       "verdict": "COVERED",
       "target": true,
       "cross": [],
-      "benign": [
-        "whereIs"
-      ]
+      "benign": []
     },
     {
       "phrase": "адесата сакам точно да ја знам",

@@ -10,12 +10,12 @@
     },
     {
       "phrase": "moze i nadvor od centar",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
         "location"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "razgledajte siroko",
@@ -26,12 +26,12 @@
     },
     {
       "phrase": "i do 300 da bide",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
         "budget"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "ne mora novo",
@@ -63,12 +63,12 @@
     },
     {
       "phrase": "i poskapo moze, do 200k",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
         "budget"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "mozhe i postaro, bitno lokacija",
@@ -114,6 +114,244 @@
     },
     {
       "phrase": "shiroko barajte, moze i 90 kvadrati",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze i nadvor od centar ne e problem",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "location"
+      ]
+    },
+    {
+      "phrase": "ајде гледај и до 350 евра",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ne mora da e novogradba, moze i postaro",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "види и во карпош и аеродром, прошири малку",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "location"
+      ]
+    },
+    {
+      "phrase": "i pomal stan vrsi rabota ak ima dobra cena",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "може и за реновирање ако е поевтино",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "alternatives"
+      ]
+    },
+    {
+      "phrase": "ajde i do 500e ak vala stano",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "не мора само центар, барај и пошироко",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "location"
+      ]
+    },
+    {
+      "phrase": "moze i suteren ili potkrovje ne biram",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "прошири опсег, може и без лифт",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "i nad 300 evra pusti ako vredi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "може и двособен, не мора строго трособен",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ajde gledaj i kisela voda i xrom",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "location"
+      ]
+    },
+    {
+      "phrase": "не мора со паркинг, смени го тоа",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze i namesten i prazen, siri kriterium",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze i do 100k ak ima nesto pokrajina",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "проширете пребарување, може и со реновирање",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne sum fiksiran za karpos, barajte po siroko",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "location"
+      ]
+    },
+    {
+      "phrase": "ај нека биде и над 400 евра",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "starogradba isto doagja predvid, bez ogranicuvanja",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze i pomal stan ne mora trosoben",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "нема врска за спратот, може и без лифт",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "digajte budzet do 120000 slobodno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "слободно гледајте и периферија, отворени сме",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "alternatives"
+      ]
+    },
+    {
+      "phrase": "moze i za adaptacija, ne mora odma uselliv",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "мозе и помала квадратажа, 40m2 e ok",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "opstina veke ne e bitna, bilo kade",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "zgolemete go limitot do kaj 350 eur",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "moze i potkrovje, ne mora normalen kat",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "барајте било кој дел од градот",
       "verdict": "COVERED",
       "target": true,
       "cross": [],

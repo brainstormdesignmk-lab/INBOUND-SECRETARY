@@ -1199,6 +1199,62 @@ export function detectWidenIntent(text: string): boolean {
 // legitimate "…во друга населба?" widen ask.
 const _widenSlotsRe = buildWidenSlots();
 export function detectExplicitWiden(text: string): boolean {
+  // RELAXATION escapes (sweep widen) — BEFORE the concrete-neighborhood guard:
+  // "moze i nadvor od centar" relaxes the AREA criterion, but the guard read
+  // "од центар" as a search FOR the center and vetoed the whole message. The
+  // accessibility form ("полесно за пристап") relaxes location too, and the
+  // grammar slots only know new-area forms, not outside-the-area ones.
+  if (matchesBoth(/(?:надвор|nadvor)\s+(?:од|od)\s+\p{L}{2,}/iu, text)) return true;
+  if (matchesBoth(/(?:подостапн|поевтин|полесн)\p{L}*\s+(?:за\s+)?(?:пристап|pristap|priprap|место|локаци)/iu, text)) return true;
+  // RAISE-THE-CAP class (sweep widen): "i do 300 da bide", "i poskapo moze,
+  // do 200k" — a cap word (до/над) + amount, then a MODAL asking to raise it
+  // (да биде / може / би / повеќе) or an amount-softener (поскапо/помалку)
+  // near the cap. A bare amount with no modal ("do 300 evra" alone) stays a
+  // budget search — the modal is what makes it a widen. Cyrillic needs
+  // \p{L} boundaries — JS \b is ASCII-only ("до 350" never matched \bдо\b).
+  if (new RegExp('(?<![\\p{L}\\p{N}])(?:do|до|nad|над)\\s*\\d[\\d.,]*\\s*(?:k|к)?', 'iu').test(text)
+    && new RegExp('(?<![\\p{L}\\p{N}])(?:da\\s+)?(?:bide|биде|moz?h?e|може|bi|би|povek?e|повеќе|ajde|ајде|gledaj|гледај|pusti|пушти|baraj|барај)(?![\\p{L}\\p{N}])', 'iu').test(text)) return true;
+  if (/\b(?:poskap?o|поскапо|poskapo|pomalku|помалку)\b/i.test(text) && /(?:nad|над)\s*\d/i.test(text)) return true;
+  if (/\b(?:poskap?o|поскапо|poskapo|pomalku|помалку)\b/i.test(text) && /(?:\bdo\b|\bдо\b)\s*\d/i.test(text)) return true;
+  // WIDEN COMMAND VERBS escape the concrete-area guard (sweep widen):
+  // "види и во карпош и аеродром, прошири малку" names areas, but the
+  // прошири/пошироко/шири command makes it a widen, not an area search.
+  if (matchesBoth(/(?:прошир|prosir|широк|sirok|шири|siri)\p{L}*/iu, text)) return true;
+  if (matchesBoth(/(?:не\s+мора\s+само|ne\s+mora\s+samo)/iu, text)) return true;
+  // ATTRIBUTE RELAXATION (sweep widen 24:09): "може и постаро", "не мора да е
+  // новоградба", "може и двособен", "и помал стан врши работа" — the client
+  // drops a stated criterion (age / floor / condition / room count / size).
+  {
+    const WIDEN_ATTR = /(?:постар|понов|новоград|реновир|сутер|поткров|призем|собен|празен|празн|намест|namesten|prazen|староградб|starogradb|адаптациј|adaptacij|квадратаж|kvadratazh|спрат|sprat|лифт|lift|паркинг|parking|уселив|uselliv|градб|gradb|тип\p{L}*|postar|ponov|novogradb|renovir|suter|potkrov|prizem|soben)/iu;
+    // "мозе" — the ж→з typo of може is a class of its own (sweep widen).
+    if (matchesBoth(/(?:мож[еа]|моз[еа]|moz?[eh]?e|ne\s+mora|не\s+мора)\s+(?:и\s+)?/iu, text) && WIDEN_ATTR.test(text)) return true;
+    if (/(?:и|i)\s+(?:помал|поголем|pomal|pogolem)\s+(?:стан|куќ|имот|stan|kukj?|imot|prostor)/iu.test(text)) return true;
+  }
+  // RAISE VERBS (sweep widen round 2): "дигајте буџет до 120000",
+  // "зголемете го лимитот до 350" — the raise verb + a cap/amount.
+  if (matchesBoth(/(?:дига|diga|зголем|zgolem)\p{L}*/iu, text)
+    && /(?:до|do|над|nad)\s*(?:кај|kaj)?\s*\d/i.test(text)) return true;
+  // MULTI-AREA + command modal: "ајде гледај и кисела вода и широм" — two
+  // known areas + an expansion command is a widen, not a single-area search
+  // (sits before the concrete-area guard by construction).
+  {
+    const areas = KNOWN_NEIGHBORHOODS.filter(loc => !loc.includes('(') && locMatches(text, loc)).length;
+    const command = /(?:ајде|ajde|гледај|gledaj|пушти|pusti|барај|baraj|слободно|slobodno)/iu.test(text);
+    if (areas >= 2 && command) return true;
+    // "ајде гледај и кисела вода и xром" — the double enumeration + command
+    // is a widen even when the second name is unknown/junk.
+    if (areas >= 1 && command && matchesBoth(/(?:и|i)\s*\p{L}+\s*(?:и|i)\s*\p{L}+/iu, text)) return true;
+    // "слободно гледајте и периферија" — the periphery is the released area.
+    if (command && matchesBoth(/(?:перифериј|periferij)/iu, text)) return true;
+  }
+  // NO-RESTRICTION / ANYWHERE class (sweep widen round 2):
+  // "starogradba isto doagja predvid, bez ogranicuvanja", "opstina veke ne e
+  // bitna, bilo kade", "барајте било кој дел од градот", "нема врска за
+  // спратот" — a criterion noun explicitly released.
+  if (matchesBoth(/(?:без\s+ограничувањ|bez\s+ogranicuvanj|не\s+е\s+битн[ао]|ne\s+e\s+bitn[ao]|нема\s+врска|nema\s+veze)/iu, text)
+    && /(?:општин|населб|спрат|лифт|паркинг|квадратаж|локаци|дел|градб|староградб|новоградб|opstin|naselb|sprat|lift|parking|kvadratazh|lokaci|gradb|starogradb|novogradb)/iu.test(text)) return true;
+  if (matchesBoth(/(?:било\s+кој|било\s+каде|bilo\s+koj|bilo\s+kade)/iu, text)
+    && /(?:дел|населб|место|град|del|naselb|mesto|grad)/iu.test(text)) return true;
   if (KNOWN_NEIGHBORHOODS.some(loc => !loc.includes('(') && locMatches(text, loc))) return false;
   if (matchesBoth(_widenSlotsRe, text)) return true;
   // Generated extension — 'widen' family (see scripts/propose-stems.ts).
@@ -2255,6 +2311,27 @@ const NEARBY_AREA_TARGET_RE = new RegExp(
   NB_NEAR + '\\s*(?:на|во)?\\s*' +
   '(?:центар|аеродром|карпош|кисела\\s+вода|водно|лисиче|ново\\s+лисиче|бутел|капиштец|ѓорче|таир|автокоманда|кисела)', 'iu');
 
+// Companion grammar (sweep nearby): the original slot regexes require the
+// proximity anchor to FOLLOW the verb, but real asks put the anchor first,
+// name a specific AMENITY as the subject, or ask DISTANCE — all three classes
+// went dark. Cyrillic-canonical (tested on normalizeMc output, per contract):
+//   A) што/нешто + има + … ≤30 + NEAR ("shto ima blisku za pazaruvanje?",
+//      "што има од продавници околу зградата?", "shto ima u okolina?")
+//   B) (дали) има (ли) + AMENITY + … ≤24 + NEAR/DIST ("има ли градинка…",
+//      "дали има училиште во близина?", "ima li avtobuska blisko?")
+//   C) далеку/daleku + … + ? ("daleku li e pazarot od kukjata?", "далеку е до
+//      автобуска станица?") — a distance question about the property.
+const NB2_NEAR = '(?:бли[зс]к\\p{L}*|близин\\p{L}*|окол\\p{L}*|покрај\\p{L}*)';
+const NB2_AMEN = '(?:градин|скол|учил|учили|парк|играл|прода[вз]|маркет|аптек|пазар|автобуск|супермаркет|болниц|кафи|ресторан|зград|станиц|тргов|пекар|поликлин|теретан|спортск|локалч)';
+const NEARBY_RE2 = new RegExp(
+  // "сто" — the colloquial h-less "shto" transliterates to СТО, not ШТО (a
+  // whole dark subject class in BOTH nearby grammars until sweep nearby).
+  '(?:што|шт?о|сто|несто|нешто)[^.!?,\\n]{0,12}\\s*(?:има|наоѓ\\p{L}*)[^.!?,\\n]{0,30}' + NB2_NEAR +
+  '|(?:дали\\s+|да\\s+)?(?:има\\s*ли|има|имат)\\s*(?:ли)?\\s*(?:(?:некакв\\p{L}*|неко\\p{L}*|неколку)\\s+)?' + NB2_AMEN + '\\p{L}*(?:[^.!?\\n]{0,24}' + NB2_NEAR + '|[^.!?,\\n]{0,24}дале[кч]\\p{L}*)?' +
+  '|(?:има\\s*ли|има)\\s+каде[^.!?\\n]{0,24}' + NB2_NEAR +
+  '|(?:каков|каква|kakov|kakva)[^.!?,\\n]{0,16}(?:комши|комсилук|квартал|околи)' +
+  '|(?:дале[кч]\\p{L}*)[^.!?\\n]{0,30}\\?', 'iu');
+
 /** True when the client asks what else is near the current property.
  *  Order-free (grammar slots, not enumerated variants); requires a proximity
  *  anchor so plain search wishes never match. */
@@ -2269,7 +2346,8 @@ export function detectNearbyAsk(text: string): boolean {
   const n = normalizeMc(t);
   if (NEARBY_AREA_TARGET_RE.test(n)) return false;
   if (extFires('nearby', text)) return true;
-  return NEARBY_RE_SUBJECT.test(n) || NEARBY_RE_HAVE.test(n) || NEARBY_RE_ANCHOR.test(n);
+  return NEARBY_RE_SUBJECT.test(n) || NEARBY_RE_HAVE.test(n) || NEARBY_RE_ANCHOR.test(n)
+    || NEARBY_RE2.test(n);
 }
 
 // ── CONTEXT DISAMBIGUATION for the ambiguous "more/other" family ───────────
@@ -2779,14 +2857,33 @@ export function detectPriceFreshness(text: string): boolean {
 const PRICE_ASK_RE = /(?:која|колку|кое|која|колку|koe|koja|kolku|what\s+is|ke\s+mu\s+e|e\s+mu\s+e|mu\s+e)[^.!?\n]{0,20}(?:цена|цена|цени|цени|цената|cena|ceni|cenata|price|евра|евро|евра|евро|еуро|eur)|(?:колку|колку|kolku|kolku|колку|cenata|цена|cena|цена|price|евра|evra|евро|евро)[^.!?\n]{0,15}(?:чини|чини|iznesuva|изнесува|е|e|costs?|bi\s+trebalo)|\b(?:цена|цена|cena|cenata|цена|cenata|цени|ceni|price)\s*\?|\b(?:колку|колку|kolku|колку)\s*\?|(?:не|не|ne|ne)\s+(?:ја|ја|ja|ja|се|се|se|se)\s+(?:памтам|памтам|pamtam|pamtam|сеќавам|секавам|sekavam|запомнам|запомнам|zapomnam|zapomnam)(?:\s+(?:на|на|na|na))?[^.!?\n]{0,10}(?:цената|цената|cenata|cenata|цена|цена|cena|cena)|\b(?:не\s+ја\s+памтам|не\s+се\s+сеќавам|не\s+се\s+секавам|ne\s+ja\s+pamtam|ne\s+se\s+sekavam)\b[^.!?\n]{0,10}(?:цена|cenata)/iu;
 
 /** True when the client asks about the property price. */
+// Sweep price-ask 24:09 companion classes — kept OUT of the original monster
+// regex and OUT of the keyword gate (most carry NO price keyword):
+// (1) kolku + give/ask/prodave verb ("kolku baraat za ova?", "Колку ја
+// даваат куќата?", "za kolku go prodavaat?"); (2) za kolku + e ("za kolku
+// e?", "Za kolku e ponudata?"); (3) kolku pari/koshtuva; (4) the noun-tail
+// question "cena za kukaata?" (requires ?); (5) bare opener typo "cna?";
+// (6) која/коиа/колко + цена/цифра ("kolko e cenata", "koja cifra e za
+// stanot?").
+const PRICE_ASK_RE2 = new RegExp(
+  '(?:за|za)\\s*(?:колку|колко|kolku|kolko)\\s*(?:[^.!?\\n]{0,16}(?:дава\\p{L}*|дад\\p{L}*|бара\\p{L}*|прода\\p{L}*|dava\\p{L}*|bara\\p{L}*|prodava\\p{L}*)|(?:е|e)\\s*(?:\\?|\\p{L}{2,}))' +
+  // kolku + optional clitic/reflexive ("Колку ЈА даваат…?", "Kolku SE bara…?")
+  // + the give/ask/prodave/cost/pari class
+  '|(?:колку|колко|kolku|kolko|кој|koj)\\s*(?:(?:ја|го|ги|ja|go|mu|се|se)\\s*)?(?:пар\\p{L}*|дава\\p{L}*|дад\\p{L}*|бара\\p{L}*|прода\\p{L}*|dava\\p{L}*|bara\\p{L}*|prodava\\p{L}*|кошт\\p{L}*|kosht\\p{L}*|ko\\u0161t\\p{L}*)' +
+  '|(?:цен[уаи]|цена|цна|cena|cenua|cna)\\p{L}*\\s*(?:за|на|na)\\s+\\p{L}{2,}\\s*\\?' +
+  '|^\\s*(?:цен[уаи]|цена|цна|cena|cenua|cna|цени|ceni)\\p{L}*\\s*\\?' +
+  '|(?:која|коиа|koja|koia|кое|koe|колко|kolko|коа|koa|кој|koj)[^.!?\\n]{0,14}(?:цен\\p{L}|cena\\p{L}*|cenua|cna|цифр\\p{L}*|cifr\\p{L}*)' +
+  // kolku + future filler + cost verb ("kolku ke koshta ova?")
+  '|(?:колку|колко|kolku|kolko)\\s*(?:ќе|ke|ще)?\\s*(?:кошт|kosht|košt)\\p{L}*',
+  'iu');
 export function detectPriceAsk(text: string): boolean {
   // "колку саати работите" matches because 'работите' ends with 'е' —
   // false positive. Require at least one price-related keyword (цена/евра/чини)
   // so the regex only fires for actual price questions.
   if (!/(?:цена|цени|цената|cena|cenata|ceni|price|евра|евро|евра|евро|еуро|eur|чини|chini|iznesuva|изнесува|costs?|bi\s+trebalo)/i.test(text)) {
-    return extFires('price-ask', text);
+    return matchesBoth(PRICE_ASK_RE2, text) || extFires('price-ask', text);
   }
-  return matchesBoth(PRICE_ASK_RE, text) || extFires('price-ask', text);
+  return matchesBoth(PRICE_ASK_RE, text) || matchesBoth(PRICE_ASK_RE2, text) || extFires('price-ask', text);
 }
 
 // Scheduling flexibility: the client specifies a preferred day/time window.

@@ -1,6 +1,5 @@
 {
   "bankKey": "(owner verdict → fixed-clock counter relay)",
-  "protects": "the owner's fixed-clock counter must reach the client with the CLOCK intact (\"samo vo petok vo 11\" — a dropped clock relays the bare day and the client accepts a term nobody fixed)",
   "rows": [
     {
       "phrase": "samo vo petok vo 11",
@@ -60,8 +59,8 @@
     },
     {
       "phrase": "Vo 11:30 vo cetvrtok, drugoto vreme ne mi odgovara",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -179,8 +178,8 @@
     },
     {
       "phrase": "Ne mozam togash, moze Friday vo 10 nautro.",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -263,8 +262,8 @@
     },
     {
       "phrase": "vo 11:30 vo sredta dojdete, porano nikako",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
