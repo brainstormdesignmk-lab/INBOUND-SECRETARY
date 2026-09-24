@@ -27,6 +27,19 @@ test('response bank: every entry is non-empty and placeholders live only where e
         // The 20:24 whole-day counter: {day} fills with the owner's proposed
         // day name at serve time (a data-carrier, like {price}).
         assert.ok((v.match(/\{day\}/g)?.length ?? 0) === 1, `${key}: "${v}"`);
+      } else if (key === 'owner.ask') {
+        // The owner-facing ask: {eb} = the property number, {time} = the
+        // client's proposed term — both exactly once.
+        assert.equal(v.match(/\{eb\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+        assert.equal(v.match(/\{time\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+      } else if (key === 'owner.relay:counter' || key === 'owner.relay:counter.bare') {
+        // Counter relays carry the owner's/client's term exactly once — the
+        // judge's dropped-alternative assertion parses it from the text.
+        assert.equal(v.match(/\{time\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+      } else if (key === 'owner.relay:gone') {
+        // Gone relay: {eb} names the property, {note} is the status note.
+        assert.ok((v.match(/\{eb\}/g)?.length ?? 0) >= 1, `${key}: "${v}"`);
+        assert.equal(v.match(/\{note\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else {
         assert.ok(!v.includes('{'), `${key}: unexpected placeholder: "${v}"`);
       }

@@ -1146,8 +1146,13 @@ test('owner BARE refusal (no alternative time): no fabricated "по догово
   s = sessions.get(chatId)!;
   const relay = sent[sent.length - 1];
   assert.equal(s.state, 'visit_scheduling');       // NOT time_confirm — nothing to accept
-  assert.ok(relay.includes('не може'), relay);     // honest refusal relayed
-  assert.ok(relay.includes('Кој термин'), relay);  // asks for another time
+  // Refusal invariant (bank variants paraphrase: не може / не му одговара /
+  // спречен / зафатен / не е во можност …) — the refusal must be relayed.
+  assert.ok(/(?:не\s+може|нема\s+можност|не\s+е\s+во\s+можност|не\s+му\s+одговара|спречен|зафатен|не\s+е\s+слободен|не\s+е\s+изведлив|не\s+можам\s+да\s+го\s+потврдам)/iu.test(relay), relay);
+  // Asks for another time — the invariant is a question carrying a time-word
+  // ("Кој ДРУГ термин…?", "кое друго време…?", "Кога…?", "…друго време кое Ви
+  // одговара?").
+  assert.ok(/(?:термин|време|кога|час)[^\n]*\?/u.test(relay), relay);
   assert.ok(!relay.includes('по договор'), relay); // no fabricated term
   assert.ok(!relay.includes('Договорена посета'), relay); // never closed at the refused time
 
@@ -1180,7 +1185,7 @@ test('TUI /owner counter WITHOUT a time = bare refusal: same honest path, never 
   s = sessions.get(chatId)!;
   const relay = sent[sent.length - 1];
   assert.equal(s.state, 'visit_scheduling');
-  assert.ok(relay.includes('не може'), relay);
+  assert.ok(/(?:не\s+може|нема\s+можност|не\s+е\s+во\s+можност|не\s+му\s+одговара|спречен|зафатен|не\s+е\s+слободен|не\s+е\s+изведлив|не\s+можам\s+да\s+го\s+потврдам)/iu.test(relay), relay);
   assert.ok(!relay.includes('по договор'), relay);
   assert.ok(!relay.includes('Договорена посета'), relay);
 });

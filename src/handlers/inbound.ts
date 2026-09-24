@@ -3194,7 +3194,13 @@ ${contactReminder}`;
       // mkTimePhrase: the classify leg canonizes the client's raw words —
       // "petok vo 6" once surfaced as English "Friday 18:00" inside this ask.
       const askTime = mkTimePhrase(proposedTime);
-      const ownerAskText = buildOwnerAsk(eb, askTime, ownerLabels ? { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen } : { eb, proposedTime: askTime });
+      // Bank-served for the GENERIC form (no property-type agreement — the
+      // typed form stays code-built for its gender agreement): the owner ask
+      // now varies too, with the code-built line as the always-there fallback.
+      const ownerAskText = ownerLabels
+        ? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen })
+        : pickVariant('owner.ask', { recent: assistantTexts(session), vars: { eb: String(eb), time: askTime } })
+          ?? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime });
       // OWNER-ASK INTAKE (judge layer 1): the owner ask logs the CLIENT's raw
       // proposed term — a question forwarded as a term (20:26 "VO NEDELA
       // RABOTITE ?") is detectable only against the raw words, not the relay.
@@ -3269,8 +3275,11 @@ ${contactReminder}`;
       // the new proposal re-asks the owner.
       if (!verdict.ownerTime) {
         session.state = 'visit_scheduling';
-        this.logOwnerExchange(session, eb, verdict, `${priceRelay ? `${priceRelay} ` : ''}${OWNER_CANT_TIME_RELAY(session.slots.visitTime ?? '')}`);
-        const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_CANT_TIME_RELAY(mkTimePhrase(session.slots.visitTime ?? ''))}`;
+        const refusedTime = mkTimePhrase(session.slots.visitTime ?? '');
+        // Bank-served with the code-built line as fallback; the refusal is
+        // relayed honestly — never a fabricated term the client could accept.
+        const reply = `${priceRelay ? `${priceRelay} ` : ''}${pickVariant('owner.relay:counter.bare', { recent: assistantTexts(session), vars: { time: refusedTime } }) ?? OWNER_CANT_TIME_RELAY(refusedTime)}`;
+        this.logOwnerExchange(session, eb, verdict, reply);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, reply);
@@ -3304,8 +3313,11 @@ ${contactReminder}`;
       }
       session.state = 'time_confirm';
       session.slots.ownerTime = verdict.ownerTime;
-      this.logOwnerExchange(session, eb, verdict, `${priceRelay ? `${priceRelay} ` : ''}${OWNER_COUNTER_RELAY(verdict.ownerTime ?? '')}`);
-      const reply = `${priceRelay ? `${priceRelay} ` : ''}${OWNER_COUNTER_RELAY(mkTimePhrase(verdict.ownerTime ?? ''))}`;
+      const counterTime = mkTimePhrase(verdict.ownerTime ?? '');
+      // Bank-served counter relay ({time} = the owner's term, canonicalized —
+      // the judge's dropped-alternative assertion requires the term in text).
+      const reply = `${priceRelay ? `${priceRelay} ` : ''}${pickVariant('owner.relay:counter', { recent: assistantTexts(session), vars: { time: counterTime } }) ?? OWNER_COUNTER_RELAY(counterTime)}`;
+      this.logOwnerExchange(session, eb, verdict, reply);
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, reply);
@@ -3316,7 +3328,7 @@ ${contactReminder}`;
     session.state = 'presentation';
     session.slots.soldEb = eb; // exclude from alternatives
     const note = verdict.note ? `е ${verdict.note}` : 'веќе не е достапен';
-    const reply = OWNER_GONE_REPLY(eb, note);
+    const reply = pickVariant('owner.relay:gone', { recent: assistantTexts(session), vars: { eb: String(eb), note } }) ?? OWNER_GONE_REPLY(eb, note);
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
     await this.sendRaw(session, reply);

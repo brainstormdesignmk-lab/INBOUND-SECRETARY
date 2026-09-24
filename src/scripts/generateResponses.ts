@@ -740,6 +740,66 @@ const SPEC: GenerationKey[] = [
     banned: [/\d/, /Евидентен|ID|ИД/, /надомест/],
     question: true,
   },
+  // --- batch 6: owner ping-pong (the owner-facing ask + the client relays) ---
+  // owner.ask is the message Lina sends to the OWNER (not the client): it is
+  // logged under bankKey 'owner.ask' for the judge, and now also varies from
+  // the bank. The generic form (no property-type agreement) is bank-served —
+  // it stays grammatical for every имот gender; the typed code-built form
+  // remains the code fallback. {eb} = Евидентен број, {time} = the client's
+  // proposed term, both exactly once. The availability question, the term and
+  // the agree-or-counter closing are meaning anchors.
+  {
+    key: 'owner.ask',
+    sources: ['Здраво. Ве контактирам во врска со пројавен интерес од сериозен клиент за имот кој во нашиот систем е внесен со број {eb}. Дали е сè уште достапен во моментов? Клиентот сака посета: {time}. Дали се согласувате на овој термин, или имате друг предлог?'],
+    count: 8,
+    instructions: 'Порака ДО СОПСТВЕНИКОТ на имотот (не до клиентот): поздрав, спомни дека контактираш за пројавен интерес од сериозен клиент за неговиот имот внесен со број {eb}, ПРАШАЈ дали е сè уште достапен, соопшти дека клиентот сака посета: {time}, и ПРАШАЈ дали се согласува на терминот или има друг предлог. Двете променливи {eb} и {time} МОРА да се појават точно еднаш, буквално. Формален но директен тон. БЕЗ надомест, БЕЗ цени, БЕЗ име на клиент.',
+    required: [/\{eb\}/, /\{time\}/, /(?:достапен|слободен|во ред|термин)/iu, /\?$/u],
+    banned: [/надомест|денари|евра/, /ъ/],
+    placeholders: ['eb', 'time'],
+    question: true,
+  },
+  // owner.relay:counter — the owner COUNTERED with a concrete alternative
+  // term: relay it and ask the client to accept. {time} = the owner's
+  // counter-term (Macedonian, mkTimePhrase-canonicalized), exactly once.
+  {
+    key: 'owner.relay:counter',
+    sources: ['Сопственикот е достапен, но предложи поинаков термин: {time}. Дали овој термин Ви одговара?'],
+    count: 10,
+    instructions: 'Пренеси на клиентот дека сопственикот е достапен, но предложил ПОИНаков термин: {time}. Заврши со ПРАШАЊЕ дали тој термин му одговара. Променливата {time} МОРА да се појави точно еднаш, буквално, без да ја менуваш. БЕЗ нов термин измислен од тебе, БЕЗ надомест, БЕЗ Евидентен броеви.',
+    required: [/\{time\}/, /\?$/u],
+    banned: [/\d{1,2}[:.]\d{2}(?!.*\{time\})/, /надомест|денари/, /ъ/, /Евидентен|ID|ИД/],
+    placeholders: ['time'],
+    question: true,
+  },
+  // owner.relay:counter.bare — the owner CANNOT the proposed term and gave NO
+  // alternative: relay the refusal honestly and ask for another time. NEVER
+  // fabricate a term (a bare counter must never read as a proposal).
+  {
+    key: 'owner.relay:counter.bare',
+    sources: ['Сопственикот не може во тој термин ({time}). Кој термин би Ви одговарал за посета?'],
+    count: 8,
+    instructions: 'Пренеси на клиентот дека сопственикот НЕ може во неговиот предложен термин ({time}) и дека НЕМОЖЕШ да понудиш друг — ПРАШАЈ го за друг термин. Променливата {time} точно еднаш, буквално. ЗАБРАНЕНО да измислиш или предложиш термин, ЗАБРАНЕНО да велиш дека сопственикот предложил нешто. БЕЗ надомест, БЕЗ Евидентен броеви.',
+    // The ask-for-another-time invariant is any time-word — "Кој ДРУГ
+    // термин" is the most natural form and must not be rejected by an
+    // adjacency-hungry "кој термин".
+    required: [/\{time\}/, /(?:термин|време|кога|час)/iu, /\?$/u],
+    banned: [/\d{1,2}[:.]\d{2}(?!.*\{time\})/, /надомест|денари/, /ъ/, /Евидентен|ID|ИД/, /предложи|нануди|нанудил/],
+    placeholders: ['time'],
+    question: true,
+  },
+  // owner.relay:gone — the property is GONE (sold / rented / under option):
+  // honest notice + the pivot to alternatives. {eb} = Евидентен број,
+  // {note} = the short status note (продаден / издаден / веќе не е достапен).
+  {
+    key: 'owner.relay:gone',
+    sources: ['За жал, имотот со Евидентен број {eb} {note}. Дозволете ми да проверам што друго имаме што одговара на Вашите критериуми.'],
+    count: 8,
+    instructions: 'Пренеси на клиентот дека имотот со Евидентен број {eb} повеќе не е достапен ({note}) — со кратко сожалување — и понуди да провериш што ДРУГО имате што одговара на неговите критериуми. {eb} точно еднаш; {note} точно еднаш. БЕЗ нови детали за имотот, БЕЗ надомест, БЕЗ прашалник (изјава, не прашање).',
+    required: [/\{eb\}/, /\{note\}/, /(?:друг|друго|други|алтернатив)/iu],
+    banned: [/надомест|денари/, /ъ/, /ID|ИД/, /\?$/u],
+    placeholders: ['eb', 'note'],
+    question: false,
+  },
 ];
 
 // --- Deterministic validation (mirrors the runtime guard's own rules) -------
