@@ -3028,3 +3028,60 @@ test('rent funnel: visit command after the availability ack -> rent fee first (3
   assert.ok(!reply.includes('500 денари'), `buy fee leaked: ${reply}`);
   assert.ok(!s.slots.ownerContactPending, 'pending cleared once the fee is shown');
 });
+
+// ── The [19:22] transcript bug: a typo'd FRESH rent need must never enter the
+// seen-property funnel ────────────────────────────────────────────────────────
+// "zdravo\nsakam da ixnajmam stance" — the unguarded PROPERTY_DESC_REV_RE used
+// to read the "vo" inside "zdravo" as the preposition and "stan" inside
+// "stance" as the type, so the two-line opener fired the specific-property
+// interceptor and Lina ran the Евидентен-број protocol at a client who had
+// never seen any property. Correct behavior: intent question (or discovery),
+// then the населба/спални/цена funnel.
+test('the [19:22] bug: typo rent opener must start the discovery funnel, never the EB protocol', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'fresh-need-typo';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Line 1 (the exact transcript paste): greeting + typo'd rent need.
+  let s = await send('zdravo\nsakam da ixnajmam stance');
+  let reply = sent[sent.length - 1];
+  assert.ok(!reply.includes('Дали го знаете Евидентен број'),
+    `EB protocol must not fire on a fresh need: ${reply.substring(0, 140)}`);
+  assert.equal(s.state, 'discovery', `fresh need enters discovery: ${s.state}`);
+
+  // Line 2 (correct spelling): the intent answer completes — the funnel asks
+  // criteria (населба/спални/цена), never the located-property protocol.
+  s = await send('sakam da iznajmam stance');
+  reply = sent[sent.length - 1];
+  assert.ok(!reply.includes('Дали го знаете Евидентен број'),
+    `funnel must not fall into the EB protocol: ${reply.substring(0, 140)}`);
+  assert.notEqual(s.state, 'property_locate', `state drifted into property_locate: ${s.state}`);
+});
+
+// The general-search neighbor: a bare "стан во X" is a NORMAL search (the
+// feed-down funnel must own it), not a specific remembered property.
+test('bare "baram stan vo karpos" is a general search — discovery, never property_locate', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'general-search';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  const s = await send('baram stan vo karpos do 60000');
+  const reply = sent[sent.length - 1];
+  assert.ok(!reply.includes('Дали го знаете Евидентен број'),
+    `general search must not be hijacked: ${reply.substring(0, 140)}`);
+  assert.notEqual(s.state, 'property_locate', `general search landed in property_locate: ${s.state}`);
+});
+
+// The legitimate family must keep working: definite article + preposition =
+// specific remembered property → the locate funnel (with the area ack when
+// the neighborhood is already known).
+test('specific remembered property still enters property_locate with the area-aware ask', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'specific-desc';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  const s = await send('dobar den. go gledav oglasot za stan vo karpos na internet. dali go imate uste ?');
+  assert.equal(s.state, 'property_locate', `seen-property must locate: ${s.state}`);
+  assert.ok(sent[sent.length - 1].includes('Карпош'),
+    `area-aware ask expected: ${sent[sent.length - 1].substring(0, 140)}`);
+});

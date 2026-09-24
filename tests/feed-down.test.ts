@@ -139,7 +139,12 @@ test('healthy empty portfolio: zero rows is REAL data — "no match", never "б�
   const send = async (m: string) => { await handler.handle('test', chatId, m); };
 
   await send('dobar den');
+  // Routing correction ([19:22]): "baram stan vo karpos do 60000" is a GENERAL
+  // search — it enters discovery and Lina asks the intent question first
+  // ("baram" is service-neutral by design). The client answers it, then the
+  // bedrooms line completes the funnel and the search runs against the feed.
   await send('baram stan vo karpos do 60000');
+  await send('za kirija');
   await send('edna spalna');
 
   const reply = sent[sent.length - 1];
@@ -147,6 +152,16 @@ test('healthy empty portfolio: zero rows is REAL data — "no match", never "б�
     `an empty-but-healthy feed is not an outage: ${reply.slice(0, 70)}`);
   assert.ok(!/Евидентен број 0|број 0/i.test(reply),
     `never render the fabricated EB 0: ${reply.slice(0, 70)}`);
-  assert.ok(/немам слободни имоти|нема имоти|не можам да го најдам|Не најдов имот/i.test(reply),
+  // Family assertion — the bank rotates several no-match / area-exhausted
+  // variants ("немам слободни имоти", "немаме други опции таму",
+  // "немам достапна понуда", …). The stable invariant is the negation stem
+  // itself; the exclusions below carry the test's real invariants.
+  // The no.match.location bank (src/data/responses.ts) rotates 15 variants
+  // with different negation shapes ("немам имоти", "нема слободни имоти",
+  // "не располагам со имоти", "понудата не содржи имоти", …). This stem set
+  // covers every variant; the real invariants are the two exclusions above.
+  // (JS \b is ASCII-only and never binds after Cyrillic — substring match
+  // is the correct tool here; the exclusions above carry the invariants.)
+  assert.ok(/нема|не\s+располагам|не\s+содржи/i.test(reply),
     `must be the no-match / not-found family: ${reply.slice(0, 70)}`);
 });

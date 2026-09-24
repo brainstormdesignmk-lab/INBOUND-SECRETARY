@@ -2176,8 +2176,14 @@ export class InboundHandler {
         }
       }
       if (before !== 'property_locate' && !reply) {
-        // Just entered — ask the number first (the easy path when known).
-        reply = LOCATE_FIRST_ASK;
+        // Just entered — ask the number first (the easy path when known),
+        // UNLESS the entering message already named the area ("go gledav
+        // oglasot za stan vo karpos…"): the [19:22] family. Asking "do you
+        // know the EB?" after the client just told us the neighborhood is the
+        // dead-end the desc interceptor always skipped — mirror its smart ask.
+        reply = session.slots.location
+          ? LOCATE_MORE_SPECS_ASK.replace('{location}', session.slots.location)
+          : LOCATE_FIRST_ASK;
       } else if (/го\s+знам|знам\s+го|znam\s+go|го\s+знам\s+бројот/i.test(text)) {
         // "да, го знам" — the client knows the number; prompt for it instead
         // of looping the first ask (the number itself routes to property_query).

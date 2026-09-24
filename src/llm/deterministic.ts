@@ -961,13 +961,22 @@ export function detectEyeCatch(text: string): boolean {
 // property they saw ("гарсоњерата кaj crnogorska ambasada", "станот во центар")
 // but doesn't know the EB number. Definite article + location preposition =
 // specific property reference, NOT a general search.
+// BOUNDARY RULES (the [19:22] transcript bug): every token here is guarded by
+// Unicode boundaries — unguarded, the "vo" INSIDE "zdravo" matched as the
+// preposition and "stan" matched inside "stance", so the two-line opener
+// "zdravo\nsakam da ixnajmam stance" (a typo'd FRESH RENT NEED) fired the
+// specific-property detector and Lina ran the Евидентен-број protocol at a
+// client who had never seen any property. The forward pattern ALSO requires
+// the definite article (станот/stanot/куќата…) — bare "стан во X" is a general
+// search that belongs to discovery, never to the locate funnel.
 const PROPERTY_DESC_RE =
-  /(?:гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a|е|и)|стан(?:от)?|stan(?:ot)?|куќ(?:ата|а)|kuk(?:ata|a|i)|лок(?:алот?|ал)|lokal(?:ot?|a?)|vilata|vila|deloven(?:\s+prostor)?)(?:\s+(?:кај|кaj|kaj|во|vo|near|close|околу|okolu))/iu;
+  /(?<![\p{L}\p{N}])(?:гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a|е|и)|стан(?:от)|stan(?:ot)|куќ(?:ата)|kuk(?:ata|i)|локалот|lokalot|vilata|deloven(?:\s+prostor)?)(?![\p{L}\p{N}])(?:\s+(?:кај|кaj|kaj|во|vo|near|close|околу|okolu))/iu;
 // Reversed word order: location preposition + property type — "кај crnogorska е
 // станот", "во aerodrom е тој стан". The client puts the neighborhood first
-// and the property type after the copula.
+// and the property type after the copula. Bare type allowed here — the
+// fronted preposition phrase supplies the specificity ("во карпош е тој стан").
 const PROPERTY_DESC_REV_RE =
-  /(?:кај|кaj|kaj|во|vo|near|close|околу|okolu)\s+[^.!?\n]{2,30}\s+(?:е|е\s+ли)?\s*(?:стан(?:от)?|куќ(?:ата|а)|гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a)?|stan(?:ot)?|kuk(?:ata|a)?|lokal(?:ot?|a?)|vilata|vila)/iu;
+  /(?<![\p{L}\p{N}])(?:кај|кaj|kaj|во|vo|near|close|околу|okolu)(?![\p{L}\p{N}])\s+[^.!?\n]{2,30}\s+(?:е|е\s+ли)?\s*(?<![\p{L}\p{N}])(?:стан(?:от)?|stan(?:ot)?|куќ(?:ата|а)|kuk(?:ata|a)?|гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a)?|lokal(?:ot|a)?|vila|vilata)(?![\p{L}\p{N}])/iu;
 /** True when the client describes a specific property they remember. */
 export function detectPropertyDescription(text: string): boolean {
   return PROPERTY_DESC_RE.test(text) || PROPERTY_DESC_REV_RE.test(text);
