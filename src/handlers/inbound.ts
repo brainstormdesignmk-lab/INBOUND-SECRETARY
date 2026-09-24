@@ -11,7 +11,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
@@ -660,8 +660,12 @@ export class InboundHandler {
         // THE LADDER: turn 1 → rotation 1 (approximate location for every
         // lurker); turn 2 → the agency privacy protocol; turn 3+ → the polite
         // shut-down (nearby.exhausted). The counter lives on the session so a
-        // nearby-ask between exact demands keeps the count.
-        const turn = (session.slots.exactLocationTurns ?? 0) + 1;
+        // nearby-ask between exact demands keeps the count. The TURN counts
+        // approximate answers already served: a client who arrived via the
+        // WHERE_IS rotation (landmarkIndex 1) and then insists bare (12:08
+        // "AMA TOCNO , TOCNO") is on turn 2 — the protocol — not a second
+        // landmark.
+        const turn = Math.max(session.slots.exactLocationTurns ?? 0, session.slots.landmarkIndex ?? 0) + 1;
         session.slots.exactLocationTurns = turn;
         if (turn >= 3) {
           answer = pickVariant('nearby.exhausted', { recent: assistantTexts(session) })

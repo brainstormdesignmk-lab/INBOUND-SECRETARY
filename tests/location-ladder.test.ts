@@ -154,6 +154,43 @@ test('Cyrillic "НА КОЈА ЛОКАЦИЈА Е" rides the ladder like the Lat
   offlineMap.close();
 });
 
+test('12:08 field case: BARE insistence ("AMA TOCNO , TOCNO") climbs to the protocol, never the fee pitch', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  const s = freshSession('test', chat);
+  s.slots.propertyId = 76;
+  s.slots.interestedPropertyId = 76;
+  sessions.set(s);
+
+  // Turn 1: the exact ask serves the landmark reveal (approximate location).
+  await handler.handle('test', chat, 'KAZI MI TOCNO KADE SE NAOGJA ?');
+  const a1 = sent[sent.length - 1];
+  assert.ok(/во близина на/i.test(a1), `turn 1 must reveal the landmark: ${a1}`);
+
+  // Turn 2: the bare push (no address word!) — the fee ask NEVER fires, the
+  // client has not agreed to a visit; the ladder serves the privacy protocol.
+  await handler.handle('test', chat, 'AMA TOCNO , TOCNO');
+  const a2 = sent[sent.length - 1];
+  assert.ok(/два часа пред|ден(от)? на (посетата|гледањето)|правил|политик|предвидува|непосредно пред/u.test(a2), `turn 2 must serve the visit-day protocol: ${a2}`);
+  assert.ok(!/300\s*денари|500\s*денари|Дали\s+се\s+согласувате/iu.test(a2), `the fee pitch must NEVER fire on bare insistence: ${a2}`);
+  assert.equal(sessions.get(chat)?.slots.exactLocationTurns, 2, 'the bare push must count as ladder turn 2');
+
+  offlineMap.close();
+});
+
+test('bare insistence with NO location thread and NO anchor never pitches the fee', async () => {
+  const { handler, sent, offlineMap } = makeHandler();
+  const s = freshSession('test', chat);
+  (handler as any).deps.sessions.set(s);
+
+  // No property bound, no nearby/protocol reply before — the lane must stay
+  // dormant; the FSM may do whatever it wants, but not the fee ask.
+  await handler.handle('test', chat, 'AMA TOCNO , TOCNO');
+  const a = sent[sent.length - 1];
+  assert.ok(!/300\s*денари|500\s*денари/iu.test(a), `no fee pitch without a location thread: ${a}`);
+
+  offlineMap.close();
+});
+
 test('exact ask with NO anchored property asks for the Евидентен број, never the protocol', async () => {
   const { handler, sent, offlineMap } = makeHandler();
   const s = freshSession('test', chat);

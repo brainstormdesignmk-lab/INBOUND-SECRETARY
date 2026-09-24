@@ -1,0 +1,182 @@
+{
+  "bankKey": "(EXACT_ADDRESS ladder: bare insistence turn)",
+  "rows": [
+    {
+      "phrase": "ama tocno , tocno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ama tocno, tocno!",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne , potocno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne ne, TOCNO kazi mi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ama tochno !",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne, tocno tocno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "daj tochno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ama potocno malku",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не не, поточно",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "no potocno ve molam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali ne mozete potocno?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ама точно точно!",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ne be tocn kazi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дај поточно малку",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ama potocno kazi mi",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не, точно кажи ми",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "e ajde precizno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "agreement"
+      ]
+    },
+    {
+      "phrase": "no, potocno ve molam",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ama te molam precizno!",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "не, точно точно",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дај поточно",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ама точно кажи",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali ne mozete precizno",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "eeee ama tocn",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "аман поточно кажи ми",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

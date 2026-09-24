@@ -112,6 +112,7 @@ export const FAMILY_EXT: Record<string, FamilyExt> = {
     exclude: null,
   },
   // exact-address: no GAPs — no extension needed
+  // exact-insist: no GAPs — no extension needed
   'nearby': {
     stems: /((?<![\p{L}\p{N}])(?:содрзин)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:маал)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:далек)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:аутобуск)(?![\p{L}\p{N}]))/iu,
     idioms: /((?<![\p{L}\p{N}])(?:содрзини имаат)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:аутобуска станица)(?![\p{L}\p{N}]))/iu,

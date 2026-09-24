@@ -31,8 +31,13 @@ test('nearby.exhausted key exists in the seed bank with variants', () => {
 test('nearby.exhausted variants carry the approved wording (reon + visit day)', () => {
   const line = pickVariant('nearby.exhausted', {});
   assert.ok(line, 'pickVariant must serve a variant');
-  assert.match(line!, /реон/);
-  assert.match(line!, /посет/);
+  // Family invariant over the whole Gemini-grown pool: area-is-clear word +
+  // a visit-day/moment word ("ден на увид", "денот на нашата средба"…).
+  const vars = RESPONSE_BANK['nearby.exhausted'];
+  for (const s of [...(vars ?? []), line!]) {
+    assert.match(s, /(?:реон|ориентир|близин|локаци|околи|населб|микролокаци|област|зона|местополож)/iu, s);
+    assert.match(s, /(?:ден|кога|пред|час)/iu, s);
+  }
   assert.ok(!/\d{2}\.\d+/.test(line!), 'no coordinates in the shut-down line');
   assert.ok(!/maps\.google|google\.com/.test(line!), 'no links in the shut-down line');
 });

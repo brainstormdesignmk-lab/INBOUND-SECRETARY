@@ -74,6 +74,7 @@ const C = {
   timeRej: b(detectTimeRejection), cancel: b(detectVisitCancellation),
   ownerContact: b(detectOwnerContact), exactAddr: b(detectExactAddressAsk),
   seeOffers: b(detectSeeOffers), alternatives: b(detectSuggestAlternatives),
+  exactInsist: b(detectExactAddressAsk),
   negot: b(detectNegotiate), defer: b(detectDefer), docs: b(detectDocumentsAsk),
   mortgage: b(detectMortgageAsk), hood: b(detectNeighborhoodAsk),
   comparison: b(detectComparison), feature: b(detectFeatureAsk),
@@ -352,6 +353,24 @@ export const FAMILIES: FamilySpec[] = [
     // the SAME ladder (rotation → protocol), so the client still reaches
     // the privacy line on insistence. Documented race, not a misroute.
     benignCross: { whereIs: C.whereIs, location: C.location },
+  },
+  {
+    // BARE exactness INSISTENCE — the 12:08 field case: "AMA TOCNO , TOCNO"
+    // pushed back on the landmark reveal with the address word GONE. The full
+    // detector needs адрес/локација; the bare push fell through to the FSM and
+    // Lina pitched the viewing fee while the client had not agreed to a visit.
+    id: 'exact-insist',
+    bankKey: '(EXACT_ADDRESS ladder: bare insistence turn)',
+    protects: 'the refusal-insistence push ("ama tocno tochno") must climb the location ladder (turn 2 = the privacy protocol), never fall through to the fee pitch',
+    seedLine: 'ama tocno , tocno',
+    batches: 1,
+    genPrompt: `The client just heard an APPROXIMATE location ("vo blizina na bolnicata") and pushes back INSISTING on the exact address, WITHOUT repeating the word address/lokacija. Vary: "ama tocno , tocno", "ne , potocno", "ne ne, TOCNO kazi mi", "ama tochno !", "ne, tocno tocno", "daj tochno" — refusal/insistence openers (ama/ne/no/dali ne mozete) + the exactness word (tocno/tochno/точн/potocno/поточно), both scripts, typos ("tochno"→"tocno", "tocn"), 1-6 words. MUST be a bare insistence — NO address/lokacija/ulica noun, NO property topic, NO price. NOT plain agreement ("tocno e" = it is correct), NOT the viewing fee, NOT where-is ("kade" alone).`,
+    target: C.exactInsist,
+    crossFire: { whereIs: C.whereIs, nearby: C.nearby, location: C.location },
+    // Refusal-opener co-fires are covered upstream (rejection/agreement) and
+    // the insistence lane sits before those branches; a fee-complaint reader
+    // must never win — the lane's own fee vetoes own that guarantee.
+    benignCross: { rejection: C.rejection, agreement: C.agreement },
   },
   {
     id: 'nearby',

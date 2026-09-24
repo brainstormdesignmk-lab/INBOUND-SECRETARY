@@ -2449,6 +2449,38 @@ const KADE_ADDR_NOUN_RE = new RegExp(
 );
 
 /** True when the client asks for the EXACT street/address of a property. */
+// BARE EXACTNESS INSISTENCE (12:08 field case) — "AMA TOCNO , TOCNO",
+// "не, точно": the client pushes back on an approximate answer ("во близина
+// на X") and insists on EXACTNESS — with the ADDRESS WORD GONE. The full
+// detector needs адрес/локација; the bare push slipped every location lane
+// and the FSM read it as visit interest (the fee pitch fired while the
+// client had not even agreed to a visit). Only the BARE push matches here:
+// an exactness + topic-noun sentence ("точно која улица") stays owned by
+// detectExactAddressAsk; a bare "точно" statement or a property/price topic
+// never reach this detector.
+const BARE_EXACT_INSIST_RE =
+  /(?<![\p{L}])(?:точно|tochno|tocno|поточно|potocno|прециз\p{L}*|preciz\p{L}*|tocn)(?![\p{L}])/iu;
+const BARE_EXACT_REFUSAL_RE =
+  /(?:ам|ама|ama|не|ne|ни|no)\s*[,!.\s]*\s*(?:точно|tochno|tocno|поточно|potocno|прециз|preciz|tocn)|no\s*[,!.\s]*\s*exact/iu;
+// PLEA/IMPERATIVE openers (sweep exact-insist): "дај поточно", "аман поточно
+// кажи ми", "dali ne mozete precizno" — insistence without a refusal word.
+const BARE_EXACT_PLEA_RE =
+  /(?:дај|daj|аман|aman|ајде|ajde|молам|molam|кажи|kazi|дали\s+не|dali\s+ne|дали\s+не\s+можете|dali\s+ne\s+mozete)/iu;
+/** True when the client BARELY insists on exactness ("AMA TOCNO , TOCNO") —
+ *  an exactness word carried by a refusal opener, no other topic present. */
+export function detectBareExactInsistence(text: string): boolean {
+  // RAW OR normalized — never both: normalizeMc("tocno") = "тоцно" (c→ц), a
+  // spelling no alternative covers, so requiring the normalized match too
+  // killed the whole Latin c-form class.
+  const n = normalizeMc(text);
+  if (!BARE_EXACT_INSIST_RE.test(text) && !BARE_EXACT_INSIST_RE.test(n)) return false;
+  if (!(BARE_EXACT_REFUSAL_RE.test(text) || BARE_EXACT_REFUSAL_RE.test(n)
+    || BARE_EXACT_PLEA_RE.test(text) || BARE_EXACT_PLEA_RE.test(n))) return false;
+  // No other topic in the line: property/service/money/scheduling words mean
+  // the message is about something else.
+  return !/(?:стан|куќ|имот|деловен|гарсоњер|цена|евр|ден|спалн|kup|iznajm|kirij|prodad|izdad|poset|termin|razgled)/iu.test(n);
+}
+
 export function detectExactAddressAsk(text: string): boolean {
   // Main regex check (raw + normalized so Cyrillic-only branches cover Latin)
   if (matchesBoth(EXACT_ADDRESS_RE, text)) return true;
@@ -2512,7 +2544,14 @@ export function detectExactAddressAsk(text: string): boolean {
   const hasExactToken = /(?:точн|поточн|tocn|potocn)/i.test(text) || /(?:точн|поточн|tocn|potocn)/i.test(normalizeMc(text));
   if (hasAddressToken && hasExactToken) return true;
 
-  return false;
+  // BARE insistence (12:08): "ama tocno, tocno" — refusal opener + exactness,
+  // no address noun. Same ladder as the noun forms (turn 2 = the protocol).
+  if (detectBareExactInsistence(text)) return true;
+
+  // Generated extension — 'exact-insist' family (see scripts/propose-stems.ts):
+  // the refusal-insistence corpus ("ama tocno tochno", "ne , potocno") grew
+  // by sweep, so Gemini variants keep landing here without hand-patching.
+  return extFires('exact-insist', text);
 }
 
 // "каде точно" patterns — these are WHERE_IS questions that should get

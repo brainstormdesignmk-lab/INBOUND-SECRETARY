@@ -740,6 +740,22 @@ const SPEC: GenerationKey[] = [
     banned: [/\d/, /Евидентен|ID|ИД/, /надомест/],
     question: true,
   },
+  // nearby.exhausted — the location ladder's polite shut-down (turn 3+): the
+  // client keeps pushing for the exact address after the landmark rotation AND
+  // the privacy protocol. The agency line stays: the area is clear, the exact
+  // address comes on visit day. Was 6 seed variants — Gemini-grown now.
+  {
+    key: 'nearby.exhausted',
+    sources: ['Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.'],
+    count: 10,
+    instructions: 'Клиентот упорно бара точна адреса иако реонот/ориентирите веќе се соопштени — љубезно затвори ја темата: реонот е јасен, а ТОЧНАТА адреса се соопштува на денот на посетата (правило на агенцијата). Кратко, топло, БЕЗ прашалник, БЕЗ улица/број, БЕЗ надомест.',
+    // The visit-moment token is a CLASS (ден/кога/пред/час) — "ден на увид",
+    // "денот на нашата средба", "денот кога ќе го гледате" are all the same
+    // promise; an adjacency-hungry "посетата" rejected 5 good variants.
+    required: [/(?:реон|ориентир|близин|локаци|околи|населб|микролокаци)/iu, /(?:ден|кога|пред|час)/iu],
+    banned: [/(?:улица\s+[А-ЯA-Z]|ул\.)/iu, /\d{1,3}\s*[а-яa-z]?\s*(?:бр|број)/iu, /надомест|денари|евра/i, /ъ/],
+    question: false,
+  },
   // --- batch 6: owner ping-pong (the owner-facing ask + the client relays) ---
   // owner.ask is the message Lina sends to the OWNER (not the client): it is
   // logged under bankKey 'owner.ask' for the judge, and now also varies from

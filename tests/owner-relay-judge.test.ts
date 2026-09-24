@@ -100,7 +100,10 @@ test('e2e: whole-day counter logs OWNER_RELAY with verdict-consistent fields; re
 
   const last = h.sent[h.sent.length - 1];
   assert.match(last, /Сабота/u, 'the day must reach the client');
-  assert.match(last, /во колку часот|кое време|кога\s+би\s+сакале/iu, 'the client is asked for the clock');
+  // Clock-ask invariant: the relay ENDS with a question carrying a time word
+  // (variant draws paraphrase freely — "Во кој термин би сакале…?").
+  assert.ok(last.trim().endsWith('?'), `the client is asked for the clock: ${last}`);
+  assert.match(last, /час|време|термин|кога|колку/iu, `the client is asked for the clock: ${last}`);
 
   const rows = h.ownerLogRows();
   const relayRow = rows.filter(r => r.eventType === 'OWNER_RELAY').at(-1)!;

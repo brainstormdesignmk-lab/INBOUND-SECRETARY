@@ -108,7 +108,13 @@ test('address.why bank key: user wording first, all variants clean', () => {
 test('nearby.exhausted bank key still intact (the shut-down wording)', () => {
   const v = (RESPONSE_BANK as Record<string, string[]> | undefined)['nearby.exhausted'];
   assert.ok(Array.isArray(v) && v.length >= 6);
-  assert.match(v![0]!, /Мислам дека Ви е јасен реонот/);
+  // Family invariant (Gemini-grown pool — the seed opening is gone): every
+  // variant closes with the area-is-clear + address-on-visit-day promise.
+  for (const s of v!) {
+    assert.match(s, /(?:реон|ориентир|близин|локаци|околи|населб|микролокаци|област|зона|местополож)/iu, s);
+    assert.match(s, /(?:ден|кога|пред|час)/iu, s);
+    assert.doesNotMatch(s, /\?/u, s);
+  }
 });
 
 test('protocol lines anchor the nearby thread for the bare more-ask (regression of the 21:00 leak)', () => {
