@@ -583,7 +583,11 @@ export function detectBudget(text: string): string | undefined {
   // is a rent budget of 250, so the 250 is never misread as an EB. The
   // lookbehind is Unicode-aware (JS \b never binds around Cyrillic — "до 250"
   // after "каде" would otherwise never match) and blocks glued words ("здо").
-  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod)\s+)?(\d[\d\s.,]*)\s*(илјади|хилјади)?\s*(евра|евро|evra|evro|eur|€)?/giu;
+  // "za/за" joins the cap words: "A ZA 250?" (21:16) is "for 250 [денари]" —
+  // a price correction after a presentation, never an Евидентен број and
+  // never a no-criteria STAY. Same class as до/околу/под (a bare za+N is
+  // price talk; "za broj 90" / "za stan 90" keep their noun and don't match).
+  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d[\d\s.,]*)\s*(илјади|хилјади)?\s*(евра|евро|evra|evro|eur|€)?/giu;
   let m: RegExpExecArray | null;
   let bestN = 0;
   while ((m = re.exec(cleaned)) !== null) {
@@ -3278,6 +3282,20 @@ const NEIGHBORHOOD_RE =
 /** True when the client asks a general neighborhood question. */
 export function detectNeighborhoodAsk(text: string): boolean {
   return matchesBoth(NEIGHBORHOOD_RE, text) || extFires('neighborhood', text);
+}
+
+// "VO CENTAR IMA NESTO?" (21:16) / "ima li nesto vo karpos?" — an
+// area-availability probe: the client asks whether there is ANYTHING in a
+// neighborhood. This is a search pivot (the re-present branch owns it), never
+// a location confirmation about the property under discussion — the confirm
+// guard excludes it so the client is never answered "Не, станот 41 всушност
+// се наоѓа во Ѓорче Петров" right after asking to leave that area.
+const AREA_HAVE_ASK_RE =
+  /(?<![\p{L}\p{N}])(?:ima|има)(?:\s*(?:li|ли))?\s+(?:нешто|nesto|несто)(?![\p{L}\p{N}])/iu;
+
+/** True when the client asks "ima (li) nesto [vo X]?" — anything in an area. */
+export function detectAreaHaveAsk(text: string): boolean {
+  return matchesBoth(AREA_HAVE_ASK_RE, text);
 }
 
 // Comparison help: the client asks to compare two properties.

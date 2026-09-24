@@ -11,7 +11,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
@@ -698,6 +698,11 @@ export class InboundHandler {
     //      location.confirm answer.
     //   3. Neither → untouched: fall through to the exact stack as before.
     if (isPoiConfirmQuestion(text)
+        // "VO CENTAR IMA NESTO?" (21:16) is an area-availability probe — a
+        // SEARCH pivot, never a POI/neighborhood confirm about the property
+        // on the table (the confirm template answered "Не, станот 41 всушност
+        // се наоѓа во Ѓорче Петров" to a client asking to LEAVE that area).
+        && !detectAreaHaveAsk(text)
         && (session.slots.propertyId || session.slots.interestedPropertyId
           || session.slots.presentedIds?.length)) {
       const poiEb = session.slots.propertyId
@@ -1749,6 +1754,22 @@ export class InboundHandler {
     if (before === 'discovery' && ev.type === 'SEARCH_REQUESTED' && !this.slotsComplete(session) && !seeOffers) {
       next = 'discovery';
     }
+    // AREA-PIVOT SLOT CLEARING (the 21:16 rule): in property states a PURE
+    // budget correction ("A ZA 250?", "ZA 250 EVRA MISLEV" — a budget and
+    // NOTHING else) is area-agnostic: the previously pinned area ("Ѓорче
+    // Петров" from the not-found anchor) must NOT area-lock the re-search
+    // down to one stray property. Clear the stale slot; the popularity sort
+    // then orders the city-wide pool Центар-first. Size/type refinements
+    // ("edna spalna", "garsonjera") KEEP the pinned area — they narrow the
+    // current context, they don't abandon it. A text naming a new area keeps
+    // the lock too (applySlots already set the new one).
+    if ((before === 'presentation' || before === 'property_query' || before === 'property_locate')
+      && (ev.type === 'SEARCH_REQUESTED' || ev.type === 'DETAILS_PROVIDED')
+      && ev.budget && !ev.bedrooms && !ev.sqm && !ev.location
+      && !ev.house && !ev.business && !ev.garsonjera) {
+      session.slots.location = undefined;
+      session.slots.anywhere = true;
+    }
     // A FIRST message with the full criteria set (service+location+bedrooms+budget)
     // skips discovery entirely — "сакам стан во Центар, 2 спални, до 80.000 евра"
     // goes straight to presentation without asking anything.
@@ -2679,7 +2700,13 @@ ${contactReminder}`;
         // Search criteria in the same message ("znaci sakam stan vo vodno do
         // 300") = a real request, never a confirmation
         && !detectBudget(text) && !detectService(text) && !detectBothServices(text)
-        && !detectHouse(text) && !detectBusiness(text)) {
+        && !detectHouse(text) && !detectBusiness(text)
+        // "VO CENTAR IMA NESTO?" (21:16) — an AREA SEARCH, not a question
+        // about the discussed property's area. The "има нешто" probe
+        // (detectAreaHaveAsk) means "do you HAVE anything in X" — it must
+        // pivot the search to X, never answer "Не, станот 41 се наоѓа во
+        // Ѓорче Петров" about a property the client just asked to leave.
+        && !detectAreaHaveAsk(text)) {
       // Location confirmation about the property under discussion — "ZNACI NA
       // VODNO E" (21:27). The client draws a conclusion about WHERE the
       // discussed property is; Lina must CONFIRM or CORRECT against the
@@ -3629,8 +3656,12 @@ ${contactReminder}`;
         // When the client later names a size ("edna spalna"), the pivot flow
         // re-searches with bedrooms and rebuilds the ladder (existing lane).
         sortBySqmDesc: !!session.slots.sizeWaived && !seeOffers,
-        // "било каде": city-wide presentation starts from the most popular
-        // neighborhoods (Центар, Капиштец, Карпош, Аеродром, …), then the rest.
+        // Popularity order (the 21:16 rule): explicit "било каде", or a pure
+        // budget correction after a presentation ("A ZA 250?" — the area pivot
+        // sets anywhere=true), leads with the most popular neighborhoods
+        // (Центар, Капиштец, Карпош, Аеродром, …): central-first,
+        // center-outward. A pinned location stays a hard lock; a silently
+        // widened search keeps the price-distance ladder contract.
         sortByPopularity: !!session.slots.anywhere && !session.slots.location,
       });
       // Studio-relax: the area has NO garsonjera at all — falling back to the

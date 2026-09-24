@@ -3085,3 +3085,51 @@ test('specific remembered property still enters property_locate with the area-aw
   assert.ok(sent[sent.length - 1].includes('Карпош'),
     `area-aware ask expected: ${sent[sent.length - 1].substring(0, 140)}`);
 });
+
+// ── The [21:16] transcript: three bugs in one conversation ──────────────────
+// 1) "A ZA 250?" after a presentation was read as EB 250 → property.notfound
+//    anchored the stale area ("тој реон" = Ѓорче Петров);
+// 2) the ≤250 re-search stayed area-locked → one stray property instead of the
+//    city-wide pool, ordered by stale area instead of popularity (Центар-first);
+// 3) "VO CENTAR IMA NESTO?" was answered as a location-CONFIRM about the shown
+//    property ("Не, станот 41 се наоѓа во Ѓорче Петров") instead of pivoting.
+test('the [21:16] transcript: budget correction re-presents popular-first, area question pivots', async () => {
+  const rows: Property[] = [
+    { eb: 41, id: 41, location: 'Ѓорче Петров', price: 250, service: 'rent', bedrooms: 2 },
+    { eb: 63, id: 63, location: 'Центар', price: 200, service: 'rent', bedrooms: 2 },
+    { eb: 90, id: 90, location: 'Центар', price: 180, service: 'rent', bedrooms: 2 },
+    { eb: 55, id: 55, location: 'Центар', price: 230, service: 'rent', bedrooms: 2 },
+    { eb: 78, id: 78, location: 'Капиштец', price: 240, service: 'rent', bedrooms: 2 },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-2116';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // 1) initial search — Ѓорче Петров, up to 300 (complete criteria → presentation)
+  let s = await send('sakam da iznajmam dvosoben stan vo gjorce petrov do 300');
+  assert.equal(s.state, 'presentation');
+  assert.ok(sent[0].includes('41'), sent[0]);
+
+  // 2) "A ZA 250?" — a PRICE correction (echoes the shown price), never EB 250:
+  //    the ≤250 pool re-presents popular-first — the batch is the Центар pair
+  //    (55 price-closest, then 63), never the stale Ѓорче lock (which would
+  //    have left EB 41 shown → an empty pool → a bogus no-match).
+  s = await send('A ZA 250?');
+  const r2 = sent[sent.length - 1];
+  assert.ok(!r2.includes('Евидентен број 250'), `no phantom EB 250: ${r2}`);
+  assert.equal(s.slots.location, undefined, 'stale area released');
+  assert.equal(s.slots.anywhere, true, 'area-agnostic pivot marked');
+  assert.ok(r2.includes('55') && r2.includes('63'), `Центар leads the ≤250 pool: ${r2}`);
+  assert.ok(!r2.includes('Ѓорче'), `stale area must not lead: ${r2}`);
+
+  // 3) "VO CENTAR IMA NESTO?" — an AREA SEARCH: pivot to Центар and show the
+  //    remaining unshown Центар row (EB 90; 55/63 are already presented),
+  //    never a location confirmation about the previously discussed property.
+  s = await send('VO CENTAR IMA NESTO?');
+  const r3 = sent[sent.length - 1];
+  assert.ok(!r3.includes('всушност се наоѓа'), `no location-confirm answer: ${r3}`);
+  assert.ok(r3.includes('Центар'), `pivot acknowledged: ${r3}`);
+  assert.ok(r3.includes('90'), `the remaining Центар property is shown: ${r3}`);
+  assert.ok((s.slots.location ?? '').startsWith('Центар'), `area re-pinned: ${s.slots.location}`);
+  assert.equal(s.state, 'presentation');
+});

@@ -191,6 +191,28 @@ export class Classifier {
     private properties?: PropertyService,
   ) {}
 
+  /**
+   * PRICE-ECHO RULE (the 21:16 bug): a bare number that ECHOES the property
+   * on the table — its price, the last quoted price, or the standing budget —
+   * is a BUDGET correction ("A ZA 250?" right after EB 41 @ 250 evra rent),
+   * never an Евидентен број. A number that echoes nothing ("SUM ZA 78" cold)
+   * stays an EB reference. Budget extraction keeps its own "za" cap-word so
+   * the echoed number actually lands in slots.budget.
+   */
+  private async resolveBarePid(text: string, session: ChatSession): Promise<number | undefined> {
+    const pid = inferPropertyId(text);
+    if (pid === undefined) return undefined;
+    if (String(pid) === session.slots.budget || String(pid) === session.slots.lastPrice) return undefined;
+    const onTable = session.slots.propertyId ?? session.slots.interestedPropertyId
+      ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
+      ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+    if (onTable != null && this.properties) {
+      const p = await this.properties.getById(onTable).catch(() => undefined);
+      if (p?.price === pid) return undefined;
+    }
+    return pid;
+  }
+
   /** Swap the brain at runtime (TUI chooser: gemini/groq/llm-free). */
   setLlm(llm: LlmClient): void {
     this.llm = llm;
@@ -211,7 +233,7 @@ export class Classifier {
     // --- Bare-number override ---
     let barePid: number | undefined;
     if (PROP_INTAKE_STATES.has(session.state)) {
-      barePid = inferPropertyId(text);
+      barePid = await this.resolveBarePid(text, session);
     }
 
     // --- Seen-property override ---
@@ -557,7 +579,7 @@ export class Classifier {
     // ALSO: if inferPropertyId extracts a number ("stanot so broj 61"),
     // the event is already PROPERTY_ID_REQUESTED — skip SEEN_PROPERTY so
     // the property_query path handles it directly (availability, price, etc.).
-    const inferPid = inferPropertyId(text);
+    const inferPid = await this.resolveBarePid(text, session);
     // GUARD 1 — availability asks are never seen-property probes (the [19:28]
     // field bug: "DALI SEUSTE E DOSTAPEN?" right after naming EB 90 was
     // mislabeled SEEN_PROPERTY by the LLM → property_locate asked "do you know
