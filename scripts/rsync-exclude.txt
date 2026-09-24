@@ -1,0 +1,43 @@
+# rsync-exclude.txt — the code-down / state-stays policy (one list, both directions).
+#
+# DOWN (deploy-atoms.sh): everything NOT listed here is pushed from the
+# workstation to each atom with --delete, so the atom's code tree is an exact
+# mirror of the workstation. Anything listed here is invisible to rsync: the
+# atom's own copy survives untouched.
+#
+# UP (collect-atoms.sh): these same paths are the per-atom state we PULL back
+# (into data/atoms/<atomId>/), review, and promote into the repo corpus by hand.
+# Atoms never push; the workstation is the only git writer.
+#
+# Rule of thumb: if the atom LEARNED it or RUNS on it (databases, secrets,
+# logs), it is listed here. If the WORKSTATION authors it (code, corpora,
+# config templates), it is not.
+
+# ── Live databases (the atom's own truth — never overwritten, never deleted) ──
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+data/*.db.bak-*
+
+# ── Per-atom learned state (self-enrichment products; collected, not pushed) ──
+data/enrichment-log.json
+data/address-overrides.json
+data/feed-corrections.md
+data/atoms/
+
+# ── Per-atom secrets and logs ──
+.lina/
+logs/
+*.log
+nohup.out
+
+# ── Environment / local hacks (never in git either) ──
+.env
+GOOGLEMAPS_API_KEY.txt
+session-*.md
+tmp/
+node_modules/
+dist/
+.tap/
+supabase/.temp/

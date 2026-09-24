@@ -39,7 +39,9 @@
     "bank:relearn": "tsx scripts/relearn.ts",
     "bank:fallback-census": "tsx scripts/fallback-census.ts",
     "bank:meters": "tsx scripts/bank-meters.ts",
-    "loop:a": "tsx scripts/loop-a.ts"
+    "loop:a": "tsx scripts/loop-a.ts",
+    "atoms:deploy": "bash scripts/deploy-atoms.sh",
+    "atoms:collect": "bash scripts/collect-atoms.sh"
   },
   "dependencies": {
     "better-sqlite3": "8.7.0",
