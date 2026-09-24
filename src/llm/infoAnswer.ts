@@ -163,7 +163,11 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
   let answered = false;
 
   if (facets.price && p.price !== undefined) {
-    sentences.push(`${type} со Евидентен број ${p.eb} чини ${p.price.toLocaleString('mk-MK')} евра.`);
+    // Rent-aware wording (the [22:53] contract): the client asked KOLKU MU E
+    // KIRIJA — a rental's price is "киријата", not "чини".
+    sentences.push(p.service === 'rent'
+      ? `${type} со Евидентен број ${p.eb} — киријата изнесува ${p.price.toLocaleString('mk-MK')} евра.`
+      : `${type} со Евидентен број ${p.eb} чини ${p.price.toLocaleString('mk-MK')} евра.`);
     answered = true;
   }
   if (facets.sqm && p.sqm !== undefined) {

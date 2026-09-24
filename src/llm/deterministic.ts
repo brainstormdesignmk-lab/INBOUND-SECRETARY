@@ -2998,7 +2998,15 @@ const PRICE_ASK_RE2 = new RegExp(
   '|^\\s*(?:цен[уаи]|цена|цна|cena|cenua|cna|цени|ceni)\\p{L}*\\s*\\?' +
   '|(?:која|коиа|koja|koia|кое|koe|колко|kolko|коа|koa|кој|koj)[^.!?\\n]{0,14}(?:цен\\p{L}|cena\\p{L}*|cenua|cna|цифр\\p{L}*|cifr\\p{L}*)' +
   // kolku + future filler + cost verb ("kolku ke koshta ova?")
-  '|(?:колку|колко|kolku|kolko)\\s*(?:ќе|ke|ще)?\\s*(?:кошт|kosht|košt)\\p{L}*',
+  '|(?:колку|колко|kolku|kolko)\\s*(?:ќе|ke|ще)?\\s*(?:кошт|kosht|košt)\\p{L}*' +
+  // The RENT-PRICE question family (the [22:53] bug): "KOLKU MU E KIRIJA?",
+  // "kolku e kirijata", "kakva e kirijata" — a question word + the rent-price
+  // noun. "kirija" was in NO price class (and not in the keyword gate), so the
+  // question fell through to the exhausted-followup lane and Lina answered a
+  // price question with the area-exhausted pitch. A question word is required:
+  // bare "kirija e skupa" (market opinion) stays in the exhausted/remark lanes.
+  '|(?:колку|колко|kolku|kolko|каква|kakva|колкава|kolkava|која|koja)\\s*(?:му\\s+|mu\\s+|и\\s+)?(?:е\\s+|e\\s+)?кириj\\p{L}*'
+  + '|(?:колку|колко|kolku|kolko|каква|kakva|колкава|kolkava|која|koja)\\s*(?:му\\s+|mu\\s+|и\\s+)?(?:е\\s+|e\\s+)?kirij\\p{L}*',
   'iu');
 export function detectPriceAsk(text: string): boolean {
   // "колку саати работите" matches because 'работите' ends with 'е' —

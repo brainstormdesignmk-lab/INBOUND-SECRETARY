@@ -1565,7 +1565,13 @@ export class InboundHandler {
           if (p?.price !== undefined) {
             const priceLoc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
             const priceType = p.house ? 'Куќата' : p.business ? 'Деловниот простор' : 'Станот';
-            reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${locPrep(priceLoc)} ${priceLoc}` : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
+            // Rent-aware wording (the [22:53] contract): a rental's price is
+            // "киријата", not "чини" — the client asked KOLKU MU E KIRIJA and
+            // must hear kirija in the answer.
+            const isRentP = (p.service ?? session.slots.service) === 'rent';
+            reply = isRentP
+              ? `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${locPrep(priceLoc)} ${priceLoc}` : ''} — киријата изнесува ${p.price.toLocaleString('mk-MK')} евра.`
+              : `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${locPrep(priceLoc)} ${priceLoc}` : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
             session.slots.lastPrice = String(p.price);
           } else {
             // Price-less feed row: the “price” here IS the viewing fee — serve
@@ -2628,7 +2634,11 @@ ${contactReminder}`;
           const priceLoc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
           const priceType = p.house ? 'Куќата' : p.business ? 'Деловниот простор' : 'Станот';
           const pricePrep = priceLoc ? locPrep(priceLoc) : 'во';
-          reply = `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${pricePrep} ${priceLoc}` : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
+          // Rent-aware wording (the [22:53] contract), mirroring the fast lane.
+          const isRentP = (p.service ?? session.slots.service) === 'rent';
+          reply = isRentP
+            ? `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${pricePrep} ${priceLoc}` : ''} — киријата изнесува ${p.price.toLocaleString('mk-MK')} евра.`
+            : `${priceType} со Евидентен број ${p.eb}${priceLoc ? ` ${pricePrep} ${priceLoc}` : ''} чини ${p.price.toLocaleString('mk-MK')} евра.`;
           session.slots.lastPrice = String(p.price);
         } else {
           // Price-less feed row: the “price” here IS the viewing fee — serve

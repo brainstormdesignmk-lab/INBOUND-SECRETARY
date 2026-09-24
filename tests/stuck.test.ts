@@ -3133,3 +3133,32 @@ test('the [21:16] transcript: budget correction re-presents popular-first, area 
   assert.ok((s.slots.location ?? '').startsWith('Центар'), `area re-pinned: ${s.slots.location}`);
   assert.equal(s.state, 'presentation');
 });
+
+// ── The [22:53] transcript: "KOLKU MU E KIRIJA?" after the garsonjera card ──
+// "kirija" was in no price-ask class, so the question fell into the
+// exhausted-followup lane and Lina answered a PRICE question with the
+// area-exhausted pitch. Contract: a question word + the rent-price noun is a
+// price ask (answered from the property on the table, rent-aware wording);
+// market opinions ("kirija e skupa") stay in their own lanes.
+test('the [22:53] bug: "KOLKU MU E KIRIJA?" answers the shown rent, never the exhausted pitch', async () => {
+  const rows: Property[] = [
+    { eb: 76, id: 76, location: 'Центар', price: 200, service: 'rent' },
+    { eb: 63, id: 63, location: 'Центар', price: 210, service: 'rent' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-2253';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Present EB 76 (rent, 200 евра).
+  let s = await send('sakam da iznajmam garsonjera vo centar do 250');
+  assert.ok(sent[0].includes('76'), sent[0]);
+
+  // The rent-price question: answered with the kirija of the shown property.
+  s = await send('KOLKU MU E KIRIJA?');
+  const reply = sent[sent.length - 1];
+  assert.ok(reply.includes('200'), `the shown rent must be answered: ${reply}`);
+  assert.ok(/кириј/i.test(reply), `rent-aware wording expected: ${reply}`);
+  assert.ok(!/исцрпивме|немаме други опции|запишам Вашите спецификации/i.test(reply),
+    `the exhausted pitch must never answer a price question: ${reply}`);
+  assert.equal(s.slots.lastPrice, '200', 'lastPrice recorded for the echo rule');
+});
