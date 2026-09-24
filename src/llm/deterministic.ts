@@ -46,8 +46,8 @@ export interface DetectedSlots {
 // The noun forms („купување“/„изнајмување“) are included too — they are the
 // exact answers to the intent question („за купување или за изнајмување?“),
 // in both scripts (clients type "ZA KUPUVANJE" as often as Cyrillic).
-const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|\bbuy\b|kupuvam|kupam|kupan|kupi|kupn|kupuvanje|kupuvanjе|prodazba|prodava)/i;
-const RENT_RE = /(изнајмува|изнајмам|изнајми|изнајм|кирија|под кирија|кирја|под кирја|издава|издад|\brent\b|iznajmuvam|iznajmam|iznajmi|iznajm|iznajmuvanje|iznajmuvanjе|kirija|pod kirija|krija|pod krija|izdava|izdad)/i;
+const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|\bbuy\b|kupuvam|kupam|kupan|kupi|kupn|kupuvanje|kupuvanjе|kupuvane|prodazba|prodava)/i;
+const RENT_RE = /(изнајмува|изнајмам|изнајми|изнајм|кирија|под кирија|кирја|под кирја|крија|под крија|издава|издад|\brent\b|iznajmuvam|iznajmam|iznajmi|iznajm|iznajmuvanje|iznajmuvanjе|kirija|pod kirija|krija|pod krija|izdava|izdad)/i;
 
 const BED_NUM_RE = /(\d+)[-\s]*(?:спални|спална|соби|соба|спа|собен|собни|sob|sobi|soben|sobni|spalni|spalna)/i;
 // Bedroom-specific words (need +1 to convert to room count)
@@ -135,6 +135,42 @@ export function detectSeeOffers(text: string): boolean {
 // Present-reflexive branch at the tail: се издава/изнајмува/продава ± уште,
 // object-first — “DALI 79 SE IZDAVA USTE ?” (21:09) must hit the availability
 // funnel, not the property card.
+// Sweep availability 24:09 — companion classes the main regex lacks:
+// (1) TAKEN: заземен/зauze(na)/zafaten ± dali/uste; (2) GONE: отиде/otide,
+// издавате/издадовте, продадовте, зема/зем, нудите (2nd-plural offers);
+// (3) STANDING: стои/стој ("огласот уште ли стои?"), важи ("огласо уште
+// важи?" — the ad still counts); (4) "на располагање" (na raspolaganje).
+const AVAILABILITY_RE2 = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:дали[^.!?\\n]{0,40}|uste\\s+|use\\s+)?' +
+  '(?:(?:з|z)(?:а|a)(?:у|u)(?:з|z)(?:е|e)(?:м|m)[аa]?\\p{L}*|zafat\\p{L}*|зafat\\p{L}*)' +
+  '|(?:(?:издават|издадовт|izdavaт?|izdadovt|prodadovt|izdavate|izdavaтe|prodavate|zemate?|земат?|нӱудите?|нудите?|nudite?|издад[аo]вте)[^.!?,\\n]{0,24}\\?)' +
+  '|(?:отиде|otide)[^!?,\\n]{0,20}(?:стан|куќ|имот|stan|kukj?|imot|oglas)?[^!?,\\n]{0,20}\\?' +
+  '|(?:(?:ст|st)(?:о|o)(?:и|i)\\p{L}*)[^.!?,\\n]{0,24}(?:оглас|понуд|стан|куќ|имот|oglas|ponud|stan|kukj?|imot)[^.!?,\\n]{0,16}\\?' +
+  '|(?:оглас\\p{L}*|ponud\\p{L}*)[^.!?,\\n]{0,16}(?:уште|uste|uste)[^.!?,\\n]{0,12}(?:важи|vazi|стои|stoi)' +
+  '|(?:на\s+располагање|na\s+raspolaganje)', 'iu');
+
+// Sweep availability 24:09 round 2 — Cyrillic-canonical companion
+// (matchesBoth folds Latin via normalizeMc). The legacy AVAILABILITY_RE2
+// above carries dead mixed-script branches (з-а-у-з-е-м letter soup can
+// never match заземен; 'зafat'/'izdavaт' mix scripts and die); the classes
+// below are the working, canonical forms:
+//   (1) TAKEN stems зазем/зауз/зафат ("дали е заземен станот?",
+//       "dali e uste zauze?" → заузе, "zauze e ili moe?", "zafaten li e?");
+//   (2) GONE/rented-out verbs + short tail + "?" ("се издаде ли веќе станот?",
+//       "Дали го издадовте веќе?", "продадовте ли?", "ги нудите уште?");
+//   (3) GONE-particle отиде + "?" ("да не е отиден станот?");
+//   (4) STANDING стои/стој + property noun + "?" ("стој ли уште понудата?",
+//       "заузена е куќата или уште стои?");
+//   (5) ad still VALID: оглас/понуда + уште + важи/стои;
+//   (6) "на располагање" ("Dali e uste na raspolaganje?").
+const AVAILABILITY_RE3 = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:зазем|зауз|зафат)\\p{L}*'
+  + '|(?:(?:издад|издават|издавате|продадов|земат|земате|нудите)\\p{L}*)[^.!?,\\n]{0,24}\\?'
+  + '|(?:отиде|otide)[^!?,\\n]{0,20}\\?'
+  + '|(?<![\\p{L}\\p{N}])(?:стои|стој)[^.!?,\\n]{0,24}(?:огла|понуд|стан|куќ|имот)[^.!?,\\n]{0,16}\\?'
+  + '|(?:огла\\p{L}*|понуд\\p{L}*)[^.!?,\\n]{0,16}(?:уште|усте)[^.!?,\\n]{0,12}(?:важи|стои)'
+  + '|на\\s+располагање', 'iu');
+
 const AVAILABILITY_ASK_RE =
   /(дали[^.!?\n]{0,40}(?:достапен|достапна|достапно|остапен|остапна|слободен|слободна|слободно|слободна|слободно|продаден|продадена|издаден|издадена|на продажба|на prodazba|постои|го имате уште|ја имате уште)|достапен\s+ли\s+е|достапна\s+ли\s+е|слободен\s+ли\s+е|слободна\s+ли\s+е|продаден\s+ли\s+е|издаден\s+ли\s+е|сеуште\s+(?:ли\s+)?(?:е\s+)?(?:достапен|достапна|слободен|на продажба)|(?:е|е\s+ли)\s+(?:слободен|слободна|слободно|достапен|достапна|достапно)|(?:го|ја)\s+имате\s+(?:ли\s+)?(?:уште|сеуште)|(?:уште|сеуште)\s+(?:ли\s+)?(?:го|ја)\s+имате|(?:go|ja)\s+imate\s+(?:li\s+)?(?:uste|seuste)|(?:uste|seuste)\s+(?:li\s+)?(?:go|ja)\s+imate|daa?[il][il][^.!?\n]{0,40}(?:dostapen|dostapna|dostapno|ostapen|ostapna|sloboden|slobodna|slobodno|prodaden|prodadena|izdaden|izdadena|na prodazba|postoi|go imate uste|ja imate uste|za prodavanje|za prodazba|na prodazba|se prodava|prodavate|prodava li)|dostapen\s+li\s+e|dostapna\s+li\s+e|sloboden\s+li\s+e|slobodna\s+li\s+e|prodaden\s+li\s+e|izdaden\s+li\s+e|seuste\s+(?:li\s+)?(?:e\s+)?(?:dostapen|dostapna|sloboden|na prodazba)|(?:e|e\s+li)\s+(?:sloboden|slobodna|slobodno|dostapen|dostapna|dostapno))|(?:се|se|дали[^.!?\n]{0,30}|dale[^.!?\n]{0,30})\s*(?:уште\s+|uste\s+)?(?:издава|изнајмува|продава|izdava|iznajmuva|prodava)(?:\s+ли|\s+li|\s+уште|\s+uste)?(?:\s+(?:се|se))?|(?:издава|изнајмува|продава|izdava|iznajmuva|prodava)\s+(?:ли|li)(?:\s+(?:се|se))?|остапен\s+ли\s+е|остапна\s+ли\s+е|ostapen\s+li\s+e|ostapna\s+li\s+e|на\s+продажба\s+ли\s+е|се\s+продава\s+ли|продава\s+ли\s+е|на\s+prodazba\s+li\s+e|se\s+prodava\s+li|prodava\s+li\s+e|za\s+prodazba\s+li\s+e/iu;
 
@@ -162,6 +198,9 @@ const _availSlotsRe = buildAvailabilitySlots();
 
 export function detectAvailabilityAsk(text: string): boolean {
   if (AVAILABILITY_ASK_RE.test(text)) return true;
+  // Sweep availability 24:09 companion classes (taken/gone/standing/raspolaganje)
+  if (matchesBoth(AVAILABILITY_RE2, text)) return true;
+  if (matchesBoth(AVAILABILITY_RE3, text)) return true;
   // Grammar slot check: reversed word orders (clitic mobility, time-adverb movement)
   if (matchesBoth(_availSlotsRe, text)) return true;
   // Morphology secondary check: expanded verb/adjective forms not in the main regex.
@@ -780,6 +819,15 @@ export function detectLocationNag(text: string): boolean {
 // guard keeps "не сакам да ја видам" out.
 const VISIT_INTEREST_RE =
   /(кога[^.!?\n]{0,40}(може|би можело|би можела)[^.!?\n]{0,25}(погледн|видам|разгледам|посета)|(сакам|би сакал|би сакала|посакувам)[^.!?\n]{0,40}(погледн|видам|разгледам|посета)|организира(ј|јте)?(?:\s+посета)?|закаж(и|е)(те)?(?:\s+посета)?|дали[^.!?\n]{0,30}достапен|дали[^.!?\n]{0,30}достапна|koga[^.!?\n]{0,40}(moze|bi mozelo|bi mozela)[^.!?\n]{0,25}(pogledn|vidam|razgledam|poseta)|sakam[^.!?\n]{0,40}(da ja vidam|da go vidam|da go poglednam|da go razgledam|poseta)|organiziraj(te)?(?:\s+poseta)?|zakaz(e|i)(te)?(?:\s+poseta)?|da[il][il][^.!?\n]{0,30}dostapen|da[il][il][^.!?\n]{0,30}dostapna|(?<![\p{L}\p{N}])(?:договори|dogovori)(?![\p{L}\p{N}])(?:\s+ми(?:\s+(?:ја|го))?)?|(?<![\p{L}\p{N}])(?:закажи|zakazi)(?![\p{L}\p{N}])(?:\s+ми)?)/iu;
+// VIEWING-NOUN FAMILY (sweep visit-interest 24:09): оглед/ogled,
+// разгледување/razgleduvanje, обиколка/obikolka, тура/tura, "во живо",
+// "на лице место", "гледање/gledanje", "прошетам/prosetam" — the client
+// asks FOR a viewing by naming the event noun (with mozi/можи typo), often
+// WITHOUT any verb of wanting: "mozi li ogled na prostorot", "сакам термин
+// за разгледување", "заинтересиран сум за тура низ просторот". Guarded by
+// the negation check at the top of detectVisitInterest.
+const VISIT_VIEWING_NOUN_RE =
+  /(?<![\p{L}\p{N}])(?:оглед|ogled|разгледувањ\p{L}*|razgleduvan\p{L}*|обиколк\p{L}*|obikolk\p{L}*|тура|tura|гледање|gledanje|прошетам|prosetam|во\s+живо|vo\s+zivo|на\s+лице\s+место|na\s+lice\s+mesto|термин\s+за\s+(?:глед|оглед|разглед)|termin\s+za\s+(?:gled|ogled|razgled))(?![\p{L}\p{N}])/iu;
 
 const VISIT_NEGATION_RE = /(не\s+(сакам|сакаме|би сакал|би сакала|посакувам|организира)|не\s+(сакам|сакаме|би сакал|би сакала|посакувам|организира))/i;
 
@@ -791,6 +839,8 @@ const _visitSlotsRe = buildVisitSlots();
 export function detectVisitInterest(text: string): boolean {
   if (matchesBoth(VISIT_NEGATION_RE, text)) return false;
   if (VISIT_INTEREST_RE.test(text)) return true;
+  // Sweep visit-interest 24:09: the viewing-noun family (оглед/обиколка/тура…)
+  if (matchesBoth(VISIT_VIEWING_NOUN_RE, text)) return true;
   // Grammar slot check: reversed word orders, 3rd-person види, gerund погледање
   if (matchesBoth(_visitSlotsRe, text)) return true;
   // Typo fallback: "posetS", "razgledSa" — long unambiguous visit words only.
@@ -1081,11 +1131,29 @@ const AGREE_PHRASES = ['во ред', 'vo red', 'се согласувам', 'se
   // "стапи во контакт …" — the client ORDERS the contact themselves. Same
   // intent as "контактирај ме" (formal register), Cyrillic + normalized forms.
   'стапи во контакт', 'стапете во контакт', 'влези во контакт',
-  'stapi vo kontakt', 'stapete vo kontakt', 'vlezi vo kontakt'];
+  'stapi vo kontakt', 'stapete vo kontakt', 'vlezi vo kontakt',
+  // Sweep agreement-yes 24:09 — colloquial consent PAIRS (phrase-level, not
+  // bare tokens: 'super' alone is a search attribute "super stan", bare
+  // 'важи' is an availability word "огласот уште важи?" — both would misfire
+  // as single tokens):
+  //   "нека праша" / "Neka bide taka" — let-him / so-be-it consent;
+  //   "da nema prob" — nema problem (incl. the truncated 'prob' form);
+  //   "da moze super" / "може слободно" — moze + positive qualifier;
+  //   "vazi pisi mu" — ok-then-write pair.
+  'нека праша', 'neka prasa', 'нека биде така', 'neka bide taka',
+  'nema problem', 'нема проблем', 'nema prob',
+  'moze super', 'може супер', 'moze slobodno', 'може слободно',
+  'vazi pisi', 'важи пиши'];
 const AGREE_WORDS = new Set(['добро', 'ок', 'да', 'може', 'согласен', 'согласна',
   'согласувам', 'запиши', 'запишете', 'контактирај', 'контактирајте', 'регистрирај',
   'ok', 'dobro', 'moze', 'da', 'soglasen', 'soglasna', 'soglasuvam',
-  'zapisi', 'zapisete', 'kontaktiraj', 'kontaktirajte', 'registriraj']);
+  'zapisi', 'zapisete', 'kontaktiraj', 'kontaktirajte', 'registriraj',
+  // Sweep agreement-yes 24:09 colloquial classes: 'okej' spelling, the ж→з
+  // 'моżи/mozi' typo, and the bare 'слагам' (се слагам = I agree).
+  'okej', 'mozi', 'можи', 'слагам', 'slagam',
+  // Sweep agreement-yes 24:09: "moze pisi mu" / "да пиши му" — the write-to-
+  // him imperative (same class as запиши above, without the за- prefix).
+  'пиши', 'pisi']);
 
 // One-word openness ANSWERS — "otvoren", "spremna", "podgotven" (± "jas",
 // ± "sum"): a client replying to Lina's "Дали сте отворени за предлози…?"
@@ -1168,6 +1236,10 @@ export function detectAgreement(text: string): boolean {
   const norm = normalizeMc(text).toLowerCase();
   const daIsClause = low.includes('да е') || low.includes('да e') || norm.includes('да е') || norm.includes('да e');
   const daIsNegClause = low.includes('да не') || low.includes('да ne') || norm.includes('да не') || norm.includes('да ne');
+  // Elongated bare tokens — "mozeee", "daaa", "okejj": stretched agreement.
+  // Whole-message ONLY (an elongated token inside a sentence is never a yes).
+  if (/^(?:moz?e{2,}|мож[еe]{2,}|da{2,}|да{2,}|ok{2,}|dobro+)\s*[.!?]*$/iu.test(low)
+    || /^(?:moz?e{2,}|мож[еe]{2,}|da{2,}|да{2,}|ok{2,}|dobro+)\s*[.!?]*$/iu.test(norm)) return true;
   return tokens.some(t => AGREE_WORDS.has(t)
     && !(mozeIsCriteria && (t === 'moze' || t === 'може'))
     && !(daIsVerbPhrase && (t === 'da' || t === 'да'))
