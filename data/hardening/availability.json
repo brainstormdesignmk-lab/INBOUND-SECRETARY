@@ -1,6 +1,5 @@
 {
   "bankKey": "both.ask.availability",
-  "protects": "the availability ask — wrong routing fakes a search or a visit",
   "rows": [
     {
       "phrase": "dali e uste sloboden ?",

@@ -1,6 +1,5 @@
 {
   "bankKey": "(EXACT_ADDRESS lane → address.exact)",
-  "protects": "\"give me the exact address\" — a miss re-serves rotation 1 forever",
   "rows": [
     {
       "phrase": "kazi mi tocno adresata",

@@ -100,7 +100,7 @@ test('e2e: whole-day counter logs OWNER_RELAY with verdict-consistent fields; re
 
   const last = h.sent[h.sent.length - 1];
   assert.match(last, /Сабота/u, 'the day must reach the client');
-  assert.match(last, /во колку часот|кое време/iu, 'the client is asked for the clock');
+  assert.match(last, /во колку часот|кое време|кога\s+би\s+сакале/iu, 'the client is asked for the clock');
 
   const rows = h.ownerLogRows();
   const relayRow = rows.filter(r => r.eventType === 'OWNER_RELAY').at(-1)!;

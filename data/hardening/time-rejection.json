@@ -1,6 +1,5 @@
 {
   "bankKey": "(rescheduling branch)",
-  "protects": "a refused slot must reschedule, never book",
   "rows": [
     {
       "phrase": "togash ne mozam",

@@ -1,6 +1,5 @@
 {
   "bankKey": "(cancellation path)",
-  "protects": "a cancellation must free the slot, not await a no-show",
   "rows": [
     {
       "phrase": "ne mozam da dojdam utre , otkazuvam",

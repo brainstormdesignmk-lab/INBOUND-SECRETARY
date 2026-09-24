@@ -1,6 +1,5 @@
 {
   "bankKey": "price.ask (fast path)",
-  "protects": "the FIRST price quote — swallowed here means discovery loops or wrong info",
   "rows": [
     {
       "phrase": "kolku e cenata ?",

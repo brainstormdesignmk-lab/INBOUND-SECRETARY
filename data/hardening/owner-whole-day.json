@@ -1,6 +1,5 @@
 {
   "bankKey": "(owner verdict → canAcceptWholeDay relay)",
-  "protects": "the owner's day-with-any-hour counter must reach the client with the day intact (20:24: \"KE MORA VO SABOTA. BILO KOE VREME\" was dropped and Lina re-asked from zero)",
   "rows": [
     {
       "phrase": "ne mozam vo 6 vo petok. ke mora vo sabota. bilo koe vreme",

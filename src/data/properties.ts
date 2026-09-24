@@ -558,8 +558,18 @@ export function locMatches(query: string, feedLoc: string): boolean {
 export function normalizeTimePhrase(s: string): string {
   const src = s.trim();
   const hasCyr = /[\u0400-\u04FF]/u.test(src);
-  const cyr = hasCyr ? src : latToCyr(src);
-  return cyr.charAt(0).toUpperCase() + cyr.slice(1);
+  if (!hasCyr) {
+    // English day slips ("Friday vo 10") must become Macedonian BEFORE the
+    // Latin→Cyrillic transliteration — after it the day is a Cyrillic word
+    // ("Фридај") that no display fix can recognize (sweep owner-fixed-clock).
+    let pre = src;
+    for (const [en, mk] of Object.entries(EN_DAY_TO_MK)) {
+      pre = pre.replace(new RegExp(`\\b${en}\\b`, 'gi'), mk);
+    }
+    const cyr = latToCyr(pre);
+    return cyr.charAt(0).toUpperCase() + cyr.slice(1);
+  }
+  return src.charAt(0).toUpperCase() + src.slice(1);
 }
 
 /** English day names the LLM classify leg sometimes canonizes visit times
@@ -574,7 +584,7 @@ const EN_DAY_TO_MK: Record<string, string> = {
  *  canonicalization for both scripts — the owner's words are parsed as-is
  *  but the client-facing relay reads proper Macedonian. */
 const MK_DAY_FIX: Array<[RegExp, string]> = [
-  [/(?<![\p{L}])средота|(?<![\p{L}])сретта|(?<![\p{L}])срета/giu, 'среда'],
+  [/(?<![\p{L}])средота|(?<![\p{L}])сретта|(?<![\p{L}])срета|(?<![\p{L}])средта/giu, 'среда'],
   [/(?<![\p{L}])цетврток/giu, 'четврток'],
   [/(?<![\p{L}])втрик|(?<![\p{L}])вторик/giu, 'вторник'],
   [/(?<![\p{L}])сабта|(?<![\p{L}])субота/giu, 'сабота'],

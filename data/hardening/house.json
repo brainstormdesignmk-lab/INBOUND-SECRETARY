@@ -1,6 +1,5 @@
 {
   "bankKey": "discovery.ask.type (house)",
-  "protects": "type detection: house",
   "rows": [
     {
       "phrase": "kuka barame",

@@ -1,6 +1,5 @@
 {
   "bankKey": "fee.surprise",
-  "protects": "first-hearing-the-fee reaction — must acknowledge surprise, not quote price",
   "rows": [
     {
       "phrase": "kakva 10 evra ??",

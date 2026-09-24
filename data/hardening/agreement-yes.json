@@ -1,6 +1,5 @@
 {
   "bankKey": "(gate) ownerContactPending → fee workflow",
-  "protects": "the fee-consent YES gate — the greediest boundary in the funnel",
   "rows": [
     {
       "phrase": "da",

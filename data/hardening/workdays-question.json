@@ -1,6 +1,5 @@
 {
   "bankKey": "workdays.question",
-  "protects": "an agency-hours question must be ANSWERED, never forwarded to the owner as a proposed visit term (20:26 \"VO NEDELA RABOTITE ?\" reached the owner ask)",
   "rows": [
     {
       "phrase": "vo nedela rabotite ?",

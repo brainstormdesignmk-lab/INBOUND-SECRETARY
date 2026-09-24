@@ -1532,7 +1532,7 @@ function firstRefusalIndex(text: string): number {
 }
 // Inflected owner spellings included (sweep owner-whole-day): сре*ота,
 // вто*рик, викендов, петк — the generator keeps finding case forms.
-const OWNER_DAY_RE = /утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|вечер|викенд|понеделник|вторник|вторик|втрик|среда|срета|сретта|средота|средо|четврток|петок|петк|сабота|сабта|субота|недела|недла|utre|zadutre|denes|deneska|vecer|popladne|napladne|utrovo|vikend|vikendov|vikendo|ponedelnik|vtornik|vtorik|vtrik|sreda|sredta|sreta|sredota|sredo|cetvrtok|petok|petk|sabota|sabta|subota|nedela|nedla/i;
+const OWNER_DAY_RE = /утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|вечер|викенд|понеделник|вторник|вторик|втрик|среда|срета|сретта|средота|средо|четврток|петок|петк|сабота|сабта|субота|недела|недла|utre|zadutre|denes|deneska|vecer|popladne|napladne|utrovo|vikend|vikendov|vikendo|ponedelnik|vtornik|vtorik|vtrik|sreda|sredta|sreta|sredota|sredo|cetvrtok|petok|petk|sabota|sabta|subota|nedela|nedla|friday|monday|tuesday|wednesday|thursday|saturday|sunday/i;
 // A clock like "во 18:00" or bare "16:00" — but NOT when the number is
 // part of a price phrase ("по 60 илјади евра", "околу 70 000 евра"): the
 // lookahead rejects a match that continues into more digits or currency.
@@ -1566,7 +1566,54 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
   // SCOPE: the proposal must come from a LATER clause than the refusal
   // ("nemozam utre vo 4, dogovori go sreda vo 6" — утре во 4 is refused,
   // среда во 6 is the counter).
-  const scoped = refusalProposalScope(text, refusalIdx);
+  let scoped = refusalProposalScope(text, refusalIdx);
+  // PRE-REFUSAL OFFER CLAUSE: "edino vo sredta vo 6 mozam, ponedelnik sum
+  // zafaten" — the offer sits in a clause BEFORE the refusal token, while
+  // the refusal carries no day/clock of its own: the refusal is only the
+  // reason ("ponedelnik sum zafaten") or a TIME ANAPHOR ("porano nikako",
+  // "drugoto vreme ne mi odgovara" — sweep owner-fixed-clock). The offer
+  // clause always carries an OFFER/ABILITY verb next to its day+clock:
+  // "mozam" (I can), "dojdete" (come!); a PREPOSED refused time ("vo 11 vo
+  // petok ne mozam", "sreda vo 6 ne mozam togas") has NO such verb in its
+  // fragment and stays a bare refusal — the refused term is never
+  // resurrected. Negated ability ("ne mozam utre vo 4") is skipped.
+  const clauseHasTime = (s: string): boolean =>
+    new RegExp(OWNER_DAY_RE.source, 'i').test(s) || new RegExp(OWNER_CLOCK_RE.source, 'i').test(s);
+  if (refusalIdx > 0 && !clauseHasTime(scoped)) {
+    const clauses = text.slice(0, refusalIdx).split(/[.!?,;—]/);
+    // The clause that carries the refusal token itself (from the last
+    // terminator before it to the next one after) — a TIME ANAPHOR there
+    // ("drugoto vreme ne mi odgovara", "porano nikako") means the refusal
+    // aims at OTHER times, not at the pre-refusal offer clause. A refusal
+    // clause that itself carries the day+clock ("vo 11 vo petok ne mozam",
+    // "sreda vo 6 ne mozam togas") is the PREPOSED refused term — never
+    // resurrected.
+    let rStart = 0;
+    for (const ch of ['.', '!', '?', ',', ';', '—']) {
+      const p = text.lastIndexOf(ch, refusalIdx - 1);
+      if (p >= rStart) rStart = p + 1;
+    }
+    const rEndRel = text.slice(refusalIdx).search(/[.!?,;—]/);
+    const refusalClause = rEndRel >= 0 ? text.slice(rStart, refusalIdx + rEndRel) : text.slice(rStart);
+    const anaphoric = /(?:togash?|тогаш|porano|порано|drugot[ao]|другот[ао])/i.test(refusalClause)
+      && !clauseHasTime(refusalClause);
+    for (let i = clauses.length - 1; i >= 0; i--) {
+      const c = clauses[i];
+      if (!clauseHasTime(c)) continue;
+      const abil = c.match(/(?<![\p{L}])(?:mozam|moze|mozeme|можам|може|можеме)(?![\p{L}])/iu);
+      if (abil) {
+        const pre = c.slice(Math.max(0, (abil.index ?? 0) - 3), abil.index ?? 0);
+        if (/(?:ne|не)\s*$/i.test(pre)) continue;
+        scoped = c;
+        break;
+      }
+      // invitation/imperative: "vo 11:30 vo sredta dojdete, porano nikako"
+      if (/(?:dojd|дојд)/i.test(c)) { scoped = c; break; }
+      // anaphoric refusal + a bare day+clock clause with no negated ability:
+      // "Vo 11:30 vo cetvrtok, drugoto vreme ne mi odgovara"
+      if (anaphoric && !/(?:ne|не)\s*(?:mozam|moze|можам|може)/i.test(c)) { scoped = c; break; }
+    }
+  }
   // OBLIGATION anchor: "Nemozam togas ke mora vo nedela" — the day after
   // "ke mora" is the OFFERED day even though it sits inside the refusal
   // clause (the scope rule would otherwise discard it). The proposed time
@@ -1616,7 +1663,15 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
       const gap = cIdx - dEnd;
       if (gap < bestGap) { bestGap = gap; best = d; }
     }
-    if (best) return `${best[0]} ${clock[1]}`.trim();
+    if (best) {
+      // A day-part directly after the clock refines it ("Friday vo 10 nautro"
+      // — sweep owner-fixed-clock): append only when nothing separates them
+      // (no punctuation, no other day word in between).
+      const tail = scoped.slice(cIdx + clock[0].length, cIdx + clock[0].length + 16);
+      const pm = tail.match(OWNER_DAY_PART_RE);
+      const part = pm && !/[.,;!?]/.test(tail.slice(0, pm.index ?? 0)) ? pm[0] : null;
+      return part ? `${best[0]} ${clock[1]} ${part}`.trim() : `${best[0]} ${clock[1]}`.trim();
+    }
     // REVERSED composition: no day precedes the clock — the day AFTER it
     // carries it ("samo vo 11 vo petok", "vo 11:30 vo sreda"). Dropping the
     // clock relayed the bare day ("Петок") and the client was asked to accept
@@ -2427,6 +2482,16 @@ export function detectDefer(text: string): boolean {
 const NEGOTIATE_RE =
   /(?:може\s+ли\s+(?:помала|пониска|поевтина|поевтин|помал)|може\s+ли\s+(?:нешто|nesto)?\s*поевтин[оа]|moze\s+li\s+(?:nesto\s+)?poevtin[oа]|помала\s+(?:цена|евра|евро)|пониска\s+(?:цена|евра)|поевтин\s+(?:стан|нешто)|дали\s+(?:има|постои|ќе\s+има)\s+попуст|попуст|popust|намалување|namaluvanje|појефтинување|pojeftinuvanje|може\s+ли\s+да\s+се\s+договориме\s+за\s+цена|дали\s+е\s+(?:фиксна|финална|конечна)\s+цена|can\s+(?:you|we)\s+(?:lower|reduce|drop|negotiate|cut)\s+(?:the\s+)?(?:price|cost)|discount|cheaper|lower\s+price|price\s+(?:reduction|cut|drop|negotiat)|any\s+(?:wiggle|flexibility|room)\s+(?:on\s+the\s+)?price|is\s+(?:the\s+)?(?:price|cost)\s+(?:fixed|firm|final|negotiable)|negotiate|за\s+(?:цената?|cena(?:to)?)|nego\s+za\s+cena|цена\s+(?:доле|надолу|долу|намали)|поевтин[оа]?|пониско|поскапо|него\s+за\s+цена|за\s+цената)/iu;
 
+// Reduction/correction verb STEMS shared by the negotiate grammar branches.
+// Stem + any letter tail (`\p{L}*` — JS \b is ASCII-only so Cyrillic can
+// never use \b) matches every conjugation without substring false-fires:
+// 'namal' cannot sit inside an unrelated word. Sweep negotiate 24:09 found
+// the whole word-class dark in one script: Cyrillic correction nouns
+// ("корекција") were trapped by their own (?![\p{L}]) lookahead (the stem
+// ends mid-word), and smal/spust/skrat/sval stems were enumerated too
+// narrowly ("смали", "спустила", "скрати", "свали").
+const NEG_STEMS = String.raw`(?:намал|namal|смал|smal|спуст|spust|spl?ust|сплост|скрат|skrat|свал|sval|кореги|koregi|кориги|корекци|korekci|попушт|popush|усогласув|usoglasuv)[\p{L}]*`;
+
 // GRAMMAR RULE for negotiation: price-adjective + price-noun in either order,
 // with optional fillers — covers "цена малку помала", "po evtina cena?",
 // "дали цената е конечна тука" without enumerating each phrase.
@@ -2439,21 +2504,27 @@ const NEGOTIATE_GRAMMAR_RE = new RegExp(
   // h-less spellings. The 22:10 field case "BI SAKAL DA SE NAMALI MALKU"
   // carries the reflexive clitic "се" — the old branch required the noun
   // "цена" directly before the verb and missed it.
-  '|' +  '(?:цена|цената|cena|cenata)\\s+(?:да\\s+)?(?:се\\s+)?(?:намали|намалува|смале|спушти|договори|spl?usti|усогласув|usoglasuv)' +
+  '|' +  '(?:цена|цената|cena|cenata)\\s+(?:да\\s+)?(?:се\\s+)?' + NEG_STEMS +
   '|' +
-  // verb-first: "namali ja cenata", "spusti go cenata" — object after the verb
-  '(?:намали|намалува|смале|спушти|spl?usti)\\s+(?:го|ја|go|ja)?\\s*(?:цената|цена|cenata|cena)' +
+  // verb-first / noun-form-first: "namali ja cenata", "spusti go cenata",
+  // "spustanje na cenata", "koregirajte ja malku cenata" — object (with
+  // clitic/softener/preposition fillers) after the stem
+  NEG_STEMS + '\\s+(?:(?:го|ја|go|ja)\\s*)?(?:(?:малку|malku|малце|malce|уште|uste|помал[ууиu])\\s*)?(?:(?:на|na|во|vo|околу|okolu)\\s*)?(?:цената|цена|cenata|cena)' +
   '|' +
   // Reduction intent WITHOUT the price noun nearby. CLOSED-CLASS + bounded:
   // (a) volitional "da se namali" — ДА REQUIRED, a bare "se namali"
   // substring-fires inside unrelated subjects ("se namali brojot na
   // klienti"); (b) reflexive + softener "se namali malku"; (c) the
   // amount-softener pair "малку помалу/malku pomalu" — 22:10's second
-  // message; (d) explicit discount nouns. Guarded upstream by the
+  // message; (d) explicit discount nouns; (e) the CASH idiom — "na kesh
+  // podobra cena", "za kesh podobra ponuda" (cash-for-a-better-price is
+  // always negotiation, never a search). Guarded upstream by the
   // dispatchSimple state gate; freshness/fee/budget vetoes in detectNegotiate.
-  '(?:да|da)\\s+(?:се|se)\\s+(?:намали|намалува|смале|спушти|смени|spl?usti)(?:\\s+(?:малку|malku|помал[ууиu]))?' +
+  '(?:да|da)\\s+(?:(?:се|se)\\s+)?' + NEG_STEMS + '(?:\\s+(?:малку|malku|малце|malce|помал[ууиu]))?' +
   '|' +
-  '(?:се|se)\\s+(?:намали|намалува|смале|спушти|смени|spl?usti)\\s+(?:малку|malku|помал[ууиu])' +
+  '(?:се|se)\\s+' + NEG_STEMS + '\\s+(?:малку|malku|малце|malce|помал[ууиu])' +
+  '|' +
+  '(?:за|za|на|na|во|vo)?\\s*(?:кеш|kes|kesh)[\\p{L}]*[^.!?\\n]{0,20}(?:подобр|podobr|попуст|popust|помал[аоу]|pomal[ao]|евтин|evtin|намал|namal)[\\p{L}]*' +
   '|' +
   // The guard trails the WHOLE group: "pomalku sobi/spalni/kvadrati" is a
   // property preference (fewer rooms), never a price negotiation.
@@ -2462,9 +2533,22 @@ const NEGOTIATE_GRAMMAR_RE = new RegExp(
   // Correction/adjustment nouns standalone: "dali e vozmozna korekcija na
   // cenata?", "koregiraj go cenata" — the correction family is negotiate
   // territory (fixed-prices policy answer), NOT price-freshness (22:10).
-  '(?<![\\p{L}])(?:korekcij[aи]|корекциј|koregir\\w*|korigir\\w*|коригир)(?![\\p{L}])' +
+  // (Cyrillic Корекци- rides NEG_STEMS — the old (?![\p{L}]) lookahead here
+  // made the Cyrillic spelling unmatchable.) The discount nouns keep their
+  // own word-boundary guards; the correction nouns ride NEG_STEMS.
+  '(?<![\\p{L}])(?:popust|попуст|rabat|ратаб|скид[ао]|skid[ао])(?![\\p{L}])' +
   '|' +
-  '(?<![\\p{L}])(?:popust|попуст|rabat|ратаб|скид[ао]|skid[ао])(?![\\p{L}])',
+  // DEAL-ROOM idiom: "има ли простор за договор околу цената?" — договор/
+  // dogovor + за/околу + price noun is negotiation vocabulary (sweep 24:09).
+  '(?:договор|dogovor)[\\p{L}]*\\s+(?:за|околу|za|okolu)\\s+(?:цената|цена|cenata|cena|сумата|sumata)' +
+  '|' +
+  // FUTURE-MARKER reduction: "ќе спушти малку?", "kje spusti sopstvenikot na
+  // kes" — ke/ќе/kje + reduction verb, no price noun required. Gated by a
+  // price-token lookahead (цен/евр/попуст/кеш within 30 chars) so "ke se
+  // namali brojot na klienti" (an unrelated subject) stays out; the sval/
+  // popush stems are inherently price-only and ride ungated — also as a
+  // bare QUESTION ("сопственикот попушта ли нешто за сумата?").
+  '(?:(?:ке|ќе|kje|ke)\\s+(?:се\\s+)?' + NEG_STEMS + '(?=[^.!?\\n]{0,30}(?:цен|cen|евр|evr|попуст|popust|кеш|kes))|(?:(?:ке|ќе|kje|ke)\\s+(?:се\\s+)?(?:свал|попушт|popush)[\\p{L}]*|(?:свал|попушт|popush)[\\p{L}]*\\s+(?:ли|li)(?![\\p{L}])))',
   'iu');
 
 // COUNTER-OFFER (08:20): "dali moze za 150 e" — the client pushes back on a
@@ -2477,7 +2561,7 @@ const NEGOTIATE_GRAMMAR_RE = new RegExp(
 // the amount ("do 150 evra") is a BUDGET search, not a counter — excluded;
 // (c) "za 2 spalni" is criteria, not an offer — noun-lookahead excluded;
 // (d) freshness questions keep their fast-path (vetoed here too).
-const COUNTER_MODAL = String.raw`(?:може|можам|можи|моза|mozhe|moze|moza|mozam|mozelo|ќе|ke|ще|shte|би|bi|договор|dogovor)`;
+const COUNTER_MODAL = String.raw`(?:може|можам|можи|моза|mozhe|moze|moza|mozam|mozelo|ќе|ke|ще|shte|би|bi|договор|dogovor|дајте|dajte|дај|daj)`;
 const COUNTER_PART = String.raw`(?:\s+(?:ли|li))?`;
 const COUNTER_DA = String.raw`(?:\s+(?:да|da))?`;
 const COUNTER_FILLER = String.raw`(?:(?:ја|ja|го|go|си|si|ти|ti|му|mu)\s+)*`;
@@ -2509,9 +2593,10 @@ const COUNTER_OFFER_RE = new RegExp(
   + '|' + COUNTER_PAY + String.raw`\s+` + String.raw`\d[\d\s.,]*\s*` + COUNTER_CUR
   // B4 pay-verb + BARE amount — "ke platam 140000"
   + '|' + COUNTER_PAY + String.raw`\s+\d[\d\s.,]*(?![\p{L}\p{N}])` + COUNTER_CRIT
-  // B5 give/offer verb + amount (currency optional) — "Дадам 450 евра",
-  //   "ke dadam 400 e", "nudam 120000 evra kesh odma"
-  + '|' + COUNTER_GIVE + String.raw`\s+` + String.raw`\d[\d\s.,]*\s*` + String.raw`(?:` + COUNTER_CUR + String.raw`)?` + COUNTER_CRIT
+  // B5 give/offer verb [+ли] + amount (currency optional) — "Дадам 450 евра",
+  //   "ke dadam 400 e", "nudam 120000 evra kesh odma", "ке даде ли 130000 евра
+  //   за брза продажба" (the question particle rides after the verb)
+  + '|' + COUNTER_GIVE + COUNTER_PART + String.raw`\s+` + String.raw`\d[\d\s.,]*\s*` + String.raw`(?:` + COUNTER_CUR + String.raw`)?` + COUNTER_CRIT
   // B6 amount + currency, then a give/take verb within one clause —
   //   "350 евра можам да дадам", "за 1800 евра ја земам одма"
   + '|' + String.raw`\d[\d\s.,]*\s*` + COUNTER_CUR + String.raw`[^.!?\n]{0,20}`

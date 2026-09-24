@@ -84,7 +84,7 @@ test('whole-day counter: owner offers a day with any hour → relay carries the 
   assert.equal(s.state, 'visit_scheduling', `relay must return to visit_scheduling, got ${s.state}`);
   const relay = sent[sent.length - 1];
   assert.match(relay, /сабот/iu, `relay must carry the owner's day: ${relay}`);
-  assert.match(relay, /часот\s*\?|кога точно|кое време|Кое време|колку часот|кога би дојделе/u, `relay must ask the client to precise the clock: ${relay}`);
+  assert.match(relay, /часот\s*\?|кога точно|кое време|Кое време|колку часот|кога би дојделе|кога\s+би\s+сакале/u, `relay must ask the client to precise the clock: ${relay}`);
   assert.ok(!/не може во тој термин(?!.*сабот)/iu.test(relay), `never the dropped-day refusal: ${relay}`);
 });
 

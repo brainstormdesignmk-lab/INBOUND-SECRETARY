@@ -1,6 +1,5 @@
 {
   "bankKey": "both.ask.visit → visit_scheduling",
-  "protects": "the transition to scheduling — losing it stalls the funnel at presentation",
   "rows": [
     {
       "phrase": "sakam da go vidam stanot",

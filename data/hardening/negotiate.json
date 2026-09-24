@@ -4,12 +4,12 @@
   "rows": [
     {
       "phrase": "moze li popust na cenata ?",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "priceAsk"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "moze li nekakov popust za keš isplata",
@@ -27,12 +27,12 @@
     },
     {
       "phrase": "135 iljadi krajna cena e ili ima prostor",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "priceAsk"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "dajte 130 pa da pravime muabet odma",
@@ -50,13 +50,13 @@
     },
     {
       "phrase": "ima li lufta vo cenata, mnogu e ova",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "cheaper",
-        "priceAsk"
-      ],
-      "benign": []
+      "cross": [],
+      "benign": [
+        "priceAsk",
+        "cheaper"
+      ]
     },
     {
       "phrase": "bi mozheshe da se korigira ovaa cena",
@@ -95,13 +95,13 @@
     },
     {
       "phrase": "za gotovo isplata koja e najniska cena",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "cheaper",
-        "priceAsk"
-      ],
-      "benign": []
+      "cross": [],
+      "benign": [
+        "priceAsk",
+        "cheaper"
+      ]
     },
     {
       "phrase": "sopstvenikot ke spushti li neshto od oglasena cena",
@@ -112,15 +112,356 @@
     },
     {
       "phrase": "moze 125000 evra kech sega odma",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
+      "cross": [],
+      "benign": [
         "budget"
-      ],
-      "benign": []
+      ]
     },
     {
       "phrase": "ima li popust za seriozni kupuvaci",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали има простор за корекција на цената?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ako plakam na kes ke dade li popust?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "може ли малку да се спусти цената",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "sopstvenikot ke svali nekoj evro?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ке даде ли 130000 евра за брза продажба",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "moze malce korigiranje na cenata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "БИ САКАЛ ДА СЕ НАМАЛИ МАЛКУ ЦЕНАТА",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali e mozno da se smali malku",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Има ли шанса за попуст?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "na kesh podobra cena moze?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "да се сплости цената малце за плаќање одма",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "moze li nekakva korekcija na cenata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дајте за 120000 и го земам",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "ke se spusti li gazdata malku pomalu",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дали е можна мала корекција во цената",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li prostor za namaluvanje na cenata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "кеш плаќам, има попуст за ова?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali moze da se spusti cenata malku",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "сопственикот ќе свали малку?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ke popusti li gazdata ako ponudam odma?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "mozno li e korekcija na sumata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "да се скрати малку цената, може?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "bi sakale malce popust da ni dadete",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "коригирајте ја малку цената ако може",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "dali kje spusti sopstvenikot na kes",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "има ли шанса за помала цена?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "da se splusti barem malku cenata",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "дадете некој попуст за станот",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "може ли газдата да смали малку?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali e vozmozna mala korekcija?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "ima li prostor za spustanje na cenata?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "Дали може малку да се скрати цената?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "za kesh moze li nekoja podobra ponuda?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Дали е можна корекција на цената за купување?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "ke svali li gazdata malku?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "Може ли малце да се намали?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dajte go za 120000 eura na raka",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "budget"
+      ]
+    },
+    {
+      "phrase": "сопственикот попушта ли нешто за сумата?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "dali bi se spustila cenata malce?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "дајте некој попуст за плаќање одма",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "moze korigiranje na sumata?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "има ли простор за договор околу цената?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "bi sakal da se smali cenata uste malku",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": [
+        "priceAsk"
+      ]
+    },
+    {
+      "phrase": "да се направи мала корекција во цената?",
+      "verdict": "GAP",
+      "target": false,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "na kesh ke ima li popust?",
       "verdict": "COVERED",
       "target": true,
       "cross": [],

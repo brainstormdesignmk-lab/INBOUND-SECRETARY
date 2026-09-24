@@ -492,7 +492,12 @@ const SPEC: GenerationKey[] = [
     count: 10,
     instructions: 'Пренеси на клиентот дека сопственикот не може во предложениот термин, но го нуди целиот {day} (било кое време). Заврши со ПРАШАЊЕ за точниот час. Променливата {day} МОРА да се содржи точно еднаш (именка во еднина, без префикс). Никогаш не измислувај конкретен час, никогаш не спомнувај надомест.',
     required: [/\{day\}/, /\?$/u],
-    banned: [/\d{1,2}[:.]\d{2}(?!.*\{day\})/, /надомест|денари/],
+    // {day} must be DECLARED — an undeclared placeholder is rejected outright
+    // by validateVariant (all 20 good variants of the first run died on this).
+    placeholders: ['day'],
+    // Bulgarian ъ leaked through ("възможност") — the persona voice forbids
+    // non-Macedonian Cyrillic, so it is banned for this key.
+    banned: [/\d{1,2}[:.]\d{2}(?!.*\{day\})/, /надомест|денари/, /ъ/],
     question: true,
   },
   // workdays.question: the client asks whether the AGENCY works a given day
