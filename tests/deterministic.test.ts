@@ -11,6 +11,7 @@ import {
   isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
   detectNearCenter, detectRingElimination, CENTER_RING, detectGarsonjera,
   detectFeeSurprise, detectProvisionWho, detectLocationConfirm,
+  detectResultSetQuestion,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -312,6 +313,39 @@ test('detectBedrooms: "спални" word forms count — spalni = bedrooms, +1 
   assert.equal(detectBedrooms('три спални'), 4);    // 3 bedrooms → 4-room
   assert.equal(detectBedrooms('една спална'), 2);   // 1 bedroom → 2-room
   assert.equal(detectBedrooms('четири спални'), 5); // 4 bedrooms → 5-room
+});
+
+test('detectBedrooms: MINIMUM ranges — "dve najmalku ili tri" (the 23:57 re-ask loop)', () => {
+  // The 23:57 transcript: "DVE NAJMALCE ILI TRI" after the спални ask — the
+  // noun-less bare branch capped at 1–3 words, so the 4-word minimum range
+  // fell through and the bedrooms question re-asked. A quantifier-marked
+  // range is still a short funnel answer → its own word ceiling.
+  assert.equal(detectBedrooms('DVE NAJMALCE ILI TRI'), 3);   // 2–3 спални → 3-собен floor
+  assert.equal(detectBedrooms('dve najmalku ili tri'), 3);
+  assert.equal(detectBedrooms('najmalku dve ili tri'), 3);   // quantifier-first order
+  assert.equal(detectBedrooms('dve najmalku'), 3);           // quantifier alone
+  assert.equal(detectBedrooms('dve najmalku, mozda tri'), 3);// comma tail rides the same ceiling
+  // The range branch keeps the floor (LOWER bound) when a noun is present.
+  assert.equal(detectBedrooms('dve najmalku ili tri spalni'), 3);
+  // Guards intact: the NOUN path still owns noun-bearing sentences (criteria
+  // in them ride along), quantifier or not.
+  assert.equal(detectBedrooms('sakam stan so dve spalni najmalku vo centar'), 3);
+  assert.equal(detectBedrooms('dve spalni najmalku'), 3);    // noun+quantifier no range
+});
+
+test('detectResultSetQuestion: the 23:59 inventory ask, not a feature question', () => {
+  // "SAMO OVIE DVA STANA GI IMATE SO DVE ILI TRI SPALNI ?" — about the RESULTS
+  // just shown; answerable from the feed, never the owner-consult line.
+  assert.equal(detectResultSetQuestion('SAMO OVIE DVA STANA GI IMATE SO DVE ILI TRI SPALNI ?'), true);
+  assert.equal(detectResultSetQuestion('ovie stana gi imate so dve spalni?'), true);
+  assert.equal(detectResultSetQuestion('колку такви имате со три соби?'), true);
+  assert.equal(detectResultSetQuestion('tezi so dve spalni ?'), true);
+  // NOT a set question: a definite-singular property (feature lane), no size
+  // predicate, or not a question at all.
+  assert.equal(detectResultSetQuestion('ovoj stan ima dve spalni?'), false); // singular anchor
+  assert.equal(detectResultSetQuestion('stanot so dve spalni?'), false);      // singular anchor
+  assert.equal(detectResultSetQuestion('ovie se dobri'), false);              // no size predicate
+  assert.equal(detectResultSetQuestion('ovie stana so dve spalni'), false);   // no question mark
 });
 
 test('detectBedrooms: "мало станче"/"гарсоњера" is a 1-bedroom request (explicit wins)', () => {

@@ -3410,3 +3410,46 @@ test('[14:34] split time intake: day-only asks the clock; bare hour-word complet
   assert.equal(s4.state, 'owner_checking');
   assert.equal(ownerAsks.length, 1, 'a re-sent identical term must not restart the check');
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// The [23:55]–[23:59] TUI transcript — bedrooms minimum ranges + the
+// result-set inventory question.
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('[23:57] "DVE NAJMALCE ILI TRI" arms bedrooms and "SAMO OVIE DVA…?" gets the counted inventory, never the feature lane', async () => {
+  // Mirror of the transcript ring: two of the four shown rows have 3 соби
+  // (2 спални), the third is a 2-собен — the count must be the FULL pool.
+  const rows: Property[] = [
+    { eb: 37, id: 37, location: 'Кисела Вода', price: 117500, service: 'buy', bedrooms: 3, size: '90 м²' },
+    { eb: 38, id: 38, location: 'Кисела Вода', price: 101750, service: 'buy', bedrooms: 3, size: '84 м²' },
+    { eb: 46, id: 46, location: 'Кисела Вода', price: 72000, service: 'buy', bedrooms: 2, size: '60 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-2357-beds';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // The transcript's opener ("MOZE AERODROM , KISELA VODA …") is a
+  // multi-neighborhood list the LLM lane consumed in production; the
+  // deterministic harness needs the parseable equivalent — the CONTRACT under
+  // test is the bedrooms min-range and the counted inventory, not the list.
+  await send('SAKAM DA KUPAM STAN VO KISELA VODA');
+  await send('FAMILIJAREN STAN SAKAM NAD 80 KVADRATI');
+  await send('180 000');
+  // THE BUG: the minimum range fell through (bare branch ≤3 words) and the
+  // спални question re-asked three times.
+  const s3 = await send('DVE NAJMALCE ILI TRI');
+  assert.equal(s3.state, 'presentation', 'the minimum range completes the funnel: 2 спални → 3-собен floor');
+  assert.equal(s3.slots.bedrooms, 3, JSON.stringify(s3.slots));
+  assert.ok(sent.at(-1)!.includes('Евидентен број'), `presentation expected: ${sent.at(-1)!}`);
+
+  // THE MISROUTE: the result-set question must be ANSWERED from the pool
+  // (count), never the feature.after.show owner-consult line, never a card
+  // re-render.
+  const s4 = await send('SAMO OVIE DVA STANA GI IMATE SO DVE ILI TRI SPALNI ?');
+  assert.equal(s4.state, 'presentation');
+  const reply = sent.at(-1)!;
+  assert.ok(/имам \d+ стан/iu.test(reply), `counted inventory expected: ${reply}`);
+  assert.ok(reply.includes('две спални'), `spoken-beds label expected: ${reply}`);
+  assert.ok(!reply.includes('консултирам со сопственикот'), `no owner-consult line: ${reply}`);
+  assert.ok(!reply.includes('90 м²'), `no card re-render: ${reply}`);
+});

@@ -11,7 +11,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -1892,6 +1892,55 @@ export class InboundHandler {
           : 'Откажана посета по желба на сопственикот. Метрополис се извинува за непланираните околности.Ќе бидеме во контакт.';
         session.state = 'terminated';
       }
+    }
+
+    // RESULT-SET QUESTION (23:59) — "SAMO OVIE DVA STANA GI IMATE SO DVE ILI
+    // TRI SPALNI ?" asks about the RESULTS just shown. Count the CURRENT
+    // candidate pool (the same criteria the presentation ladder uses) and
+    // answer truthfully from memory — never the feature.after.show owner-
+    // consult line, and never a fabricated inventory. Runs before the FSM
+    // chain: the count needs the pool, and the question must not be eaten by
+    // the feature-ask lane (FEATURE_RE's bare "спални" arm owns it otherwise).
+    // No property-anchor exclusion: the detector's singular guard already
+    // keeps "ovoj stan/stanot" questions out, and a PLURAL demonstrative
+    // ("ovie dva stana") is never about the auto-anchored last card — the
+    // presentation turn anchors it, the client still asks about the SET.
+    if (session.state === 'presentation'
+        && detectResultSetQuestion(text)) {
+      const pool = await this.deps.properties.candidates({
+        bedrooms: session.slots.bedrooms,
+        sqm: session.slots.sqm,
+        business: session.slots.business,
+        house: session.slots.house,
+        service: session.slots.service,
+        budget: session.slots.budget,
+      });
+      // The count is the FULL current pool (shown items included) — the honest
+      // denominator for "samo ovie dva gi imate?": what was presented is a
+      // batch, not the inventory.
+      const count = pool.length;
+      // Room-count convention: slots store ROOMS ("2 спални" → 3); speak beds.
+      const spokenBeds = session.slots.bedrooms ? session.slots.bedrooms - 1 : undefined;
+      const bedsLabel = spokenBeds === 1 ? 'една спална'
+        : spokenBeds === 2 ? 'две спални'
+        : spokenBeds === 3 ? 'три спални'
+        : spokenBeds !== undefined ? `${spokenBeds} спални`
+        : undefined;
+      const criteria = [
+        bedsLabel,
+        session.slots.budget ? `буџет до ${session.slots.budget} евра` : undefined,
+      ].filter(Boolean).join(' и ') || 'Вашите критериуми';
+      reply = count === 1
+        ? `Во моментов имам само еден стан според ${criteria}. Да Ви го покажам?`
+        : count > 1
+          ? `Во моментов имам ${count} станови според ${criteria}. Дали да ги видите сите, или да ги прескокнеме оние што веќе ги видовте?`
+          : (pickVariant('no.match.location', { recent: assistantTexts(session), vars: { location: session.slots.location ?? '' } })
+            ?? NO_MATCH_LINE(session.slots.location));
+      if (count > 0) bankKey = undefined;
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, reply, 'deterministic');
+      return;
     }
 
     // NEAR-CENTER LADDER — runs BEFORE loadProps so the ring pool never leaks

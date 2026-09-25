@@ -490,7 +490,12 @@ export function detectBedrooms(text: string): number | undefined {
     && !/спалн|spaln|соб|sob/iu.test(text)
     && !detectBudget(text)
     && !/\d+\s*(?:м2|м²|m2)/iu.test(text)
-    && text.trim().split(/\s+/).length <= 3) {
+    // "dve najmalku ili tri" (23:57 transcript): a MINIMUM range runs 4–7
+    // words, past the 1–3 budget that guards bare noun-less answers against
+    // full sentences. A quantifier-marked range is still a short funnel
+    // answer, so it gets its own ceiling instead of widening the budget.
+    && (text.trim().split(/\s+/).length <= 3
+        || /(?:^|[\s,.:;!?])(?:najmalku|najmalce|најмалку|најмалце)(?:[\s,.:;!?]|$)/iu.test(text))) {
     const bareWords: Array<[RegExp, number]> = [
       [/една|еден|едно|edna|eden|edno/iu, 2],   // 1 спална → 2-собен
       [/две|два|dve|dva|двојк|dvojk/iu, 3],      // "двојка" = a two (idiom)
@@ -1199,9 +1204,12 @@ export function detectSqm(text: string): number | undefined {
     if (n >= 10 && n <= 5000) return n;
   }
   // Word-form sizes the client remembers approximately: "триесетина квадрати"
-  // (~30 м²), "околу педесет квадрати". Used when locating a SEEN property by
-  // memory — digits win when both are present.
-  const w = text.match(/(?:околу\s+|некаде\s+|до\s+)?(?:дваесет(?:ина)?|триесет(?:ина)?|четириесет(?:ина)?|педесет(?:ина)?|шеесет(?:ина)?|седумдесет(?:ина)?|осумдесет(?:ина)?|деведесет(?:ина)?|сто(?:тина)?|dvaeset(?:ina)?|trieset(?:ina)?|chetirieset(?:ina)?|pedeset(?:ina)?|seeset(?:ina)?|sedumdeset(?:ina)?|osumdeset(?:ina)?|devedeset(?:ina)?|sto(?:tina)?)\s*(?:квадрат(?:и)?|м2|м²|m2|m²|kvadrat(?:a|i)?)/i);
+  // (~30 м²), "околу педесет квадрати". "над/nad" joins the prefix group
+  // (23:56 "NAD 80 KVADRATI" family): a MINIMUM, not an approximation —
+  // candidates() filters size >= the slot, so the floor semantics hold.
+  // Used when locating a SEEN property by memory — digits win when both are
+  // present.
+  const w = text.match(/(?:околу\s+|некаде\s+|до\s+|над\s+|nad\s+)?(?:дваесет(?:ина)?|триесет(?:ина)?|четириесет(?:ина)?|педесет(?:ина)?|шеесет(?:ина)?|седумдесет(?:ина)?|осумдесет(?:ина)?|деведесет(?:ина)?|сто(?:тина)?|dvaeset(?:ina)?|trieset(?:ina)?|chetirieset(?:ina)?|pedeset(?:ina)?|seeset(?:ina)?|sedumdeset(?:ina)?|osumdeset(?:ina)?|devedeset(?:ina)?|sto(?:tina)?)\s*(?:квадрат(?:и)?|м2|м²|m2|m²|kvadrat(?:a|i)?)/i);
   if (!w) return undefined;
   const map: Record<string, number> = {
     дваесет: 20, дваесетина: 20, триесет: 30, триесетина: 30,
@@ -3428,6 +3436,24 @@ export function detectFeatureAsk(text: string): boolean {
   return matchesBoth(FEATURE_RE, text) || extFires('feature-ask', text);
 }
 
+// Result-set question — "SAMO OVIE DVA STANA GI IMATE SO DVE ILI TRI SPALNI ?"
+// (23:59): the client asks about the RESULTS JUST SHOWN, not about one
+// property's features. Answerable from the feed in memory — counting listings
+// never needs the owner. Guarded against the FEATURE_RE overlap by requiring
+// a result-set anchor (bare plural "овие/тезе стана" or "колку такви") and
+// NOT a property-type singular ("овој стан" is one property).
+export function detectResultSetQuestion(text: string): boolean {
+  // Result-set anchor: a plural demonstrative over the shown batch, or an
+  // explicit "how many (of them)" probe. Unicode boundaries throughout —
+  // JS \b never binds around Cyrillic.
+  if (!/(?:^|[\s,.:;!?])(?:ovie|ovaa\s+dv[ae]|tezi|тезе|овие|колку\s+такви|kolku\s+takvi|колку|kolku)(?![\p{L}\p{N}])/iu.test(text)) return false;
+  // A DEFINITE-SINGULAR property reference ("ovoj stan", "станот") means the
+  // question is about ONE property — the feature lane owns it.
+  if (/(?:^|[\s,.:;!?])(?:ovo[ji]|ovaa|този|оваа|станот|stanot)(?![\p{L}\p{N}])/iu.test(text)) return false;
+  // Must carry a size predicate and be a question.
+  return /(?:спалн|spaln|соб|sob|kvadrat|квадрат)/iu.test(text) && /\?/u.test(text);
+}
+
 /**
  * Build the classifier event from deterministic slots. STAY when nothing was
  * detected; REJECTED against shown offers (property states) AND against the
@@ -3460,6 +3486,9 @@ export function fsmRequired(text: string): boolean {
   // The working-hours question rides the simple-detector lane (banked
   // answer) — the day token inside it must not be read as a visit slot.
   if (detectWorkdaysQuestion(text)) return false;
+  // The result-set question rides the FSM lane in presentation — the count
+  // answer needs the candidate pool, not a canned fast-path line.
+  if (detectResultSetQuestion(text)) return true;
   return detectService(text) !== undefined
     || detectBothServices(text)
     || detectVisitInterest(text)
