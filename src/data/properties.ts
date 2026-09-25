@@ -36,6 +36,7 @@ export interface Property {
   size?: string;           // povrsina_m2
   business?: boolean;      // деловен простор/канцеларија/локал — feed marks them by having NO bedroom type
   house?: boolean;         // куќа — the feed marks houses only in the opis text ("Се продава куќа…")
+  plac?: boolean;          // плац/земјиште — land plot rows (no bedrooms, opis/address name the land)
   features?: string[];     // garaza, lift, greenje, dvor, parking, opremenost (per feed napomena)
   details?: string;        // opis
   gmaps?: string;
@@ -121,6 +122,18 @@ function isBusiness(r: Record<string, unknown>): boolean {
  *  them only in the opis text ("Се продава куќа…", "Се издава Куќа…"). */
 function isHouse(r: Record<string, unknown>): boolean {
   return /(куќ|кука|house|kukja|kuka)/i.test(str(r.opis));
+}
+
+/** A LAND PLOT (плац/земјиште) — the feed carries land rows as bedroom-less
+ *  rows whose address/title names the land ("Плац за градење…"). Must be
+ *  checked BEFORE isBusiness: both are bedroom-less, but a land row is NOT
+ *  commercial premises. A land word in the OPIS alone counts only on a
+ *  bedroom-less row — "куќа со плац од 500 м²" is a house ad naming its
+ *  yard plot, never a land listing. */
+function isPlac(r: Record<string, unknown>): boolean {
+  const LAND = /(плац|plac|земјишт|zemji[sš]t|zemi[sš]t)/i;
+  if (LAND.test(`${str(r.adresa)} ${str(r.naslov)}`)) return true;
+  return LAND.test(str(r.opis)) && isBusiness(r);
 }
 
 /**
@@ -248,8 +261,9 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     // area). A 0 m² property does not exist — treat as absent so the card
     // never prints "Има 0 м² деловна површина" (the EB 57 transcript bug).
     sqm: num(r.povrsina_m2) || undefined,
-    business: isBusiness(r),
-    house: isHouse(r),
+    business: isBusiness(r) && !isPlac(r),
+    house: isHouse(r) && !isPlac(r),
+    plac: isPlac(r),
     size: (num(r.povrsina_m2) ?? 0) > 0 ? `${r.povrsina_m2} м²` : undefined,
     features: featurePhrases(r),
     details: cleanMacedonian(str(r.opis)) || undefined,
@@ -846,6 +860,7 @@ export class PropertyService {
   async closestMatches(opts: {
     location?: string; price?: number; sqm?: number;
     business?: boolean; house?: boolean; service?: Service; exclude?: number[];
+    plac?: boolean; yard?: boolean;
   }): Promise<Property[]> {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
@@ -860,6 +875,7 @@ export class PropertyService {
       .filter(p => !opts.service || !p.service || p.service === opts.service)
       .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
       .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
+      .filter(p => opts.plac ? p.plac === true : true)
       .map(p => ({
         p,
         score: (inLoc(p) ? 0 : 1_000_000) + priceDist(p) + sqmDist(p) * 500, // м² → €-ish weight
@@ -881,7 +897,7 @@ export class PropertyService {
    */
   async candidates(opts: {
     location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean;
-    garsonjera?: boolean; service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
+    garsonjera?: boolean; plac?: boolean; yard?: boolean; service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
     sortBySqmDesc?: boolean; // "nebitno" (size waived): BIGGEST м² first — the money buys space
     sortByPopularity?: boolean; // "било каде" — most popular neighborhoods first
   }): Promise<Property[]> {
@@ -895,6 +911,19 @@ export class PropertyService {
       .filter(p => !opts.service || !p.service || p.service === opts.service)
       .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
       .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
+      // PLAC / YARD (the 22:53 sweep, exhausted-pivot family): a land-plot ask
+      // filters to plac rows ONLY (a плac is never answered with flats); when
+      // the feed has none the yard/pivot flow releases downstream (the wide
+      // retry clears the location, never the category — a плац stays a плац).
+      // A yard need rides on house ("a kukuca so sopstven dvor" → house rows;
+      // the dvor feature check then leads the houses that actually HAVE one).
+      // The absence branch is category-neutral: a plain стан/населба search
+      // keeps seeing business rows (pre-existing behavior), and a house ask
+      // (house=true) keeps seeing yard-less houses.
+      .filter(p => opts.plac ? p.plac === true
+        : opts.house === true
+          ? (opts.yard ? p.house === true && (p.features?.some(f => /двор|градин/i.test(f)) ?? false) : p.house === true)
+          : true)
       .filter(p => opts.garsonjera ? !p.business && !p.house && isSmallUnit(p) : true)      .filter(p => max === undefined || p.price === undefined || p.price <= max);
     // Bedroom filter: try exact match first; if no results in the TARGET
     // LOCATION, fall back to >= so the client sees alternatives (bigger/smaller)

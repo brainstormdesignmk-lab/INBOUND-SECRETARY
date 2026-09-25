@@ -29,6 +29,8 @@ export interface Event {
   sizeWaived?: boolean;    // "големината не ми е битна" — skip bedrooms question
   pricePriority?: boolean; // "што поевтино" — sort by price, skip budget question
   garsonjera?: boolean;    // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
+  plac?: boolean;          // "плац за градење" — land plot category (NOT a струкен објект)
+  yard?: boolean;          // "со двор/дворче/градина" — needs outdoor space (implies a house)
   propertyId?: number;      // = Евидентен број (EB)
   visitTime?: string;       // free-text time proposed by the client
   name?: string;

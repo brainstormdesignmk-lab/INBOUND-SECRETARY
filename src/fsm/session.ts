@@ -16,6 +16,8 @@ export interface SlotData {
   exactLocationTurns?: number; // consecutive EXACT-address demands (turn 2 = agency protocol)
   pricePriority?: boolean;     // "што поевтино" — sort by price, skip budget question
   garsonjera?: boolean;        // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
+  plac?: boolean;              // "плац за градење" — land plot category
+  yard?: boolean;              // "со двор/дворче/градина" — needs outdoor space (implies house)
   propertyId?: number;          // EB of the property currently discussed
   interestedPropertyId?: number; // EB the client praised/anchored (funnel-arming)
   lastGhostEb?: number;         // last EB served the not-found pivot — where-is

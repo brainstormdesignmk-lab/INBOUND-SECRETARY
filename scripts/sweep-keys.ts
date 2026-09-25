@@ -105,7 +105,7 @@ const C = {
     const s = extractSlots(t);
     // Mirror of the release block's criteriaSignals — keep in sync.
     return !!(s.bedrooms || s.sqm || s.budget || s.garsonjera || s.sizeWaived
-      || s.house !== undefined || s.business);
+      || s.house !== undefined || s.business || s.plac || s.yard);
   },
 };
 
