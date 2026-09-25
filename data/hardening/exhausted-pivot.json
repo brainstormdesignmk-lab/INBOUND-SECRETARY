@@ -66,11 +66,9 @@
     },
     {
       "phrase": "a ima li nekoj dvor stan vo prizemje",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "description"
-      ],
+      "cross": [],
       "benign": []
     },
     {
@@ -89,8 +87,8 @@
     },
     {
       "phrase": "a kukuca so sopstven dvor nadvor od gradot",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -326,8 +324,8 @@
     },
     {
       "phrase": "a plac za gradenje da nemate slucajno",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -368,8 +366,8 @@
     },
     {
       "phrase": "a nesto so dvorce da se",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "CROSS",
+      "target": true,
       "cross": [
         "agreement"
       ],
@@ -435,11 +433,9 @@
     },
     {
       "phrase": "a dvosoben stan kaj centar",
-      "verdict": "CROSS",
+      "verdict": "COVERED",
       "target": true,
-      "cross": [
-        "description"
-      ],
+      "cross": [],
       "benign": []
     },
     {

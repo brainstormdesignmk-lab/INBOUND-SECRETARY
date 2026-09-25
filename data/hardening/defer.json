@@ -45,9 +45,11 @@
     },
     {
       "phrase": "сега сум зафатен, ќе се слушнеме подоцна",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "avail"
+      ],
       "benign": []
     },
     {

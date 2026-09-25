@@ -146,8 +146,8 @@
     },
     {
       "phrase": "koga e mozno razgleduvanje?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -160,8 +160,8 @@
     },
     {
       "phrase": "dali moze da se vide vo zivo?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "CROSS",
+      "target": true,
       "cross": [
         "agreement"
       ],
@@ -169,8 +169,8 @@
     },
     {
       "phrase": "сакам термин за разгледување",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -185,16 +185,18 @@
     },
     {
       "phrase": "кога има термин за гледање",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "mozi poseta?",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
@@ -206,8 +208,8 @@
     },
     {
       "phrase": "koga moze razgleduvanje?",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -222,29 +224,31 @@
     },
     {
       "phrase": "sakam razgleduvanje na stanot na lice mesto",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "сакам обиколка на станот во живо",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "mozi li ogled na prostorot",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [],
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
       "phrase": "zainteresiran sum da go prosetam stanot",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "CROSS",
+      "target": true,
       "cross": [
         "agreement"
       ],
@@ -252,8 +256,8 @@
     },
     {
       "phrase": "да дојдам на лице место да погледам",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "CROSS",
+      "target": true,
       "cross": [
         "agreement"
       ],
@@ -268,8 +272,8 @@
     },
     {
       "phrase": "можно ли е гледање на куќата",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -282,22 +286,24 @@
     },
     {
       "phrase": "koga mozi da se napravi ogled",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [],
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {
       "phrase": "заинтересиран сум за тура низ просторот",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "bi sakal da dojdam i da prosetam",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -312,9 +318,11 @@
     },
     {
       "phrase": "mozi li termin za ogled",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [],
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "agreement"
+      ],
       "benign": []
     },
     {

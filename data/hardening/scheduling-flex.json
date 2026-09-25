@@ -15,7 +15,8 @@
       "verdict": "CROSS",
       "target": true,
       "cross": [
-        "timeRej"
+        "timeRej",
+        "visitTime"
       ],
       "benign": []
     },

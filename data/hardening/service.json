@@ -170,15 +170,15 @@
     },
     {
       "phrase": "baram kuka za kupuvane",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "барам нешто под крија",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },

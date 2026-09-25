@@ -140,15 +140,15 @@
     },
     {
       "phrase": "нека праша",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "da nema prob",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -210,8 +210,8 @@
     },
     {
       "phrase": "Neka bide taka",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -247,8 +247,8 @@
     },
     {
       "phrase": "mozi super",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -282,8 +282,8 @@
     },
     {
       "phrase": "Top, se slagam",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -310,8 +310,8 @@
     },
     {
       "phrase": "vazi pisi mu",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -361,8 +361,8 @@
     },
     {
       "phrase": "da moze super",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -375,8 +375,8 @@
     },
     {
       "phrase": "може слободно",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "CROSS",
+      "target": true,
       "cross": [
         "avail"
       ],
@@ -384,8 +384,8 @@
     },
     {
       "phrase": "moze pisi mu",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -412,8 +412,8 @@
     },
     {
       "phrase": "можи, супер",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
@@ -426,29 +426,29 @@
     },
     {
       "phrase": "се слагам",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "okej, nema problem",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "да пиши му",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
     {
       "phrase": "mozeee",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
