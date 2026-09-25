@@ -1048,8 +1048,23 @@ export function detectPropertyDescription(text: string): boolean {
 // Anything with a time/date reference: "утре на пладне", "после 6", "петок
 // во 17:30", "сабота попладне". Returns the raw phrase (used verbatim in the
 // owner check + confirmation).
+//
+// PARITY ARMS (the [14:35] corpus diag) — the parser (CLOCK_RE/BARE_CLOCK_RE
+// in visits/time) resolved these but the detector stayed silent, so a bare
+// clock message was never captured as a slot:
+//   "na 5" / "od 6"  — clock prefixes the parser already accepts (dates are
+//     never written with на/na/од/od, so no date collision) — BUT na/od +
+//     digits is also a PRICE ("na 180 e") or a SIZE ("od 70 kvadrati"), so
+//     the arms carry a money/size guard: the hour digits must not run into a
+//     longer number, and no currency/sqm tail may follow.
+//   "18:30"          — BARE clock with minutes; COLON form only (a dot pair
+//     is a date: "11.06"), mirroring the parser's date-wins rule.
+//   "po 19h"         — Latin "po" (the Cyrillic по arm existed; Latin did
+//     not), the trailing "h" is swallowed by the unbounded \d{1,2}.
+//   "ponedelok"      — distance-2 typo of понеделник/ponedelnik, outside
+//     fuzzyHasToken's reach; spelled out here.
 const VISIT_TIME_RE =
-  /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|после\s*\d{1,2}|по\s*\d{1,2}|после\s+\d{1,2}|понеделник|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
+  /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|после\s*\d{1,2}|по\s*\d{1,2}|(?<![а-џ])(?:на|од)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|понеделник|понеделок|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|\b\d{1,2}:\d{2}\b|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|po\s*\d{1,2}|(?<![a-zа-џ])(?:na|od)\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|ponedelok|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
 
 export function detectVisitTime(text: string): string | undefined {
   // A working-days QUESTION ("VO NEDELA RABOTITE ?") contains the day token
@@ -1065,6 +1080,10 @@ export function detectVisitTime(text: string): string | undefined {
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.
+  //
+  // “ponedelok”/“Понеделок” — a distance-2 typo of понеделник/ponedelnik
+  // (n→k slip), beyond fuzzyHasToken's reach, so it is pinned EXPLICITLY.
+  // The Cyrillic form rides the existing substring arms (понеделни).
   if (fuzzyHasToken(text, ['понеделник', 'вторник', 'четврток', 'сабота', 'недела',
     'попладне', 'напладне', 'претпладне', 'викенд', 'задутре'])) return text.trim().slice(0, 80);
   return undefined;

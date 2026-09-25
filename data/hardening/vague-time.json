@@ -37,9 +37,11 @@
     },
     {
       "phrase": "po 17h mozhe",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "visitTime"
+      ],
       "benign": []
     },
     {
@@ -121,13 +123,33 @@
     },
     {
       "phrase": "nokeski po 8",
-      "verdict": "COVERED",
+      "verdict": "CROSS",
       "target": true,
-      "cross": [],
+      "cross": [
+        "visitTime"
+      ],
       "benign": []
     },
     {
       "phrase": "preku den sum na rabota",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "vo ponedelnik popladne",
+      "verdict": "CROSS",
+      "target": true,
+      "cross": [
+        "visitTime"
+      ],
+      "benign": []
+    },
+    {
+      "phrase": "posle 6",
       "verdict": "CROSS",
       "target": true,
       "cross": [

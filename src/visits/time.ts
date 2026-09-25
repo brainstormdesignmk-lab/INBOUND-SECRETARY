@@ -32,9 +32,11 @@ const CLOCK_RE = /(?:во|vo|на|na|околу|okolu|по|po|после|posle|�
 // anchors the digits as a clock (a bare "6" alone never parses as a time).
 // Exported: detectVisitTime/isValidVisitTime (llm/deterministic) reuse it so a
 // BARE "6 SAAT" (the split [14:35] message) is recognized as a time reference
-// on its own, without a day word.
+// on its own, without a day word. Suffixes are EXPLICIT (not \w*) — \w has no
+// Cyrillic, so "6 саати" never matched and the boundary lookahead failed; the
+// explicit list also keeps "6 casino" out (cas+ino is not a suffix).
 export const HOUR_WORD_RE =
-  /(?<![\p{L}\p{N}])(\d{1,2})\s*(?:саат\w*|saat\w*|час(?:от)?|cas(?:ot|ovi)?)(?![\p{L}\p{N}])/iu;
+  /(?<![\p{L}\p{N}])(\d{1,2})\s*(?:саат(?:и|от|а)?|saat(?:i|ot|a)?|час(?:от|а|и)?|cas(?:ot|ovi|a|i)?)(?![\p{L}\p{N}])/iu;
 
 /** Hour-word clock adapter: returns a CLOCK_RE-shaped match for "6 saat"
  *  (index 2 — the minutes — is always absent in the hour-word form). */
