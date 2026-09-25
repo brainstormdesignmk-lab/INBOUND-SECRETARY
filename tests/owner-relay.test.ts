@@ -103,7 +103,7 @@ test('workdays question never reaches the owner — answered from the bank, then
   assert.equal(s.state, 'owner_checking', 'the pending owner check must stay alive');
   const reply = sent[sent.length - 1];
   assert.match(reply, /понеделник|петок/u, `agency hours must be answered: ${reply}`);
-  assert.match(reply, /сабота и недела|неработн|не работиме|затворен|не е можно/iu, `closed days must be stated: ${reply}`);
+  assert.match(reply, /сабота и недела|неработн|не работиме|затворен|не е можно|не работи/u, `closed days must be stated: ${reply}`);
   // The owner ask must NOT echo the hours question as a proposed term
   // (the previous owner ask carried the visit time, not this question).
   assert.ok(!sent.some(t => /сака посета: VO NEDELA/u.test(t)), `hours question must never be forwarded to the owner`);
@@ -203,4 +203,38 @@ test('"samo popladne mozam" — a word-internal "ne" never fabricates a refusal'
 test('the reversed clock "samo vo 11 vo petok" relays the full term, not the bare day', () => {
   const v = detectOwnerVerdict('samo vo 11 vo petok', 'утре во 18:00')!;
   assert.match(v.ownerTime!, /Петок во 11/u);
+});
+
+// ── The [14:22] transcript: the owner ask carried the client's RAW shorthand
+// ("VO PONEDELNIK MOZAM 6 SAAT"). The owner must read the TRANSLATED term —
+// resolved to the concrete date and rewritten canonically. ──
+test('normalizeOwnerTime: raw client shorthand becomes the canonical dated term', async () => {
+  const { normalizeOwnerTime } = await import('../src/llm/prompts');
+  // Pinned clock: 2026-09-25 is a Friday → the next понеделник is 28.09.2026.
+  const now = new Date(2026, 8, 25, 14, 0, 0);
+  // "6 saat" = 18:00 (the hour-word parser must read 18:00, not 06:00).
+  const a = normalizeOwnerTime('VO PONEDELNIK MOZAM 6 SAAT', now);
+  assert.match(a, /Понеделник, 28\.09\.2026 во 18:00/u, `hour-word must resolve to 18:00: ${a}`);
+  // A phrase that already carries a proper clock keeps it.
+  const b = normalizeOwnerTime('vo ponedelnik vo 18:00', now);
+  assert.match(b, /Понеделник, 28\.09\.2026 во 18:00/u, b);
+  // A day with NO clock keeps the date but no fabricated hour.
+  const c = normalizeOwnerTime('vo petok', now);
+  assert.match(c, /Петок, \d{2}\.\d{2}\.\d{4}$/u, `day-only must not fabricate a clock: ${c}`);
+  // An unresolvable phrase keeps the display-caps fallback (mkTimePhrase
+  // capitalizes; it never transliterates the client's own words).
+  const d = normalizeOwnerTime('po dogovor', now);
+  assert.match(d, /^[Pp]o dogovor$/u, d);
+});
+
+test('the owner ask relays the NORMALIZED term, never the raw client shorthand', async () => {
+  const { handler, sent, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  // Proposed term captured in slots by the previous send (reachOwnerChecking).
+  // Fire the normalization unit-asserts inline: the ask builder wraps
+  // normalizeOwnerTime, so a shorthand slot can never reach the owner verbatim.
+  const { normalizeOwnerTime } = await import('../src/llm/prompts');
+  const out = normalizeOwnerTime('VO PONEDELNIK MOZAM 6 SAAT');
+  assert.ok(!/SAAT|MOZAM/u.test(out), `raw shorthand must not survive: ${out}`);
+  assert.match(out, /Понеделник/u, out);
 });

@@ -3,7 +3,8 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService, detectProvisionAsk, detectProvisionWho, hasDayWord } from './deterministic';
+import { hasClockHint } from '../visits/time';
 
 export interface Classified {
   event: Event;
@@ -292,6 +293,7 @@ export class Classifier {
       // funnel re-asked bedrooms after "garsonjera mi treba" (19:34).
       sizeWaived: slots.sizeWaived, pricePriority: slots.pricePriority,
       garsonjera: slots.garsonjera,
+      plac: slots.plac, yard: slots.yard,
     });
 
     // Bare-number: set propertyId on event BEFORE funnel overrides so
@@ -320,6 +322,8 @@ export class Classifier {
         sizeWaived: slots.sizeWaived || session.slots.sizeWaived,
         pricePriority: slots.pricePriority || session.slots.pricePriority,
         garsonjera: slots.garsonjera || session.slots.garsonjera,
+        plac: slots.plac || session.slots.plac,
+        yard: slots.yard || session.slots.yard,
         need: slots.need, rejected: slots.rejected,
       });
       if (merged.type === 'SEARCH_REQUESTED') ev = merged;
@@ -448,14 +452,32 @@ export class Classifier {
       }
     }
 
-    // Owner checking: time rejection or new time
+    // Owner checking: time rejection or new time. An EXACT repeat of the
+    // phrase already on the table ("6 SAAT" twice in a row — the client's
+    // [14:35] double-send) must not restart the owner check: the slot is
+    // compared WHOLE (day+clock) so "во 18:00" re-sent after "6 SAAT" still
+    // fires (its raw text differs) while an identical re-send stays silent.
+    // A bare clock with no day ("6 SAAT" alone) is a COMPLETION of the day
+    // already on the table — prepended so the owner ask reads one phrase, and
+    // normalizeOwnerTime resolves the day+clock pair.
     if (session.state === 'owner_checking'
       && ev.type !== 'ESCALATE' && ev.type !== 'REJECTED') {
       if (detectTimeRejection(text)) {
         ev = { type: 'TIME_REJECTED' };
       } else {
         const t = detectVisitTime(text);
-        if (t) ev = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+        const stored = session.slots.visitTime ?? '';
+        const dupClock = !!t && !hasDayWord(t) && hasClockHint(stored)
+          && text.trim().toLowerCase() === stored.split(',')[0].trim().toLowerCase();
+        if (t && !dupClock && t.trim().toLowerCase() !== stored.trim().toLowerCase()) {
+          let merged = t;
+          if (!hasDayWord(t) && hasDayWord(stored) && !hasClockHint(stored)) {
+            merged = `${t.trim()}, ${stored.trim()}`;
+          }
+          ev = { type: 'VISIT_TIME_PROVIDED', visitTime: merged };
+        }
+        // else: a duplicate re-send (whole phrase, or the bare clock after a
+        // merge) or no time at all — ev unchanged, the check stays in flight.
       }
     }
 
@@ -614,6 +636,7 @@ export class Classifier {
         service: s.service, location: loc, bedrooms: s.bedrooms,
         sqm: s.sqm, business: s.business, house: s.house,
         budget: s.budget, anywhere: s.anywhere, need: s.need, rejected: s.rejected,
+        plac: s.plac, yard: s.yard,
       });
       console.log(`[classify] seen-property guard: EB ${session.slots.propertyId ?? session.slots.interestedPropertyId} already known → ${ev.type}`);
       parsed.event = ev;
@@ -630,6 +653,40 @@ export class Classifier {
         console.log(`[classify] availability-with-known-EB guard: EB ${known}`);
         parsed.event = { type: 'PROPERTY_ID_REQUESTED', propertyId: known };
       }
+    }
+    // GUARD 3b — the RENT-PRICE question with NO digits ("KOLKU MU E RENTA?",
+    // "kolku e kirijata?") after an EB is funnel traffic about THAT property:
+    // the [14:22] transcript re-rendered the full card because the STAY
+    // verdict skipped the price-ask promotion. Mirrors the availability
+    // promotion above — the property_query branch's price fast path answers.
+    if (parsed.event.type === 'STAY' && detectPriceAsk(text)
+      && !detectProvisionAsk(text) && !detectProvisionWho(text)
+      && PROP_INTAKE_STATES.has(session.state)) {
+      const known = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      if (known !== undefined) {
+        console.log(`[classify] price-with-known-EB guard: EB ${known}`);
+        parsed.event = { type: 'PROPERTY_ID_REQUESTED', propertyId: known };
+      }
+    }
+    // FUNNEL-SLIP GUARD (the [14:14] transcript): a search opener carrying
+    // criteria ("SKM DA IZNAJMAM DVOSOBEN STAN" — explicit rent marker +
+    // room word) must NEVER reach the funnel outside the discovery family.
+    // An LLM blunder (INTERESTED on the "sakam" shape, a hallucinated
+    // REJECTED) skipped the deterministic recompute below, the service slot
+    // never filled and Lina re-asked "купување или изнајмување?" the client
+    // had just answered. Pin the event into the family so the deterministic
+    // slot extraction always runs on criteria-bearing openers. True
+    // rejections (detectRejection), EB asks and seen-property probes keep
+    // their own funnels.
+    if (['idle', 'intent', 'discovery'].includes(session.state)
+      && ['INTERESTED', 'REJECTED', 'FEE_AGREED', 'FEE_REFUSED',
+        'VISIT_TIME_PROVIDED', 'TIME_ACCEPTED', 'TIME_REJECTED'].includes(parsed.event.type)
+      && (detectService(text) || detectBedrooms(text) || detectBudget(text)
+        || detectBusiness(text) || detectHouse(text) === true
+        || detectGarsonjera(text) || detectPlac(text) || detectYardNeed(text))
+      && !detectRejection(text)) {
+      console.log(`[classify] funnel-slip guard: criteria-bearing opener pinned to DETAILS_PROVIDED (was ${parsed.event.type})`);
+      parsed.event = { type: 'DETAILS_PROVIDED' };
     }
     if (['idle', 'intent', 'discovery'].includes(session.state)
       && parsed.event.type !== 'PROPERTY_ID_REQUESTED'
@@ -729,6 +786,8 @@ export class Classifier {
       if (ev.bedrooms === undefined && slots.bedrooms) ev.bedrooms = slots.bedrooms;
       if (ev.garsonjera === undefined && slots.garsonjera) ev.garsonjera = true;
       if (!ev.sizeWaived && slots.sizeWaived) ev.sizeWaived = true;
+      if (ev.plac === undefined && slots.plac) ev.plac = true;
+      if (!ev.yard && slots.yard) ev.yard = true;
       if (ev.sqm === undefined && slots.sqm) ev.sqm = slots.sqm;
       if (ev.business === undefined && slots.business !== undefined) ev.business = slots.business;
       if (ev.house === undefined && slots.house !== undefined) ev.house = slots.house;
@@ -740,6 +799,7 @@ export class Classifier {
         anywhere: ev.anywhere, need: slots.need, rejected: slots.rejected,
         sizeWaived: ev.sizeWaived || undefined, pricePriority: ev.pricePriority || undefined,
         garsonjera: ev.garsonjera || undefined,
+        plac: ev.plac || undefined, yard: ev.yard || undefined,
       });
       if (det.type !== 'STAY') parsed.event = det;
       // Same session-merge completeness as the deterministic path (LLM-down
@@ -759,6 +819,8 @@ export class Classifier {
           sizeWaived: ev.sizeWaived || session.slots.sizeWaived || undefined,
           pricePriority: ev.pricePriority || session.slots.pricePriority || undefined,
           garsonjera: ev.garsonjera || session.slots.garsonjera || undefined,
+          plac: ev.plac || session.slots.plac || undefined,
+          yard: ev.yard || session.slots.yard || undefined,
           need: slots.need, rejected: slots.rejected,
         });
         if (merged.type === 'SEARCH_REQUESTED') parsed.event = merged;
@@ -875,7 +937,10 @@ export class Classifier {
     // the ping-pong survives any LLM mood: a rejection ("не можам во 18:00",
     // "може покасно?") goes back to collecting a NEW concrete time; a NEW
     // concrete time ("MOZAM VO 19:00") re-asks the owner with it. Deliberate
-    // events (ESCALATE, REJECTED) are respected.
+    // events (ESCALATE, REJECTED) are respected. An EXACT re-send of the term
+    // already on the table (the [14:35] double-send) stays STAY; a bare clock
+    // completes the day-only phrase already stored ("6 SAAT" after
+    // "VO PONEDELNIK MOZAM" → "6 saat, vo ponedelnik mozam").
     if (session.state === 'owner_checking'
       && parsed.event.type !== 'ESCALATE'
       && parsed.event.type !== 'REJECTED') {
@@ -883,7 +948,16 @@ export class Classifier {
         parsed.event = { type: 'TIME_REJECTED' };
       } else {
         const t = detectVisitTime(text);
-        if (t) parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+        const stored = session.slots.visitTime ?? '';
+        const dupClock = !!t && !hasDayWord(t) && hasClockHint(stored)
+          && text.trim().toLowerCase() === stored.split(',')[0].trim().toLowerCase();
+        if (t && !dupClock && t.trim().toLowerCase() !== stored.trim().toLowerCase()) {
+          let merged = t;
+          if (!hasDayWord(t) && hasDayWord(stored) && !hasClockHint(stored)) {
+            merged = `${t.trim()}, ${stored.trim()}`;
+          }
+          parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: merged };
+        }
       }
     }
     // See-offers override: mid-discovery the client asks to SEE current offers

@@ -2,7 +2,8 @@ import { State, Service } from '../fsm/machine';
 import { SlotData } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
-import { Property, locPrep } from '../data/properties';
+import { Property, locPrep, mkTimePhrase } from '../data/properties';
+import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint } from '../visits/time';
 
 export const BUY_FEE_MKD = '500 MKD';
 export const RENT_FEE_MKD = '300 MKD';
@@ -98,7 +99,7 @@ export const LOCATE_PICK_CLOSER =
 
 /** A compact "is this the one you saw?" line — EB, type, area, size, price. */
 export function buildLocateMatchLine(p: Property): string {
-  const what = p.house ? 'куќа' : p.business ? 'деловен простор' : propertyType(p);
+  const what = p.plac ? 'плац' : p.house ? 'куќа' : p.business ? 'деловен простор' : propertyType(p);
   const bits = [
     p.location ? `во ${p.location}` : '',
     p.size ? p.size : '',
@@ -129,6 +130,23 @@ export interface OwnerAskProps {
   possessive?: string;
   /** Adjective form for 'достапен': 'достапен' (masc), 'достапна' (fem), 'достапно' (neut). */
   dostapen?: string;
+}
+
+/**
+ * OWNER-ASK TIME NORMALIZER (the [14:22] transcript): the client's raw term
+ * ("VO PONEDELNIK MOZAM 6 SAAT") reached the owner VERBATIM — the owner read
+ * client shorthand. Lina translates like a human agent: the raw phrase is
+ * resolved to a CONCRETE date and rewritten in the canonical display form
+ * ("Понеделник, 28.09.2026 во 18:00"). Unresolvable phrases keep mkTimePhrase
+ * (day-fix + display-caps only).
+ */
+export function normalizeOwnerTime(raw: string, now: Date = new Date()): string {
+  const phrase = (raw ?? '').trim();
+  if (!phrase) return phrase;
+  const resolved = parseVisitDateTime(phrase, now);
+  if (!resolved) return mkTimePhrase(phrase);
+  const clocked = hasClockHint(phrase);
+  return clocked ? formatVisitDate(resolved) : `${weekdayName(resolved)}, ${formatDateOnly(resolved)}`;
 }
 
 export function buildOwnerAsk(eb: number, proposedTime: string, opts?: OwnerAskProps): string {
@@ -303,6 +321,8 @@ const CITY_LEVEL_LOCATIONS = /^(?:Скопје|Skopje|скопjе|skopje)$/iu;
 export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): string {
   const business = !!slots.business;
   const house = !!slots.house;
+  const plac = !!slots.plac;    // "плац за градење" — land plot (the 22:53 sweep)
+  const yard = !!slots.yard;    // "со двор/дворче" — outdoor-space need (implies house)
   const anywhere = !!slots.anywhere; // "било каде" — location waived, city-wide search
   const knownAny = !!(slots.service || slots.location || slots.bedrooms || slots.sqm || slots.budget || anywhere);
   // The client opened with NO criteria at all ("zdravo") — Lina does NOT know
@@ -322,6 +342,9 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
         : 'Дали станот го барате за купување или за изнајмување?',
       recent));
   }
+  // Size questions never fire for plac/yard: a land plot has no спални, and a
+  // yard need already IS the size criterion (mirror of the garsonjera rule).
+  const sizeWaivedCategory = plac || yard;
   // "Било каде" answers the location question — the question is skipped, and
   // the bedrooms question too (a flexible client gets the budget-driven
   // city-wide presentation; bedrooms refine later via rejections, never block).
@@ -339,7 +362,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // "garsonjera" IS the size answer — a studio has no separate спална, so the
   // bedrooms question never fires for the explicit studio category (19:34 bug:
   // the funnel looped on "Колку спални…" after the client already said it).
-  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms && !anywhere && !slots.sizeWaived && !slots.garsonjera) {
+  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms && !anywhere && !slots.sizeWaived && !slots.garsonjera && !sizeWaivedCategory) {
     missing.push(askQuestion(
       house ? 'discovery.ask.bedrooms.house' : 'discovery.ask.bedrooms.stan',
       house ? 'Колку спални соби би сакале да има куќата?' : 'Колку спални соби би сакале да има станот?',
@@ -553,13 +576,16 @@ export function stateTask(state: State, slots: SlotData): string {
     case 'property_query':
       return `The client asked about a SPECIFIC property: Евидентен број ${slots.propertyId ?? '?'}. Describe ONLY that property from the provided data (layout, size, price, location, address, features, description). PRICE MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. STRICT: if the RELEVANT PROPERTY DATA is empty ([]), do NOT invent any details — say you could not find that property in the current offer and offer to suggest similar ones. Do NOT mention any viewing fee in this step. NEVER include a link, "Повеќе информации" or a web address — the client reads everything IN THE CHAT, described with words from the provided data. If a field is null in the data, OMIT it entirely — never write "непозната локација" or "непознат" (only mention what the data really contains). If the client asks whether the property is available ("дали е достапен?") or when they could view it ("кога може да се погледне?"), treat it as visit interest: ask if they would like to schedule a visit — NEVER offer to contact the owner or ask for their phone yet (the system discloses the viewing fee first, then contacts the owner after they agree). End by asking if they would like to visit it (only if the property was found) — VARY the phrasing of that question, never repeat the same sentence twice in a row.`;
     case 'presentation': {
-      const size = slots.business ? `${slots.sqm ?? '?'} м²` : `${slots.bedrooms ?? '?'} спални`;
+      const size = slots.business ? `${slots.sqm ?? '?'} м²`
+        : (slots.plac || slots.yard) ? 'size per listing (a land plot / yard need has no спални spec)'
+        : `${slots.bedrooms ?? '?'} спални`;
       const what = slots.business ? 'COMMERCIAL space (деловен простор)'
+        : slots.plac ? 'LAND PLOT (плац)'
         : slots.house ? 'HOUSE (куќа)' : 'apartment';
       const locDesc = slots.anywhere
         ? 'ANYWHERE in Skopje (the client said "било каде" — no location preference; the offers are already ordered from the most popular neighborhoods: Центар, Капиштец, Карпош, Аеродром, Кисела Вода, Влае, Ѓорче Петров, then the rest)'
         : `"${slots.location ?? '?'}"`;
-      return `The client wants to ${serviceLabel(slots.service)} a ${what} in ${locDesc} with ${size}, budget ${slots.budget ?? '?'}. Present the properties from the provided data (MAX 2). STRICT: never invent properties or details that are not in the provided data. PRICES MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. These are the NEXT available options — if the client rejected earlier offers, briefly acknowledge and present these as the closest alternatives. If none of the provided properties is in the requested location, say there is nothing available exactly in ${slots.location ?? '?'} right now and present these as the closest options from nearby areas. NEVER claim there are no other properties anywhere — only the provided data exists. Do NOT mention viewing fees. Use "Евидентен број N". Describe each property IN WORDS using ONLY the provided data: location, address, size, bedrooms, features and description (details). NEVER include a link, "Повеќе информации" or a web address — the client reads everything IN THE CHAT, described with words from the database. If a field is null in the data, OMIT it entirely — never write "непозната локација" or "непознат" (only mention what the data really contains). If the client asks whether a property is available or when they could view it, treat it as visit interest — NEVER offer to contact the owner or ask for their phone yet (the fee is disclosed first, the owner is contacted only after they agree). End with a natural closing question asking whether they like any of the offers and would like a visit scheduled — VARY the phrasing every time (e.g. "Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?" / "Дали некој од овие станови Ви одговара? Ако да, можам веднаш да организирам посета." / "Кој од овие предлози најмногу Ви одговара?"). NEVER repeat the exact same closing sentence as your previous reply.`;
+      return `The client wants to ${serviceLabel(slots.service)} a ${what} in ${locDesc} with ${size}, budget ${slots.budget ?? '?'}. Present the properties from the provided data (MAX 2). STRICT: never invent properties or details that are not in the provided data. PRICES MUST BE QUOTED IN EUROS (евра/€) — the price_eur field is already in euros; NEVER say a property price in денари. These are the NEXT available options — if the client rejected earlier offers, briefly acknowledge and present these as the closest alternatives. If none of the provided properties is in the requested location, say there is nothing available exactly in ${slots.location ?? '?'} right now and present these as the closest options from nearby areas. NEVER claim there are no other properties anywhere — only the provided data exists.${slots.yard ? ' The client specifically needs a yard (двор/градина) — name the yard for each offer when the data mentions one; when no offer has a yard, say so honestly.' : ''} Do NOT mention viewing fees. Use "Евидентен број N". Describe each property IN WORDS using ONLY the provided data: location, address, size, bedrooms, features and description (details). NEVER include a link, "Повеќе информации" or a web address — the client reads everything IN THE CHAT, described with words from the database. If a field is null in the data, OMIT it entirely — never write "непозната локација" or "непознат" (only mention what the data really contains). If the client asks whether a property is available or when they could view it, treat it as visit interest — NEVER offer to contact the owner or ask for their phone yet (the fee is disclosed first, the owner is contacted only after they agree). End with a natural closing question asking whether they like any of the offers and would like a visit scheduled — VARY the phrasing every time (e.g. "Дали Ви се допаѓа некој од овие предлози и дали би сакале да организираме посета на имотот?" / "Дали некој од овие станови Ви одговара? Ако да, можам веднаш да организирам посета." / "Кој од овие предлози најмногу Ви одговара?"). NEVER repeat the exact same closing sentence as your previous reply.`;
     }
     case 'closing': {
       const eb = slots.interestedPropertyId ?? slots.propertyId;
@@ -676,12 +702,10 @@ function propertyType(p: Property): string {
 
 /** Property type labels for owner messages (indefinite + definite article + gender). */
 export function ownerPropertyLabels(p: Property): { type: string; def: string; possessive: string; dostapen: string } {
-  if (p.house) return { type: 'куќа', def: 'куќата', possessive: 'Вашата', dostapen: 'достапна' };
+  if (p.plac) return { type: 'плац', def: 'плацот', possessive: 'Вашиот', dostapen: 'достапен' };
+  if (p.house) return { type: 'куќа', def: 'куќата', possessive: 'Вашиот', dostapen: 'достапна' };
   if (p.business) return { type: 'деловен простор', def: 'деловниот простор', possessive: 'Вашиот', dostapen: 'достапен' };
-  // Plac is rare — check address/details for "плац"
-  const addr = (p.address ?? '').toLowerCase();
-  const det = (p.details ?? '').toLowerCase();
-  if (/плац|plac/i.test(addr + ' ' + det)) return { type: 'плац', def: 'плацот', possessive: 'Вашиот', dostapen: 'достапен' };
+  // (the feed's plac flag owns the category now — see isPlac in properties.ts)
   // Default: стан (apartment) with specific type
   const label = propertyType(p);
   if (label.includes('гарсоњер')) return { type: label, def: 'гарсоњерата', possessive: 'Вашата', dostapen: 'достапна' };

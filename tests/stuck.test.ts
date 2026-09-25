@@ -12,7 +12,7 @@ import { MetaStore } from '../src/store/meta';
 import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
-import { detectOwnerVerdict } from '../src/llm/deterministic';
+import { detectOwnerVerdict, detectPlac, detectYardNeed, detectHouse, extractSlots, detectPositiveEval, detectPriceAsk, detectBedrooms, isValidPhone, hasDayWord } from '../src/llm/deterministic';
 import { LandmarkService } from '../src/geo/landmarks';
 import { RESPONSE_BANK } from '../src/data/responses';
 
@@ -944,7 +944,9 @@ test('owner_checking: the client rejects the proposed time -> new time collected
   let s = await send('UTRE POPLADNE POSLE 6');
   assert.equal(s.state, 'owner_checking');
   assert.equal(ownerAsks.length, 1);
-  assert.ok(ownerAsks[0].includes('UTRE POPLADNE POSLE 6'), ownerAsks[0]);
+  // The [14:22] contract: the owner reads the TRANSLATED term (canonical
+  // dated form), never the client's raw shorthand.
+  assert.match(ownerAsks[0], /посета: (?:Утре|Сабота), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
 
   // the client can't do the proposed time -> back to the time question, NOT
   // the patience line, and no new owner ask for a time the client rejected
@@ -1016,7 +1018,7 @@ test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed —
   // the ping-pong QUESTION reached the owner (available now? agree to the time?)
   assert.equal(ownerAsks.length, 1);
   assert.ok(ownerAsks[0].includes('78') && ownerAsks[0].includes('достапен'), ownerAsks[0]);
-  assert.ok(ownerAsks[0].includes('UTRE POPLADNE POSLE 6'), ownerAsks[0]);
+  assert.match(ownerAsks[0], /посета: (?:Утре|Сабота), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
   // owner: "да, може" (plain text) -> ok -> confirmed at the proposed time
   toOwner(c1, 78, 'da, moze');
   await tick();
@@ -3161,4 +3163,242 @@ test('the [22:53] bug: "KOLKU MU E KIRIJA?" answers the shown rent, never the ex
   assert.ok(!/исцрпивме|немаме други опции|запишам Вашите спецификации/i.test(reply),
     `the exhausted pitch must never answer a price question: ${reply}`);
   assert.equal(s.slots.lastPrice, '200', 'lastPrice recorded for the echo rule');
+});
+
+// ── The 22:53 hardening sweep, exhausted-pivot family ──
+// Three corpus GAPs: "a kukuca so sopstven dvor nadvor od gradot" (Latin
+// house word normalizeMc cannot bridge), "a plac za gradenje da nemate
+// slucajno" (NO land detector at all) and "a nesto so dvorce da se" (yard
+// words invisible). Contract: each pivot releases the area lock, switches
+// the category and re-presents the NEW search — never the exhausted ask.
+test('plac/yard/kukuca detectors: the 22:53 sweep corpus lines', () => {
+  assert.equal(detectPlac('a plac za gradenje da nemate slucajno'), true);
+  assert.equal(detectPlac('плац за градење'), true);
+  assert.equal(detectPlac('Zemiiste vo Dracevo'), true);
+  assert.equal(detectPlac('stan vo centar'), false);
+  assert.equal(detectYardNeed('a nesto so dvorce da se'), true);
+  assert.equal(detectYardNeed('kuka so gradina'), true);
+  assert.equal(detectYardNeed('stan do pazarot'), false);
+  // "kukuca" normalizes to кукуца — contains no "кука"; the verbatim word
+  // keeps the Latin house typo in the house category.
+  assert.equal(detectHouse('a kukuca so sopstven dvor'), true);
+  const s = extractSlots('a nesto so dvorce da se');
+  assert.equal(s.yard, true);
+  assert.equal(s.house, true, 'a yard need implies the house category');
+  const p = extractSlots('a plac za gradenje da nemate slucajno');
+  assert.equal(p.plac, true);
+  assert.equal(p.house, undefined, 'a plac is not a house');
+});
+
+test('exhausted-pivot: kukuca+dvor releases the lock and leads with yard houses', async () => {
+  const rows: Property[] = [
+    { eb: 70, id: 70, location: 'Центар', price: 200, service: 'rent', size: '24 м²' },
+    { eb: 71, id: 71, location: 'Центар', price: 250, service: 'rent', size: '30 м²' },
+    { eb: 72, id: 72, location: 'Влае', price: 240, service: 'rent', house: true, bedrooms: 3, features: ['двор'] },
+    { eb: 73, id: 73, location: 'Аеродром', price: 245, service: 'rent', house: true, bedrooms: 3 },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'sweep-kukuca';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Exhaust the Центар garsonjera funnel.
+  await send('SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA');
+  await send('NE MI SE DOPAGA');
+  await send('NE MI SE DOPAGA');
+  let s = await send('NE MI SE DOPAGA');
+  assert.ok(EXHAUSTED_ASK.test(sent.at(-1)!), sent.at(-1)!);
+
+  // The sweep-corpus pivot: "nadvor od gradot" must not widen-steal the turn —
+  // the fresh house+yard criteria own it and the yard house LEADS.
+  s = await send('a kukuca so sopstven dvor nadvor od gradot');
+  assert.equal(s.slots.areaExhausted, false, 'the pivot must release the area lock');
+  assert.equal(s.slots.house, true, 'kukuca must set the house category');
+  assert.equal(s.slots.yard, true, 'the yard need must be captured');
+  assert.ok(/Евидентен број 72/.test(sent.at(-1)!), `the yard house must lead: ${sent.at(-1)!}`);
+  assert.ok(!EXHAUSTED_ASK.test(sent.at(-1)!), `must not loop the exhausted ask: ${sent.at(-1)!}`);
+});
+
+test('exhausted-pivot: "a plac za gradenje" switches to land rows, house slot cleared', async () => {
+  const rows: Property[] = [
+    { eb: 80, id: 80, location: 'Кисела Вода', price: 46000, service: 'buy' },
+    { eb: 74, id: 74, location: 'Маџари', price: 45000, service: 'buy', plac: true },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'sweep-plac';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Exhaust a garsonjera buy funnel (EB 80 is the only match; one rejection
+  // drains it).
+  await send('SAKAM DA KUPAM GARSONJERA VO KISELA VODA DO 60000 EVRA');
+  await send('NE MI SE DOPAGA');
+  let s = await send('NE MI SE DOPAGA');
+  assert.ok(EXHAUSTED_ASK.test(sent.at(-1)!), sent.at(-1)!);
+
+  // The land pivot: presents the plac row, clears the house/stan framing.
+  s = await send('a plac za gradenje da nemate slucajno');
+  assert.equal(s.slots.plac, true, 'the land category must be captured');
+  assert.equal(s.slots.house, undefined, 'a plac is not a house');
+  assert.equal(s.slots.areaExhausted, false, 'the pivot must release the area lock');
+  assert.ok(/Евидентен број 74/.test(sent.at(-1)!), `the plac row must present: ${sent.at(-1)!}`);
+  assert.ok(!EXHAUSTED_ASK.test(sent.at(-1)!), `must not loop the exhausted ask: ${sent.at(-1)!}`);
+});
+
+test('exhausted-pivot: "a nesto so dvorce da se" re-presents houses with a yard', async () => {
+  const rows: Property[] = [
+    { eb: 70, id: 70, location: 'Центар', price: 200, service: 'rent', size: '24 м²' },
+    { eb: 71, id: 71, location: 'Центар', price: 250, service: 'rent', size: '30 м²' },
+    { eb: 72, id: 72, location: 'Влае', price: 240, service: 'rent', house: true, bedrooms: 3, features: ['двор'] },
+    { eb: 73, id: 73, location: 'Аеродром', price: 245, service: 'rent', house: true, bedrooms: 3 },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'sweep-dvorce';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA');
+  await send('NE MI SE DOPAGA');
+  let s = await send('NE MI SE DOPAGA');
+  assert.ok(EXHAUSTED_ASK.test(sent.at(-1)!), sent.at(-1)!);
+
+  s = await send('a nesto so dvorce da se');
+  assert.equal(s.slots.areaExhausted, false, 'the pivot must release the area lock');
+  assert.equal(s.slots.yard, true, 'the yard need must be captured');
+  assert.equal(s.slots.house, true, 'a yard need implies the house category');
+  assert.ok(/Евидентен број 72/.test(sent.at(-1)!), `the yard house must lead: ${sent.at(-1)!}`);
+  assert.ok(!EXHAUSTED_ASK.test(sent.at(-1)!), `must not loop the exhausted ask: ${sent.at(-1)!}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// The [14:14]–[14:22] TUI transcript — five field bugs, one flow.
+// ═══════════════════════════════════════════════════════════════════
+
+// FIX 1 — terminology + first-message routing. The detectors must treat
+// dvosoben/edna spalna, trosoben/dve spalni, cetirisoben/tri spalni as the
+// same size (rooms = bedrooms + living room) and garsonjera as its own
+// category; a criteria-bearing opener must never reach the funnel outside
+// the discovery family (the LLM's INTERESTED blunder skipped slot
+// extraction and Lina re-asked the intent question).
+test('[14:14] terminology: soben-words = spalni+1, garsonjera distinct; funnel-slip guard pins criteria openers', () => {
+  assert.equal(detectBedrooms('SKM DA IZNAJMAM DVOSOBEN STAN'), 2);
+  assert.equal(detectBedrooms('edna spalna'), 2);
+  assert.equal(detectBedrooms('dve spalni'), 3);
+  assert.equal(detectBedrooms('trosoben'), 3);
+  assert.equal(detectBedrooms('tri spalni'), 4);
+  assert.equal(detectBedrooms('cetirisoben'), 4);
+  assert.equal(detectBedrooms('garsonjera'), 1);
+  // The service+rooms opener is funnel traffic — deterministic slots decide.
+  const s = extractSlots('SKM DA IZNAJMAM DVOSOBEN STAN');
+  assert.equal(s.service, 'rent');
+  assert.equal(s.bedrooms, 2);
+  // An LLM INTERESTED blunder on a criteria-bearing opener is pinned back.
+  const clf = new Classifier(new FailingLlm(), loadConfig(), new FakeProps([]));
+  return clf.classify({ state: 'idle', slots: {}, history: [] } as never, 'SKM DA IZNAJMAM DVOSOBEN STAN')
+    .then((r: { event: { type: string; service?: string; bedrooms?: number } }) => {
+      assert.ok(['DETAILS_PROVIDED', 'SEARCH_REQUESTED', 'INTENT_DECLARED'].includes(r.event.type),
+        `criteria opener must stay in the discovery family, got ${r.event.type}`);
+    });
+});
+
+// FIX 2 — the understated positive "OVOJ 79 NE E LOS" must get the visit
+// protocol (property.liked), never a re-render of the identical card.
+test('[14:22] "OVOJ 79 NE E LOS" gives the visit protocol, never the card again', async () => {
+  const rows: Property[] = [
+    { eb: 79, id: 79, location: 'Центар', price: 300, service: 'rent', bedrooms: 2, size: '35 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-1422-eval';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA');
+  assert.ok(sent.at(-1)!.includes('Евидентен број 79'), sent.at(-1)!);
+  assert.equal(detectPositiveEval('OVOJ 79 NE E LOS'), true, 'the understatement must fire');
+
+  const s = await send('OVOJ 79 NE E LOS');
+  assert.equal(s.state, 'closing', 'a positive eval must arm the funnel');
+  const reply = sent.at(-1)!;
+  assert.ok(/посета|разглед|организирам|термин/iu.test(reply), `the visit protocol expected: ${reply}`);
+  // THE CONTRACT: not the same card text again.
+  const firstCard = sent.find(t => t.includes('Евидентен број 79'))!;
+  assert.ok(!reply.includes('35 м²'), `the card must not re-render: ${reply}`);
+  assert.ok(firstCard !== reply);
+});
+
+// FIX 3 — "KOLKU MU E RENTA?" is a price ask: answered with the rent of the
+// property on the table, never the full card re-rendered a third time.
+test('[14:22] "KOLKU MU E RENTA?" answers the rent, never the card again', async () => {
+  const rows: Property[] = [
+    { eb: 79, id: 79, location: 'Центар', price: 300, service: 'rent', bedrooms: 2, size: '35 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-1422-renta';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA');
+  assert.ok(sent.at(-1)!.includes('Евидентен број 79'), sent.at(-1)!);
+  assert.equal(detectPriceAsk('KOLKU MU E RENTA?'), true, 'renta must be a price ask');
+
+  await send('OVOJ 79 NE E LOS');
+  const s = await send('KOLKU MU E RENTA?');
+  const reply = sent.at(-1)!;
+  assert.ok(reply.includes('300'), `the rent must be answered: ${reply}`);
+  assert.ok(/кириј/iu.test(reply), `rent-aware wording: ${reply}`);
+  assert.ok(!reply.includes('35 м²') && !reply.includes('подно греење'), `the card must not re-render: ${reply}`);
+  assert.equal(s.slots.lastPrice, '300', 'lastPrice recorded for the echo rule');
+});
+
+// The [14:34]–[14:53] TUI transcript — the split time intake.
+// ═══════════════════════════════════════════════════════════════════════
+
+// The client's phone (078935834 — 9 digits, MK mobile without the leading
+// zero on the paste) is a COMPLETE phone. The pane duplication in the
+// transcript was a render artifact (the state line proved the flow advanced);
+// pinned here so a future tightening of the digit floor never re-breaks it.
+test('[14:34] 9-digit MK mobile is a complete phone', () => {
+  assert.equal(isValidPhone('078935834'), true);
+  assert.equal(isValidPhone('078/914 196'), true);
+  assert.equal(isValidPhone('023123456'), true);
+});
+
+// FIX — split time intake: "VO PONEDELNIK MOZAM" names a DAY without a
+// clock; the transcript shows Lina forwarding the clock-less term to the
+// OWNER, who had to guess the hour. Lina must arm the day and ask for the
+// exact clock. The follow-up "6 SAAT" completes the pair (one canonical
+// owner-ask phrase), and a re-sent "6 SAAT" (the transcript's double-send)
+// must never restart the check.
+test('[14:34] split time intake: day-only asks the clock; bare hour-word completes; re-send stays silent', async () => {
+  const rows: Property[] = [
+    { eb: 79, id: 79, location: 'Центар', price: 300, service: 'rent', bedrooms: 2, size: '35 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_chatId: string, eb: number, q: string) => { ownerAsks.push(`${eb}: ${q}`); };
+  const chatId = 'lina-1434-split';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA');
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 79');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA');
+  await send('DA, SE SOGLASUVAM');
+  await send('GORAN SERBRZOV');
+  const s1 = await send('078935834');
+  assert.equal(s1.state, 'visit_scheduling', `9-digit phone completes the contact, got ${s1.state}`);
+
+  // day-only: the exact-clock ask, NO owner ask yet, the funnel waits
+  assert.equal(hasDayWord('VO PONEDELNIK MOZAM'), true, 'the day word must be detected');
+  const s2 = await send('VO PONEDELNIK MOZAM');
+  assert.equal(s2.state, 'visit_scheduling', `a clock-less day must not reach the owner, got ${s2.state}`);
+  assert.ok(/часот|колку/iu.test(sent.at(-1)!), `exact-clock ask expected: ${sent.at(-1)!}`);
+  assert.equal(ownerAsks.length, 0);
+
+  // the bare hour-word completes the stored day — one owner ask, canonical form
+  const s3 = await send('6 SAAT');
+  assert.equal(s3.state, 'owner_checking');
+  assert.equal(s3.slots.visitTime, '6 SAAT, VO PONEDELNIK MOZAM');
+  assert.equal(ownerAsks.length, 1, `exactly one owner ask expected: ${ownerAsks.length}`);
+  assert.match(ownerAsks[0], /посета: Понеделник, \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
+
+  // the double-send from the transcript: patience, not a second owner ask
+  const s4 = await send('6 SAAT');
+  assert.equal(s4.state, 'owner_checking');
+  assert.equal(ownerAsks.length, 1, 'a re-sent identical term must not restart the check');
 });

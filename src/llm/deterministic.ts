@@ -1,5 +1,6 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase } from '../data/properties';
+import { HOUR_WORD_RE } from '../visits/time';
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
@@ -40,6 +41,8 @@ export interface DetectedSlots {
   sizeWaived?: boolean;    // "големината не ми е битна" — skip bedrooms question
   pricePriority?: boolean; // "што поевтино" — sort by price, skip budget question
   garsonjera?: boolean;    // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
+  plac?: boolean;          // "плац за градење" — land plot category (NOT a струкен објект)
+  yard?: boolean;          // "со двор/дворче/градина" — needs outdoor space (implies a house)
 }
 
 // Latin spellings included — Macedonian clients type in Latin more often than Cyrillic.
@@ -562,6 +565,44 @@ export function detectGarsonjera(text: string): boolean {
   return fuzzyHasToken(text, ['гарсоњера', 'студио']) || extFires('garsonjera', text);
 }
 
+// =========================================================================
+// PLAC / YARD — the 22:53 hardening sweep (exhausted-pivot family): pivots
+// into land plots and houses with a yard gapped. "a plac za gradenje da
+// nemate slucajno" had NO detector at all; "a kukuca so sopstven dvor nadvor
+// od gradot" and "a nesto so dvorce da se" only half-fired (house via the
+// kukuca fix above; the yard word was invisible).
+// =========================================================================
+
+/** A land plot: плац/plac (Cyrillic, Latin, doubled-consonant typos),
+ *  земјиште/zemjiste/земиисте + suffixes — the class is unambiguous (no other
+ *  intent uses the nouns), so NO trailing boundary: suffixed forms
+ *  ("земииштето", "zemiiste") must still fire. */
+const PLAC_RE =
+  /(?<![\p{L}\p{N}])(?:плац|placc?|пллац|плача?|zemi[ji]шт|zemi[ji]?s[sz]?t|zemi[ji]st|земјишт|place za|placod)/iu;
+
+/** A build intent — "за градење", "za gradenje" + common typos. */
+const BUILD_FOR_RE =
+  /(?<![\p{L}\p{N}])(?:за|za)\s*(?:гра|gra|гр[ао]д|grad)[\p{L}]{0,8}(?![\p{L}\p{N}])/iu;
+
+/** Yard words: двор/dvor (incl. дворче/dvorce, двopčе typos) and градина/gradina.
+ *  Latin "dvorchе" carries a Cyrillic е — the mixed token is listed verbatim. */
+const YARD_RE =
+  /(?<![\p{L}\p{N}])(?:двор|дворче|двopčе|dvorče|dvorce|dvorchе|dvor|градина|gradina|gradincе|градинче)(?![\p{L}\p{N}])/iu;
+
+/** True when the client names a LAND PLOT ("плац за градење", "plac za
+ *  gradenje", "земјиште"). Build-intent context is accepted but NOT required —
+  * the noun alone is unambiguous. */
+export function detectPlac(text: string): boolean {
+  return matchesBoth(PLAC_RE, text) || extFires('plac', text);
+}
+
+/** True when the client needs OUTDOOR SPACE: "со двор/дворче/градина". In a
+ *  search context this implies a house (a yard in the feed features only
+ *  rides on house rows) — mirrored here so slots/presentation agree. */
+export function detectYardNeed(text: string): boolean {
+  return matchesBoth(YARD_RE, text) || extFires('yard', text);
+}
+
 /**
  * Budget = the highest figure mentioned (with currency context, >= 1000, or a
  * cap word before it — "до 250" / "околу 250" / "под 250" is a rent price or
@@ -950,6 +991,23 @@ export function detectEnthusiasm(text: string): boolean {
   return matchesBoth(ENTHUSIASM_RE, text) || extFires('enthusiasm', text);
 }
 
+// "OVOJ 79 NE E LOS" (the [14:22] transcript) — the UNDERSTATED positive:
+// "it's not bad" IS an acceptance in Macedonian client speak. Neither
+// ENTHUSIASM_RE (no super/odlicn word) nor PROPERTY_INTEREST_RE fires, so the
+// message fell to the property_query card branch and Lina re-rendered the
+// FULL card instead of the visit protocol. Detection: the negated-bad shape
+// (не е лош / ne e los / ne e oseriozen — a copula + negated negative-
+// quality adjective) on top of the enthusiasm family.
+const POSITIVE_EVAL_RE =
+  /(?:не|ne)\s+(?:е|e)\s+(?:лош\w*|los\w*|осериозен\w*|oseriozen\w*|најлош\w*|najlos\w*)/iu;
+
+/** True when the client's message is a positive evaluation of the property on
+ *  the table (the enthusiasm family + the negated-bad understatement). */
+export function detectPositiveEval(text: string): boolean {
+  if (detectRejection(text)) return false; // "ne mi se dopaga" is a rejection, never positive
+  return matchesBoth(POSITIVE_EVAL_RE, text) || detectEnthusiasm(text);
+}
+
 // "MI FATI OKO 94" / "ми фати окото" — the property CAUGHT THE CLIENT'S EYE
 // (they saw the ad on the site). Written Cyrillic-only: matchesBoth() folds
 // Latin input through normalizeMc, so "mi fati oko" resolves to "ми фати око".
@@ -999,12 +1057,30 @@ export function detectVisitTime(text: string): string | undefined {
   // proposed visit term. A question about agency hours is never a slot.
   if (detectWorkdaysQuestion(text)) return undefined;
   if (VISIT_TIME_RE.test(text)) return text.trim().slice(0, 80);
+  // BARE hour-word clock ("6 SAAT", "6 саати", "6 casot") — the split
+  // [14:35] message: the client gave the day ("VO PONEDELNIK MOZAM") in one
+  // message and the clock in the next. The hour noun anchors the digits as a
+  // clock; a bare "6" alone (no hour word) still parses as nothing.
+  if (HOUR_WORD_RE.test(text)) return text.trim().slice(0, 80);
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.
   if (fuzzyHasToken(text, ['понеделник', 'вторник', 'четврток', 'сабота', 'недела',
     'попладне', 'напладне', 'претпладне', 'викенд', 'задутре'])) return text.trim().slice(0, 80);
   return undefined;
+}
+
+// Day-naming vocabulary (weekdays + relative days + weekend), both scripts.
+// Used by hasDayWord() to tell a day-anchored term ("во понеделник") from a
+// bare clock/period ("6 SAAT").
+const DAY_WORD_RE =
+  /(?:понеделн|вторн|сред[аио]|четврт|петочн|петок|сабот|недел|задутре|утре|денес|викенд|ponedel|vtorn|sred[ai]|cetvrt|petocn|petok|sabot|nedel|zadutre|utre|denes|vikend)/iu;
+
+/** True when the phrase names an explicit DAY (weekday, relative day or the
+ *  weekend). A bare clock ("6 SAAT") is NOT a day — the split [14:35] intake
+ *  completes the day named in the PREVIOUS message onto this clock. */
+export function hasDayWord(text: string): boolean {
+  return DAY_WORD_RE.test(text);
 }
 
 // Vague time-of-day references that need a follow-up for the EXACT hour.
@@ -1074,7 +1150,10 @@ export function detectBusiness(text: string): boolean {
 // House intent: куќа / кука / house / kukja / kuka / вила (both scripts). An
 // explicit apartment word (стан/станче/stan/stance) wins — "сакам куќа или
 // стан" is ambiguous and stays an apartment request.
-const HOUSE_RE = /(куќ|кука|хоусе|куќа|кука|вила|вила)/i;
+// "kukuca" (22:53 sweep corpus) is a Latin-typed куќа with a doubled k;
+// normalizeMc maps it to "кукуца", which CONTAINS no "кука" — the word is
+// added verbatim so Latin house typos keep their category.
+const HOUSE_RE = /(куќ|кука|кукуца|хоусе|куќа|кука|вила|вила)/i;
 const APARTMENT_RE = /(стан|стани|станче|стан|станце|апартмент|апартман)/i;
 
 /**
@@ -1595,10 +1674,11 @@ export function isValidPhone(phone: string): boolean {
 // A visit time: a real time/date reference. Broader than detectVisitTime (a
 // full-message matcher): the LLM's visitTime field may be JUST the time
 // ("19:00", "17:30") with no surrounding words, so a bare HH:MM is accepted
-// too. Sentence garbage ("кукја пофтина") has neither -> rejected.
+// too — and a bare HOUR-WORD clock ("6 saat", the split [14:35] message) is
+// accepted as well.
 export function isValidVisitTime(t: string): boolean {
   if (t.length > 80) return false;
-  return VISIT_TIME_RE.test(t) || /\b\d{1,2}[:.]\d{2}\b/.test(t);
+  return VISIT_TIME_RE.test(t) || /\b\d{1,2}[:.]\d{2}\b/.test(t) || HOUR_WORD_RE.test(t);
 }
 
 // Known Skopje neighborhoods — the FALLBACK for location detection. The feed's
@@ -3006,7 +3086,12 @@ const PRICE_ASK_RE2 = new RegExp(
   // price question with the area-exhausted pitch. A question word is required:
   // bare "kirija e skupa" (market opinion) stays in the exhausted/remark lanes.
   '|(?:колку|колко|kolku|kolko|каква|kakva|колкава|kolkava|која|koja)\\s*(?:му\\s+|mu\\s+|и\\s+)?(?:е\\s+|e\\s+)?кириj\\p{L}*'
-  + '|(?:колку|колко|kolku|kolko|каква|kakva|колкава|kolkava|која|koja)\\s*(?:му\\s+|mu\\s+|и\\s+)?(?:е\\s+|e\\s+)?kirij\\p{L}*',
+  + '|(?:колку|колко|kolku|kolko|каква|kakva|колкава|kolkava|која|koja)\\s*(?:му\\s+|mu\\s+|и\\s+)?(?:е\\s+|e\\s+)?kirij\\p{L}*'
+  // The RENTA family (the [14:22] transcript): "KOLKU MU E RENTA?" — same
+  // shape as the kirija arms with the renta noun (Latin rent/renta, Cyrillic
+  // рента; normalizeMc folds 'renta' → 'рента'). Mandatory question word: the
+  // market opinion "rentata e visoka" stays out.
+  + '|(?:колку|колко|kolku|kolko|каква|kakva|колкава|kolkava|која|koja)\\s*(?:му\\s+|mu\\s+|и\\s+)?(?:е\\s+|e\\s+)?(?:rent(?:а|a)?|рент[аo]?|рен)(?![\\p{L}\\p{N}])',
   'iu');
 export function detectPriceAsk(text: string): boolean {
   // "колку саати работите" matches because 'работите' ends with 'е' —
@@ -3380,19 +3465,20 @@ export function fsmRequired(text: string): boolean {
 }
 
 export function buildEvent(state: State, slots: DetectedSlots): Event {
-  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected, sizeWaived, pricePriority, garsonjera } = slots;
-  const has = !!(service || location || bedrooms || budget || sqm || anywhere || sizeWaived || pricePriority || garsonjera);
+  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected, sizeWaived, pricePriority, garsonjera, plac, yard } = slots;
+  const has = !!(service || location || bedrooms || budget || sqm || anywhere || sizeWaived || pricePriority || garsonjera || plac || yard);
+  const hasType = !!(plac || yard || house || business);
   // A rejection is honored ONLY when the message carries NO new direction —
   // "не барам стан, барам куќа" names a new type, which wins over the denial.
   // Checked BEFORE the STAY guard so a pure denial ("не барам стан", nothing
   // extracted) still becomes REJECTED instead of dead-ending as STAY.
-  if (rejected && !house && !business && !need
+  if (rejected && !hasType && !need
     && ['idle', 'intent', 'discovery', 'property_locate', 'property_query', 'presentation', 'closing'].includes(state)) {
-    return { type: 'REJECTED', service, location, bedrooms, sqm, business, house, budget };
+    return { type: 'REJECTED', service, location, bedrooms, sqm, business, house, budget, plac, yard };
   }
-  // house/business count as a direction even with no other detail —
+  // house/business/plac/yard count as a direction even with no other detail —
   // "не барам стан, барам куќа" must become a house request, not STAY.
-  if (!has && !need && !house && !business) return { type: 'STAY' };
+  if (!has && !need && !hasType) return { type: 'STAY' };
   // Commercial spaces complete with size (м²) instead of bedrooms; a house
   // completes with bedrooms like any apartment. "Било каде" (anywhere) satisfies
   // the location criterion AND waives the bedroom requirement — a flexible
@@ -3403,24 +3489,24 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
   // pricePriority: budget optional — "што поевтино" → sort by price, search now
   // garsonjera: the studio category itself satisfies the size criterion —
   // "garsonjera mi treba" never triggers a bedrooms question (19:34).
-  const bedroomsOk = business ? sqm : (bedrooms || anywhere || sizeWaived || garsonjera);
+  const bedroomsOk = business ? sqm : (bedrooms || anywhere || sizeWaived || garsonjera || plac || yard);
   const budgetOk = budget || pricePriority;
   const complete = service && (location || anywhere)
     && bedroomsOk && budgetOk;
   if (complete) {
-    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera };
+    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
   }
-  if (service && !location && !bedrooms && !budget && !sqm && !anywhere && !sizeWaived && !pricePriority && !garsonjera) {
-    return { type: 'INTENT_DECLARED', service, business, house };
+  if (service && !location && !bedrooms && !budget && !sqm && !anywhere && !sizeWaived && !pricePriority && !garsonjera && !plac && !yard) {
+    return { type: 'INTENT_DECLARED', service, business, house, plac, yard };
   }
   // A bare need ("ми треба стан", "MI TREBA STANCE") with NOTHING extracted:
   // INTENT_DECLARED with no service — routes idle -> discovery, where the
   // intent question is asked instead of dead-ending in idle. When any detail
   // WAS extracted (location, bedrooms…), normal DETAILS_PROVIDED applies.
   if (need && !has) {
-    return { type: 'INTENT_DECLARED', service: undefined, business, house };
+    return { type: 'INTENT_DECLARED', service: undefined, business, house, plac, yard };
   }
-  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera };
+  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
 }
 
 
@@ -3467,6 +3553,22 @@ export function extractSlots(text: string): DetectedSlots {
     if (out.bedrooms === 1 && !/(спалн|spaln|соби|sobi|соба|soba)/i.test(text)) {
       delete out.bedrooms;
     }
+  }
+  // Land plots and yard needs are CATEGORIES (like garsonjera/house): a plac
+  // names the type outright; a yard need implies the house category (a yard
+  // in the feed rides only on house rows). Beds/sqm stay — "куќа со двор и
+  // две спални" keeps both signals. Explicit other types win over the
+  // implication: "деловен простор со двор" stays business, "стан со дворче"
+  // stays a flat (ground-floor flats carry yards too), and "плац со двор" is
+  // a plac, not a house.
+  if (detectPlac(text)) {
+    out.plac = true;
+    delete out.house;
+    delete out.business;
+  }
+  if (detectYardNeed(text)) {
+    out.yard = true;
+    if (!out.plac && !out.business && house !== false) out.house = true;
   }
   return out;
 }

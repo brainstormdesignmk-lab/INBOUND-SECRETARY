@@ -11,7 +11,8 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectEyeCatch, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord } from '../llm/deterministic';
+import { hasClockHint, hasPeriodHint } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
@@ -35,7 +36,7 @@ import { VisitScheduler } from '../visits/scheduler';
 import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
-  buildOwnerAsk, ownerPropertyLabels, buildWhereIsAnswer, feePersuasion, FALLBACKS, NO_MATCH_LINE,
+  buildOwnerAsk, ownerPropertyLabels, buildWhereIsAnswer, feePersuasion, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
@@ -1325,6 +1326,8 @@ export class InboundHandler {
         if (slots.sizeWaived) session.slots.sizeWaived = true;
         if (slots.pricePriority) session.slots.pricePriority = true;
         if (slots.garsonjera) session.slots.garsonjera = true;
+        if (slots.plac) { session.slots.plac = true; session.slots.house = undefined; session.slots.business = undefined; }
+        if (slots.yard) { session.slots.yard = true; if (!slots.business) session.slots.house = true; }
         // "та цена" / "та cenа" — client references a previously discussed price
         // but no number is in the message. Resolve to the last answered price.
         if (!session.slots.budget && detectPriceReference(text) && session.slots.lastPrice) {
@@ -1424,7 +1427,7 @@ export class InboundHandler {
       // serve property.liked (enthusiasm + visit offer). NO fee here — the fee
       // comes only after the client confirms. Same guards as the FSM mirror:
       // fee-family and search-criteria messages keep their own paths.
-      if (detectEnthusiasm(text)
+      if (detectPositiveEval(text)
         && (session.slots.propertyId || session.slots.interestedPropertyId || session.slots.presentedIds?.length)
         && !detectPropertyInterest(text) && !detectVisitInterest(text)
         && !detectAvailabilityAsk(text) && !detectRemark(text)
@@ -1772,7 +1775,7 @@ export class InboundHandler {
     if ((before === 'presentation' || before === 'property_query' || before === 'property_locate')
       && (ev.type === 'SEARCH_REQUESTED' || ev.type === 'DETAILS_PROVIDED')
       && ev.budget && !ev.bedrooms && !ev.sqm && !ev.location
-      && !ev.house && !ev.business && !ev.garsonjera) {
+      && !ev.house && !ev.business && !ev.garsonjera && !ev.plac && !ev.yard) {
       session.slots.location = undefined;
       session.slots.anywhere = true;
     }
@@ -2044,7 +2047,12 @@ export class InboundHandler {
     if (next === 'presentation' && props.length === 0
       && session.slots.areaExhausted
       && (detectWidenIntent(text) || detectExplicitWiden(text))
-      && !ev.location) {
+      && !ev.location
+      // Fresh-criteria pivots ("a kukuca so dvor NADVOR OD GRADOT") belong to
+      // the release block below: widening here would clear areaExhausted
+      // BEFORE the new plac/yard criteria are applied, so the re-search ran
+      // with the OLD specs and the pivot died in another exhausted ask.
+      && !detectPlac(text) && !detectYardNeed(text)) {
       session.slots.areaExhausted = false;
       session.slots.location = undefined;
       props = await this.loadProps(session, false, false);
@@ -2089,6 +2097,7 @@ export class InboundHandler {
       !!es.garsonjera,
       !!es.sizeWaived,        // "a nesto pogolem da vidime" — size-direction pivot
       es.house !== undefined || !!es.business,  // TYPE pivot ("a kuka so dvor", "deloven prostor imas?")
+      !!es.plac || !!es.yard,                   // CATEGORY pivot ("a plac za gradenje", "a nesto so dvorce")
     ];
     if ((next === 'presentation' || next === 'closing') && session.slots.areaExhausted
       && criteriaSignals.some(Boolean)
@@ -2111,6 +2120,16 @@ export class InboundHandler {
       if (es.sizeWaived) session.slots.sizeWaived = true;
       if (es.house !== undefined) session.slots.house = es.house;
       if (es.business) session.slots.business = true;
+      // Plac/yard are CATEGORIES — the newest category message wins over the
+      // previous one ("a plac za gradenje" after a garsonjera search must not
+      // keep the studio filter; "a nesto so dvorce" must not keep it either).
+      if (es.plac) session.slots.plac = true;
+      if (es.yard) { session.slots.yard = true; session.slots.house = true; }
+      if (es.plac || es.yard) {
+        session.slots.garsonjera = undefined;
+        session.slots.business = undefined;
+      }
+      if (es.plac) session.slots.house = undefined;   // плац is not a house
       if ((es.bedrooms || es.sqm || es.sizeWaived || es.house !== undefined || es.business) && !es.garsonjera) {
         // Category and size are alternative framings of "how big" — the
         // newest message wins ("a so edna spalna nesto" after a garsonjera
@@ -2132,6 +2151,11 @@ export class InboundHandler {
         // these specs" (same contract as the widen flow: rest of the city).
         session.slots.location = undefined;
         props = await this.loadProps(session, false, false);
+      }
+      if (props.length === 0 && (session.slots.plac || session.slots.yard)) {
+        // The category itself is drained CITY-WIDE (the live feed has no plac
+        // rows): the honest next step is the no-match/other-area ask, which the
+        // re-present path serves on empty — leave props empty so it fires.
       }
       if (props.length > 0) {
         // Render through the re-present branch (type-aware prefixes, fresh
@@ -2170,13 +2194,13 @@ export class InboundHandler {
     // the next closest batch; only when every match was shown do we ask for
     // more details.
     if (next === 'property_locate') {
-      const price = session.slots.budget ? Number(session.slots.budget.replace(/[^\d]/g, '')) : undefined;
-      const locateOpts = {
+      const price = session.slots.budget ? Number(session.slots.budget.replace(/[^\d]/g, '')) : undefined;        const locateOpts = {
         location: session.slots.location,
         price,
         sqm: session.slots.sqm,
         business: session.slots.business,
         house: session.slots.house,
+        plac: session.slots.plac,
         service: session.slots.service,
       };
       const present = (matches: Property[]): string => {
@@ -2358,7 +2382,7 @@ ${contactReminder}`;
       }
 
     } else if (next === 'closing'
-        && detectEnthusiasm(text)
+        && detectPositiveEval(text)
         && !detectPropertyInterest(text)
         && !detectVisitInterest(text)
         && !detectAvailabilityAsk(text)
@@ -2564,6 +2588,17 @@ ${contactReminder}`;
       // time intentions but too imprecise for the owner — stay in visit_scheduling
       // and ask for the exact clock before proceeding.
       if (t && detectVagueTime(t)) {
+        session.state = 'visit_scheduling';
+        next = 'visit_scheduling';
+        reply = pickVariant('vague.time', { recent: assistantTexts(session) })
+          ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го договорам терминот со сопственикот.';
+        bankKey = 'vague.time';
+      } else if (t && hasDayWord(t) && !hasClockHint(t) && !hasPeriodHint(t) && detectVisitTime(text)) {
+        // DAY-ONLY SPLIT INTAKE (the [14:35] transcript): "VO PONEDELNIK MOZAM"
+        // alone names a day but no clock — handing THAT to the owner forces the
+        // owner to guess the hour. Arm the day as context (slot keeps the raw
+        // phrase) and ask for the exact clock; the follow-up ("6 SAAT") then
+        // completes the pair through the owner_checking completion path.
         session.state = 'visit_scheduling';
         next = 'visit_scheduling';
         reply = pickVariant('vague.time', { recent: assistantTexts(session) })
@@ -2784,6 +2819,14 @@ ${contactReminder}`;
             ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location));
     } else if (next === 'property_query' && props.length > 0
         && !detectAvailabilityAsk(text)
+        // A POSITIVE evaluation of the card ("OVOJ 79 NE E LOS", "odlichen")
+        // must NEVER re-render the full card — the [14:22] transcript served
+        // the identical text three times in a row. The property_query branch
+        // below handles QUESTIONS (price/feature/availability); the fast
+        // property.liked interceptor already owns the praise shapes in
+        // property states. Excluded here as belt-and-braces so a guard slip
+        // can never resurrect the re-render.
+        && !detectPositiveEval(text)
         && !detectProvisionAsk(text) && !detectProvisionWho(text)
         && !session.slots.ownerContactPending) {
       // The client asked about a known EB ("кажи ми нешто за 57", "што е со
@@ -3238,9 +3281,11 @@ ${contactReminder}`;
       // back until the visit date+time are arranged.
       const ownerProp = eb ? await this.deps.properties.getById(eb) : undefined;
       const ownerLabels = ownerProp ? ownerPropertyLabels(ownerProp) : undefined;
-      // mkTimePhrase: the classify leg canonizes the client's raw words —
-      // "petok vo 6" once surfaced as English "Friday 18:00" inside this ask.
-      const askTime = mkTimePhrase(proposedTime);
+      // normalizeOwnerTime (the [14:22] transcript): the owner never reads
+      // client shorthand — the raw term ("VO PONEDELNIK MOZAM 6 SAAT") is
+      // resolved to the concrete date and rewritten canonically
+      // ("Понеделник, 28.09.2026 во 18:00") before the ask is composed.
+      const askTime = normalizeOwnerTime(proposedTime);
       // Bank-served for the GENERIC form (no property-type agreement — the
       // typed form stays code-built for its gender agreement): the owner ask
       // now varies too, with the code-built line as the always-there fallback.
@@ -3511,6 +3556,7 @@ ${contactReminder}`;
       business: session.slots.business,
       house: session.slots.house,
       garsonjera: session.slots.garsonjera,
+      plac: session.slots.plac,
       service: session.slots.service,
       exclude: session.slots.presentedIds ?? [],
     })).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)).slice(0, 2);
@@ -3555,6 +3601,7 @@ ${contactReminder}`;
       business: session.slots.business,
       house: session.slots.house,
       garsonjera: session.slots.garsonjera,
+      plac: session.slots.plac,
       service: session.slots.service,
       exclude: session.slots.presentedIds ?? [],
     })).slice(0, 2);
@@ -3604,8 +3651,25 @@ ${contactReminder}`;
     if ((ev.bedrooms || ev.sqm) && ev.sizeWaived === undefined) session.slots.sizeWaived = undefined;
     if (ev.pricePriority) session.slots.pricePriority = true;
     if (ev.garsonjera) session.slots.garsonjera = true;
+    // Plac/yard are CATEGORIES (like garsonjera): a plac never coexists with
+    // a house/business search, and a yard need implies the house category.
+    if (ev.plac) { session.slots.plac = true; session.slots.house = undefined; session.slots.business = undefined; }
+    if (ev.yard) { session.slots.yard = true; if (!ev.business) session.slots.house = true; }
+    if ((ev.plac || ev.yard) && !ev.garsonjera) session.slots.garsonjera = undefined;
     if (ev.propertyId) session.slots.propertyId = ev.propertyId;
-    if (ev.visitTime) session.slots.visitTime = ev.visitTime;
+    // Visit-time MERGE (the split [14:35] intake): a bare clock ("6 SAAT")
+    // completing a day-only phrase ("VO PONEDELNIK MOZAM") replaces the
+    // stored day-only slot — the owner ask then reads ONE phrase with day+
+    // clock, which normalizeOwnerTime resolves. The clock comes FIRST: the
+    // event phrase is the new information, the stored day is context. A term
+    // with its own day word replaces the slot outright.
+    if (ev.visitTime) {
+      if (hasDayWord(ev.visitTime) || !hasDayWord(session.slots.visitTime ?? '')) {
+        session.slots.visitTime = ev.visitTime;
+      } else {
+        session.slots.visitTime = `${ev.visitTime.trim()}, ${session.slots.visitTime!.trim()}`;
+      }
+    }
     if (ev.name) session.slots.name = ev.name;
     if (ev.phone) session.slots.phone = ev.phone;
   }
@@ -3623,7 +3687,9 @@ ${contactReminder}`;
     }
     // garsonjera: the explicit studio category IS the size answer (19:34 —
     // "garsonjera mi treba do 250" must PRESENT, not loop "Колку спални…").
-    return !!s.slots.service && loc && (!!s.slots.bedrooms || !!s.slots.anywhere || !!s.slots.sizeWaived || !!s.slots.garsonjera) && !!s.slots.budget;
+    // Same for plac ("плац за градење" names the type outright) and yard
+    // ("со двор" — the outdoor need replaces any спални spec).
+    return !!s.slots.service && loc && (!!s.slots.bedrooms || !!s.slots.anywhere || !!s.slots.sizeWaived || !!s.slots.garsonjera || !!s.slots.plac || !!s.slots.yard) && !!s.slots.budget;
   }
 
   private async loadProps(session: ChatSession, areaRequested = false, seeOffers = false): Promise<Property[]> {
@@ -3652,8 +3718,13 @@ ${contactReminder}`;
         // "garsonjera mi treba" — the STUDIO category is the criterion: filter
         // to small units (≤ 35 м²), never by a fabricated спални number. When
         // the small pool would be empty, keep the broad pool (the feed has few
-        // tagged units — the category prefix + client self-filter do the rest).
+        // tagged rows — the category prefix + client self-filter do the rest).
         garsonjera: session.slots.garsonjera,
+        // Land-plot and yard categories flow through like every other type
+        // (the 22:53 sweep): a plac ask presents plac rows only; a yard need
+        // leads with houses that HAVE a yard (fallback: any house).
+        plac: session.slots.plac,
+        yard: session.slots.yard,
         service: session.slots.service,
         budget: session.slots.budget,
         exclude: shown,
@@ -3677,9 +3748,8 @@ ${contactReminder}`;
       // Studio-relax: the area has NO garsonjera at all — falling back to the
       // plain no-match loses the "give him what he wants" instruction. Retry
       // WITHOUT the category filter (same budget/area); the presentation
-      // branches detect garsonjera-without-garsonjera-results and introduce
-      // the closest units honestly ("немам гарсоњера, но еве мало станче").
-      const relaxedCandidates = session.slots.garsonjera && candidates.length === 0
+      // branches detect garsonjera-without-garsonjera-results and introduce        // the closest units honestly ("немам гарсоњера, но еве мало станче").
+        const relaxedCandidates = session.slots.garsonjera && candidates.length === 0
         ? await this.deps.properties.candidates({
           location: session.slots.location,
           sqm: session.slots.sqm,

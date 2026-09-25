@@ -23,8 +23,25 @@ const DAY_WORDS: Array<[RegExp, number]> = [
 const REL_DAY_RE = /(задутре|zadutre|утре|utre|денес|денеска|denes|deneska)/i;
 
 // A clock WITH a time-word prefix: "во 17:30", "во 11", "околу 10". The prefix
-// is REQUIRED so "11.06" (a date) is never read as 11:06.
-const CLOCK_RE = /(?:во|vo|околу|okolu|по|po|после|posle)\s*(\d{1,2})(?:[:.](\d{2}))?\b/i;
+// is REQUIRED so "11.06" (a date) is never read as 11:06. "на/na" and "од/od"
+// are legal time prefixes too ("na 5", "od 6") — dates are never written with
+// them, so no date collision.
+const CLOCK_RE = /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od)\s*(\d{1,2})(?:[:.](\d{2}))?\b/i;
+// A bare hour WITH the hour-word suffix: "6 saat", "6 саати", "6 casot" —
+// Latin transcripts write the hour as digits + the hour noun. The suffix
+// anchors the digits as a clock (a bare "6" alone never parses as a time).
+// Exported: detectVisitTime/isValidVisitTime (llm/deterministic) reuse it so a
+// BARE "6 SAAT" (the split [14:35] message) is recognized as a time reference
+// on its own, without a day word.
+export const HOUR_WORD_RE =
+  /(?<![\p{L}\p{N}])(\d{1,2})\s*(?:саат\w*|saat\w*|час(?:от)?|cas(?:ot|ovi)?)(?![\p{L}\p{N}])/iu;
+
+/** Hour-word clock adapter: returns a CLOCK_RE-shaped match for "6 saat"
+ *  (index 2 — the minutes — is always absent in the hour-word form). */
+function hourWordClock(t: string): { 1: string; 2?: string; length: number } | null {
+  const m = t.match(HOUR_WORD_RE);
+  return m ? { 1: m[1], 2: undefined, length: 2 } : null;
+}
 // A BARE clock "17:30" — legal only when the message carries no date (a bare
 // HH:MM next to a date is ambiguous and the date wins).
 const BARE_CLOCK_RE = /\b(\d{1,2})[:.](\d{2})\b/;
@@ -37,6 +54,14 @@ const DATE_RE = /(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?/;
 // word shadow the long one.
 const PART_RE =
   /(наутро|наутрото|утрово|утрина|nautro|utrovo|претпладне|pretpladne|попладне|popladne|навечер|вечерва|вечер|navecer|vecer|пладне|на пладне|pladne|на полноќ|polnok)/i;
+
+/** True when the phrase carries a PART-OF-DAY word (попладне, утрово,
+ *  вечер…). A day+period term ("утре попладне") resolves to a concrete
+ *  hour — specific enough for the owner; a bare day ("во понеделник")
+ *  is not (the split [14:35] intake asks the exact clock). */
+export function hasPeriodHint(s: string): boolean {
+  return PART_RE.test(s);
+}
 
 function partHour(t: string): number | undefined {
   if (/(наутро|утрово|утрина|nautro|utrovo)/i.test(t)) return 9;
@@ -82,7 +107,8 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   // required so "11.06" reads as a date. A BARE "17:30" counts only when the
   // message has no date at all (otherwise "17.30" would be 17 July).
   let hour: number | undefined;
-  const clock = t.match(CLOCK_RE);
+  const hw = hourWordClock(t);
+  const clock = hw ?? t.match(CLOCK_RE);
   if (clock) {
     const h = Number(clock[1]);
     const m = clock[2] ? Number(clock[2]) : 0;
@@ -96,6 +122,15 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
     }
   }
   const part = partHour(t);
+  // Hour-word PM shift: "6 saat" / "6 саати" means 18:00, never 06:00 —
+  // viewings happen in the afternoon/evening, and the Latin transcripts
+  // write the hour as digits + the hour noun (the [14:22] transcript:
+  // "VO PONEDELNIK MOZAM 6 SAAT" resolved to 06:00 and the owner ask read
+  // nonsense). Hours 1–7 shift to PM; 8–11 stay morning ("9 saat" = 09:00).
+  // An explicit clock with minutes ("во 6:30") keeps its literal hour.
+  if (hw && hour !== undefined && hour < 8 * 60) {
+    hour += 12 * 60;
+  }
   // PM context adjustment: "попладне после 6" = 18:00, not 06:00.
   // When a bare "после N" (no HH:MM) is parsed and the text carries a PM
   // context word (попладне/вечер/навечер), shift the hour to PM if it's < 12.
@@ -169,6 +204,20 @@ export function pad2(n: number): string {
 /** "Петок, 11.06.2026 во 17:30" — the canonical visit display. */
 export function formatVisitDate(d: Date): string {
   return `${MK_DAY_FMT[d.getDay()]}, ${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()} во ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** Capitalized Macedonian weekday of a resolved date ("Понеделник"). */
+export function weekdayName(d: Date): string {
+  return MK_DAY_FMT[d.getDay()];
+}
+
+/** True when the phrase carries an explicit clock: HH:MM, "во 6", or the
+ *  hour-word form "6 saat/6 саати/6 часот". Used by the owner-ask
+ *  normalizer to decide whether the clock must be appended. */
+export function hasClockHint(s: string): boolean {
+  if (/\d{1,2}[:.]\d{2}\b/.test(s)) return true;
+  if (HOUR_WORD_RE.test(s)) return true;
+  return /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od)\s*\d{1,2}\b/i.test(s);
 }
 
 /** "11.06.2026" — date only (used in the protocol messages). */
