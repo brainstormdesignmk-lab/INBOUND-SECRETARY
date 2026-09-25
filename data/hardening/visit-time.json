@@ -289,6 +289,13 @@
       "target": true,
       "cross": [],
       "benign": []
+    },
+    {
+      "phrase": "sledna nedela bilo koga",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
     }
   ]
 }

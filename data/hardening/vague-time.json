@@ -63,15 +63,6 @@
       "benign": []
     },
     {
-      "phrase": "sledna nedela bilo koga",
-      "verdict": "GAP",
-      "target": false,
-      "cross": [
-        "visitTime"
-      ],
-      "benign": []
-    },
-    {
       "phrase": "navecer mi odgovara",
       "verdict": "CROSS",
       "target": true,

@@ -485,7 +485,15 @@ test('detectSizeWaived: "nebitni se spalnite" — the fused-negative waiver (13:
   assert.equal(detectSizeWaived('sejedno za sobite'), true);
   assert.equal(detectSizeWaived('не праам проблем за собите'), true);
   // Deliberate exclusions: anaphora and cross-family steals.
-  assert.equal(detectSizeWaived('сеедно ми е за тоа'), false); // “toа“ unroutable
+  // "за тоа" anaphora IS the size answer here: after the bedrooms ask it can
+  // only point back at that ask, and a mis-waive is benign (bedrooms never
+  // blocks discovery — the funnel just re-asks what is actually missing)
+  // while a missed waiver loops the funnel (the 21:40 family). The tail is an
+  // ENUMERATED pronoun class in grammar.ts, never a wildcard, so price tails
+  // ("сеедно ми е за цената") still extract as criteria, never as a waiver.
+  assert.equal(detectSizeWaived('сеедно ми е за тоа'), true);
+  assert.equal(detectSizeWaived('seedno mi e za toa'), true);
+  assert.equal(detectSizeWaived('сеедно ми е за цената'), false); // price tail stays a criterion
   assert.equal(detectSizeWaived('nema veze, drug pat'), false); // visit-time defer
   assert.equal(detectSizeWaived('tolku imam'), false); // 10:54 budget statement
   assert.equal(detectSizeWaived('tolku od ova'), false);

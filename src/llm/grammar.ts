@@ -155,6 +155,12 @@ const SIZE_WAIVED_CAREOBJ_L = ['me zanimaat', 'me interesiraat', 'me interesira'
 const SIZE_WAIVED_CAREOBJ = ['ме занимаат', 'ме интересираат', 'ме интересира', 'го ограничувам', 'ја одредувам'];
 const SIZE_WAIVED_SEEDNO_L = ['seedno mi e', 'sveeno mi e', 'seeno mi e', 'sejedno', 'isti mi se', 'isto mi e', 'ednakvo mi e'];
 const SIZE_WAIVED_SEEDNO = ['сèедно ми е', 'сеедно ми е', 'седно ми е', 'свеено ми е', 'сеједно', 'исти ми се', 'исто ми е', 'еднакво ми е'];
+// Anaphoric tail — "сеедно ми е ЗА ТОА": the indifference points back at the
+// size ask ("за тоа" = about THAT question). ENUMERATED pronoun phrases, never
+// a free wildcard: a price tail ("сеедно ми е за цената") must keep extracting
+// as a budget criterion, never become a size waiver.
+const SIZE_WAIVED_TOPIC_PRONOUN_L = ['za toa', 'za toa prashanje', 'za toj prashalnik'];
+const SIZE_WAIVED_TOPIC_PRONOUN = ['за тоа', 'за тоа прашање', 'за тој прашалник'];
 const SIZE_WAIVED_TOLKU_L = ['tolku', 'vaka', 'kako sto ke bide', 'kakvo sto ke bide'];
 // Replay-2 residual shapes (the sweep's second pass): indifference verbs
 // ("me zamara"), relevance adjectives ("presudno", "vazno"), dismissals
@@ -522,6 +528,10 @@ export function buildSizeWaivedSlots(): RegExp {
     // topic/quantifier ("seeno mi e kolku spalnii") — size nouns and “kolku“
     // only, so price tails can never ride it.
     s(`(?:^|${WS})(?:${or(SIZE_WAIVED_SEEDNO_L)}|${or(SIZE_WAIVED_SEEDNO)})${CONNS}${TOPIC}?${ENDISH}`),
+    // SEEDNO + anaphoric pronoun — "сеедно ми е за тоа": same indifference, the
+    // tail is the enumerated pronoun class above (not TOPIC, which only holds
+    // size nouns, and not a free wildcard, which would eat price criteria).
+    s(`(?:^|${WS})(?:${or(SIZE_WAIVED_SEEDNO_L)}|${or(SIZE_WAIVED_SEEDNO)})${CONNS}(?:${or(SIZE_WAIVED_TOPIC_PRONOUN_L)}|${or(SIZE_WAIVED_TOPIC_PRONOUN)})${ENDISH}`),
     s(`(?:^|${WS})сите${WS}по${WS}големина(?:${WS}|$)`),
     // “kako sto ke bide“ / “tolku“ / “vaka“ — shrug forms that answer the ask.
     // The shrug must BE the message (ENDISH): “tolku imam“ is the 10:54

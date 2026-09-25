@@ -946,7 +946,11 @@ test('owner_checking: the client rejects the proposed time -> new time collected
   assert.equal(ownerAsks.length, 1);
   // The [14:22] contract: the owner reads the TRANSLATED term (canonical
   // dated form), never the client's raw shorthand.
-  assert.match(ownerAsks[0], /посета: (?:Утре|Сабота), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
+  // Weekday enumerated across the WEEK: "утре" resolves to a concrete date
+  // whose name rolls over at midnight (written Friday → Сабота; run past
+  // midnight → Недела). The contract being pinned is the CANONICAL dated
+  // form (day name + dd.mm.yyyy + clock) — never the raw client shorthand.
+  assert.match(ownerAsks[0], /посета: (?:Понеделник|Вторник|Среда|Четврток|Петок|Сабота|Недела|Утре), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
 
   // the client can't do the proposed time -> back to the time question, NOT
   // the patience line, and no new owner ask for a time the client rejected
@@ -1018,7 +1022,11 @@ test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed —
   // the ping-pong QUESTION reached the owner (available now? agree to the time?)
   assert.equal(ownerAsks.length, 1);
   assert.ok(ownerAsks[0].includes('78') && ownerAsks[0].includes('достапен'), ownerAsks[0]);
-  assert.match(ownerAsks[0], /посета: (?:Утре|Сабота), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
+  // Weekday enumerated across the WEEK: "утре" resolves to a concrete date
+  // whose name rolls over at midnight (written Friday → Сабота; run past
+  // midnight → Недела). The contract being pinned is the CANONICAL dated
+  // form (day name + dd.mm.yyyy + clock) — never the raw client shorthand.
+  assert.match(ownerAsks[0], /посета: (?:Понеделник|Вторник|Среда|Четврток|Петок|Сабота|Недела|Утре), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
   // owner: "да, може" (plain text) -> ok -> confirmed at the proposed time
   toOwner(c1, 78, 'da, moze');
   await tick();

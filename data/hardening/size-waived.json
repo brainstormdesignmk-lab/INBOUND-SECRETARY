@@ -180,8 +180,8 @@
     },
     {
       "phrase": "сеедно ми е за тоа",
-      "verdict": "GAP",
-      "target": false,
+      "verdict": "COVERED",
+      "target": true,
       "cross": [],
       "benign": []
     },
