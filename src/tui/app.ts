@@ -92,6 +92,12 @@ export class TuiApp {
   private clock: any = null;
   private ticker: any = null;
   private quitting = false;
+  // SELF-HEAL bookkeeping: last rendered chat/owner pane content + how long
+  // it has been unchanged (100ms ticks). See the healScreen() comment.
+  private chatContent = '';
+  private ownerContent = '';
+  private quietTicks = 0;
+  private lastPaintSig = '';
 
   private cfg: AppConfig;
   private brainSummary = '';
@@ -247,6 +253,21 @@ export class TuiApp {
 
     this.clock = setInterval(() => { this.renderTop(); this.repaint(); }, 1000);
     this.ticker = setInterval(() => {
+      // SELF-HEAL (the [14:34] transcript): web-terminal brokers silently
+      // garble blessed's cell-diff output — duplicated pane headers, rows
+      // interleaved mid-line. When the pane CONTENT has been unchanged for
+      // ~1.5s, re-emit the whole screen once (healScreen) so a garbled
+      // repaint is replaced by the correct frame. Idle-only and once per
+      // content burst; a correctly-rendering terminal pays one redundant
+      // full draw per burst.
+      const sig = `${this.chatContent}\u0000${this.ownerContent}`;
+      if (sig === this.lastPaintSig) {
+        this.quietTicks++;
+        if (this.quietTicks === 15 && sig !== '\u0000') this.healScreen();
+      } else {
+        this.quietTicks = 0;
+        this.lastPaintSig = sig;
+      }
       if (this.typing || this.ownerTyping || this.clientWindow || this.busy.size > 0) {
         this.renderStatus();
         this.repaint();
@@ -949,6 +970,7 @@ export class TuiApp {
     chatBox.setContent(lines.join('\n\n'));
     if (this.chatFollow || perc >= 100) chatBox.setScrollPerc(100);
     else chatBox.setScrollPerc(perc);
+    this.chatContent = lead.msgs.map(m => `${m.at}|${m.role}|${m.text}`).join('\u0001');
   }
 
   private renderOwner(): void {
@@ -973,6 +995,7 @@ export class TuiApp {
     });
     ownerBox.setContent(lines.join('\n\n'));
     ownerBox.setScrollPerc(100);
+    this.ownerContent = lead.ownerMsgs.map(m => `${m.at}|${m.role}|${m.text}`).join('\u0001');
   }
 
   private renderInput(): void {
@@ -1053,6 +1076,29 @@ export class TuiApp {
       if (!old) continue;
       for (let x = 0; x < old.length; x++) old[x] = [screen.dattr, '\x00'];
     }
+  }
+
+  /**
+   * SELF-HEAL (the [14:34] garbled transcript): some web-terminal brokers
+   * mis-execute blessed's cell-diff writes — cursor-jump + tiny fragments get
+   * misplaced, so pane text duplicates/interleaves even though Lina's reply
+   * data was correct (the transcript's state line proved the flow was fine).
+   * blessed renders by diffing `screen.lines` (the desired frame) against
+   * `screen.olines` (what it BELIEVES is on screen). Poisoning olines with
+   * NUL cells makes the next render() see the ENTIRE screen as dirty and
+   * re-emit every row — a full correct repaint that overwrites the garble.
+   * The heal runs idle-only (~1.5s after the content stopped changing, see
+   * the ticker) and once per content burst, so the redundant full draw never
+   * interleaves with typing.
+   */
+  private healScreen(): void {
+    const { screen } = this.box;
+    for (let y = 0; y < screen.rows; y++) {
+      const o = screen.olines[y];
+      if (!o) continue;
+      for (let x = 0; x < o.length; x++) o[x] = [screen.dattr, '\x00'];
+    }
+    this.repaint();
   }
 
   /** Centralized repaint: input-row re-emission + the diff render. */
