@@ -11,7 +11,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -617,7 +617,17 @@ export class InboundHandler {
     // Also: "каде му е адресата?" matches EXACT_ADDRESS but is really a WHERE_IS
     // question — the client wants to know WHERE it is, not the exact address.
     // WHERE_IS takes priority: landmark rotation first, protocol on follow-ups.
-    if (detectExactAddressAsk(text) && !isKadeTocno(text) && !detectWhereIs(text) && !skipInterceptors) {
+    // WHERE-IS DEFERRAL, refined (the [22:15] transcript): the old gate used
+    // the whole detectWhereIs — but the where-is EXTENSION also fires on
+    // exact-address phrases without any каде word ("TOCNATA ULICA I BROJ AKO
+    // MOZE?" hits the 'kazete tochna adresa' stem family), so the SECOND ask
+    // of the address ladder was served landmark rotation 2 instead of the
+    // privacy protocol. Deferral now requires a REAL where/proximity anchor
+    // (hasWhereWord): a каде word or близина/близу/околу/наспроти/спроти/тука.
+    // Exact demands without them (улица и број / точната адреса families) ride
+    // the EXACT ladder — turn 1 nearby, turn 2 the day-of-visit protocol.
+    if (detectExactAddressAsk(text) && !isKadeTocno(text)
+      && !(detectWhereIs(text) && hasWhereWord(text)) && !skipInterceptors) {
       routeLog(chatId, text, 'EXACT_ADDRESS');
       // THE LOCATION LADDER: an EXACT-address demand is still a location ask.
       // Turn 1 resolves the property and gives ROTATION 1 ("во близина на

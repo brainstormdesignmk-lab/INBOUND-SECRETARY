@@ -3565,20 +3565,24 @@ test('[09:21–09:24] exact-address ladder: pinned EB survives follow-ups, x-typ
 
   // THE BUG: the follow-up (no EB in it) answered for the LAST-SHOWN EB 91.
   // The pinned EB 89 must survive the follow-up.
+  // LADDER (post-[22:15]): turn 1 = the approximation, turn 2 = the day-of-
+  // visit protocol (the SECOND exact insist), turn 3 = the polite shut-down.
+  // The protocol must NEVER arrive later than the second insist, and a
+  // landmark/rotation may never follow the first approximation.
   await send('tocnata adresa , ako moze?');
   assert.equal(sessions.get(chatId)!.slots.propertyId, 89, 'pinned EB must survive a bare exact ask');
-
-  // THE TYPO: "toxnata lokacija" (x for c) fell through every location lane
-  // into the free-form LLM. It must ride the SAME ladder — and ask 2 lands on
-  // the agency privacy protocol (the day-of-visit rule), never another
-  // landmark and never LLM prose.
-  await send('toxnata lokacija');
   const proto = sent.at(-1)!;
-  // The protocol shape (wording rotates across bank variants): the agency
-  // reveals the address only on/at visit scheduling.
-  assert.match(proto, /Агенција|закажеме|посетата|политик|правило|два часа|процедура|средба/iu,
+  assert.match(proto, /Агенција|закажеме|посетата|политик|правило|два часа|процедура|средба|ден(от)? на посетата/iu,
     `ask 2 must serve the address protocol: ${proto}`);
-  assert.ok(!proto.includes('во близина на'), `no third landmark on ask 2: ${proto}`);
+  assert.ok(!proto.includes('во близина на'), `no landmark on ask 2: ${proto}`);
+
+  // THE TYPO: "toxnata lokacija" (x for c) rides the SAME ladder — ask 3 is
+  // the shut-down (realon-is-clear family), never another landmark and never
+  // LLM prose.
+  await send('toxnata lokacija');
+  const shut = sent.at(-1)!;
+  assert.ok(!shut.includes('во близина на'), `no third landmark on ask 3: ${shut}`);
+  assert.ok(!/https:/iu.test(shut), `no maps link on ask 3: ${shut}`);
 });
 
 test('[09:25] fee-ask with a земат typo reads as PROVISION_ASK, never availability', async () => {
@@ -3926,4 +3930,34 @@ test('[21:26] bare more-asks never fall into the WHERE_IS lane — no neighborho
   await send('VO KISELA VODA');
   await send('DRUGO STO IMAS ?');
   assert.ok(!/Имотот се наоѓа во населбата/iu.test(sent.at(-1)!), `no neighborhood answer for a more-ask: ${sent.at(-1)!}`);
+});
+
+test('[22:15] the SECOND exact ask reaches the day-of-visit protocol — never landmark rotation 2', async () => {
+  const rows: Property[] = [
+    { eb: 90, id: 90, location: 'Ново Лисице', price: 75000, service: 'buy', bedrooms: 2, size: '54 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-2215-protocol';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM DVOSOBEN STAN VO NOVO LISICE DO 80000 EVRA');
+  assert.equal(sessions.get(chatId)!.state, 'presentation', `precondition: presentation (got ${sessions.get(chatId)!.state})`);
+
+  // Turn 1: the каде-точно ask gets the honest approximation.
+  await send('OVJ VO NOVO LISICE KADE TOCNO SE NAOGJA?');
+  assert.ok(/Ново Лисице|близина/iu.test(sent.at(-1)!), `turn 1 approximation served: ${sent.at(-1)!}`);
+
+  // THE BUG: the exact insist ("TOCNATA ULICA I BROJ AKO MOZE?") matched the
+  // where-is extension (the 'kazete tochna adresa' stem family) — the EXACT
+  // gate deferred and the WHERE_IS lane served landmark rotation 2 instead
+  // of the privacy protocol.
+  await send('TOCNATA ULICA I BROJ AKO MOZE?');
+  assert.ok(!/https:/iu.test(sent.at(-1)!), `no maps link on the exact ask: ${sent.at(-1)!}`);
+
+  // Second exact ask: THE PROTOCOL — day-of-visit wording family, never a
+  // second landmark ("Market Zur" class), never a repeated approximation.
+  await send('TOCNATA ULICA I BROJ AKO MOZE?');
+  assert.ok(/ден(от)? на посетата|два часа|процедура|правил|политик|Агенција|закажан/iu.test(sent.at(-1)!),
+    `second exact ask → privacy protocol: ${sent.at(-1)!}`);
+  assert.ok(!/близина на/iu.test(sent.at(-1)!), `no landmark rotation on the protocol turn: ${sent.at(-1)!}`);
 });

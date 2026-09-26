@@ -3511,6 +3511,18 @@ export function isPoiConfirmQuestion(text: string): boolean {
 const WHERE_LANDMARK_RE =
   /(?<![\p{L}\p{N}])(?:каде|кде|kade|gde)(?![\p{L}\p{N}])[^.?!\n]{0,40}(?![\p{L}\p{N}])(?:тоа|тој|таа|toa|toj|taa|тоa)?[^.?!\n]{0,40}(?<![\p{L}\p{N}])(?:во|во|vo|во|na|на|kaj|кај)?/iu;
 
+/** A where/каде word or a REAL proximity anchor (близина/близу/околу/наспроти/
+ *  спроти/тука). Deliberately EXCLUDES адрес/локациј (which hasProximityAnchor
+ *  includes): those are the exact-address TOPIC nouns, not location anchors —
+ *  an exact demand ("TOCNATA ULICA I BROJ AKO MOZE?") carries no where-word
+ *  and must ride the EXACT ladder (turn 1 nearby, turn 2 the day-of-visit
+ *  protocol), never landmark rotation. Used by the EXACT gate to decide when
+ *  a message defers to the WHERE_IS lane. */
+export function hasWhereWord(text: string): boolean {
+  if (matchesBoth(/(?:каде|кде|kade|gde|where)/iu, text)) return true;
+  return /(?:во\s+бли[зж]ин|бли[зж]у|околу|околин|наспроти|сспроти|спроти|тука)/iu.test(normalizeMc(text));
+}
+
 /** True when the client asks WHERE a named PLACE is ("kade ti e toa 26 juli
  *  tc ?", "kade e skopjanka?"). These are landmark questions — the number in
  *  the text belongs to the place name, never to the Евидентен-број intake. */
