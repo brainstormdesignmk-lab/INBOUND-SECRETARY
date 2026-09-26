@@ -145,14 +145,20 @@ EOF
   #    Runs the COMPILED script (plain node) — atoms have no tsx.
   if [ "$DO_CRON" = "1" ]; then
     echo "  → ensuring enrichment cron (03:30 nightly → logs/enrich.log) …"
+      # WORKSTATION-ENRICHMENT FLOW (2026-09-26): the atom NO LONGER enriches
+      # itself. Its single Gemini key starves on 503s; the workstation runs
+      # the enrichment (collect-atoms.sh pulls the DB copy → import-
+      # atom-queue.ts merges the pending queue → enrichBank.ts with 3 keys →
+      # push-bank.sh returns the bank). The legacy LINA_ENRICH cron line is
+      # removed here so older images don't keep self-enriching.
       CRON_LINE="30 3 * * * cd $rpath && node dist/scripts/enrichBank.js >> $rpath/logs/enrich.log 2>&1 # LINA_ENRICH"
       if [ "$DRY_RUN" = "1" ]; then
-        echo "    [dry-run] $CRON_LINE"
+        echo "    [dry-run] remove legacy $CRON_LINE"
       else
         if "${SSH[@]}" "crontab -l 2>/dev/null | grep -q 'LINA_ENRICH'"; then
-          echo "    cron already present"
+          "${SSH[@]}" "crontab -l | grep -v LINA_ENRICH | crontab -" && echo "    ✓ legacy enrich cron removed (enrichment moved to the workstation)"
         else
-          "${SSH[@]}" "{ crontab -l 2>/dev/null; echo '$CRON_LINE'; } | crontab -" && echo "    ✓ enrich cron added (03:30 nightly)"
+          echo "    cron: already clean (workstation-side enrichment)"
         fi
         # One log path everywhere: rebuild the @reboot line with a canonical
         # single log target (logs/lina-stdout.log; it historically wrote

@@ -78,6 +78,27 @@ while IFS='|' read -r id host user key rpath note; do
   pull data/address-overrides.json
   pull data/feed-corrections.md
 
+  # The atom's OWN DATABASE COPY (workstation-enrichment flow, 2026-09-26):
+  # the enrichment queue lives in the atom's lina.db, and enrichment runs on
+  # the WORKSTATION (3 Gemini keys) — the atom's single key starves on 503s.
+  # A .copy-<ts> snapshot is pulled (never the live file — rsyncing a
+  # hot SQLite db can tear). The import tool reads the pending queue from
+  # it; the push side (push-bank.sh) returns the enriched bank to the atom.
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "  [dry-run] data/lina.db → $dest/lina.db.copy"
+  else
+    ts=$(date +%Y%m%d-%H%M%S)
+    if "${SSH[@]}" "cd '$rpath' && sqlite3 data/lina.db '.backup data/lina.db.copy-$ts'" 2>/dev/null \
+      && rsync -az -e "$RSYNC_SSH" --timeout=60 \
+        "$user@$host:$rpath/data/lina.db.copy-$ts" "$dest/lina.db.copy" 2>/dev/null \
+      && "${SSH[@]}" "rm -f '$rpath/data/lina.db.copy-$ts'"; then
+      n=$(sqlite3 "$dest/lina.db.copy" 'SELECT COUNT(*) FROM enrichment_queue WHERE enriched=0' 2>/dev/null || echo '?')
+      echo "  ✓ lina.db.copy (pending: $n)"
+    else
+      echo "  · lina.db.copy failed (ok if sqlite3 missing on atom)"
+    fi
+  fi
+
   # Per-atom hardening corpora (GAP rows the atom appended itself).
   if [ "$DRY_RUN" = "1" ]; then
     echo "  [dry-run] data/hardening/*.json → $dest/hardening/"
