@@ -11,7 +11,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -1909,6 +1909,8 @@ export class InboundHandler {
         && detectResultSetQuestion(text)) {
       const pool = await this.deps.properties.candidates({
         bedrooms: session.slots.bedrooms,
+        bedroomsMin: session.slots.bedroomsMin,
+        bedroomsMax: session.slots.bedroomsMax,
         sqm: session.slots.sqm,
         business: session.slots.business,
         house: session.slots.house,
@@ -1920,8 +1922,13 @@ export class InboundHandler {
       // batch, not the inventory.
       const count = pool.length;
       // Room-count convention: slots store ROOMS ("2 спални" → 3); speak beds.
+      // RANGE ([09:17]): speak the spoken band ("една или две спални").
       const spokenBeds = session.slots.bedrooms ? session.slots.bedrooms - 1 : undefined;
-      const bedsLabel = spokenBeds === 1 ? 'една спална'
+      const rangeBeds = session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined
+        ? [session.slots.bedroomsMin - 1, session.slots.bedroomsMax - 1] : undefined;
+      const bedsLabel = rangeBeds
+        ? (rangeBeds[0] === 1 ? 'една или две спални' : `${rangeBeds[0]} или ${rangeBeds[1]} спални`)
+        : spokenBeds === 1 ? 'една спална'
         : spokenBeds === 2 ? 'две спални'
         : spokenBeds === 3 ? 'три спални'
         : spokenBeds !== undefined ? `${spokenBeds} спални`
@@ -1956,6 +1963,8 @@ export class InboundHandler {
       const presentRingPair = async (intro: string): Promise<boolean> => {
         let pool = await this.deps.properties.candidates({
           bedrooms: session.slots.bedrooms,
+          bedroomsMin: session.slots.bedroomsMin,
+          bedroomsMax: session.slots.bedroomsMax,
           sqm: session.slots.sqm,
           business: session.slots.business,
           house: session.slots.house,
@@ -2163,6 +2172,21 @@ export class InboundHandler {
       // criteria on the floor. Apply the message's OWN extraction so the
       // re-search below runs with the client's ACTUAL new criteria.
       if (!ev.bedrooms && es.bedrooms) session.slots.bedrooms = es.bedrooms;
+      // RANGE pivot ([09:17]): a fresh range supersedes an exact count; an
+      // exact count supersedes a range (applySlots owns the exact-direction
+      // retirement — this seam covers the exhausted-pivot path that bypasses
+      // applySlots). 
+      if (!ev.bedroomsMin && es.bedroomsMin && es.bedroomsMax) {
+        session.slots.bedrooms = undefined;
+        session.slots.bedroomsMin = es.bedroomsMin;
+        session.slots.bedroomsMax = es.bedroomsMax;
+        session.slots.bedroomsAlt = true;
+      } else if (!ev.bedrooms && es.bedrooms && session.slots.bedroomsMin !== undefined) {
+        session.slots.bedrooms = es.bedrooms;
+        session.slots.bedroomsMin = undefined;
+        session.slots.bedroomsMax = undefined;
+        session.slots.bedroomsAlt = undefined;
+      }
       if (!ev.sqm && es.sqm) session.slots.sqm = es.sqm;
       if (!ev.budget && es.budget) session.slots.budget = es.budget;
       if (es.garsonjera) session.slots.garsonjera = true;
@@ -2295,7 +2319,8 @@ export class InboundHandler {
           ...locateOpts, exclude: session.slots.presentedIds ?? [],
         })).slice(0, 2);
         reply = nextBatch.length > 0 ? present(nextBatch) : LOCATE_REFINE_ASK;
-      } else if (session.slots.location && !session.slots.sqm && !session.slots.budget && !session.slots.bedrooms) {
+      } else if (session.slots.location && !session.slots.sqm && !session.slots.budget
+        && !session.slots.bedrooms && !(session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined)) {
         // Location known but m² / price / bedrooms missing — collect more
         // specs before dumping ALL properties in the area.  The client said
         // "stan na Vodno" but we need size and budget to narrow the list.
@@ -2943,12 +2968,16 @@ ${contactReminder}`;
         // Type-aware relaxed intro (19:34): garsonjera gets a garsonjera line;
         // спални labels speak ROOMS-1 (slots store room count: "2 спални" → 3).
         const requestedBeds = session.slots.bedrooms;
+        // RANGE ([09:17]): the pool is exact 2…3 rooms — never the relaxed intro.
+        const rangeActive = session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined;
         const exactMatch = requestedBeds ? props.some(p => p.bedrooms === requestedBeds) : true;
         const garsonjeraNoExact = session.slots.garsonjera
           && !props.some(p => /гарсоњер|garsonjer|студио|studio/i.test(p.details ?? ''));
         let prefix = '';
         if (garsonjeraNoExact) {
           prefix = relaxedCategoryLine(true, undefined, session.slots.location, assistantTexts(session)) ?? '';
+        } else if (rangeActive) {
+          // Range pool: every card is an exact-category match — no relaxed intro.
         } else if (requestedBeds && !exactMatch) {
           const spokenRooms = requestedBeds - 1;
           const requestedLabel = spokenRooms === 1 ? 'една спална'
@@ -3130,12 +3159,20 @@ ${contactReminder}`;
         // најблиските" followed by "Врз основа на… издвоив" read as two
         // contradictory speakers (the 19:34 transcript).
         const requestedBeds = session.slots.bedrooms;
+        // RANGE ([09:17]): the pool is exact 2…3 rooms, so every card IS a
+        // match — never run the bigger/smaller relaxed intro for a range.
+        const rangeActive = session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined;
         const exactMatch = requestedBeds ? props.some(p => p.bedrooms === requestedBeds) : true;
+        const rangeMatch = rangeActive || (requestedBeds === undefined
+          && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined
+          && props.every(p => !p.bedrooms || (p.bedrooms >= session.slots.bedroomsMin! && p.bedrooms <= session.slots.bedroomsMax!)));
         const garsonjeraNoExact = session.slots.garsonjera
           && !props.some(p => /гарсоњер|garsonjer|студио|studio/i.test(p.details ?? ''));
         let prefix = '';
         if (garsonjeraNoExact) {
           prefix = relaxedCategoryLine(true, undefined, session.slots.location, assistantTexts(session)) ?? '';
+        } else if (rangeActive) {
+          // Range pool: every card is an exact-category match — no relaxed intro.
         } else if (requestedBeds && !exactMatch) {
           // Room-count convention: slots.bedrooms stores ROOMS ("2 спални" → 3).
           // The spoken label is the bedroom count: rooms-1 (3 rooms = 2 спални).
@@ -3689,7 +3726,24 @@ ${contactReminder}`;
     // Clients type Latin ("centar", "kapistec"); canonicalize to Cyrillic so
     // replies and the deterministic no-match lines read naturally.
     if (ev.location) session.slots.location = normalizeLocation(ev.location);
-    if (ev.bedrooms) session.slots.bedrooms = ev.bedrooms;
+    if (ev.bedrooms) {
+      session.slots.bedrooms = ev.bedrooms;
+      // An EXACT count supersedes a bedroom RANGE ([09:17] contract: "a new
+      // client request overrides"): "daj so edna" retires the alternation.
+      session.slots.bedroomsMin = undefined;
+      session.slots.bedroomsMax = undefined;
+      session.slots.bedroomsAlt = undefined;
+    }
+    // Bedroom RANGE (the [09:17] fix): "edna ili dve" arms the alternating
+    // 1-спална/2-спални presentation — the range NEVER becomes a minimum
+    // bedrooms slot (exact-category semantics; candidates() handles it). A
+    // range event carries no exact count, so the exact retirement above
+    // cannot fire on the same message.
+    if (ev.bedroomsMin !== undefined && ev.bedroomsMax !== undefined) {
+      session.slots.bedroomsMin = ev.bedroomsMin;
+      session.slots.bedroomsMax = ev.bedroomsMax;
+      session.slots.bedroomsAlt = true;
+    }
     if (ev.sqm) session.slots.sqm = ev.sqm;
     if (ev.business !== undefined) session.slots.business = ev.business;
     if (ev.house !== undefined) session.slots.house = ev.house;
@@ -3702,6 +3756,9 @@ ${contactReminder}`;
     // adapt with the flow). A waiver-only message never carries bedrooms/sqm,
     // so ordering in the same applySlots pass is safe.
     if ((ev.bedrooms || ev.sqm) && ev.sizeWaived === undefined) session.slots.sizeWaived = undefined;
+    // A fresh bedroom RANGE retires the size waiver too — the client named a
+    // size after all ("edna ili dve" IS a size answer, [09:17]).
+    if (ev.bedroomsMin !== undefined && ev.sizeWaived === undefined) session.slots.sizeWaived = undefined;
     if (ev.pricePriority) session.slots.pricePriority = true;
     if (ev.garsonjera) session.slots.garsonjera = true;
     // Plac/yard are CATEGORIES (like garsonjera): a plac never coexists with
@@ -3742,7 +3799,8 @@ ${contactReminder}`;
     // "garsonjera mi treba do 250" must PRESENT, not loop "Колку спални…").
     // Same for plac ("плац за градење" names the type outright) and yard
     // ("со двор" — the outdoor need replaces any спални spec).
-    return !!s.slots.service && loc && (!!s.slots.bedrooms || !!s.slots.anywhere || !!s.slots.sizeWaived || !!s.slots.garsonjera || !!s.slots.plac || !!s.slots.yard) && !!s.slots.budget;
+    return !!s.slots.service && loc && (!!s.slots.bedrooms || (s.slots.bedroomsMin !== undefined && s.slots.bedroomsMax !== undefined)
+      || !!s.slots.anywhere || !!s.slots.sizeWaived || !!s.slots.garsonjera || !!s.slots.plac || !!s.slots.yard) && !!s.slots.budget;
   }
 
   private async loadProps(session: ChatSession, areaRequested = false, seeOffers = false): Promise<Property[]> {
@@ -3765,6 +3823,9 @@ ${contactReminder}`;
       const candidates = await this.deps.properties.candidates({
         location: session.slots.location,
         bedrooms: session.slots.bedrooms,
+        // Bedroom RANGE ([09:17]): exact 2…3-rooms pool, both ends required.
+        bedroomsMin: session.slots.bedroomsMin,
+        bedroomsMax: session.slots.bedroomsMax,
         sqm: session.slots.sqm,
         business: session.slots.business,
         house: session.slots.house,
@@ -3830,9 +3891,39 @@ ${contactReminder}`;
       // …until the specs run out → alternativesExhausted → the "another
       // neighborhood?" offer. The ladder key is (location|anywhere, service,
       // budget): a NEW search rebuilds the queue from the top.
-      const ladderKey = `${session.slots.anywhere ? '*' : session.slots.location ?? '-'}|${session.slots.service ?? '-'}|${session.slots.budget ?? '-'}`;
+      const ladderKey = `${session.slots.anywhere ? '*' : session.slots.location ?? '-'}|${session.slots.service ?? '-'}|${session.slots.budget ?? '-'}|${session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined ? `alt${session.slots.bedroomsMin}-${session.slots.bedroomsMax}` : `b${session.slots.bedrooms ?? '-'}`}`;
       let queue = session.slots.ladderQueue ?? [];
       if (session.slots.ladderKey !== ladderKey || queue.length === 0) {
+        if (session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined) {
+          // RANGE LADDER (the [09:17] contract): "give him one with one
+          // bedroom, the second one with two bedrooms, until one category is
+          // exhausted; then give him what is left". Interleave the exact
+          // categories round-robin (smallest first), one card per category per
+          // pair — batches of 2 naturally serve one of each. When a bucket
+          // drains, the survivor continues alone. Within a category the
+          // candidates() order stands (price-closest to budget leads). Rows
+          // without a bedrooms tag ride at the tail (wildcards, never
+          // duplicated across buckets).
+          const cats: number[] = [];
+          const buckets = new Map<number, Property[]>();
+          for (let rooms = session.slots.bedroomsMin; rooms <= session.slots.bedroomsMax; rooms++) {
+            const bucket = pool.filter(p => p.bedrooms === rooms);
+            if (bucket.length > 0) { buckets.set(rooms, bucket); cats.push(rooms); }
+          }
+          const wildcards = pool.filter(p => !p.bedrooms).map(p => p.id);
+          const interleaved: Property[] = [];
+          let takeFirst = true;
+          for (;;) {
+            if (cats.length === 0) break;
+            const idx = takeFirst ? 0 : cats.length - 1;
+            const bucket = buckets.get(cats[idx])!;
+            const next = bucket.shift();
+            if (next) interleaved.push(next);
+            if (bucket.length === 0) { buckets.delete(cats[idx]); cats.splice(idx, 1); }
+            takeFirst = !takeFirst;
+          }
+          queue = [...interleaved.map(p => p.id), ...wildcards];
+        } else {
         const firstTwo = pool.slice(0, 2).map(p => p.id);
         const remaining = pool.slice(2);
         const byPrice = [...remaining].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || a.eb - b.eb);
@@ -3843,6 +3934,7 @@ ${contactReminder}`;
         const middleSet = new Set(middle2);
         const rest = afterCheap.filter(p => !middleSet.has(p.id)).map(p => p.id);
         queue = [...firstTwo, ...cheapest2, ...middle2, ...rest];
+        }
         session.slots.ladderKey = ladderKey;
         session.slots.ladderQueue = queue;
       }

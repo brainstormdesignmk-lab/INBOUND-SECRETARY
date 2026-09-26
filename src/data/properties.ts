@@ -898,6 +898,7 @@ export class PropertyService {
   async candidates(opts: {
     location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean;
     garsonjera?: boolean; plac?: boolean; yard?: boolean; service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
+    bedroomsMin?: number; bedroomsMax?: number; // bedroom RANGE ([09:17]): exact-category pool, both ends REQUIRED
     sortBySqmDesc?: boolean; // "nebitno" (size waived): BIGGEST м² first — the money buys space
     sortByPopularity?: boolean; // "било каде" — most popular neighborhoods first
   }): Promise<Property[]> {
@@ -930,9 +931,14 @@ export class PropertyService {
     // instead of nothing. The fallback must happen BEFORE the location filter
     // so that exact matches in OTHER areas don't block the >= fallback for
     // the requested area.
-    const withBedrooms = opts.bedrooms
-      ? base.filter(p => !p.bedrooms || p.bedrooms === opts.bedrooms)
-      : base;
+    // RANGE ([09:17]): "edna ili dve" → EXACT 2…3 rooms, BOTH ends required —
+    // a range is a bounded choice, not a minimum; rows with unknown bedrooms
+    // stay in the pool so an untagged row can still serve.
+    const withBedrooms = opts.bedroomsMin !== undefined && opts.bedroomsMax !== undefined
+      ? base.filter(p => !p.bedrooms || (p.bedrooms >= (opts.bedroomsMin as number) && p.bedrooms <= (opts.bedroomsMax as number)))
+      : opts.bedrooms
+        ? base.filter(p => !p.bedrooms || p.bedrooms === opts.bedrooms)
+        : base;
     // Check if exact matches exist in the target location
     const exactInLoc = opts.location ? withBedrooms.filter(inLoc) : withBedrooms;
     let baseFiltered: typeof base;

@@ -324,7 +324,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   const plac = !!slots.plac;    // "плац за градење" — land plot (the 22:53 sweep)
   const yard = !!slots.yard;    // "со двор/дворче" — outdoor-space need (implies house)
   const anywhere = !!slots.anywhere; // "било каде" — location waived, city-wide search
-  const knownAny = !!(slots.service || slots.location || slots.bedrooms || slots.sqm || slots.budget || anywhere);
+  const knownAny = !!(slots.service || slots.location || slots.bedrooms || (slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined) || slots.sqm || slots.budget || anywhere);
   // The client opened with NO criteria at all ("zdravo") — Lina does NOT know
   // the property type, so she must never assume an apartment. Bank key
   // greeting.open (generated variants, validated to never mention a type)
@@ -362,7 +362,12 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // "garsonjera" IS the size answer — a studio has no separate спална, so the
   // bedrooms question never fires for the explicit studio category (19:34 bug:
   // the funnel looped on "Колку спални…" after the client already said it).
-  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms && !anywhere && !slots.sizeWaived && !slots.garsonjera && !sizeWaivedCategory) {
+  // A bedroom RANGE ("edna ili dve", [09:17]) IS the size answer — the
+  // alternation ladder owns presentation; asking again re-asks an answered
+  // question (the transcript loop).
+  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms
+    && !(slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined)
+    && !anywhere && !slots.sizeWaived && !slots.garsonjera && !sizeWaivedCategory) {
     missing.push(askQuestion(
       house ? 'discovery.ask.bedrooms.house' : 'discovery.ask.bedrooms.stan',
       house ? 'Колку спални соби би сакале да има куќата?' : 'Колку спални соби би сакале да има станот?',

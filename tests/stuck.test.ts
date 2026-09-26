@@ -3453,3 +3453,84 @@ test('[23:57] "DVE NAJMALCE ILI TRI" arms bedrooms and "SAMO OVIE DVA…?" gets 
   assert.ok(!reply.includes('консултирам со сопственикот'), `no owner-consult line: ${reply}`);
   assert.ok(!reply.includes('90 м²'), `no card re-render: ${reply}`);
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// The [09:17] TUI transcript — the noun-less bedroom RANGE and the alternating
+// exact-category presentation.
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('[09:17] "edna ili dve\ndo 140000" captures the range, never re-asks; presentation alternates 1-спална/2-спални until one bucket drains', async () => {
+  // Mirror of the [09:17] funnel: the opener asks bedrooms + budget, the
+  // client answers BOTH in ONE multi-line message, and the reply must be a
+  // pair of cards (one 2-собен = 1 спална, one 3-собен = 2 спални), never the
+  // re-asked bedrooms question.
+  const rows: Property[] = [
+    { eb: 71, id: 71, location: 'Аеродром', price: 60000, service: 'buy', bedrooms: 2, size: '55 м²' },
+    { eb: 72, id: 72, location: 'Аеродром', price: 65000, service: 'buy', bedrooms: 2, size: '58 м²' },
+    { eb: 73, id: 73, location: 'Аеродром', price: 135000, service: 'buy', bedrooms: 3, size: '85 м²' },
+    { eb: 74, id: 74, location: 'Аеродром', price: 120000, service: 'buy', bedrooms: 3, size: '80 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-0917-range';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM STAN VO AERODROM');
+  const s0 = sessions.get(chatId)!;
+  assert.equal(s0.state, 'discovery');
+  assert.ok(sent.at(-1)!.includes('спални'), 'the funnel asks bedrooms (transcript precondition)');
+
+  // THE BUG: the range AND the budget shared one multi-line message — the
+  // budget digits vetoed every capture and the bedrooms question re-asked.
+  const s1 = await send('edna ili dve\ndo 140000');
+  assert.equal(s1.state, 'presentation', `the range completes the funnel: ${JSON.stringify(s1.slots)}`);
+  assert.equal(s1.slots.bedroomsMin, 2, JSON.stringify(s1.slots));
+  assert.equal(s1.slots.bedroomsMax, 3, JSON.stringify(s1.slots));
+  assert.equal(s1.slots.bedrooms, undefined, 'a range is NOT a minimum — no exact slot');
+  assert.equal(s1.slots.budget, '140000');
+  const batch1 = sent.at(-1)!;
+  assert.ok(!batch1.includes('Колку спални'), `never re-ask: ${batch1}`);
+  assert.ok(batch1.includes('Евидентен број 72') && batch1.includes('Евидентен број 73'),
+    `first pair = one of each category (price-closest 2-собен 72 + 3-собен 73): ${batch1}`);
+
+  // The alternation contract: the SECOND pair carries the other of each
+  // category — "until one category is exhausted; then give him what is left".
+  const s2 = await send('ushte edna');
+  assert.equal(s2.state, 'presentation');
+  const batch2 = sent.at(-1)!;
+  assert.ok(batch2.includes('Евидентен број 71') && batch2.includes('Евидентен број 74'),
+    `second pair = the remaining 2-собен 71 + 3-собен 74: ${batch2}`);
+
+  // Both buckets drained together → the exhausted ask (widen/register), never
+  // a re-present of shown cards.
+  await send('ushte edna');
+  assert.ok(EXHAUSTED_ASK.test(sent.at(-1)!), `drained → widen/register ask: ${sent.at(-1)!}`);
+  assert.ok(!sent.at(-1)!.includes('Евидентен број 72'), 'no card repeats after exhaustion');
+});
+
+test('[09:17b] an exact count ("daj so edna") retires the range — "then give him what he wants"', async () => {
+  const rows: Property[] = [
+    { eb: 71, id: 71, location: 'Аеродром', price: 60000, service: 'buy', bedrooms: 2, size: '55 м²' },
+    { eb: 72, id: 72, location: 'Аеродром', price: 65000, service: 'buy', bedrooms: 2, size: '58 м²' },
+    { eb: 73, id: 73, location: 'Аеродром', price: 135000, service: 'buy', bedrooms: 3, size: '85 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-0917-exact';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM STAN VO AERODROM');
+  await send('edna ili dve\ndo 140000');
+  assert.equal(sessions.get(chatId)!.slots.bedroomsAlt, true);
+
+  // The [07:20:43] follow-up: the client picks ONE category — the range must
+  // retire (exact rooms-2 slot, no bedroomsMin/Max) and the presentation
+  // becomes exact-category (the exhausted ask must not re-fire; with one
+  // exact-2-собен still unshown the reply serves it).
+  const s3 = await send('daj so edna');
+  assert.equal(s3.slots.bedrooms, 2, JSON.stringify(s3.slots));
+  assert.equal(s3.slots.bedroomsMin, undefined, JSON.stringify(s3.slots));
+  assert.equal(s3.slots.bedroomsMax, undefined, JSON.stringify(s3.slots));
+  assert.equal(s3.slots.bedroomsAlt, undefined, JSON.stringify(s3.slots));
+  const reply = sent.at(-1)!;
+  assert.ok(reply.includes('Евидентен број'), `exact-category presentation: ${reply}`);
+  assert.ok(!reply.includes('Евидентен број 73'), `no 3-собен may serve the 1-спална ask: ${reply}`);
+});

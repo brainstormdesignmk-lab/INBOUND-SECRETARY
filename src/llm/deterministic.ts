@@ -31,6 +31,8 @@ export interface DetectedSlots {
   service?: Service;
   location?: string;   // filled by the caller (needs the feed's neighborhoods)
   bedrooms?: number;
+  bedroomsMin?: number; // bedroom RANGE (ROOMS) — "edna ili dve" → 2…3 ([09:17])
+  bedroomsMax?: number; // range high bound; present ⇒ alternating exact-category presentation
   sqm?: number;        // commercial spaces: size instead of bedrooms
   business?: boolean;  // деловен простор / канцеларија / локал
   house?: boolean;     // куќа — a residential request that is NOT a стан
@@ -427,6 +429,117 @@ function matchWordNumber(text: string): number | undefined {
   if (matchesBoth(/четири|chetiri|cetiri/iu, text)) return 4;
   if (matchesBoth(/пет|pet/iu, text)) return 5;
   return undefined;
+}
+
+// =========================================================================
+// BEDROOM RANGE — the [09:17] transcript: the funnel asked "Колку спални
+// соби…?" and the client answered "edna ili dve\ndo 140000" (ONE multi-line
+// message) — and again "moze i so edna , a moze i so dve zavisi treba da e
+// dobar". Every capture attempt missed: the ili-branch of detectBedrooms
+// requires a bedroom/room NOUN, and the bare branch is vetoed by
+// detectBudget (the budget digits share the message). The funnel re-asked a
+// question the client had already answered.
+//
+// Range convention: "edna ili dve" = 1–2 СПАЛНИ → ROOMS 2–3. Noun forms
+// follow their own convention (спални→+1, соби→direct), mirroring
+// detectBedrooms. Budgets, clocks ("18:30" has an ili-style digit shape),
+// sizes and floor-words must never read as ranges.
+// =========================================================================
+
+/** Word/digit number recognizer for the range ends: "една|еден|едно|edna…",
+ *  "две|два|dve…", digits. Tolerates a trailing typo letter ("dvеe" slips ride
+ *  matchWordNumber above; the digit arm accepts a single trailing letter, a
+ *  common phone typo — "2s" stays out because a letter prefix reads as a word). */
+function rangeEndToken(tok: string): number | undefined {
+  const t = tok.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  if (!t) return undefined;
+  if (/^(?:1|една|еден|едно|edna|eden|edno)[а-яa-z]?$/iu.test(t)) return 1;
+  if (/^(?:2|две|два|dve|dva)[а-яa-z]?$/iu.test(t)) return 2;
+  if (/^(?:3|три|tri)[а-яa-z]?$/iu.test(t)) return 3;
+  if (/^(?:4|четири|chetiri|cetiri)[а-яa-z]?$/iu.test(t)) return 4;
+  return undefined;
+}
+
+/** Flexible alternation markers: word-bounded "ili/или/и" ("edna ili dve",
+ *  "и so edna и so dve" — Latin-only 'i' rides the dual-chance normalize),
+ *  or a comma-coordinated "a/а" ("moze i so edna , a moze i so dve"). A
+ *  bare standalone "i" is NOT a connector: "DVE SPALNI OBAVEZNO A MOZE I
+ *  TRI" is a MINIMUM phrasing, never a band. */
+const RANGE_CONNECTOR_RE =
+  /(?<![\p{L}\p{N}])(?:ili|или|и)(?![\p{L}\p{N}])|[,;]\s*(?:a|а)(?![\p{L}\p{N}])/iu;
+
+/** Size/floor context that disqualifies a range read: м² sizes, floor words.
+ *  NOTE: budget digits need NO veto — rangeEndToken only accepts a single
+ *  digit or a number word, so "140000"/"250" can never become range ends,
+ *  and the [09:17] message carries the budget IN the same breath
+ *  ("edna ili dve\ndo 140000" — one multi-line message). */
+const RANGE_NON_BEDS_RE =
+  /\d+\s*(?:м2|м²|m2|м\.кв|kvadrat|метри)|\b(?:kat|sprat|katot|spratot|prizemje|prizem|подрум)\b/iu;
+
+/** MINIMUM ranges ("dve najmalku ili tri") keep the floor-semantics detector:
+ *  "at least" has NO upper bound — an exact-category range would hide bigger
+ *  units the client explicitly left open. Same for the noun-anchored
+ *  extension phrasing ("DVE SPALNI OBAVEZNO A MOZE I TRI"): the first
+ *  number is FIXED (the old detector floors at it), "a moze i" only LOOSENS
+ *  the top. The veto needs the bedroom NOUN — the noun-less [07:20]
+ *  flexibility ("moze i so edna , a moze i so dve") is a true band. */
+const RANGE_MINIMUM_RE = /najmalku|najmalce|најмалку|најмалце/iu;
+const RANGE_EXTENSION_RE = /obavezno|задолжително|(?:moz|мож|моз)[еeи]\s*(?:i|и)?|\s(?:a|а)\s+(?:moz|мож|моз)/iu;
+
+/** Noun-less ranges next to a PROPERTY-TYPE noun are QUANTITIES ("eden ili
+ *  dva stana" = one or two apartments), never bedroom ends — same guard shape
+ *  as the bare branch of detectBedrooms. Substring match (no \b): Latin
+ *  plural "stana"/"garsonjeri" must trip it too. */
+const RANGE_TYPE_NOUN_RE = /стан|stan|гарсоњер|garsonjer|куќ|kukj|делов|delov|плац|plac|локал|lokal/iu;
+
+/** Noun presence picks the convention: спални → +1, соби → direct (same as
+ *  detectBedrooms). Both scripts. */
+const RANGE_BED_NOUN_RE = /спалн|spaln/iu;
+const RANGE_ROOM_NOUN_RE = /соб[иае]|sob[iae]/iu;
+
+/**
+ * Noun-less AND noun-bearing bedroom ranges → { min, max } in ROOMS.
+ * Examples: "edna ili dve" → 2–3; "moze i so edna , a moze i so dve" → 2–3;
+ * "1 ili 2 spalni" → 2–3; "2 ili 3 sobi" → 2–3 (rooms direct); "dve ili tri
+ * spalni" → 3–4. Vetoed by budget digits (≥4 consecutive), size units and
+ * floor words; a single digit with a currency marker is budget context.
+ * Returns undefined when no range is present (single counts keep their own
+ * detectors) or when the ends disagree with the 1–5 band.
+ */
+export function detectBedroomsRange(text: string): { min: number; max: number } | undefined {
+  const attempt = (t: string): { min: number; max: number } | undefined => {
+    if (!RANGE_CONNECTOR_RE.test(t)) return undefined;
+    // Size/floor context: those digits are квадратура or a floor, never ends.
+    // Budget digits need no veto (see RANGE_NON_BEDS_RE note) — the [09:17]
+    // range arrives TOGETHER with the budget in one message.
+    if (RANGE_NON_BEDS_RE.test(t)) return undefined;
+    if (RANGE_MINIMUM_RE.test(t)) return undefined;
+    const tokens = t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+    const nums = tokens.map(rangeEndToken).filter((n): n is number => n !== undefined);
+    if (nums.length < 2) return undefined;
+    // Both ends must DIFFER and stay in the 1–5 спални band — "i toa i toa"
+    // (both-services) carries repeated words, never a range.
+    const uniq = [...new Set(nums)];
+    if (uniq.length < 2) return undefined;
+    // Quantity guard: a noun-less range beside a property-type noun reads the
+    // type word ("eden ili dva stana"). With an explicit спални/соби noun the
+    // type word is the search subject ("stan so edna ili dve spalni") — fine.
+    if (!RANGE_BED_NOUN_RE.test(t) && !RANGE_ROOM_NOUN_RE.test(t) && RANGE_TYPE_NOUN_RE.test(t)) return undefined;
+    // Minimum/extension semantics ("dve najmalku ili tri", "DVE SPALNI
+    // OBAVEZNO A MOZE I TRI"): the noun-anchored first number is a FLOOR and
+    // the old detectors own it — a band would exclude the units above the top.
+    if ((RANGE_BED_NOUN_RE.test(t) || RANGE_ROOM_NOUN_RE.test(t))
+      && (RANGE_MINIMUM_RE.test(t) || RANGE_EXTENSION_RE.test(t))) return undefined;
+    let min = Math.min(...nums), max = Math.max(...nums);
+    // Noun convention: спални → rooms = beds + 1 on BOTH ends; соби direct.
+    if (RANGE_BED_NOUN_RE.test(t)) { min += 1; max += 1; }
+    else if (!RANGE_ROOM_NOUN_RE.test(t)) { min += 1; max += 1; }  // noun-less: спални implied
+    if (min < 1 || max > 6) return undefined;
+    return { min, max };
+  };
+  // Dual-chance: raw first (place/POI casing), then the normalized form so
+  // Latin phrasings ride the Cyrillic-only connector arms.
+  return attempt(text) ?? attempt(normalizeMc(text));
 }
 
 export function detectBedrooms(text: string): number | undefined {
@@ -3513,8 +3626,8 @@ export function fsmRequired(text: string): boolean {
 }
 
 export function buildEvent(state: State, slots: DetectedSlots): Event {
-  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected, sizeWaived, pricePriority, garsonjera, plac, yard } = slots;
-  const has = !!(service || location || bedrooms || budget || sqm || anywhere || sizeWaived || pricePriority || garsonjera || plac || yard);
+  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected, sizeWaived, pricePriority, garsonjera, plac, yard, bedroomsMin, bedroomsMax } = slots;
+  const has = !!(service || location || bedrooms || budget || sqm || anywhere || sizeWaived || pricePriority || garsonjera || plac || yard || (bedroomsMin && bedroomsMax));
   const hasType = !!(plac || yard || house || business);
   // A rejection is honored ONLY when the message carries NO new direction —
   // "не барам стан, барам куќа" names a new type, which wins over the denial.
@@ -3537,12 +3650,12 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
   // pricePriority: budget optional — "што поевтино" → sort by price, search now
   // garsonjera: the studio category itself satisfies the size criterion —
   // "garsonjera mi treba" never triggers a bedrooms question (19:34).
-  const bedroomsOk = business ? sqm : (bedrooms || anywhere || sizeWaived || garsonjera || plac || yard);
+  const bedroomsOk = business ? sqm : (bedrooms || (bedroomsMin && bedroomsMax) || anywhere || sizeWaived || garsonjera || plac || yard);
   const budgetOk = budget || pricePriority;
   const complete = service && (location || anywhere)
     && bedroomsOk && budgetOk;
   if (complete) {
-    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
+    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, bedroomsMin, bedroomsMax, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
   }
   if (service && !location && !bedrooms && !budget && !sqm && !anywhere && !sizeWaived && !pricePriority && !garsonjera && !plac && !yard) {
     return { type: 'INTENT_DECLARED', service, business, house, plac, yard };
@@ -3554,7 +3667,7 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
   if (need && !has) {
     return { type: 'INTENT_DECLARED', service: undefined, business, house, plac, yard };
   }
-  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
+  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, bedroomsMin, bedroomsMax, sqm, business, house, budget, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
 }
 
 
@@ -3582,6 +3695,16 @@ export function extractSlots(text: string): DetectedSlots {
   if (house !== undefined) out.house = house;
   const beds = detectBedrooms(text);
   if (beds) out.bedrooms = beds;
+  // Bedroom RANGE ([09:17]): "edna ili dve" — a flexible answer the single
+  // detectors cannot hold. The exact categories (2…3 rooms here) drive the
+  // alternating 1-спална/2-спални presentation; the exact slots stay untouched
+  // so a later single count ("daj so edna") retires the range cleanly.
+  const bedsRange = detectBedroomsRange(text);
+  if (bedsRange) {
+    out.bedroomsMin = bedsRange.min;
+    out.bedroomsMax = bedsRange.max;
+    delete out.bedrooms; // a range is NOT a minimum — exact-category semantics
+  }
   const sqm = detectSqm(text);
   if (sqm) out.sqm = sqm;
   const budget = detectBudget(text);

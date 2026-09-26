@@ -11,7 +11,7 @@ import {
   isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
   detectNearCenter, detectRingElimination, CENTER_RING, detectGarsonjera,
   detectFeeSurprise, detectProvisionWho, detectLocationConfirm,
-  detectResultSetQuestion,
+  detectResultSetQuestion, detectBedroomsRange,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -303,6 +303,48 @@ test('detectBedrooms: BARE funnel answers — "EDNA" / "2" after "колку с�
   assert.equal(detectBedrooms('EDNA DO 250 EVRA'), undefined); // budget → not an answer
   assert.equal(detectBedrooms('stan so edna spalna'), 2); // noun form unchanged
   assert.equal(detectBedrooms('edna i pol spalni'), undefined); // range/half words keep old behavior
+});
+
+test('detectBedroomsRange: noun-less flexible ranges → ROOMS band ([09:17] transcript)', () => {
+  // THE [09:17] BUG SHAPE: one multi-line message — the range AND the budget
+  // share the breath. Budget digits must not veto the range (the ends are
+  // single words; 140000 can never be an end).
+  assert.deepEqual(detectBedroomsRange('edna ili dve\ndo 140000'), { min: 2, max: 3 });
+  assert.deepEqual(detectBedroomsRange('edna ili dve'), { min: 2, max: 3 });
+  assert.deepEqual(detectBedroomsRange('moze i so edna , a moze i so dve'), { min: 2, max: 3 });
+  assert.deepEqual(detectBedroomsRange('една или две'), { min: 2, max: 3 });
+  assert.deepEqual(detectBedroomsRange('1 ili 2'), { min: 2, max: 3 });
+  assert.deepEqual(detectBedroomsRange('dve ili tri spalni'), { min: 3, max: 4 });
+  assert.deepEqual(detectBedroomsRange('2 ili 3 sobi'), { min: 2, max: 3 });
+  assert.deepEqual(detectBedroomsRange('dve ili tri spalni, zavisi'), { min: 3, max: 4 });
+  assert.deepEqual(detectBedroomsRange('i so edna i so dve'), { min: 2, max: 3 });
+});
+
+test('detectBedroomsRange: NOT a range — vetoes and non-fires', () => {
+  // Minimum ranges keep the floor-semantics detector ("at least" has no top).
+  assert.equal(detectBedroomsRange('dve najmalku ili tri'), undefined);
+  assert.equal(detectBedroomsRange('DVE NAJMALCE ILI TRI'), undefined);
+  // Property-type noun without a bedroom noun = a QUANTITY of apartments.
+  assert.equal(detectBedroomsRange('eden ili dva stana'), undefined);
+  assert.equal(detectBedroomsRange('edna ili dve garsonjeri'), undefined);
+  // ...but with an explicit спални noun the type word is the search subject.
+  assert.deepEqual(detectBedroomsRange('stan so edna ili dve spalni'), { min: 2, max: 3 });
+  // Size units are квадратура context.
+  assert.equal(detectBedroomsRange('edna ili dve do 80 m2'), undefined);
+  // No connector, no range; same number twice is a quantity, not a band.
+  assert.equal(detectBedroomsRange('dve spalni'), undefined);
+  assert.equal(detectBedroomsRange('i toa i toa'), undefined);
+  assert.equal(detectBedroomsRange('edna'), undefined);
+  // extractSlots: a range fills bedroomsMin/Max and never bedrooms.
+  const s = extractSlots('edna ili dve');
+  assert.equal(s.bedrooms, undefined);
+  assert.deepEqual({ min: s.bedroomsMin, max: s.bedroomsMax }, { min: 2, max: 3 });
+  // buildEvent: a range satisfies the bedrooms criterion (with the transcript
+  // budget riding the same message).
+  const ev = buildEvent('discovery', { service: 'buy', location: 'Аеродром', bedroomsMin: 2, bedroomsMax: 3, budget: '140000' });
+  assert.equal(ev.type, 'SEARCH_REQUESTED');
+  const ev2 = buildEvent('discovery', { service: 'buy', location: 'Аеродром', bedroomsMin: 2, bedroomsMax: 3 });
+  assert.equal(ev2.type, 'DETAILS_PROVIDED', 'range without budget stays discovery (budget still asked)');
 });
 
 test('detectBedrooms: "спални" word forms count — spalni = bedrooms, +1 for room count', () => {

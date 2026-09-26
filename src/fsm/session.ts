@@ -6,6 +6,9 @@ export interface SlotData {
   service?: Service;
   location?: string;
   bedrooms?: number;
+  bedroomsMin?: number;         // bedroom RANGE (ROOMS): "edna ili dve" → 2…3
+  bedroomsMax?: number;         // range high bound; set ⇒ the exact-category alternation ladder owns presentation
+  bedroomsAlt?: boolean;        // alternating 1-спална/2-спални presentation active ([09:17] contract)
   sqm?: number;                 // commercial (деловен простор) — size instead of bedrooms
   business?: boolean;           // commercial property intent
   house?: boolean;              // куќа — a residential request that is NOT a стан

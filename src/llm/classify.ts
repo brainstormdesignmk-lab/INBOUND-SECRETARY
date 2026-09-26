@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService, detectProvisionAsk, detectProvisionWho, hasDayWord } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService, detectProvisionAsk, detectProvisionWho, hasDayWord } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -314,6 +314,8 @@ export class Classifier {
         service: slots.service ?? session.slots.service,
         location: location ?? session.slots.location,
         bedrooms: slots.bedrooms ?? session.slots.bedrooms,
+        bedroomsMin: slots.bedroomsMin ?? session.slots.bedroomsMin,
+        bedroomsMax: slots.bedroomsMax ?? session.slots.bedroomsMax,
         sqm: slots.sqm ?? session.slots.sqm,
         business: slots.business ?? session.slots.business,
         house: slots.house ?? session.slots.house,
@@ -531,8 +533,8 @@ export class Classifier {
     // If event is still STAY and no slots were extracted → truly novel, needs LLM.
     // Also defer INTENT_DECLARED without details: the LLM can enrich bare intents
     // with location context that the deterministic regex can't extract.
-    const hasSlots = !!(slots.service || location || slots.bedrooms || slots.budget || slots.sqm || slots.anywhere);
-    const hasDetail = !!(location || slots.bedrooms || slots.budget || slots.sqm || slots.anywhere);
+    const hasSlots = !!(slots.service || location || slots.bedrooms || slots.bedroomsMin || slots.budget || slots.sqm || slots.anywhere);
+    const hasDetail = !!(location || slots.bedrooms || slots.bedroomsMin || slots.budget || slots.sqm || slots.anywhere);
     if ((ev.type === 'STAY' && !hasSlots) || (ev.type === 'INTENT_DECLARED' && !hasDetail)) {
       return undefined; // signals caller to fire Groq
     }
@@ -681,7 +683,7 @@ export class Classifier {
     if (['idle', 'intent', 'discovery'].includes(session.state)
       && ['INTERESTED', 'REJECTED', 'FEE_AGREED', 'FEE_REFUSED',
         'VISIT_TIME_PROVIDED', 'TIME_ACCEPTED', 'TIME_REJECTED'].includes(parsed.event.type)
-      && (detectService(text) || detectBedrooms(text) || detectBudget(text)
+      && (detectService(text) || detectBedrooms(text) || detectBedroomsRange(text) || detectBudget(text)
         || detectBusiness(text) || detectHouse(text) === true
         || detectGarsonjera(text) || detectPlac(text) || detectYardNeed(text))
       && !detectRejection(text)) {
@@ -784,6 +786,8 @@ export class Classifier {
       if (ev.service === undefined && slots.service) ev.service = slots.service;
       if (ev.location === undefined && slots.location) ev.location = slots.location;
       if (ev.bedrooms === undefined && slots.bedrooms) ev.bedrooms = slots.bedrooms;
+      if (ev.bedroomsMin === undefined && slots.bedroomsMin) ev.bedroomsMin = slots.bedroomsMin;
+      if (ev.bedroomsMax === undefined && slots.bedroomsMax) ev.bedroomsMax = slots.bedroomsMax;
       if (ev.garsonjera === undefined && slots.garsonjera) ev.garsonjera = true;
       if (!ev.sizeWaived && slots.sizeWaived) ev.sizeWaived = true;
       if (ev.plac === undefined && slots.plac) ev.plac = true;
@@ -805,12 +809,28 @@ export class Classifier {
       // Same session-merge completeness as the deterministic path (LLM-down
       // mirrors it): merged criteria complete → SEARCH_REQUESTED, never a
       // dead-end "Во ред, ги забележав" in discovery.
-      if (session.state === 'discovery'
-        && (parsed.event.type === 'STAY' || parsed.event.type === 'DETAILS_PROVIDED')) {
-        const merged = buildEvent(session.state, {
-          service: ev.service ?? session.slots.service,
+    // Bedroom RANGE ([09:17]): the deterministic layer owns the capture
+    // ("edna ili dve\ndo 140000" — one multi-line message). When the LLM
+    // produced a discovery-family event but left the range out, gap-fill it
+    // so the funnel never re-asks an answered question.
+    if ((llmDown || RECOMPUTE_EVENTS.includes(parsed.event.type))
+      && parsed.event.bedroomsMin === undefined && parsed.event.bedroomsMax === undefined) {
+      const r = detectBedroomsRange(text);
+      if (r) {
+        // A range is NOT a minimum: an exact bedrooms slot on the same event
+        // (a noun branch reading the lower end) would fight the alternation
+        // ladder — drop it in favor of the range.
+        parsed.event = { ...parsed.event, bedrooms: undefined, bedroomsMin: r.min, bedroomsMax: r.max };
+      }
+    }
+    if (session.state === 'discovery'
+      && (parsed.event.type === 'STAY' || parsed.event.type === 'DETAILS_PROVIDED')) {
+      const merged = buildEvent(session.state, {
+        service: ev.service ?? session.slots.service,
           location: ev.location ?? session.slots.location,
           bedrooms: ev.bedrooms ?? session.slots.bedrooms,
+          bedroomsMin: ev.bedroomsMin ?? session.slots.bedroomsMin,
+          bedroomsMax: ev.bedroomsMax ?? session.slots.bedroomsMax,
           sqm: ev.sqm ?? session.slots.sqm,
           business: ev.business ?? session.slots.business,
           house: ev.house ?? session.slots.house,

@@ -21,6 +21,8 @@ export interface Event {
   service?: Service;
   location?: string;
   bedrooms?: number;
+  bedroomsMin?: number;      // noun-less bedroom RANGE low bound (ROOMS): "edna ili dve" → 2
+  bedroomsMax?: number;      // noun-less bedroom RANGE high bound (ROOMS): "edna ili dve" → 3
   sqm?: number;             // commercial space — size instead of bedrooms
   business?: boolean;       // деловен простор / канцеларија / локал
   house?: boolean;          // куќа — a residential request that is NOT a стан
