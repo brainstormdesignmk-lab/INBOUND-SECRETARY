@@ -11,7 +11,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -410,7 +410,10 @@ export class InboundHandler {
     }
 
     // Honest fallback — no landmark known: neighborhood-level answer, never
-    // the exact street.
+    // the exact street. This approximation COUNTS as a ladder turn (the
+    // [15:57] contract: any served nearby answer advances the ladder, so the
+    // next exact ask lands on the protocol instead of looping the same line).
+    session.slots.landmarkIndex = (session.slots.landmarkIndex ?? 0) + 1;
     return buildWhereIsAnswer(place ?? '', {
       address: p.address, location: p.location, eb: p.eb,
       business: p.business, landmark: p.landmark,
@@ -1231,12 +1234,29 @@ export class InboundHandler {
         // близина?"). If shown[] is empty (property looked up by EB number,
         // not via presentation), fall back to the property the client is
         // currently discussing via session slots.
-        hit = shown[shown.length - 1]
+        // PINNED-EB OVERRIDE (the [15:58] transcript): an EB named in THIS or
+        // the last 3 user messages ("TE PRASAV ZA STAN 50") is THE topic —
+        // the presented-tail (a stale batch card) never outranks it.
+        const pinnedWhere = (() => {
+          const candidates: number[] = [];
+          const bare = inferPropertyId(text);
+          if (bare !== undefined && !detectBudget(text)) candidates.push(bare);
+          const hist = session.history.filter(h => h.role === 'user');
+          for (let i = hist.length - 1; i >= Math.max(0, hist.length - 3); i--) {
+            const n = inferPropertyId(hist[i].text);
+            if (n !== undefined && !detectBudget(hist[i].text)) candidates.push(n);
+          }
+          return candidates[0];
+        })();
+        hit = (pinnedWhere !== undefined
+          ? await this.deps.properties.getByEb(pinnedWhere).catch(() => undefined)
+          : undefined)
           ?? (session.slots.propertyId
-            ? await this.deps.properties.getByEb(session.slots.propertyId)
+            ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
             : undefined)
+          ?? shown[shown.length - 1]
           ?? (session.slots.interestedPropertyId
-            ? await this.deps.properties.getByEb(session.slots.interestedPropertyId)
+            ? await this.deps.properties.getByEb(session.slots.interestedPropertyId).catch(() => undefined)
             : undefined);
       } else {
         const p = whereIs.place;
@@ -1579,6 +1599,30 @@ export class InboundHandler {
         if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'ENTHUSIASM_FAST', userMsg: text, replyText: liked, replySource: 'deterministic', bankKey: 'property.liked' }); } catch { /* ignore */ } }
         console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-enthusiasm) state=${session.state} src=deterministic bank=property.liked`);
         await this.sendRaw(session, liked, 'deterministic:fast');
+        return;
+      }
+      // WAITING-TURN (the [16:06] transcript): "CEKAM USTE" — the client is
+      // WAITING for the details Lina promised. Not funnel traffic, not a
+      // remark: the LLM "compensates" for the info gap with invented
+      // owner-contact activity and another visit offer, deepening the gap.
+      // The FSM already routes STAY-while-waiting in visit_scheduling to the
+      // owner_checking patience line — this extends the same contract to the
+      // other conversation states (property_query/closing/presentation),
+      // statelessly, before the remark/LLM fast paths can swallow it. The
+      // detector vetoes every concurrent topic (day/time, agreement, fee,
+      // search criteria, property reference), so a real request never lands
+      // here.
+      if (detectWaitingAck(text)
+        && !['visit_scheduling', 'owner_checking', 'time_confirm', 'pending', 'queued', 'escalated', 'terminated'].includes(session.state)
+        && (session.slots.propertyId || session.slots.interestedPropertyId || session.slots.presentedIds?.length)) {
+        const patience = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
+        routeLog(chatId, text, 'WAITING:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: patience }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'WAITING_FAST', userMsg: text, replyText: patience, replySource: 'deterministic', bankKey: 'patience.line' }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-waiting) state=${session.state} src=deterministic bank=patience.line`);
+        await this.sendRaw(session, patience, 'deterministic:fast');
         return;
       }
       // Conversational remark about the property under discussion ("DOBRA
@@ -2613,6 +2657,56 @@ ${contactReminder}`;
           ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
         bankKey = 'property.liked';
       }
+
+    } else if (before === 'closing' && next === 'closing'
+        && detectPropertyInterest(text)
+        && !detectAvailabilityAsk(text)
+        && !detectVisitInterest(text)
+        && !detectRemark(text) && !detectAgreement(text)
+        && !detectFeeWhy(text) && !detectFeeComplaint(text) && !detectFeeSurprise(text)
+        && !detectFeePaymentAgreement(text) && !detectInvestmentOpinion(text)
+        && !detectExhaustedFollowUp(text) && !detectPositiveEval(text)
+        && !detectCheaperSearch(text) && !detectPriceAsk(text)
+        && !detectWaitingAck(text)
+        && !detectExactAddressAsk(text) && !detectWhereIs(text)) {
+      // PROPERTY SWITCH INSIDE CLOSING (the [16:05] transcript): the client
+      // already went through the fee disclosure for one property, then names
+      // ANOTHER ("ME INTERESIRA STANOT 76"). Closing is not in the funnel
+      // override's state set, so the interest line fell through as STAY and
+      // the LLM "compensated" for details it did not have — deepening the
+      // info gap. A fresh EB that differs from the bound one is the client
+      // SWITCHING properties: re-anchor, serve the card (like property_query
+      // does), restart the closing funnel for the NEW property.
+      const freshPid = inferPropertyId(text);
+      const mbSwitch = freshPid === undefined ? await this.bindMention(text, session) : undefined;
+      if (await this.sendIfClarify(mbSwitch, text, session)) return;
+      const targetEb = freshPid ?? mbSwitch?.prop?.eb;
+      const target = targetEb != null
+        ? await this.deps.properties.getById(targetEb).catch(() => undefined)
+        : undefined;
+      if (target) {
+        session.slots.propertyId = target.eb;
+        session.slots.interestedPropertyId = target.eb;
+        session.slots.ownerContactPending = true;
+        // Rotation reset: the new property's nearby ladder starts fresh.
+        session.slots.nearbyLandmarks = undefined;
+        session.slots.nearbyLandmarkCoords = undefined;
+        session.slots.nearbyLandmarkPlaceIds = undefined;
+        session.slots.nearbyLandmarkEb = undefined;
+        session.slots.landmarkIndex = 0;
+        session.slots.addressProtocolIndex = 0;
+        session.slots.exactLocationTurns = 0;
+        session.slots.feeRejections = undefined;
+        session.slots.viewingFeeAgreed = false;
+        session.state = 'closing';
+        next = 'closing';
+        await this.landmarks.enrich([target]);
+        reply = `${buildPropertyCard(target)}\n\n${pickVariant('property.liked', { recent: assistantTexts(session) })
+          ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?'}`;
+        bankKey = 'property.liked';
+      }
+      // No resolvable target → fall through to the responder below with the
+      // old anchors intact; the LLM gets a normal context, not a switch.
 
     } else if (next === 'closing'
         && (ev.type === 'INTERESTED' || detectVisitInterest(text))

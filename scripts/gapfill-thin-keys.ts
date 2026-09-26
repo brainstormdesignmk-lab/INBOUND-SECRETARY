@@ -28,6 +28,7 @@ import { createLlm } from '../src/llm/factory';
 const dry = process.argv.includes('--dry');
 const targetIdx = process.argv.indexOf('--target');
 const TARGET = targetIdx >= 0 ? parseInt(process.argv[targetIdx + 1], 10) || 10 : 10;
+const MIN_LEARNED = 5;
 
 const SYSTEM_PREAMBLE =
   'You are a Macedonian text generator for a real-estate assistant. Generate 5 VARIATIONS of the same response, each on a new line prefixed with "- ". ' +
@@ -122,14 +123,22 @@ async function fillDb(dbPath: string): Promise<void> {
     const learned = bank.variants(key);
     let total = seed.length + learned.length;
     console.log(`\n-- ${key}: seed=${seed.length} learned=${learned.length} (target ${TARGET})`);
-    if (total >= TARGET) {
+    // LEARNED-VARIANT THRESHOLD (the 26.09 quota run): seed lines are STATIC —
+    // they ship with the build and never vary per serve. The rotation needs
+    // LEARNED rows: a big seed + 1 learned variant is still THIN (same 5-
+    // variant bar as the enrichBank gapfill). --target still caps the
+    // combined total.
+    if (total >= TARGET && learned.length >= MIN_LEARNED) {
       console.log('   already at target — skipped');
       continue;
     }
 
     let added = 0;
+    // The loop runs until the COMBINED target AND the learned bar are met:
+    // a seed-heavy key (learned < 5) keeps generating even when
+    // seed+learned >= TARGET (the 26.09 quota follow-up).
     let attempts = 0;
-    while (total < TARGET && attempts < 4) {
+    while ((total < TARGET || learned.length + added < MIN_LEARNED) && attempts < 4) {
       attempts++;
       const samples = [...seed, ...learned].slice(0, 3);
       const text = await llm.complete({

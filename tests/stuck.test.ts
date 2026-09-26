@@ -3576,7 +3576,7 @@ test('[09:21–09:24] exact-address ladder: pinned EB survives follow-ups, x-typ
   const proto = sent.at(-1)!;
   // The protocol shape (wording rotates across bank variants): the agency
   // reveals the address only on/at visit scheduling.
-  assert.match(proto, /Агенција|закажеме|посетата|политик|правило/iu,
+  assert.match(proto, /Агенција|закажеме|посетата|политик|правило|два часа|процедура|средба/iu,
     `ask 2 must serve the address protocol: ${proto}`);
   assert.ok(!proto.includes('во близина на'), `no third landmark on ask 2: ${proto}`);
 });
@@ -3738,4 +3738,126 @@ test('[12:48] "KADE TI E TOA 26 JULI TC ?" answers the LANDMARK — never an EB-
   assert.ok(!/најдам имотот|евиденцијата/iu.test(sent.at(-1)!), `no EB-26 not-found line: ${sent.at(-1)!}`);
   assert.ok(s1.state !== 'property_query', `no property funnel for a landmark question: ${s1.state}`);
   assert.ok(s1.slots.presentedIds?.includes(43), `EB 43 stays the topic: ${JSON.stringify(s1.slots.presentedIds)}`);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// [15:57]–[16:06] CLUSTER — the address-privacy ladder vs the presented-tail
+// anchor: EB 50 asked, location served for the batch tail (76/48).
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('[15:57–16:00] the address ladder anchors on the NAMED EB — typo\'d exact asks ride it to the protocol', async () => {
+  const rows: Property[] = [
+    { eb: 50, id: 50, location: 'Центар (населба)', price: 250, service: 'rent', bedrooms: 2, size: '74 м²', address: 'Мирче Оровчанец' },
+    { eb: 76, id: 76, location: 'Аеродром', price: 200, service: 'rent', bedrooms: 1, size: '40 м²' },
+    { eb: 48, id: 48, location: 'Карпош III', price: 250, service: 'rent', bedrooms: 3, size: '8 м²', address: 'Партизанска' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-1557-anchor';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA');
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 50');
+  assert.equal(sessions.get(chatId)!.state, 'property_query');
+  // the client names ANOTHER EB from a presented batch → then asks location
+  await send('ME INTERESIRA STANOT 76');
+  // anchor is now 76 — but the client RETURNS to 50 explicitly:
+  await send('TE PRASAV ZA STAN 50');
+  const sBack = sessions.get(chatId)!;
+  assert.equal(sBack.slots.propertyId, 50, `re-named EB re-binds the topic: ${sBack.slots.propertyId}`);
+
+  // Turn 1: nearby answer for 50 — never a card of another EB
+  const s1 = await send('KADE MU E LOKACIJA ?');
+  assert.ok(!/Евидентен број 48|Евидентен број 76/iu.test(sent.at(-1)!), `no wrong-EB card: ${sent.at(-1)!}`);
+
+  // Turn 2: the TYPO'D exact ask ('бриј' for 'број') rides the ladder —
+  // turn 2 = the day-of-visit protocol, never a wrong-EB card, never a link.
+  await send('TOCNO ULICA I BRIJ ?');
+  const s2 = sessions.get(chatId)!;
+  // The protocol wording rotates across seed/bank variants ("денот на
+  // посетата", "два часа пред закажаната посета…") — match the FAMILY.
+  assert.ok(/ден(от)? на посетата|два часа|процедура|правил|политик|Агенција|закажан(?:ата|ата)?\s+посета/iu.test(sent.at(-1)!), `typo'd exact ask → privacy protocol: ${sent.at(-1)!}`);
+  assert.ok(!/https:/iu.test(sent.at(-1)!), `no maps link on the protocol turn: ${sent.at(-1)!}`);
+  assert.ok(!/Евидентен број 48/iu.test(sent.at(-1)!), `never a card for a different EB: ${sent.at(-1)!}`);
+  assert.equal(s2.slots.exactLocationTurns >= 2, true, `ladder counted: ${s2.slots.exactLocationTurns}`);
+
+  // Turn 3: correct spelling → the shut-down line, still never a link
+  await send('TOCNA ADRESA AKO MOZE');
+  assert.ok(!/https:/iu.test(sent.at(-1)!), `no maps link after insistence: ${sent.at(-1)!}`);
+  assert.ok(!/Евидентен број 48/iu.test(sent.at(-1)!), `still no card for a different EB: ${sent.at(-1)!}`);
+});
+
+test('[16:05] "A 76 KOJA LOKACIJA JA IMA ?" asks 76\'s location — never the availability push', async () => {
+  const rows: Property[] = [
+    { eb: 50, id: 50, location: 'Центар (населба)', price: 250, service: 'rent', bedrooms: 2, size: '74 м²', address: 'Мирче Оровчанец' },
+    { eb: 76, id: 76, location: 'Аеродром', price: 200, service: 'rent', bedrooms: 1, size: '40 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-1605-ima';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA');
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 50');
+  await send('ME INTERESIRA STANOT 76');
+  assert.equal(sessions.get(chatId)!.slots.propertyId, 76, 'precondition: 76 is the topic');
+
+  // THE BUG: the која-локација-има family missed every detector, fell to the
+  // availability lane and answered "Имотот е сè уште во нашата понуда…".
+  await send('A 76 KOJA LOKACIJA JA IMA ?');
+  const s1 = sessions.get(chatId)!;
+  assert.ok(!/сè уште во нашата понуда/iu.test(sent.at(-1)!), `no availability push: ${sent.at(-1)!}`);
+  assert.ok(/Аеродром|близина|населба/iu.test(sent.at(-1)!), `76's location answered: ${sent.at(-1)!}`);
+  assert.equal(s1.slots.propertyId, 76, `anchor stays 76: ${s1.slots.propertyId}`);
+});
+
+test('[16:05–16:06] ME INTERESIRA STANOT 76 inside closing switches the property — never the LLM compensation', async () => {
+  const rows: Property[] = [
+    { eb: 50, id: 50, location: 'Центар (населба)', price: 250, service: 'rent', bedrooms: 2, size: '74 м²', address: 'Мирче Оровчанец' },
+    { eb: 76, id: 76, location: 'Аеродром', price: 200, service: 'rent', bedrooms: 1, size: '40 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-1605-switch';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA');
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 50');
+  // Closing state: the client liked the offered property (enthusiasm → closing).
+  await send('MI SE SVIGJA');
+  assert.equal(sessions.get(chatId)!.state, 'closing', `precondition: closing (got ${sessions.get(chatId)!.state})`);
+
+  // THE BUG: in closing the interest line is not funnel traffic (closing is
+  // not in the override state set) — it fell through as STAY and the LLM
+  // "compensated" for details it did not have.
+  await send('ME INTERESIRA STANOT 76');
+  const s1 = sessions.get(chatId)!;
+  assert.ok(/Евидентен број 76/iu.test(sent.at(-1)!), `EB 76 card served: ${sent.at(-1)!}`);
+  assert.ok(/Аеродром/iu.test(sent.at(-1)!), `card names 76's neighborhood: ${sent.at(-1)!}`);
+  assert.ok(!/проверувам понудата/iu.test(sent.at(-1)!), `no LLM compensation line: ${sent.at(-1)!}`);
+  assert.equal(s1.slots.propertyId, 76, `76 re-anchors the topic: ${s1.slots.propertyId}`);
+  assert.equal(s1.slots.interestedPropertyId, 76, `76 is the interested property: ${s1.slots.interestedPropertyId}`);
+  assert.equal(s1.state, 'closing', `closing restarts for 76: ${s1.state}`);
+});
+
+test('[16:06] CEKAM USTE serves the bank-backed patience line — never the LLM compensation', async () => {
+  const rows: Property[] = [
+    { eb: 76, id: 76, location: 'Аеродром', price: 200, service: 'rent', bedrooms: 1, size: '40 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-1606-waiting';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM STAN VO AERODROM DO 250 EVRA');
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 76');
+  assert.equal(sessions.get(chatId)!.state, 'property_query', `precondition: property_query (got ${sessions.get(chatId)!.state})`);
+
+  // THE BUG: "CEKAM USTE" carried no detector anchor — it reached the LLM,
+  // which invented checking-the-offer + owner-contact activity.
+  await send('CEKAM USTE');
+  const s1 = sessions.get(chatId)!;
+  assert.ok(/сопственикот|достапност/iu.test(sent.at(-1)!), `patience line served: ${sent.at(-1)!}`);
+  assert.ok(!/проверувам понудата/iu.test(sent.at(-1)!), `no LLM compensation line: ${sent.at(-1)!}`);
+  assert.equal(s1.state, 'property_query', `state untouched: ${s1.state}`);
+
+  // Wait-adjacent wait words ride the same lane.
+  await send('CEKAM');
+  assert.ok(!/проверувам понудата/iu.test(sent.at(-1)!), `bare CEKAM stays deterministic: ${sent.at(-1)!}`);
 });
