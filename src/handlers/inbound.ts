@@ -2800,7 +2800,11 @@ ${contactReminder}`;
         // (detectAreaHaveAsk) means "do you HAVE anything in X" — it must
         // pivot the search to X, never answer "Не, станот 41 се наоѓа во
         // Ѓорче Петров" about a property the client just asked to leave.
-        && !detectAreaHaveAsk(text)) {
+        && !detectAreaHaveAsk(text)
+        // "koja adresa ima 88. ?" (V16K11 live) — an EXACT-address ask, not a
+        // neighborhood confirmation; it must ride the address ladder (turn 1
+        // landmark → privacy protocol), never the neighborhood-only confirm.
+        && !detectExactAddressAsk(text)) {
       // Location confirmation about the property under discussion — "ZNACI NA
       // VODNO E" (21:27). The client draws a conclusion about WHERE the
       // discussed property is; Lina must CONFIRM or CORRECT against the

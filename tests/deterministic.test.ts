@@ -333,6 +333,17 @@ test('detectBedrooms: MINIMUM ranges — "dve najmalku ili tri" (the 23:57 re-as
   assert.equal(detectBedrooms('dve spalni najmalku'), 3);    // noun+quantifier no range
 });
 
+test('detectExactAddressAsk: verb-second "koja adresa ima 88" (V16K11 live)', () => {
+  // Live enrichment row: "koja adresa ima 88. ?" fired NOTHING and the
+  // multi-line variant flipped to location-confirm (neighborhood-only answer,
+  // the street ask skipped). The verb-second arm now owns both.
+  assert.equal(detectExactAddressAsk('koja adresa ima 88. ?'), true);
+  assert.equal(detectExactAddressAsk('која адреса има 88 ?'), true);
+  // Pre-existing pins stay: koja-e-adresata order, kade-tocno family.
+  assert.equal(detectExactAddressAsk('koja e adresata na 57'), true);
+  assert.equal(detectExactAddressAsk('dali e vo skopjanka?'), false);
+});
+
 test('detectResultSetQuestion: the 23:59 inventory ask, not a feature question', () => {
   // "SAMO OVIE DVA STANA GI IMATE SO DVE ILI TRI SPALNI ?" — about the RESULTS
   // just shown; answerable from the feed, never the owner-consult line.
