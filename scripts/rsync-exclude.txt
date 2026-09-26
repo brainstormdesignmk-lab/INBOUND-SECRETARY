@@ -38,6 +38,11 @@ GOOGLEMAPS_API_KEY.txt
 session-*.md
 tmp/
 node_modules/
-dist/
+# dist/ is BUILT on the workstation (deploy-atoms.sh runs `npm run build`
+# before the push) and MUST reach the atoms — excluding it here left every
+# atom running the image's Sep-15 dist while the workstation source moved on
+# (deploy reported OK, runtime never changed). The fleet contract comment in
+# deploy-atoms.sh says exactly this: "ONLY code + dist/ are pushed".
+# dist/
 .tap/
 supabase/.temp/
