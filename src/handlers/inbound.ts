@@ -632,7 +632,31 @@ export class InboundHandler {
         const m = text.match(/\b(?:na|на)\s+(\d{1,4})\b/i);
         return m ? parseInt(m[1], 10) : undefined;
       })();
+      // PINNED-EB STICKINESS (the [09:23] transcript): "koja mu e lokacijata
+      // na 89?" explicitly binds the discussion to EB 89 — an EB NAMED IN A
+      // RECENT MESSAGE outranks "the last item ever shown", so a follow-up
+      // with no EB of its own ("tocnata adresa, ako moze?") still answers for
+      // THE NAMED property, never for the tail of presentedIds. Budget/price
+      // guard first: a number with a cap/currency word is not an EB (same
+      // veto family as inferPropertyId).
+      const pinnedEbExact = (() => {
+        // Newest-first: a number in THIS message wins, then the last 3 user
+        // messages (newest first). Budget-carrying numbers never pin.
+        const candidates: number[] = [];
+        if (ebInTextExact !== undefined) candidates.push(ebInTextExact);
+        const bare = inferPropertyId(text);
+        if (bare !== undefined && !detectBudget(text)) candidates.push(bare);
+        const hist = session.history.filter(h => h.role === 'user');
+        for (let i = hist.length - 1; i >= Math.max(0, hist.length - 3); i--) {
+          const n = inferPropertyId(hist[i].text);
+          if (n !== undefined && !detectBudget(hist[i].text)) candidates.push(n);
+        }
+        return candidates[0];
+      })();
       const target = mbExact?.prop
+        ?? (pinnedEbExact !== undefined
+          ? await this.deps.properties.getByEb(pinnedEbExact).catch(() => undefined)
+          : undefined)
         ?? (ebInTextExact
           ? await this.deps.properties.getByEb(ebInTextExact).catch(() => undefined)
           : undefined)
@@ -665,7 +689,25 @@ export class InboundHandler {
         // approximate answers already served: a client who arrived via the
         // WHERE_IS rotation (landmarkIndex 1) and then insists bare (12:08
         // "AMA TOCNO , TOCNO") is on turn 2 — the protocol — not a second
-        // landmark.
+        // landmark. COUNTER HYGIENE (the [09:23] transcript): the no-address
+        // rung below answers WITHOUT walking the ladder — if it bumped the
+        // turn, turn 2 (the protocol) would fire one rung early and the
+        // client would never hear an approximate location first. So: when
+        // THIS turn serves the no-address approximation, the turn stays 1.
+        if (isAddressUnknown(target)) {
+          const turnNoAddr = Math.max(session.slots.exactLocationTurns ?? 0, session.slots.landmarkIndex ?? 0) + 1;
+          if (turnNoAddr <= 1) {
+            // Count the rung: the NEXT exact ask must land on turn 2 (the
+            // day-of-visit protocol), not re-serve the approximation forever.
+            session.slots.exactLocationTurns = turnNoAddr;
+            answer = `Имотот се наоѓа во населбата ${target.location!.replace(/\s*\(населба\)\s*$/u, '')}. Точната адреса ќе ја добиете на денот на посетата.`;
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, answer);
+            return;
+          }
+        }
         const turn = Math.max(session.slots.exactLocationTurns ?? 0, session.slots.landmarkIndex ?? 0) + 1;
         session.slots.exactLocationTurns = turn;
         if (turn >= 3) {

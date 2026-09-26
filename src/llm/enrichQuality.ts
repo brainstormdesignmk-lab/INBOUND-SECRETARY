@@ -91,6 +91,15 @@ export function replyIsClean(reply: string): boolean {
   // A price in bank prose = a stale EB-specific fact waiting to be served for
   // the WRONG property (the learn.koja-cenata mistake class).
   if (/\d[\d\s.,]{2,}\s*(евра|денари|мкд|eur|evra)/i.test(out)) return false;
+  // EB-TEMPLATE GUARD (the [09:25] transcript, learn.ako-taka-togas): a line
+  // naming an Евидентен број (or a bare EB number next to стан/куќа/имот) is
+  // a location.confirm-style TEMPLATE about one specific property — the
+  // deterministic layer builds those LIVE from the property row. Stored as
+  // learned prose it serves the WRONG EB verbatim ("dogovori mi" trigram-
+  // matched the example and answered "Станот со Евидентен број 69 се
+  // наоѓа во Центар" in a session about EB 89). Same DATA-DRIVEN rule as
+  // the price guard: property facts live in the row, never in bank prose.
+  if (/Евидентен\s+број|Evidenten\s+broj|\b(?:стан|stan|куќ|kukj|имот|imot)[а-яa-z]{0,3}\s+(?:со|so|under|број|broj)\s*\d/iu.test(out)) return false;
   // MARKDOWN GUARD: chat prose, not a formatted report. Reject bold/heading
   // markdown so the bank stores only natural chat lines (learn.kazi-nesto-nego
   // stored **Локација:** bullets — correct facts, wrong format for chat).

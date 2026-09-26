@@ -3534,3 +3534,79 @@ test('[09:17b] an exact count ("daj so edna") retires the range — "then give h
   assert.ok(reply.includes('Евидентен број'), `exact-category presentation: ${reply}`);
   assert.ok(!reply.includes('Евидентен број 73'), `no 3-собен may serve the 1-спална ask: ${reply}`);
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// The [09:21]–[09:25] TUI transcript — the address-ladder / fee-ask /
+// learned-bank regression cluster.
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('[09:21–09:24] exact-address ladder: pinned EB survives follow-ups, x-typo rides the ladder, ask 2 = day-of-visit protocol', async () => {
+  const rows: Property[] = [
+    { eb: 89, id: 89, location: 'Аеродром', price: 98000, service: 'buy', bedrooms: 2, size: '58 м²' },
+    { eb: 91, id: 91, location: 'Аеродром', price: 89000, service: 'buy', bedrooms: 2, size: '55 м²' },
+    { eb: 69, id: 69, location: 'Центар', price: 130000, service: 'buy', bedrooms: 3, size: '80 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-0923-ladder';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM STAN VO AERODROM');
+  await send('edna ili dve\ndo 140000');
+  assert.equal(sessions.get(chatId)!.state, 'presentation');
+
+  // Turn 1: the client pins EB 89 by number.
+  await send('koja mu e lokacijata na 89?');
+  assert.equal(sessions.get(chatId)!.slots.propertyId, 89);
+
+  // THE BUG: the follow-up (no EB in it) answered for the LAST-SHOWN EB 91.
+  // The pinned EB 89 must survive the follow-up.
+  await send('tocnata adresa , ako moze?');
+  assert.equal(sessions.get(chatId)!.slots.propertyId, 89, 'pinned EB must survive a bare exact ask');
+
+  // THE TYPO: "toxnata lokacija" (x for c) fell through every location lane
+  // into the free-form LLM. It must ride the SAME ladder — and ask 2 lands on
+  // the agency privacy protocol (the day-of-visit rule), never another
+  // landmark and never LLM prose.
+  await send('toxnata lokacija');
+  const proto = sent.at(-1)!;
+  // The protocol shape (wording rotates across bank variants): the agency
+  // reveals the address only on/at visit scheduling.
+  assert.match(proto, /Агенција|закажеме|посетата|политик|правило/iu,
+    `ask 2 must serve the address protocol: ${proto}`);
+  assert.ok(!proto.includes('во близина на'), `no third landmark on ask 2: ${proto}`);
+});
+
+test('[09:25] fee-ask with a земат typo reads as PROVISION_ASK, never availability', async () => {
+  // A pool that does NOT drain on the first pair — the transcript's "moze"
+  // landed INTERESTED → fee, not the exhausted → contact-collection escape.
+  const rows: Property[] = [
+    { eb: 80, id: 80, location: 'Кисела Вода', price: 50000, service: 'buy', bedrooms: 3, size: '70 м²' },
+    { eb: 81, id: 81, location: 'Кисела Вода', price: 55000, service: 'buy', bedrooms: 3, size: '72 м²' },
+    { eb: 82, id: 82, location: 'Кисела Вода', price: 58000, service: 'buy', bedrooms: 3, size: '75 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-0925-fee';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Walk the funnel tail like the transcript: interested → fee disclosed.
+  await send('SAKAM DA KUPAM STAN VO KISELA VODA');
+  await send('DVE SPALNI');
+  await send('60000');
+  assert.equal(sessions.get(chatId)!.state, 'presentation');
+  await send('SAKAM DA JA VIDAM');
+  const s3 = sessions.get(chatId)!;
+  assert.equal(s3.state, 'closing', 'the fee must be disclosed before anything else');
+  const feeReply = sent.at(-1)!;
+  assert.ok(/надомест|500 денари|10 евра/iu.test(feeReply), `fee disclosure expected: ${feeReply}`);
+
+  // THE BUG: "zematr provizija za poseta?" matched the земат availability arm
+  // and got the availability.ack. It is a provision ask — 0% + 500 ден.
+  const s4 = await send('zematr provizija za poseta?');
+  assert.equal(s4.state, 'closing');
+  const r4 = sent.at(-1)!;
+  assert.ok(!r4.includes('сè уште е достапен') && !r4.includes('се води како достапен'),
+    `no availability ack for a fee ask: ${r4}`);
+  assert.ok(/провизи|надомест|500 денари|10 евра/iu.test(r4), `fee answer expected: ${r4}`);
+  // A fee QUESTION is not fee consent — the funnel stays at the fee.
+  assert.equal(s4.slots.viewingFeeAgreed, undefined, 'asking about the fee must not set consent');
+});

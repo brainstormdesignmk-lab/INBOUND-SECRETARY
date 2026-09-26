@@ -41,6 +41,19 @@ test('replyIsClean still accepts legitimate Cyrillic prose with a rare Latin pro
   assert.equal(replyIsClean(ok), true, 'Latin proper noun inside a clean token must pass');
 });
 
+// ── 1b. The EB-template guard (the [09:25] transcript) ───────────────────────
+
+test('replyIsClean rejects location-confirm EB templates — the learn.ako-taka-togas poison class', () => {
+  // The actually-poisoned line (bank_variants id 81 in data/tui.db): served
+  // VERBATIM on "dogovori mi" because its retrieval example trigram-matched.
+  assert.equal(replyIsClean('Точно, Станот со Евидентен број 69 се наоѓа во Центар. Дали сакате да организираме посета за да го погледнете?'), false,
+    'EB-template prose must never enter the learned bank');
+  assert.equal(replyIsClean('Станот под Евидентен број 89 е двособен стан во Аеродром.'), false, 'card-style EB line');
+  assert.equal(replyIsClean('The stan so broj 41 e vo Centar.'), false, 'Latin EB shape');
+  // Fee amounts stay guarded by the price guard; EB guard is property-facts only.
+  assert.equal(replyIsClean('Може ли да Ви помогнам со нешто друго во врска со барањето?'), true, 'clean prose still passes');
+});
+
 // ── 2. The strict-generator contract ─────────────────────────────────────────
 
 test('createLlmStrict throws when no Gemini key is configured (enrichment must never degrade)', () => {

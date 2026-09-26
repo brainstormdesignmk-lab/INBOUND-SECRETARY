@@ -323,7 +323,19 @@ export class Responder {
     // the deterministic detectors. Before paying for an LLM call, check the
     // learned bank's example messages — a similar question answered before is
     // served free. (Sub-ms SQLite read; miss costs nothing.)
-    const bankLine = retrieveVariant(userText, { recent: assistantTexts(session) });
+    // PROTOCOL-STATE EXCLUSION (the [09:25] transcript): in the fee/contact/
+    // visit sub-funnel the learned prose is never the right answer — a
+    // stored location-confirm template ("Станот со Евидентен број 69 се
+    // наоѓа во Центар…", learned from an old LLM slip) served VERBATIM on
+    // "dogovori mi" because its example trigram-matched, right after the fee
+    // was agreed. These states own deterministic serves (fee ask, contact
+    // ask, patience line); retrieval answers only discovery/info states.
+    const protocolState = ['closing', 'contact_collection', 'visit_scheduling',
+      'owner_checking', 'time_confirm', 'pending', 'queued'].includes(session.state)
+      || !!session.slots.viewingFeeAgreed || !!session.slots.ownerContactPending;
+    const bankLine = protocolState
+      ? undefined
+      : retrieveVariant(userText, { recent: assistantTexts(session) });
     if (bankLine) {
       return { text: guardText(session.state, bankLine, this.cfg.publicSiteUrl, assistantTexts(session)), source: 'bank' };
     }

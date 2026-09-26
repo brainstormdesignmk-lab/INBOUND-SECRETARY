@@ -202,6 +202,24 @@ export class BankStore {
     return this.db.db.prepare(`DELETE FROM bank_variants WHERE id = ? AND lifecycle = 'staged'`).run(id).changes > 0;
   }
 
+  /** Delete retrieval examples whose stored message violates a predicate.
+   *  POISON SWEEP (the [09:25] transcript): examples teaching a learned key
+   *  to fire on funnel traffic ("AKO E TAKA TOGAS DOGOVORI MI" → EB-69
+   *  template) must go together with the retired variant, or the key stays
+   *  reachable through retrieve(). Returns the number deleted. */
+  purgeExamplesIf(predicate: (msg: string) => boolean): number {
+    const rows = this.db.db.prepare(`SELECT id, msg FROM bank_examples`).all() as
+      Array<{ id: number; msg: string }>;
+    let n = 0;
+    for (const r of rows) {
+      if (predicate(r.msg)) {
+        this.db.db.prepare(`DELETE FROM bank_examples WHERE id = ?`).run(r.id);
+        n++;
+      }
+    }
+    return n;
+  }
+
   // ---------- bank_dynamic (runtime fallback store) ----------
 
   /** Store a validated dynamic answer. Idempotent per (key, msg). */

@@ -197,6 +197,31 @@ async function enrich(): Promise<void> {
     errors: [],
   };
 
+  // ---- POISON SWEEP (the [09:25] transcript): learned prose that names an
+  // Евидентен број is a location-confirm TEMPLATE about one property — the
+  // deterministic layer builds those live from the property row, and a stored
+  // copy serves the WRONG EB verbatim when a later message trigram-matches
+  // its example ("dogovori mi" → "Станот со Евидентен број 69…"). Retire
+  // every violating learned variant + its retrieval examples at startup,
+  // BEFORE any new banking — the cron self-heals the bank every night.
+  if (!dryRun) {
+    let quarantined = 0;
+    for (const key of bank.learnedKeys()) {
+      for (const v of bank.variantsWithLifecycle(key)) {
+        if (v.lifecycle === 'active' && !replyIsClean(v.text)) {
+          bank.retireVariant(v.id, 'EB-template/poison sweep (replyIsClean)');
+          quarantined++;
+        }
+      }
+    }
+    const badExamples = bank.purgeExamplesIf((msg) =>
+      /Евидентен\s+број/i.test(msg)
+      || /\b(?:стан|stan|куќ|kukj|имот|imot)[а-яa-z]{0,3}\s+(?:со|so|број|broj)\s*\d/iu.test(msg));
+    if (quarantined > 0 || badExamples > 0) {
+      console.log(`[enrich] poison sweep: ${quarantined} variant(s) retired, ${badExamples} example(s) purged`);
+    }
+  }
+
   // ---- GAPFILL MODE: fill known keys that are missing or thin ----
   if (gapFill) {
     console.log('[enrich] GAPFILL — generating variants for missing/thin keys');
