@@ -14,7 +14,8 @@ import { OwnerStore } from '../src/store/owners';
 import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
-import { parseVisitDateTime, formatVisitDate } from '../src/visits/time';
+import { parseVisitDateTime, formatVisitDate, hasClockHint } from '../src/visits/time';
+import { normalizeOwnerTime } from '../src/llm/prompts';
 import { LandmarkService, sanitizeLandmarkAnswer } from '../src/geo/landmarks';
 import { VisitScheduler } from '../src/visits/scheduler';
 import { LandmarkStore } from '../src/geo/landmarks';
@@ -57,6 +58,29 @@ test('parseVisitDateTime: resolves Macedonian day names, relatives and clocks', 
   assert.deepEqual(p('11.06.2026 во 10:00'), new Date(2026, 5, 11, 10, 0));
   // day name for today, already past -> next week
   assert.deepEqual(p('недела во 09:00'), new Date(2026, 7, 23, 9, 0)); // 16.08 is Sunday
+});
+
+test('parseVisitDateTime: day + trailing bare hour + day typos — the [12:42] transcript', () => {
+  const p = (t: string) => parseVisitDateTime(t, NOW)!;
+  // "PONEDELIK 6" — the n→k day typo + trailing bare hour = Понеделник 18:00
+  // (1–7 shift PM: viewings happen in the afternoon).
+  assert.deepEqual(p('PONEDELIK 6'), new Date(2026, 7, 17, 18, 0));
+  assert.deepEqual(p('DA\nPONEDELIK 6'), new Date(2026, 7, 17, 18, 0));
+  assert.deepEqual(p('понеделк 6'), new Date(2026, 7, 17, 18, 0));
+  assert.deepEqual(p('ponedenik 6'), new Date(2026, 7, 17, 18, 0));
+  assert.deepEqual(p('sabota 6'), new Date(2026, 7, 22, 18, 0));
+  // 8–11 stay morning: "petok 9" = 09:00, "петок 19" = 19:00
+  assert.deepEqual(p('petok 9'), new Date(2026, 7, 21, 9, 0));
+  assert.deepEqual(p('петок 19'), new Date(2026, 7, 21, 19, 0));
+  // money tails are NOT hours ("11.06" hits the pre-existing HH:MM-shaped
+  // arm — a dotted pair next to a day is a date, parsed date-first)
+  assert.equal(hasClockHint('sabota 350 evra'), false);
+  assert.equal(parseVisitDateTime('petok 11.06', NOW)!.getDate(), 11, 'the dotted pair stays a DATE');
+  // hasClockHint sees the trailing-hour form (the split-intake never re-asks)
+  assert.equal(hasClockHint('PONEDELIK 6'), true);
+  assert.equal(hasClockHint('DA\nPONEDELIK 6'), true);
+  // canonical owner-ask display: day typo fixed + resolved date
+  assert.equal(normalizeOwnerTime('PONEDELIK 6', NOW), 'Понеделник, 17.08.2026 во 18:00');
 });
 
 test('parseVisitDateTime: unresolvable phrases return undefined (degrade gracefully)', () => {
@@ -453,10 +477,12 @@ test('e2e regression: refused-time ping-pong counters СРЕДА ВО 6, and the
   assert.equal(after.corrected_address, 'Vasil Stefanovski 16', JSON.stringify(after));
 
   // 7) The location turn (visit − 2h) uses the CORRECTED address, not the feed's.
-  //    "Среда во 6" books at 06:00 (bare hour = morning) → Wed 19.08 06:00 →
-  //    location turn at 04:00. (The visitEnded guard refuses turns after the
-  //    visit has passed — the clock must land before 08:00.)
-  clock = new Date(2026, 7, 19, 4, 0);
+  //    "Среда во 6" books at 18:00 (the [12:42] PM shift: a bare hour after a
+  //    day word means the AFTERNOON — viewings never happen at 06:00) →
+  //    Wed 19.08 18:00 → location turn at 16:00. (The visitEnded guard
+  //    refuses turns after the visit has passed — the clock must land before
+  //    18:00.)
+  clock = new Date(2026, 7, 19, 16, 0);
   await sched.tick();
   const locMsg = clientMsgs.find(m => m.includes('ЛОКАЦИЈА'));
   assert.ok(locMsg, `location turn must fire, got: ${clientMsgs.join(' | ')}`);

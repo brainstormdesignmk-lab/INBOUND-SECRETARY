@@ -643,9 +643,13 @@ const WIDEN_VERB_AMBIG_L = ['proveri', 'proverete', 'pogledni', 'poglednete', 'r
 const WIDEN_OBJ = ['потрагата', 'потрага', 'претрагата', 'претрага', 'пребарувањето', 'пребарување', 'барањата', 'барање', 'критериумот', 'критериуми', 'условите', 'услови', 'опциите', 'опции', 'кругот', 'круг', 'листата', 'листа'];
 const WIDEN_OBJ_L = ['potragata', 'potraga', 'pretragata', 'pretraga', 'prebaruvanjeto', 'prebaruvanje', 'baranjata', 'baranje', 'kriteriumot', 'kriteriumi', 'uslovite', 'uslovi', 'opciite', 'opcii', 'krugot', 'krug', 'listata', 'lista'];
 
-/** Other-area phrases — "different neighborhood(s) / part of town / elsewhere". */
-const WIDEN_AREA = ['другите населби', 'други населби', 'друга населба', 'друга локација', 'други локации', 'друг дел од градот', 'друг дел', 'друго место', 'други реони', 'друг реон', 'останатите населби', 'останати населби', 'останатите реони', 'останати реони', 'другаде', 'друга страна'];
-const WIDEN_AREA_L = ['drugite naselbi', 'drugi naselbi', 'druga naselba', 'druga lokacija', 'drugi lokacii', 'drug del od gradot', 'drug del', 'drugo mesto', 'drugi reoni', 'drug reon', 'ostanatite naselbi', 'ostanati naselbi', 'ostanatite reoni', 'ostanati reoni', 'drugade', 'druga strana'];
+/** Other-area phrases — "different neighborhood(s) / part of town / elsewhere".
+ *  TYPO FORMS ([12:45] transcript: "MOZE I VO DRUGI NSELBI" — the dropped-a
+ *  slip must widen exactly like "NASELBI"; also the reversed-a Cyrillic slip
+ *  and the Latin ѕ/j-slip variants). Typos are pinned EXPLICITLY — they are
+ *  single edits but the slot regex matches exact area phrases, not fuzzy ones. */
+const WIDEN_AREA = ['другите населби', 'други населби', 'друга населба', 'друга локација', 'други локации', 'друг дел од градот', 'друг дел', 'друго место', 'други реони', 'друг реон', 'останатите населби', 'останати населби', 'останатите реони', 'останати реони', 'другаде', 'друга страна', 'други нселби', 'друга нселба', 'другите нселби', 'останати нселби', 'други насулби', 'друга наслеба'];
+const WIDEN_AREA_L = ['drugite naselbi', 'drugi naselbi', 'druga naselba', 'druga lokacija', 'drugi lokacii', 'drug del od gradot', 'drug del', 'drugo mesto', 'drugi reoni', 'drug reon', 'ostanatite naselbi', 'ostanati naselbi', 'ostanatite reoni', 'ostanati reoni', 'drugade', 'druga strana', 'drugi nselbi', 'druga nselba', 'drugite nselbi', 'ostanati nselbi', 'drugi naselva', 'druga nselva', 'drugi naseljbi'];
 
 /** Question filler after the area — "нешто?", "што има?", "имаш ли?". */
 const WIDEN_FILL = ['нешто', 'што', 'има', 'има ли', 'имаш', 'имаш ли', 'имате', 'имате ли', 'каде', 'какво', 'каква'];

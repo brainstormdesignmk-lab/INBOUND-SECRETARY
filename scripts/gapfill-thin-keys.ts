@@ -5,6 +5,8 @@
  *   both.ask.service  (3 seeds) — "{type} — ack? купување или изнајмување?"
  *   both.ask.type     (4 seeds) — "кој тип недвижност… стан/куќа/деловен/плац?"
  *   offtopic.redirect (3 seeds) — polite refocus + service question
+ *   vague.time        — the exact-hour re-ask after a day-only term ([12:42])
+ *   nearby.exhausted  — the landmark-rotation close
  *
  * None of these are frozen/data-driven — plain addVariant applies (the cron
  * could grow them too, but organic traffic for these intents is rare, so a
@@ -56,8 +58,8 @@ const KEYS: Array<{ key: string; instruction: string; keepPlaceholder?: string; 
   {
     key: 'vague.time',
     instruction:
-      'The client gave a VAGUE visit time (утре, попладне, некогаш). Ask for the EXACT hour so the appointment can be checked with the owner. ' +
-      'Vary the opening (Може ли… / Разбирам… / Ќе треба… / Супер, само…). ALWAYS end with a question asking the exact hour („во колку часот?“ family). Never name a specific hour yourself.',
+      'The client gave a visit DAY but no exact hour („во понеделник“, „PONEDELIK 6“ with the hour unclear, „утре“, „попладне“). Acknowledge the day is noted, then ask ONLY for the exact hour so the appointment can be checked with the owner. ' +
+      'Vary the opening (Може ли… / Разбирам… / Ќе треба… / Супер, само…). ALWAYS end with a question asking the exact hour („во колку часот?“ family). Never name a specific hour yourself. Never re-ask which DAY — the day is already known.',
   },
   {
     key: 'near.center.ask',

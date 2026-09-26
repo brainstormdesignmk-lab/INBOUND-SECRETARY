@@ -11,7 +11,10 @@
 export const MK_WEEKDAYS = ['недела', 'понеделник', 'вторник', 'среда', 'четврток', 'петок', 'сабота'];
 
 const DAY_WORDS: Array<[RegExp, number]> = [
-  [/(понеделни|ponedelnik)/i, 1],
+  // "понеделк/PONEDELIK/ponedenik" — the n→k / dropped-letter day typos (the
+  // [12:42] transcript: "PONEDELIK 6" left the day unparsed and the owner ask
+  // fell back to the raw phrase / a stale day). Parsed as понеделник.
+  [/(понеделни|понеделк|ponedelnik|ponedelk|ponedelik|ponedenik)/i, 1],
   [/(вторни|vtornik)/i, 2],
   [/(сред[аи]|sred[аa])/i, 3],
   [/(четврто|четврток|cetvrtok)/i, 4],
@@ -56,6 +59,22 @@ const DATE_RE = /(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?/;
 // word shadow the long one.
 const PART_RE =
   /(наутро|наутрото|утрово|утрина|nautro|utrovo|претпладне|pretpladne|попладне|popladne|навечер|вечерва|вечер|navecer|vecer|пладне|на пладне|pladne|на полноќ|polnok)/i;
+
+// DAY + TRAILING BARE HOUR ("PONEDELIK 6", "сабота 6", "петок 19") — the day
+// names the day and the trailing digit IS the clock, no prefix and no hour
+// word. The [12:42] transcript: "PONEDELIK 6" parsed as day-ONLY, the funnel
+// re-asked the hour the client had already given, and the follow-up "6" then
+// completed against a stale day. Guards: up to 20 non-digit chars between
+// ("VO PONEDELNIK MOZAM 6"), the hour must not run into a longer number or a
+// clock/date ("петок 11.06" stays a date), and no money tail ("sabota 350
+// evra" is a budget). Same PM shift as the hour-word form: viewings happen in
+// the afternoon — 1–7 shift to PM, 8–11 stay morning.
+export const DAY_TRAILING_HOUR_RE =
+  new RegExp(
+    '(?:понеделн|понеделк|вторн|сред[аи]|четврт|петочн|петок|сабот|недел|задутре|утре|денес|викенд'
+    +    '|ponedelnik|ponedelk|ponedelik|ponedenik|vtorn|sred|cetvrt|petocn|petok|sabot|nedel|zadutre|utre|denes|vikend)'
+    + '[^\\d]{0,20}(\\d{1,2})(?![\\d:.])(?!\\s*(?:евр|eur|evr|ден|mkd|kv|кв|м2|m2))',
+    'iu');
 
 /** True when the phrase carries a PART-OF-DAY word (попладне, утрово,
  *  вечер…). A day+period term ("утре попладне") resolves to a concrete
@@ -108,9 +127,13 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   // Clock with a time-word prefix ("во 17:30", "околу 10") — the prefix is
   // required so "11.06" reads as a date. A BARE "17:30" counts only when the
   // message has no date at all (otherwise "17.30" would be 17 July).
+  // DAY+TRAILING-HOUR arm ("PONEDELIK 6"): a bare trailing digit after a day
+  // word is the clock — tried FIRST so it beats the date arm on "петок 11.06"
+  // (the trailing-hour regex itself vetoes clock/date tails there).
   let hour: number | undefined;
+  const th = t.match(DAY_TRAILING_HOUR_RE);
   const hw = hourWordClock(t);
-  const clock = hw ?? t.match(CLOCK_RE);
+  const clock = hw ?? th ?? t.match(CLOCK_RE);
   if (clock) {
     const h = Number(clock[1]);
     const m = clock[2] ? Number(clock[2]) : 0;
@@ -130,7 +153,8 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   // "VO PONEDELNIK MOZAM 6 SAAT" resolved to 06:00 and the owner ask read
   // nonsense). Hours 1–7 shift to PM; 8–11 stay morning ("9 saat" = 09:00).
   // An explicit clock with minutes ("во 6:30") keeps its literal hour.
-  if (hw && hour !== undefined && hour < 8 * 60) {
+  // Same shift for the DAY+TRAILING-HOUR form: "PONEDELIK 6" = 18:00.
+  if ((hw || th) && hour !== undefined && hour < 8 * 60) {
     hour += 12 * 60;
   }
   // PM context adjustment: "попладне после 6" = 18:00, not 06:00.
@@ -213,12 +237,15 @@ export function weekdayName(d: Date): string {
   return MK_DAY_FMT[d.getDay()];
 }
 
-/** True when the phrase carries an explicit clock: HH:MM, "во 6", or the
- *  hour-word form "6 saat/6 саати/6 часот". Used by the owner-ask
- *  normalizer to decide whether the clock must be appended. */
+/** True when the phrase carries an explicit clock: HH:MM, "во 6", the
+ *  hour-word form "6 saat/6 саати/6 часот", or a day + trailing bare hour
+ *  ("PONEDELIK 6" — the [12:42] split-intake must never re-ask that hour).
+ *  Used by the owner-ask normalizer to decide whether the clock must be
+ *  appended. */
 export function hasClockHint(s: string): boolean {
   if (/\d{1,2}[:.]\d{2}\b/.test(s)) return true;
   if (HOUR_WORD_RE.test(s)) return true;
+  if (DAY_TRAILING_HOUR_RE.test(s)) return true;
   return /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od)\s*\d{1,2}\b/i.test(s);
 }
 

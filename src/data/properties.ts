@@ -603,6 +603,10 @@ const MK_DAY_FIX: Array<[RegExp, string]> = [
   [/(?<![\p{L}])втрик|(?<![\p{L}])вторик/giu, 'вторник'],
   [/(?<![\p{L}])сабта|(?<![\p{L}])субота/giu, 'сабота'],
   [/(?<![\p{L}])петк/giu, 'петок'],
+  // The n→k / dropped-n понеделник slips ([12:42] transcript: the client's
+  // raw "PONEDELIK 6" reached the owner verbatim).
+  [/(?<![\p{L}])понеделк/giu, 'понеделник'],
+  [/(?<![a-z])ponedelk(?![a-z])|(?<![a-z])ponedelik(?![a-z])|(?<![a-z])ponedenik(?![a-z])/gi, 'ponedelnik'],
   [/(?<![a-z])sredta|(?<![a-z])sreta/gi, 'среда'],
   [/(?<![a-z])cetvrtok|(?<![a-z])četvrtok/gi, 'четврток'], // c→ц translit ambiguity: the word needs ч
   [/(?<![a-z])vtorik|(?<![a-z])vtrik/gi, 'вторник'],

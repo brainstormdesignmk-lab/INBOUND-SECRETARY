@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService, detectProvisionAsk, detectProvisionWho, hasDayWord } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService, detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -168,6 +168,11 @@ export function propertyOnTable(s: ChatSession): boolean {
  * prices (евра/денари) and sizes (м2).
  */
 export function inferPropertyId(text: string): number | undefined {
+  // WHERE-THE-LANDMARK-IS ("KADE TI E TOA 26 JULI TC ?"): the number is part
+  // of a PLACE NAME Lina herself echoed ("1,3 километри од Kipper Market - ТЦ
+  // 26 Јули") — a landmark question, never an Евидентен-број probe (the
+  // [12:48] transcript: "не можам да го најдам 26 во нашата евиденција").
+  if (isWhereLandmarkQuestion(text)) return undefined;
   if (/\b\d{1,2}[:.]\d{2}\b/.test(text)) return undefined;           // 18:30 / 18.30 — time
   if (/0\d{1,2}\s*[/.]\s*\d{2,}/.test(text)) return undefined;       // 078/914 196 — phone
   // A budget-cap word before the number ("до 250", "околу 250", "под 250")
@@ -232,8 +237,11 @@ export class Classifier {
     const t0 = Date.now();
 
     // --- Bare-number override ---
+    // WHERE-THE-LANDMARK-IS guard: "KADE TI E TOA 26 JULI TC ?" carries a
+    // number inside a PLACE NAME — never an Евидентен број (the [12:48]
+    // transcript), so the bare-number path stands down entirely for these.
     let barePid: number | undefined;
-    if (PROP_INTAKE_STATES.has(session.state)) {
+    if (PROP_INTAKE_STATES.has(session.state) && !isWhereLandmarkQuestion(text)) {
       barePid = await this.resolveBarePid(text, session);
     }
 
@@ -434,11 +442,31 @@ export class Classifier {
       ev = { type: 'STAY' };
     }
 
-    // Visit time in visit_scheduling → VISIT_TIME_PROVIDED
+    // Visit time in visit_scheduling → VISIT_TIME_PROVIDED. A BARE clock with
+    // no day ("6", "6 SAAT", "во 18:00") COMPLETES the day already stored
+    // ("PONEDELIK 6" → re-asked → client answers "6") instead of REPLACING
+    // it: the old overwrite resolved the bare clock to TODAY and the owner
+    // was asked for the wrong day entirely (the [12:42] transcript — owner
+    // ping-pong fired for Сабота when the client had said PONEDELNIK).
     if (session.state === 'visit_scheduling'
       && ev.type !== 'VISIT_TIME_PROVIDED' && ev.type !== 'ESCALATE' && ev.type !== 'REJECTED') {
-      const t = detectVisitTime(text);
-      if (t) ev = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+      let t = detectVisitTime(text);
+      // BARE-DIGIT COMPLETION ("6" after "VO PONEDELNIK MOZAM" — the [12:43]
+      // transcript): a standalone 1–2-digit hour answering the exact-hour ask
+      // is only unambiguous when a day is already armed in the slot. Same
+      // guard family as the DAY_TRAILING_HOUR form (no clock/date/money tail).
+      if (!t && /^с?\s*["'„]*(\d{1,2})\s*[.?!]*$/iu.test(text)
+        && hasDayWord(session.slots.visitTime ?? '')) {
+        t = text.trim();
+      }
+      if (t) {
+        const storedT = session.slots.visitTime ?? '';
+        let mergedT = t;
+        if (!hasDayWord(t) && hasDayWord(storedT) && !hasClockHint(t) && hasClockHint(storedT)) {
+          mergedT = `${storedT.trim()} ${t.trim()}`;
+        }
+        ev = { type: 'VISIT_TIME_PROVIDED', visitTime: mergedT };
+      }
     }
 
     // Time confirm: rejection / agreement / new time
@@ -470,11 +498,15 @@ export class Classifier {
         const t = detectVisitTime(text);
         const stored = session.slots.visitTime ?? '';
         const dupClock = !!t && !hasDayWord(t) && hasClockHint(stored)
-          && text.trim().toLowerCase() === stored.split(',')[0].trim().toLowerCase();
+          && (text.trim().toLowerCase() === stored.split(',')[0].trim().toLowerCase()
+            || stored.trim().toLowerCase().endsWith(text.trim().toLowerCase()));
         if (t && !dupClock && t.trim().toLowerCase() !== stored.trim().toLowerCase()) {
           let merged = t;
-          if (!hasDayWord(t) && hasDayWord(stored) && !hasClockHint(stored)) {
-            merged = `${t.trim()}, ${stored.trim()}`;
+          if (!hasDayWord(t) && hasDayWord(stored)) {
+            // DAY-FIRST merge everywhere ([12:43] contract) — and only when
+            // the stored phrase lacks its own clock (a stored clock must
+            // never resurrect under a new bare proposal).
+            if (!hasClockHint(stored)) merged = `${stored.trim()} ${t.trim()}`;
           }
           ev = { type: 'VISIT_TIME_PROVIDED', visitTime: merged };
         }
@@ -930,7 +962,14 @@ export class Classifier {
       && parsed.event.type !== 'ESCALATE'
       && parsed.event.type !== 'REJECTED') {
       const t = detectVisitTime(text);
-      if (t) parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+      if (t) {
+        const storedTs = session.slots.visitTime ?? '';
+        let mergedTs = t;
+        if (!hasDayWord(t) && hasDayWord(storedTs) && !hasClockHint(t) && hasClockHint(storedTs)) {
+          mergedTs = `${storedTs.trim()} ${t.trim()}`;
+        }
+        parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: mergedTs };
+      }
     }
     // LLM-down time_confirm: the owner counter-proposed a time — "во ред, тоа
     // време е добро" -> TIME_ACCEPTED (pending), "не ми одговара" ->
@@ -940,7 +979,8 @@ export class Classifier {
     // general REJECT_RE. A standalone "NE" is also a time rejection in this
     // state (the client declines the owner's counter-time). A NEW concrete
     // time ("okolu 18:00", "после 19") re-asks the owner with it — same as
-    // the owner_checking override below.
+    // the owner_checking override below. A bare clock merges onto the stored
+    // day (the [12:42] lesson — never resolve a bare "6" to TODAY).
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'time_confirm') {
       const bareNo = /^(?:не|ne|no)\s*[.!?]*$/iu.test(text.trim());
       if (detectTimeRejection(text) || bareNo) {
@@ -949,7 +989,14 @@ export class Classifier {
         parsed.event = { type: 'TIME_ACCEPTED' };
       } else {
         const t = detectVisitTime(text);
-        if (t) parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+        if (t) {
+          const storedTc = session.slots.visitTime ?? '';
+          let mergedTc = t;
+          if (!hasDayWord(t) && hasDayWord(storedTc) && !hasClockHint(t) && hasClockHint(storedTc)) {
+            mergedTc = `${storedTc.trim()} ${t.trim()}`;
+          }
+          parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: mergedTc };
+        }
       }
     }
     // Owner check in flight, but the client changed their mind about the time —
@@ -970,11 +1017,18 @@ export class Classifier {
         const t = detectVisitTime(text);
         const stored = session.slots.visitTime ?? '';
         const dupClock = !!t && !hasDayWord(t) && hasClockHint(stored)
-          && text.trim().toLowerCase() === stored.split(',')[0].trim().toLowerCase();
+          && (text.trim().toLowerCase() === stored.split(',')[0].trim().toLowerCase()
+            || stored.trim().toLowerCase().endsWith(text.trim().toLowerCase()));
         if (t && !dupClock && t.trim().toLowerCase() !== stored.trim().toLowerCase()) {
           let merged = t;
-          if (!hasDayWord(t) && hasDayWord(stored) && !hasClockHint(stored)) {
-            merged = `${t.trim()}, ${stored.trim()}`;
+          if (!hasDayWord(t) && hasDayWord(stored)) {
+            // DAY-FIRST merge order everywhere ([12:43] contract): the stored
+            // day is the context, the new clock is the news — and
+            // hasClockHint/normalizeOwnerTime read the day-then-hour form.
+            // The clock-carrying-store guard: a stored phrase with its own
+            // clock never donates the day (the rejected 18:00 must not
+            // resurrect under a new proposal).
+            if (!hasClockHint(stored)) merged = `${stored.trim()} ${t.trim()}`;
           }
           parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: merged };
         }

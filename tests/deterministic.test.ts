@@ -11,10 +11,42 @@ import {
   isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
   detectNearCenter, detectRingElimination, CENTER_RING, detectGarsonjera,
   detectFeeSurprise, detectProvisionWho, detectLocationConfirm,
-  detectResultSetQuestion, detectBedroomsRange,
+  detectResultSetQuestion, detectBedroomsRange, detectExplicitWiden,
+  isWhereLandmarkQuestion, extractWhereLandmarkPlace,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
+
+test('[12:45] detectExplicitWiden: the dropped-a neighborhood typo widens like the correct form', () => {
+  assert.equal(detectExplicitWiden('MOZE I VO DRUGI NSELBI'), true);
+  assert.equal(detectExplicitWiden('MOZE I VO DRUGI NASELBI'), true);
+  assert.equal(detectExplicitWiden('vo drugi nselbi nesto?'), true);
+  assert.equal(detectExplicitWiden('drugi nselbi?'), true);
+  assert.equal(detectExplicitWiden('druga nselba'), true);
+  assert.equal(detectExplicitWiden('drugi naselva'), true);
+  assert.equal(detectExplicitWiden('во други нселби'), true);
+  // correct forms unaffected; non-widen messages stay non-widen
+  assert.equal(detectExplicitWiden('druga naselba'), true);
+  assert.equal(detectExplicitWiden('DA'), false);
+  assert.equal(detectExplicitWiden('PONEDELIK 6'), false);
+});
+
+test('[12:48] where-landmark: a landmark echo is a place question, never an EB probe', () => {
+  // the exact transcript message — "26" is part of the PLACE NAME
+  assert.equal(isWhereLandmarkQuestion('KADE TI E TOA 26 JULI TC ?'), true);
+  assert.equal(extractWhereLandmarkPlace('KADE TI E TOA 26 JULI TC ?'), '26 JULI TC');
+  assert.equal(extractWhereLandmarkPlace('kade ti e toa 26 juli tc?')?.toLowerCase(), '26 juli tc');
+  assert.equal(extractWhereLandmarkPlace('каде ти е тоа ТЦ 26 Јули?'), 'ТЦ 26 Јули');
+  // the no-demonstrative family
+  assert.equal(extractWhereLandmarkPlace('kade e skopjanka')?.toLowerCase(), 'skopjanka');
+  assert.equal(extractWhereLandmarkPlace('kade se naogja 26 juli tc?')?.toLowerCase(), '26 juli tc');
+  // property-where questions are NOT landmark questions (own WHERE_IS lane)
+  assert.equal(isWhereLandmarkQuestion('kade mu e lokacijata?'), false);
+  assert.equal(isWhereLandmarkQuestion('каде се наоѓа станот?'), false);
+  // a bare EB probe stays the property lane
+  assert.equal(isWhereLandmarkQuestion('kade e 26?'), false);
+  assert.equal(isWhereLandmarkQuestion('zdravo'), false);
+});
 
 test('detectService: buy vs rent, first mention wins', () => {
   assert.equal(detectService('сакам да купам стан'), 'buy');

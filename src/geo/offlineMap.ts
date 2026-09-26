@@ -953,14 +953,22 @@ export class OfflineMapStore {
     // "Македонски народен театар" for an unrelated address.
     const words = clean.split(/\s+/);
     if (rows.length === 0 && words.length > 2) {
+      // Short candidates get the SAME script bridge as the full needle: the
+      // client's Latin echo ("KADE TI E TOA 26 JULI TC ?") shortens to
+      // "26 juli", which must still find the Cyrillic "ТЦ 26 Јули" row (the
+      // [12:48] transcript — the unbridged shortening pass killed the hit).
       const candidates = [words.slice(0, 2).join(' '), words.slice(-2).join(' ')]
         .map(w => w.toLowerCase())
         .filter(w => w.length >= 3);
-      for (const short of candidates) {
+      const candidatesCyr = candidates.map(w => /[\u0400-\u04FF]/.test(w) ? w : toCyrillic(w));
+      for (const short of [...candidates, ...candidatesCyr]) {
         rows = (this.db.prepare(
           'SELECT name, type, lat, lon, place_url FROM pois'
         ).all() as Array<{ name: string; type: string; lat: number; lon: number; place_url?: string }>)
-          .filter(r => r.name.toLowerCase().includes(short));
+          .filter(r => {
+            const low = r.name.toLowerCase();
+            return low.includes(short) || translitToLatin(low).includes(short);
+          });
         if (rows.length > 0) break;
       }
     }

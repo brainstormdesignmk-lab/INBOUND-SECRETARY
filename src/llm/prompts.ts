@@ -407,9 +407,13 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   return intro ? `${intro}\n${questions}` : questions;
 }
 
-/** The confirmation is CODE-BUILT — phones and dates are never LLM-generated. */
+/** The confirmation is CODE-BUILT — phones and dates are never LLM-generated.
+ *  The time is normalizeOwnerTime'd ([12:42] lesson): the client's raw
+ *  shorthand ("DA\nPONEDELIK 6") must never echo back — the canonical
+ *  display form ("Понеделник, 28.09.2026 во 18:00") does; unresolvable
+ *  phrases keep mkTimePhrase (day-fix + display caps). */
 export function buildVisitConfirmation(eb: number, time: string, agentPhone: string): string {
-  return `Договорена посета на стан ЕБ ${eb}, ${time} / Агент ${agentPhone} / Точна локација 2 часа пред посетата / Ви благодарам на довербата.`;
+  return `Договорена посета на стан ЕБ ${eb}, ${normalizeOwnerTime(time)} / Агент ${agentPhone} / Точна локација 2 часа пред посетата / Ви благодарам на довербата.`;
 }
 
 /**

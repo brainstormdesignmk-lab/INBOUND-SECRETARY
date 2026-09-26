@@ -69,6 +69,11 @@ export const DATA_DRIVEN_KEYS = new Set([
   'address.exact',      // address privacy protocol
   'queued.confirm',     // queue position is live data
   'vague.time.owner',   // the owner's proposed time is live data
+  // WHERE-LANDMARK ([12:48] protocol): the answer carries live map data —
+  // the place name, the measured distance and the property's area ride the
+  // typed {name}/{distance}/{loc} placeholders. Prose-only enrichment would
+  // bake invented places/distances into served text.
+  'where.landmark',
 ]);
 
 /** Excluded from ALL enrichment/learning (union of both protection sets). */

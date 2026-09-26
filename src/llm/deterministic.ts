@@ -1,6 +1,10 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase } from '../data/properties';
-import { HOUR_WORD_RE } from '../visits/time';
+import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE } from '../visits/time';
+
+// Re-export: the handler's split-intake gates (day-only vs clock-completion)
+// live on this module's surface; the canonical implementation is visits/time.
+export { hasClockHint };
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
@@ -1203,6 +1207,14 @@ export function detectVisitTime(text: string): string | undefined {
   // proposed visit term. A question about agency hours is never a slot.
   if (detectWorkdaysQuestion(text)) return undefined;
   if (VISIT_TIME_RE.test(text)) return text.trim().slice(0, 80);
+  // DAY + TRAILING BARE HOUR ("PONEDELIK 6", "сабота 6") — the digit after a
+  // day word IS the clock (the [12:42] transcript: only the day was captured,
+  // the funnel re-asked the hour the client had already given, and the bare
+  // "6" follow-up completed against a stale day). Also a stand-alone BARE
+  // hour-digit message in the visit protocol ("6") — with a day already in
+  // the stored slot, classify merges them; without one, the vague-time ask
+  // collects the day. Guarded: no clock/date tail (11.06), no money tail.
+  if (DAY_TRAILING_HOUR_RE.test(text)) return text.trim().slice(0, 80);
   // BARE hour-word clock ("6 SAAT", "6 саати", "6 casot") — the split
   // [14:35] message: the client gave the day ("VO PONEDELNIK MOZAM") in one
   // message and the clock in the next. The hour noun anchors the digits as a
@@ -1215,7 +1227,9 @@ export function detectVisitTime(text: string): string | undefined {
   // “ponedelok”/“Понеделок” — a distance-2 typo of понеделник/ponedelnik
   // (n→k slip), beyond fuzzyHasToken's reach, so it is pinned EXPLICITLY.
   // The Cyrillic form rides the existing substring arms (понеделни).
-  if (fuzzyHasToken(text, ['понеделник', 'вторник', 'четврток', 'сабота', 'недела',
+  // “ponedelik/понеделк” — the n→k / dropped-n slips ([12:42] transcript)
+  // are pinned here too: three day-typo spellings, all meaning понеделник.
+  if (fuzzyHasToken(text, ['понеделник', 'понеделк', 'вторник', 'четврток', 'сабота', 'недела',
     'попладне', 'напладне', 'претпладне', 'викенд', 'задутре'])) return text.trim().slice(0, 80);
   return undefined;
 }
@@ -1224,7 +1238,7 @@ export function detectVisitTime(text: string): string | undefined {
 // Used by hasDayWord() to tell a day-anchored term ("во понеделник") from a
 // bare clock/period ("6 SAAT").
 const DAY_WORD_RE =
-  /(?:понеделн|вторн|сред[аио]|четврт|петочн|петок|сабот|недел|задутре|утре|денес|викенд|ponedel|vtorn|sred[ai]|cetvrt|petocn|petok|sabot|nedel|zadutre|utre|denes|vikend)/iu;
+  /(?:понеделн|понеделк|вторн|сред[аио]|четврт|петочн|петок|сабот|недел|задутре|утре|денес|викенд|ponedel|vtorn|sred[ai]|cetvrt|petocn|petok|sabot|nedel|zadutre|utre|denes|vikend)/iu;
 
 /** True when the phrase names an explicit DAY (weekday, relative day or the
  *  weekend). A bare clock ("6 SAAT") is NOT a day — the split [14:35] intake
@@ -3453,6 +3467,66 @@ export function isPoiConfirmQuestion(text: string): boolean {
   if (matchesBoth(/^\s*(?:ne|не)\s+(?:e|е)\b/iu, text)) return true;
   if (matchesBoth(/\b(?:li|ли)\s*(?:e|е)?\s*\?/iu, text)) return true;
   return false;
+}
+
+// WHERE-THE-LANDMARK-IS — the [12:48] transcript: "KADE TI E TOA 26 JULI TC ?"
+// asks WHERE a place Lina herself named is located. The client echoed a
+// landmark out of her own reply ("1,3 километри од Kipper Market - ТЦ 26
+// Јули"); the bare 26 then matched inferPropertyId and Lina answered
+// "не можам да го најдам 26 во нашата евиденција" — treating a shopping-mall
+// question as an Евидентен-број lookup. Grammar: a каде/kade opener or the
+// где-family ("каде ти е тоа X", "kade e toa X", "kade se naogja X") + a
+// place candidate. The PLACE (not the property) is the topic — the number
+// inside it is part of its NAME ("ТЦ 26 Јули", "Булевар 26 Јули"), and
+// каде-questions never bind EBs.
+const WHERE_LANDMARK_RE =
+  /(?<![\p{L}\p{N}])(?:каде|кде|kade|gde)(?![\p{L}\p{N}])[^.?!\n]{0,40}(?![\p{L}\p{N}])(?:тоа|тој|таа|toa|toj|taa|тоa)?[^.?!\n]{0,40}(?<![\p{L}\p{N}])(?:во|во|vo|во|na|на|kaj|кај)?/iu;
+
+/** True when the client asks WHERE a named PLACE is ("kade ti e toa 26 juli
+ *  tc ?", "kade e skopjanka?"). These are landmark questions — the number in
+ *  the text belongs to the place name, never to the Евидентен-број intake. */
+export function isWhereLandmarkQuestion(text: string): boolean {
+  // Must ask about a place, not about the PROPERTY on the table: the каде
+  // + property-family ("kade mu e lokacijata?", "каде се наоѓа станот") has
+  // its own WHERE_IS lane with the property as topic. Landmark questions
+  // name the place — usually after "тоа/toa" ("каде ти е ТОА 26 Јули ТЦ").
+  if (!matchesBoth(/(?:каде|кде|kade|gde)/iu, text)) return false;
+  // A possessive about the discussed property ("kade mu e lokacijata",
+  // "kade mu e adresata") is the property's where-is, not a landmark probe.
+  if (matchesBoth(/(?:каде|kade)[^.?!\n]{0,30}(?:му|mu|нејзе|nejze)[^.?!\n]{0,30}(?:локаци|адрес|lokaci|adres|наоѓ|naog)/iu, text)) return false;
+  // "каде се наоѓа станот/куќата/имотот…" — a property-noun tail means the
+  // PROPERTY is the topic (its own WHERE_IS lane); "kade se naogja 26 juli
+  // tc" carries a PLACE name and stays a landmark question.
+  if (matchesBoth(/(?:каде|kade)[^.?!\n]{0,40}(?:стан(?:от|ов)?|куќ(?:ата)|куќа|имот(?:от)?|imot(?:ot)?|garsonjer\p{L}*|гарсоњер\p{L}*|локал(?:от)?|lokal(?:ot)?|апартамент\p{L}*|dvosoben|trosoben|двособен|трособен)/iu, text)) return false;
+  // A bare EB probe ("kade e 26?") stays the property lane — a bare number
+  // after каде is the client asking about THAT property.
+  if (matchesBoth(/(?:каде|kade)\s*(?:е|e|is)?\s*\d{1,3}\s*[.?!]?\s*$/iu, text)) return false;
+  return true;
+}
+
+/** The place candidate in a where-the-landmark-is question: the text after
+ *  the demonstrative ("каде ти е тоа X" → X), else after the каде-cluster.
+ *  Returns undefined when no place-looking tail exists. */
+export function extractWhereLandmarkPlace(text: string): string | undefined {
+  if (!isWhereLandmarkQuestion(text)) return undefined;
+  // After the demonstrative "тоа/toa" ("KADE TI E TOA 26 JULI TC" → "26 JULI TC")
+  const dem = matchesBothCapture(/(?:каде|кде|kade|gde)[^.?!\n]{0,40}?(?:тоа|toa|тој|toj|таа|taa)\s+([^.?!\n]{2,60})/iu, text);
+  let place: string | undefined = dem?.trim().replace(/[.?!,:;]+$/u, '').trim();
+  if (!place) {
+    // "kade e skopjanka" / "kade se naogja 26 juli tc" — the каде + copula/
+    // naogja cluster is SKIPPED (never captured), the place follows it.
+    const m = matchesBothCapture(/(?:каде|кде|kade|gde)\s*(?:ти|ti)?\s*(?:се|se)?\s*(?:е|e)?\s*(?:наоѓа|наодзи|naogja|naodzja)?\s*([\p{L}\p{N}][\p{L}\p{N}'\- ]{1,60})/iu, text);
+    place = m?.trim().replace(/[.?!,:;]+$/u, '').trim();
+  }
+  if (!place) return undefined;
+  // Drop trailing scaffold words
+  let words = place.split(/\s+/);
+  while (words.length > 1
+    && POI_CONFIRM_TAIL_WORDS.has((words[words.length - 1] ?? '').toLowerCase())) {
+    words = words.slice(0, -1);
+  }
+  place = words.join(' ');
+  return place.length >= 3 ? place : undefined;
 }
 
 /** The place candidate after vo/na/kaj in a POI-confirm question

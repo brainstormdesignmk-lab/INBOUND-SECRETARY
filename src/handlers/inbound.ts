@@ -11,7 +11,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno, detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -728,6 +728,49 @@ export class InboundHandler {
       return;
     }
 
+    // WHERE-THE-LANDMARK-IS — the [12:48] push-back ("KADE TI E TOA 26 JULI
+    // TC ?"): the client asks where a PLACE Lina herself named is located.
+    // The number inside the place name ("ТЦ 26 Јули") must never read as an
+    // Евидентен број — resolved against the offline map, answered with the
+    // honest distance/direction line, and the discussed property stays
+    // anchored. No map hit → an honest "не е во нашата евиденција" that talks
+    // about the PLACE, never pretending a property was meant.
+    if (isWhereLandmarkQuestion(text)
+      && !detectAreaHaveAsk(text)
+      && !detectPriceAsk(text) && !detectBudget(text)
+      && !detectService(text) && !detectBothServices(text)) {
+      const placeName = extractWhereLandmarkPlace(text);
+      const anchorEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+      const anchorProp = anchorEb != null
+        ? await this.deps.properties.getByEb(anchorEb).catch(() => undefined)
+        : undefined;
+      if (placeName && this.landmarks && anchorProp?.lat != null && anchorProp?.lon != null) {
+        const hit = this.landmarks.findPlace(placeName, { lat: anchorProp.lat, lon: anchorProp.lon });
+        if (hit) {
+          let answer: string;
+          if (anchorProp.lat != null && anchorProp.lon != null) {
+            const d = Math.round(distM(anchorProp.lat, anchorProp.lon, hit.lat, hit.lon));
+            const distPhrase = d < 1000 ? `${Math.max(10, Math.round(d / 10) * 10)} метри` : `${(d / 1000).toFixed(1).replace('.', ',')} километри`;
+            const prep = locPrep(anchorProp.location ?? '');
+            answer = `${hit.name} се наоѓа на ${distPhrase} од имотот кој го разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на имотот се открива на денот на посетата.`;
+          } else {
+            answer = `Тоа е ориентир во градот — имотот кој го разгледуваме е ${locPrep(anchorProp.location ?? '')} ${anchorProp.location}.`;
+          }
+          session.slots.location = anchorProp.location ?? session.slots.location;
+          routeLog(chatId, text, 'WHERE_LANDMARK');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
+          return;
+        }
+      }
+      // Map miss / no anchor: fall through. isWhereLandmarkQuestion text also
+      // carries каде, so the WHERE_IS lanes below answer it with property
+      // context; inferPropertyId no longer binds the place-name number.
+    }
+
     // POI-CONFIRM — the 22:59 push-back ("da ne e vo skopjanka ?"). The client
     // tests a NAMED PLACE against the discussed property. This is a QUESTION
     // about the property under discussion — it must be ANSWERED, never
@@ -748,9 +791,19 @@ export class InboundHandler {
         && !detectAreaHaveAsk(text)
         && (session.slots.propertyId || session.slots.interestedPropertyId
           || session.slots.presentedIds?.length)) {
-      const poiEb = session.slots.propertyId
+      // ANCHORING (the [12:47] transcript: "OVOJ KAJ KIPER . KOJA ADRESA JA IMA
+      // ?" after EB 43 Маџари was presented, but propertyId still held a stale
+      // EB from an earlier funnel → the answer described the WRONG property).
+      // The demonstrative "ovoj/овај" binds what is ON THE TABLE — the last-
+      // presented card (or the batch tail). Only when the message itself names
+      // no property and nothing was ever presented does the legacy propertyId
+      // chain apply. A pinned EB ("stan 50 kade e?") outranks everything.
+      const pinnedPoi = inferPropertyId(text);
+      const poiEb = pinnedPoi
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
+        ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
         ?? session.slots.interestedPropertyId
-        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+        ?? session.slots.propertyId;
       const poiProp = poiEb != null
         ? await this.deps.properties.getByEb(poiEb).catch(() => undefined)
         : undefined;
@@ -3815,11 +3868,22 @@ ${contactReminder}`;
     // clock, which normalizeOwnerTime resolves. The clock comes FIRST: the
     // event phrase is the new information, the stored day is context. A term
     // with its own day word replaces the slot outright.
+    // CLOCK-CARRYING STORE ([12:43] lesson): a stored phrase with a clock
+    // ("NE MOZAM VO 18:00…" ping-pong, "во 18:00" counters) never donates its
+    // day to a new clock-bearing proposal — "MOZAM VO 19:00" after a
+    // rejection must re-ask the owner with 19:00, never a resurrect of the
+    // rejected 18:00. The donation applies only to day-only stored context.
     if (ev.visitTime) {
-      if (hasDayWord(ev.visitTime) || !hasDayWord(session.slots.visitTime ?? '')) {
+      const storedVt = session.slots.visitTime ?? '';
+      const storedHasClock = storedVt.length > 0 && hasClockHint(storedVt);
+      if (hasDayWord(ev.visitTime) || !hasDayWord(storedVt) || storedHasClock) {
         session.slots.visitTime = ev.visitTime;
       } else {
-        session.slots.visitTime = `${ev.visitTime.trim()}, ${session.slots.visitTime!.trim()}`;
+        // DAY-FIRST order (the [12:43] contract): hasClockHint's
+        // day-trailing-hour arm reads "DAY … hour" — a clock-first
+        // "6, VO PONEDELNIK MOZAM" is invisible to it and the owner ask
+        // silently dropped the hour.
+        session.slots.visitTime = `${storedVt.trim()} ${ev.visitTime.trim()}`;
       }
     }
     if (ev.name) session.slots.name = ev.name;

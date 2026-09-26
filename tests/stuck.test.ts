@@ -947,10 +947,10 @@ test('owner_checking: the client rejects the proposed time -> new time collected
   // The [14:22] contract: the owner reads the TRANSLATED term (canonical
   // dated form), never the client's raw shorthand.
   // Weekday enumerated across the WEEK: "утре" resolves to a concrete date
-  // whose name rolls over at midnight (written Friday → Сабота; run past
+  // whose name rolls over at midnight (written Saturday → Недела; run past
   // midnight → Недела). The contract being pinned is the CANONICAL dated
   // form (day name + dd.mm.yyyy + clock) — never the raw client shorthand.
-  assert.match(ownerAsks[0], /посета: (?:Понеделник|Вторник|Среда|Четврток|Петок|Сабота|Недела|Утре), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
+  assert.match(ownerAsks[0], /посета: (?:Понеделник|Вторник|Среда|Четврток|Петок|Сабота|Недела), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
 
   // the client can't do the proposed time -> back to the time question, NOT
   // the patience line, and no new owner ask for a time the client rejected
@@ -1023,10 +1023,10 @@ test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed —
   assert.equal(ownerAsks.length, 1);
   assert.ok(ownerAsks[0].includes('78') && ownerAsks[0].includes('достапен'), ownerAsks[0]);
   // Weekday enumerated across the WEEK: "утре" resolves to a concrete date
-  // whose name rolls over at midnight (written Friday → Сабота; run past
+  // whose name rolls over at midnight (written Saturday → Недела; run past
   // midnight → Недела). The contract being pinned is the CANONICAL dated
   // form (day name + dd.mm.yyyy + clock) — never the raw client shorthand.
-  assert.match(ownerAsks[0], /посета: (?:Понеделник|Вторник|Среда|Четврток|Петок|Сабота|Недела|Утре), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
+  assert.match(ownerAsks[0], /посета: (?:Понеделник|Вторник|Среда|Четврток|Петок|Сабота|Недела), \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
   // owner: "да, може" (plain text) -> ok -> confirmed at the proposed time
   toOwner(c1, 78, 'da, moze');
   await tick();
@@ -1123,7 +1123,9 @@ test('owner refusal "denes nema da mozam" is a COUNTER — the visit is never co
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'time_confirm');
   const relay = sent[sent.length - 1];
-  assert.ok(relay.includes('Утре во 16:00'), relay);   // the counter time, Cyrillic, correct day
+  // The counter time is relayed canonically (the [12:42] normalizeOwnerTime
+  // contract: dated form, never the raw owner/client shorthand).
+  assert.ok(/Утре во 16:00|Недела, \d{2}\.\d{2}\.\d{4} во 16:00/u.test(relay), relay);
   assert.ok(!relay.includes('Договорена посета'), relay); // NOT closed
   assert.ok(!relay.includes('nema da mozam'), relay);      // raw owner text never relayed verbatim
   assert.ok(!(s.slots.ownerTime ?? '').includes('nema da mozam'), JSON.stringify(s.slots));
@@ -1132,7 +1134,7 @@ test('owner refusal "denes nema da mozam" is a COUNTER — the visit is never co
   s = await send('VO RED, TOA VREME E DOBRO');
   assert.equal(s.state, 'pending');
   assert.ok(sent[sent.length - 1].includes('Договорена посета'), sent[sent.length - 1]);
-  assert.ok(sent[sent.length - 1].includes('Утре во 16:00'), sent[sent.length - 1]);
+  assert.ok(/Утре во 16:00|Недела, \d{2}\.\d{2}\.\d{4} во 16:00/u.test(sent[sent.length - 1]), sent[sent.length - 1]);
 });
 
 test('owner BARE refusal (no alternative time): no fabricated "по договор" term — client is asked for another time, owner re-asked with it', async () => {
@@ -3401,7 +3403,10 @@ test('[14:34] split time intake: day-only asks the clock; bare hour-word complet
   // the bare hour-word completes the stored day — one owner ask, canonical form
   const s3 = await send('6 SAAT');
   assert.equal(s3.state, 'owner_checking');
-  assert.equal(s3.slots.visitTime, '6 SAAT, VO PONEDELNIK MOZAM');
+  // [12:43] contract: the merge is DAY-FIRST ("VO PONEDELNIK MOZAM 6 SAAT") —
+  // hasClockHint/normalizeOwnerTime read the day-then-hour form; a clock-first
+  // merge made the owner ask silently drop the hour.
+  assert.equal(s3.slots.visitTime, 'VO PONEDELNIK MOZAM 6 SAAT');
   assert.equal(ownerAsks.length, 1, `exactly one owner ask expected: ${ownerAsks.length}`);
   assert.match(ownerAsks[0], /посета: Понеделник, \d{2}\.\d{2}\.\d{4} во 18:00/u, ownerAsks[0]);
 
@@ -3609,4 +3614,128 @@ test('[09:25] fee-ask with a земат typo reads as PROVISION_ASK, never avail
   assert.ok(/провизи|надомест|500 денари|10 евра/iu.test(r4), `fee answer expected: ${r4}`);
   // A fee QUESTION is not fee consent — the funnel stays at the fee.
   assert.equal(s4.slots.viewingFeeAgreed, undefined, 'asking about the fee must not set consent');
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// [12:42]–[12:48] CLUSTER — day+bare-hour intake, widen typo, POI anchoring,
+// landmark-where. Mirror of the production transcript.
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('[12:42] "PONEDELIK 6" books Понеделник 18:00 — no hour re-ask, no Сабота owner ask', async () => {
+  const rows: Property[] = [
+    { eb: 79, id: 79, location: 'Центар', price: 300, service: 'rent', bedrooms: 2, size: '35 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_c: string, _eb: number, q: string) => { ownerAsks.push(q); };
+  const chatId = 'lina-1242-time';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA');
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 79');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA');
+  await send('DA, SE SOGLASUVAM');
+  await send('GORAN SERBRZOV');
+  const s1 = await send('078935834');
+  assert.equal(s1.state, 'visit_scheduling', `contact completes → visit_scheduling, got ${s1.state}`);
+
+  // THE BUG: "PONEDELIK 6" gave day + hour in one message. The old reader
+  // captured only the day (no clock hint), re-asked the hour the client had
+  // already given, and the follow-up "6" then completed against a stale day —
+  // the owner was asked for Сабота when the client said Понеделник.
+  const s2 = await send('DA\nPONEDELIK 6');
+  assert.equal(s2.state, 'owner_checking', `day+hour in one message starts the owner check: ${s2.state}`);
+  assert.equal(s2.slots.visitTime, 'DA\nPONEDELIK 6');
+  assert.ok(!/колку часот/iu.test(sent.at(-1)!), `NEVER re-ask the hour: ${sent.at(-1)!}`);
+  assert.equal(ownerAsks.length, 1, `exactly one owner ask went out: ${JSON.stringify(ownerAsks)}`);
+  // The owner ask carries the CANONICAL Понеделник form — the day typo is
+  // fixed and the bare 6 is the resolved 18:00 clock. No raw shorthand.
+  assert.match(ownerAsks[0], /Понеделник/iu, `owner reads proper Macedonian day: ${ownerAsks[0]}`);
+  assert.match(ownerAsks[0], /18:00/, `owner reads the resolved PM clock: ${ownerAsks[0]}`);
+  assert.ok(!/PONEDELIK/iu.test(ownerAsks[0]), `raw client shorthand never reaches the owner: ${ownerAsks[0]}`);
+});
+
+test('[12:43] a bare "6" completes the stored day instead of overwriting it with today', async () => {
+  const rows: Property[] = [
+    { eb: 79, id: 79, location: 'Центар', price: 300, service: 'rent', bedrooms: 2, size: '35 м²' },
+  ];
+  const { handler, sessions } = makeHandlerWithRows(rows);
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_c: string, _eb: number, q: string) => { ownerAsks.push(q); };
+  const chatId = 'lina-1243-bare';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA');
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 79');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA');
+  await send('DA, SE SOGLASUVAM');
+  await send('GORAN SERBRZOV');
+  await send('078935834');
+
+  // Day-only first (no clock): the split intake arms the day and asks the hour.
+  const s1 = await send('VO PONEDELNIK MOZAM');
+  assert.equal(s1.state, 'visit_scheduling', `day-only stays in scheduling: ${s1.state}`);
+
+  // THE BUG: the bare hour used to REPLACE the stored phrase (day lost) and
+  // the parser resolved "6" to TODAY — the owner got the wrong day entirely.
+  const s2 = await send('6');
+  assert.equal(s2.state, 'owner_checking', `the bare hour completes the pair: ${s2.state}`);
+  const merged = s2.slots.visitTime ?? '';
+  assert.match(merged, /понеделник|PONEDELN?IK/iu, `the stored day survives the merge: ${merged}`);
+  assert.match(merged, /6/, `the bare hour rides along: ${merged}`);
+  assert.equal(ownerAsks.length, 1, `one owner ask: ${JSON.stringify(ownerAsks)}`);
+  assert.match(ownerAsks[0], /Понеделник/iu, `owner gets Понеделник, never "today": ${ownerAsks[0]}`);
+  assert.match(ownerAsks[0], /18:00/, `the bare 6 is the 18:00 clock: ${ownerAsks[0]}`);
+});
+
+test('[12:45] "MOZE I VO DRUGI NSELBI" widens the search exactly like the correct spelling', async () => {
+  const rows: Property[] = [
+    { eb: 71, id: 71, location: 'Аеродром', price: 60000, service: 'buy', bedrooms: 2, size: '55 м²' },
+    { eb: 63, id: 63, location: 'Центар', price: 63000, service: 'buy', bedrooms: 2, size: '60 м²' },
+    { eb: 54, id: 54, location: 'Карпош III', price: 69500, service: 'buy', bedrooms: 3, size: '70 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-1245-widen';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM STAN VO AERODROM');
+  await send('DO 70000');
+  const sPres = await send('DA, POKAZHI');      // see-offers → presentation
+  assert.equal(sPres.state, 'presentation', `precondition: a batch is presented (got ${sPres.state})`);
+  // The rejection drains Аеродром → the exhausted ask (the [12:44] transcript
+  // context: "Сите опции кои ги исполнуваат Вашите критериуми… друга населба?")
+  const sDrain = await send('NE MI SE DOPAGAAT');
+  assert.ok(EXHAUSTED_ASK.test(sent.at(-1)!), `precondition: the exhausted ask fired (state=${sDrain.state}): ${sent.at(-1)!}`);
+  const s = await send('MOZE I VO DRUGI NSELBI');
+  // THE BUG: the typo'd "населби" missed the widen grammar, so the search
+  // stayed area-locked and Lina re-asked the exhausted question.
+  assert.equal(s.slots.anywhere, true, `the typo releases the area lock: ${JSON.stringify(s.slots)}`);
+  assert.ok(!EXHAUSTED_ASK.test(sent.at(-1)!), `no repeated exhausted ask: ${sent.at(-1)!}`);
+  assert.ok(/Евидентен број/iu.test(sent.at(-1)!), `a new batch is presented: ${sent.at(-1)!}`);
+});
+
+test('[12:48] "KADE TI E TOA 26 JULI TC ?" answers the LANDMARK — never an EB-26 lookup', async () => {
+  const rows: Property[] = [
+    { eb: 43, id: 43, location: 'Маџари', price: 130000, service: 'buy', lat: 42.0125, lon: 21.4622 },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-1248-kade';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // A property is on the table (as in the transcript: EB 43 Маџари).
+  await send('SAKAM DA KUPAM STAN VO MADJARI');
+  await send('DO 140000');
+  const s0 = await send('DA, POKAZHI');         // see-offers → presentation
+  assert.equal(s0.state, 'presentation', `precondition: a property was presented (got ${s0.state})`);
+  assert.ok(s0.slots.presentedIds?.length, 'precondition: presentedIds filled');
+
+  await send('KADE TI E TOA 26 JULI TC ?');
+  const s1 = sessions.get(chatId)!;
+  // THE BUG: "26" matched the bare-EB intake and Lina answered "не можам да
+  // го најдам 26 во нашата евиденција" for a shopping mall.
+  assert.ok(!/најдам имотот|евиденцијата/iu.test(sent.at(-1)!), `no EB-26 not-found line: ${sent.at(-1)!}`);
+  assert.ok(s1.state !== 'property_query', `no property funnel for a landmark question: ${s1.state}`);
+  assert.ok(s1.slots.presentedIds?.includes(43), `EB 43 stays the topic: ${JSON.stringify(s1.slots.presentedIds)}`);
 });
