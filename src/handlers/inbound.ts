@@ -11,7 +11,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -1212,8 +1212,17 @@ export class InboundHandler {
     // (SEARCH_REQUESTED → presentation's next-2 engine).
     const whereIsRaw = detectWhereIs(text);
     const recentAssistant = assistantTexts(session);
+    // STAND-DOWN for the bare "more/other" family ("drugo sto imas?",
+    // "nesto drugo?"): no proximity anchor in the message and the last reply
+    // was NOT a nearby-thread answer → this is options/search traffic, never
+    // a where-is question. The old guard required lastReplyWasProperty — a
+    // funnel ask in discovery ("Во кој дел од градот…?") or the
+    // exhausted/widen line did not match it, so the ask fell into the WHERE_IS
+    // lane and got the "кажете ми Евидентен број" escape (the [21:26]
+    // freeze class).
     const whereIs = whereIsRaw && whereIsRaw.generic
-      && isOptionsFollowUp(text, recentAssistant[recentAssistant.length - 1] ?? '')
+      && mentionsMore(text) && !hasProximityAnchor(text)
+      && !lastReplyWasNearby(recentAssistant[recentAssistant.length - 1] ?? '')
       ? undefined
       : whereIsRaw;
     if (whereIs) {
@@ -2243,7 +2252,14 @@ export class InboundHandler {
     // every real phrasing of them.
     if (next === 'presentation' && props.length === 0
       && session.slots.areaExhausted
-      && (detectWidenIntent(text) || detectExplicitWiden(text))
+      && ((detectWidenIntent(text) || detectExplicitWiden(text))
+        // REPEAT-WIDEN (the [21:26] freeze): a bare more-ask ("drugo sto
+        // imas?") right after the exhausted line — which itself ends with the
+        // widen ask — IS the widen answer. Repeating the same exhausted ask
+        // is what read as a freeze; release the lock and serve the rest of
+        // the city instead.
+        || (mentionsMore(text) && !hasProximityAnchor(text)
+          && lastReplyWasExhausted(recentAssistant[recentAssistant.length - 1] ?? '')))
       && !ev.location
       // Fresh-criteria pivots ("a kukuca so dvor NADVOR OD GRADOT") belong to
       // the release block below: widening here would clear areaExhausted
@@ -3331,9 +3347,9 @@ ${contactReminder}`;
       // updated filters. When props is empty (previous search found nothing),
       // reload with the new criteria so relaxed requirements ("моќе и со
       // една спална") actually trigger a fresh search.
-      if (props.length === 0) {
-        props = await this.loadProps(session, false, false);
-      }
+      // REPEAT-WIDEN ([21:26] freeze) lives in the pre-FSM widen-pivot block
+      // above — the empty-presentation leg below intercepts an empty pool
+      // before this leg ever sees it.
       if (props.length === 0) {
         reply = !this.deps.properties.healthy
           ? FEED_UNAVAILABLE_LINE

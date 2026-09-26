@@ -3861,3 +3861,69 @@ test('[16:06] CEKAM USTE serves the bank-backed patience line — never the LLM 
   await send('CEKAM');
   assert.ok(!/проверувам понудата/iu.test(sent.at(-1)!), `bare CEKAM stays deterministic: ${sent.at(-1)!}`);
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// [21:26] FREEZE CLUSTER — bare more-asks ("DRUGO STO IMAS?") after a
+// presentation batch or an exhausted line. The freeze was two defects: (1)
+// the re-present leg repeated the exhausted ask instead of widening; (2) the
+// second ask fell into the WHERE_IS lane and answered with the discussed
+// property's neighborhood ("Имотот се наоѓа во населбата…").
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('[21:26] bare "DRUGO STO IMAS?" widens after the exhausted line — never repeats the exhausted ask', async () => {
+  const rows: Property[] = [
+    { eb: 90, id: 90, location: 'Кисела Вода', price: 75000, service: 'buy', bedrooms: 2, size: '54 м²' },
+    { eb: 46, id: 46, location: 'Кисела Вода', price: 72000, service: 'buy', bedrooms: 2, size: '43 м²' },
+    { eb: 33, id: 33, location: 'Аеродром', price: 98000, service: 'buy', bedrooms: 2, size: '60 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-2126-widen';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA');
+  await send('VO KISELA VODA');
+  assert.equal(sessions.get(chatId)!.state, 'presentation', `precondition: presentation (got ${sessions.get(chatId)!.state})`);
+
+  // THE BUG: the same bare more-ask repeated the exhausted line forever —
+  // no widen, no options, the client saw a freeze. CONTRACT: the first ask
+  // after the batch gets the exhausted line WITH the widen ask ("ask him
+  // about a different neighbourhood"); the ask AGAIN is the widen ANSWER →
+  // city-wide options, never the same exhausted text twice.
+  await send('DRUGO STO IMAS?');
+  assert.ok(EXHAUSTED_ASK.test(sent.at(-1)!), `exhausted + widen ask served: ${sent.at(-1)!}`);
+
+  // The repeat ask widens to the rest of the city (Аеродром 33).
+  await send('DRUGO STO IMAS ?');
+  assert.ok(/Евидентен број 33/iu.test(sent.at(-1)!), `widened to the rest of the city (Аеродром 33): ${sent.at(-1)!}`);
+  assert.ok(!/(?:исцрпив|искористив|прегледав|поминав|погледнав)\p{L}*\s+сите/iu.test(sent.at(-1)!), `no exhausted repeat after the widen: ${sent.at(-1)!}`);
+
+  // City fully drained now: the honest exhausted line again — with the widen
+  // ask, never silence, never the identical variant twice in a row.
+  await send('DRUGO STO IMAS ?');
+  assert.ok(EXHAUSTED_ASK.test(sent.at(-1)!), `honest exhausted + widen ask at the end: ${sent.at(-1)!}`);
+});
+
+test('[21:26] bare more-asks never fall into the WHERE_IS lane — no neighborhood nonsense', async () => {
+  const rows: Property[] = [
+    { eb: 90, id: 90, location: 'Кисела Вода', price: 75000, service: 'buy', bedrooms: 2, size: '54 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-2126-standdown';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // THE BUG: "DRUGO STO IMAS?" matched detectWhereIs's generic каде-family
+  // and the old options-followup veto only covered post-batch turns — in
+  // discovery the ask got "Можам да Ви ги покажам ориентирите… кажете ми
+  // Евидентен број".
+  await send('DRUGO STO IMAS?');
+  assert.ok(!/ориентирите/iu.test(sent.at(-1)!), `no where-is escape for a bare more-ask: ${sent.at(-1)!}`);
+  assert.ok(!/Евидентен број на станот/iu.test(sent.at(-1)!), `no EB-demand escape: ${sent.at(-1)!}`);
+  assert.ok(/купување|изнајмување|населб|локаци/iu.test(sent.at(-1)!), `funnel owns the cold more-ask: ${sent.at(-1)!}`);
+
+  // After the exhausted line: still options traffic — the neighborhood of
+  // the last-shown property must never surface (the [21:27] nonsense).
+  await send('SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA');
+  await send('VO KISELA VODA');
+  await send('DRUGO STO IMAS ?');
+  assert.ok(!/Имотот се наоѓа во населбата/iu.test(sent.at(-1)!), `no neighborhood answer for a more-ask: ${sent.at(-1)!}`);
+});

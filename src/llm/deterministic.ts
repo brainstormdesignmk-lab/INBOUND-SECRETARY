@@ -2707,6 +2707,17 @@ export function mentionsMore(text: string): boolean {
   return /(?:друг(?:о|и|а|иот|ата|ово)?|уште|усте|уцте|iste)/u.test(normalizeMc(text));
 }
 
+/** The last assistant reply was an EXHAUSTED/WIDEN line — the area drained
+ *  and Lina asked whether to widen ("…или да погледнеме во друга населба?").
+ *  Used by the presentation re-present leg: a bare "drugo sto imas?" after
+ *  THIS reply means "widen to the rest of the city" — the same exhausted ask
+ *  must never repeat (the [21:26] freeze). */
+export function lastReplyWasExhausted(lastAssistantText: string): boolean {
+  return /(?:исцрпив|искористив|прегледав|разгледав|поминав|погледнав)\p{L}*\s+сите/iu.test(lastAssistantText)
+    || /друг(?:а\s+населба|и\s+населби|\s+дел\s+од\s+градот)/iu.test(lastAssistantText)
+    || /(?:немам|немаме)\s+(?:слободни\s+)?(?:имоти|други|понуди)/iu.test(lastAssistantText);
+}
+
 /** The last assistant reply presented PROPERTY content — a card, an options
  *  list, a price line, a visit-location message or an exhausted/no-match line
  *  (every one anchors the property-options thread). Landmark/protocol/greeting
@@ -2715,7 +2726,8 @@ export function lastReplyWasProperty(lastAssistantText: string): boolean {
   return /(?:под|со)\s+Евидентен\s+број/iu.test(lastAssistantText)
     || /(?:составив\s+листа|ги\s+одбрав\s+следниве|предлози\s+кои)/iu.test(lastAssistantText)
     || /ЛОКАЦИЈА\s+ЗА\s+ЕВИДЕНТЕН\s+БРОЈ/iu.test(lastAssistantText)
-    || /(?:што\s+одговараат\s+на\s+Вашите\s+критериуми|немам\s+слободни\s+имоти|не\s+можам\s+да\s+го\s+најдам\s+имотот)/iu.test(lastAssistantText);
+    || /(?:што\s+одговараат\s+на\s+Вашите\s+критериуми|немам\s+слободни\s+имоти|не\s+можам\s+да\s+го\s+најдам\s+имотот)/iu.test(lastAssistantText)
+    || lastReplyWasExhausted(lastAssistantText);
 }
 
 /** True when a bare "more" ask right after property content means
