@@ -247,6 +247,21 @@ const LEXICON: LexiconEntry[] = [
   // jebi se/go/te (fuck off / fuck you) — vulgar imperative; the mild
   // "odjebi" (M2) is a different word that normalizes separately.
   { id: 'H17', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['jebi se', 'jebi go', 'jebi te'], reason: 'jebi se (fuck off/you — vulgar imperative)' },
+  // Directed "crazy" insult — the [22:48] transcript: "TI LUDA SI ?". Only
+  // SECOND-PERSON forms are listed: a bare "luda" would flag "cenata e luda"
+  // (the price is crazy — about a price, not a person). boundary keeps
+  // "bluda si"-shaped embeds out. Cyrillic луда/луд fold here via normalize.
+  { id: 'H18', category: 'heavy_insult', severity: 2, confidence: 0.9, boundary: true,
+    stems: ['luda si', 'si luda', 'ti si luda', 'ti luda si', 'luda li si',
+      'lud si', 'si lud', 'ti si lud', 'ti lud si', 'lud li si'],
+    reason: 'ti luda si (you are crazy — directed 2nd-person only; bare "luda" stays clean)' },
+  // Sexist "all the girls" comparison — the [22:48] transcript: "NE SI SO
+  // SITE DEVOJKO" (typo of devojki). The o-ending typo form is listed beside
+  // the canonical one; zenski variants cover the same jab.
+  { id: 'H19', category: 'heavy_insult', severity: 2, confidence: 0.9, boundary: true,
+    stems: ['so site devojki', 'so site devojko', 'kako site devojki', 'kako site devojko',
+      'so site zenski', 'kako site zenski', 'isti si kako site devojki', 'isti si kako site zenski'],
+    reason: 'so/kako site devojki (sexist you-are-like-all-the-girls jab, incl. the devojko typo)' },
 
   // ---------- MILD (severity 1) ----------
   { id: 'M1', category: 'mild', severity: 1, confidence: 0.8, stems: ['mlci', 'mlcis', 'utkni', 'zatkni'], reason: 'shut up (mlci/utkni/zatkni)' },
@@ -267,6 +282,13 @@ const LEXICON: LexiconEntry[] = [
   { id: 'O6', category: 'mild', severity: 1, confidence: 0.8, stems: ['prazna glavo'], reason: 'prazna glavo' },
   { id: 'O7', category: 'mild', severity: 1, confidence: 0.8, stems: ['lazi me'], reason: 'lazi me' },
   { id: 'O8', category: 'mild', severity: 1, confidence: 0.8, stems: ['odaj si'], reason: 'odaj si od tuka' },
+  // "you're all the same" — the dismissive generalization aimed at the agent
+  // ("SITE STE ISTI"). Not vulgar, but disrespect: strike-1 warning class.
+  // boundary keeps "se isti" (two properties are the same — legit comparison)
+  // out: that is 3rd person "se", this entry only lists the 2nd-person forms.
+  { id: 'M11', category: 'mild', severity: 1, confidence: 0.8, boundary: true,
+    stems: ['site isti ste', 'site ste isti', 'isti ste site', 'vie ste isti', 'isti ste vie', 'isti si kako site'],
+    reason: 'site ste isti (you are all the same — dismissive generalization)' },
 ];
 
 // ========================================

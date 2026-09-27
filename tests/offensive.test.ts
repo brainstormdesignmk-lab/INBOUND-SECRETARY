@@ -125,6 +125,37 @@ test('classify: real insults still fire after the boundary sweep', () => {
   }
 });
 
+test('[22:48] classify: directed crazy/sexist jabs are caught (the TI LUDA SI transcript)', () => {
+  // The transcript missed the first two offenses; only GLUPACA SI (already in
+  // the lexicon via 'glupac') fired. All three must strike now.
+  const dirty = [
+    'TI LUDA SI ?',
+    'ti si luda',
+    'luda li si',
+    'lud si',
+    'NE SI SO SITE DEVOJKO',      // the devojki typo form from the transcript
+    'ne si kako site devojki',
+    'so site zenski si',
+  ];
+  for (const t of dirty) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' must fire');
+    assert.equal(d.severity, 2, JSON.stringify(t) + ' = heavy_insult');
+    assert.equal(d.category, 'heavy_insult', JSON.stringify(t));
+  }
+  // "you are all the same" dismissive generalization — mild
+  for (const t of ['site isti ste', 'vie ste isti', 'isti si kako site']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' must fire');
+    assert.equal(d.severity, 1, JSON.stringify(t) + ' = mild');
+  }
+  // neutral/3rd-person uses must stay clean
+  for (const t of ['cenata e luda', 'lud e toa', 'kako site', 'dali ima ludi kaj koi stanot e dostapen']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' must stay clean');
+  }
+});
+
 test('classify: normal real-estate talk is never offensive', () => {
   const clean = [
     'Здраво, сакам стан под кирија.',
