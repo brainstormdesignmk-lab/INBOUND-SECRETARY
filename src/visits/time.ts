@@ -47,6 +47,41 @@ function hourWordClock(t: string): { 1: string; 2?: string; length: number } | n
   const m = t.match(HOUR_WORD_RE);
   return m ? { 1: m[1], 2: undefined, length: 2 } : null;
 }
+
+// SPOKEN HALF-HOUR — "пет и пол" / "pet i pol" = 5:30 (the [22:50]
+// transcript: the client answered the exact-hour ask for "VO VTORNIK POSLE 5"
+// with "PA NEKA BIDE PET I POL", which the classifier could only read as a
+// bare clock "5:30", dropping the day AND the afternoon context — the owner
+// was asked about НЕДЕЛА 05:30 instead of ВТОРНИК (the intended 17:30).
+// Word-number hour + "и пол": the hour table mirrors the PM shift rule
+// (viewings happen in the afternoon — 1–7 shift to PM: "пет и пол" = 17:30).
+// The trailing-room-noun veto keeps the bedroom fraction ("една и пол
+// спални") out.
+const HOUR_WORDS: Array<[RegExp, number]> = [
+  [/(?:еден|една|eden|edna)(?![\p{L}\p{N}])/iu, 1],
+  [/(?:два|dva)(?![\p{L}\p{N}])/iu, 2],
+  [/(?:три|tri)(?![\p{L}\p{N}])/iu, 3],
+  [/(?:четири|cetiri)(?![\p{L}\p{N}])/iu, 4],
+  [/(?:пет|pet)(?![\p{L}\p{N}])/iu, 5],
+  [/(?:шест|sest|shest)(?![\p{L}\p{N}])/iu, 6],
+  [/(?:седум|sedum)(?![\p{L}\p{N}])/iu, 7],
+  [/(?:осум|osum)(?![\p{L}\p{N}])/iu, 8],
+  [/(?:девет|devet)(?![\p{L}\p{N}])/iu, 9],
+  [/(?:десет|deset)(?![\p{L}\p{N}])/iu, 10],
+  [/(?:единаесет|edinaeset)(?![\p{L}\p{N}])/iu, 11],
+  [/(?:дванаесет|dvanaeset)(?![\p{L}\p{N}])/iu, 12],
+];
+export const HALF_CLOCK_RE =
+  /(?<![\p{L}\p{N}])(еден|една|два|три|четири|пет|шест|седум|осум|девет|десет|единаесет|дванаесет|eden|edna|dva|tri|cetiri|pet|sest|shest|sedum|osum|devet|deset|edinaeset|dvanaeset)\s+(?:и|i)\s+(?:пол|pol)(?:а|a|овина)?(?![\p{L}\p{N}])(?!\s*(?:спалн|spaln|соби|sobi|лежа|krev))/iu;
+
+/** The hour of a spoken half-hour ("пет и пол" → 5), or undefined. */
+export function halfClockHour(t: string): number | undefined {
+  const m = t.match(HALF_CLOCK_RE);
+  if (!m) return undefined;
+  const word = m[1].toLowerCase();
+  for (const [re, h] of HOUR_WORDS) if (re.test(word)) return h;
+  return undefined;
+}
 // A BARE clock "17:30" — legal only when the message carries no date (a bare
 // HH:MM next to a date is ambiguous and the date wins).
 const BARE_CLOCK_RE = /\b(\d{1,2})[:.](\d{2})\b/;
@@ -131,10 +166,13 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   // word is the clock — tried FIRST so it beats the date arm on "петок 11.06"
   // (the trailing-hour regex itself vetoes clock/date tails there).
   let hour: number | undefined;
+  const hc = halfClockHour(t);
   const th = t.match(DAY_TRAILING_HOUR_RE);
   const hw = hourWordClock(t);
   const clock = hw ?? th ?? t.match(CLOCK_RE);
-  if (clock) {
+  if (hc !== undefined) {
+    hour = hc * 60 + 30; // "пет и пол" = 5:30
+  } else if (clock) {
     const h = Number(clock[1]);
     const m = clock[2] ? Number(clock[2]) : 0;
     if (h >= 0 && h <= 23 && m >= 0 && m <= 59) hour = h * 60 + m;
@@ -154,7 +192,13 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   // nonsense). Hours 1–7 shift to PM; 8–11 stay morning ("9 saat" = 09:00).
   // An explicit clock with minutes ("во 6:30") keeps its literal hour.
   // Same shift for the DAY+TRAILING-HOUR form: "PONEDELIK 6" = 18:00.
-  if ((hw || th) && hour !== undefined && hour < 8 * 60) {
+  // Same shift for the SPOKEN HALF-HOUR ("пет и пол" = 17:30) and the
+  // day-adjacent BARE clock ("вторник 5:30" — a day word makes the hour an
+  // afternoon viewing, never 05:30; a period word like "наутро" opts out).
+  if ((hc !== undefined || hw || th) && hour !== undefined && hour < 8 * 60) {
+    hour += 12 * 60;
+  } else if (hw === null && th === null && hc === undefined && hour !== undefined && hour < 8 * 60
+    && dayOfWeekFrom(t) !== undefined && partHour(t) === undefined && BARE_CLOCK_RE.test(t)) {
     hour += 12 * 60;
   }
   // PM context adjustment: "попладне после 6" = 18:00, not 06:00.
@@ -245,8 +289,16 @@ export function weekdayName(d: Date): string {
 export function hasClockHint(s: string): boolean {
   if (/\d{1,2}[:.]\d{2}\b/.test(s)) return true;
   if (HOUR_WORD_RE.test(s)) return true;
+  if (HALF_CLOCK_RE.test(s)) return true;
   if (DAY_TRAILING_HOUR_RE.test(s)) return true;
   return /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od)\s*\d{1,2}\b/i.test(s);
+}
+
+/** Canonical Macedonian weekday named in the phrase ("VTORNIK" → "вторник"),
+ *  or undefined. Used to donate a stored day to a clock-only follow-up. */
+export function extractDayWord(s: string): string | undefined {
+  for (const [re, d] of DAY_WORDS) if (re.test(s)) return MK_WEEKDAYS[d];
+  return undefined;
 }
 
 /** "11.06.2026" — date only (used in the protocol messages). */

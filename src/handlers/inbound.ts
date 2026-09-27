@@ -12,7 +12,7 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
 import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck } from '../llm/deterministic';
-import { hasClockHint, hasPeriodHint } from '../visits/time';
+import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
@@ -3996,8 +3996,17 @@ ${contactReminder}`;
     if (ev.visitTime) {
       const storedVt = session.slots.visitTime ?? '';
       const storedHasClock = storedVt.length > 0 && hasClockHint(storedVt);
-      if (hasDayWord(ev.visitTime) || !hasDayWord(storedVt) || storedHasClock) {
+      if (hasDayWord(ev.visitTime) || !hasDayWord(storedVt) || (storedHasClock && !detectVagueTime(storedVt))) {
         session.slots.visitTime = ev.visitTime;
+      } else if (storedHasClock) {
+        // STORED DAY + VAGUE CLOCK ("MOZAM VO VTORNIK POSLE 5"): the precise
+        // follow-up ("PA NEKA BIDE PET I POL" = 17:30) REFINES the same day
+        // rather than replacing it. Donate the stored day and drop the vague
+        // clock so the owner ask reads the correct weekday AND hour — the
+        // [22:50] transcript asked the owner about НЕДЕЛА 05:30 instead of
+        // ВТОРНИК 17:30.
+        const storedDay = extractDayWord(storedVt);
+        session.slots.visitTime = storedDay ? `${storedDay} ${ev.visitTime.trim()}` : ev.visitTime;
       } else {
         // DAY-FIRST order (the [12:43] contract): hasClockHint's
         // day-trailing-hour arm reads "DAY … hour" — a clock-first

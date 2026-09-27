@@ -1,6 +1,6 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase } from '../data/properties';
-import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE } from '../visits/time';
+import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE } from '../visits/time';
 
 // Re-export: the handler's split-intake gates (day-only vs clock-completion)
 // live on this module's surface; the canonical implementation is visits/time.
@@ -1220,6 +1220,12 @@ export function detectVisitTime(text: string): string | undefined {
   // message and the clock in the next. The hour noun anchors the digits as a
   // clock; a bare "6" alone (no hour word) still parses as nothing.
   if (HOUR_WORD_RE.test(text)) return text.trim().slice(0, 80);
+  // SPOKEN HALF-HOUR ("пет и пол" / "pet i pol" = 5:30, PM-shifted to 17:30
+  // for afternoon viewings) — the [22:50] transcript: the client refined a
+  // vague "VO VTORNIK POSLE 5" with "PA NEKA BIDE PET I POL" and the LLM
+  // classifier alone read it as bare 5:30, dropping the day. Deterministic so
+  // the day-donation merge can keep ВТОРНИК.
+  if (HALF_CLOCK_RE.test(text)) return text.trim().slice(0, 80);
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.

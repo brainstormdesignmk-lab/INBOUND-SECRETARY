@@ -83,6 +83,25 @@ test('parseVisitDateTime: day + trailing bare hour + day typos — the [12:42] t
   assert.equal(normalizeOwnerTime('PONEDELIK 6', NOW), 'Понеделник, 17.08.2026 во 18:00');
 });
 
+test('parseVisitDateTime: spoken half-hour "pet i pol" = 17:30, day-aware — the [22:50] transcript', () => {
+  const p = (t: string) => parseVisitDateTime(t, NOW)!;
+  // "PA NEKA BIDE PET I POL" (the client refining "VO VTORNIK POSLE 5"): the
+  // classifier once read only a bare 5:30 and dropped the day — the owner was
+  // asked about НЕДЕЛА 05:30 instead of ВТОРНИК 17:30. The spoken half-hour is
+  // an afternoon viewing (PM shift), and the stored day is kept.
+  assert.deepEqual(p('PA NEKA BIDE PET I POL'), new Date(2026, 7, 16, 17, 30)); // no day -> today (still ahead)
+  assert.deepEqual(p('VTORNIK PET I POL'), new Date(2026, 7, 18, 17, 30));
+  assert.deepEqual(p('пет и пол'), new Date(2026, 7, 16, 17, 30));
+  // the day survives even when the vague original phrase is merged ahead of it
+  assert.deepEqual(p('MOZAM VO VTORNIK POSLE 5 PA NEKA BIDE PET I POL'), new Date(2026, 7, 18, 17, 30));
+  // the day-adjacent BARE clock form (the classifier's "5:30") also lands PM
+  assert.deepEqual(p('вторник 5:30'), new Date(2026, 7, 18, 17, 30));
+  assert.equal(hasClockHint('pet i pol'), true);
+  assert.equal(normalizeOwnerTime('VTORNIK PET I POL', NOW), 'Вторник, 18.08.2026 во 17:30');
+  // the bedroom fraction ("edna i pol spalni") is NOT a clock
+  assert.equal(parseVisitDateTime('edna i pol spalni', NOW), undefined);
+});
+
 test('parseVisitDateTime: unresolvable phrases return undefined (degrade gracefully)', () => {
   assert.equal(parseVisitDateTime('по договор', NOW), undefined);
   assert.equal(parseVisitDateTime('викенд', NOW), undefined);

@@ -1125,7 +1125,7 @@ test('owner refusal "denes nema da mozam" is a COUNTER — the visit is never co
   const relay = sent[sent.length - 1];
   // The counter time is relayed canonically (the [12:42] normalizeOwnerTime
   // contract: dated form, never the raw owner/client shorthand).
-  assert.ok(/Утре во 16:00|Недела, \d{2}\.\d{2}\.\d{4} во 16:00/u.test(relay), relay);
+  assert.ok(/Утре во 16:00|(?:Недела|Понеделник|Вторник|Среда|Четврток|Петок|Сабота), \d{2}\.\d{2}\.\d{4} во 16:00/u.test(relay), relay);
   assert.ok(!relay.includes('Договорена посета'), relay); // NOT closed
   assert.ok(!relay.includes('nema da mozam'), relay);      // raw owner text never relayed verbatim
   assert.ok(!(s.slots.ownerTime ?? '').includes('nema da mozam'), JSON.stringify(s.slots));
@@ -1134,7 +1134,7 @@ test('owner refusal "denes nema da mozam" is a COUNTER — the visit is never co
   s = await send('VO RED, TOA VREME E DOBRO');
   assert.equal(s.state, 'pending');
   assert.ok(sent[sent.length - 1].includes('Договорена посета'), sent[sent.length - 1]);
-  assert.ok(/Утре во 16:00|Недела, \d{2}\.\d{2}\.\d{4} во 16:00/u.test(sent[sent.length - 1]), sent[sent.length - 1]);
+  assert.ok(/Утре во 16:00|(?:Недела|Понеделник|Вторник|Среда|Четврток|Петок|Сабота), \d{2}\.\d{2}\.\d{4} во 16:00/u.test(sent[sent.length - 1]), sent[sent.length - 1]);
 });
 
 test('owner BARE refusal (no alternative time): no fabricated "по договор" term — client is asked for another time, owner re-asked with it', async () => {
@@ -3960,4 +3960,32 @@ test('[22:15] the SECOND exact ask reaches the day-of-visit protocol — never l
   assert.ok(/ден(от)? на посетата|два часа|процедура|правил|политик|Агенција|закажан/iu.test(sent.at(-1)!),
     `second exact ask → privacy protocol: ${sent.at(-1)!}`);
   assert.ok(!/близина на/iu.test(sent.at(-1)!), `no landmark rotation on the protocol turn: ${sent.at(-1)!}`);
+});
+
+test('[22:50] visit-time: a spoken half-hour refines the day ("VTORNIK" + "PET I POL" = Вторник 17:30, never Недела 05:30)', async () => {
+  // The client proposes a vague term ("MOZAM VO VTORNIK POSLE 5") and then
+  // refines the hour ("PA NEKA BIDE PET I POL" = 5:30). The classifier used to
+  // read only a bare clock and drop the day AND the afternoon context — the
+  // owner was asked about НЕДЕЛА 05:30 instead of ВТОРНИК 17:30.
+  const { handler, sessions } = makeHandler();
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_chatId, eb, q) => { ownerAsks.push(`${eb}: ${q}`); };
+  const chatId = 'vtornik-pet-pol';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
+  await send('DA, SE SOGLASUVAM');
+  await send('ZORAN 078/914 196');                 // -> visit_scheduling
+  let s = await send('MOZAM VO VTORNIK POSLE 5');  // vague clock -> exact-hour re-ask
+  assert.equal(s.state, 'visit_scheduling', `vague clock re-asks the exact hour: ${s.state}`);
+
+  s = await send('PA NEKA BIDE PET I POL');        // refine -> owner_checking
+  assert.equal(s.state, 'owner_checking');
+  assert.ok(ownerAsks.length >= 1, 'the owner was asked');
+  const ask = ownerAsks[0];
+  assert.ok(/Вторник, \d{2}\.\d{2}\.\d{4} во 17:30/u.test(ask), ask);
+  assert.ok(!/05:30/u.test(ask), `never the bare AM clock: ${ask}`);
+  assert.ok(!/Недела,/u.test(ask), `never a lost day (Sunday): ${ask}`);
 });
