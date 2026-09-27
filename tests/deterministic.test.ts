@@ -13,6 +13,7 @@ import {
   detectFeeSurprise, detectProvisionWho, detectLocationConfirm,
   detectResultSetQuestion, detectBedroomsRange, detectExplicitWiden,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
+  detectDocumentsAsk, detectOwnerContactHold,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -1348,4 +1349,30 @@ test('detectOwnerContact: owner phone/contact requests — agency NEVER shares',
   assert.equal(detectOwnerContact('здраво, како си?'), false);
   assert.equal(detectOwnerContact('cancel'), false);
   assert.equal(detectOwnerContact('не можам'), false);
+});
+
+test('[22:47] owner-contact hold: a negated contact instruction / "not agreed yet" is a HOLD, not agreement or documents', () => {
+  // "NE GO KONTAKTIRAJ USTE" (don't contact him yet) — was read as the
+  // "contact me" agreement token AND advanced the funnel.
+  assert.equal(detectOwnerContactHold('NE GO KONTAKTIRAJ USTE'), true);
+  assert.equal(detectOwnerContactHold('ne go kontaktiraj uste'), true);
+  assert.equal(detectOwnerContactHold('nemoj da go kontaktiras'), true);
+  assert.equal(detectOwnerContactHold('ne sakam da go kontaktirate'), true);
+  assert.equal(detectAgreement('NE GO KONTAKTIRAJ USTE'), false, 'a negated contact instruction is not consent');
+  // "contact ME" is still consent (the guard must not over-veto)
+  assert.equal(detectAgreement('kontaktiraj me'), true);
+  assert.equal(detectOwnerContactHold('kontaktiraj me'), false);
+
+  // "NE SME SE DOGOVORILE" (we haven't agreed) — the bare "договор" arm in the
+  // documents regex matched the verb "договориле" and produced a paperwork lecture.
+  assert.equal(detectOwnerContactHold('NE SME SE DOGOVORILE'), true);
+  assert.equal(detectOwnerContactHold('nismo se dogovorile'), true);
+  assert.equal(detectDocumentsAsk('NE SME SE DOGOVORILE'), false, 'agreement verb is never a documents ask');
+  assert.equal(detectDocumentsAsk('не сме се договориле'), false);
+  // a real documents question still fires
+  assert.equal(detectDocumentsAsk('kakvi dokumenti trebaat za kupuvanje'), true);
+  assert.equal(detectDocumentsAsk('кои документи ми требаат'), true);
+  // unrelated negatives are not holds
+  assert.equal(detectOwnerContactHold('не сум сигурен'), false);
+  assert.equal(detectOwnerContactHold('не ми се допаѓа станот'), false);
 });

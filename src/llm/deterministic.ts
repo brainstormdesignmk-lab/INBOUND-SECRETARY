@@ -1468,6 +1468,11 @@ const DA_LI_RE = /(?:^|[^а-яa-z])(?:да|да)\s+ли|дали/iu;
 const CLIENT_CONFIRM_RE = /^(?:да|da)[\s,.!]*(?:јас\s+|jas\s+)?(?:сакам|сакаме)\s*[.!?]*$/iu;
 
 export function detectAgreement(text: string): boolean {
+  // A HOLD/negated contact instruction is the OPPOSITE of consent: "NE GO
+  // KONTAKTIRAJ USTE" (don't contact him yet) carries the bare "kontaktiraj"
+  // token, which otherwise reads as the "contact me" yes and advanced the
+  // funnel. The hold lane owns these ([22:47] transcript).
+  if (detectOwnerContactHold(text)) return false;
   const low = text.toLowerCase();
   // A property-sized counter-offer is NEVER consent — symmetric to the
   // negotiate veto on fee consent. "Дадам 450 евра и да завршиме работа",
@@ -3380,7 +3385,7 @@ export function detectEscalation(text: string): boolean {
 }
 // Documents info: the client asks what documents they need.
 const DOCUMENTS_RE =
-  /(?:какви\s+документи|кои\s+документи|документи\s+(?:ми\s+требаат|треба\s+да\s+имам|ќе\s+ми\s+требаат)|what\s+(?:doc|paper|form)|need\s+(?:i\s+)?(?:any|some)?\s*(?:doc|paper|form)|што\s+треба\s+за\s+(?:купување|изнајмување)|документација\s+за|документи|документација|договор|договори|(?:^|[^\p{L}])doc(?:ument)?s?(?:$|[^\p{L}])|(?:^|[^\p{L}])papers?(?:$|[^\p{L}])|(?:^|[^\p{L}])forms?(?:$|[^\p{L}]))/iu;
+  /(?:какви\s+документи|кои\s+документи|документи\s+(?:ми\s+требаат|треба\s+да\s+имам|ќе\s+ми\s+требаат)|what\s+(?:doc|paper|form)|need\s+(?:i\s+)?(?:any|some)?\s*(?:doc|paper|form)|што\s+треба\s+за\s+(?:купување|изнајмување)|документација\s+за|документи|документација|(?<![\p{L}])договор(?:от|и)?(?![\p{L}])|(?:^|[^\p{L}])doc(?:ument)?s?(?:$|[^\p{L}])|(?:^|[^\p{L}])papers?(?:$|[^\p{L}])|(?:^|[^\p{L}])forms?(?:$|[^\p{L}]))/iu;
 
 /** True when the client asks about required documents. */
 export function detectDocumentsAsk(text: string): boolean {
@@ -3733,6 +3738,10 @@ export function fsmRequired(text: string): boolean {
   // The working-hours question rides the simple-detector lane (banked
   // answer) — the day token inside it must not be read as a visit slot.
   if (detectWorkdaysQuestion(text)) return false;
+  // An owner-contact HOLD ("NE GO KONTAKTIRAJ USTE", "NE SME SE
+  // DOGOVORILE") rides the fast hold lane — it must NOT be read as agreement
+  // (the bare "kontaktiraj" token) nor sent down the FSM funnel.
+  if (detectOwnerContactHold(text)) return false;
   // The result-set question rides the FSM lane in presentation — the count
   // answer needs the candidate pool, not a canned fast-path line.
   if (detectResultSetQuestion(text)) return true;
@@ -3943,5 +3952,36 @@ export function detectContactRequest(text: string): boolean {
  *  are always refused. */
 export function detectOwnerContact(text: string): boolean {
   return matchesBoth(OWNER_CONTACT_RE, text) || extFires('owner-contact', text);
+}
+
+// OWNER-CONTACT HOLD — the client pumps the brakes on the owner contact or
+// says the deal is not agreed yet (the [22:47] transcript): "NE GO KONTAKTIRAJ
+// USTE" (don't contact him yet), "NE SME SE DOGOVORILE" (we haven't agreed).
+// Before this lane the first read as the "contact me" agreement token (the
+// funnel advanced) and the second hit the documents regex's bare "договор"
+// arm inside "договориле" (a paperwork lecture). Both are HOLD signals: Lina
+// must acknowledge and not proceed. Deliberately narrow — the contact arm
+// needs a negation directly on a third-person contact imperative (never
+// "контактирај ме", which IS agreement), the agreement arm needs the negated
+// "не сме се договори/согласи/сложи" shape.
+const CONTACT_HOLD_RE = new RegExp(
+  // negation + (≤2 fillers) + optional third-person clitic + contact verb,
+  // where the verb is NOT followed by "ме/me/ни/ni" (that would be "contact
+  // ME" = consent). Covers "не го контактирај", "немој да го контактираш",
+  // "не сакам да го контактирате", "ne go kontaktiraj".
+  String.raw`(?<![\p{L}\p{N}])(?:не|ne|nemoj|немој)(?![\p{L}\p{N}])`
+  + String.raw`(?:\s+\S+){0,2}\s*(?:го|go|ја|ja|му|mu)?\s*`
+  // stems consume the whole word (`[\p{L}]*`), else the trailing boundary
+  // rejects on the verb's remaining letters ("контактир" | "контактирај").
+  + String.raw`(?:контактир[\p{L}]*|kontaktir[\p{L}]*|јавува[\p{L}]*|javuva[\p{L}]*|повика[\p{L}]*|povika[\p{L}]*|пишува[\p{L}]*|pisuva[\p{L}]*|звон[\p{L}]*|zvon[\p{L}]*)`
+  + String.raw`(?![\p{L}\p{N}])(?!\s*(?:ме|me|ни|ni)(?![\p{L}\p{N}]))`
+  // "не сме се договориле" / "nismo se dogovorile" — not agreed yet.
+  + '|' + String.raw`(?<![\p{L}\p{N}])(?:не|nismo|niso|niste|nisu)(?![\p{L}\p{N}])`
+  + String.raw`(?:\s+(?:сме|sme|сте|ste|се|se))*\s+(?:се\s+)?(?:договори|dogovori|согласи|soglasi|сложи|slozi)`,
+  'iu');
+
+/** True when the client HOLDS the owner contact / says it is not agreed yet. */
+export function detectOwnerContactHold(text: string): boolean {
+  return matchesBoth(CONTACT_HOLD_RE, text);
 }
 

@@ -3989,3 +3989,36 @@ test('[22:50] visit-time: a spoken half-hour refines the day ("VTORNIK" + "PET I
   assert.ok(!/05:30/u.test(ask), `never the bare AM clock: ${ask}`);
   assert.ok(!/Недела,/u.test(ask), `never a lost day (Sunday): ${ask}`);
 });
+
+test('[22:47] owner-contact hold: "don\'t contact him yet" / "we haven\'t agreed" acknowledges and holds — no documents lecture, no patience line', async () => {
+  // The client pumped the brakes mid owner-check: "NE GO KONTAKTIRAJ USTE"
+  // (don't contact him yet) read as the "contact me" agreement token and
+  // "NE SME SE DOGOVORILE" (we haven't agreed) matched the documents regex's
+  // bare "договор" arm — Lina answered with a paperwork lecture / a
+  // contradictory "I'm contacting the owner" line.
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'hold-owner';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA');
+  await send('DA, SE SOGLASUVAM');
+  await send('ZORAN 078/914 196');
+  let s = await send('UTRE POPLADNE POSLE 6');
+  assert.equal(s.state, 'owner_checking', `precondition: owner_checking (got ${s.state})`);
+  // let the owner-relay ack settle so later sends don't collide with it
+  await new Promise(r => setTimeout(r, 30));
+
+  s = await send('NE GO KONTAKTIRAJ USTE');
+  let reply = sent.at(-1)!;
+  assert.ok(/нема да го контактирам|не .*контактирам|додека не се договориме/iu.test(reply), `hold acknowledged: ${reply}`);
+  assert.ok(!/(лична карта|пасош|документ|преддоговор)/iu.test(reply), `never a documents lecture: ${reply}`);
+  assert.ok(!/(комуницирам|известам штом)/iu.test(reply), `never the contradictory patience line: ${reply}`);
+  assert.equal(s.state, 'visit_scheduling', 'the owner check steps back');
+
+  s = await send('NE SME SE DOGOVORILE');
+  reply = sent.at(-1)!;
+  assert.ok(/нема да го контактирам|додека не се договориме/iu.test(reply), `hold acknowledged: ${reply}`);
+  assert.ok(!/(лична карта|пасош|документ|преддоговор)/iu.test(reply), `never the documents lecture: ${reply}`);
+});
