@@ -3442,6 +3442,15 @@ ${contactReminder}`;
           prefix = waiverAck(session.slots.budget, assistantTexts(session));
           session.slots.waiverAcked = true;
         }
+        // POI-ANCHOR honesty (the [22:41] contract): when nothing in the pool
+        // is within the honest 1.5 km walk radius of the client's named place,
+        // SAY SO — never present a far apartment as if it answered the wish.
+        if (!prefix && session.slots.poiAnchorTooFar && session.slots.poiAnchor) {
+          prefix = pickVariant('poi.tooFar', { recent: assistantTexts(session), vars: { place: session.slots.poiAnchor } })
+            ?? `Во моментов немам имот во непосредна близина на ${session.slots.poiAnchor}. Еве ги најблиските опции во ${session.slots.location ?? 'реонот'}:`;
+          bankKey = 'poi.tooFar';
+          session.slots.poiAnchorTooFar = undefined; // once per search
+        }
         const cards = buildPropertyCards(props, 'presentation', session.history.length,
           assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix });
         reply = prefix ? `${prefix.trimEnd()}\n\n${cards}` : cards;
@@ -3964,6 +3973,11 @@ ${contactReminder}`;
     // Clients type Latin ("centar", "kapistec"); canonicalize to Cyrillic so
     // replies and the deterministic no-match lines read naturally.
     if (ev.location) session.slots.location = normalizeLocation(ev.location);
+    // POI anchor ("okolu Kapitol Biser"): stored so loadProps can rank the
+    // candidates by distance TO THE ANCHOR, not just the neighborhood (the
+    // [22:41] transcript presented an apartment nowhere near Бисер/Капитол).
+    // A new anchor replaces a stale one; a message with no anchor keeps the old.
+    if ((ev as { poiAnchor?: string }).poiAnchor) session.slots.poiAnchor = (ev as { poiAnchor?: string }).poiAnchor;
     if (ev.bedrooms) {
       session.slots.bedrooms = ev.bedrooms;
       // An EXACT count supersedes a bedroom RANGE ([09:17] contract: "a new
@@ -4138,6 +4152,42 @@ ${contactReminder}`;
         })
         : candidates;
       const pool = relaxedCandidates;
+      // POI-ANCHORED PRESENTATION (the [22:41] transcript): the client named a
+      // MAP PLACE in the search phrase ("okolu Kapitol Biser"). The feed's
+      // neighborhood lock (Аеродром) is too coarse — EB 89 was on the other
+      // side of the area from Бисер/Капитол. When the anchor resolves to a
+      // real POI, order the pool NEAREST-FIRST; when nothing in the pool is
+      // within the honest 1.5 km walk radius, say so instead of pretending.
+      if (session.slots.poiAnchor && this.landmarks && pool.length > 0) {
+        const anchor = this.landmarks.findPlace(session.slots.poiAnchor);
+        if (anchor) {
+          const R = 6371000;
+          const dist = (a: { lat?: number | null; lon?: number | null }, b: { lat: number; lon: number }): number | undefined => {
+            if (typeof a.lat !== 'number' || typeof a.lon !== 'number' || a.lat === 0 || a.lon === 0) return undefined;
+            const dLat = (b.lat - a.lat) * Math.PI / 180;
+            const dLon = (b.lon - a.lon) * Math.PI / 180;
+            const s = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(s));
+          };
+          const withDist = pool.map(p => ({ p, d: dist(p, anchor) }));
+          const known = withDist.filter(x => x.d !== undefined);
+          if (known.length > 0) {
+            known.sort((a, b) => (a.d as number) - (b.d as number));
+            // Rows with unknown coords keep the original (candidates) order
+            // AFTER the known ones.
+            const rest = withDist.filter(x => x.d === undefined).map(x => x.p);
+            pool.length = 0;
+            pool.push(...known.map(x => x.p), ...rest);
+            if ((known[0].d as number) > 1500) {
+              session.slots.poiAnchorTooFar = true;
+            } else {
+              session.slots.poiAnchorTooFar = undefined;
+            }
+          } else {
+            session.slots.poiAnchorTooFar = true;
+          }
+        }
+      }
       // candidates() already locks to the selected area(s) and never spills —
       // an exhausted area returns [] here, which routes to the "different area?"
       // ask instead of silently offering another neighborhood.

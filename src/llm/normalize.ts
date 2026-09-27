@@ -42,7 +42,7 @@ const MAX_DIGRAPH = Math.max(...DIGRAPHS.map(([k]) => k.length));
  * unknown letters (q, w, x, y) are preserved verbatim.
  */
 export function normalizeMc(text: string): string {
-  const lower = text.toLowerCase();
+  const lower = text.toLowerCase().replace(/x/g, 'кс');
   let out = '';
   let i = 0;
   while (i < lower.length) {

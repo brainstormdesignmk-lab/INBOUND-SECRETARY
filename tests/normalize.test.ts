@@ -13,6 +13,9 @@ chk(normalizeMc('adresata?') === 'адресата?', `norm adresata? → ${norm
 chk(normalizeMc('EB 78') === 'еб 78', `norm EB 78 → ${normalizeMc('EB 78')}`);
 chk(normalizeMc('lokacijata') === 'локацијата', `norm lokacijata → ${normalizeMc('lokacijata')}`);
 chk(normalizeMc('shto ima vo blizina') === 'што има во близина', `norm shto... → ${normalizeMc('shto ima vo blizina')}`);
+// The x-for-х Viber typo ("BLIXINA" — the [22:44] transcript): x folds to кс.
+chk(normalizeMc('vo blixina') === 'во бликсина', `norm blixina → ${normalizeMc('vo blixina')}`);
+chk(normalizeMc('stan x 100') === 'стан кс 100', `norm x → ${normalizeMc('stan x 100')}`);
 
 // Routing preserved — Latin inputs through the NEW normalized path
 chk(detectWhereIs('kade mu e lokacijata ?')?.generic === true, 'whereIs: kade mu e lokacijata (latin)');

@@ -31,6 +31,49 @@ function matchesBothCapture(re: RegExp, text: string): string | undefined {
 // (see PropertyService.matchLocation). This keeps the discovery->presentation
 // path alive without any LLM.
 
+// POI wish in a SEARCH phrase — "sakam stan okolu Kapitol Biser", "vo
+// blizina na Biser". The client names a MAP PLACE (not a neighborhood) as the
+// anchor: a neighborhood match alone ignores it and presents properties
+// nowhere near the anchor (the [22:41] transcript). Extracted as a candidate
+// "POI NAME" tail after a proximity preposition; the handler verifies it
+// against the offline POI map.
+export const POI_WISH_RE =
+  /(?:во\s+бли[зж]ин(?:а|ата|у)|бли[зж]у|околу|околин(?:а|ата)|спроти|наспроти|кај|во\s+реон\s+на)\s+([\p{L}.][\p{L}. '-]{3,47})/giu;
+
+/** The POI-wish tail of a search phrase ("околу Капитол Бисер" → "Капитол
+ *  Бисер"), or undefined. Raw text first, then the normalizeMc fold (Latin
+ *  input) — the returned tail keeps the script it was found in, so a POI
+ *  table with Latin names still matches. The caller must verify the tail
+ *  against the offline POI map — a bare neighborhood word ("околу центар")
+ *  is NOT a POI and stays undefined here. Guarded: ≤4 words, no digits (an
+ *  EB never follows okolu), no targeting vocabulary (цена/евра/спални … = a
+ *  different wish). */
+export function extractPoiWish(text: string): string | undefined {
+  const tail = (re: RegExp, src: string): string | undefined => {
+    re.lastIndex = 0;
+    const m = re.exec(src);
+    if (!m) return undefined;
+    // "во близина на X" / "околина на X" — the preposition inside the
+    // proximity phrase is not part of the place name.
+    const t2 = m[1].trim().replace(/^(?:на|vo|во)\s+/iu, '');
+    const words = t2.split(/[\s.]+/).filter(Boolean);
+    if (t2.length < 4 || t2.length > 48 || words.length > 4) return undefined;
+    // Strip a trailing punctuation the greedy match may have swallowed.
+    return t2.replace(/[?!,.:;]+$/u, '').trim() || undefined;
+  };
+  const t = text.trim();
+  // AMBIGUITY VETO: the preposition must be a WHOLE WORD (space-delimited)
+  // in the folded text — "okolucinar" (one fused word containing "околу")
+  // must never extract a wish tail, while "vo blizina na X" (multiword
+  // preposition) still passes via its "во\s+бли[зж]ин" opener.
+  const nf = ' ' + normalizeMc(t).replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim() + ' ';
+  if (!/ (?:во|бли[зж]ин(?:а|ата|у)?|бли[зж]у|околу|околин(?:а|ата)?|спроти|наспроти|кај) /iu.test(nf)) {
+    return undefined;
+  }
+  if (/(?:евра|евро|eur|денар|denar|спалн|spaln|квадрат|kvadrat|м2|м²|број|broj|\d)/iu.test(t)) return undefined;
+  return tail(POI_WISH_RE, t) ?? tail(POI_WISH_RE, normalizeMc(t));
+}
+
 export interface DetectedSlots {
   service?: Service;
   location?: string;   // filled by the caller (needs the feed's neighborhoods)
@@ -219,6 +262,10 @@ export function detectAvailabilityAsk(text: string): boolean {
   if (/(?:провизи|provizi|надомест|nadomest|наплаќ|naplak|наплат|naplat|fee)/iu.test(text)
     || matchesBoth(/(?:провизи|надомест|наплаќ|наплат)/iu, text)
     || detectProvisionAsk(text) || detectProvisionWho(text) || detectFeeWhy(text)) return false;
+  // A NEARBY ask ("STO USTE IMA VO BLIXINA NA STANOT", the [22:44] transcript)
+  // is about the SURROUNDINGS — never an availability question, even though
+  // the Q?TIME+HAVE slot grammar reads "што усте има" as "го имате уште".
+  if (detectNearbyAsk(text)) return false;
   if (AVAILABILITY_ASK_RE.test(text)) return true;
   // Sweep availability 24:09 companion classes (taken/gone/standing/raspolaganje)
   if (matchesBoth(AVAILABILITY_RE2, text)) return true;
@@ -2634,11 +2681,14 @@ const NB_MOD = '(?:уште|усте|сеуште|друго|други|допо
 const NB_HAVE = '(?:има|имат|постои|најде)\\s*(?:ли)?';
 // FILLER: copula/preposition or a noun head between modifiers and the anchor
 // ("shto uste E vo blizina", "koi drugi OBJEKTI okolu")
-const NB_FILLER = '(?:\\s*(?:е|и|на|во|објекти|станови|куќи|локали|згради|места|работи)\\s*)*';
-const NB_NEAR =
-  '(?:во\\s+бли[зж]ин(?:а|ата|у)|бли[зж]ин(?:а|ата|у)' +
-  '|бли[зж]у|околу|околин(?:а|ата)|околии(?:а|ата)' +
-  '|наспроти|сспроти|спроти)';
+const NB_FILLER = '(?:\\s*(?:е|и|на|во|објекти|станови|куќи|локали|згради|места|работи)\\s*)*';const NB_NEAR =
+  '(?:во\\s+бли[зж]ин(?:а|ата|у)|бли[зж]ин(?:а|ата|у)'
+  // "бликсина" — the x-for-х Viber typo of близина ("VO BLIXINA", the
+  // [22:44] transcript): normalizeMc folds x→кс, producing бликсина, which
+  // is no real word — safe to list beside the canonical forms.
+  + '|бликсин(?:а|ата|у)'
+  + '|бли[зж]у|околу|околин(?:а|ата)|околии(?:а|ата)'
+  + '|наспроти|сспроти|спроти)';
 const NEARBY_RE_SUBJECT = new RegExp(
   NB_SUBJECT + '(?:\\s*(?:' + NB_MOD + '|' + NB_HAVE + '))*' + NB_FILLER + '\\s*' + NB_NEAR, 'iu');
 const NEARBY_RE_HAVE = new RegExp(
@@ -2664,16 +2714,22 @@ const NEARBY_AREA_TARGET_RE = new RegExp(
 //      "дали има училиште во близина?", "ima li avtobuska blisko?")
 //   C) далеку/daleku + … + ? ("daleku li e pazarot od kukjata?", "далеку е до
 //      автобуска станица?") — a distance question about the property.
-const NB2_NEAR = '(?:бли[зс]к\\p{L}*|близин\\p{L}*|окол\\p{L}*|покрај\\p{L}*)';
+const NB2_NEAR = '(?:бли[зс]к\\p{L}*|близин\\p{L}*|бликсин\\p{L}*|окол\\p{L}*|покрај\\p{L}*)';
 const NB2_AMEN = '(?:градин|скол|учил|учили|парк|играл|прода[вз]|маркет|аптек|пазар|автобуск|супермаркет|болниц|кафи|ресторан|зград|станиц|тргов|пекар|поликлин|теретан|спортск|локалч)';
 const NEARBY_RE2 = new RegExp(
   // "сто" — the colloquial h-less "shto" transliterates to СТО, not ШТО (a
   // whole dark subject class in BOTH nearby grammars until sweep nearby).
+  // "што има е" — the е-verb-typo arm ("STO USTE IMA VO BLIXINA…", the
+  // [22:44] transcript): има loses its final vowel and the HAVE slot dies.
   '(?:што|шт?о|сто|несто|нешто)[^.!?,\\n]{0,12}\\s*(?:има|наоѓ\\p{L}*)[^.!?,\\n]{0,30}' + NB2_NEAR +
+  '|(?:што|шт?о|сто|несто|нешто)[^.!?,\\n]{0,12}\\s*е\\p{L}\\p{L}?\\s*[^.!?,\\n]{0,30}' + NB2_NEAR +
   '|(?:дали\\s+|да\\s+)?(?:има\\s*ли|има|имат)\\s*(?:ли)?\\s*(?:(?:некакв\\p{L}*|неко\\p{L}*|неколку)\\s+)?' + NB2_AMEN + '\\p{L}*(?:[^.!?\\n]{0,24}' + NB2_NEAR + '|[^.!?,\\n]{0,24}дале[кч]\\p{L}*)?' +
   '|(?:има\\s*ли|има)\\s+каде[^.!?\\n]{0,24}' + NB2_NEAR +
   '|(?:каков|каква|kakov|kakva)[^.!?,\\n]{0,16}(?:комши|комсилук|квартал|околи)' +
   '|(?:дале[кч]\\p{L}*)[^.!?\\n]{0,30}\\?', 'iu');
+// The NB2 alternatives tested under the cap-exemption (same regex source —
+// precompiled separately because JS regexes carry lastIndex state per object).
+const NEARBY_RE2_TEST = NEARBY_RE2;
 
 /** True when the client asks what else is near the current property.
  *  Order-free (grammar slots, not enumerated variants); requires a proximity
@@ -2681,8 +2737,15 @@ const NEARBY_RE2 = new RegExp(
 export function detectNearbyAsk(text: string): boolean {
   const t = text.trim();
   // Guard: nearby asks are short chat lines (≤ 10 words). Sentences never
-  // carry this shape.
-  if (t.split(/\s+/).length > 10) return false;
+  // carry this shape. BUT a message with a proximity anchor has NO other
+  // possible reading (a search wish names an area target — vetoed separately),
+  // so the NB2 companion grammar (amenity/distance shapes, ≤30-char gaps) is
+  // exempt from the cap — "shto ima blisku za pazaruvanje?" is 5 words but
+  // similar distance questions run longer ([22:44] regression sweep).
+  const words = t.split(/\s+/).length;
+  if (words > 10) return false;
+  const n0 = normalizeMc(t);
+  const exempt = words <= 10 && new RegExp(NB2_NEAR, 'iu').test(n0);
   // Guard: exact-address asks keep priority — never swallow them.
   if (matchesBoth(EXACT_ADDRESS_RE, t)) return false;
   // Single canonical pass: Latin/homoglyphs → Cyrillic (normalize.ts contract).
@@ -2690,7 +2753,11 @@ export function detectNearbyAsk(text: string): boolean {
   if (NEARBY_AREA_TARGET_RE.test(n)) return false;
   if (extFires('nearby', text)) return true;
   return NEARBY_RE_SUBJECT.test(n) || NEARBY_RE_HAVE.test(n) || NEARBY_RE_ANCHOR.test(n)
-    || NEARBY_RE2.test(n);
+    || NEARBY_RE2.test(n)
+    // NB2 companion without the word cap: anchored distance/amenity questions
+    // ("што има за деца во близина?", "sto ima blisko za kupuvanje okolu?")
+    // are 5–6 words and were never the over-cap class the guard targeted.
+    || (exempt && NEARBY_RE2_TEST.test(n0));
 }
 
 // ── CONTEXT DISAMBIGUATION for the ambiguous "more/other" family ───────────
@@ -2707,9 +2774,10 @@ export function detectNearbyAsk(text: string): boolean {
 // the client is still in the property thread and wants more options.
 
 /** A proximity/location anchor — the message is unambiguously about place.
- *  Tested on normalizeMc output (Latin → Cyrillic), like every detector. */
+ *  Tested on normalizeMc output (Latin → Cyrillic), like every detector.
+ *  "бликсин" covers the x-for-х Viber typo ("VO BLIXINA", [22:44]). */
 export function hasProximityAnchor(text: string): boolean {
-  return /(?:каде|во\s+бли[зж]ин|бли[зж]у|околу|околин|наспроти|сспроти|спроти|тука|локациј|адрес)/u
+  return /(?:каде|во\s+бли[зж]ин|бли[зж]ин|бликсин|бли[зж]у|околу|околин|наспроти|сспроти|спроти|тука|локациј|адрес)/u
     .test(normalizeMc(text));
 }
 

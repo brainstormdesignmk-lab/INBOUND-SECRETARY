@@ -42,6 +42,10 @@ test('nearby ask: POSITIVE — Cyrillic and mixed-script homoglyph typos', () =>
   assert.equal(detectNearbyAsk('sto imа drugo vo blizina'), true);
   assert.equal(detectNearbyAsk('shtо drugо vo blizina'), true);
   assert.equal(detectNearbyAsk('sproти drugo vo blizina'), true);
+  // The x-for-х Viber typo ("VO BLIXINA", the [22:44] transcript): the folded
+  // бликсина form must behave exactly like близина.
+  assert.equal(detectNearbyAsk('STO USTE IMA VO BLIXINA NA STANOT'), true);
+  assert.equal(detectNearbyAsk('sto ima drugo vo blixina na zgradata'), true);
 });
 
 test('nearby ask: NEGATIVE — bare search questions without a proximity anchor', () => {

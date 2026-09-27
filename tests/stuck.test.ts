@@ -4022,3 +4022,19 @@ test('[22:47] owner-contact hold: "don\'t contact him yet" / "we haven\'t agreed
   assert.ok(/нема да го контактирам|додека не се договориме/iu.test(reply), `hold acknowledged: ${reply}`);
   assert.ok(!/(лична карта|пасош|документ|преддоговор)/iu.test(reply), `never the documents lecture: ${reply}`);
 });
+
+test('[22:44] nearby ask with the BLIXINA typo reaches the landmark rotation, never the availability ack', async () => {
+  // "STO USTE IMA VO BLIXINA NA STANOT" — the x-for-х typo killed every
+  // близина regex; the availability slots grammar read "што усте има" as
+  // "го имате уште" and the closing funnel answered about AVAILABILITY.
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'blixina';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  let s = await send('STO USTE IMA VO BLIXINA NA STANOT');
+  const reply = sent.at(-1)!;
+  assert.ok(!/(достапн|контактирам со сопственикот|потврдим)/iu.test(reply), `never the availability ack: ${reply}`);
+  assert.ok(/близина на|населб|мин пеш|Аеродром/iu.test(reply), `a location answer instead: ${reply}`);
+  assert.equal(s.state, 'property_query', `stays in the property funnel (got ${s.state})`);
+});

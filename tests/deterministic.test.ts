@@ -13,7 +13,7 @@ import {
   detectFeeSurprise, detectProvisionWho, detectLocationConfirm,
   detectResultSetQuestion, detectBedroomsRange, detectExplicitWiden,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
-  detectDocumentsAsk, detectOwnerContactHold,
+  detectDocumentsAsk, detectOwnerContactHold, extractPoiWish,
 } from '../src/llm/deterministic';
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
@@ -1375,4 +1375,12 @@ test('[22:47] owner-contact hold: a negated contact instruction / "not agreed ye
   // unrelated negatives are not holds
   assert.equal(detectOwnerContactHold('не сум сигурен'), false);
   assert.equal(detectOwnerContactHold('не ми се допаѓа станот'), false);
+});
+
+test('[22:41] extractPoiWish: a POI anchor inside a SEARCH phrase is captured', () => {
+  assert.equal(extractPoiWish('OKOLU KAPITOL BISER'), 'капитол бисер');
+  assert.equal(extractPoiWish('okolucinar'), undefined, 'no proximity preposition → no wish');
+  assert.equal(extractPoiWish('vo blizina na centar'), 'центар', 'the caller verifies against the POI map');
+  assert.equal(extractPoiWish('SAKAM STAN OKOLU KAPITOL BISER DO 100000'), undefined, 'a priced wish is not a bare POI tail');
+  assert.equal(extractPoiWish('OKOLU KAPITOL BISER ?'), 'капитол бисер');
 });

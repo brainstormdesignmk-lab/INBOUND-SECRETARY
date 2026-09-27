@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService, detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -815,8 +815,12 @@ export class Classifier {
       // When Groq fired, its slots were stripped — deterministic fills everything.
       // When LLM was down, deterministic fills gaps the LLM left empty.
       const ev = parsed.event;
+      // POI WISH ("okolu Kapitol Biser"): the proximity anchor inside a SEARCH
+      // phrase. Extracted from the raw text BEFORE location normalizes it away.
+      const poiWish = extractPoiWish(text);
       if (ev.service === undefined && slots.service) ev.service = slots.service;
       if (ev.location === undefined && slots.location) ev.location = slots.location;
+      if (poiWish) (ev as { poiAnchor?: string }).poiAnchor = poiWish;
       if (ev.bedrooms === undefined && slots.bedrooms) ev.bedrooms = slots.bedrooms;
       if (ev.bedroomsMin === undefined && slots.bedroomsMin) ev.bedroomsMin = slots.bedroomsMin;
       if (ev.bedroomsMax === undefined && slots.bedroomsMax) ev.bedroomsMax = slots.bedroomsMax;

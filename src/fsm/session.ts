@@ -62,6 +62,8 @@ export interface SlotData {
   nearbyLandmarkCoords?: Array<{ lat: number; lon: number }>; // parallel coords for Google Maps links
   nearbyLandmarkPlaceIds?: Array<string | null>; // parallel Google place_ids → ?cid= place-card links
   nearbyLandmarkEb?: number;      // WHICH property the slots were resolved for — a served slot must never outlive its property (21:51: EB 57 got EB 56's Завод landmarks 3.2 km away)
+  poiAnchor?: string;             // client's POI wish from the SEARCH phrase ("okolu Kapitol Biser") — presentation must find candidates NEAR this point, not just in the neighborhood
+  poiAnchorTooFar?: boolean;      // the resolved anchor has NO in-pool property within the honest 1.5 km walk radius — the intro must say so
   landmarkIndex?: number;         // how many landmarks have been revealed so far
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
   lastPrice?: string;             // last price answered to the client (for "та цена" resolution)
