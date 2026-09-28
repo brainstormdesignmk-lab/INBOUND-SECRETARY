@@ -3658,6 +3658,78 @@ test('[09:05] charge-verb + money fee ask ("ZEMATE PARI ZA POSETA?") routes to t
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// [12:32] CLUSTER — TTL expiry during the discovery intake. The client
+// answered the two pending questions 3.5h later and the old code RESET the
+// session (discovery was on the reset list) and EAT the answer with the fresh
+// greeting. Intake states now RESUME and a reset never eats a business
+// message.
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('[12:32] intake answer after a 3.5h gap resumes the funnel — presentation, never a greeting reset', async () => {
+  // FEED CONVENTION: bedrooms counts ROOMS — "две спални" searches rooms=3
+  // (the 2-bedrooms→3-room mapping in BEDROOM_WORDS). Pool matches that.
+  const { handler, sessions, sent } = makeHandlerWithRows([
+    { eb: 65, id: 65, location: 'Центар', price: 150000, service: 'buy', bedrooms: 3, size: '60 м²' },
+    { eb: 66, id: 66, location: 'Центар', price: 158000, service: 'buy', bedrooms: 3, size: '62 м²' },
+    { eb: 67, id: 67, location: 'Центар', price: 210000, service: 'buy', bedrooms: 4, size: '85 м²' },
+  ]);
+  const chatId = 'lina-1232-gap';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM STAN VO CENTAR');
+  const st = sessions.get(chatId)!;
+  assert.equal(st.state, 'discovery', `discovery expected, got ${st.state}`);
+  const asked = sent.at(-1)!;
+  assert.ok(/спални|износ/iu.test(asked), `intake questions expected: ${asked}`);
+
+  // The client vanishes for 3.5 hours — well past the 60-min TTL — then
+  // answers BOTH pending questions in one message (the transcript).
+  const aged = sessions.get(chatId)!;
+  aged.lastInboundAt = Date.now() - 210 * 60_000;
+  sessions.set(aged);
+
+  await send('SO DVE SPALNI SOBI DO 160000');
+  const s2 = sessions.get(chatId)!;
+  const r2 = sent.at(-1)!;
+  assert.ok(!/Моето име е Лина|Дали Ве интересира купување/iu.test(r2),
+    `the answer must never be eaten by the fresh greeting: ${r2}`);
+  assert.equal(s2.slots.bedrooms, 3, 'the спални answer lands as rooms=3 (2 bedrooms → 3-room)');
+  assert.ok((s2.slots.budget ?? 0) <= 160000, `the budget answer must land: ${s2.slots.budget}`);
+  assert.equal(s2.state, 'presentation', `funnel must continue to presentation, got ${s2.state}`);
+  assert.ok(/65|66/.test(r2), `presentation expected: ${r2}`);
+});
+
+test('[12:32b] a reset never eats a business message; a pure greeting still greets', async () => {
+  const { handler, sessions, sent } = makeHandlerWithRows([
+    { eb: 68, id: 68, location: 'Аеродром', price: 90000, service: 'buy', bedrooms: 1, size: '45 м²' },
+  ]);
+  const chatId = 'lina-1232b-noeat';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // Idle session expired past the TTL → the ordinary reset arms the greeting.
+  await send('zdr');
+  const aged = sessions.get(chatId)!;
+  aged.lastInboundAt = Date.now() - 120 * 60_000;
+  sessions.set(aged);
+
+  // BUSINESS message after the reset: parsed, never greeted (the old code
+  // consumed it with "Моето име е Лина…").
+  await send('SAKAM DA KUPAM STAN VO AERODROM');
+  let r = sent.at(-1)!;
+  assert.ok(!/Моето име е Лина/iu.test(r), `business message must not be eaten: ${r}`);
+  assert.ok(/68|спални|износ|буџет/iu.test(r), `funnel started from the message: ${r}`);
+
+  // PURE greeting after a reset: the greeting is still the right answer.
+  const aged2 = sessions.get(chatId)!;
+  aged2.state = 'idle';
+  aged2.lastInboundAt = Date.now() - 120 * 60_000;
+  sessions.set(aged2);
+  await send('Здраво');
+  r = sent.at(-1)!;
+  assert.ok(/Лина|купување|изнајмување/iu.test(r), `pure greeting still greets: ${r}`);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // [12:42]–[12:48] CLUSTER — day+bare-hour intake, widen typo, POI anchoring,
 // landmark-where. Mirror of the production transcript.
 // ═════════════════════════════════════════════════════════════════════════════

@@ -51,6 +51,15 @@ import {
 import { detectRecommendAsk, collectMentionedEbs, buildRecommendation } from '../llm/recommend';
 
 const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуална порака за да можам да Ви помогнам.';
+// PURE GREETING — a message that is ONLY a hello (possibly + how-are-you):
+// the [12:32] no-eat rule lets business-shaped post-reset messages through to
+// the parser, so the greeting-consumer needs a tight whitelist for what it MAY
+// still eat. Greeting tokens + optional emoji/punctuation, nothing else — no
+// digits (budgets), no property vocabulary, no questions with content. Both
+// scripts; clients greet with typos, so common slips live beside the canon.
+const _GREET_TOKENS = 'здраво|здр|доброутро|добродојдо|добродојдовте|добар\\s*ден|како\\s*сте|еј|zdravo|zdr|dobro\\s*utro|dobro|dobar\\s*den|kako\\s*ste|hello|hi|hey|ej';
+const _GREET_FILLER = "[\\s!.,?\\-:)('\"\\u00A0\\p{Extended_Pictographic}]";
+const GREETING_ONLY_RE = new RegExp(`^(?:${_GREET_TOKENS}|${_GREET_FILLER})(?:${_GREET_FILLER}*(?:${_GREET_TOKENS}))?${_GREET_FILLER}*$`, 'iu');
 const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветен имот.';
 const OWNER_COUNTER_RELAY = (t: string) =>
   `Сопственикот е достапен, но предложи поинаков термин: ${mkTimePhrase(t)}. Дали овој термин Ви одговара?`;
@@ -497,12 +506,18 @@ export class InboundHandler {
     // the table past the TTL and the client answered "ORGABIZIRAJ MI" 73
     // minutes later; the old code reset the funnel to idle mid-close and the
     // message was eaten by the fresh greeting. Reset only from CLOSED states
-    // (idle/intent/discovery — nothing was offered yet). Mid-funnel states
-    // RESUME: keep state/slots/history, just re-anchor with a short bridge
-    // line so the client knows the offer is still live.
+    // (idle — nothing was offered yet). Mid-funnel states RESUME: keep
+    // state/slots/history, just re-anchor with a short bridge line so the
+    // client knows the offer is still live.
+    // INTAKE RESUME (the [12:32] transcript): discovery/intent are ANSWER-
+    // WAITING states — the client returning 3.5h later with "SO DVE SPALNI
+    // SOBI DO 160000" is answering the pending intake questions, not starting
+    // over. These states fall through to NORMAL PARSING (no reset, no bridge
+    // return): the answer flows into the funnel exactly where it left off.
     if (isExpired(session, this.cfg.chatTtlMinutes)) {
       const funnelOpen = ['presentation', 'property_query', 'property_locate', 'closing',
         'contact_collection', 'visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state);
+      const intakeOpen = session.state === 'discovery' || session.state === 'intent';
       if (funnelOpen) {
         touchInbound(session);
         const bridge = pickVariant('session.resume', { recent: assistantTexts(session) })
@@ -512,17 +527,33 @@ export class InboundHandler {
         await this.sendRaw(session, bridge, 'deterministic:resume');
         return;
       }
-      resetToIdle(session);
+      if (intakeOpen) {
+        // The intake answer is the continuation — parse it below, funnel
+        // intact (state/slots/history all preserved).
+        touchInbound(session); // re-anchor the TTL clock
+        this.deps.sessions.set(session);
+      } else {
+        resetToIdle(session);
+      }
     }
 
     if (session.resetGreeting) {
       session.resetGreeting = false;
-      touchInbound(session);
-      const greeting = buildGreeting(session);
-      pushHistory(session, { role: 'assistant', text: greeting }, this.cfg.maxHistory);
-      this.deps.sessions.set(session);
-      await this.sendRaw(session, greeting);
-      return;
+      // A reset must never EAT a business message (the [12:32] transcript:
+      // the intake answer disappeared into the fresh greeting). Consume the
+      // turn with the greeting only when the text is itself a pure greeting —
+      // or the reset came from strike-3 termination expiry (absolute-silence
+      // neighbor: the greeting is the correct re-open there). A business
+      // message after an ordinary reset is PROCESSED: the funnel restarts
+      // from the message, not from zero.
+      if (session.resetFromTerminated || GREETING_ONLY_RE.test(text.trim())) {
+        touchInbound(session);
+        const greeting = buildGreeting(session);
+        pushHistory(session, { role: 'assistant', text: greeting }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, greeting);
+        return;
+      }
     }
 
     touchInbound(session);

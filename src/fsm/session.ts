@@ -85,6 +85,10 @@ export interface ChatSession {
   createdAt: number;
   terminatedAt?: number;
   resetGreeting?: boolean;
+  /** Set when the reset came from strike-3 termination expiry — the next
+   *  inbound ALWAYS gets the greeting, even a business-shaped message (the
+   *  [12:32] no-eat rule applies only to ordinary idle resets). */
+  resetFromTerminated?: boolean;
 }
 
 export function freshSession(channel: string, chatId: string): ChatSession {
@@ -121,6 +125,7 @@ export function canSend(s: ChatSession): boolean {
 }
 
 export function resetToIdle(s: ChatSession): void {
+  const fromTerminated = s.terminatedAt !== undefined; // capture BEFORE the clear below
   s.state = 'idle';
   s.slots = {};
   s.strikes = 0;
@@ -128,6 +133,7 @@ export function resetToIdle(s: ChatSession): void {
   s.returnState = undefined;
   s.terminatedAt = undefined;
   s.resetGreeting = true; // next inbound gets a fresh greeting (prototype resetSession)
+  s.resetFromTerminated = fromTerminated;
 }
 
 export function pushHistory(s: ChatSession, msg: HistoryMsg, max: number): void {
