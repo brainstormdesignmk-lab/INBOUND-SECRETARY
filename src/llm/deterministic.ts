@@ -525,6 +525,16 @@ const NEED_STAN_RE =
   /(ми\s+треба|треба\s+ми|mi\s+treba|treba\s+mi|барам|baram|сакам|sakam|имаш\s+ли|imas\s+li|требаат|trebaat|need)[^.!?\n]{0,30}(стан|станче|стани|stan|stance|stani|куќа|кука|kukja|kuka|апартман|apartment)/i;
 const NEED_NEGATION_RE = /(не|не)\s+(ми\s+треба|треба\s+ми|барам|барам|сакам|сакам|имаш\s+ли|имас\s+ли)/i;
 
+// PURE GREETING whitelist — shared source of truth for "only a hello"
+// (possibly + how-are-you): greeting tokens + filler/emoji/punctuation, never
+// digits (budgets), property vocabulary or content questions. Consumers:
+//   - the handler's reset-greeting consumer (no-eat rule, [12:32])
+//   - deterministicClassify's greeting ownership (idle/intent — the 15:12 TUI
+//     capture "ZDRAVO" must never need an LLM round-trip to say "Повелете")
+const _GREET_TOKENS = 'здраво|здр|доброутро|добродојдо|добродојдовте|добар\\s*ден|како\\s*сте|еј|zdravo|zdr|dobro\\s*utro|dobro|dobar\\s*den|kako\\s*ste|hello|hi|hey|ej|pozdrav|pozz|poz';
+const _GREET_FILLER = "[\\s!.,?\\-:)('\"\\u00A0\\p{Extended_Pictographic}]";
+export const GREETING_ONLY_RE = new RegExp(`^(?:${_GREET_TOKENS}|${_GREET_FILLER})(?:${_GREET_FILLER}*(?:${_GREET_TOKENS}))?${_GREET_FILLER}*$`, 'iu');
+
 export function detectApartmentNeed(text: string): boolean {
   if (matchesBoth(NEED_NEGATION_RE, text)) return false;
   return NEED_STAN_RE.test(text);

@@ -80,7 +80,11 @@ test('P4 capture: a bank-miss fallback serve is logged as FALLBACK_ORPHAN; a ban
   // Enter discovery the normal way (no properties bound — the orphan lane
   // requires props.length === 0, since props-present fallback is the
   // code-built cards path, deliberately excluded).
-  await send('dobar den');
+  // Vehicle note: a bare greeting now stays in idle with the intent ask
+  // (greeting ownership, mined-captures fix) — it no longer carries garbage
+  // slots into discovery. An explicit rent need routes INTENT_DECLARED
+  // deterministically; the buy-only feed yields zero rent matches.
+  await send('SAKAM STAN POD KIRIJA');
   const before = enrichment.listPending().length;
 
   // TEMPORARY detector whose bank key has NO seeds → dispatchSimple serves its

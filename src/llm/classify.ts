@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -311,6 +311,19 @@ export class Classifier {
     let barePid: number | undefined;
     if (PROP_INTAKE_STATES.has(session.state) && !isWhereLandmarkQuestion(text)) {
       barePid = await this.resolveBarePid(text, session);
+    }
+
+    // --- Pure greeting ownership (idle/intent — the 15:12 TUI capture: "ZDRAVO") ---
+    // The reply is deterministic either way (respond() serves greeting.open for
+    // empty slots), so the pre-classify OWNS the turn: an LLM classify round
+    // only adds latency and a SEEN_PROPERTY hallucination risk that GUARD 1b
+    // then has to clean up. GREETING_ONLY_RE is the handler's reset-consumer
+    // whitelist, now shared (deterministic.ts) so both layers agree on what a
+    // "pure" hello is — no digits, no property vocabulary, no content questions.
+    if (['idle', 'intent'].includes(session.state) && !barePid
+      && GREETING_ONLY_RE.test(text.trim())) {
+      console.log(`[timing] det-classify ${Date.now() - t0}ms → GREETING_STAY`);
+      return { event: { type: 'STAY' }, offensive: false, offenseLevel: 0 };
     }
 
     // --- Seen-property override ---
@@ -659,11 +672,45 @@ export class Classifier {
     }
 
     // If event is still STAY and no slots were extracted → truly novel, needs LLM.
-    // Also defer INTENT_DECLARED without details: the LLM can enrich bare intents
-    // with location context that the deterministic regex can't extract.
     const hasSlots = !!(slots.service || location || slots.bedrooms || slots.bedroomsMin || slots.budget || slots.sqm || slots.anywhere);
     const hasDetail = !!(location || slots.bedrooms || slots.bedroomsMin || slots.budget || slots.sqm || slots.anywhere);
-    if ((ev.type === 'STAY' && !hasSlots) || (ev.type === 'INTENT_DECLARED' && !hasDetail)) {
+    if (ev.type === 'STAY' && !hasSlots) {
+      // CLOSING INTEREST RE-AFFIRMATION (the 19:25 TUI capture: "PA VIDI STO E
+      // SO NEGO\nZAINTERESIRAN SUM" — deferred-interest tail while the fee
+      // funnel is live). detectPropertyInterest only owned the intake states;
+      // in closing the line fell through to the LLM, which (correctly, but at
+      // a round-trip) kept the funnel. Own it here — AFTER the deferral gate,
+      // with a direct return: slots are empty by construction, so the STAY
+      // deferral above would otherwise fire first. With a property still on
+      // the table and the fee not yet settled, re-affirmed interest is a
+      // STAY — the fee ask re-serves. Rejections, agreements, fee asks and
+      // escalations keep their own lanes (ev.type guard below).
+      if (session.state === 'closing'
+        && ev.type === 'STAY' && !detectInvestmentOpinion(text)
+        && propertyOnTable(session) && detectPropertyInterest(text)) {
+        console.log(`[timing] det-classify ${Date.now() - t0}ms → CLOSING_INTEREST_STAY`);
+        return { event: { type: 'STAY' }, offensive: false, offenseLevel: 0 };
+      }
+      return undefined; // signals caller to fire Groq
+    }
+    // INTENT_DECLARED with an explicit SERVICE is OWNED here (the 15:12 TUI
+    // capture: "SAKAM DA ZEMAM STAN POD KIRIJA" — explicit rent need, no
+    // location). The service is stated fact, not enrichment material: the
+    // discovery ask picks up the missing pieces (location → bedrooms →
+    // budget), and the funnel must not depend on an LLM round-trip to repeat
+    // what the client already said (with the LLM down, the ask degenerated to
+    // "купување или изнајмување?" — the exact question just answered). Only
+    // intents with NO slot at all still defer ("ми треба стан" — buy/rent is
+    // genuinely unknown and the LLM may enrich it from history).
+    if (ev.type === 'INTENT_DECLARED' && !hasDetail && !slots.service) {
+      return undefined; // signals caller to fire Groq
+    }
+    // Property-directed traffic keeps the classic path: a bare EB in the text
+    // must reach the PROPERTY_ID_REQUESTED override (the availability funnel
+    // depends on it — "DALI USTE E NA PRODAZBA 78?" carries PRODAZBA, which
+    // extracts service='buy', but the number is the real payload). Defer to
+    // the LLM-down recompute, whose bare-number override owns the routing.
+    if (ev.type === 'INTENT_DECLARED' && inferPropertyId(text) !== undefined) {
       return undefined; // signals caller to fire Groq
     }
 
