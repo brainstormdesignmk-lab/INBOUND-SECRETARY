@@ -57,19 +57,12 @@ test('replyIsClean rejects location-confirm EB templates — the learn.ako-taka-
 // ── 2. The strict-generator contract ─────────────────────────────────────────
 
 test('createLlmStrict throws when no Gemini key is configured (enrichment must never degrade)', () => {
-  // Imported lazily so the env manipulation below is observed correctly.
+  // The strict generator builds its pool from cfg.geminiKeyPool (piece 5 —
+  // the open-ended per-atom key pool); an EMPTY pool must throw, never
+  // degrade to a fallback backend.
   const { createLlmStrict } = require('../src/llm/factory') as typeof import('../src/llm/factory');
-  const cfg = loadConfig();
-  const saved = [cfg.geminiApiKey, cfg.geminiApiKey2, cfg.geminiApiKey3];
-  // Simulate a machine with zero Gemini keys.
-  (cfg as unknown as Record<string, unknown>).geminiApiKey = undefined;
-  (cfg as unknown as Record<string, unknown>).geminiApiKey2 = undefined;
-  (cfg as unknown as Record<string, unknown>).geminiApiKey3 = undefined;
-  try {
-    assert.throws(() => createLlmStrict(cfg), /enrichment requires the generator-grade model/);
-  } finally {
-    [cfg.geminiApiKey, cfg.geminiApiKey2, cfg.geminiApiKey3] = saved;
-  }
+  const cfg = loadConfig({ geminiKeyPool: [] });
+  assert.throws(() => createLlmStrict(cfg), /enrichment requires the generator-grade model/);
 });
 
 test('every enrichment entry point uses the strict generator (source-level pin)', () => {

@@ -8,7 +8,7 @@ async function main() {
   const { loadConfig } = await import('../src/config');
   const cfg = loadConfig();
   console.log('provider:', cfg.llmProvider, '| geminiModel:', cfg.geminiModel, '| groqModel:', cfg.groqModel);
-  console.log('keys present: gemini1/2/3 =', !!cfg.geminiApiKey, !!cfg.geminiApiKey2, !!cfg.geminiApiKey3, '| groq =', !!cfg.groqApiKey);
+  console.log('keys in pool:', cfg.geminiKeyPool.length, '| groq =', !!cfg.groqApiKey);
   const llm = createLlm(cfg);
   console.log('client type:', llm.constructor.name);
   try {

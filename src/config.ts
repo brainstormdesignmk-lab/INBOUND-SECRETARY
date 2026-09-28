@@ -24,6 +24,11 @@ export interface AppConfig {
   geminiApiKey: string;
   geminiApiKey2: string;
   geminiApiKey3: string;
+  /** The FULL per-machine Gemini key pool: GEMINI_API_KEY + GEMINI_API_KEY_2
+   *  + GEMINI_API_KEY_3 + any GEMINI_API_KEY_4..N present in the env. Each
+   *  atom owns its own pool in its own ~/.lina/lina.env (the piece-5
+   *  rotator contract: add keys to an atom's env, never to code). */
+  geminiKeyPool: string[];
   geminiModel: string;
   geminiModelClassify: string;
   viberToken: string;
@@ -84,6 +89,20 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     geminiApiKey: process.env.GEMINI_API_KEY || '',
     geminiApiKey2: process.env.GEMINI_API_KEY_2 || '',
     geminiApiKey3: process.env.GEMINI_API_KEY_3 || '',
+    // The open-ended pool: the three documented slots first (position-stable
+    // labels 'gemini:1..3'), then ANY GEMINI_API_KEY_<N> with N ≥ 4 that
+    // exists — so "make enough keys for each atom to never starve" is an env
+    // edit, not a code change. Blank values are skipped; _10 sorts after _9.
+    geminiKeyPool: [
+      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_2,
+      process.env.GEMINI_API_KEY_3,
+      ...Object.entries(process.env)
+        .map(([k, v]) => ({ n: /^GEMINI_API_KEY_(\d+)$/.exec(k)?.[1], v }))
+        .filter((e): e is { n: string; v: string } => !!e.n && Number(e.n) >= 4 && !!e.v)
+        .sort((a, b) => Number(a.n) - Number(b.n))
+        .map(e => e.v),
+    ].filter((k): k is string => !!k),
     geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
     geminiModelClassify: process.env.GEMINI_MODEL_CLASSIFY || 'gemini-3.6-flash',
     viberToken: process.env.VIBER_TOKEN || '',

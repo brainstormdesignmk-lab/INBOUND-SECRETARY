@@ -125,7 +125,7 @@ async function main(): Promise<void> {
 
   app.listen(cfg.port, () => {
     console.log(`[boot] Lina online on :${cfg.port}`);
-    const geminiKeys = [cfg.geminiApiKey, cfg.geminiApiKey2, cfg.geminiApiKey3].filter(Boolean).length;
+    const geminiKeys = cfg.geminiKeyPool.length; // the open-ended per-atom pool (GEMINI_API_KEY_1..N)
     console.log(`[boot] llmProvider=${cfg.llmProvider} gemini=${cfg.geminiModel} (${geminiKeys} key${geminiKeys === 1 ? '' : 's'}) groq=${cfg.groqModel} classify=${cfg.groqModelClassify} personaTemp=${cfg.personaTemp}`);
     console.log(`[boot] ownerAgent=${cfg.ownerAgentMode} agentPhone=${cfg.agentDefaultPhone}`);
     console.log(`[boot] landmarks=${landmarks ? 'on' : 'off'} (google=${cfg.googleMapsApiKey ? 'key' : 'no-key'}) visits=on`);

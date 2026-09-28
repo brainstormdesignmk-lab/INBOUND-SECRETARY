@@ -7,8 +7,9 @@ import { RotatingClient } from './rotatingClient';
 
 /**
  * Builds the LLM client from config:
- * - 'hybrid' (default) → Gemini primary (round-robin across GEMINI_API_KEY,
- *   GEMINI_API_KEY_2 and GEMINI_API_KEY_3 — each project key has its own quota),
+ * - 'hybrid' (default) → Gemini primary (round-robin across the WHOLE
+ *   cfg.geminiKeyPool — GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3,
+ *   plus any GEMINI_API_KEY_4..N; each project key has its own quota),
  *   Groq fallback
  * - 'gemini'           → Gemini only (Groq only if no Gemini key is set)
  * - 'groq'             → Groq only
@@ -24,38 +25,17 @@ import { RotatingClient } from './rotatingClient';
  * tomorrow — no bad line ever enters the bank.
  */
 export function createLlmStrict(cfg: AppConfig): LlmClient {
-  const pool: LlmClient[] = [];
-  if (cfg.geminiApiKey) {
-    pool.push(new GeminiClient(cfg.geminiApiKey, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:1'));
-  }
-  if (cfg.geminiApiKey2) {
-    pool.push(new GeminiClient(cfg.geminiApiKey2, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:2'));
-  }
-  if (cfg.geminiApiKey3) {
-    pool.push(new GeminiClient(cfg.geminiApiKey3, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:3'));
-  }
-  if (pool.length === 0) {
-    throw new Error('[llm-strict] no GEMINI_API_KEY set — enrichment requires the generator-grade model and must never run on a fallback backend');
-  }
-  return pool.length > 1 ? new RotatingClient(pool) : pool[0]!;
+  // strict=true either THROWS (empty pool) or returns a client — never null.
+  return buildGeminiPool(cfg, true)!;
 }
 
 export function createLlm(cfg: AppConfig): LlmClient {
   const groq = new GroqClient(cfg.groqApiKey, cfg.groqModel, cfg.groqModelClassify, 'groq');
 
-  // Each Gemini key is labeled 'gemini:N' so the TUI can show WHICH key served
-  // every reply (each project key has its own quota — useful for measuring).
-  const pool: LlmClient[] = [];
-  if (cfg.geminiApiKey) {
-    pool.push(new GeminiClient(cfg.geminiApiKey, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:1'));
-  }
-  if (cfg.geminiApiKey2) {
-    pool.push(new GeminiClient(cfg.geminiApiKey2, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:2'));
-  }
-  if (cfg.geminiApiKey3) {
-    pool.push(new GeminiClient(cfg.geminiApiKey3, cfg.geminiModel, cfg.geminiModelClassify, undefined, 'gemini:3'));
-  }
-  const primary = pool.length > 1 ? new RotatingClient(pool) : (pool[0] ?? null);
+  // Each Gemini key is labeled 'gemini:N' (its position in the pool) so the
+  // TUI can show WHICH key served every reply — each project key has its own
+  // quota, and with the open-ended pool the label now scales to pool size.
+  const primary = buildGeminiPool(cfg, false, groq);
 
   switch (cfg.llmProvider) {
     case 'gemini':
@@ -74,4 +54,22 @@ export function createLlm(cfg: AppConfig): LlmClient {
       console.warn('[llm] hybrid: no GEMINI_API_KEY — Groq only (no Gemini)');
       return groq;
   }
+}
+
+/** Builds the Gemini round-robin pool from cfg.geminiKeyPool.
+ *  - strict=true: pool empty → THROW (enrichment must never degrade — the
+ *    2026-09-12 contract, pinned by tests/enrichment-strict.test.ts).
+ *  - strict=false: pool empty → return the Groq fallback (or null when the
+ *    caller prefers to decide — mode 'hybrid' warns explicitly). */
+function buildGeminiPool(cfg: AppConfig, strict: boolean, fallbackIfEmpty?: LlmClient): LlmClient | null {
+  const pool: LlmClient[] = cfg.geminiKeyPool.map((key, i) =>
+    new GeminiClient(key, cfg.geminiModel, cfg.geminiModelClassify, undefined, `gemini:${i + 1}`),
+  );
+  if (pool.length === 0) {
+    if (strict) {
+      throw new Error('[llm-strict] no GEMINI_API_KEY set — enrichment requires the generator-grade model and must never run on a fallback backend');
+    }
+    return fallbackIfEmpty ?? null;
+  }
+  return pool.length > 1 ? new RotatingClient(pool) : pool[0]!;
 }

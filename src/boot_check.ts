@@ -31,7 +31,7 @@ export interface CheckResult {
 }
 
 function geminiKeyCount(cfg: AppConfig): number {
-  return [cfg.geminiApiKey, cfg.geminiApiKey2, cfg.geminiApiKey3].filter(Boolean).length;
+  return cfg.geminiKeyPool.length; // the open-ended per-atom pool (GEMINI_API_KEY_1..N)
 }
 
 export function bootChecks(cfg: AppConfig): CheckResult[] {

@@ -1001,8 +1001,8 @@ async function main(): Promise<void> {
   // Gemini ONLY — never Groq: the generator consumes its own quota and Groq's
   // daily TPD is reserved for production traffic. No Gemini key = hard fail,
   // so an exhausted quota can never silently burn Groq.
-  if (!(cfg.geminiApiKey || cfg.geminiApiKey2 || cfg.geminiApiKey3)) {
-    console.error('[generateResponses] This script is Gemini-only, but no GEMINI_API_KEY (or GEMINI_API_KEY_2/_3) was found in ~/.lina/lina.env. Refusing to fall back to Groq — nothing generated.');
+  if (cfg.geminiKeyPool.length === 0) {
+    console.error('[generateResponses] This script is Gemini-only, but no GEMINI_API_KEY (or GEMINI_API_KEY_2/_N) was found in ~/.lina/lina.env. Refusing to fall back to Groq — nothing generated.');
     process.exit(1);
   }
   // force llmProvider 'gemini' — createLlm would otherwise build a HybridClient

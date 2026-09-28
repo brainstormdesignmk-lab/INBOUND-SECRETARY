@@ -124,7 +124,7 @@ export class TuiApp {
     // the swap because the same instances stay alive).
     this.brains.hybrid = createLlm(cfg);
     this.brains.free = new NoLlm();
-    if (cfg.geminiApiKey || cfg.geminiApiKey2 || cfg.geminiApiKey3) {
+    if (cfg.geminiKeyPool.length > 0) {
       this.brains.gemini = createLlm({ ...cfg, llmProvider: 'gemini' });
     }
     if (cfg.groqApiKey) {
