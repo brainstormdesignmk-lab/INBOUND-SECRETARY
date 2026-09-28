@@ -233,6 +233,74 @@ export class Classifier {
    * The caller uses this as the primary path. Groq only fires when this
    * returns undefined — the truly novel messages that no detector catches.
    */
+  /** Rebuild a bare SEARCH_REQUESTED WITH the message's own criteria — the
+   *  [17:14] fix. Funnel overrides (see-offers, suggest-alternatives,
+   *  mentionsMore) previously rebuilt the event as { type: 'SEARCH_REQUESTED' },
+   *  silently discarding the slots the ORIGINAL event carried: "POMALO NESTO
+   *  DO 300EVRA" (see-offers phrase + budget) lost its budget, applySlots had
+   *  nothing to store, and the presentation ran budget-less — a 380€ card
+   *  served against an explicit ≤300 ask. Deterministic slots are the single
+   *  source of truth: fill what the first pass did not already put on the event.
+   *
+   *  TWO modes (the 09:17 ladder regression taught the difference):
+   *  - reExtract=true (SEE-OFFERS: "pomalo nesto do 300evra") — the message IS
+   *    the criteria statement; re-extract everything from the text.
+   *  - reExtract=false (suggest-alternatives / mentionsMore: "ushte edna",
+   *    "nesto drugo?") — a MORE-ask. Never re-extract bedrooms/sqm/service:
+   *    the number-word in "ushte EDNA" would read as an exact-category
+   *    refinement and wrongly retire the client's range mid-ladder. Carry the
+   *    event's own fields and re-read ONLY the budget (a number on a more-ask
+   *    is a money correction, "A ZA 250?", never a category). */
+  private async recomputeSearchEvent(
+    ev: Classified['event'], text: string, session: ChatSession, reExtract: boolean,
+  ): Promise<Classified['event']> {
+    if (!reExtract) {
+      // MORE-ASK ("ushte edna", "nesto drugo?", "predlozi mi"): strip the
+      // criteria the base event may have misread from the message itself
+      // ("edna" reads as an exact-category ask and would wrongly retire the
+      // client's range mid-ladder). The stored session slots already carry
+      // the client's criteria — the ladder rebuilds from those. Only the
+      // event's own budget survives (a money correction rides anywhere).
+      return {
+        type: 'SEARCH_REQUESTED',
+        propertyId: undefined,
+        budget: ev.budget,
+        location: ev.location,
+      };
+    }
+    const slots = extractSlots(text);
+    const merged = {
+      ...ev,
+      type: 'SEARCH_REQUESTED' as const,
+      propertyId: undefined,
+      budget: ev.budget ?? slots.budget,
+      bedrooms: ev.bedrooms ?? slots.bedrooms,
+      bedroomsMin: ev.bedroomsMin ?? slots.bedroomsMin,
+      bedroomsMax: ev.bedroomsMax ?? slots.bedroomsMax,
+      sqm: ev.sqm ?? slots.sqm,
+      service: ev.service ?? slots.service,
+      garsonjera: ev.garsonjera ?? (slots.garsonjera ? true : undefined),
+      sizeWaived: ev.sizeWaived ?? (slots.sizeWaived ? true : undefined),
+      plac: ev.plac ?? (slots.plac ? true : undefined),
+      yard: ev.yard ?? (slots.yard ? true : undefined),
+      business: ev.business ?? slots.business,
+      house: ev.house ?? slots.house,
+      anywhere: ev.anywhere ?? (slots.anywhere ? true : undefined),
+    } as Classified['event'];
+    // Location: the raw-script neighborhood token normalizes away inside
+    // extractSlots on Latin input ("VO AERODROM") — resolve it the same way
+    // the recompute block does, against the live feed's area list.
+    if (merged.location === undefined) {
+      try {
+        const loc = detectLocation(text, this.properties ? await this.properties.locations() : []);
+        if (loc) merged.location = loc;
+      } catch { /* feed hiccup — location stays unset */ }
+    }
+    void session; // kept for call-site symmetry; policy lives in the slots
+    return merged;
+  }
+
+
   async deterministicClassify(session: ChatSession, text: string): Promise<Classified | undefined> {
     const t0 = Date.now();
 
@@ -515,19 +583,20 @@ export class Classifier {
       }
     }
 
-    // See offers in discovery → SEARCH_REQUESTED
+    // See offers in discovery → SEARCH_REQUESTED (criteria-preserving — the
+    // [17:14] fix: "помало нешто до 300евра" keeps its budget).
     if (session.state === 'discovery'
       && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE' && ev.type !== 'PROPERTY_ID_REQUESTED'
       && detectSeeOffers(text)) {
-      ev = { type: 'SEARCH_REQUESTED' };
+      ev = await this.recomputeSearchEvent(ev, text, session, true);
     }
 
-    // Suggest alternatives in property_query → SEARCH_REQUESTED
+    // Suggest alternatives in property_query → SEARCH_REQUESTED (criteria-preserving).
     if ((session.state === 'property_query' || session.state === 'presentation')
       && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
       && ev.type !== 'PROPERTY_ID_REQUESTED' && ev.type !== 'INTERESTED'
       && (detectSuggestAlternatives(text) || detectDrugAlternative(text))) {
-      ev = { type: 'SEARCH_REQUESTED' };
+      ev = await this.recomputeSearchEvent(ev, text, session, false);
     }
     // Presentation state: ANY bare "more/other" ask ("sto uste ima?", "nesto
     // drugo?") means the client wants the NEXT batch of matching properties —
@@ -538,7 +607,7 @@ export class Classifier {
       && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
       && ev.type !== 'PROPERTY_ID_REQUESTED' && ev.type !== 'INTERESTED'
       && !detectAvailabilityAsk(text) && mentionsMore(text)) {
-      ev = { type: 'SEARCH_REQUESTED' };
+      ev = await this.recomputeSearchEvent(ev, text, session, false);
     }
 
     // Property locate pick → INTERESTED
@@ -1049,7 +1118,7 @@ export class Classifier {
       && parsed.event.type !== 'ESCALATE'
       && parsed.event.type !== 'PROPERTY_ID_REQUESTED'
       && detectSeeOffers(text)) {
-      parsed.event = { type: 'SEARCH_REQUESTED' };
+      parsed.event = await this.recomputeSearchEvent(parsed.event, text, session, true);
     }
     // Suggest-alternatives override: in property_query the client answers the
     // not-found line ("predlozi mi", "drugi lokaciii", "да, предложи") — the
