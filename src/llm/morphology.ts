@@ -244,3 +244,89 @@ export const SCHEDULING_LEXICON: string[] = expandWords([
   { word: 'посетувам', type: 'verb' },
   { word: 'организирам', type: 'verb' },
 ]);
+
+// ════════════════════════════════════════════════════════════════════════════
+// v2 ADDITIONS (the [22:55] pomalo family, generalized once-and-for-all):
+// noun declension, bare-stem adjective grid, Cyrillic↔Latin transliteration,
+// and a boundary-guarded regex builder that auto-transliterates. The original
+// expandAdjective/expandVerb/toRegexAlt above stay exactly as they were —
+// existing lexicons and tests pin their behavior.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Macedonian ↔ Latin alphabet correspondence. Each Cyrillic letter maps to
+ *  BOTH its diacritic Latin form and the ASCII spelling clients actually
+ *  type (ш → ["š","sh","s"]). Generated Latin twins cover the union. */
+const CYR_TO_LATIN_V2: Record<string, string[]> = {
+  'а': ['a'], 'б': ['b'], 'в': ['v'], 'г': ['g'], 'д': ['d'],
+  'ѓ': ['ǵ', 'gj', 'dj'], 'е': ['e'], 'ж': ['ž', 'zh', 'z'], 'з': ['z'],
+  'ѕ': ['ѕ', 'dz'], 'и': ['i'], 'ј': ['j', 'y'], 'к': ['k'], 'л': ['l'],
+  'љ': ['lj'], 'м': ['m'], 'н': ['n'], 'њ': ['nj'], 'о': ['o'], 'п': ['p'],
+  'р': ['r'], 'с': ['s'], 'т': ['t'], 'ќ': ['ќ', 'kj', 'ky'], 'у': ['u'],
+  'ф': ['f'], 'х': ['h'], 'ц': ['c'], 'ч': ['č', 'ch', 'c'],
+  'џ': ['dž', 'dzh', 'dz'], 'ш': ['š', 'sh', 's'],
+};
+
+const hasCyr = (w: string): boolean => /[\u0400-\u04FF]/.test(w);
+
+/** Every Latin spelling of a Cyrillic word (diacritic + ASCII variants),
+ *  or the word itself when it is already Latin. Deterministic order. */
+export function translitLatin(word: string): string[] {
+  if (!hasCyr(word)) return [word];
+  let variants: string[] = [''];
+  for (const ch of word) {
+    const outs = CYR_TO_LATIN_V2[ch.toLowerCase()] ?? [ch];
+    const next: string[] = [];
+    for (const prefix of variants) for (const o of outs) next.push(prefix + o);
+    variants = next;
+  }
+  return [...new Set(variants)];
+}
+
+/** Noun forms from a Cyrillic stem. The stem is the word MINUS its citation
+ *  ending: masculine/neuter pass the bare stem ('стан', 'мест'), feminine
+ *  pass the stem WITHOUT -а ('цен', 'кириј'). Generated set per gender:
+ *    m: стан, станот, стани, станите
+ *    f: цена, цената, цени, цените   (кириј → кирија, киријата, кирии, кириите)
+ *    n: место-стем, …ото, …ата       (мест → место, местото, места, местата) */
+export function nounFormsV2(stem: string, gender: 'm' | 'f' | 'n' = 'm'): string[] {
+  const b = stem.toLowerCase();
+  return gender === 'm' ? [b, `${b}от`, `${b}и`, `${b}ите`]
+    : gender === 'f' ? [`${b}а`, `${b}ата`, `${b}и`, `${b}ите`]
+    : [`${b}о`, `${b}ото`, `${b}а`, `${b}ата`];
+}
+
+/** Adjective forms from a BARE Cyrillic stem (no -ен/-ан extractor needed —
+ *  for stems like 'мал', 'компакт', 'минимал'):
+ *  мал → мал, мала, мало, мали, малиот, малата, малото, малите +
+ *  comparative (по-) and superlative (нај-) across the same grid. */
+export function adjectiveFormsV2(stem: string, opts: { comparative?: boolean; superlative?: boolean } = {}): string[] {
+  const s = stem.toLowerCase();
+  const grid = (pre: string) => [`${pre}${s}`, `${pre}${s}а`, `${pre}${s}о`, `${pre}${s}и`, `${pre}${s}от`, `${pre}${s}иот`, `${pre}${s}ата`, `${pre}${s}ото`, `${pre}${s}ите`];
+  return [
+    ...grid(''),
+    ...(opts.comparative === false ? [] : grid('по')),
+    ...(opts.superlative === false ? [] : grid('нај')),
+  ];
+}
+
+const escV2 = (f: string): string => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Build ONE regex alternation source from forms (any mix of scripts):
+ *  every Cyrillic form contributes its Latin twins; forms are
+ *  boundary-guarded (?<![\p{L}\p{N}])(?:f)(?![\p{L}\p{N}]) unless opts.unguarded
+ *  (for embedding where the caller already guards). Grouped when unguarded. */
+export function formsToRegexSource(forms: string[], opts: { unguarded?: boolean } = {}): string {
+  const all = new Set<string>();
+  for (const f of forms) {
+    all.add(f.toLowerCase());
+    for (const t of translitLatin(f)) all.add(t.toLowerCase());
+  }
+  const parts = [...all].map(f =>
+    opts.unguarded ? escV2(f) : `(?<![\\p{L}\\p{N}])(?:${escV2(f)})(?![\\p{L}\\p{N}])`);
+  return opts.unguarded ? `(?:${parts.join('|')})` : parts.join('|');
+}
+
+/** Compile forms straight into a RegExp (default 'iu'). */
+export function formsRegex(forms: string[], opts: { unguarded?: boolean; flags?: string } = {}): RegExp {
+  return new RegExp(formsToRegexSource(forms, opts), opts.flags ?? 'iu');
+}
