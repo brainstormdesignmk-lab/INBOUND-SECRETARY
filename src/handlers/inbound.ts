@@ -1,5 +1,6 @@
 import { AppConfig } from '../config';
 import { Db } from '../store/db';
+import { decideCapture } from '../store/capture';
 import {
   ChatSession, SessionStore, freshSession, isExpired, resetToIdle,
   touchInbound, touchOutbound, canSend, pushHistory, buildGreeting, assistantTexts,
@@ -107,6 +108,14 @@ export interface HandlerDeps {
    *  cron; exam mode ('free') logs nothing so the deterministic+bank stack
    *  can be TESTED standalone. Server runs are always teacher. */
   brainMode?: () => string;
+  /** THE LEARNING LAYER'S SINK (TUI_LEARN) — captures the two shapes the
+   *  improvement loop can never otherwise see: (a) messages the deterministic
+   *  pre-classify gave up on (the Gemini classifier had to decide the intent —
+   *  detector candidates for data/hardening mining) and (b) Gemini-generated
+   *  prose replies (wording candidates for the bank importer). Optional: the
+   *  production server passes nothing (its enrichment queue already covers
+   *  the wording side); the TUI supplies a file-backed CaptureStore. */
+  capture?: import('../store/capture').CaptureStore;
 }
 
 export class InboundHandler {
@@ -131,6 +140,11 @@ export class InboundHandler {
    *  cron; exam mode ('free') logs nothing so the deterministic+bank stack
    *  can be TESTED standalone. Server runs are always teacher. */
   brainMode?: () => string;
+
+  /** True while THIS turn's deterministic pre-classify gave up (undefined →
+   *  the LLM classifier fired). Set at the classify seam, consumed at the
+   *  turn-end capture hook. Never read anywhere else. */
+  private detGaveUp = false;
 
   private chains = new Map<string, Promise<void>>();
   /** The raw inbound message of the in-flight processMessage call — history
@@ -1904,6 +1918,10 @@ export class InboundHandler {
     let classified = await this.deps.classifier.deterministicClassify(session, text);
     if (!classified) {
       // Truly novel message — Groq classifies the state, then Gemini answers.
+      // LEARNING LAYER: flag the fallthrough — the turn-end capture hook turns
+      // this into a hardening-corpus candidate (the phrasing stops being
+      // novel once a detector owns it).
+      this.detGaveUp = true;
       classified = await this.deps.classifier.classify(session, text);
     }
 
@@ -3626,6 +3644,33 @@ ${contactReminder}`;
 
     const pipelineMs = Date.now() - pipelineStart;
     console.log(`[timing] pipeline ${pipelineMs}ms (classify+handler+reply) state=${before}→${session.state} src=${replySource}${bankKey ? ' bank=' + bankKey : ''}`);
+
+    // LEARNING LAYER (TUI_LEARN) — one hook, once per completed turn: report
+    // the two capture shapes (fallthrough / prose) to the sink. Presentation-
+    // card batches are excluded inside decideCapture (code-built data display
+    // of an already-understood search, never a classification gap). Advisory
+    // only — a capture failure must never break the funnel.
+    if (this.deps.capture) {
+      try {
+        const kind = decideCapture({
+          deterministicClassifyGaveUp: this.detGaveUp,
+          replySource,
+          isPresentationBatch: (before === 'property_query' || before === 'presentation') && props.length > 0,
+        });
+        if (kind) {
+          const rec: import('../store/capture').CaptureRecord = {
+            kind: kind === 'both' ? 'fallthrough' : kind,
+            text, state: before, at: new Date().toISOString(),
+            chatId: session.chatId,
+            replySource,
+            bankKey: bankKey ?? undefined,
+          };
+          if (kind === 'both') rec.alsoProse = true; // same message was ALSO Gemini prose
+          this.deps.capture.onTurn(rec);
+        }
+      } catch { /* advisory */ }
+    }
+    this.detGaveUp = false;
 
     await this.sendRaw(session, reply, replySource);
   }

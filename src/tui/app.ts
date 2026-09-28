@@ -10,6 +10,8 @@ import { createLlm } from '../llm/factory';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { InboundHandler } from '../handlers/inbound';
+import { CaptureStore } from '../store/capture';
+import * as path from 'path';
 import { ChannelRegistry } from '../channels/types';
 import { LlmClient } from '../llm/types';
 import { TuiChannel } from './channel';
@@ -105,6 +107,9 @@ export class TuiApp {
    *  surfaced by /status so silent degradation becomes visible. */
   private detFallbackCount = 0;
   private brains: Partial<Record<BrainMode, LlmClient>> = {};
+  /** TUI_LEARN sink (the learning layer) — undefined when TUI_LEARN=0. */
+  private capture?: import('../store/capture').CaptureStore;
+  private captureTimer?: NodeJS.Timeout;
   private offlineMap: OfflineMapStore;
   private propertyService: PropertyService;
   private brainMode: BrainMode = 'hybrid';
@@ -210,6 +215,17 @@ export class TuiApp {
       },
     });
 
+    // THE LEARNING LAYER (TUI_LEARN, default on): every turn where the
+    // deterministic pre-classify gave up (Gemini had to decide the intent) or
+    // where Gemini wrote the prose reply is captured to a reviewable jsonl.
+    // This is the input file the mining loop never had — TUI-tested phrasings
+    // stop being novel once a detector owns them. TUI_LEARN=0 disables.
+    if (process.env.TUI_LEARN !== '0') {
+      this.capture = new CaptureStore(path.join('data', 'tui-capture.jsonl'));
+      // Periodic flush — the jsonl must survive a crash mid-session.
+      this.captureTimer = setInterval(() => { try { this.capture?.flush(); } catch { /* advisory */ } }, 30_000);
+      this.captureTimer.unref?.();
+    }
     this.pipeline = new InboundHandler({
       cfg, db: this.db, sessions: this.sessions, classifier: this.classifier, responder: this.responder,
       properties: this.propertyService,
@@ -217,9 +233,12 @@ export class TuiApp {
       landmarks, visits: this.visits,
       enrichment: new EnrichmentStore(this.db),
       bank: new BankStore(this.db),
+      capture: this.capture,
       // THE TEACHER/EXAM POLICY: hybrid teaches the bank (replies logged for
       // the cron), free is the exam (nothing logged — the deterministic+bank
-      // stack must answer alone, proving the enrichment worked).
+      // stack must answer alone, proving the enrichment worked). The CAPTURE
+      // layer is independent of this policy: fallthroughs are worth recording
+      // even in exam mode — they are classification gaps, not bank fuel.
       brainMode: () => this.brainMode,
     });
 
@@ -457,6 +476,13 @@ export class TuiApp {
           lines.push(`free-rate: ${bs.hitRate === null ? 'сè уште нема мерења' : (bs.hitRate * 100).toFixed(1) + '%'} (без LLM)`);
         }
       } catch { /* bank stats are non-critical */ }
+      // LEARNING LAYER reminder — captures waiting for review/mining.
+      if (this.capture) {
+        const fc = this.capture.fileCounts();
+        if (fc.total > 0) {
+          lines.push(`⏳ УЧЕЊЕ: ${fc.total} каптури во data/tui-capture.jsonl (fallthrough: ${fc.fallthrough} · prose: ${fc.prose}) — минирај во hardening/банка`);
+        }
+      }
       this.appendMsg(lead.chatId, { role: 'system', text: `СТАТУС:\n${lines.join('\n')}`, at: Date.now() });
       this.renderAll();
       return;
