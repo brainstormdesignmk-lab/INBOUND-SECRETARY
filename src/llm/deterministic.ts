@@ -1772,7 +1772,11 @@ export function detectExplicitWiden(text: string): boolean {
 // ш-spelling), and the "Согласен сум со надоместокот" copula between agreement
 // and fee noun. Both scripts, typos included.
 const FEE_PAY_VOL = '(?:ќе|ke|ще|shte|да|da|може|можам|moze|mozam|би|bi|сакам|sakam)';
-const FEE_PAY_CLIT = '(?:го|go|ја|ja|ги|gi|си|si)';
+// [21:28] transcript: "ke VI dadam 500 den" — the DATIVE clitics (to whom the
+// money goes) were missing, so the volitional+give chain failed and fee-sized
+// conditional consent fell through to the price-relay lane. All persons:
+// reflexive си, dative-2sg ми, dative-plural ни, to-you ви, to-him му.
+const FEE_PAY_CLIT = '(?:го|go|ја|ja|ги|gi|си|si|ви|vi|ни|ni|му|mu|ми|mi)';
 const FEE_PAY_PLAT = '(?:плат\\w*|плаќ\\w*|plat\\w*|plakj\\w*)';
 const FEE_PAY_GIVE = '(?:дадам|дадеме|даде|давам|покриј\\w*|покрив\\w*|подмир\\w*|даам|дааш|dadam|dadi|daam|davam|dade|davame|pokrij\\w*|pokriv\\w*|podmir\\w*)';
 // Fee/amount anchor — give/cover verbs must be anchored to one so "ќе дам
@@ -1785,6 +1789,26 @@ const FEE_PAY_VOL_PLAT_RE = new RegExp(FEE_PAY_VOL + FEE_PAY_CONN + '\\s+' + FEE
 const FEE_PAY_VOL_GIVE_RE = new RegExp(FEE_PAY_VOL + FEE_PAY_CONN + '\\s+' + FEE_PAY_GIVE + '[^.!?\\n]{0,40}' + FEE_PAY_ANCHOR, 'iu');
 const FEE_PAY_OPENER_RE = new RegExp(FEE_PAY_OPENERS + '[^.!?\\n]{0,40}(?:' + FEE_PAY_PLAT + '|' + FEE_PAY_GIVE + '|' + FEE_PAY_ANCHOR + ')', 'iu');
 
+// [21:28] Conditional acceptance: "AKO VI SE TAKVI USLOVITE", "ako e taka,
+// vredi", "ako uslovite se takvi" — the client accepts the fee CONDITIONED on
+// facts only the owner can confirm (availability, terms). The condition does
+// NOT retract the acceptance; closing-state flow treats it as FEE_AGREED
+// (contact collection → owner ping-pong), never as a price negotiation.
+// Requires the conditional marker ако/ako + an acceptance referent (услови/
+// uslovi, такви/таква/такво, важи, во ред, договор…). A bare "ako e dostapen"
+// (availability probe, no acceptance word) does NOT fire — the fee-sized
+// consent arm handles that shape via detectFeePaymentAgreement.
+const CONDITIONAL_ACCEPT_RE = new RegExp(
+  '(?:^|[^\\p{L}\\p{N}])(?:ako|ако)(?![\\p{L}\\p{N}])[^.!?\\n]{0,40}' +
+  '(?:uslov\\w*|услов\\w*|takv[аои]\\w*|такв\\w*|vazi|важи|vo\\s+red|во\\s+red' +
+  '|dogovor\\w*|договор\\w*|se\\s+soglasuvam|се\\s+согласувам|se\\s+slozuvam|се\\s+сложувам)',
+  'iu');
+
+/** True when the client conditionally ACCEPTS (closing fee context). */
+export function detectConditionalFeeAccept(text: string): boolean {
+  return CONDITIONAL_ACCEPT_RE.test(text);
+}
+
 // Questions and negations are never consent: "dali mora da platam?" and
 // "zosto da platam 500 denari?" belong to fee.why; "ne sakam da platam" is a
 // refusal. Guarded before any volitional match can fire.
@@ -1793,7 +1817,10 @@ const FEE_PAY_NEG_RE = new RegExp(
 
 export function detectFeePaymentAgreement(text: string): boolean {
   if (/(?:^|[^\p{L}])dali(?:$|[^\p{L}])/iu.test(text)
-      || /(?:zosto|zashto|зошто|зашто|kolku|колку|kako|како)[^.!?\n]{0,40}(?:плат|plat|плаќ|plakj|дад|dad)/iu.test(text)
+      // The question gap may cross sentence punctuation: "KAKO TOA ? DA PLATAM
+      // ZA POSETA ?" is a HOW-QUESTION even though a "?" splits the clause —
+      // typing a space before "?" must not turn resistance into consent.
+      || /(?:zosto|zashto|зошто|зашто|kolku|колку|kako|како)[^.\n]{0,40}(?:плат|plat|плаќ|plakj|дад|dad)/iu.test(text)
       || FEE_PAY_NEG_RE.test(text)) return false;
   return (
     // volitional + pay verb ("ќе платам", "ke platime", "ok ke si platem 10 eura")

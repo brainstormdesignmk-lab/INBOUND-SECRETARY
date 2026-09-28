@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -508,6 +508,33 @@ export class Classifier {
     // Fee WHY guard — agreement overridden to STAY when WHY-question
     if (session.state === 'closing' && ev.type === 'FEE_AGREED' && detectFeeWhy(text)) {
       ev = { type: 'STAY' };
+    }
+
+    // [21:28] CONDITIONAL FEE CONSENT (closing + knock-out recovery): the fee
+    // was asked and the client conditionally accepts — "AKO VI SE TAKVI
+    // USLOVITE", "AKO E USTE DOSTAPEN MOZDA I KE VI DADAM 500 DEN ZA DA GO
+    // VIDAM". The condition does NOT retract the acceptance: fee-sized
+    // give-verbs ("ke dadam 500 den", now with dative clitics — "ke VI dadam")
+    // and the ако+услови/такви conditional-accept family are FEE_AGREED. The
+    // funnel proceeds (contact collection → owner ping-pong, where availability
+    // gets confirmed anyway) — never the price-relay lane (price.negotiate),
+    // which previously swallowed the fee-sized conditional as a property
+    // counter-offer and answered with "Крајната цена зависи од сопственикот…".
+    // Scope: a fee context only — the fee was asked (viewingFeeAgreed not yet
+    // set, or ownerContactPending) or the state is closing. Property-sized
+    // counter-offers ("dali moze za 140000") are excluded by
+    // counterOfferFeeSized inside the detectors themselves.
+    if ((session.state === 'closing'
+        || (session.slots.viewingFeeAgreed || (session.slots.feeRejections ?? 0) >= 1))
+      && !session.slots.viewingFeeAgreed
+      // ownerContactPending WITHOUT a disclosed fee (the availability-ack
+      // flow, 21:05b) stays fee-first: a visit command there must DISCLOSE
+      // the fee before any consent reclassification.
+      && !session.slots.ownerContactPending
+      && ev.type !== 'FEE_AGREED' && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE'
+      && ev.type !== 'FEE_REFUSED' && ev.type !== 'PROPERTY_ID_REQUESTED'
+      && (detectFeePaymentAgreement(text) || detectConditionalFeeAccept(text))) {
+      ev = { type: 'FEE_AGREED' };
     }
 
     // Visit time in visit_scheduling → VISIT_TIME_PROVIDED. A BARE clock with
