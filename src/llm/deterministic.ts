@@ -176,20 +176,76 @@ export function detectSeeOffers(text: string): boolean {
   return SEE_OFFERS_RE.test(text);
 }
 
-// [17:14] The SMALLER-SIZE INTENT: "NESTO POMALO / нешто помало" (and bare
-// "помало") means the units shown were TOO BIG — "smaller" could be a
-// GARSONJERA or a small 1-BEDROOM flat, so the bedrooms slot alone must not
-// decide the answer. The handler resolves the ambiguity with the bedrooms
-// ask (bank-backed, budget already stored) instead of presenting a guess.
+// [17:14] The SMALLER-SIZE INTENT family: "NESTO POMALO / нешто помало"
+// (and the whole small-adjective family below) means the units shown were
+// TOO BIG — "smaller" could be a GARSONJERA or a small 1-BEDROOM flat, so
+// the bedrooms slot alone must not decide the answer. The handler resolves
+// the ambiguity with the bedrooms ask (bank-backed, budget already stored)
+// instead of presenting a guess.
+//
+// GRAMMAR-BASED (owner enrichment spec): Macedonian adjectives decline, so
+// fixed words miss the family. Each adjective is matched as STEM + optional
+// endings, all Latin-transliterated twins included:
+//   мал-:  мал, мала, мало, мали, малиот, малата, малото, малите,
+//          помал, помала, помало, помали, помалиот … (comparative по-),
+//          најмал, најмала … (superlative нај-), малецок/малечок (diminutive)
+//  uga-:  малку > малечок is ALSO the diminutive of малку-quantity — excluded:
+//          "малку" alone is a QUANTITY answer ("малку повеќе" = a bit more),
+//          never a size intent, so the bare quantity word is NOT in the set.
+//   Two false-positive classes are vetoed structurally:
+//   (1) PRICE/RENT asks — "помала цена", "маља кирија", "најмал буџет": the
+//       small word modifying цена/кирија/сумa/бyzhet is about MONEY, not the
+//       unit; those turns belong to the cheaper/see-offers lanes.
+//   (2) The copula-question shape "али е мал?" stays caught only with an
+//       object noun — a bare "dali e mal?" with no property noun is a
+//       different question and must not flip the funnel.
 // The see-offers regex arm matches the full "pomalo nesto" PAIR; this
-// detector adds the bare pomalo/помало token (boundary-guarded so "pomalo"
+// detector adds the whole FAMILY as bare tokens (boundary-guarded so a stem
 // inside another word never matches). "POMALO NESTO" hits BOTH detectors —
 // ordering in the handler decides which lane owns it.
-const POMALO_RE = /(?<![\p{L}\p{N}])(?:pomalo|помало)(?![\p{L}\p{N}])/iu;
+const SMALL_STEM_RE =
+  '(?<![\\p{L}\\p{N}])' +                       // word start
+  '(?:po|по|naj|нај)?' +                           // comparative po- / superlative naj- (both scripts)
+  '(?:mal(?:[aeio]|iot|ata|oto|ite|ečok|ecko)?' +  // mal/mala/malo/mali/maliot/…/malečok/malecko
+  '|маль?(?:[аои]|иот|ата|ото|ите|ецок|ечок)?' +  // мал/мала/мало/мали/малиот/…/малецок
+  '|kompakt(?:en|na|no|ni|iot|ata|oto|nite?)?' +  // kompakt/kompakten/kompaktna/kompaktno/kompaktni
+  '|компакт(?:ен|на|но|ни|ниот|ната|ното|ните)?' + // компакт/компактна/компактно/…
+  '|mini(?:mal\\p{L}{0,4})?' +                     // mini/minimalen/minimalna/minimalno
+  '|мин(?:имум|имал(?:ен|на|но|ни)?)?(?:[аои]|ите)?)' + // мини/минимум/минимален/минимална/минимално
+  '(?![\\p{L}\\p{N}])';                          // word end
+const SMALL_SIZE_RE = new RegExp(SMALL_STEM_RE, 'iu');
 
-/** True when the client asks for something SMALLER than what was shown. */
+/** Veto: the small word modifies MONEY (цена/сена/кирија/сумa/буџет/евра) —
+ *  a price ask, not a unit-size ask. Two directions:
+ *  - ADJ+NOUN (tight): "помала цена", "najmala cena?", "kompaktna kirija" —
+ *    the adjective DIRECTLY modifies the money noun (one space apart).
+ *  - NOUN+…+ADJ (loose, no digits): "цената да е помала", "kirija mala" —
+ *    a pure price COMMENT. Skipped when an OBJECT noun is present
+ *    ("do 300 evra, nesto pomalo" is a size ask with a budget, not a price
+ *    comment; digits are excluded from the gap so a budget number never
+ *    bridges money→small). */
+function smallWordIsMoneyModifier(text: string): boolean {
+  const small =
+    '(?:(?:na[jј]?|po)?(?:mal(?:[aeio]|iot|ata|oto|ite|ečok|ecko)?|маль?(?:[аои]|иот|ата|ото|ите|ецок|ечок)?)' +
+    '|(?:kompakt|компакт|mini|мин)\\p{L}*)';
+  const money =
+    '(?:цен\\p{L}*|cen\\p{L}*|кириј\\p{L}*|kirij\\p{L}*|сум\\p{L}*|sum\\p{L}*' +
+    '|буџет|bud[zž]?et\\p{L}*|износ|iznos|evra|евра|денари|denari)';
+  const moneyNoun = new RegExp(small + '\\s*' + money, 'iu');
+  const moneyFirst = new RegExp(money + '[^.!?\\d\\n]{0,16}' + small, 'iu');
+  const hasObjectNoun = /(?:стан|stan|куќ|kukj|kuc?j|нешто|nesto|нesto|простор|prostor|соба|soba|имот|imot|дуплекс|duplex)/iu.test(text);
+  if (moneyNoun.test(text)) return true;
+  if (moneyFirst.test(text) && !hasObjectNoun) return true;
+  return false;
+}
+
+/** True when the client asks for something SMALLER than what was shown —
+ *  the whole мал/компакт/мини family, comparative and superlative included,
+ *  money-modifier and bare-quantity false positives excluded. */
 export function detectPomaloAsk(text: string): boolean {
-  return POMALO_RE.test(text);
+  if (!SMALL_SIZE_RE.test(text)) return false;
+  if (smallWordIsMoneyModifier(text)) return false;
+  return true;
 }
 
 // Availability question about a KNOWN property: "дали е сеуште достапен?",

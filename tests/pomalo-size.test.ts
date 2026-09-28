@@ -150,3 +150,37 @@ test('pomalo ask fires ONCE — the follow-up answer never re-asks', async () =>
   assert.ok(ask1.includes('спални'));
   assert.ok(!ask2.includes('Колку спални соби би сакале'), `no re-ask after the answer: ${ask2}`);
 });
+
+// ── the grammar-based family (owner enrichment spec) ────────────────────
+// Stem + declension (gender/number/definiteness), comparative по-/po-,
+// superlative нај-/naj-, diminutive малецок/малечок, the kompakt/мини
+// families — in BOTH scripts. Excluded structurally: bare quantity (малку),
+// money modifiers ("помала цена" belongs to the price lanes).
+
+test('detectPomaloAsk: the small-adjective family across declension, both scripts, both transliterations', async () => {
+  const { detectPomaloAsk } = await import('../src/llm/deterministic');
+  const positives = [
+    'NESTO POMALO', 'POMALO NESTO DO 300EVRA', 'pomalo', 'nesto malo', 'MALO',
+    'pomala', 'pomali', 'najmala', 'najmalo mozno', 'nesto malecko', 'МАЛЕЦОК',
+    'мало', 'помала', 'најмал', 'малиот', 'mali', 'stanot e mal',
+    'edno malo stanče', 'mala soba', 'baram kompakten stan', 'kompaktno',
+    'КОМПАКТНО', 'kompaktni', 'malo malecko', 'minimalno', 'MINIMALNA',
+    'minimalen', 'pomalo pomalo',
+  ];
+  for (const t of positives) {
+    assert.equal(detectPomaloAsk(t), true, `must fire: ${t}`);
+  }
+});
+
+test('detectPomaloAsk: money modifiers and bare quantity never fire', async () => {
+  const { detectPomaloAsk } = await import('../src/llm/deterministic');
+  const negatives = [
+    'pomala cena', 'ПОМАЛА ЦЕНА', 'mala kirija', 'cenata da e pomala',
+    'najmala cena?', 'kirija mala', 'minimalna cena', 'kompaktna kirija',
+    'malku', 'malku poveke', 'МАЛКУ',
+    'neznam', 'odobrenie', 'shto imate vo ponuda',
+  ];
+  for (const t of negatives) {
+    assert.equal(detectPomaloAsk(t), false, `must NOT fire: ${t}`);
+  }
+});
