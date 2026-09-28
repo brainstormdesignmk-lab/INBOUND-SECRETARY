@@ -1822,6 +1822,13 @@ export function detectFeePaymentAgreement(text: string): boolean {
       // typing a space before "?" must not turn resistance into consent.
       || /(?:zosto|zashto|зошто|зашто|kolku|колку|kako|како)[^.\n]{0,40}(?:плат|plat|плаќ|plakj|дад|dad)/iu.test(text)
       || FEE_PAY_NEG_RE.test(text)) return false;
+  // [22:21] Amountless pay-for-viewing is the fee QUESTION ("DA PLATAM ZA
+  // VLEZ ?", "da platam za gledanje?") — the explanation lane owns it, never
+  // silent consent. An amount present ("ke platam 500 den za poseta") means
+  // the client committed — consent stands. ("…za da go vidam" from the
+  // [21:28] consent flow is NOT a viewing noun — видам never matches.)
+  if (!/\d/.test(text)
+    && new RegExp('(?:плат|plat|плаќ|plakj)\\p{L}*\\s+(?:за|za)\\s+' + VIEWING_NOUN_SRC, 'iu').test(text)) return false;
   return (
     // volitional + pay verb ("ќе платам", "ke platime", "ok ke si platem 10 eura")
     FEE_PAY_VOL_PLAT_RE.test(text)
@@ -3357,8 +3364,90 @@ const PROVISION_RE =
   /(?:провизи[јjа]+|provizija|provizion|provizia|commission|агенциск[аои]\s+(?:надомест|цена|трошок|услуга)|агенциск[аои]а?т?а?\s+услуга|[аa]генck[аa]а?т?[аa]?\s+(?:услуга|usluga)|agencka[аaтt]*\s+(?:услуга|usluga)|колку\s+(?:е|е\s+провизијата|чиња)|(?:дали|dali)\s+(?:има|постои|ќе\s+плаќам)\s+провизиј)/iu;
 
 /** True when the client asks about provision/commission. */
+// [22:21] THE VIEWING-NOUN FAMILY (owner enrichment list): the visit fee is
+// asked about by MANY nouns — посета/poseta, показување/покажување/pokazuvanje,
+// гледање/gledanje, визита/vizita, влез/vlez, влезница/vleznica (entrance fee),
+// отварање/otvaranje. One source constant so every arm below stays in sync.
+const VIEWING_NOUN_SRC =
+  '(?:посет\\p{L}*|poset\\p{L}*'
+  + '|показ\\p{L}*|покаж\\p{L}*|pokazh?\\p{L}*'
+  + '|гледањ\\p{L}*|gledanj\\p{L}*'
+  + '|визит\\p{L}*|vizit\\p{L}*'
+  + '|влезниц\\p{L}*|vleznits?\\p{L}*|vleznic\\p{L}*'
+  + '|влез|vlez'
+  + '|отварањ\\p{L}*|otvaranj\\p{L}*)';
+const VIEWING_NOUN_RE = new RegExp('(?<![\\p{L}\\p{N}])' + VIEWING_NOUN_SRC, 'iu');
+
+// AMOUNT-FIRST FEE QUESTION — "500DEN ZA POSETA ?", "za poseta 500 den ?":
+// amount + currency beside a viewing noun IS the fee question even with no
+// charge verb anywhere. The amount must be FEE-SIZED (≤2000 den / ≤100 evr,
+// unqualified ≤2000) — a property-sized number next to a visit noun is a
+// counter-offer shape and stays with the offer lanes.
+export const AMOUNT_FEE_RE = new RegExp(
+  // amount BEFORE the noun: "500DEN ZA POSETA ?". Currency stem REQUIRED
+  // (ден/den/евр/evr/eur/mkd/€ — up to 4 tail letters: "500den").
+  '(?<![\\p{L}\\p{N}])(\\d[\\d\\s.,]*)\\s*(?:ден|денар|денари|den|denar|denari|евр|евра|евро|evr|evra|evro|eur|мкд|mkd|€)[\\p{L}]{0,4}(?![\\p{L}\\p{N}])[^.!?,\\n]{0,14}' + VIEWING_NOUN_SRC
+  // noun BEFORE the amount: "za poseta 500 den ?". Digits in the gap are
+  // FORBIDDEN — "POSETA ZA 90" (a visit command naming EB 90) must never
+  // read the EB as a fee amount. A currency right after the number anchors
+  // it as money.
+  + '|' + VIEWING_NOUN_SRC + '[^.!?,\\n]{0,6}(?<![\\p{L}\\p{N}])(\\d[\\d\\s.,]*)\\s*((?:ден|денар|денари|den|denar|denari|евр|евра|евро|evr|evra|evro|eur|мкд|mkd|€)[\\p{L}]{0,4})?(?![\\p{L}\\p{N}])',
+  'iu');
+
+/** True for the amount-first fee question ("500DEN ZA POSETA ?").
+ *  Groups are identified BY SHAPE, not by index: the amount is the group that
+ *  starts with a digit, the currency the one starting with a currency stem —
+ *  a hand-counted index drift (m[2] vs m[3]) made the reversed arm parse the
+ *  currency word as the amount and return NaN → silent false. */
+export function detectAmountFeeQuestion(text: string): boolean {
+  const m = AMOUNT_FEE_RE.exec(text);
+  if (!m) return false;
+  const groups = m.slice(1);
+  const amountRaw = groups.find(g => !!g && /^\d/.test(g.trim()));
+  const cur = (groups.find(g => !!g && /^(ден|den|евр|evr|eur|мкд|mkd|€)/i.test(g.trim())) ?? '').toLowerCase();
+  // A BARE number in the REVERSED direction (no currency) is an EB/order
+  // shape — "ORGANIZIRAJ MI POSETA ZA 48" — never money. Detection by ARM:
+  // the forward arm's amount is group 1 (currency is non-capturing there, so
+  // a match with m[1] set ALWAYS carries currency); a reversed-arm match has
+  // m[1] = null and needs an explicit currency group to count as money.
+  const forwardArm = m[1] != null;
+  if (!forwardArm && !cur) return false;
+  if (!amountRaw) return false;
+  const n = parseInt(amountRaw.replace(/[\s.,]/g, ''), 10);
+  if (!Number.isFinite(n)) return false;
+  if (/^(евр|evr|eur|€)/.test(cur)) return n <= 100;
+  return n <= 2000;
+}
+
 export function detectProvisionAsk(text: string): boolean {
   if (PROVISION_RE.test(text)) return true;
+  // AMOUNT-FIRST ("500DEN ZA POSETA ?" — the [22:21] transcript): no charge
+  // verb, yet it asks exactly what the visit costs. BUT when the client has
+  // COMMITTED ("ke platam 500 den za poseta" — volitional consent), the
+  // agreement lane owns it; the fee explanation must not re-lecture.
+  if (detectAmountFeeQuestion(text) && !detectFeePaymentAgreement(text)) return true;
+  // KOLKU + viewing noun, both orders ("kolku e vleznica?", "za vizita
+  // kolku?") — how-MUCH is money; koga (when) would be scheduling, kolku
+  // never. NOTE the word-AHEAD guard after kolku — a second look-BEHIND
+  // there asserts the char before "kolku" is not a letter, which is always
+  // false once kolku matched (the arm could never fire).
+  if (matchesBoth(new RegExp(
+    _mB + '(?:kolku|колку)(?![\\p{L}\\p{N}])[^.!?\\n]{0,24}' + VIEWING_NOUN_SRC
+    + '|' + VIEWING_NOUN_SRC + '[^.!?\\n]{0,24}' + _mB + '(?:kolku|колку)(?![\\p{L}\\p{N}])',
+    'iu'), text)) return true;
+  // CHARGE-VERB + VIEWING-NOUN (owner list: "NAPLATUVATE ZA GLEDANJE ?",
+  // "NAPLAKJATE VLEZNICA ?", "plakjate li za pokazhuvanje?") — 2nd/3rd-person
+  // charge forms only; 1st-person pay is consent territory.
+  if (matchesBoth(new RegExp(
+    _mB + '(?:наплаќ|наплат|naplak|naplat|платите|platite|плаќате|plakjate|земате|zemate|земат|zemat)[^.!?\\n]{0,24}' + VIEWING_NOUN_SRC,
+    'iu'), text)) return true;
+  // VOLITIONAL-PAY + viewing noun, NO amount ("DA PLATAM ZA VLEZ ?" — owner
+  // list): reads as "do I have to pay for entry?" — the fee explanation, not
+  // silent consent. WITH an amount ("ke platam 500 den za poseta") the client
+  // has committed — that stays with detectFeePaymentAgreement.
+  if (!/\d/.test(text) && matchesBoth(new RegExp(
+    _mB + '(?:да|da)\\s+(?:плат|plat|плаќ|plakj)\\p{L}*\\s+(?:за|za)\\s+' + VIEWING_NOUN_SRC,
+    'iu'), text)) return true;
   // CHARGE-VERB + MONEY (the [09:05] transcript): "ZEMATE PARI ZA POSETA?"
   // names no провизија/надомест word but asks exactly the fee-for-visit
   // question — charge-verb + money-noun is the same family. Never a
