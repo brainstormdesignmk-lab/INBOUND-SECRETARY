@@ -135,3 +135,28 @@ test('e2e: a bank-lane turn and a novel turn produce the right capture kinds', a
   capture.flush();
   assert.equal(capture.fileCounts().fallthrough, 1);
 });
+
+// ── Atom mode (piece 3): kinds filter + autoFlush ─────────────────────────
+
+test('CaptureStore opts: atom mode (fallthrough-only + autoFlush) survives restart', () => {
+  const f = tmpFile();
+  // The exact wiring index.ts uses: fallthrough-only (prose replies already
+  // land in enrichment_queue on the atom) + auto-flush (restart-deployed
+  // process — buffered records would die with it).
+  const atom = new CaptureStore(f, { kinds: ['fallthrough'], autoFlush: true });
+  atom.onTurn({ kind: 'prose', text: 'проза-само формулација', state: 'idle', at: '2026-09-28T10:00:00Z', chatId: 'viber-c1' });
+  atom.onTurn({ kind: 'fallthrough', text: 'SHTO USTE IMA VO BLIXINA', state: 'property_query', at: '2026-09-28T10:01:00Z', chatId: 'viber-c1', replySource: 'deterministic' });
+  // The 'both' shape arrives as kind 'fallthrough' + alsoProse — accepted.
+  atom.onTurn({ kind: 'fallthrough', alsoProse: true, text: 'ZEMATE PARI ZA POSETA?', state: 'idle', at: '2026-09-28T10:02:00Z', chatId: 'viber-c1', replySource: 'llm' });
+  assert.equal(atom.pendingCount, 0, 'auto-flush leaves nothing buffered');
+  const fc = atom.fileCounts();
+  assert.equal(fc.prose, 0, 'prose rejected by the kinds filter');
+  assert.equal(fc.fallthrough, 2, 'fallthrough + both captured, already on disk');
+
+  // Restart-deploy safety: everything is on disk the moment onTurn returns,
+  // and the rebuilt dedupe index suppresses same-day repeats.
+  const restarted = new CaptureStore(f, { kinds: ['fallthrough'], autoFlush: true });
+  restarted.onTurn({ kind: 'fallthrough', text: 'shto uste ima vo blixina?', state: 'property_query', at: '2026-09-28T11:00:00Z', chatId: 'viber-c2' });
+  assert.equal(restarted.pendingCount, 0, 'same-day re-capture after restart deduped from the file index');
+  assert.equal(restarted.fileCounts().total, 2);
+});

@@ -8,6 +8,8 @@ GOOGLEMAPS_API_KEY.txt
 data/*.db.*
 data/enrichment-log.json
 data/atoms/
+data/capture/
+data/tui-capture.jsonl
 .tap/
 tmp/
 session-*.md

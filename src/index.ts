@@ -25,6 +25,7 @@ import { VisitScheduler } from './visits/scheduler';
 import { EventStore } from './store/events';
 import { OwnerStore } from './store/owners';
 import { EnrichmentStore } from './store/enrichment';
+import { CaptureStore } from './store/capture';
 import { registerHermesApi } from './hermes/api';
 
 async function main(): Promise<void> {
@@ -87,9 +88,19 @@ async function main(): Promise<void> {
   const bankStore = new BankStore(db);
   bankStore.selfTest(); // appliance boot: corrupted bank fails LOUDLY, not silently
   setLearnedBank(bankStore); // also enables the dynamic fallback's recall/store path
+
+  // ATOM-SIDE FRONTIER CAPTURE (the atom half of the learning layer): messages
+  // the deterministic pre-classify gave up on — the phrasings real clients use
+  // that no detector owns yet. Fallthrough-only (prose replies already land in
+  // enrichment_queue — no duplicate wording channel) and auto-flushed, because
+  // the process is restart-deployed and buffered records would die with it.
+  // The workstation collects data/capture/*.jsonl with atoms:collect and mines
+  // them the same way as TUI captures. Capture failures never break the funnel.
+  const capture = new CaptureStore('data/capture/fallthroughs.jsonl', { kinds: ['fallthrough'], autoFlush: true });
+
   const pipeline = new InboundHandler({
     cfg, db, sessions, classifier, responder, properties, appointments, escalations, meta, channels,
-    landmarks, visits, enrichment,
+    landmarks, visits, enrichment, capture,
   });
 
   const visitTimer = visits.start(60_000);
@@ -119,6 +130,7 @@ async function main(): Promise<void> {
     console.log(`[boot] ownerAgent=${cfg.ownerAgentMode} agentPhone=${cfg.agentDefaultPhone}`);
     console.log(`[boot] landmarks=${landmarks ? 'on' : 'off'} (google=${cfg.googleMapsApiKey ? 'key' : 'no-key'}) visits=on`);
     console.log(`[boot] hermesApi=${cfg.hermesToken ? 'on (HERMES_TOKEN)' : 'DISABLED — set HERMES_TOKEN'}`);
+    console.log('[boot] capture=data/capture/fallthroughs.jsonl (fallthrough-only, auto-flush)');
     if (cfg.viberOperatorId) console.log(`[boot] operator log → Viber ${cfg.viberOperatorId}`);
     if (!cfg.viberToken) console.warn('[boot] VIBER_TOKEN not set — webhook will reject all callbacks');
     if (!cfg.viberWebhookUrl) console.warn('[boot] VIBER_WEBHOOK_URL not set — run "npm run webhook:set" after configuring');

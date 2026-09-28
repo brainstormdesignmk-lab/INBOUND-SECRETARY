@@ -17,9 +17,16 @@
 //     the bank importer into the master bank, deduped by normalized identity.
 //
 // It is a SINK, not a gate: capture failures never break the funnel. It is
-// FILE-BACKED (jsonl, survives restarts, reviewable in git, collectable by
-// scripts/collect-atoms.sh). It holds NO opinions — the handler decides what
-// to send; this store counts, dedupes per day, and flushes on demand.
+// FILE-BACKED (jsonl, survives restarts, reviewable in the working tree,
+// collectable by scripts/collect-atoms.sh). It holds NO opinions — the handler
+// decides what to send; this store counts, dedupes per day, and flushes on
+// demand.
+//
+// Two modes, one class: the TUI buffers and flushes on a timer (piece 1,
+// TUI_LEARN); the ATOM (index.ts, piece 3) runs the same sink fallthrough-only
+// with auto-flush — real-client frontier phrasings land in data/capture/ and
+// are collected daily for the same mining loop. Prose is NOT captured on the
+// atom: enrichment_queue already owns the wording channel there.
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -93,11 +100,21 @@ export function normalizedKey(text: string): string {
 
 export interface CaptureCounts { total: number; fallthrough: number; prose: number }
 
+/** Sink options.
+ *  - kinds: which capture kinds this sink accepts. The ATOM accepts only
+ *    'fallthrough' (its prose replies already land in enrichment_queue —
+ *    capturing them again would duplicate the wording channel). Default: both.
+ *  - autoFlush: write every accepted record to the file immediately —
+ *    production/atom mode, because the process is restart-deployed at any
+ *    time and buffered records would die with it. Default false (TUI mode:
+ *    buffer, flush on a timer). */
+export interface CaptureStoreOpts { kinds?: CaptureKind[]; autoFlush?: boolean }
+
 export class CaptureStore {
   private pending: CaptureRecord[] = [];
   private recentKeys = new Map<string, number>(); // normalized → epoch day
 
-  constructor(private filePath: string, private maxPerDayPerText = 1) {
+  constructor(private filePath: string, private opts: CaptureStoreOpts = {}) {
     try {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
     } catch { /* read-only FS — appendFileSync will fail per write and be swallowed */ }
@@ -120,11 +137,13 @@ export class CaptureStore {
   /** Handler seam — called once per completed turn with the record (or null). */
   onTurn(rec: CaptureRecord | null): void {
     if (!rec) return;
+    if (this.opts.kinds && !this.opts.kinds.includes(rec.kind)) return;
     const key = normalizedKey(rec.text);
     const day = dayOf(rec.at);
     if (this.recentKeys.get(key) === day) return; // same wording, same day — already captured
     this.recentKeys.set(key, day);
     this.pending.push(rec);
+    if (this.opts.autoFlush) this.flush(); // atom mode: survive restart-deploys
   }
 
   get pendingCount(): number { return this.pending.length; }

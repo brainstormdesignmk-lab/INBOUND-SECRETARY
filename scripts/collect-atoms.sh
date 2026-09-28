@@ -9,6 +9,9 @@
 #   data/address-overrides.json  → data/atoms/<id>/address-overrides.json
 #   data/feed-corrections.md     → data/atoms/<id>/feed-corrections.md
 #   data/hardening/*.json        → data/atoms/<id>/hardening/   (atom-appended GAP rows)
+#   data/capture/*.jsonl         → data/atoms/<id>/capture/    (frontier fallthroughs —
+#                                  messages the deterministic pre-classify gave up on;
+#                                  mine into data/hardening/ exactly like TUI captures)
 #   logs/enrich.log (tail 500)   → data/atoms/<id>/enrich.tail.log
 #   crontab LINA_* lines         → data/atoms/<id>/crontab.txt  (ops visibility)
 #
@@ -112,6 +115,23 @@ while IFS='|' read -r id host user key rpath note; do
     fi
   fi
 
+  # ATOM-SIDE FRONTIER CAPTURE (the learning layer's atom half, piece 3):
+  # jsonl lines of messages the deterministic pre-classify gave up on — real
+  # clients' phrasings no detector owns yet. Mine them into data/hardening/
+  # (sweep → propose-stems) and the classifier stops firing Gemini on them.
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "  [dry-run] data/capture/*.jsonl → $dest/capture/"
+  else
+    mkdir -p "$dest/capture"
+    if rsync -az -e "$RSYNC_SSH" --timeout=60 \
+        "$user@$host:$rpath/data/capture/" "$dest/capture/" 2>/dev/null; then
+      n=$(cat "$dest/capture"/*.jsonl 2>/dev/null | grep -c . || true)
+      echo "  ✓ data/capture/ (${n:-0} line(s))"
+    else
+      echo "  · data/capture/ (absent — ok)"
+    fi
+  fi
+
   # Human-readable enrich log tail + crontab snapshot for ops review.
   if [ "$DRY_RUN" = "1" ]; then
     echo "  [dry-run] logs/enrich.log tail → $dest/enrich.tail.log"
@@ -139,6 +159,14 @@ for r in "${RESULTS[@]:-}"; do
   [ -z "$r" ] && continue
   id="${r%%|*}"; st="${r#*|}"
   echo "  $id: $st — review data/atoms/$id/ and promote winners into the repo corpus"
+  # Unmined-capture reminder (reminders, not automation): every pulled line is
+  # a phrasing Gemini had to classify — each one mined is a detector forever.
+  if [ "$st" = "OK" ] && [ "$DRY_RUN" = "0" ]; then
+    cap=$(cat "data/atoms/$id/capture"/*.jsonl 2>/dev/null | grep -c . || true)
+    if [ "${cap:-0}" -gt 0 ] 2>/dev/null; then
+      echo "    ⏳ $cap не-минирани atom fallthroughs — минирај во data/hardening/ или увези во банката"
+    fi
+  fi
   [ "$st" != "OK" ] && rc=1
 done
 [ ${#RESULTS[@]} -eq 0 ] && { echo "  (no atoms matched — check --atoms / atoms.conf)"; rc=1; }
