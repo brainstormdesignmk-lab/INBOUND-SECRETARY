@@ -25,6 +25,7 @@ data/enrichment-log.json
 data/address-overrides.json
 data/feed-corrections.md
 data/atoms/
+data/capture/
 
 # ── Per-atom secrets and logs ──
 .lina/
