@@ -3620,6 +3620,43 @@ test('[09:25] fee-ask with a земат typo reads as PROVISION_ASK, never avail
   assert.equal(s4.slots.viewingFeeAgreed, undefined, 'asking about the fee must not set consent');
 });
 
+test('[09:05] charge-verb + money fee ask ("ZEMATE PARI ZA POSETA?") routes to the fee answer, never the discovery intake', async () => {
+  // The transcript: after the fee disclosure the client asked again WITHOUT
+  // the word провизија — "ZEMATE PARI ZA POSETA?". The земат arm of the
+  // availability sweep read it as "do you still offer?" and the discovery
+  // intake (bedrooms + budget) hijacked the fee talk. Charge-verb + money
+  // noun is now the PROVISION_ASK family.
+  const rows: Property[] = [
+    { eb: 70, id: 70, location: 'Центар', price: 400, service: 'rent', bedrooms: 1, size: '40 м²' },
+    { eb: 71, id: 71, location: 'Центар', price: 420, service: 'rent', bedrooms: 1, size: '42 м²' },
+    { eb: 72, id: 72, location: 'Центар', price: 450, service: 'rent', bedrooms: 1, size: '44 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(rows);
+  const chatId = 'lina-0905-pari';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 500 EVRA');
+  await send('SAKAM DA JA VIDAM');
+  const feeReply = sent.at(-1)!;
+  assert.ok(/надомест|500 денари|10 евра|симболичн/iu.test(feeReply), `fee disclosure expected: ${feeReply}`);
+
+  // THE BUG: the fee re-ask without the word провизија got the discovery
+  // intake (спални + буџет questions) instead of the fee answer.
+  const s2 = await send('ZEMATE PARI ZA POSETA?');
+  const r2 = sent.at(-1)!;
+  assert.ok(!r2.includes('спални соби'), `no bedroom intake for a fee ask: ${r2}`);
+  assert.ok(!r2.includes('износ'), `no budget intake for a fee ask: ${r2}`);
+  assert.ok(/0%|провизи|надомест|500 денари|10 евра/iu.test(r2), `fee answer expected: ${r2}`);
+  assert.notEqual(s2.state, 'intent', 'the fee ask must not restart discovery');
+
+  // The availability family stays intact: a genuine offer-side земат/нудите
+  // ask is still an availability question.
+  const s3 = await send('nudite dvosoben stan?');
+  const r3 = sent.at(-1)!;
+  assert.ok(!r3.includes('спални соби') || s3.state === 'presentation' || s3.state === 'intent',
+    `availability sanity: ${r3}`);
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // [12:42]–[12:48] CLUSTER — day+bare-hour intake, widen typo, POI anchoring,
 // landmark-where. Mirror of the production transcript.

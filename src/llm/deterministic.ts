@@ -252,6 +252,17 @@ const AVAILABILITY_MORPH_RE = new RegExp(
 // AVAILABILITY_ASK_RE misses ("уште ли го имате?", "го уште имате?").
 const _availSlotsRe = buildAvailabilitySlots();
 
+// Charge-verb + money-noun co-occurrence — "ZEMATE PARI ZA POSETA?" (the
+// [09:05] transcript), "наплаќате такса?", "парите ги земате?" — always a FEE
+// question, never an availability read (the земат arm of AVAILABILITY_RE3
+// reads "земате…?" as "do you still offer?"). Unicode-boundary guarded both
+// sides; Latin + Cyrillic surface forms listed explicitly (file convention).
+const CHARGE_MONEY_RE = new RegExp(
+  _mB + '(?:земате|земат|зема|zemate|zemat|zema|наплаќате|наплаќа|naplakjate|naplakate|naplakja|наплатувате|наплатув|naplatuvate|naplatuv|платите|платат|platite|platat|плаќате|плаќа|plakjate|plakja)'
+  + '[^.!?\\n]{0,30}' + _mB + '(?:пар[аие]|par[aei]|накнад|naknad|такс[ауи]|taks[au]|надомест|nadomest|символичн|simbolichn)'
+  + '|' + _mB + '(?:пар[аие]|par[aei]|накнад|naknad|такс[ауи]|taks[au])[^.!?\\n]{0,30}' + _mB + '(?:зем[аат]|zem[аа]t|напла[ќк]|naplakj?|наплат|naplat|плат|plat)',
+  'iu');
+
 export function detectAvailabilityAsk(text: string): boolean {
   // FEE-CONTEXT VETO (the [09:25] transcript): "zematr provizija za poseta?"
   // asks about the viewing FEE (provision.ask owns it), but the земат verb
@@ -259,8 +270,13 @@ export function detectAvailabilityAsk(text: string): boolean {
   // provision/fee/надомест word anywhere in the message disqualifies EVERY
   // availability read — availability questions never talk about money.
   // detectFeeWhy alone is not enough ("zematr" has no why-word).
-  if (/(?:провизи|provizi|надомест|nadomest|наплаќ|naplak|наплат|naplat|fee)/iu.test(text)
-    || matchesBoth(/(?:провизи|надомест|наплаќ|наплат)/iu, text)
+  // CHARGE-VERB + MONEY (the [09:05] transcript): "ZEMATE PARI ZA POSETA?"
+  // carries NO fee word (провизија/надомест) — the charge-verb + money-noun
+  // pair is the fee marker. Same disqualification, same rule: availability
+  // never talks about money.
+  if (/(?:провизи|provizi|надомест|nadomest|наплаќ|naplak|наплат|naplat|накнад|naknad|fee)/iu.test(text)
+    || matchesBoth(/(?:провизи|надомест|наплаќ|наплат|накнад)/iu, text)
+    || matchesBoth(CHARGE_MONEY_RE, text)
     || detectProvisionAsk(text) || detectProvisionWho(text) || detectFeeWhy(text)) return false;
   // A NEARBY ask ("STO USTE IMA VO BLIXINA NA STANOT", the [22:44] transcript)
   // is about the SURROUNDINGS — never an availability question, even though
@@ -3233,6 +3249,11 @@ const PROVISION_RE =
 /** True when the client asks about provision/commission. */
 export function detectProvisionAsk(text: string): boolean {
   if (PROVISION_RE.test(text)) return true;
+  // CHARGE-VERB + MONEY (the [09:05] transcript): "ZEMATE PARI ZA POSETA?"
+  // names no провизија/надомест word but asks exactly the fee-for-visit
+  // question — charge-verb + money-noun is the same family. Never a
+  // property price ask: money here is the AGENCY's charge vocabulary.
+  if (matchesBoth(CHARGE_MONEY_RE, text)) return true;
   // Typo fallback: “provizija”, “provizia” slips — long and unambiguous.
   return fuzzyHasToken(text, ['провизија']);
 }

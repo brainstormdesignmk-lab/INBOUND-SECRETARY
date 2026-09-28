@@ -2,6 +2,20 @@
   "bankKey": "provision.ask",
   "rows": [
     {
+      "phrase": "ZEMATE PARI ZA POSETA?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
+      "phrase": "наплаќате ли пари за посета?",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    },
+    {
       "phrase": "kolku e provizijata ?",
       "verdict": "COVERED",
       "target": true,
