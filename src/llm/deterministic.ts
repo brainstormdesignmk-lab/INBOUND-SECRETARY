@@ -176,6 +176,22 @@ export function detectSeeOffers(text: string): boolean {
   return SEE_OFFERS_RE.test(text);
 }
 
+// [17:14] The SMALLER-SIZE INTENT: "NESTO POMALO / нешто помало" (and bare
+// "помало") means the units shown were TOO BIG — "smaller" could be a
+// GARSONJERA or a small 1-BEDROOM flat, so the bedrooms slot alone must not
+// decide the answer. The handler resolves the ambiguity with the bedrooms
+// ask (bank-backed, budget already stored) instead of presenting a guess.
+// The see-offers regex arm matches the full "pomalo nesto" PAIR; this
+// detector adds the bare pomalo/помало token (boundary-guarded so "pomalo"
+// inside another word never matches). "POMALO NESTO" hits BOTH detectors —
+// ordering in the handler decides which lane owns it.
+const POMALO_RE = /(?<![\p{L}\p{N}])(?:pomalo|помало)(?![\p{L}\p{N}])/iu;
+
+/** True when the client asks for something SMALLER than what was shown. */
+export function detectPomaloAsk(text: string): boolean {
+  return POMALO_RE.test(text);
+}
+
 // Availability question about a KNOWN property: "дали е сеуште достапен?",
 // "dali e seuste dostapen?", "дали го имате уште?", "дали е продаден?",
 // "сеуште ли е на продажба?". The client saw the ad on the website and knows
@@ -3854,7 +3870,11 @@ export function fsmRequired(text: string): boolean {
     || detectRejection(text)
     || detectEyeCatch(text)
     || detectPriceReference(text)
-    || detectLocationConfirm(text);
+    || detectLocationConfirm(text)
+    // [17:14] pomalo size-intent: "NESTO POMALO" is a SEARCH instruction
+    // (smaller than shown — could be garsonjera OR 1-bedroom), never a canned
+    // fast-path line. It must reach the classifier so the pomalo ask fires.
+    || detectPomaloAsk(text);
 }
 
 export function buildEvent(state: State, slots: DetectedSlots): Event {

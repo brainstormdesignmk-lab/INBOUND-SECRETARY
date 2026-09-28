@@ -317,17 +317,26 @@ test('multi-area selection: "помало нешто" and bedroom follow-ups sta
   assert.ok(loc.includes('Центар') && loc.includes('Кисела Вода') && loc.includes('Аеродром'), loc);
   assert.ok(!loc.includes('Влае'), loc);
 
-  // "помало нешто" mid-discovery -> real offers, SMALLEST first, inside the 3 areas
+  // [17:14] pomalo spec: "pomalo nesto" mid-discovery is a SIZE intent —
+  // smaller could be garsonjera OR 1-спална — so Lina asks bedrooms (budget
+  // still stored, areas kept) instead of presenting a guess. The ask answers
+  // with "edna spalna" here; the buy funnel then still needs the budget, so
+  // the presentation lands after it.
   s = await send('pomalo nesto');
+  assert.equal(s.state, 'discovery');
+  assert.ok(sent[2].includes('спални'), sent[2]);
+  s = await send('edna spalna');
+  assert.equal(s.state, 'discovery');
+  s = await send('do 60000 evra');
   assert.equal(s.state, 'presentation');
-  assert.ok(sent[2].includes('Евидентен број 53') || sent[2].includes('Евидентен број 63'), sent[2]);
-  assert.ok(!sent[2].includes('Влае'), sent[2]); // the spill bug: never Влае
+  assert.ok(sent[4].includes('Евидентен број 53') || sent[4].includes('Евидентен број 63'), sent[4]);
+  assert.ok(!sent[4].includes('Влае'), sent[4]); // the spill bug: never Влае
 
   // "nesto so edna spalna?" -> the NEXT batch, still inside the 3 areas
   s = await send('nesto so edna spalna?');
   assert.equal(s.state, 'presentation');
-  assert.ok(!sent[3].includes('Влае'), sent[3]);
-  assert.ok(!sent[3].includes('Евидентен број 55'), sent[3]);
+  assert.ok(!sent[5].includes('Влае'), sent[5]);
+  assert.ok(!sent[5].includes('Евидентен број 55'), sent[5]);
 });
 
 test('business: деловен простор never asks bedrooms — location/sqm/price, then presentation', async () => {
@@ -1953,8 +1962,9 @@ test('"помало нешто" mid-discovery answers with SMALLEST м² offers 
   assert.ok(/други|друга/.test(sent[3]), sent[3]);
   assert.ok(!sent[3].includes('Која површина'), sent[3]);
 
-  // the client keeps asking — "помало нешто" while in presentation pulls the
-  // next candidates from the alternatives engine (never the sqm question)
+  // the client keeps asking — a pomalo more-ask while in presentation pulls
+  // the next candidates from the alternatives engine (business search: the
+  // size axis is м², never a bedrooms ask — never the sqm question either)
   s = await send('pomalo nesto');
   assert.equal(s.state, 'presentation');
   assert.ok(!sent[4].includes('Која површина'), sent[4]);

@@ -12,7 +12,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -1978,6 +1978,44 @@ export class InboundHandler {
     // SEARCH_REQUESTED; the incomplete-criteria guard is bypassed so the offers
     // are presented, and an area with nothing gets the honest no-match line.
     const seeOffers = before === 'discovery' && detectSeeOffers(text);
+
+    // [17:14] POMALO = SMALLER-SIZE INTENT, not a show-me: "NESTO POMALO" says
+    // the units shown were TOO BIG, and "smaller" is ambiguous (garsonjera OR
+    // a small 1-bedroom flat). When the client's size is still unknown, Lina
+    // must NOT guess a card — she asks the bedrooms question (bank-backed,
+    // budget already stored from the same message) and STAYS in discovery;
+    // the answer resolves small next turn ("garsonjera" → studio pool,
+    // "edna spalna" → bedrooms 1). The event's own slots are applied first so
+    // a same-message budget lands BEFORE the ask. Known-size contexts skip:
+    // an explicit studio ask owns itself; a named sqm/bedrooms search already
+    // knows what "smaller" means; "ushte edna pomalo" (a category pick with a
+    // smaller qualifier) rides its existing lane. The flag keeps the ask
+    // once-per-funnel: it clears when the client answers with a size.
+    if (detectPomaloAsk(text) && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE') {
+      const sizeKnown = session.slots.bedrooms !== undefined || session.slots.garsonjera === true
+        || session.slots.sqm !== undefined || session.slots.business === true
+        || ev.bedrooms !== undefined || ev.sqm !== undefined || ev.business !== undefined;
+      if (!session.slots.pomaloSize && !sizeKnown) {
+        if (ev.budget) session.slots.budget = ev.budget;
+        if (ev.location) session.slots.location = ev.location;
+        session.slots.pomaloSize = true;
+        if (before !== 'discovery' && before !== 'presentation') next = 'discovery';
+        session.state = 'discovery';
+        const ask = pickVariant('discovery.ask.bedrooms.stan', { recent: assistantTexts(session) })
+          ?? 'Колку спални соби би сакале да има Вашиот иден стан?';
+        const reply = `${ask}`;
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment) {
+          try {
+            this.deps.enrichment.insert({ chatId: session.chatId, state: 'discovery', eventType: 'POMALO_ASK', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey: 'discovery.ask.bedrooms.stan' });
+          } catch { /* ignore */ }
+        }
+        await this.sendRaw(session, reply, 'deterministic');
+        return;
+      }
+    }
     if (seeOffers) next = 'presentation';
 
     if (before === 'discovery' && ev.type === 'DETAILS_PROVIDED' && this.slotsComplete(session)) {
@@ -4087,8 +4125,16 @@ ${contactReminder}`;
     // A fresh bedroom RANGE retires the size waiver too — the client named a
     // size after all ("edna ili dve" IS a size answer, [09:17]).
     if (ev.bedroomsMin !== undefined && ev.sizeWaived === undefined) session.slots.sizeWaived = undefined;
+    // [17:14] pomalo resolution: a fresh bedroom/sqm/range criterion means the
+    // client answered the "smaller = how many bedrooms?" ask — the pomalo ask
+    // must not re-fire on every later message. "2 spalni"+ (2+ bedrooms, an
+    // EXACT count, not a range's lower end) is not "small" at all: the flag
+    // clears and the normal lane serves. "garsonjera" retires it via the
+    // garsonjera slot below (a studio IS the small answer).
+    if ((ev.bedrooms !== undefined || ev.sqm !== undefined) && ev.bedroomsMin === undefined) session.slots.pomaloSize = undefined;
+    if (ev.bedrooms !== undefined && ev.bedrooms >= 2) session.slots.pomaloSize = undefined;
     if (ev.pricePriority) session.slots.pricePriority = true;
-    if (ev.garsonjera) session.slots.garsonjera = true;
+    if (ev.garsonjera) { session.slots.garsonjera = true; session.slots.pomaloSize = undefined; }
     // Plac/yard are CATEGORIES (like garsonjera): a plac never coexists with
     // a house/business search, and a yard need implies the house category.
     if (ev.plac) { session.slots.plac = true; session.slots.house = undefined; session.slots.business = undefined; }
@@ -4211,22 +4257,41 @@ ${contactReminder}`;
       // plain no-match loses the "give him what he wants" instruction. Retry
       // WITHOUT the category filter (same budget/area); the presentation
       // branches detect garsonjera-without-garsonjera-results and introduce        // the closest units honestly ("немам гарсоњера, но еве мало станче").
-        const relaxedCandidates = session.slots.garsonjera && candidates.length === 0
-        ? await this.deps.properties.candidates({
-          location: session.slots.location,
-          sqm: session.slots.sqm,
-          business: session.slots.business,
-          house: session.slots.house,
-          service: session.slots.service,
-          budget: session.slots.budget,
-          exclude: shown,
-          // SMALLEST first — the relaxed line says "мало станче", so the cards
-          // must lead with the smallest units in budget, not price-closest
-          // 70-m² duplexes.
-          sortBySqm: true,
-          sortByPopularity: !!session.slots.anywhere && !session.slots.location,
-        })
-        : candidates;
+        // [17:14] ladder: a garsonjera IS a one-room home — before the broad
+        // size-sorted retry, try ONE-BEDROOM flats (feed 2-rooms) in budget.
+        // The honest "немам гарсоњера…" prefix still fires (no exact studio in
+        // the pool), and the cards are the smallest honest step up — not
+        // size-sorted duplexes.
+        let relaxedCandidates = candidates;
+        if (session.slots.garsonjera && candidates.length === 0) {
+          const oneRoom = await this.deps.properties.candidates({
+            location: session.slots.location,
+            bedrooms: 2, // feed convention: 2 rooms = 1 спална
+            business: session.slots.business,
+            house: session.slots.house,
+            service: session.slots.service,
+            budget: session.slots.budget,
+            exclude: shown,
+          });
+          if (oneRoom.length > 0) {
+            relaxedCandidates = oneRoom;
+          } else {
+            relaxedCandidates = await this.deps.properties.candidates({
+              location: session.slots.location,
+              sqm: session.slots.sqm,
+              business: session.slots.business,
+              house: session.slots.house,
+              service: session.slots.service,
+              budget: session.slots.budget,
+              exclude: shown,
+              // SMALLEST first — the relaxed line says "мало станче", so the
+              // cards must lead with the smallest units in budget, not
+              // price-closest 70-m² duplexes.
+              sortBySqm: true,
+              sortByPopularity: !!session.slots.anywhere && !session.slots.location,
+            });
+          }
+        }
       const pool = relaxedCandidates;
       // POI-ANCHORED PRESENTATION (the [22:41] transcript): the client named a
       // MAP PLACE in the search phrase ("okolu Kapitol Biser"). The feed's

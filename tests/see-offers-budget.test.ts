@@ -70,11 +70,14 @@ async function makeHandler(rows: Property[]) {
 }
 
 test('[17:14] see-offers with a budget keeps the budget: ladder serves in-budget only, never the 380€ card', async () => {
+  // NOTE (pomalo layer): "POMALO NESTO …" now ASKS the bedrooms question
+  // (size intent — tests/pomalo-size.test.ts). The budget-preservation
+  // contract on the SEE-OFFERS lane is pinned here with a non-pomalo phrase.
   const { send, sessions } = await makeHandler(makeRows());
   const chat = 'see-budget';
   await send(chat, 'SAKAM DA IZNAJMAM STAN');
   await send(chat, 'PA AERODROM ILI KISELA VODA BI ODGOVARALO NAJMNOGU');
-  const r = await send(chat, 'POMALO NESTO DO 300EVRA');
+  const r = await send(chat, 'STO IMATE VO PONUDA DO 300EVRA');
   const s = sessions.get(chat)!;
 
   // The ≤300 budget landed (it used to be silently dropped).
@@ -113,7 +116,7 @@ test('bare see-offers with NO budget still presents (regression guard on the ori
   const { send, sessions } = await makeHandler(makeRows());
   const chat = 'bare-see';
   await send(chat, 'SAKAM DA IZNAJMAM STAN');
-  const r = await send(chat, 'POMALO NESTO'); // see-offers, no criteria at all
+  const r = await send(chat, 'STO IMATE VO PONUDA'); // see-offers, no criteria at all
   const s = sessions.get(chat)!;
   assert.ok(r.length > 0, 'the see-offers lane still presents');
   assert.ok((s.slots.currentBatch ?? []).length > 0, 'cards serve without any budget');

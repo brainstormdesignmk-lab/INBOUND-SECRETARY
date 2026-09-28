@@ -64,6 +64,14 @@ export interface SlotData {
   nearbyLandmarkEb?: number;      // WHICH property the slots were resolved for — a served slot must never outlive its property (21:51: EB 57 got EB 56's Завод landmarks 3.2 km away)
   poiAnchor?: string;             // client's POI wish from the SEARCH phrase ("okolu Kapitol Biser") — presentation must find candidates NEAR this point, not just in the neighborhood
   poiAnchorTooFar?: boolean;      // the resolved anchor has NO in-pool property within the honest 1.5 km walk radius — the intro must say so
+  /** The [17:14] size-intent flag: "POMALO NESTO / нешто помало" means
+   *  SMALLER-than-what-was-shown — could be a garsonjera OR a small 1-bedroom
+   *  flat. The bedrooms slot alone must not decide the answer, so the pomalo
+   *  ask fires and this flag stays set until the client names the size:
+   *  "garsonjera" → slots.garsonjera (≤35 м² pool, 1-bedroom fallback),
+   *  "edna spalna" → bedrooms 1; "2 spalni" → clears the flag (2+ is not
+   *  "small" — the normal lane serves it). */
+  pomaloSize?: boolean;
   landmarkIndex?: number;         // how many landmarks have been revealed so far
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
   lastPrice?: string;             // last price answered to the client (for "та цена" resolution)
