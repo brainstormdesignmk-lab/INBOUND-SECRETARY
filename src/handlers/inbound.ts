@@ -12,7 +12,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -1534,25 +1534,43 @@ export class InboundHandler {
     // Moving them here eliminates Groq calls for any message the bank can answer.
     // Guard: skip if the message needs the FSM (classifier → state transition).
     // fsmRequired is the SINGLE source of truth for all FSM-triggering detectors.
-    // RENT-MATH CHECK (the [00:36] transcript): "ZNACI 0D 250 EVRA 125 SE ZA
-    // VAS?" — the client does the commission arithmetic and asks for
-    // confirmation. extractSlots reads the amount as budget → fsmRequired →
-    // the search machinery re-presented, found nothing, and exhausted.plain
-    // answered a math question. So this lane sits ABOVE the !fsmRequired
-    // guard: the detector's own gates (2:1 pair + agency-share marker, or a
-    // halving token; currency/rent context; consent + viewing-fee vetoes)
-    // are stricter than the FSM gate, and when it fires the budget must NOT
-    // be applied (we return before applySlots — the old pollution path).
-    // Computed, never LLM-guessed:
-    //   агенција = кирија/2 · депозит+прва кирија = кирија×2 (сопственик)
-    //   вкупно на денот на потписот = кирија × 2.5  (250 → 125 + 500 = 625)
-    const rentMath = extractRentMath(text);
+    // RENT-MATH / TOTAL-COST lane (the [00:36] transcript + owner commission
+    // tiers): "ZNACI 0D 250 EVRA 125 SE ZA VAS?" and the "KOLKU KE ME KOSTA
+    // KOMPLET? / KOLKU TREBA DA NOSAM SO MENE? / SO KOLKU PARI TREBA DA
+    // DOJDAM?" family. Computed, never LLM-guessed. Owner commission rule:
+    //   rent < 1000 → agency 50% of monthly rent (total = rent × 2.5)
+    //   rent ≥ 1000 → agency 100% of monthly rent (total = rent × 3)
+    //   owner payload (1st month + deposit = rent × 2) UNCHANGED in both.
+    // The lane sits ABOVE the !fsmRequired gate: amount-bearing questions
+    // extract budget → fsmRequired → the search machinery would swallow them
+    // (and the budget must NOT apply — early return before applySlots).
+    // Two inlets: a STATED amount (extractRentMath) or an amount-free
+    // total-cost ask anchored on the rent property on the table
+    // (slots.lastPrice, feed-verified service=rent).
+    const mkMoney = (n: number) => n.toLocaleString('mk-MK', { maximumFractionDigits: 1 });
+    let rentMath = extractRentMath(text);
+    if (!rentMath && detectTotalCostAsk(text)) {
+      // Anchor = the SUBJECT property on the table (interest/current/presented),
+      // NOT slots.lastPrice — lastPrice holds the PRICE VALUE, and getById()
+      // looks up by Евидентен број (getById(1200) would miss EB 42 @ 1200).
+      const subject = session.slots.interestedPropertyId ?? session.slots.propertyId
+        ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+      const anchor = subject !== undefined
+        ? await this.deps.properties.getById(subject).catch(() => undefined)
+        : undefined;
+      if (anchor && anchor.price !== undefined && (anchor.service ?? session.slots.service) === 'rent') {
+        rentMath = computeRentMath(anchor.price);
+      }
+    }
     if (rentMath) {
-      const mk = (n: number) => n.toLocaleString('mk-MK', { maximumFractionDigits: 1 });
-      reply = pickVariant('rent.math.check', { recent: assistantTexts(session), vars: {
-        r: mk(rentMath.rent), c: mk(rentMath.commission), d: mk(rentMath.deposit), t: mk(rentMath.total),
-      } }) ?? `Точно. Од месечна кирија од ${mk(rentMath.rent)} евра: половина — ${mk(rentMath.commission)} евра — е за агенцијата, а ${mk(rentMath.deposit)} евра (депозит + прва кирија) за сопственикот. Вкупно на денот на потписот: ${mk(rentMath.total)} евра.`;
-      bankKey = 'rent.math.check';
+      const mathKey = rentMath.tier === 'high' ? 'rent.math.check.high' : 'rent.math.check';
+      reply = pickVariant(mathKey, { recent: assistantTexts(session), vars: {
+        r: mkMoney(rentMath.rent), c: mkMoney(rentMath.commission), d: mkMoney(rentMath.deposit), t: mkMoney(rentMath.total),
+      } }) ?? (rentMath.tier === 'high'
+        ? `За недвижност со месечна кирија од ${mkMoney(rentMath.rent)} евра: провизијата на агенцијата е една месечна кирија — ${mkMoney(rentMath.commission)} евра — а ${mkMoney(rentMath.deposit)} евра (депозит + прва кирија) е за сопственикот. Вкупна сума од ${mkMoney(rentMath.total)} евра на денот на потпишување на договорот.`
+        : `Точно. Од месечна кирија од ${mkMoney(rentMath.rent)} евра: половина — ${mkMoney(rentMath.commission)} евра — е за агенцијата, а ${mkMoney(rentMath.deposit)} евра (депозит + прва кирија) за сопственикот. Вкупно на денот на потписот: ${mkMoney(rentMath.total)} евра.`);
+      bankKey = mathKey;
       routeLog(chatId, text, 'RENT_MATH:fast');
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);

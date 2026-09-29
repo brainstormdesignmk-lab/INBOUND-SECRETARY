@@ -122,6 +122,29 @@ export const BANK_CONSTRAINTS: Record<string, KeyConstraint> = {
     allowedAmounts: FEE_ALLOWED_AMOUNTS,
     note: 'buyer pays 0% commission; the only cost is the visit fee (sanctioned figures); may enumerate the buyer\'s own legal obligations; never any other amount',
   },
+  // COMMISSION TIERS (owner rule): the textual rent-provision answer states
+  // the WHOLE tier rule, so the 1.000 threshold is sanctioned vocabulary.
+  // Live numbers ({r}/{c}/{d}/{t}) are computed at serve time and live only
+  // in the rent.math.* keys — a filled number here would be a bug upstream.
+  'provision.ask.rent': {
+    mustIncludeAny: [/50\s*%|педесет процент|половин/i],
+    allowedAmounts: ['1000:eur'],
+    maxLength: BASELINE_MAX_LENGTH + 80,
+    note: 'rent commission tiers: 50% below 1.000 eur, one full monthly rent at 1.000+ eur; owner payload (first month + deposit) unchanged; the only sanctioned figure is the 1.000 threshold',
+  },
+  // The rent-math breakdown keys: every real number arrives via {r}/{c}/{d}/{t}
+  // placeholders (computed by computeRentMath); the only literal figure allowed
+  // is the tier threshold 1.000 eur named in the wording.
+  'rent.math.check': {
+    allowedAmounts: ['1000:eur'],
+    maxLength: BASELINE_MAX_LENGTH + 80,
+    note: 'LOW tier math (< 1000 eur): agency = half the rent ({c}), owner = rent×2 ({d}), total = rent×2.5 ({t}); computed at serve time — never a hardcoded amount',
+  },
+  'rent.math.check.high': {
+    allowedAmounts: ['1000:eur'],
+    maxLength: BASELINE_MAX_LENGTH + 80,
+    note: 'HIGH tier math (>= 1000 eur): agency = one full monthly rent ({c}), owner = rent×2 ({d}), total = rent×3 ({t}); computed at serve time — never a hardcoded amount',
+  },
 };
 
 // --- API ---

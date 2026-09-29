@@ -29,7 +29,7 @@ import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
-import { extractRentMath, extractSlots, fsmRequired } from '../src/llm/deterministic';
+import { extractRentMath, computeRentMath, detectTotalCostAsk, extractSlots, fsmRequired } from '../src/llm/deterministic';
 
 class FailingLlm implements LlmClient { async complete(): Promise<string> { throw new Error('429'); } }
 class FakeProps extends PropertyService {
@@ -40,7 +40,48 @@ class FakeProps extends PropertyService {
 
 const ROWS: Property[] = [
   { eb: 41, id: 41, location: 'Центар', price: 250, service: 'rent', bedrooms: 2, size: '55 м²' },
+  { eb: 42, id: 42, location: 'Центар', price: 1200, service: 'rent', bedrooms: 3, size: '90 м²' },
 ] as unknown as Property[];
+
+test('commission TIERS: <1000 → 50% agency, >=1000 → 100% agency; owner payload unchanged', () => {
+  // Low tier: total = rent × 2.5 (the owner-corrected 625 case).
+  const low = computeRentMath(250);
+  assert.equal(low.tier, 'low');
+  assert.equal(low.commission, 125);
+  assert.equal(low.deposit, 500);
+  assert.equal(low.total, 625);
+  assert.equal(computeRentMath(999)!.tier, 'low');
+  assert.equal(computeRentMath(999)!.commission, 499.5);
+  // Boundary: exactly 1000 is HIGH.
+  const boundary = computeRentMath(1000);
+  assert.equal(boundary.tier, 'high');
+  assert.equal(boundary.commission, 1000);
+  assert.equal(boundary.deposit, 2000);
+  assert.equal(boundary.total, 3000);
+  const high = computeRentMath(1200);
+  assert.equal(high.commission, 1200, 'high tier: agency takes the full monthly rent');
+  assert.equal(high.total, 3600);
+  // Owner payload identical across tiers: deposit+first = rent × 2.
+  assert.equal(computeRentMath(250)!.deposit, 500);
+  assert.equal(computeRentMath(1200)!.deposit, 2400);
+});
+
+test('total-cost ask family: grammar-based, amount-free, vetoed on own lanes', () => {
+  for (const t of ['KOLKU KE ME KOSTA KOMPLET OVA?', 'kolku ke me kosta ovoj stan?',
+    'KOLKU TREBA DA NOSAM SO MENE ?', 'kolku treba da nosam pari?',
+    'SO KOLKU PARI TREBA DA DOJDAM ?', 'so kolku pari da dojdam na potpisuvanjeto?',
+    'kolku pari da ponesam?', 'kolku da spremam za denot na potpis?',
+    'kolku vkupno ke me cini?']) {
+    assert.equal(detectTotalCostAsk(t), true, `total-cost ask: ${t}`);
+  }
+  // Amount-bearing messages belong to the math lane; consent and viewing
+  // fees keep their own lanes; no false fires on plain traffic.
+  assert.equal(detectTotalCostAsk('kolku za 500 den?'), false, 'amounts → extractRentMath');
+  assert.equal(detectTotalCostAsk('ke platam 500 den za poseta'), false);
+  assert.equal(detectTotalCostAsk('kolku e vleznica?'), false);
+  assert.equal(detectTotalCostAsk('kolku e kirijata?'), false);
+  assert.equal(detectTotalCostAsk('dali e dostapen?'), false);
+});
 
 test('rent-math detector matrix: pair arm, halving arm, total-flip, vetoes', () => {
   // Pair arm (2:1 + agency-share marker) — the transcript phrasings.
@@ -90,6 +131,20 @@ test('rent-math detector matrix: pair arm, halving arm, total-flip, vetoes', () 
   // extracts budget:"250" — the search machinery would eat it otherwise.
   assert.equal(extractSlots('ZNACI 0D 250 EVRA 125 SE ZA VAS?').budget, '250');
   assert.equal(fsmRequired('ZNACI 0D 250 EVRA 125 SE ZA VAS?'), true);
+
+  // (c) single STATED rent + rent-context + share/cost marker — tier-aware.
+  const high = extractRentMath('kirijata e 1200 evra mesecno, kolku e provizijata?');
+  assert.ok(high, 'stated high rent with share marker fires');
+  assert.equal(high!.tier, 'high');
+  assert.equal(high!.commission, 1200, '>=1000 → agency takes the full rent');
+  assert.equal(high!.total, 3600);
+  const lowStated = extractRentMath('kolku e provizijata za kirija od 800 evra?');
+  assert.ok(lowStated, 'stated low rent with share marker fires');
+  assert.equal(lowStated!.commission, 400);
+  assert.equal(lowStated!.total, 2000);
+  // A high rent never reads as a 2:1 pair (no halving exists above 1000).
+  assert.equal(extractRentMath('znaci od 1200 evra 600 se za vas?'), undefined,
+    '>=1000 has no 2:1 split — the pair arm must not fire');
 });
 
 test('[00:36] e2e: rent-math question gets the computed breakdown, never the exhausted line', async () => {
@@ -121,4 +176,37 @@ test('[00:36] e2e: rent-math question gets the computed breakdown, never the exh
   assert.ok(!/Одличен избор! Само Вашето име/.test(r), `never the contact ask: ${r}`);
   // The math amount must never pollute the search slots.
   assert.equal(s.slots.budget, '250', 'budget stays the actual search budget');
+});
+
+test('HIGH tier e2e: "KOLKU TREBA DA NOSAM SO MENE ?" on a 1200 rent → the 100% math', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS);
+  const classifier = new Classifier(new FailingLlm(), cfg, properties);
+  const responder = new Responder(new FailingLlm(), cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }) });
+  const chat = 'rent-math-high';
+  await handler.handle('test', chat, 'SAKAM STAN POD KIRIJA VO CENTAR DO 1300 EVRA');
+  await handler.handle('test', chat, 'DA');
+  // Name EB 42 and ask its price — the price relay pins slots.lastPrice=1200
+  // (the rent anchor the total-cost lane reads).
+  await handler.handle('test', chat, 'KOLKU E STANOT SO EVIDENTEN BROJ 42?');
+  const s0 = sessions.get(chat)!;
+  assert.equal(s0.slots.lastPrice, '1200', `rent anchor pinned: ${s0.slots.lastPrice}`);
+
+  const r = await handler.handle('test', chat, 'KOLKU TREBA DA NOSAM SO MENE ?') as unknown as void;
+  const reply = sent.at(-1) ?? '';
+  const s = sessions.get(chat)!;
+  assert.ok(/1.200/.test(reply), `rent in the reply: ${reply}`);
+  assert.ok(/2.400/.test(reply), `owner payload (rent×2) in the reply: ${reply}`);
+  assert.ok(/3.600/.test(reply), `HIGH total (rent×3) in the reply: ${reply}`);
+  assert.ok(/целосна/.test(reply), `the 100% wording (not 50%) in the reply: ${reply}`);
+  assert.ok(!/половина/.test(reply), `never the low-tier wording: ${reply}`);
+  assert.equal(s.slots.service, 'rent');
 });

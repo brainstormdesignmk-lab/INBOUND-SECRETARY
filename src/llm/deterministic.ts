@@ -3489,15 +3489,30 @@ const _RENT_MATH_RENT_CONTEXT_RE = /(?:кириј|наем|kirij|najm|mesecn|м�
 const _RENT_MATH_HALF_TOKEN_RE = /(?:\/\s*2(?:[.,]5)?|\b2[.,]5\b|[хx]\s*2(?:[.,]5)?\b|половин\w*|polovin\w*|polvin\w*|(?<![\p{L}])pol[аa](?![\p{L}])|half)/iu;
 // The pair arm additionally needs the AGENCY-SHARE marker: a budget range
 // ("od 250 do 500 evra") is also a 2:1 pair, but "125 SE ZA VAS?" asks whose
-// money the second number is — that question is the math check.
-const _RENT_MATH_YOU_RE = /(?:за\s+вас|za\s+vas|ваш\w*|vash\w*|провизи\w*|provizi\w*|агенци\w*|agenci\w*|комиси\w*|komisi\w*)/iu;
+// money the second number is — that question is the math check. Cost words
+// ("kolku ke me KOSTA?") also mark a math question about the stated rent.
+const _RENT_MATH_SHARE_RE = /(?:за\s+вас|za\s+vas|ваш\w*|vash\w*|провизи\w*|provizi\w*|агенци\w*|agenci\w*|комиси\w*|komisi\w*|кост\w*|кучт\w*|кушт\w*|kost\w*|комплет\w*|komplet\w*)/iu;
 // Total-flip marker: "vkupno 625 za 2.5?" states the TOTAL — flip to
 // rent = amount/2.5. Without the marker ("kirijata e 300, t.e. 2.5?" — a
 // multiplier CONFIRMATION) the amount IS the rent; never flip.
 const _RENT_MATH_TOTAL_RE = /(?:вкупн\w*|vkupn\w*|total)/iu;
 const _RENT_MATH_AMOUNT_RE = /(?<![\p{L}\p{N}:])(\d{2,6}(?:[.,]\d{1,2})?)(?!\s*[:%])/giu;
 
-export interface RentMathResult { rent: number; commission: number; deposit: number; total: number; }
+export interface RentMathResult { rent: number; tier: 'low' | 'high'; commission: number; deposit: number; total: number; }
+
+/**
+ * THE COMMISSION TIERS (owner rule): rent < 1000 → agency takes HALF the
+ * monthly rent; rent ≥ 1000 → agency takes the FULL monthly rent. The owner
+ * payload (first month + deposit = rent × 2) is unchanged in both tiers.
+ * Total at signing: low = rent × 2.5 (250 → 125 + 500 = 625),
+ * high = rent × 3 (1200 → 1200 + 2400 = 3600).
+ */
+export function computeRentMath(rent: number): RentMathResult {
+  const tier: 'low' | 'high' = rent >= 1000 ? 'high' : 'low';
+  const commission = tier === 'high' ? rent : rent / 2;
+  const deposit = rent * 2;
+  return { rent, tier, commission, deposit, total: commission + deposit };
+}
 
 export function extractRentMath(text: string): RentMathResult | undefined {
   // Own-lane vetoes first: consent stays consent, viewing fees stay fees.
@@ -3515,10 +3530,12 @@ export function extractRentMath(text: string): RentMathResult | undefined {
   if (amounts.length === 0) return undefined;
   let rent: number | undefined;
   if (rent === undefined && amounts.length >= 2) {
-    // (a) 2:1 pair + agency-share marker — smallest base wins.
-    if (!_RENT_MATH_YOU_RE.test(text)) return undefined;
+    // (a) 2:1 pair + agency-share marker — smallest base wins. Low-tier
+    // shape only: at ≥1000 the commission is 100%, no 2:1 split exists.
+    if (!_RENT_MATH_SHARE_RE.test(text)) return undefined;
     const uniq = [...new Set(amounts)].sort((x, y) => x - y);
     for (const b of uniq) {
+      if (b * 2 >= 1000) break; // a high-tier rent never splits 2:1
       if (uniq.some(a => a !== b && Math.abs(a - b * 2) <= Math.max(1, b * 0.02))) { rent = b * 2; break; }
     }
   }
@@ -3535,8 +3552,43 @@ export function extractRentMath(text: string): RentMathResult | undefined {
       rent = a;
     }
   }
+  if (rent === undefined && amounts.length === 1
+    && _RENT_MATH_RENT_CONTEXT_RE.test(text) && _RENT_MATH_SHARE_RE.test(text)) {
+    // (c) single STATED rent + rent-context + share/cost marker
+    // ("kirijata e 1200 evra, kolku ke me kosta komplet?" → HIGH tier;
+    //  "kolku e provizijata za kirija od 800 evra?" → LOW tier).
+    rent = amounts[0]!;
+  }
   if (rent === undefined || rent < 50) return undefined;
-  return { rent, commission: rent / 2, deposit: rent * 2, total: rent * 2.5 };
+  return computeRentMath(rent);
+}
+
+// =========================================================================
+// TOTAL-COST ASK (owner family): "KOLKU KE ME KOSTA KOMPLET OVA?", "KOLKU
+// TREBA DA NOSAM SO MENE?", "SO KOLKU PARI TREBA DA DOJDAM?" — the client
+// asks what to BRING on signing day. Grammar-based, both scripts, wide
+// verb coverage: kolku/колку + (cost | bring-carry | come-with | set-aside)
+// family. No amounts in the message — the rent anchor comes from the
+// property on the table (slots.lastPrice) at lane level. Rent context is
+// REQUIRED: with no anchor and no rent word the lane cannot compute.
+// Payment-consent phrasings ("ke platam ...") keep their own lane.
+const _TOTAL_COST_UE = "(?!\\p{L}\\p{N})";
+const TOTAL_COST_RE = new RegExp(
+  _mB + '(?:kolku|колку)' + _TOTAL_COST_UE + '[^.!?\\n]{0,40}'
+  + '(?:кучт|кушт|kost|кост|чини|cini|nosam|ноsam|носам|носи|nosi|ponesam|понесам|dojdam|дојдам|dojd|дојд|set aside|spremam|спремам)'
+  + '|' + _mB + '(?:kuch|kust|кучт|кушт)[^.!?\\n]{0,30}' + _TOTAL_COST_UE + '(?:kolku|колку)'
+  + '|' + _mB + '(?:so|со)\\s+(?:kolku|колку)[^.!?\\n]{0,30}(?:pari|пари|denari|денари|evra|евра)'
+  + '|' + _mB + '(?:vkupno|вкупно)[^.!?\\n]{0,24}(?:ke|ќе)\\s+(?:me|ме|вк|me)',
+  'iu');
+
+export function detectTotalCostAsk(text: string): boolean {
+  // Amount-bearing messages route through extractRentMath (the math lane
+  // owns stated numbers); this family is amount-free — the rent anchor
+  // comes from the property on the table.
+  if (/\d/.test(text)) return false;
+  if (detectFeePaymentAgreement(text)) return false;
+  if (matchesBoth(new RegExp(VIEWING_NOUN_SRC, 'iu'), text)) return false;
+  return matchesBoth(TOTAL_COST_RE, text);
 }
 
 // Provision who-pays: the client asks WHO pays the lawyer/notary/tax —

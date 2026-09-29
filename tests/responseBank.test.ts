@@ -36,7 +36,7 @@ test('response bank: every entry is non-empty and placeholders live only where e
         // Counter relays carry the owner's/client's term exactly once — the
         // judge's dropped-alternative assertion parses it from the text.
         assert.equal(v.match(/\{time\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
-      } else if (key === 'rent.math.check') {
+      } else if (key === 'rent.math.check' || key === 'rent.math.check.high') {
         // The [00:36] rent-math breakdown: numbers are COMPUTED at serve time
         // by extractRentMath — {r} rent, {c} commission (rent/2), {d}
         // deposit+first month (rent×2), {t} total (rent×2.5) — each exactly
