@@ -65,6 +65,8 @@ export interface AppConfig {
   localBackupUrl: string;  // local fallback REST server (HP620) — when Supabase is down, edge functions read from here
   linaId: string;          // this instance's relay identity (LINA-1); envelope botId must match
   relayToken: string;      // dedicated ATOM4<->LINA relay auth (X-Relay-Token), NOT a Viber credential
+  viberOutboundMode: 'direct' | 'relay'; // direct = Bot API from this machine (default); relay = queue replies to the ATOM4 /outbound lane
+  viberClient: string;     // relay-outbound queue name (viber1|viber2|viber3) — which phone bridge serves this instance
 }
 
 const num = (v: string | undefined, d: number): number => {
@@ -146,6 +148,8 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     localBackupUrl: process.env.LOCAL_BACKUP_URL || '',
     linaId: process.env.LINA_ID || 'LINA-1',
     relayToken: process.env.RELAY_TOKEN_LINA || '',
+    viberOutboundMode: (process.env.VIBER_OUTBOUND_MODE === 'relay' ? 'relay' : 'direct'),
+    viberClient: process.env.VIBER_CLIENT || 'viber1',
   };
   // All explicit overrides win over env (simFast was the only one honored
   // before — tests now override e.g. hermesToken / ownerBusPollMs too).

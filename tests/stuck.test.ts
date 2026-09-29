@@ -3358,7 +3358,10 @@ test('[14:22] "OVOJ 79 NE E LOS" gives the visit protocol, never the card again'
   const s = await send('OVOJ 79 NE E LOS');
   assert.equal(s.state, 'closing', 'a positive eval must arm the funnel');
   const reply = sent.at(-1)!;
-  assert.ok(/посета|разглед|организирам|термин/iu.test(reply), `the visit protocol expected: ${reply}`);
+  // Wording-agnostic: the bank pool mixes seed AND learned variants — a
+  // learned one asks "да договориме време кога би можеле да го погледнете?"
+  // without ever using посета/разглед/термин.
+  assert.ok(/посета|разглед|организирам|термин|поглед|договориме/iu.test(reply), `the visit protocol expected: ${reply}`);
   // THE CONTRACT: not the same card text again.
   const firstCard = sent.find(t => t.includes('Евидентен број 79'))!;
   assert.ok(!reply.includes('35 м²'), `the card must not re-render: ${reply}`);

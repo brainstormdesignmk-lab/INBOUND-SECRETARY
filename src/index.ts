@@ -16,6 +16,7 @@ import { Responder } from './llm/respond';
 import { InboundHandler } from './handlers/inbound';
 import { ChannelRegistry } from './channels/types';
 import { ViberAdapter } from './channels/viber';
+import { RelayOutboundChannel } from './channels/relayOutbound';
 import { TelegramAdapter } from './channels/telegram';
 import { WhatsAppAdapter } from './channels/whatsapp';
 import { registerRelayIngress } from './channels/relay';
@@ -105,14 +106,27 @@ async function main(): Promise<void> {
 
   const visitTimer = visits.start(60_000);
 
-  const viber = new ViberAdapter(cfg, pipeline);
+  // VIBER_OUTBOUND_MODE=relay: replies queue on the ATOM4 relay (client
+  // viber1) for the phone bridge to deliver through the REAL Viber app — the
+  // atom holds no Viber credential and may have no route to chatapi.viber.com.
+  // Default (direct) keeps the Bot-API ViberAdapter. INBOUND is unchanged:
+  // relay -> /message -> pipeline in both modes (the 2026-09-29 outage:
+  // inbound flowed while every reply died silently on the empty VIBER_TOKEN —
+  // the relay lane survived only as an orphaned dist/ artifact).
+  // The webhook surface stays in BOTH modes: on an atom, direct callbacks
+  // are rejected for lack of a token, while relay ingress (/message) is the
+  // live path — but the endpoint is harmless and keeps local dev working.
+  const viberDirect = new ViberAdapter(cfg, pipeline);
+  const viber = cfg.viberOutboundMode === 'relay'
+    ? new RelayOutboundChannel(cfg)
+    : viberDirect;
   channels.register(viber);
   channels.register(new TelegramAdapter(cfg));
   channels.register(new WhatsAppAdapter(cfg));
 
   const app = express();
   app.use(express.json({ limit: '32kb' })); // Viber caps request JSON at 30KB
-  viber.registerWebhook(app);
+  viberDirect.registerWebhook(app);
 
   // The two-machine bridge: Hermes (its own box) talks to Lina through this
   // token-guarded surface — work queue + results. Disabled (503) without HERMES_TOKEN.
@@ -132,7 +146,12 @@ async function main(): Promise<void> {
     console.log(`[boot] hermesApi=${cfg.hermesToken ? 'on (HERMES_TOKEN)' : 'DISABLED — set HERMES_TOKEN'}`);
     console.log('[boot] capture=data/capture/fallthroughs.jsonl (fallthrough-only, auto-flush)');
     if (cfg.viberOperatorId) console.log(`[boot] operator log → Viber ${cfg.viberOperatorId}`);
-    if (!cfg.viberToken) console.warn('[boot] VIBER_TOKEN not set — webhook will reject all callbacks');
+    if (cfg.viberOutboundMode === 'relay') {
+      console.log(`[boot] viberOutbound=relay (client ${cfg.viberClient}) — replies queue on the ATOM4 relay /outbound lane`);
+      if (!cfg.relayToken) console.warn('[boot] RELAY_TOKEN_LINA not set — the relay will reject replies (401)');
+    } else if (!cfg.viberToken) {
+      console.warn('[boot] VIBER_TOKEN not set — webhook will reject all callbacks');
+    }
     if (!cfg.viberWebhookUrl) console.warn('[boot] VIBER_WEBHOOK_URL not set — run "npm run webhook:set" after configuring');
   });
 
