@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -689,6 +689,18 @@ export class Classifier {
         && ev.type === 'STAY' && !detectInvestmentOpinion(text)
         && propertyOnTable(session) && detectPropertyInterest(text)) {
         console.log(`[timing] det-classify ${Date.now() - t0}ms → CLOSING_INTEREST_STAY`);
+        return { event: { type: 'STAY' }, offensive: false, offenseLevel: 0 };
+      }
+      // META-CLARIFICATION STAY (the [22:30] TUI capture: "NE MISLEV NISTO
+      // VULGARNO"). After an abrupt deterministic serve the client defends
+      // their own words — no question, no criteria, no property (the detector
+      // topic-vetoes property/price/service words so real content keeps its
+      // lanes). The reply was deterministic downstream anyway; this only
+      // removes the LLM round-trip. Funnel states keep re-asking the next
+      // missing criterion; closing re-serves the fee ask (intact guard —
+      // rejections/agreements never reach here: their events aren't STAY).
+      if (ev.type === 'STAY' && detectMetaClarify(text)) {
+        console.log(`[timing] det-classify ${Date.now() - t0}ms → META_CLARIFY_STAY`);
         return { event: { type: 'STAY' }, offensive: false, offenseLevel: 0 };
       }
       return undefined; // signals caller to fire Groq

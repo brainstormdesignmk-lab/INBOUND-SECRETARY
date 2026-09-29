@@ -3178,6 +3178,37 @@ export function detectDefer(text: string): boolean {
   return matchesBoth(DEFER_RE, text) || matchesBoth(DEFER_GRAMMAR_RE, text) || extFires('defer', text);
 }
 
+// Meta-clarification: the client clarifies their OWN previous words — no
+// question, no criteria, no property. The [22:30] TUI capture: "NE MISLEV
+// NISTO VULGARNO" — after an abrupt deterministic serve the client read it
+// as an insinuation and defended themselves; an LLM round classified the
+// no-info line (1645 ms) and the funnel just re-asked. These lines need NO
+// brain: det-classify owns them as STAY so the funnel re-asks its next
+// missing piece with zero round-trips. Deliberately NARROW — first-person
+// negated-thought arms only: offense REPLAYS are quoted ("TI REKU...") and
+// never match, property opinions without the clarifier verb ("stanot nema
+// nishto losho") stay clean, and criteria lines extract slots before this
+// detector is ever consulted.
+//   • не мисл(ам/ев/еше)… вулгарн/лош  — the capture family
+//   • не имав(ме) намера               — "no offense intended"
+//   • не беше со зла/лоша намера       — third-person self-report form
+const META_CLARIFY_RE = new RegExp(
+  '(?<![\\p{L}])(?:не\\s+(?:мисл|mis)\\p{L}*[^.!?\\n]{0,30}(?:вулгарн|vulgarn|лош|losh)' +
+  // negation fused into the auxiliary ("немав намера") or split ("не имав намера")
+  '|(?:немав|немам|не\\s+имав)\\p{L}*(?:\\s+\\p{L}+){0,3}?\\s+намер\\p{L}*' +
+  // "не бев/беше со зла намера" — бев/бевме/беше persons
+  '|не\\s+(?:бев|беше)\\p{L}*(?:\\s+\\p{L}+){0,2}?\\s+(?:со|so)\\s+(?:зл|лош)\\p{L}*\\s+намер\\p{L}*)',
+  'iu');
+
+/** True when the message is a no-info clarification of the client's own words.
+ *  Topic veto: property/price/service words mean the line is ABOUT the search
+ *  (a negative opinion, a service correction) — real content the slot
+ *  extractors and opinion lanes must see, never a meta-clarification. */
+export function detectMetaClarify(text: string): boolean {
+  if (!matchesBoth(META_CLARIFY_RE, text)) return false;
+  return !matchesBoth(/(?:стан|stan|куќ|kukj|имот|imot|гарсон|garson|делов|delov|цена|cena|евр|evr|денар|denar|кири|kiri|куп|kup|најм|najm|изнајм|iznajm|продаж|prodazh|прода[вз]|prodav)/i, text);
+}
+
 // Price negotiation: the client asks to lower the price or requests a discount.
 const NEGOTIATE_RE =
   /(?:може\s+ли\s+(?:помала|пониска|поевтина|поевтин|помал)|може\s+ли\s+(?:нешто|nesto)?\s*поевтин[оа]|moze\s+li\s+(?:nesto\s+)?poevtin[oа]|помала\s+(?:цена|евра|евро)|пониска\s+(?:цена|евра)|поевтин\s+(?:стан|нешто)|дали\s+(?:има|постои|ќе\s+има)\s+попуст|попуст|popust|намалување|namaluvanje|појефтинување|pojeftinuvanje|може\s+ли\s+да\s+се\s+договориме\s+за\s+цена|дали\s+е\s+(?:фиксна|финална|конечна)\s+цена|can\s+(?:you|we)\s+(?:lower|reduce|drop|negotiate|cut)\s+(?:the\s+)?(?:price|cost)|discount|cheaper|lower\s+price|price\s+(?:reduction|cut|drop|negotiat)|any\s+(?:wiggle|flexibility|room)\s+(?:on\s+the\s+)?price|is\s+(?:the\s+)?(?:price|cost)\s+(?:fixed|firm|final|negotiable)|negotiate|за\s+(?:цената?|cena(?:to)?)|nego\s+za\s+cena|цена\s+(?:доле|надолу|долу|намали)|поевтин[оа]?|пониско|поскапо|него\s+за\s+цена|за\s+цената)/iu;

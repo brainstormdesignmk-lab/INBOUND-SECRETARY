@@ -206,7 +206,12 @@ test('HIGH tier e2e: "KOLKU TREBA DA NOSAM SO MENE ?" on a 1200 rent → the 100
   assert.ok(/1.200/.test(reply), `rent in the reply: ${reply}`);
   assert.ok(/2.400/.test(reply), `owner payload (rent×2) in the reply: ${reply}`);
   assert.ok(/3.600/.test(reply), `HIGH total (rent×3) in the reply: ${reply}`);
-  assert.ok(/целосна/.test(reply), `the 100% wording (not 50%) in the reply: ${reply}`);
+  // Wording-agnostic (the bank pool mixes seed + learned variants — one HIGH
+  // seed says "една кирија", another "целосна месечна кирија"): the 100% math
+  // shows the commission EQUAL to the rent, so the rent figure appears twice.
+  // A wrong LOW-tier serve would render 600 / 3.000 instead — the amount
+  // assertions above pin the tier; this pins the full-rent wording itself.
+  assert.ok((reply.match(/1.200/g) ?? []).length >= 2, `commission = full rent (1.200 twice) in the reply: ${reply}`);
   assert.ok(!/половина/.test(reply), `never the low-tier wording: ${reply}`);
   assert.equal(s.slots.service, 'rent');
 });

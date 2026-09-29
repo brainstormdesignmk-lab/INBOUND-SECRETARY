@@ -23,6 +23,17 @@
 //    STAY directly (after the no-slot deferral gate, which fires first on
 //    empty slots) and the fee ask re-serves. Guarded: no investment opinion,
 //    property still on the table, rejections/agreements keep their lanes.
+// 4. "ZDRAVO\nSAKAM DA IZNAJMAM STANCE" (22:22) → INTENT_DECLARED(rent). The
+//    greeting-plus-intent burst rode an LLM classify round (1471 ms) before
+//    the INTENT_DECLARED ownership branch landed; det-classify owns it now —
+//    pinned as a regression guarantee (stance = станче diminutive is in the
+//    service lexicon).
+// 5. "NE MISLEV NISTO VULGARNO" (22:30) → META_CLARIFY_STAY. After an abrupt
+//    deterministic serve the client defended their own words (they had read
+//    the address-privacy deflection as an insinuation). A no-info meta line
+//    with no question, no criteria, no property — an LLM round classified it
+//    (1645 ms) while the funnel re-asked anyway. detectMetaClarify owns the
+//    family (first-person negated-thought arms + topic veto) as STAY.
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { loadConfig } from '../src/config';
@@ -38,7 +49,7 @@ import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
-import { GREETING_ONLY_RE } from '../src/llm/deterministic';
+import { GREETING_ONLY_RE, detectMetaClarify } from '../src/llm/deterministic';
 
 class FailingLlm implements LlmClient { async complete(): Promise<string> { throw new Error('429'); } }
 class FakeProps extends PropertyService {
@@ -139,4 +150,55 @@ test('mined captures e2e: fresh-session ZDRAVO gets the greeting.open ask, not a
   assert.equal(s.state, 'idle', 'no hallucinated property funnel');
   assert.ok(/Повелете|Здраво|Добар ден|купување или изнајмување/i.test(r), `greeting/open ask serves: ${r}`);
   assert.ok(!/Евидентен број/.test(r), `never the "do you know the EB" probe: ${r}`);
+});
+
+// The [22:22] capture (greeting + "stance" diminutive in one burst): the
+// ownership branch predates the capture, but it must STAY owned — pinned as a
+// regression guarantee. Byte-for-byte verbatim, newline included.
+test('mined captures: greeting+intent burst ("ZDRAVO\nSAKAM DA IZNAJMAM STANCE") is det-owned INTENT_DECLARED(rent)', async () => {
+  const cfg = loadConfig();
+  const classifier = new Classifier(new FailingLlm(), cfg, undefined);
+  const r = await classifier.deterministicClassify({ state: 'idle', slots: {} } as any,
+    'ZDRAVO\nSAKAM DA IZNAJMAM STANCE');
+  assert.ok(r, 'burst must be owned by det-classify');
+  assert.equal(r!.event.type, 'INTENT_DECLARED');
+  assert.equal((r!.event as any).service, 'rent', 'the diminutive stance is rent vocabulary');
+});
+
+// The [22:30] capture: a no-info defense of the client's own words. The
+// detector matrix guards the family (topic veto: opinions/corrections about
+// the SEARCH keep their lanes; quoted offense replays never match).
+test('mined captures: meta-clarification ("NE MISLEV NISTO VULGARNO") is det-owned STAY', async () => {
+  // detector family
+  for (const t of ['NE MISLEV NISTO VULGARNO', 'не мислев ништо вулгарно',
+    'ne mislam nisto losho', 'немав намера ништо лошо', 'nemas veze, ne bev so zla namera']) {
+    assert.equal(detectMetaClarify(t), true, `${t} must fire`);
+  }
+  for (const t of ['stanot nema nishto losho', 'не мислам дека е добра цена',
+    'не мислам да купам', 'ti reka deka sum vulgaren', 'mi treba stan pod kirija']) {
+    assert.equal(detectMetaClarify(t), false, `${t} must stay clean`);
+  }
+  // det-classify ownership in funnel states
+  const cfg = loadConfig();
+  const classifier = new Classifier(new FailingLlm(), cfg, undefined);
+  for (const state of ['discovery', 'closing', 'presentation']) {
+    const r = await classifier.deterministicClassify(
+      { state, slots: state === 'discovery' ? {} : { propertyId: 90, service: 'buy' } } as any,
+      'NE MISLEV NISTO VULGARNO');
+    assert.ok(r, `${state}: capture must be owned by det-classify`);
+    assert.equal(r!.event.type, 'STAY');
+  }
+});
+
+test('mined captures e2e: meta-clarify lands STAY — funnel re-asks, no strike, no offense reply', async () => {
+  const { send, sessions } = await makeHandler();
+  const chat = 'capture-meta-clarify';
+  await send(chat, 'SAKAM DA ZEMAM STAN POD KIRIJA');
+  const r = await send(chat, 'NE MISLEV NISTO VULGARNO');
+  const s = sessions.get(chat)!;
+  assert.equal(s.state, 'discovery', 'funnel stays live');
+  assert.equal(s.strikes, 0, 'never an offense');
+  assert.ok(!/професионалн/i.test(r), `no rebuff: ${r}`);
+  // Wording-agnostic: seed AND learned location-ask variants share the pool.
+  assert.ok(/дел|населб|локаци/i.test(r), `the next missing criterion is re-asked: ${r}`);
 });
