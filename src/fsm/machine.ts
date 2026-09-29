@@ -120,6 +120,14 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
     FEE_AGREED: 'contact_collection',   // fee OK -> collect name+phone
     FEE_REFUSED: 'closing',             // 1st/2nd refusal -> persuasion; 3rd -> 'queued' (pipeline guard)
     REJECTED: 'presentation',           // "не го сакам овој стан" -> next options
+    // MORE-OPTIONS (the [22:2x] Viber transcript): mid-fee-funnel asks for
+    // alternatives ("a drugi stanovi do taa cena imate?", "drugi nemate vo
+    // celo skopje", "nesto novo") must serve the NEXT BATCH — the client is
+    // still shopping, the fee debate resumes when a new property catches him.
+    // Without these edges the asks fell to the LLM (or the INFO_ASK lane) and
+    // the client heard the fee pitch AGAIN.
+    SEARCH_REQUESTED: 'presentation',   // "drugi imate?" -> next batch (ladder continues)
+    DETAILS_PROVIDED: 'presentation',   // "a poskapo nesto?" -> re-search + re-present
     PROPERTY_ID_REQUESTED: 'property_query',
     ESCALATE: 'escalated',
     STAY: 'closing',

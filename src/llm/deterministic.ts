@@ -2929,6 +2929,33 @@ export function mentionsMore(text: string): boolean {
   return /(?:друг(?:о|и|а|иот|ата|ово)?|уште|усте|уцте|iste)/u.test(normalizeMc(text));
 }
 
+// MORE-OPTIONS ASK (the [22:2x] Viber closing-tail transcript): the client
+// mid-fee-funnel asks for ALTERNATIVES instead of deciding — "a drugi
+// stanovi do taa cena imate?", "drugi nemate vo celo skopje", bare "nesto
+// novo". The funnel must hand him the NEXT batch (ladder), never re-pitch
+// the fee. One detector, three arms:
+//   (a) mentionsMore + have-verb — the explicit "others do you have" family
+//   (b) other/nov/beshe/ima + variants of the noun (stan/nesto/ponuda/imot)
+//       — "drugi nemate vo celo skopje", "nesto novo"
+//   (c) bare "nesto novo" / "nesto drugo" — the shortest form
+// VETOED at the call sites: fee traffic (surprise/why/complaint/agreement),
+// rent-math and total-cost asks (amount-bearing questions), price asks with
+// facets, and any state where nothing was presented yet.
+const MORE_OPTIONS_RE = new RegExp(
+  '(?<![\\p{L}])(?:друг(?:и|о|а)\\p{L}*|drugi|drugo|druga|nov(?:о|а)?|novo|nova)' +
+  '(?:\\s+\\p{L}+){0,6}?\\s+' +
+  '(?:имат|имате|немат|немате|nemat(?:e)?|imate|ima|imaт|посто|posto|ponud|понуд)',
+  'iu');
+
+/** True when the client asks for MORE/OTHER options (alternatives family).
+ *  Covers both scripts via matchesBoth; call sites apply the fee/price vetoes. */
+export function detectMoreOptions(text: string): boolean {
+  if (matchesBoth(MORE_OPTIONS_RE, text)) return true;
+  // (c) bare "nesto novo" / "nesto drugo" — no verb needed
+  return matchesBoth(/(?<![\p{L}])нест[оа]|(?<![\p{L}])nesto(?![\p{L}])/u, text)
+    && matchesBoth(/(?<![\p{L}])(?:нов|novo|nov|друг|drugo|druga)/iu, text);
+}
+
 /** The last assistant reply was an EXHAUSTED/WIDEN line — the area drained
  *  and Lina asked whether to widen ("…или да погледнеме во друга населба?").
  *  Used by the presentation re-present leg: a bare "drugo sto imas?" after

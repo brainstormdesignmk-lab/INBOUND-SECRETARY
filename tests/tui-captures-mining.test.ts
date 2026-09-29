@@ -148,7 +148,11 @@ test('mined captures e2e: fresh-session ZDRAVO gets the greeting.open ask, not a
   const r = await send(chat, 'ZDRAVO');
   const s = sessions.get(chat)!;
   assert.equal(s.state, 'idle', 'no hallucinated property funnel');
-  assert.ok(/Повелете|Здраво|Добар ден|купување или изнајмување/i.test(r), `greeting/open ask serves: ${r}`);
+  // Wording-agnostic (flake lesson): seed AND learned greeting variants mix —
+  // e.g. "Добредојдовте. Дали барате соодветен имот за купување или сакате да
+  // изнајмите?" — the contract is a buy/rent OPEN ASK, not a fixed phrase.
+  assert.ok(/купув|изнајм|најм|Повелете|Здраво|Добар ден/i.test(r), `greeting/open ask serves: ${r}`);
+  assert.ok(/\?\s*$/.test(r.trim()), `must end as a question: ${r}`);
   assert.ok(!/Евидентен број/.test(r), `never the "do you know the EB" probe: ${r}`);
 });
 

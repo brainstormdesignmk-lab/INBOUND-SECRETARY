@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -671,6 +671,28 @@ export class Classifier {
       if (known !== undefined) ev = { type: 'PROPERTY_ID_REQUESTED', propertyId: known };
     }
 
+    // MORE-OPTIONS mid-funnel (the [22:2x] Viber transcript): in closing the
+    // client asks for alternatives ("a drugi stanovi do taa cena imate?",
+    // "drugi nemate vo celo skopje", "nesto novo") — the shopping intent wins
+    // over the fee re-pitch: the relay joins bursts ("pari za poseta" +
+    // "nesto novo" 6s apart = ONE turn), and the fee is already on the table.
+    // Recompute to a search event so the FSM's closing→presentation edge
+    // serves the NEXT BATCH; the fee debate resumes when a new property
+    // catches him. Guards: fee DECISIONS keep their lanes (agreement,
+    // refusal/complaint, why, surprise), amount-bearing questions keep
+    // rent-math/total-cost, visit scheduling keeps visit-time, availability
+    // keeps the property funnel, and a bare price ask stays a price ask.
+    if (session.state === 'closing'
+      && ev.type === 'STAY' && detectMoreOptions(text)
+      && !detectAvailabilityAsk(text)
+      && !detectFeeWhy(text) && !detectFeeComplaint(text) && !detectFeeSurprise(text)
+      && !detectFeePaymentAgreement(text) && !detectAgreement(text)
+      && !detectRejection(text) && !detectVisitTime(text)
+      && !extractRentMath(text) && !detectTotalCostAsk(text)
+      && !detectPriceAsk(text)) {
+      ev = await this.recomputeSearchEvent(ev, text, session, false);
+    }
+
     // If event is still STAY and no slots were extracted → truly novel, needs LLM.
     const hasSlots = !!(slots.service || location || slots.bedrooms || slots.bedroomsMin || slots.budget || slots.sqm || slots.anywhere);
     const hasDetail = !!(location || slots.bedrooms || slots.bedroomsMin || slots.budget || slots.sqm || slots.anywhere);
@@ -702,6 +724,23 @@ export class Classifier {
       if (ev.type === 'STAY' && detectMetaClarify(text)) {
         console.log(`[timing] det-classify ${Date.now() - t0}ms → META_CLARIFY_STAY`);
         return { event: { type: 'STAY' }, offensive: false, offenseLevel: 0 };
+      }
+      // MORE-OPTIONS (the [22:2x] Viber transcript): mid-fee-funnel asks for
+      // alternatives ("a drugi stanovi do taa cena imate?", "drugi nemate vo
+      // celo skopje", "nesto novo") are a SEARCH_REQUESTED — the FSM's
+      // closing→presentation edge (added same commit) serves the NEXT BATCH;
+      // the fee debate resumes when a new property catches him. Guards:
+      // fee traffic keeps its lanes (surprise/why/complaint/agreement/refusal),
+      // amount-bearing questions keep rent-math/total-cost, and price-ask
+      // facets without the more-marker ("kolku e cenata?") stay price asks.
+      if (ev.type === 'STAY' && detectMoreOptions(text)
+        && !detectFeeWhy(text) && !detectFeeComplaint(text) && !detectFeeSurprise(text)
+        && !detectFeePaymentAgreement(text) && !detectAgreement(text)
+        && !detectRejection(text) && !detectVisitTime(text)
+        && !extractRentMath(text) && !detectTotalCostAsk(text)
+        && (mentionsMore(text) || !detectPriceAsk(text))) {
+        console.log(`[timing] det-classify ${Date.now() - t0}ms → MORE_OPTIONS_SEARCH`);
+        return { event: { type: 'SEARCH_REQUESTED' }, offensive: false, offenseLevel: 0 };
       }
       return undefined; // signals caller to fire Groq
     }
