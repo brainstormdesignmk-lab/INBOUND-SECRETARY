@@ -102,6 +102,32 @@ test('classify: substring class — innocent property words never fire (the loka
   }
 });
 
+// The [00:29] field false positive: "NE ZNAM KONKRETEN STAN" + "SE NADEVAV
+// DEKA VIE KE MI PREDLOZITE NESTO" — a politely disappointed client — served a
+// strike-1 warning. 'kreten' (H5) had NO boundary and fired inside
+// "konKRETEN" (конкретен = specific — core real-estate vocabulary). The line
+// itself is clean; the follow-up was never an offense (strike 1 just decayed).
+test('[00:29] konkreten (specific) is property talk, never the kreten insult', () => {
+  const clean = [
+    'NE ZNAM KONKRETEN STAN',
+    'SE NADEVAV DEKA VIE KE MI PREDLOZITE NESTO',
+    'ne znam konkreten stan',
+    'КОНКРЕТЕН СТАН',            // cyrillic folds to the same canonical form
+    'konkretno do 500 evra',
+    'dali ima konkreten broj?',
+  ];
+  for (const t of clean) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+  }
+  // …but the real jabs — free-standing, plural and definite forms — still fire
+  for (const t of ['ti si kreten', 'kreten eden', 'KRETENOT', 'kretenite', 'kretens', 'КРЕТЕНИ']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' must fire');
+    assert.equal(d.category, 'heavy_insult', JSON.stringify(t));
+  }
+});
+
 test('classify: 3rd-person lies about properties are complaints, not insults', () => {
   const clean = [
     'sopstvenikot laze za kvadraturata',  // client complaint about the OWNER

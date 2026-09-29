@@ -223,7 +223,15 @@ const LEXICON: LexiconEntry[] = [
   { id: 'H2', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['idiot', 'idioti'], reason: 'idiot' },
   { id: 'H3', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['glupak', 'glupac', 'glupa'], reason: 'glupak/glupac' },
   { id: 'H4', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['retard', 'retardiran'], reason: 'retard' },
-  { id: 'H5', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['kreten', 'kretens', 'kreteni'], reason: 'kreten' },
+  // boundary on 'kreten' — the [00:29] field false positive: "NE ZNAM KONKRETEN
+  // STAN" normalized to "ne znam konkreten stan" and 'kreten' fired inside
+  // "konKRETEN" (конкретен = specific — core real-estate vocabulary), serving a
+  // strike-1 warning to a politely disappointed client. Letter-bounded: only
+  // the free-standing insult strikes; kretens/kreteni (plural jabs) are listed
+  // separately so the boundary doesn't mask them. Definite forms
+  // (kretenot/kretenite) are listed too — they fired as substrings before the
+  // boundary, so they must stay covered.
+  { id: 'H5', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['kreten', 'kretens', 'kreteni', 'kretenot', 'kretenite'], boundary: true, reason: 'kreten (letter-bounded so konkreten/konkretno stay clean)' },
   // 'budi' was dropped vs ANA: it is the common neutral imperative "be"
   // ("budi iskren" = be honest — a normal client request), not an insult;
   // the unambiguous 'magare'/'magarcinja' (donkey/ass) keep the entry.

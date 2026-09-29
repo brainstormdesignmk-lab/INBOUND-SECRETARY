@@ -1576,6 +1576,29 @@ test('insult protocol: "DA SE EBETE VO GAZOT" is a strike — 3 strikes terminat
   assert.equal(sessions.get(chatId), null); // blocked at entry — session never re-created
 });
 
+test('insult protocol: the [00:29] disappointment burst ("NE ZNAM KONKRETEN STAN" / "SE NADEVAV…") is never a strike — both lines are answered and the discovery funnel advances', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'viber-disappointment';
+  const send = async (m: string) => { await handler.handle('viber', chatId, m); return sessions.get(chatId)!; };
+
+  // rent declared, then the disappointment burst — verbatim from the [00:29]
+  // transcript (the second line used to follow a WRONG strike-1 warning).
+  let s = await send('mi treba stan pod kirija');
+  assert.equal(s.state, 'discovery');
+  s = await send('NE ZNAM KONKRETEN STAN');
+  assert.equal(s.strikes, 0, 'konkreten is property talk — no strike');
+  assert.equal(s.state, 'discovery');
+  assert.ok(!/професионалн/i.test(sent[1]), sent[1]); // no rebuff
+  s = await send('SE NADEVAV DEKA VIE KE MI PREDLOZITE NESTO');
+  assert.equal(s.strikes, 0, 'polite disappointment is not an offense');
+  assert.equal(s.state, 'discovery');
+  assert.ok(!/професионалн/i.test(sent[2]), sent[2]);
+  // the funnel still lives: a concrete criteria line gets the presentation,
+  // never the strike lane
+  s = await send('bilo kade do 250');
+  assert.equal(s.state, 'presentation');
+});
+
 test('insult protocol: strike 1 decays on the next clean message — the funnel continues from strike 1 again', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'decay1';
