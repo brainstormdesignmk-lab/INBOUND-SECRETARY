@@ -12,7 +12,7 @@ import { transition, Event } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -1534,6 +1534,34 @@ export class InboundHandler {
     // Moving them here eliminates Groq calls for any message the bank can answer.
     // Guard: skip if the message needs the FSM (classifier → state transition).
     // fsmRequired is the SINGLE source of truth for all FSM-triggering detectors.
+    // RENT-MATH CHECK (the [00:36] transcript): "ZNACI 0D 250 EVRA 125 SE ZA
+    // VAS?" — the client does the commission arithmetic and asks for
+    // confirmation. extractSlots reads the amount as budget → fsmRequired →
+    // the search machinery re-presented, found nothing, and exhausted.plain
+    // answered a math question. So this lane sits ABOVE the !fsmRequired
+    // guard: the detector's own gates (2:1 pair + agency-share marker, or a
+    // halving token; currency/rent context; consent + viewing-fee vetoes)
+    // are stricter than the FSM gate, and when it fires the budget must NOT
+    // be applied (we return before applySlots — the old pollution path).
+    // Computed, never LLM-guessed:
+    //   агенција = кирија/2 · депозит+прва кирија = кирија×2 (сопственик)
+    //   вкупно на денот на потписот = кирија × 2.5  (250 → 125 + 500 = 625)
+    const rentMath = extractRentMath(text);
+    if (rentMath) {
+      const mk = (n: number) => n.toLocaleString('mk-MK', { maximumFractionDigits: 1 });
+      reply = pickVariant('rent.math.check', { recent: assistantTexts(session), vars: {
+        r: mk(rentMath.rent), c: mk(rentMath.commission), d: mk(rentMath.deposit), t: mk(rentMath.total),
+      } }) ?? `Точно. Од месечна кирија од ${mk(rentMath.rent)} евра: половина — ${mk(rentMath.commission)} евра — е за агенцијата, а ${mk(rentMath.deposit)} евра (депозит + прва кирија) за сопственикот. Вкупно на денот на потписот: ${mk(rentMath.total)} евра.`;
+      bankKey = 'rent.math.check';
+      routeLog(chatId, text, 'RENT_MATH:fast');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'RENT_MATH_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+      console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+      await this.sendRaw(session, reply, 'deterministic:fast');
+      return;
+    }
     if (!fsmRequired(text)) {
       // OWNER-CONTACT HOLD ([22:47]): "NE GO KONTAKTIRAJ USTE" / "NE SME SE
       // DOGOVORILE" — the client pumps the brakes on the owner contact or says

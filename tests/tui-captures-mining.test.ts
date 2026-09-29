@@ -111,7 +111,9 @@ test('mined captures e2e: rent need → discovery asks LOCATION, never re-asks t
   const s = sessions.get(chat)!;
   assert.equal(s.state, 'discovery', `funnel advances to discovery, got ${s.state}`);
   assert.equal(s.slots.service, 'rent', 'the stated service is pinned');
-  assert.ok(/дел|населб|дел од градот/i.test(r), `asks for the missing LOCATION: ${r}`);
+  // Wording-agnostic: the location-ask pool mixes seed AND learned variants
+  // ("во кој дел…", "која населба…", "одредена локација во градот…").
+  assert.ok(/дел|населб|локаци/i.test(r), `asks for the missing LOCATION: ${r}`);
   assert.ok(!/купување или изнајмување/i.test(r), `never re-asks the answered intent: ${r}`);
 });
 

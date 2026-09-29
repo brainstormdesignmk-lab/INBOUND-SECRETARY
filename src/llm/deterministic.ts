@@ -3467,6 +3467,78 @@ export function detectProvisionAsk(text: string): boolean {
   return fuzzyHasToken(text, ['провизија']);
 }
 
+// =========================================================================
+// RENT-MATH CHECK (the [00:36] transcript): the client does the commission
+// arithmetic themselves — "ZNACI 0D 250 EVRA 125 SE ZA VAS?" (od 250 evra,
+// 125 e za vas?) — and asks for CONFIRMATION. No detector owned it: the
+// amount re-triggered the search machinery (budget → re-present → zero
+// matches) and the exhausted.plain line answered a math question. Lina must
+// be MATH READY whenever a specific monthly rent is on the table:
+//   commission = rent/2 (agency) · deposit + first month = rent×2 (owner)
+//   total at signing = rent × 2.5  (250 → 125 + 500 = 625)
+// Two evidence shapes (both must name rent context — currency marker or a
+// kirija/rent word, else "125 se za vas?" alone is ambiguous):
+//   a) TWO amounts in 2:1 ratio (250 + 125) — the larger is the rent;
+//      with several pairs, the pair with the SMALLEST base wins (deterministic).
+//   b) ONE amount + an explicit halving/multiplier token ("/2", "2.5", "x2",
+//      "половина", "polovina").
+// Viewing-fee traffic (VIEWING_NOUN) and payment consent keep their own
+// lanes — "ke platam 500 den za poseta" is NEVER math trivia.
+const _RENT_MATH_CURRENCY_RE = /(?:евр|evr|eur|€|ден(?:ар)?|den(?:ar)?)/iu;
+const _RENT_MATH_RENT_CONTEXT_RE = /(?:кириј|наем|kirij|najm|mesecn|месечн|rent)/iu;
+const _RENT_MATH_HALF_TOKEN_RE = /(?:\/\s*2(?:[.,]5)?|\b2[.,]5\b|[хx]\s*2(?:[.,]5)?\b|половин\w*|polovin\w*|polvin\w*|(?<![\p{L}])pol[аa](?![\p{L}])|half)/iu;
+// The pair arm additionally needs the AGENCY-SHARE marker: a budget range
+// ("od 250 do 500 evra") is also a 2:1 pair, but "125 SE ZA VAS?" asks whose
+// money the second number is — that question is the math check.
+const _RENT_MATH_YOU_RE = /(?:за\s+вас|za\s+vas|ваш\w*|vash\w*|провизи\w*|provizi\w*|агенци\w*|agenci\w*|комиси\w*|komisi\w*)/iu;
+// Total-flip marker: "vkupno 625 za 2.5?" states the TOTAL — flip to
+// rent = amount/2.5. Without the marker ("kirijata e 300, t.e. 2.5?" — a
+// multiplier CONFIRMATION) the amount IS the rent; never flip.
+const _RENT_MATH_TOTAL_RE = /(?:вкупн\w*|vkupn\w*|total)/iu;
+const _RENT_MATH_AMOUNT_RE = /(?<![\p{L}\p{N}:])(\d{2,6}(?:[.,]\d{1,2})?)(?!\s*[:%])/giu;
+
+export interface RentMathResult { rent: number; commission: number; deposit: number; total: number; }
+
+export function extractRentMath(text: string): RentMathResult | undefined {
+  // Own-lane vetoes first: consent stays consent, viewing fees stay fees.
+  if (detectFeePaymentAgreement(text)) return undefined;
+  if (matchesBoth(new RegExp(VIEWING_NOUN_SRC, 'iu'), text)) return undefined;
+  // Rent context gate: a currency marker OR rent vocabulary somewhere.
+  if (!_RENT_MATH_CURRENCY_RE.test(text) && !_RENT_MATH_RENT_CONTEXT_RE.test(text)) return undefined;
+  // Candidate amounts: 2+ digits, clocks ("18:30") and percents excluded by
+  // the guards, 10 ≤ n ≤ 100000 (viewing fees are 300–500; budgets 100k+).
+  const amounts: number[] = [];
+  for (const m of text.matchAll(_RENT_MATH_AMOUNT_RE)) {
+    const n = parseFloat(m[1].replace(',', '.'));
+    if (Number.isFinite(n) && n >= 10 && n <= 100000) amounts.push(n);
+  }
+  if (amounts.length === 0) return undefined;
+  let rent: number | undefined;
+  if (rent === undefined && amounts.length >= 2) {
+    // (a) 2:1 pair + agency-share marker — smallest base wins.
+    if (!_RENT_MATH_YOU_RE.test(text)) return undefined;
+    const uniq = [...new Set(amounts)].sort((x, y) => x - y);
+    for (const b of uniq) {
+      if (uniq.some(a => a !== b && Math.abs(a - b * 2) <= Math.max(1, b * 0.02))) { rent = b * 2; break; }
+    }
+  }
+  if (rent === undefined && amounts.length === 1 && _RENT_MATH_HALF_TOKEN_RE.test(text)) {
+    // (b) single amount + explicit halving token. Flip to total (rent =
+    // amount/2.5) ONLY with an explicit total marker — "vkupno 625 za 2.5?";
+    // a bare multiplier mention ("t.e. 2.5?") is a confirmation, amount = rent.
+    const a = amounts[0]!;
+    const q = a / 2.5;
+    if (/\b2[.,]5\b/.test(text) && _RENT_MATH_TOTAL_RE.test(text)
+      && q >= 50 && Math.abs(q - Math.round(q)) < 0.01) {
+      rent = Math.round(q);
+    } else {
+      rent = a;
+    }
+  }
+  if (rent === undefined || rent < 50) return undefined;
+  return { rent, commission: rent / 2, deposit: rent * 2, total: rent * 2.5 };
+}
+
 // Provision who-pays: the client asks WHO pays the lawyer/notary/tax —
 // "кој плаќа advokat?", "notarot koj go plakja?", "danokot e nivna obvrskа"
 // Word-boundary that works with Cyrillic (JS \b only knows ASCII [a-zA-Z0-9_]).

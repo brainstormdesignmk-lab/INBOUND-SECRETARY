@@ -36,6 +36,14 @@ test('response bank: every entry is non-empty and placeholders live only where e
         // Counter relays carry the owner's/client's term exactly once — the
         // judge's dropped-alternative assertion parses it from the text.
         assert.equal(v.match(/\{time\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+      } else if (key === 'rent.math.check') {
+        // The [00:36] rent-math breakdown: numbers are COMPUTED at serve time
+        // by extractRentMath — {r} rent, {c} commission (rent/2), {d}
+        // deposit+first month (rent×2), {t} total (rent×2.5) — each exactly
+        // once per variant; no hardcoded amounts anywhere.
+        for (const ph of ['r', 'c', 'd', 't']) {
+          assert.equal(v.match(new RegExp(`\\{${ph}\\}`, 'g'))?.length ?? 0, 1, `${key}: {${ph}} in "${v}"`);
+        }
       } else if (key === 'owner.relay:gone') {
         // Gone relay: {eb} names the property, {note} is the status note.
         assert.ok((v.match(/\{eb\}/g)?.length ?? 0) >= 1, `${key}: "${v}"`);

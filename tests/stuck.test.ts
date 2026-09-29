@@ -4041,7 +4041,10 @@ test('[21:26] bare more-asks never fall into the WHERE_IS lane — no neighborho
   await send('DRUGO STO IMAS?');
   assert.ok(!/ориентирите/iu.test(sent.at(-1)!), `no where-is escape for a bare more-ask: ${sent.at(-1)!}`);
   assert.ok(!/Евидентен број на станот/iu.test(sent.at(-1)!), `no EB-demand escape: ${sent.at(-1)!}`);
-  assert.ok(/купување|изнајмување|населб|локаци/iu.test(sent.at(-1)!), `funnel owns the cold more-ask: ${sent.at(-1)!}`);
+  // Funnel-ownership check — wording-agnostic on purpose: the greeting.open
+  // pool mixes seed AND learned variants ("купување или изнајмување?" and
+  // "би го купиле или сакате да изнајмите?" — both valid funnel asks).
+  assert.ok(/купување|купи|изнајмување|изнајми|населб|локаци/iu.test(sent.at(-1)!), `funnel owns the cold more-ask: ${sent.at(-1)!}`);
 
   // After the exhausted line: still options traffic — the neighborhood of
   // the last-shown property must never surface (the [21:27] nonsense).
