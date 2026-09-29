@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -500,10 +500,14 @@ export class Classifier {
     // a location substring like "Кисела Вода") can inflate ev to DETAILS_PROVIDED
     // and silently block the agreement override, leaving the client stuck in
     // closing with a broken funnel.
+    // NEGATED agreement flips to refusal — own branch BEFORE the consent
+    // overrides (detectNegatedAgreement makes detectAgreement false, so the
+    // overrides below can't catch it; the deterministic path must refuse
+    // exactly like the LLM-down path).
     if ((ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED') && session.state === 'closing'
-      && detectAgreement(text) && !detectFeeWhy(text)
+      && detectNegatedAgreement(text) && !detectFeeWhy(text)
       && !detectRejection(text) && !detectInvestmentOpinion(text)) {
-      ev = { type: 'FEE_AGREED' };
+      ev = { type: 'FEE_REFUSED' };
     }
 
     // "STAPI VO KONTAKT I INFORMIRAJ ME" — an explicit order to contact + be
@@ -1137,6 +1141,18 @@ export class Classifier {
     // forever and never reach the owner. A fee WHY-question ("како тоа? да
     // платам за посета?", "зошто наплаќате?") is NEVER agreement — the bare
     // "да" in "да платам" must not close the deal — and neither is a denial.
+    // NEGATED agreement ("ne sum soglasen", "ne se soglasuvam") is the
+    // OPPOSITE — FEE_REFUSED, so the persuasion rungs run with the LLM down
+    // exactly as they do with it up (the [22:2x] fee-refusal gap: the agree-
+    // word inside the negation read as consent and the funnel advanced to
+    // contact collection). OWN BRANCH: detectNegatedAgreement makes
+    // detectAgreement false, so the consent override below cannot catch it.
+    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing'
+      && detectNegatedAgreement(text)
+      && !detectFeeWhy(text) && !detectRejection(text)
+      && !detectInvestmentOpinion(text)) {
+      parsed.event = { type: 'FEE_REFUSED' };
+    }
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing'
       && detectAgreement(text) && !detectFeeWhy(text) && !detectRejection(text)
       && !detectInvestmentOpinion(text)) {

@@ -1623,12 +1623,36 @@ const DA_LI_RE = /(?:^|[^а-яa-z])(?:да|да)\s+ли|дали/iu;
 // matches (no leading да).
 const CLIENT_CONFIRM_RE = /^(?:да|da)[\s,.!]*(?:јас\s+|jas\s+)?(?:сакам|сакаме)\s*[.!?]*$/iu;
 
+// NEGATED AGREEMENT — "ne sum soglasen", "ne se soglasuvam", "НЕ СУМ
+// СОГЛАСЕН", "ne prifakjam nadomestok": the negation flips every consent
+// token in its span. The token scan below has no negation guard, so with the
+// LLM down these read as bare agreements — "ne sum soglasen za ova plakjanje"
+// advanced to contact collection instead of the refusal protocol. The
+// negation sits either before the copula ("ne sum soglasen") or directly
+// before the verb ("ne se soglasuvam").
+const NEGATED_AGREE_RE = new RegExp(
+  '(?:^|[^\\p{L}])(?:не|ne|no|ниту|nitu)(?![\\p{L}])' +
+  '(?:[\\s,.;:!?]*(?:jas|јас|sum|сум|sme|сме|se|се))?' +
+  '[^.!?\\n]{0,24}?' +
+  '(?:soglas\\p{L}*|соглас\\p{L}*|slozuv\\p{L}*|сложув\\p{L}*|slagam\\p{L}*|слагам\\p{L}*|prifakj?\\p{L}*|prihakj?\\p{L}*|прифаќ\\p{L}*|прифак\\p{L}*|soglasnost|согласност)',
+  'iu');
+
+/** True when a consent token is FLIPPED by a negation ("ne sum soglasen").
+ *  Never consent — the fee-refusal protocol owns these. */
+export function detectNegatedAgreement(text: string): boolean {
+  return matchesBoth(NEGATED_AGREE_RE, text);
+}
+
 export function detectAgreement(text: string): boolean {
   // A HOLD/negated contact instruction is the OPPOSITE of consent: "NE GO
   // KONTAKTIRAJ USTE" (don't contact him yet) carries the bare "kontaktiraj"
   // token, which otherwise reads as the "contact me" yes and advanced the
   // funnel. The hold lane owns these ([22:47] transcript).
   if (detectOwnerContactHold(text)) return false;
+  // A NEGATED consent token ("ne sum soglasen", "ne se soglasuvam") is the
+  // OPPOSITE of agreement — same flip logic as the hold above, for the
+  // agree-words themselves (the [22:2x] LLM-down fee-refusal gap).
+  if (detectNegatedAgreement(text)) return false;
   const low = text.toLowerCase();
   // A property-sized counter-offer is NEVER consent — symmetric to the
   // negotiate veto on fee consent. "Дадам 450 евра и да завршиме работа",
@@ -1822,8 +1846,11 @@ export function detectConditionalFeeAccept(text: string): boolean {
 // Questions and negations are never consent: "dali mora da platam?" and
 // "zosto da platam 500 denari?" belong to fee.why; "ne sakam da platam" is a
 // refusal. Guarded before any volitional match can fire.
+// (the [22:2x] follow-up: "prihakam" covered only the h-spelling — Latin
+// "prifakjam" (f+jam) slipped the neg guard and "ne prifakjam nadomestok"
+// read as CONSENT. Stem-family arms cover every spelling.)
 const FEE_PAY_NEG_RE = new RegExp(
-  '(?:^|[^\\p{L}])(?:ne|не)(?![\\p{L}])[^.!?\\n]{0,40}(?:plat\\w*|plakj\\w*|плаќ\\w*|плат\\w*|sakam\\w*|сакам\\w*|dadam|дадам|prihakam|прифаќам)', 'iu');
+  '(?:^|[^\\p{L}])(?:ne|не)(?![\\p{L}])[^.!?\\n]{0,40}(?:plat\\w*|plakj\\w*|плаќ\\w*|плат\\w*|sakam\\w*|сакам\\w*|dadam|дадам|prihak\\w*|prifak\\w*|прифаќ\\w*|прифак\\w*)', 'iu');
 
 export function detectFeePaymentAgreement(text: string): boolean {
   if (/(?:^|[^\p{L}])dali(?:$|[^\p{L}])/iu.test(text)
