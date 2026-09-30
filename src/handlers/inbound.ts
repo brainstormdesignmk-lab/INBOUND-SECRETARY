@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -41,7 +41,7 @@ import {
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
-  AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, PROVISION_ASK_NEITHER,
+  AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
   buildRecommendClose,
@@ -1920,25 +1920,39 @@ export class InboundHandler {
       // still handle a legit recommendation frame.
     }
 
-    // FEE-WHY INTERCEPT BEFORE THE PROVISION LANES (the [09:0x] V16K11
-    // transcript): "nikoj ne zema pari za poseta" matched CHARGE_MONEY_RE
-    // inside detectProvisionAsk → PROVISION_ASK → the buy rules-of-work
-    // script, when the client is QUESTIONING the fee's existence and Lina
-    // must give the REASONS (the serious-client filter), never the rules of
-    // work. dispatchSimple runs pre-classifier, so the veto must live HERE.
-    // fsmRequired guard: if the FSM forces the full path, the fee.why FSM legs
-    // (detectFeeWhy branches) already own the serve — no double-talk.
-    if (!fsmRequired(text) && detectFeeWhy(text)) {
+    // FEE-WHY / FEE-RULES / TOTAL-COST INTERCEPT BEFORE THE PROVISION LANES
+    // (the [09:0x] + [12:40] V16K11 transcripts): "nikoj ne zema pari za
+    // poseta" matched CHARGE_MONEY_RE inside detectProvisionAsk →
+    // PROVISION_ASK → the buy rules-of-work script; "ako gledam 10 stana toa
+    // se 5000 od moj djeb" rode the INTERESTED lane into the fee ask with the
+    // WRONG service. Both are fee-EXPLANATION traffic in ANY funnel state —
+    // dispatchSimple runs pre-classifier, so the ownership must live HERE.
+    // fsmRequired guard: when the FSM forces the full path, the fee.why FSM
+    // legs already own the serve — no double-talk.
+    const feeRulesQ = detectFeeRules(text);
+    const feeWhyFast = !feeRulesQ && detectFeeWhy(text);
+    const feeTotalCost = !feeRulesQ && !feeWhyFast && detectFeeTotalCost(text);
+    if (!fsmRequired(text) && (feeRulesQ || feeWhyFast || feeTotalCost)) {
       const beforeWhy = session.state;
-      if (['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(beforeWhy)) {
-        routeLog(chatId, text, 'FEE_WHY');
+      // property_locate + contact_collection too: an explanation mid-locate
+      // must never advance the locate funnel (the [12:40] idle→closing leg
+      // proved the narrow list leaks).
+      if (['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle', 'property_locate', 'contact_collection'].includes(beforeWhy)) {
+        routeLog(chatId, text, feeRulesQ ? 'FEE_RULES' : feeWhyFast ? 'FEE_WHY' : 'FEE_COMPLAINT');
         if (!session.slots.service) session.slots.service = this.feeServiceHint;
-        reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
-        bankKey = 'fee.why';
+        // Market questions without a declared market get the AGNOSTIC copy
+        // (buildFeeAsk(undefined) names both fees) — never a defaulted buy
+        // disclosure at a rent client.
+        reply = feeRulesQ
+          ? (pickVariant('fee.rules', { recent: assistantTexts(session) }) ?? buildFeeRules())
+          : feeTotalCost
+            ? (pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy())
+            : (pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy());
+        bankKey = feeRulesQ ? 'fee.rules' : 'fee.why';
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        console.log(`[timing] pipeline ${Date.now() - pipelineStart}ms (fast-deterministic) state=${beforeWhy} src=deterministic bank=fee.why`);
+        console.log(`[timing] pipeline ${Date.now() - pipelineStart}ms (fast-deterministic) state=${beforeWhy} src=deterministic bank=${bankKey}`);
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
@@ -2166,7 +2180,11 @@ export class InboundHandler {
     // or even mid-property-viewing ("nikoj ne naplakja za poseti" in
     // property_query). Widen the check so the pivot always fires.
     const feeWhyQuestion = detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before);
-    if (ev.type === 'FEE_REFUSED' && before === 'closing' && !feeWhyQuestion) {
+    // Fee-rules dismissal is NOT a refusal either — same rung-protection as
+    // the why-question (the [12:40] family).
+    const feeRulesQuestion = detectFeeRules(text) && !feeWhyQuestion;
+    const feeExplQuestion = feeWhyQuestion || feeRulesQuestion;
+    if (ev.type === 'FEE_REFUSED' && before === 'closing' && !feeExplQuestion) {
       // Copy follows the DECLARED market (the [09:0x] 500-den bug): the
       // message itself is the truth — a rent declaration in a burst must win
       // over the stale/reset slot before the 300-vs-500 rungs are built.
@@ -2179,7 +2197,7 @@ export class InboundHandler {
       // try, 4th → graceful close (queued).
       next = (session.slots.feeRejections ?? 0) >= 4 ? 'queued' : 'closing';
     }
-    if (feeWhyQuestion) next = 'closing';
+    if (feeExplQuestion) next = 'closing';
 
     // Negotiation loop bound (deterministic, in time_confirm only)
     if (ev.type === 'TIME_REJECTED' && before === 'time_confirm') {
@@ -2980,6 +2998,15 @@ ${contactReminder}`;
       reply = fee;
       bankKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
 
+    } else if (detectFeeRules(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)) {
+      // Fee-RULES dismissal (the [12:40] serve): "тоа се правилата на
+      // агенцијата кои важат и за мене и за Вас" — the client files the fee
+      // under "just your policy". Confirm the policy AND show it binds both
+      // sides (fee.rules bank — same rules for clients and agency), stay at
+      // the fee question. Before the fee.why leg (both are explanation
+      // traffic; the rules frame deserves the rules answer).
+      reply = pickVariant('fee.rules', { recent: assistantTexts(session) }) ?? buildFeeRules();
+      bankKey = 'fee.rules';
     } else if (detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)) {
       // "Зошто наплаќате?" / "Никој не наплаќа за посета" / "Како тоа да платам?"
       // — the client QUESTIONS the fee, they don't REFUSE it. Always answer
@@ -2987,6 +3014,13 @@ ${contactReminder}`;
       // to alternatives is only for actual fee REFUSALS (FEE_REFUSED below),
       // not for why-questions. Answering WHY first, then re-asking the fee,
       // lets the client make an informed decision.
+      reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
+      bankKey = 'fee.why';
+    } else if (detectFeeTotalCost(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)) {
+      // Multiplication total-cost complaint (the [12:40] serve): "10 стана ×
+      // 5000 од мој џеб" — the client multiplies the fee by their search
+      // size. The math acknowledgment + value answer (fee.why pool covers
+      // it), never the fee re-disclosure, never the property search.
       reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
       bankKey = 'fee.why';
     } else if (detectFeeSurprise(text)

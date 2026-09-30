@@ -50,6 +50,9 @@ interface GenerationKey {
   /** Placeholders the key uses, e.g. ['location'] for "{location}" — each must
    *  appear exactly once and no other placeholder is allowed. */
   placeholders?: string[];
+  /** Per-key max length override (default 400) — rationale answers with a
+   *  confirm + bind-both-sides + close read naturally longer. */
+  maxLen?: number;
 }
 
 // --- The persona's voice, restated for the generator -------------------------
@@ -267,6 +270,25 @@ const SPEC: GenerationKey[] = [
     required: [/(?:филтер|филтрираме|филтрира|препознава|препознаеме|препознаваат|препознаваме|издвојуваме|одвојуваме|избираме|одбираме|разликуваме)/iu, /(?:симболич)/iu, /(?:квалитетн|квалитет|селективн|селекци)/iu, /(?:Дали се согласувате|Дали го прифаќате|Дали би прифатиле|Дали ова Ви одговара|Дали Ви одговара|Дали може да се согласиме|Дали сте согласни|Дали се согласуваме)/],
     banned: [/\d/, /евра|денари/, /провизиј/, /купувач|кираџи|станар/, /0\s*%/, /адвокат|нотар/, /Евидентен|ID|ИД/],
     question: true,
+  },
+  // fee.rules: the client files the visit fee under "just your agency's
+  // policy" ("тоа се правилата на агенцијата кои важат и за мене и за Вас",
+  // "тоа се Вашите правила", "вашата политика е таква") — the [12:40] live
+  // serve. Lina CONFIRMS it is agency policy AND shows it binds both sides:
+  // the same rules for clients and agency (equal fee for everyone, the
+  // commission is the owner's, decisions follow criteria — not mood). Ends
+  // with the agreement ask. Amount-free (the sum was already disclosed).
+  {
+    key: 'fee.rules',
+    sources: [
+      'Точно — ова се правилата на нашата агенција, и важат подеднакво за Вас и за нас. Никој кај нас не е над правилата: сите клиенти го плаќаат истиот симболичен надомест за посета, а провизијата е на сопственикот. Сè зависи од Вашите критериуми, не од расположението — затоа побаруваме истиот услов од секого. Дали се согласувате со овој услов за да продолжиме?',
+    ],
+    count: 10,
+    instructions: 'Клиентот го става надоместот за посета под „тоа се само правилата на Вашата агенција“ („тоа се правилата на агенцијата кои важат и за мене и за Вас“, „тоа се Вашите правила“, „вашата политика е таква“) — ПОТВРДИ дека е точно, ова се правилата на агенцијата, И покажи дека правилата важат ЗА ДВЕТЕ СТРАНИ подеднакво: сите клиенти го плаќаат истиот симболичен надомест, никој не е над правилата, сè зависи од критериумите а не од расположение. Природен, топол, уверен тон без одбранбеност. Заврши со прашање дали се согласува. БЕЗ износи, БЕЗ провизија (само „провизијата е на сопственикот“ ако е потребно), БЕЗ Евидентен броеви.',
+    required: [/(?:правил|политик|деловник)/iu, /(?:Вас и за нас|нас и за Вас|двете странки|подеднакво|сите клиенти|никој не е над|ист[ио]т[оа] (?:правило|услов)|еднакво)/iu, /(?:Дали се согласувате|Дали го прифаќате|Дали би прифатиле|Дали ова Ви одговара|Дали Ви одговара|Дали сте согласни|Дали се согласуваме|се согласувате ли|можеме ли да се договориме)/],
+    banned: [/\d/, /евра|денари/, /0\s*%/, /адвокат|нотар/, /Евидентен|ID|ИД/],
+    question: true,
+    maxLen: 480,
   },
   // fee.pivot.neighborhood: the client pushes back on the viewing fee
   // ("зошто наплаќате посета?", "никoj не го прави тоа", "не сакам да
@@ -891,7 +913,7 @@ function validateVariant(v: string, key: GenerationKey, reject: Rejection[]): st
   const reasons: string[] = [];
   const t = v.trim();
   if (t.length < 10) reasons.push('too short');
-  if (t.length > 400) reasons.push('too long');
+  if (t.length > (key.maxLen ?? 400)) reasons.push('too long');
   if (key.placeholders) {
     for (const ph of key.placeholders) {
       const hits = t.match(new RegExp(`\\{${ph}\\}`, 'g'))?.length ?? 0;

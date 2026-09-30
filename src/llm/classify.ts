@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -519,9 +519,26 @@ export class Classifier {
       && !detectRejection(text) && !detectInvestmentOpinion(text)) {
       ev = { type: 'STAY' };
     }
+    // Fee-RULES dismissal (the [12:40] serve: "тоа се правилата на агенцијата
+    // кои важат и за мене и за Вас") — explanation traffic, STAY at the fee
+    // question; the handler's fee.rules leg answers with the agency-rules
+    // rationale. Mirrors the fee-why guard above.
+    if (ev.type === 'FEE_REFUSED' && session.state === 'closing'
+      && detectFeeRules(text) && !detectNegatedAgreement(text)
+      && !detectRejection(text) && !detectInvestmentOpinion(text)) {
+      ev = { type: 'STAY' };
+    }
     if ((ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED' || ev.type === 'INTERESTED') && session.state === 'closing'
       && detectFeeComplaint(text) && !detectFeeWhy(text)
       && !detectRejection(text) && !detectInvestmentOpinion(text)) {
+      ev = { type: 'STAY' };
+    }
+    // TOTAL-COST math in closing (the [12:40] serve rode INTERESTED + the
+    // stan word into a NEW-search read): the multiplication complaint is fee
+    // traffic — STAY, never a criteria event.
+    if ((ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED' || ev.type === 'INTERESTED') && session.state === 'closing'
+      && detectFeeTotalCost(text) && !detectFeeWhy(text) && !detectRejection(text)
+      && !detectInvestmentOpinion(text)) {
       ev = { type: 'STAY' };
     }
     // Negated FEE-PAY refusal (the [09:1x] V16K11 capture: "ne sakam da
@@ -1179,6 +1196,18 @@ export class Classifier {
     // detectAgreement false, so the consent override below cannot catch it.
     // LLM-down twin of the negated-fee-pay refusal (same reasoning as the
     // deterministic override above — the [09:1x] capture).
+    // LLM-down twins of the fee-rules and total-cost guards (same reasoning —
+    // the [12:40] family must hold when the LLM is down).
+    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing'
+      && detectFeeRules(text) && !detectNegatedAgreement(text)
+      && !detectRejection(text) && !detectInvestmentOpinion(text)) {
+      parsed.event = { type: 'STAY' };
+    }
+    if ((llmDown || parsed.event.type === 'STAY' || parsed.event.type === 'INTERESTED') && session.state === 'closing'
+      && detectFeeTotalCost(text) && !detectFeeWhy(text)
+      && !detectRejection(text) && !detectInvestmentOpinion(text)) {
+      parsed.event = { type: 'STAY' };
+    }
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing'
       && detectNegatedFeePay(text) && !detectFeeWhy(text) && !detectFeeComplaint(text)
       && !detectInvestmentOpinion(text)) {

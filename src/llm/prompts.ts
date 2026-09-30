@@ -472,6 +472,19 @@ export function feePersuasion(service: Service | undefined, rejects: number): st
 }
 
 /**
+ * Answer to the fee-rules dismissal ("тоа се правилата на агенцијата кои
+ * важат и за мене и за Вас", "тоа се Вашите правила") — the client files the
+ * visit fee under "just your agency's policy". Lina confirms it IS agency
+ * policy AND shows it binds both sides: the same rules for the client and
+ * the agency (the owner pays the commission, the fee is symbolic, the
+ * criteria rule — not the agent's mood). Bank-backed (fee.rules); ends with
+ * the agreement ask so the funnel keeps moving. Amount-free on purpose (the
+ * sum was already disclosed in the fee.ask).
+ */
+export const buildFeeRules = (): string =>
+  'Точно — ова се правилата на нашата агенција, и важат подеднакво за Вас и за нас. Никој кај нас не е над правилата: сите клиенти го плаќаат истиот симболичен надомест за посета, а провизијата е на сопственикот. Сè зависи од Вашите критериуми, не од расположението — затоа побаруваме истиот услов од секого. Дали се согласувате со овој услов за да продолжиме?';
+
+/**
  * Answer to "why do you charge for a visit?" ("зошто наплаќате посета?",
  * "зошто надомест?", "никој не го прави тоа") — a QUESTION, not a refusal.
  * The fee is the agency's FILTER that recognizes REAL clients; for a serious

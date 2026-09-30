@@ -40,9 +40,9 @@ import { RESPONSE_BANK } from '../src/data/responses';
 import { setLearnedBank } from '../src/data/responseBank';
 import {
   detectFeeWhy, detectFeeComplaint, detectProvisionAsk,
-  detectFeePaymentAgreement, detectNegatedFeePay,
+  detectFeePaymentAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost,
 } from '../src/llm/deterministic';
-import { buildFeeAsk, feePersuasion } from '../src/llm/prompts';
+import { buildFeeAsk, feePersuasion, buildFeeRules } from '../src/llm/prompts';
 
 setLearnedBank({
   variants: () => [],
@@ -123,6 +123,72 @@ test('negated-pay guard: "ne sakam da plakjam za otvaranje na stan" is NOT provi
   assert.equal(detectNegatedFeePay(t), true, 'refusal detector owns it (no agreement stem needed)');
   // committed-with-amount consent unchanged
   assert.equal(detectProvisionAsk('ke platam 500 den za poseta'), false, 'consent with amount stays out of provision-ask');
+});
+
+// ── [12:40] family: rules dismissal + total-cost math in ANY state ─────────
+
+test('rules family: "тоа се правилата на агенцијата" is fee-rules traffic (both scripts)', () => {
+  const live = 'тоа се правилата на агенцијата кои важат и за мене и за Вас';
+  assert.equal(detectFeeRules(live), true, 'the user\'s exact answer-frame');
+  assert.equal(detectFeeRules('toa se vashite pravila'), true, 'Latin');
+  assert.equal(detectFeeRules('TOA E VASHA POLITIKA'), true, 'caps');
+  assert.equal(detectFeeRules('vashata politika e takva'), true, 'policy noun + owner');
+  assert.equal(detectFeeRules('ne sakam da platam'), false, 'refusal keeps its lane');
+  assert.equal(detectFeeRules('baram stan vo Karpos'), false, 'search traffic untouched');
+  // total-cost detector is the state-free public twin
+  assert.equal(detectFeeTotalCost('ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje'), true);
+  assert.equal(detectFeeTotalCost('stanot e 185000'), false);
+});
+
+test('fee.rules bank: amount-free, agency-policy + bind-both-sides rationale', () => {
+  assert.ok(buildFeeRules().includes('правилата'), 'code-built fallback anchors the policy word');
+  const seeds: string[] = RESPONSE_BANK['fee.rules'] ?? [];
+  assert.ok(seeds.length >= 3, `expected seed pool, got ${seeds.length}`);
+  for (const v of seeds) {
+    assert.ok(!/\d/.test(v), `fee.rules carries an amount: ${v}`);
+    assert.ok(/(?:правил|политик)/iu.test(v), `no policy word: ${v}`);
+    assert.ok(/(?:Вас и за нас|нас и за Вас|подеднакво|сите|еднакво)/iu.test(v), `does not bind both sides: ${v}`);
+    assert.ok(/\?\s*$/.test(v), `no agreement ask: ${v}`);
+  }
+});
+
+test('e2e [12:40]: total-cost math in a FRESH IDLE session → fee.why, never a fee ask, never cards', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'v16k11-math-idle';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZDRAVO'); // greeting → idle (the exact [12:40] pre-state)
+  const s = await send('ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje');
+
+  const reply = sent[sent.length - 1] ?? '';
+  assert.ok(/филт|селекц|вистинск|сериозн|искрен|препознав/iu.test(reply), `not the rationale: ${reply.slice(0, 120)}`);
+  assert.ok(!reply.includes('300 денари') && !reply.includes('500 денари'), `fee re-disclosed: ${reply.slice(0, 120)}`);
+  assert.ok(!reply.includes('м²'), `property cards dumped on fee math: ${reply.slice(0, 120)}`);
+  // The fast lane answers the EXPLANATION and leaves the funnel untouched
+  // (the live [12:40] serve had also force-advanced idle→closing).
+  assert.equal(s.state, 'idle', 'explanation lane must not advance the funnel');
+  assert.equal(s.slots.service, undefined, 'no market fabricated by a fee complaint');
+  assert.equal(s.slots.feeRejections, undefined, 'no rung burned on math');
+});
+
+test('e2e [12:40]: agency-rules dismissal in closing → fee.rules rationale, stay at the fee', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'v16k11-rules';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 79');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  let s = await send('KONTAKTIRAJTE GO I KAZETE MI');
+  assert.ok((sent[sent.length - 1] ?? '').includes('300 денари'));
+  assert.equal(s.slots.feeRejections, undefined, 'clean baseline');
+
+  s = await send('тоа се правилата на агенцијата кои важат и за мене и за Вас');
+
+  const reply = sent[sent.length - 1] ?? '';
+  assert.ok(/(?:правил|политик)/iu.test(reply), `not the rules answer: ${reply.slice(0, 120)}`);
+  assert.ok(!reply.includes('300 денари') && !reply.includes('500 денари'), `fee re-disclosed: ${reply.slice(0, 120)}`);
+  assert.equal(s.state, 'closing', 'stays at the fee question');
+  assert.equal(s.slots.feeRejections, undefined, 'a rules dismissal never burns a rung');
 });
 
 // ── Service-aware copy pins ──────────────────────────────────────────────────

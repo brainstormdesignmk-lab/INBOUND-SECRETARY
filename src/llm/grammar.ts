@@ -1014,18 +1014,24 @@ export function buildFeePracticeSlots(): RegExp {
 }
 
 /** Multiplication total-cost complaint: "10 стана × 500 = 5000 од мој џеб".
- *  Viewing-noun × fee-amount in ONE clause — property math about the FEE, not
- *  the property price. Two amount anchors: (a) fee-sized amount WITH currency
- *  (≤4 digits — "× 500 денари"), (b) BARE amount followed by an OWNERSHIP/
- *  pocket marker ("…се 5000 од мој џеб" — the capture carried no currency;
- *  the џеб phrase pins it as the client's own spend). 5-digit numbers can
- *  never match (\d{1,4} + boundary), so property budgets stay out. */
+ *  STRICT multiplication shapes only — the loose noun+amount arm false-
+ *  positivized BUDGETS ("стан … до 250 евра" ate the whole funnel, the
+ *  [12:4x] regression):
+ *    A) noun … amount(≤4 digits) … pocket marker ("…се 5000 од мој џеб" —
+ *       the capture carried no currency; џеб pins the client's own spend);
+ *    B) COUNT + noun + по/× + amount (+optional currency): "10 стана по 500
+ *       денари", "10 stanovi x 500".
+ *  Budgets ("стан до 250 евра") carry neither a pocket phrase nor a
+ *  multiplication token — they can never match. 5-digit numbers (property
+ *  prices 185.000) are out by \d{1,4}+boundary. */
 export function buildFeeTotalCostSlots(): RegExp {
+  const AMT = '(?<![\\p{L}\\p{N}])\\d{1,4}(?![\\p{L}\\p{N}])';
+  const CUR = '(?:\\s*(?:ден\\p{L}*|денар\\p{L}*|den(?:ar)?\\w*|евр\\p{L}*|евра|evr\\w*|eur|мкд|mkd))(?![\\p{L}\\p{N}])';
   return new RegExp(
-    _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,60}'
-    + '(?<![\\p{L}\\p{N}])\\d{1,4}(?![\\p{L}\\p{N}])'
-    + '(?:\\s*(?:ден\\w*|денар\\w*|den(?:ar)?\\w*|евр\\w*|евра|evr\\w*|eur|мкд|mkd)(?![\\p{L}\\p{N}])'
-    + '|[^.!?\\n]{0,20}' + _b(FEE_POCKET_L) + ')',
+    // A: pocket-anchored sum
+    _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,60}' + AMT + '[^.!?\\n]{0,20}' + _b(FEE_POCKET_L)
+    // B: explicit multiplication (COUNT + noun + по/× + amount)
+    + '|' + '(?<![\\p{L}\\p{N}])\\d{1,3}\\s*' + _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,10}(?:по|po|×|[хx]|\\*)\\s*' + AMT + '(?:' + CUR + ')?',
     'iu');
 }
 
@@ -1033,6 +1039,24 @@ export function buildFeeTotalCostSlots(): RegExp {
  *  spend) — the bare-amount anchor of the total-cost family. Bare-stem form:
  *  the 'од мој' lead rides in the gap window. Cyrillic \p{L}* (JS \w ASCII). */
 export const FEE_POCKET_L = '(?:џеб\\p{L}*|dj?z?eb\\w*)';
+
+/** RULES/POLICY noun — the client dismisses the fee as "just your policy":
+ *  "тоа се Вашите правила", "вашата политика е таква", "agency rules". */
+export const FEE_RULES_NOUN_L = '(?:правил\\p{L}*|pravil\\w*|политик\\p{L}*|politik\\w*|протокол\\p{L}*|protokol\\w*|деловник\\p{L}*|delovnik\\w*)';
+
+/** Possessive/agency anchor beside the rules noun — Ваш/агенција/Метрополис. */
+export const FEE_RULES_OWNER_L = '(?:ваш\\p{L}*|vash\\w*|агенци\\p{L}*|agenci\\w*|метрополис|metropolis|вие|vie)';
+
+/** Client-side POLICY ASSERTION: rules/policy noun + owner anchor, either
+ *  order — "тоа се Вашите правила", "vashata politika e takva". The answer
+ *  is the agency-rules rationale (the rules bind clients and agents alike),
+ *  never a search and never the fee re-disclosure. */
+export function buildFeeRulesSlots(): RegExp {
+  return new RegExp(
+    _b(FEE_RULES_NOUN_L) + '[^.!?\\n]{0,40}' + _b(FEE_RULES_OWNER_L)
+    + '|' + _b(FEE_RULES_OWNER_L) + '[^.!?\\n]{0,40}' + _b(FEE_RULES_NOUN_L),
+    'iu');
+}
 
 export function sampleFeeWhyPhrases(): string[] {
   return [
@@ -1050,6 +1074,11 @@ export function sampleFeeWhyPhrases(): string[] {
     'вие земате пари за посета',
     'vie rabotite taka',
     'САМО ВИЕ РАБОТИТЕ ТАКА',
+    // ── Rules/policy frame ──
+    'тоа се Вашите правила',
+    'toa se vashite pravila',
+    'вашата политика е таква',
+    'TOA E VASHA POLITIKA',
     // ── Multiplication total-cost frame ──
     'ако гледам 10 стана тоа се 5000 од мој џеб за разгледување',
     'ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje',

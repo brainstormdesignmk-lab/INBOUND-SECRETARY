@@ -10,7 +10,7 @@ import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
 import { AVAILABILITY_LEXICON, toRegexAlt, expandAdjective, adjectiveFormsV2, nounFormsV2, formsRegex } from './morphology';
 import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots,
-  buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots } from './grammar';
+  buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots, buildFeeRulesSlots } from './grammar';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -401,6 +401,9 @@ const FEE_AMOUNT_RE = /(?:како|како|која|која)[^.!?\n]{0,30}\d[^
 export function detectFeeWhy(text: string): boolean {
   // Normalize: join multi-line bursts into one line so cross-line patterns work
   const flat = text.replace(/\n/g, ' ');
+  // The RULES family lives in its OWN detector (detectFeeRules → the
+  // fee.rules bank). Folding it here made the rules dismissal answer with the
+  // filter rationale (the feeWhyFast arm outranked the feeRules arm).
   return FEE_WHY_RE.test(flat) || matchesBoth(FEE_FOR_WHAT_RE, flat) || matchesBoth(FEE_AMOUNT_RE, flat) || bareFeeWhy(flat)
     || matchesBoth(_feeWhySlotsRe, flat) || matchesBoth(_feePracticeSlotsRe, flat)
     || extFires('fee-why', flat);
@@ -419,6 +422,31 @@ export function detectFeeWhy(text: string): boolean {
 //                         charge verb Lina recognized → wrong-script serve.
 const _feeWhySlotsRe = buildFeeWhySlots();
 const _feePracticeSlotsRe = buildFeePracticeSlots();
+
+// Fee RULES dismissal (the [12:40] live serve): "тоа се правилата на
+// агенцијата кои важат и за мене и за Вас" — the client files the fee under
+// "just your agency's rules". A POLICY-ASSERTION frame: the answer is the
+// agency-rules rationale (the rules bind clients AND agents — filter,
+// symbolic, same for everyone), never a property search and never a second
+// fee disclosure. Below the vetoes so a negated refusals keep their lane.
+const _feeRulesSlotsRe = buildFeeRulesSlots();
+
+/** True for the fee-rules/policy dismissal family ("тоа се Вашите правила").
+ *  Distinct from detectFeeWhy: different bank (fee.rules — the agency-rules
+ *  rationale), so the SERVE must distinguish them even though both are
+ *  fee-explanation traffic. */
+export function detectFeeRules(text: string): boolean {
+  if (detectNegatedAgreement(text) || detectRejection(text) || detectInvestmentOpinion(text)) return false;
+  const flat = text.replace(/\n/g, ' ');
+  return matchesBoth(_feeRulesSlotsRe, flat);
+}
+
+/** True for the multiplication total-cost complaint ("10 стана … 5000 од мој
+ *  џеб"). Public so ANY-state callers (the pre-classifier intercept) can own
+ *  it — the detector itself is state-free; the CALLER gates the states. */
+export function detectFeeTotalCost(text: string): boolean {
+  return _feeTotalCostSlotsRe.test(text.replace(/\n/g, ' '));
+}
 
 // Bare fee pushback — statement-shaped, NO question word: "NAPLAKJATE ZA
 // POSETA", "naplakjuvate za poseta", "наплатувате надомест". The 13:01
@@ -520,7 +548,7 @@ export function detectFeeComplaint(text: string): boolean {
   // "ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje" — fee ×
   // visits arithmetic about the viewing fee, read as INTERESTED (the amount
   // re-triggered the search machinery). Property math about the FEE, never the
-  // property price → the fee.why rationale lane. BOTH scripts (the Cyrillic
+  // property price → the fee-why rationale lane. BOTH scripts (the Cyrillic
   // forms are literal here; the Latin source constant never rides through
   // matchesBoth).
   if (_feeTotalCostSlotsRe.test(flat)) return true;
@@ -4309,6 +4337,12 @@ export function fsmRequired(text: string): boolean {
   // DOGOVORILE") rides the fast hold lane — it must NOT be read as agreement
   // (the bare "kontaktiraj" token) nor sent down the FSM funnel.
   if (detectOwnerContactHold(text)) return false;
+  // Fee-EXPLANATION families (the [12:40] serve): the multiplication
+  // total-cost math ("ako gledam 10 stana toa se 5000 od moj djeb") carries
+  // the look-verb "gledam" — fsmRequired read it as visit interest and forced
+  // the full path, where the INTERESTED verdict advanced idle→closing. The
+  // fast explanation lane owns this family; the FSM never needs it.
+  if (detectFeeTotalCost(text)) return false;
   // The result-set question rides the FSM lane in presentation — the count
   // answer needs the candidate pool, not a canned fast-path line.
   if (detectResultSetQuestion(text)) return true;
