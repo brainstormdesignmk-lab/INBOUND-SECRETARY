@@ -8,7 +8,7 @@ import {
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
 import { shouldLogForEnrichment } from '../llm/enrichPolicy';
 import { fileMisrouteCorrection } from '../llm/misroute';
-import { transition, Event } from '../fsm/machine';
+import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
@@ -41,7 +41,7 @@ import {
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
-  AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy,
+  AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, PROVISION_ASK_NEITHER,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
   buildRecommendClose,
@@ -138,6 +138,15 @@ export class InboundHandler {
    *  the LLM classifier fired). Set at the classify seam, consumed at the
    *  turn-end capture hook. Never read anywhere else. */
   private detGaveUp = false;
+
+  /** THE [09:0x] BUG: a fee-refusal turn in an IDLE session — dispatchSimple
+   *  (which runs BEFORE the classifier) resolved 'provision.ask' with
+   *  service === undefined and the ternary defaulted to the BUY script
+   *  (500 ден/0% провизија) at a RENT client. This per-turn field records the
+   *  service the message itself declares; the provision lanes consult it so
+   *  a burst can backfill the slot before the copy is picked. Semantics:
+   *  undefined = message says nothing about market, NOT "buy". */
+  private feeServiceHint: Service | undefined = undefined;
 
   private chains = new Map<string, Promise<void>>();
   /** The raw inbound message of the in-flight processMessage call — history
@@ -1911,6 +1920,30 @@ export class InboundHandler {
       // still handle a legit recommendation frame.
     }
 
+    // FEE-WHY INTERCEPT BEFORE THE PROVISION LANES (the [09:0x] V16K11
+    // transcript): "nikoj ne zema pari za poseta" matched CHARGE_MONEY_RE
+    // inside detectProvisionAsk → PROVISION_ASK → the buy rules-of-work
+    // script, when the client is QUESTIONING the fee's existence and Lina
+    // must give the REASONS (the serious-client filter), never the rules of
+    // work. dispatchSimple runs pre-classifier, so the veto must live HERE.
+    // fsmRequired guard: if the FSM forces the full path, the fee.why FSM legs
+    // (detectFeeWhy branches) already own the serve — no double-talk.
+    if (!fsmRequired(text) && detectFeeWhy(text)) {
+      const beforeWhy = session.state;
+      if (['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(beforeWhy)) {
+        routeLog(chatId, text, 'FEE_WHY');
+        if (!session.slots.service) session.slots.service = this.feeServiceHint;
+        reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
+        bankKey = 'fee.why';
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        console.log(`[timing] pipeline ${Date.now() - pipelineStart}ms (fast-deterministic) state=${beforeWhy} src=deterministic bank=fee.why`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+    }
+
     // 0c) dispatchSimple: bank-backed informational intents (offtopic, defer,
     // negotiate, provision, documents, mortgage, scheduling, etc.). These fire
     // BEFORE the classifier — they don't need FSM transitions, they just answer
@@ -1920,15 +1953,22 @@ export class InboundHandler {
     const simpleFast = !fsmRequired(text) ? dispatchSimple(text, session.state) : undefined;
     if (simpleFast) {
       routeLog(chatId, text, simpleFast.intent);
+      // [09:0x] burst backfill: "samo vie rabotite taka / nikoj ne zema pari za
+      // poseta" — the SECOND line declares the market; WITHOUT the backfill the
+      // provision ternary reads slots.service of a RESET session (undefined) and
+      // defaults to the buy script (the yesterday renter got 500 ден + 0%).
+      if (!session.slots.service) session.slots.service = this.feeServiceHint;
       let effectiveKey = simpleFast.bankKey;
       if (effectiveKey === 'provision.ask') {
-        effectiveKey = session.slots.service === 'rent' ? 'provision.ask.rent' : 'provision.ask.buy';
+        effectiveKey = provisionKeyFor(session.slots.service);
       } else if (effectiveKey === 'provision.who') {
         const isDanok = /danok|danokot|данок|данокот/i.test(text);
         if (isDanok && session.slots.service !== 'rent') {
           effectiveKey = 'provision.who.danok.buy';
         } else {
-          effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
+          effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent'
+            : session.slots.service === 'buy' ? 'provision.who.buy'
+            : PROVISION_ASK_NEITHER;
         }
       }
       const pickedFast = pickVariant(effectiveKey, { recent: assistantTexts(session) });
@@ -2127,6 +2167,12 @@ export class InboundHandler {
     // property_query). Widen the check so the pivot always fires.
     const feeWhyQuestion = detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before);
     if (ev.type === 'FEE_REFUSED' && before === 'closing' && !feeWhyQuestion) {
+      // Copy follows the DECLARED market (the [09:0x] 500-den bug): the
+      // message itself is the truth — a rent declaration in a burst must win
+      // over the stale/reset slot before the 300-vs-500 rungs are built.
+      // (props is not loaded yet here; the property backfill happens in the
+      // FSM-leg refusal branch where props is in scope.)
+      if (!session.slots.service) session.slots.service = this.feeServiceHint;
       session.slots.feeRejections = (session.slots.feeRejections ?? 0) + 1;
       // 3 persuasion attempts before graceful close: 1st refusal → persuade,
       // 2nd refusal → ask what concerns you + persuade, 3rd refusal → one more
@@ -2370,7 +2416,12 @@ export class InboundHandler {
         // "skapo e" — but it is a fee REFUSAL (the negation flips the
         // consent token), never a cheaper-search instruction. Without this
         // veto refusal #2 abandoned the fee funnel and dumped properties.
+        // FEE-COMPLAINT veto (the [09:0x] capture): "ako gledam 10 stana toa
+        // se 5000 od moj djeb" — total-cost arithmetic about the FEE — read
+        // as INTERESTED and the amount re-triggered the search machinery.
+        // Fee traffic stays in the fee lanes (fee.why at closing).
         && !detectNegatedAgreement(text)
+        && !detectFeeComplaint(text)
         // In presentation, a criteria message that carries a cheaper-word
         // ("една спална, нешто поевтино, до 50") is a FILTER — the dedicated
         // re-present branch's job. A BARE cheaper-ask (no bedrooms/sqm/
@@ -2676,7 +2727,7 @@ export class InboundHandler {
         routeLog(chatId, text, simple.intent);
         let effectiveKey = simple.bankKey;
         if (effectiveKey === 'provision.ask') {
-          effectiveKey = session.slots.service === 'rent' ? 'provision.ask.rent' : 'provision.ask.buy';
+          effectiveKey = provisionKeyFor(session.slots.service);
         } else if (effectiveKey === 'provision.who') {
           const isDanok = /danok|danokot|данок|данокот/i.test(text);
           if (isDanok && session.slots.service !== 'rent') {
@@ -2975,6 +3026,10 @@ ${contactReminder}`;
       // 2nd refusal → ask what concerns you + one more try.
       // 3rd refusal → final persuasion attempt.
       // 4th+ refusal → pivot to alternative properties or graceful close.
+      // Property backfill (the [09:0x] bug): no declared market anywhere →
+      // the property on the table IS the market; the 300-vs-500 rungs below
+      // must never quote the wrong script.
+      if (!session.slots.service) session.slots.service = props[0]?.service;
       const rejections = session.slots.feeRejections ?? 1;
       // Empty-props guard (audit): with no property on the table the pivot's
       // criteria are all undefined and candidates() would return a raw
@@ -3645,7 +3700,7 @@ ${contactReminder}`;
         // Provision: pick buy or rent bank based on declared service
         let effectiveKey = simple.bankKey;
         if (effectiveKey === 'provision.ask') {
-          effectiveKey = session.slots.service === 'rent' ? 'provision.ask.rent' : 'provision.ask.buy';
+          effectiveKey = provisionKeyFor(session.slots.service);
         } else if (effectiveKey === 'provision.who') {
           // Danok-specific question: buyer pays tax to Grad Skopje
           const isDanok = /danok|danokot|данок|данокот/i.test(text);
@@ -4474,4 +4529,19 @@ ${contactReminder}`;
     this.deps.meta.increment('monthly_initiated');
     await this.deps.channels.send(session.channel, session.chatId, text, source);
   }
+}
+
+/**
+ * Provision bank resolution (the [09:0x] 500-den bug): an idle/reset session
+ * has slots.service === undefined — the old inline ternary read that as "buy"
+ * and served a RENT searcher the 500 ден/0% провизија rules-of-work script.
+ * A market question WITHOUT a declared market gets the service-agnostic
+ * answer (both scripts, both fees, correct by construction); only an explicit
+ * 'rent' picks the rent bank. The service-agnostic PROVISION_ANSWER stays the
+ * bank-miss fallback in every provision lane.
+ */
+function provisionKeyFor(service: Service | undefined): string {
+  return service === 'rent' ? 'provision.ask.rent'
+    : service === 'buy' ? 'provision.ask.buy'
+    : 'provision.ask.neither';
 }

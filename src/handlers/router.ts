@@ -19,6 +19,7 @@ import {
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
   detectDrugAlternative, detectInvestmentOpinion, detectWorkdaysQuestion,
+  detectFeeWhy,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -153,9 +154,21 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
     allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
   },
   {
+    // ORDER (the [09:0x] V16K11 transcript): "nikoj ne zema pari za poseta" is
+    // BOTH fee-why (charge-claim family) AND provision-shaped
+    // (CHARGE_MONEY_RE) — the WHY lane must own it or the client gets the
+    // rules-of-work script instead of the fee's REASONS. detectFeeWhy first;
+    // mirrored in inbound.ts (dispatchSimple is pre-classifier there).
+    intent: 'FEE_WHY',
+    bankKey: 'fee.why',
+    fallback: 'Надоместот за посета е филтер на агенцијата со кој ги препознаваме вистинските клиенти. Дали се согласувате со овој услов?',
+    detect: t => detectFeeWhy(t) && !detectProvisionAsk(t),
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'],
+  },
+  {
     intent: 'PROVISION_ASK',
     bankKey: 'provision.ask',
-    fallback: 'Агенциската провизија изнесува 500 денари (10 евра) и се плаќа при организација на посетата.',
+    fallback: 'Условите зависат дали барате купување или изнајмување. Купувачот не плаќа провизија (0%), единствен трошок е 500 денари за посета; за изнајмување надоместот е 300 денари, а провизијата 50% од киријата. Дали Ве интересира купување или изнајмување?',
     detect: detectProvisionAsk,
     allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
   },

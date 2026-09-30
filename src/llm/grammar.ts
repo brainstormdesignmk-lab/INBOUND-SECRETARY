@@ -916,7 +916,6 @@ export function sampleWidenPhrases(): string[] {
 // closing punctuation. Every Macedonian "why" question starts with one of
 // these tokens, so the word classes fully cover the family.
 // ═════════════════════════════════════════════════════════════════════
-
 /** WHY-question starters (Cyrillic + Latin transliteration variants). */
 export const WHY_INTERROGATIVES = '(?:зошто|зашто|зосто|штозошто|zosto|zashto|zoshto|shto zosto)';
 
@@ -954,5 +953,110 @@ export function sampleWhyPhrases(): string[] {
     'зошто е цената 185.000?',
     'зошто треба да платам?',
     'зошто е Скопје главен град?',
+  ];
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// FEE-NEGOTIATION word classes — grammar-based recognition of the
+// "why do you charge / nobody charges" family. Macedonian word order is
+// free, so every family member is a SLOT PAIR (anchor + claim) matched in
+// BOTH orders, exactly like the availability/visit classes above.
+// ═════════════════════════════════════════════════════════════════════
+
+/** Universal quantifier — никoj / никому / никогаш (+ Latin, + о/о-typos). */
+export const FEE_NEG_UNIVERSAL_L = '(?:ником|никому|никој|никоj|никои|никогаш|никогаш\w*|nikoj|nikomu|nikogas\\w*|nikogash\\w*)';
+
+/** NEVER-adverb + negated charge verb — "не наплаќа" / "никогаш не зема". */
+export const FEE_NEG_CHARGE_L = '(?:не\\s+(?:напла[ќк]\\w*|наплат\\w*|зема\\w*|zem\\w*|naplakj?\\w*|naplat\\w*|plakjat?\\w*|pravi\\w*|прават?|pravat)|никогаш\\s+не\\s+\\p{L}+|ne\\s+(?:naplakj?\\w*|naplat\\w*|zem\\w*|plakjat?\\w*|pravi|pravat)|nikogas\\s+ne\\s+\\p{L}+|nikogash\\s+ne\\s+\\p{L}+|(?:земат[еи]|земате|zemate)[^.!?\\n]{0,30}(?:пар[аие]|par[aei]|посет\\p{L}*|poset\\p{L}*)|(?:пар[аие]|par[aei])[^.!?\\n]{0,30}(?:земат[еи]|zemate))';
+
+/** Claim verbs for the universal frame — "прави/does" and "зема/takes". */
+export const FEE_NEG_DO_L = '(?:прави|прават|pravi|pravat|зема|земат|zemate?|zemat|напла[ќк]\\w*|наплат\\w*|naplakj?\\w*|naplat\\w*|плат\\p{L}*|плаќ\\p{L}*|plat\\p{L}*|plakj\\p{L}*)';
+
+/** 2nd-person charge verb — "вие работите таквата работа" → земате/правите. */
+export const FEE_2P_CHARGE_L = '(?:работите|работите\\s+такв?а?та?а?|rabotite|земат[еи]|земате|zemate|правите|pravite|напла[ќк]ате|наплатувате|naplakjate|naplakate|naplatuvate|платите|плаќате|platite|plakjate)';
+
+/** Practice noun — "ваква практика / таква работа / taka rabotite". */
+export const FEE_PRACTICE_L = '(?:такв?ата?а?|такв[аои]\\p{L}*|така|taka|taku|takv\\w*|вакв[аои]\\p{L}*|vakv\\w*|работата|работа\\p{L}*|rabotata|rabota\\w*|практика\\p{L}*|praktika\\w*|систем\\p{L}*|sistem\\w*)';
+
+/** Viewing nouns WITHOUT \p{L} wildcards — safe for gap windows. */
+export const FEE_VIEWING_NOUN_L = '(?:посета|посетата|poseta|posetata|разглед\\w*|razgled\\w*|гледањ\\w*|gledanj\\w*|преглед\\w*|pregled\\w*|влезница\\w*|vleznica\\w*|визита|vizita|надомест\\w*|nadomest\\w*|nadomestok|такса\\w*|taksa\\w*|пари|pari)';
+
+/** "+ viewing noun" claim head for the universal frame (no-gap direct pairs). */
+export const FEE_VIEWING_CLAIM_L = '(?:\\s+(?:за|za)\\s+' + FEE_VIEWING_NOUN_L + '|\\s+' + FEE_VIEWING_NOUN_L + ')';
+
+/** TOTAL-COST arithmetic noun — станови/имоти × viewing fee. Cyrillic stems
+ *  use \p{L}* (JS \w is ASCII-only — 'стана' must extend 'стан'). */
+export const FEE_MULTI_NOUN_L = '(?:стан\\p{L}*|stan\\w*|имот\\p{L}*|imot\\w*|ку[ао]ј\\p{L}*|kukj\\w*|посет\\p{L}*|poset\\w*|разглед\\p{L}*|razgled\\w*|гледањ\\p{L}*|gledanj\\w*)';
+
+/** Grammar-built fee-negotiation patterns (see module docs). BOTH word orders
+ *  per family; all scripts; typoes tolerated. Callers gate on state — these
+ *  patterns describe fee talk, not property talk. */
+export function buildFeeWhySlots(): RegExp {
+  // [universal][gap][claim] | [claim][gap][universal]
+  return new RegExp(
+    _b(FEE_NEG_UNIVERSAL_L) + '[^.!?\\n]{0,40}' + '(?:' + FEE_NEG_CHARGE_L + '|' + FEE_NEG_DO_L + ')'
+    + '|' + '(?:' + FEE_NEG_CHARGE_L + '|' + FEE_NEG_DO_L + ')' + '[^.!?\\n]{0,40}' + _b(FEE_NEG_UNIVERSAL_L),
+    'iu');
+}
+
+/** Boundary guard shared with or() above (JS \b is ASCII-only). */
+function _b(src: string): string {
+  return '(?<![\\p{L}\\p{N}])(?:' + src + ')(?![\\p{L}\\p{N}])';
+}
+/** "(вие) така работите” — 2nd-person practice statement: the client asserts
+ *  Lina's agency charges for visits as POLICY (a fee-why frame, never a
+ *  search/interest). Charge/practice anchors within a 60-char clause. */
+export function buildFeePracticeSlots(): RegExp {
+  return new RegExp(
+    _b(FEE_2P_CHARGE_L) + '[^.!?\\n]{0,60}' + _b(FEE_PRACTICE_L)
+    + '|' + _b(FEE_PRACTICE_L) + '[^.!?\\n]{0,60}' + _b(FEE_2P_CHARGE_L),
+    'iu');
+}
+
+/** Multiplication total-cost complaint: "10 стана × 500 = 5000 од мој џеб".
+ *  Viewing-noun × fee-amount in ONE clause — property math about the FEE, not
+ *  the property price. Two amount anchors: (a) fee-sized amount WITH currency
+ *  (≤4 digits — "× 500 денари"), (b) BARE amount followed by an OWNERSHIP/
+ *  pocket marker ("…се 5000 од мој џеб" — the capture carried no currency;
+ *  the џеб phrase pins it as the client's own spend). 5-digit numbers can
+ *  never match (\d{1,4} + boundary), so property budgets stay out. */
+export function buildFeeTotalCostSlots(): RegExp {
+  return new RegExp(
+    _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,60}'
+    + '(?<![\\p{L}\\p{N}])\\d{1,4}(?![\\p{L}\\p{N}])'
+    + '(?:\\s*(?:ден\\w*|денар\\w*|den(?:ar)?\\w*|евр\\w*|евра|evr\\w*|eur|мкд|mkd)(?![\\p{L}\\p{N}])'
+    + '|[^.!?\\n]{0,20}' + _b(FEE_POCKET_L) + ')',
+    'iu');
+}
+
+/** Ownership/pocket marker — "од мој џеб / od moj djeb" (the client's own
+ *  spend) — the bare-amount anchor of the total-cost family. Bare-stem form:
+ *  the 'од мој' lead rides in the gap window. Cyrillic \p{L}* (JS \w ASCII). */
+export const FEE_POCKET_L = '(?:џеб\\p{L}*|dj?z?eb\\w*)';
+
+export function sampleFeeWhyPhrases(): string[] {
+  return [
+    // ── Universal frame (никoj … не …) ──
+    'никoj не зема пари за посета',
+    'nikoj ne zema pari za poseta',
+    'НИКОЈ НЕ НАПЛАЌА ЗА ПОСЕТА',
+    'никому не му требаат пари за посета',
+    'никогаш не сум платил за посета',
+    'nikogas ne plativ za poseta',
+    'никoj не го прави тоа',
+    // ── 2nd-person practice frame ──
+    'само вие работите така',
+    'samo vie rabotite taka',
+    'вие земате пари за посета',
+    'vie rabotite taka',
+    'САМО ВИЕ РАБОТИТЕ ТАКА',
+    // ── Multiplication total-cost frame ──
+    'ако гледам 10 стана тоа се 5000 од мој џеб за разгледување',
+    'ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje',
+    '10 станови × 500 денари е многу',
+    // ── NEGATIVES — must NOT match ──
+    'барам стан во Карпош',
+    'зинтересиран сум за стан',
+    'каков е станот?',
   ];
 }

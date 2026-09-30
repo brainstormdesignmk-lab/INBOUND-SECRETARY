@@ -438,13 +438,29 @@ export function waiverAck(budget: string | undefined, recent: string[] = []): st
  * client agrees (FEE_AGREED -> contact_collection -> … -> owner_checking).
  */
 export function buildFeeAsk(service: Service | undefined): string {
+  // Service UNDEFINED is a LITERAL case (the [09:0x] V16K11 bug): the old
+  // `=== 'rent' ? A : B` ternary read a missing slot as "buy" and quoted the
+  // 500-den/0% commission at a RENT client whose session had reset. Ask both,
+  // and let the answer pin the slot.
+  if (service === undefined) {
+    return 'Мило ми е. Пред да продолжиме, мора да Ве известам за политиката на Метрополис: посетата на имот се наплаќа симболично — 300 денари (5 евра) за изнајмување, 500 денари (10 евра) за купување. Дали Ве интересира изнајмување или купување, за да ги прецизираме условите?';
+  }
   return service === 'rent'
     ? 'Мило ми е. Пред да го повикам сопственикот, мора да Ве известам за политиката на Метрополис: разгледувањето на имот чини симболични 300 денари (5 евра). Дали се согласувате со овие услови за да можеме да продолжиме?'
     : 'Одличен избор. Бидејќи станува збор за купување, имам одлична вест и еден мал услов за Вас. Кај нас во Метрополис, Вие како купувач НЕ плаќате агенциска провизија (0%) — единствениот трошок е симболични 500 денари (10 евра) за организирање на посетата. Дали се согласувате со овој услов за да можеме да продолжиме?';
 }
 
-/** Fee persuasion ladder, keyed by refusal count (1 = persuade, 2 = ask why). */
+/** Fee persuasion ladder, keyed by refusal count (1 = persuade, 2 = ask why).
+ *  Service UNDEFINED is a LITERAL case (the [09:0x] V16K11 bug): the old
+ *  `=== 'rent' ? A : B` ternary served the buy copy at a rent client whose
+ *  session had reset. The agnostic copy names BOTH fees so every read is
+ *  correct — never fabricate a market the client has not declared. */
 export function feePersuasion(service: Service | undefined, rejects: number): string {
+  if (service === undefined) {
+    return rejects >= 2
+      ? 'Разбирам. Дозволете ми да Ве прашам — што Ве загрижува околу надоместот за посета (300 денари за изнајмување, 500 денари за купување)? Тој е симболичен и се однесува само на организирање на посетата. Можеби ќе најдеме решение заедно.'
+      : 'Надоместот за разгледување е симболичен — 300 денари (5 евра) за изнајмување, 500 денари (10 евра) за купување — и се однесува само на организирање на посетата. Тој е мал во споредба со удобноста — гледате имот што навистина одговара на Вашите критериуми, без да губите време. Дали би можеле да размислите?';
+  }
   if (rejects >= 2) {
     return service === 'rent'
       ? 'Разбирам. Дозволете ми да Ве прашам — што Ве загрижува околу надоместот од 300 денари? Тој е симболичен и се однесува само на организирање на посетата. Можеби ќе најдеме решение заедно.'
@@ -668,6 +684,14 @@ export const PRICE_NEGOTIATE =
 // Provision / commission: clarify the 0% commission + viewing fee.
 export const PROVISION_ANSWER =
   'Агенцијата не наплаќа провизија за купувачот (0%). Единствен трошок за Вас е симболичниот надомест за посета — 500 денари за купување, 300 денари за изнајмување.';
+
+// Service-AGNOSTIC provision serve (the [09:0x] V16K11 bug): the old
+// resolution ternary read slots.service === undefined as "buy" and served a
+// rent searcher the 500 ден/0% провизија rules-of-work script. A market
+// question without a declared market names BOTH scripts, both fees —
+// correct by construction (see buildFeeAsk for the same pattern).
+export const PROVISION_ASK_NEITHER =
+  'Условите зависат дали барате купување или изнајмување. Кај нас купувачот НЕ плаќа провизија (0%) — единствен трошок е симболичниот надомест за посета од 500 денари (10 евра). За изнајмување, надоместот за посета е 300 денари (5 евра), а провизијата е 50% од месечната кирија. Дали Ве интересира купување или изнајмување?';
 
 // Scheduling flexibility: acknowledge the preferred window.
 export const SCHED_FLEX_ANSWER =

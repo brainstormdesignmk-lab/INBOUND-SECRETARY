@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -504,10 +504,40 @@ export class Classifier {
     // overrides (detectNegatedAgreement makes detectAgreement false, so the
     // overrides below can't catch it; the deterministic path must refuse
     // exactly like the LLM-down path).
+    // FEE-WHY VETO (the [09:0x] V16K11 burst): the universal-nobody and
+    // you-charge-policy families ARE the why-lane — they must reach it as
+    // STAY (fee.why serve), never flip to FEE_REFUSED here, never land as a
+    // search event ("10 stana … 5000" carries a stan word and would read as
+    // a NEW criteria set).
     if ((ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED') && session.state === 'closing'
       && detectNegatedAgreement(text) && !detectFeeWhy(text)
       && !detectRejection(text) && !detectInvestmentOpinion(text)) {
       ev = { type: 'FEE_REFUSED' };
+    }
+    if (ev.type === 'FEE_REFUSED' && session.state === 'closing'
+      && detectFeeWhy(text) && !detectNegatedAgreement(text)
+      && !detectRejection(text) && !detectInvestmentOpinion(text)) {
+      ev = { type: 'STAY' };
+    }
+    if ((ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED' || ev.type === 'INTERESTED') && session.state === 'closing'
+      && detectFeeComplaint(text) && !detectFeeWhy(text)
+      && !detectRejection(text) && !detectInvestmentOpinion(text)) {
+      ev = { type: 'STAY' };
+    }
+    // Negated FEE-PAY refusal (the [09:1x] V16K11 capture: "ne sakam da
+    // plakjam za otvaranje na stan" — NO agreement stem, so the negated-
+    // agreement branch skipped it and the REJECTED classifier verdict dumped
+    // property cards at a fee refusal). Not a why-question (no rationale
+    // wanted) — a straight refusal: rung #1, rent copy, stay in closing.
+    if ((ev.type === 'STAY' || ev.type === 'DETAILS_PROVIDED' || ev.type === 'REJECTED' || ev.type === 'INTERESTED')
+      && session.state === 'closing'
+      && detectNegatedFeePay(text) && !detectFeeWhy(text) && !detectFeeComplaint(text)
+      && !detectInvestmentOpinion(text)) {
+      if (!session.slots.service) {
+        const declared = detectService(text);
+        if (declared) session.slots.service = declared;
+      }
+      ev = { type: 'FEE_REFUSED', service: session.slots.service };
     }
 
     // "STAPI VO KONTAKT I INFORMIRAJ ME" — an explicit order to contact + be
@@ -1147,11 +1177,30 @@ export class Classifier {
     // word inside the negation read as consent and the funnel advanced to
     // contact collection). OWN BRANCH: detectNegatedAgreement makes
     // detectAgreement false, so the consent override below cannot catch it.
+    // LLM-down twin of the negated-fee-pay refusal (same reasoning as the
+    // deterministic override above — the [09:1x] capture).
+    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing'
+      && detectNegatedFeePay(text) && !detectFeeWhy(text) && !detectFeeComplaint(text)
+      && !detectInvestmentOpinion(text)) {
+      if (!session.slots.service) {
+        const declared = detectService(text);
+        if (declared) session.slots.service = declared;
+      }
+      parsed.event = { type: 'FEE_REFUSED', service: session.slots.service };
+    }
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing'
       && detectNegatedAgreement(text)
       && !detectFeeWhy(text) && !detectRejection(text)
       && !detectInvestmentOpinion(text)) {
-      parsed.event = { type: 'FEE_REFUSED' };
+      // Service follows the DECLARED market (the [09:0x] 500-den bug): the
+      // persuasion rungs quote 300 vs 500 денари — an undefined slot must not
+      // silently read as buy. buildFeeAsk/feePersuasion now treat undefined as
+      // a literal both-scripts case; the carry keeps the funnel self-correcting.
+      if (!session.slots.service) {
+        const declared = detectService(text);
+        if (declared) session.slots.service = declared;
+      }
+      parsed.event = { type: 'FEE_REFUSED', service: session.slots.service };
     }
     if ((llmDown || parsed.event.type === 'STAY') && session.state === 'closing'
       && detectAgreement(text) && !detectFeeWhy(text) && !detectRejection(text)

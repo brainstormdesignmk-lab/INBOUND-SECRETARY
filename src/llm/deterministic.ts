@@ -9,7 +9,8 @@ import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
 import { AVAILABILITY_LEXICON, toRegexAlt, expandAdjective, adjectiveFormsV2, nounFormsV2, formsRegex } from './morphology';
-import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots } from './grammar';
+import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots,
+  buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots } from './grammar';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -400,8 +401,24 @@ const FEE_AMOUNT_RE = /(?:како|како|која|која)[^.!?\n]{0,30}\d[^
 export function detectFeeWhy(text: string): boolean {
   // Normalize: join multi-line bursts into one line so cross-line patterns work
   const flat = text.replace(/\n/g, ' ');
-  return FEE_WHY_RE.test(flat) || matchesBoth(FEE_FOR_WHAT_RE, flat) || matchesBoth(FEE_AMOUNT_RE, flat) || bareFeeWhy(flat) || extFires('fee-why', flat);
+  return FEE_WHY_RE.test(flat) || matchesBoth(FEE_FOR_WHAT_RE, flat) || matchesBoth(FEE_AMOUNT_RE, flat) || bareFeeWhy(flat)
+    || matchesBoth(_feeWhySlotsRe, flat) || matchesBoth(_feePracticeSlotsRe, flat)
+    || extFires('fee-why', flat);
 }
+
+// Grammar-built fee-negotiation families (word-class permutations, both
+// word orders — see grammar.ts):
+//   _feeWhySlotsRe      — the UNIVERSAL frame: "никoj не зема пари за посета",
+//                         "никoj не го прави тоа", "никогаш не сум платил".
+//                         ("никoj" was already covered ONLY with a charge
+//                         verb; the "зема пари" / bare-"не" forms fell through.)
+//   _feePracticeSlotsRe — the 2nd-person policy statement: "само вие работите
+//                         така", "вие земате пари за посета" — the client
+//                         asserts charging-for-visits is OUR policy. Today's
+//                         V16K11 burst lead: it carried no question word, no
+//                         charge verb Lina recognized → wrong-script serve.
+const _feeWhySlotsRe = buildFeeWhySlots();
+const _feePracticeSlotsRe = buildFeePracticeSlots();
 
 // Bare fee pushback — statement-shaped, NO question word: "NAPLAKJATE ZA
 // POSETA", "naplakjuvate za poseta", "наплатувате надомест". The 13:01
@@ -499,8 +516,18 @@ const FEE_GRAMMAR_RE = new RegExp(
   'iu');
 export function detectFeeComplaint(text: string): boolean {
   const flat = text.replace(/\n/g, ' ');
+  // Multiplication TOTAL-COST complaint (the [09:0x] V16K11 transcript):
+  // "ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje" — fee ×
+  // visits arithmetic about the viewing fee, read as INTERESTED (the amount
+  // re-triggered the search machinery). Property math about the FEE, never the
+  // property price → the fee.why rationale lane. BOTH scripts (the Cyrillic
+  // forms are literal here; the Latin source constant never rides through
+  // matchesBoth).
+  if (_feeTotalCostSlotsRe.test(flat)) return true;
   return FEE_COMPLAINT_RE.test(flat) || matchesBoth(FEE_PRICE_COMPLAINT_RE, flat) || FEE_AMOUNT_COUNTER_RE.test(flat) || matchesBoth(FEE_GRAMMAR_RE, flat);
 }
+
+const _feeTotalCostSlotsRe = buildFeeTotalCostSlots();
 
 // A position pick among the presented closest matches: "првиот" / "вториот"
 // ("да, првиот е тој"). Latin + Cyrillic. "прва" (feminine) is too loose
@@ -1851,6 +1878,14 @@ export function detectConditionalFeeAccept(text: string): boolean {
 // read as CONSENT. Stem-family arms cover every spelling.)
 const FEE_PAY_NEG_RE = new RegExp(
   '(?:^|[^\\p{L}])(?:ne|не)(?![\\p{L}])[^.!?\\n]{0,40}(?:plat\\w*|plakj\\w*|плаќ\\w*|плат\\w*|sakam\\w*|сакам\\w*|dadam|дадам|prihak\\w*|prifak\\w*|прифаќ\\w*|прифак\\w*)', 'iu');
+
+/** Negated PAY/ACCEPT statement — "ne sakam da plakjam za otvaranje na stan",
+ *  "ne prifakjam nadomestok" — the REFUSAL family even WITHOUT an agreement
+ *  stem (the [09:1x] V16K11 capture read it as REJECTED and dumped property
+ *  cards at a fee refusal). Callers gate on the fee context (closing). */
+export function detectNegatedFeePay(text: string): boolean {
+  return FEE_PAY_NEG_RE.test(text);
+}
 
 export function detectFeePaymentAgreement(text: string): boolean {
   if (/(?:^|[^\p{L}])dali(?:$|[^\p{L}])/iu.test(text)
@@ -3470,7 +3505,8 @@ const VIEWING_NOUN_SRC =
   + '|визит\\p{L}*|vizit\\p{L}*'
   + '|влезниц\\p{L}*|vleznits?\\p{L}*|vleznic\\p{L}*'
   + '|влез|vlez'
-  + '|отварањ\\p{L}*|otvaranj\\p{L}*)';
+  + '|отварањ\\p{L}*|otvaranj\\p{L}*'
+  + '|отворањ\\p{L}*|otvoranj\\p{L}*|otvor\\p{L}*)';
 const VIEWING_NOUN_RE = new RegExp('(?<![\\p{L}\\p{N}])' + VIEWING_NOUN_SRC, 'iu');
 
 // AMOUNT-FIRST FEE QUESTION — "500DEN ZA POSETA ?", "za poseta 500 den ?":
@@ -3515,7 +3551,31 @@ export function detectAmountFeeQuestion(text: string): boolean {
 }
 
 export function detectProvisionAsk(text: string): boolean {
+  // FEE-WHY VETO (today's [09:0x] V16K11 transcript): "samo vie rabotite taka
+  // / nikoj ne zema pari za poseta" — the fee-WHY/rationale frame — reached
+  // THIS detector via CHARGE_MONEY_RE ("zema pari za poseta") and the fallback
+  // served the rules-of-work script with the WRONG fee (session was idle,
+  // slots.service gone → the ternary defaulted to buy). The why-lane owns the
+  // universal-nobody and you-charge-policy families; a bare polite ack
+  // ("samo vie rabotite taka" alone) belongs to neither detector — not to
+  // provision.ask either. EXCLUSIONS: the VOLITIONAL fee question ("DA PLATAM
+  // ZA VLEZ ?") and the BARE charge claim ("naplatuvate za poseta?" — no
+  // question word) — the learned fee-why examples include them, but both are
+  // how-much/provision traffic; their own arms below keep serving them.
+  if (detectFeeWhy(text)
+    && !matchesBoth(new RegExp(
+      _mB + '(?:да|da)\\s+(?:плат|plat|плаќ|plakj)\\p{L}*\\s+(?:за|za)\\s+' + VIEWING_NOUN_SRC, 'iu'), text)
+    && !matchesBoth(new RegExp(
+      _mB + '(?:наплаќ|наплат|naplak|naplat)[^.!?\\n]{0,24}' + VIEWING_NOUN_SRC, 'iu'), text)) return false;
   if (PROVISION_RE.test(text)) return true;
+  // NEGATED-PAY VETO (today's [09:1x] capture: "ne sakam da plakjam za
+  // otvaranje na stan"): the volitional arm below matched the DA-PLAT shape
+  // inside the negation → PROVISION_ASK served a REFUSAL. Questions and
+  // negations are never a fee question: "ne sakam da platam" is the refusal
+  // family (the classifier's negated-agreement branch). [22:21] guard kept:
+  // an AMOUNT present means the client committed ("ke platam 500 den za
+  // poseta") — refusal WITHOUT an amount stays vetoed.
+  if (matchesBoth(FEE_PAY_NEG_RE, text) && !/\d/.test(text)) return false;
   // AMOUNT-FIRST ("500DEN ZA POSETA ?" — the [22:21] transcript): no charge
   // verb, yet it asks exactly what the visit costs. BUT when the client has
   // COMMITTED ("ke platam 500 den za poseta" — volitional consent), the
