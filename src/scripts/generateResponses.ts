@@ -28,7 +28,7 @@ import { loadConfig } from '../config';
 import { createLlm } from '../llm/factory';
 import { LlmClient, CompleteOpts } from '../llm/types';
 import { INITIAL_GREETINGS } from '../data/greetings';
-import { FALLBACKS, PATIENCE_LINE, buildFeeAsk, feePersuasion, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS, OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER, SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER, NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER, BYE_GRACEFUL, SOFT_REFUSAL_CLOSE } from '../llm/prompts';
+import { FALLBACKS, PATIENCE_LINE, buildFeeAsk, feePersuasion, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS, OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER, SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER, NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER, BYE_GRACEFUL, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK } from '../llm/prompts';
 import { OFFENSE_WARNINGS, STRIKE_1_RESPONSES, STRIKE_2_RESPONSES } from '../antiabuse/strikes';
 
 interface GenerationKey {
@@ -338,6 +338,21 @@ const SPEC: GenerationKey[] = [
     required: [/(?:разбирам|почитувам|Ваша одлука|Вашата одлука|Вашиот став|одлуката)/iu, /(?:ќе Ве контактирам|ќе Ве известам|ќе Ве побарам|ќе Ви се јавам|повторно ќе Ве побарам)/iu, /Се најдобро|најдобро!/iu],
     banned: [/\?/, /доколку Ви затреба|доколку во иднина|туку сум|можам ли да Ви помогнам|помогнам со уште нешто/, /\d/, /евра|денари/, /Евидентен|ID|ИД/],
     question: false,
+    maxLen: 260,
+  },
+  // visit.confirm.ask: the [19:56] funnel-order rule. A visit-timing
+  // QUESTION ("koga bi mozelo da se poseti") gets the owner-contact confirm
+  // ask FIRST — the fee is disclosed only after the client agrees. Every
+  // variant MUST end with the confirm question and MUST NOT name any fee
+  // amount (the fee comes later, from fee.ask.rent/buy).
+  {
+    key: 'visit.confirm.ask',
+    sources: [VISIT_CONFIRM_ASK],
+    count: 10,
+    instructions: 'Клиентот праша кога би можело да се посети имотот. Одговори со план во две-три реченици: ќе го контактираш СОПСТВЕНИКОТ за да ја провериш моменталната ДОСТАПНОСТ и ЦЕНА, и ако е сè во ред, ќе го договорите терминот за посета. ЗАДОЛЖИТЕЛНО заврши со прашање за согласност („Дали е тоа во ред со Вас?“ / „Дали сте согласни со тоа?“ / „Дали би сакале да го направам тоа?“). ЗАБРАНЕТО: било каков износ или валута (надоместот се соопштува ПОДОЦНА, по согласноста), спомнување на Евидентен број, адреса или конкретен имот.',
+    required: [/сопствени/iu, /доступн/iu, /цена|цената/iu, /термин/iu, /\?\s*$/u],
+    banned: [/\d/, /евр|денар|denar|evr|€|надомест|nadomest|такса|provizij|провизи|Евидентен|ID|ИД/],
+    question: true,
     maxLen: 260,
   },
   // presentation.open: the LLM-free path's property cards need the SAME

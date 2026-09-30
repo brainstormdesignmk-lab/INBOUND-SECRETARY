@@ -503,7 +503,7 @@ test('STAPI VO KONTAKT I INFORMIRAJ ME in closing = contact order, not the docum
   assert.equal(s.state, 'visit_scheduling');
 });
 
-test('ZOKI: "кога може да се погледне" is visit interest too — same fee funnel', async () => {
+test('ZOKI: "кога може да се погледне" is visit interest too — enters the fee funnel at the confirm gate', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'zoki2';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
@@ -511,8 +511,15 @@ test('ZOKI: "кога може да се погледне" is visit interest too
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   const s = await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
   assert.equal(s.state, 'closing');
-  assert.ok(sent[1].includes('500 денари'), sent[1]);
+  // The [19:56] rule: a timing QUESTION gets the owner-contact confirm ask
+  // (amount-free), never the fee disclosure — the fee comes after "во ред".
+  assert.ok(/сопствени/iu.test(sent[1]), sent[1]);
+  assert.ok(/\?\s*$/u.test(sent[1]), sent[1]);
+  assert.ok(!sent[1].includes('500 денари'), sent[1]);
   assert.ok(!sent[1].includes('телефонски'), sent[1]);
+  const s2 = await send('VO RED');
+  assert.ok((sent[sent.length - 1] ?? '').includes('500 денари'), sent[sent.length - 1]);
+  assert.equal(s2.slots.viewingFeeAgreed, true);
 });
 
 // The LLM is UP but (mis)classifies the fee-why question as FEE_REFUSED — its
@@ -555,7 +562,9 @@ function makeFeeHandler(rows: Property[], llm: LlmClient): { handler: InboundHan
   return { handler, sessions, sent };
 }
 
-// Reach closing on EB 78 (Капиштец) — the fee was just disclosed.
+// Reach closing on EB 78 (Капиштец) — the [19:56] funnel order: the timing
+// question gets the owner-contact CONFIRM ask; the fee is disclosed only
+// after the client agrees ("во ред").
 async function reachClosing(send: (m: string) => Promise<unknown>): Promise<void> {
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
@@ -567,7 +576,9 @@ test('fee resistance PIVOTS to other neighborhoods when alternatives exist ("zos
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   await reachClosing(send);
-  assert.ok(sent[1].includes('500 денари'), sent[1]); // the fee disclosure came first
+  // [19:56]: the timing question armed the confirm gate; the fee itself is
+  // disclosed only after "во ред" — the refusal ladder below is unchanged.
+  assert.ok(/сопствени/iu.test(sent[1]), sent[1]); // the confirm ask came first
 
   // "зощо наплаќате?" is a WHY question, not a refusal — Lina answers
   // with the agency rationale (fee.why) and stays at closing. The pivot to
@@ -2877,10 +2888,12 @@ test('21:05 visit command after the fee talk: "AKO E TAKA TOGAS DOGOVORI MI" -> 
   const chatId = 'dogovori-2105';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
-  // EB 78 on the table + the fee disclosed (state=closing).
+  // EB 78 on the table; the timing question armed the confirm gate, and the
+  // makeHandler(true) hook injects feeRejections=1 at the command turn —
+  // the 21:05 production premise (the fee talk already happened).
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
-  assert.ok(sent[1].includes('500 денари'), sent[1]); // fee disclosed first
+  assert.ok(/сопствени/iu.test(sent[1]), sent[1]); // confirm ask first ([19:56])
   assert.equal(sessions.get(chatId)!.state, 'closing');
 
   // The accept-order. In the production transcript the fee talk already
@@ -2928,11 +2941,11 @@ test('22:18 TTL resume: a mid-close session survives the 73-min gap — bridge, 
   const chatId = 'resume-2218';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
-  // EB 78 on the table, fee disclosed (closing) — then the client vanishes
-  // for 73 minutes (the 21:05 → 22:18 gap), past the 60-min TTL.
+  // EB 78 on the table, confirm gate armed (closing) — then the client
+  // vanishes for 73 minutes (the 21:05 → 22:18 gap), past the 60-min TTL.
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
-  assert.ok(sent[1].includes('500 денари'), sent[1]);
+  assert.ok(/сопствени/iu.test(sent[1]), sent[1]);
   assert.equal(sessions.get(chatId)!.state, 'closing');
   const aged = sessions.get(chatId)!;
   aged.lastInboundAt = Date.now() - 73 * 60_000;
@@ -2949,12 +2962,13 @@ test('22:18 TTL resume: a mid-close session survives the 73-min gap — bridge, 
   assert.ok(!/Добредојдовте|Добар ден|планирате купување/i.test(reply), `never a fresh greeting: ${reply}`);
 
   // The conversation continues on the resumed session — "DA" accepts the
-  // re-asked offer, the fee was already disclosed, so the funnel closes to
-  // contact collection (name+phone) — the healthy path toward the ping-pong.
+  // re-asked offer: the fee disclosure fires ([19:56] order — the fee only
+  // ever comes after an explicit confirm), not an instant close.
   await send('DA');
   const s2 = sessions.get(chatId)!;
-  assert.equal(s2.state, 'contact_collection');
-  assert.ok(/име и презиме/i.test(sent[sent.length - 1]), sent[sent.length - 1]);
+  assert.equal(s2.state, 'closing');
+  assert.ok(s2.slots.viewingFeeAgreed, 'DA after the resume-bridge = fee consent');
+  assert.ok(/500 денари/.test(sent[sent.length - 1]), sent[sent.length - 1]);
 });
 
 test('22:18b visit-command typo "ORGABIZIRAJ MI" registers as visit interest — fee first, no flow reset', async () => {

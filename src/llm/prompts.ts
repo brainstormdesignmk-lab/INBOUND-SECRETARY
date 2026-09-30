@@ -212,6 +212,14 @@ export const BYE_GRACEFUL =
 export const SOFT_REFUSAL_CLOSE =
   'Разбирам, почитувам ја Вашата одлука. Вашите критериуми остануваат забележани — ако се појави нешто соодветно, ќе Ве контактираме. Ви посакувам сè најдобро!';
 
+// ── Owner-contact confirmation (the [19:56] funnel-order rule) ────────────
+// A visit-timing QUESTION ("KOGA BI MOZELO DA SE POSETI") must first confirm
+// the owner ping — the client's explicit agreement opens the fee disclosure,
+// never the other way around. Amount-free: the fee is named ONLY after the
+// confirm. Bank-backed (visit.confirm.ask — three user-approved variants).
+export const VISIT_CONFIRM_ASK =
+  'Треба да го контактирам сопственикот, да ја проверам моменталната достапност и цена. Ако е сè во ред, тогаш би го договориле терминот за посета. Дали е тоа во ред со Вас?';
+
 // --- Deterministic empty-result lines: the LLM must NEVER invent properties. ---
 // When a search/property lookup yields no data, the reply is code-built so the
 // model is never given a chance to fabricate listings.

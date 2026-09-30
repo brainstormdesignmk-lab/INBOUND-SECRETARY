@@ -479,6 +479,38 @@ export function detectSoftRefusal(text: string): boolean {
   return _softRefusalSlotsRe.test(flat);
 }
 
+/** True when the client asks WHEN a visit could happen ("KOGA BI MOZELO DA
+ *  SE POSETI", "koga moze poseta?") — a timing QUESTION, not a visit command.
+ *  The [19:56] bug: the closing catch-all read the visit noun as visit
+ *  interest that "doubles as the confirmation" and served the fee script,
+ *  skipping the owner-contact confirmation the funnel promises. These get
+ *  the confirm ask (visit.confirm.ask); the fee comes only after the client
+ *  AGREES ("во ред", "се согласувам"). Guards:
+ *  - a concrete time/date (detectVisitTime: "утре во 12") is a real answer
+ *    to the scheduling ask, not a timing question → not ours;
+ *  - an imperative ("договори ми", "закажи") is a visit COMMAND → the
+ *    command lane keeps it;
+ *  - fee words make it fee traffic (its own lanes own it).
+ *  Uses VIEWING_NOUN_SRC so every visit spelling stays in sync. */
+export function detectVisitTimingQuestion(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat) return false;
+  if (detectVisitTime(flat) !== undefined) return false; // concrete time = scheduling answer
+  if (/\b(?:закаж|zakazh?|zakaz)\p{L}*\b|\b(?:договор[еи]|dogovor[ei])\s*(?:ми|me)\b/iu.test(flat)) return false; // imperative command
+  if (/(?:надомест|nadomest|такс|taks|плат|plakj|plat|денар\p{L}*|denar\p{L}*|ден\b|\bden\b|евр\p{L}*|evr\p{L}*|proviz|провизи)/iu.test(flat)) return false; // fee traffic
+  const timingQ = '(?:кога|koga)';
+  // Visit NOUN (poseta/pokaz/vlez/…) OR visit VERB (poglednam/gledam) —
+  // "koga mozam da ja poglednam?" has no noun but is the same timing question.
+  const visitRef = '(?:' + VIEWING_NOUN_SRC + '|pogledn\\p{L}*|гледа\\p{L}*|gledn\\p{L}*)';
+  return new RegExp(
+    '(?<![\\p{L}\\p{N}])' + timingQ + '[^.!?,\\n]{0,40}' + visitRef,
+    'iu',
+  ).test(flat) || new RegExp(
+    '(?<![\\p{L}\\p{N}])' + visitRef + '[^.!?,\\n]{0,40}' + timingQ,
+    'iu',
+  ).test(flat);
+}
+
 // Bare fee pushback — statement-shaped, NO question word: "NAPLAKJATE ZA
 // POSETA", "naplakjuvate za poseta", "наплатувате надомест". The 13:01
 // transcript bug: this used to substring-match the provision-who detector
@@ -1723,10 +1755,18 @@ const NEGATED_AGREE_RE = new RegExp(
   '(?:soglas\\p{L}*|соглас\\p{L}*|slozuv\\p{L}*|сложув\\p{L}*|slagam\\p{L}*|слагам\\p{L}*|prifakj?\\p{L}*|prihakj?\\p{L}*|прифаќ\\p{L}*|прифак\\p{L}*|soglasnost|согласност)',
   'iu');
 
+const NEGATED_RED_RE = new RegExp(
+  '(?:^|[^\\p{L}])(?:не|ne|no|ниту|nitu)(?![\\p{L}])[^.!?\\n]{0,16}?(?:vo\\s+red|во\\s+ред)',
+  'iu');
+
 /** True when a consent token is FLIPPED by a negation ("ne sum soglasen").
  *  Never consent — the fee-refusal protocol owns these. */
 export function detectNegatedAgreement(text: string): boolean {
-  return matchesBoth(NEGATED_AGREE_RE, text);
+  if (matchesBoth(NEGATED_AGREE_RE, text)) return true;
+  // "ne, ne e vo red" / "не е во ред" — the agree-PHRASE arm of detectAgreement
+  // substring-matches 'vo red' straight through the negation and read the
+  // DECLINED owner-contact confirm as consent (the [19:56] follow-up).
+  return matchesBoth(NEGATED_RED_RE, text);
 }
 
 export function detectAgreement(text: string): boolean {
@@ -1735,6 +1775,10 @@ export function detectAgreement(text: string): boolean {
   // token, which otherwise reads as the "contact me" yes and advanced the
   // funnel. The hold lane owns these ([22:47] transcript).
   if (detectOwnerContactHold(text)) return false;
+  // A visit-timing QUESTION ("koga mozam da ja poglednam?") is no consent —
+  // the 'da' inside is the modal "can", not the yes (the [19:56] probe:
+  // the da-token arm read the timing question as agreement).
+  if (detectVisitTimingQuestion(text)) return false;
   // A NEGATED consent token ("ne sum soglasen", "ne se soglasuvam") is the
   // OPPOSITE of agreement — same flip logic as the hold above, for the
   // agree-words themselves (the [22:2x] LLM-down fee-refusal gap).

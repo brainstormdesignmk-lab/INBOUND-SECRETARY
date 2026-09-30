@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -42,7 +42,7 @@ import {
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
-  BYE_GRACEFUL, SOFT_REFUSAL_CLOSE,
+  BYE_GRACEFUL, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
   buildRecommendClose,
@@ -1720,6 +1720,7 @@ export class InboundHandler {
       if (detectPositiveEval(text)
         && (session.slots.propertyId || session.slots.interestedPropertyId || session.slots.presentedIds?.length)
         && !detectPropertyInterest(text) && !detectVisitInterest(text)
+        && !detectVisitTimingQuestion(text) // timing QUESTION → its own lane (the [19:56] rule)
         && !detectAvailabilityAsk(text) && !detectRemark(text)
         && !detectFeeWhy(text) && !detectFeeComplaint(text) && !detectFeeSurprise(text)
         && !detectFeePaymentAgreement(text) && !detectInvestmentOpinion(text)
@@ -2824,6 +2825,7 @@ ${contactReminder}`;
     } else if (next === 'closing'
         && detectPropertyInterest(text)
         && !detectRemark(text)
+        && !detectVisitTimingQuestion(text) // timing QUESTION → the confirm-ask leg below, never the visit offer (the [19:56] rule)
         && before !== 'closing'
         && (before === 'property_query' || before === 'presentation' || before === 'discovery'
           || before === 'idle' || before === 'intent' || before === 'property_locate')) {
@@ -2998,10 +3000,32 @@ ${contactReminder}`;
       // No resolvable target → fall through to the responder below with the
       // old anchors intact; the LLM gets a normal context, not a switch.
 
+    } else if (next === 'closing' && detectVisitTimingQuestion(text)
+        && !session.slots.viewingFeeAgreed // fee settled → a timing ask is SCHEDULING, not the confirm gate
+        && (before === 'closing' // [19:56]: the closing catch-all read the question as a command and fee-asked
+          || before === 'property_query' || before === 'presentation' || before === 'discovery'
+          || before === 'intent' || before === 'idle')) {
+      // VISIT-TIMING QUESTION (the [19:56] funnel-order rule): "KOGA BI MOZELO
+      // DA SE POSETI" asks WHEN — it is NOT the confirmation the fee gate
+      // waits for. Answer with the owner-contact confirm ask (visit.confirm.ask,
+      // amount-free); the fee is disclosed only AFTER the client agrees
+      // ("во ред" / "се согласувам" rides the agreement gate below).
+      reply = pickVariant('visit.confirm.ask', { recent: assistantTexts(session) }) ?? VISIT_CONFIRM_ASK;
+      bankKey = 'visit.confirm.ask';
+      session.state = 'closing';
+      next = 'closing';
+      const mbTiming = await this.bindMention(text, session);
+      if (await this.sendIfClarify(mbTiming, text, session)) return;
+      const ebTiming = mbTiming?.prop?.eb
+        ?? session.slots.propertyId ?? session.slots.interestedPropertyId ?? props[0]?.eb;
+      if (ebTiming != null) session.slots.interestedPropertyId = ebTiming;
+      session.slots.ownerContactPending = true;
+
     } else if (next === 'closing'
         && (ev.type === 'INTERESTED' || detectVisitInterest(text))
         && before !== 'closing'
         && !session.slots.viewingFeeAgreed
+        && !detectVisitTimingQuestion(text) // belt-and-braces: the confirm-ask leg above owns timing questions
         && !detectAvailabilityAsk(text)
         && !detectPropertyInterest(text)
         && !detectRemark(text)
@@ -3274,6 +3298,7 @@ ${contactReminder}`;
         && (session.slots.viewingFeeAgreed || session.slots.ownerContactPending
           || (session.slots.feeRejections ?? 0) >= 1)
         && !detectAvailabilityAsk(text)
+        && !detectVisitTimingQuestion(text) // a timing QUESTION is not the confirmation — its own lane owns it (the [19:56] rule)
         && !detectFeePaymentAgreement(text) && !detectInvestmentOpinion(text)
         && !detectFeeWhy(text) && !detectFeeComplaint(text) && !detectFeeSurprise(text)
         && !detectCheaperSearch(text) && !detectRemark(text)) {
@@ -3622,6 +3647,7 @@ ${contactReminder}`;
         && detectAgreement(text)
         && !session.slots.ownerContactPending
         && !detectCheaperSearch(text)
+        && !detectVisitTimingQuestion(text) // a timing QUESTION is not the fee consent (the [19:56] rule)
         && (session.slots.viewingFeeAgreed || props[0]?.eb)) {
       // Fee already disclosed + client says "да" / "moze" / "dogovori" / etc.
       // → proceed to visit scheduling (owner contact). The fee block above set

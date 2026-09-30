@@ -40,10 +40,10 @@ import { RESPONSE_BANK } from '../src/data/responses';
 import { setLearnedBank } from '../src/data/responseBank';
 import {
   detectFeeWhy, detectFeeComplaint, detectProvisionAsk,
-  detectFeePaymentAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost,
-  detectBye, detectSoftRefusal,
+  detectFeePaymentAgreement,  detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectAgreement,
+  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectNegatedAgreement,
 } from '../src/llm/deterministic';
-import { buildFeeAsk, feePersuasion, buildFeeRules, BYE_GRACEFUL, SOFT_REFUSAL_CLOSE } from '../src/llm/prompts';
+import { buildFeeAsk, feePersuasion, buildFeeRules, BYE_GRACEFUL, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK } from '../src/llm/prompts';
 
 setLearnedBank({
   variants: () => [],
@@ -252,6 +252,64 @@ test('e2e [13:2x]: "ne fala ti / cao" after the graceful close → Се најд
   assert.ok(/најдобро!/iu.test(reply), `not the farewell: ${reply.slice(0, 90)}`);
   assert.ok(!reply.includes('?'), `farewell asks a question: ${reply}`);
   assert.ok(!/туку сум|помогнам|доколку во иднина/iu.test(reply), `farewell re-offers help: ${reply}`);
+});
+
+// ── [19:56] family: visit-timing question → confirm FIRST, fee AFTER ────────
+
+test('timing question detector: koga + visit ref owned, commands/fee traffic/answers are not', () => {
+  assert.equal(detectVisitTimingQuestion('KOGA BI MOZELO DA SE POSETI'), true, 'the live burst');
+  assert.equal(detectVisitTimingQuestion('koga moze poseta?'), true);
+  assert.equal(detectVisitTimingQuestion('koga mozam da ja poglednam?'), true, 'verb form');
+  assert.equal(detectVisitTimingQuestion('кога би можела посетата?'), true, 'cyrillic');
+  assert.equal(detectVisitTimingQuestion('utre vo 12 mozhe li poseta?'), false, 'a concrete time is a scheduling answer');
+  assert.equal(detectVisitTimingQuestion('DOGOVORI MI POSETA'), false, 'visit command keeps its lane');
+  assert.equal(detectVisitTimingQuestion('kolku e nadomestot za poseta?'), false, 'fee traffic keeps its lane');
+  for (const v of (RESPONSE_BANK['visit.confirm.ask'] ?? [])) {
+    assert.ok(/\?\s*$/u.test(v), `confirm variant must end with the ask: ${v}`);
+    assert.ok(/сопствени/iu.test(v), `confirm variant lost the owner ping: ${v}`);
+    assert.ok(!/\d|евр|денар|\bден\b|denar|evr/iu.test(v), `confirm variant leaks a fee amount: ${v}`);
+  }
+  assert.ok(/\?\s*$/u.test(VISIT_CONFIRM_ASK), 'VISIT_CONFIRM_ASK must end with the ask');
+});
+
+test('e2e [19:56]: koga → confirm ask (NO fee), VO RED → fee, DOBRO → contact collection', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'v16k11-koga';
+  // A hung turn must FAIL loudly, not wedge the suite: race each handle() against a 10 s clock.
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return sessions.get(chatId)!;
+  };
+
+  await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 79');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+
+  let s = await send('KOGA BI MOZELO DA SE POSETI');
+  let reply = sent[sent.length - 1] ?? '';
+  assert.ok(/сопствени/iu.test(reply), `not the confirm ask: ${reply.slice(0, 120)}`);
+  assert.ok(!reply.includes('300 денари') && !reply.includes('500 денари') && !reply.includes('0%'), `fee leaked BEFORE the confirm: ${reply.slice(0, 120)}`);
+  assert.ok(/\?\s*$/u.test(reply), `confirm ask must end with the question: ${reply.slice(0, 120)}`);
+  assert.equal(s.slots.ownerContactPending, true, 'confirm gate must be armed');
+  assert.equal(s.slots.viewingFeeAgreed, undefined, 'no fee agreement before the confirm');
+
+  s = await send('VO RED SO VAS');
+  reply = sent[sent.length - 1] ?? '';
+  assert.ok(reply.includes('300 денари'), `after the confirm the fee must be disclosed, got: ${reply.slice(0, 120)}`);
+  assert.ok(!reply.includes('500 денари'), `rent client must never hear the buy fee: ${reply.slice(0, 120)}`);
+  assert.equal(s.slots.viewingFeeAgreed, true, 'the confirmation must register as fee consent');
+
+  s = await send('DOBRO');
+  assert.equal(s.state, 'contact_collection', `fee OK must move to contact collection, got: ${s.state}`);
+});
+
+test('negated agree-phrase is never consent: "ne, ne e vo red" declines the confirm', () => {
+  assert.equal(detectNegatedAgreement('ne, ne e vo red'), true, 'negated vo red must flip');
+  assert.equal(detectAgreement('ne, ne e vo red'), false, 'must not read as consent');
+  assert.equal(detectAgreement('vo red so vas'), true, 'plain confirm still consents');
+  assert.equal(detectAgreement('koga mozam da ja poglednam?'), false, 'timing question is no consent');
 });
 
 // ── Service-aware copy pins ──────────────────────────────────────────────────
