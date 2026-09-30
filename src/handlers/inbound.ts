@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -42,6 +42,7 @@ import {
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
+  BYE_GRACEFUL, SOFT_REFUSAL_CLOSE,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
   buildRecommendClose,
@@ -1541,6 +1542,39 @@ export class InboundHandler {
     let reply: string = '';
     let replySource = 'deterministic';
     let bankKey: string | undefined;
+
+    // 0-ter) CONVERSATION-EXIT LANE (the [13:2x] V16K11 ending): "ne fala ti
+    // / cao" rode the dynamic fallback, whose system prompt force-ends every
+    // answer with a forward question — Lina thanked the client and asked
+    // whether she can help with anything else AFTER he said goodbye. The exit
+    // needs NO brain: a short warm farewell ending „Се најдобро!", no
+    // question, no re-offer. A bare soft decline ("ne sakam", "не фала")
+    // closes gracefully too — criteria stay registered, no re-offer question,
+    // and it never burns a fee-refusal rung. State-free by design: a goodbye
+    // is a goodbye in every funnel state.
+    if (detectBye(text)) {
+      routeLog(chatId, text, 'BYE');
+      reply = pickVariant('bye.graceful', { recent: assistantTexts(session) }) ?? BYE_GRACEFUL;
+      bankKey = 'bye.graceful';
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      console.log(`[timing] pipeline ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=bye.graceful`);
+      await this.sendRaw(session, reply, 'deterministic:fast');
+      return;
+    }
+    if (detectSoftRefusal(text)) {
+      routeLog(chatId, text, 'SOFT_REFUSAL');
+      reply = pickVariant('soft.refusal.close', { recent: assistantTexts(session) }) ?? SOFT_REFUSAL_CLOSE;
+      bankKey = 'soft.refusal.close';
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      console.log(`[timing] pipeline ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=soft.refusal.close`);
+      await this.sendRaw(session, reply, 'deterministic:fast');
+      return;
+    }
+
 
     // 0b) Bank-backed informational interceptors — fire BEFORE needsClassifier.
     // These are pure Q&A (fee-why, investment opinion, price ask) that don't

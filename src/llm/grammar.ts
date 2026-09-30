@@ -1089,3 +1089,80 @@ export function sampleFeeWhyPhrases(): string[] {
     'каков е станот?',
   ];
 }
+
+export function sampleByePhrases(): string[] {
+  return [
+    // ── Pure exits ──
+    'cao',
+    'чао',
+    'ne fala ti cao',
+    'не фала ти чао',
+    'fala cao',
+    'до гледање',
+    'prijatno',
+    'се гледаме',
+    'NE FALA TI CAO',
+    // ── NEGATIVES — must NOT match ──
+    'cao, baram stan',
+    'fala, koga moze poseta?',
+    'ne fala, sakam poniska cena',
+  ];
+}
+
+export function sampleSoftRefusalPhrases(): string[] {
+  return [
+    // ── Bare declines ──
+    'ne sakam',
+    'не сакам',
+    'ne fala',
+    'не фала',
+    'ne, blagodaram',
+    'nitu toa',
+    'NE SAKAM',
+    // ── NEGATIVES — must NOT match ──
+    'ne sakam da platam',
+    'ne sakam stan',
+    'ne sakam, ama kolku e kirijata?',
+  ];
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// GOODBYE word classes — the pure conversation-exit family.
+//
+// The [13:2x] V16K11 ending: "ne fala ti / cao" rode the dynamic fallback,
+// whose system prompt FORCE-ENDS every answer with a forward question — so
+// Lina thanked the client and asked "Можам ли да Ви помогнам со уште нешто
+// за крај?" AFTER he said goodbye. The exit needs NO brain: a short warm
+// farewell ending "Се најдобро!" and nothing else.
+// ═════════════════════════════════════════════════════════════════════
+
+/** Farewell verbs/tokens — чао/приватно/до гледање/се гледаме + благодарам
+ *  variants. Latin entries are word STEMS (\w*). */
+export const BYE_TOKEN_L = '(?:ч[аa]о|чао\\s*чао|cao|ciao|приватно|privatno|до\\s+гледање|do\\s+gledanje|до\\s+gledanje|гледање\\s+до|se\\s+gledame|се\\s+гледаме|пријатно|prijatno|doviduvanje|довидување|добро\\s+поминување|se\\s+najdobro|се\\s+најдобро)';
+
+/** Decline-with-thanks tokens — фала/благодарам/фала ти + fillers. */
+export const BYE_THANKS_L = '(?:фал[ауи]\\w*|fala\\w*|благодарам|blagodaram|hvala|се\\s+фал|se\\s+fal)';
+
+/** Fillers tolerated inside a pure exit burst (не ми треба ништо, пријатно…).
+ *  Latin words are STEMS — “ti” rides in “fala ti”, “sakam” in “ne sakam”. */
+export const BYE_FILLER_L = '(?:не|ne|ниту|nitu|ми|mi|треба\\p{L}*|treba\\w*|ништо\\p{L}*|nisto\\w*|повеќе\\p{L}*|povek[j]?e\\w*|фала\\p{L}*|fala\\w*|благодарам|blagodaram|се|se|сега|sega|за|za|сè|тиво|tivo|поздрав\\p{L}*|pozdrav\\w*|pozz\\w*|ти|ti|си|si|мој\\p{L}*|moj\\w*|тоа|toa|това|tova|\\s|[!.,?:;)\"\'(\u00A0-])';
+
+/** Pure-exit burst: bye tokens (+ thanks + fillers) ONLY — a criteria word,
+ *  a digits run or a question mark disqualifies. ^…$ anchored. */
+export function buildByeSlots(): RegExp {
+  return new RegExp(
+    '^(?:' + BYE_TOKEN_L + '|' + BYE_THANKS_L + '|' + BYE_FILLER_L + ')+$',
+    'iu');
+}
+
+/** Soft refusal: a BARE decline ("не сакам", "не фала", "не, благодарам") —
+ *  the [13:2x] capture: "ne sakam" alone rode the dynamic fallback into a
+ *  generic re-offer. Boundary-guarded, anchored, fillers tolerated; a
+ *  PAYMENT/FEE object, a criteria word or a question disqualify (those are
+ *  fee/refusal/search traffic with their own lanes). */
+export function buildSoftRefusalSlots(): RegExp {
+  return new RegExp(
+    '^(?:не|ne|no|ниту|nitu)(?![\\p{L}\\p{N}])(?:' + BYE_FILLER_L + ')*'
+    + '(?:сакам\\p{L}*|sakam\\w*|фала\\p{L}*|fala\\w*|благодарам|blagodaram|ниту\\p{L}*|nitu\\w*|тоа|toa)?$',
+    'iu');
+}

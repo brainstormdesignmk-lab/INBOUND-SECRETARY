@@ -28,7 +28,7 @@ import { loadConfig } from '../config';
 import { createLlm } from '../llm/factory';
 import { LlmClient, CompleteOpts } from '../llm/types';
 import { INITIAL_GREETINGS } from '../data/greetings';
-import { FALLBACKS, PATIENCE_LINE, buildFeeAsk, feePersuasion, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS, OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER, SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER, NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER } from '../llm/prompts';
+import { FALLBACKS, PATIENCE_LINE, buildFeeAsk, feePersuasion, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS, OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER, SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER, NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER, BYE_GRACEFUL, SOFT_REFUSAL_CLOSE } from '../llm/prompts';
 import { OFFENSE_WARNINGS, STRIKE_1_RESPONSES, STRIKE_2_RESPONSES } from '../antiabuse/strikes';
 
 interface GenerationKey {
@@ -310,6 +310,35 @@ const SPEC: GenerationKey[] = [
     required: [/(?:друга населба|други населби|друг дел од градот|други делови од градот|друга локаци|други опции|други имоти|други понуди|останатите делови|останати делови|останати населби)/iu, /(?:понудам|покажам|предложам|погледнеме|разгледаме|издвоив|издвојам|подготвив|подготвам|понудив|сподел)/iu],
     banned: [/\d/, /евра|денари/, /надомест/, /провизиј/, /Евидентен|ID|ИД/, /улиц|булевар|бул\./],
     question: false,
+  },
+  // bye.graceful: the client says goodbye ("cao", "ne fala ti cao", "се
+  // гледаме") — the [13:2x] ending. She helped enough; the farewell is SHORT,
+  // warm, thanks for the time, and ends with „Се најдобро!" — NEVER a
+  // question, NEVER an offer of further help (the exact anti-pattern the
+  // client complained about).
+  {
+    key: 'bye.graceful',
+    sources: [BYE_GRACEFUL],
+    count: 10,
+    instructions: 'Клиентот се разбира („чао“, „не фала ти чао“, „до гледање“, „се гледаме“). КРАТКА топла проштална реченица: благодари за издвоеното време и завршува со „Се најдобро!“. ЗАБРАНЕТО: прашање на крајот, понуда за понатамошна помош („доколку Ви затреба… туку сум“, „можам ли да Ви помогнам“), спомнување на имоти/критериуми/сопственици. Само проштај, топло и кратко (максимум две реченици).',
+    required: [/(?:благодарам|фала|Ви посакувам|се гледаме)/iu, /Се најдобро|најдобро!/iu],
+    banned: [/\?/, /доколку Ви затреба|доколку во иднина|туку сум|можам ли да Ви помогнам|помогнам со уште нешто|критериум|сопственик|имот|стан|кириј|надомест|Евидентен|ID|ИД/, /\d/],
+    question: false,
+    maxLen: 160,
+  },
+  // soft.refusal.close: a BARE decline ("ne sakam", "не фала") right after an
+  // answer — the client is done with this topic. She respects the decision,
+  // notes the criteria stay registered (contact comes to HIM), and closes
+  // with „Се најдобро!" — no question, no re-offer ask.
+  {
+    key: 'soft.refusal.close',
+    sources: [SOFT_REFUSAL_CLOSE],
+    count: 10,
+    instructions: 'Клиентот одбива со кратка реченица („не сакам“, „не фала“, „не, благодарам“) веднаш по одговорот — готов е со темата. ПОЧИТУВАЈ ја одлуката без убедување: спомни дека критериумите остануваат забележани и дека ако се појави нешто соодветно ВИЕ ќе го контактирате. Заврши со „Се најдобро!“. ЗАБРАНЕТО: прашање на крајот, повторна понуда/убедување, спомнување на конкретни имоти или износи.',
+    required: [/(?:разбирам|почитувам|Ваша одлука|Вашата одлука|Вашиот став|одлуката)/iu, /(?:ќе Ве контактирам|ќе Ве известам|ќе Ве побарам|ќе Ви се јавам|повторно ќе Ве побарам)/iu, /Се најдобро|најдобро!/iu],
+    banned: [/\?/, /доколку Ви затреба|доколку во иднина|туку сум|можам ли да Ви помогнам|помогнам со уште нешто/, /\d/, /евра|денари/, /Евидентен|ID|ИД/],
+    question: false,
+    maxLen: 260,
   },
   // presentation.open: the LLM-free path's property cards need the SAME
   // descriptive framing the LLM gives ("За Вас ги издвоив…") — a short opener

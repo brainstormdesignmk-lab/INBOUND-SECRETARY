@@ -198,6 +198,20 @@ export function buildContactAsk(slots: SlotData, recent: string[] = []): string 
 export const QUEUED_CONFIRM =
   'Ви благодарам! Вашите барања се забележани. Ќе Ве контактирам веднаш штом се појави соодветен имот. Ви посакувам пријатен ден!';
 
+// ── Conversation-exit family (the [13:2x] V16K11 ending) ──────────────────
+// The client says goodbye ("ne fala ti / cao") — she helped enough, it is
+// his loss. The farewell NEVER re-offers help and NEVER ends with a question:
+// it closes with „Се најдобро!" and stops. Bank-backed (bye.graceful).
+export const BYE_GRACEFUL =
+  'Ви благодарам за издвоеното време. Ви посакувам сè најдобро!';
+
+// The bare soft decline ("ne sakam", "не фала") right after an answer — the
+// client is done with THIS topic. She respects it and closes warmly (the
+// criteria stay registered; if something appears, HE will be contacted — no
+// re-offer question). Rung-preserving: never burns a fee refusal.
+export const SOFT_REFUSAL_CLOSE =
+  'Разбирам, почитувам ја Вашата одлука. Вашите критериуми остануваат забележани — ако се појави нешто соодветно, ќе Ве контактираме. Ви посакувам сè најдобро!';
+
 // --- Deterministic empty-result lines: the LLM must NEVER invent properties. ---
 // When a search/property lookup yields no data, the reply is code-built so the
 // model is never given a chance to fabricate listings.

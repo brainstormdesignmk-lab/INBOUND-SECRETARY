@@ -10,7 +10,8 @@ import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
 import { AVAILABILITY_LEXICON, toRegexAlt, expandAdjective, adjectiveFormsV2, nounFormsV2, formsRegex } from './morphology';
 import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots,
-  buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots, buildFeeRulesSlots } from './grammar';
+  buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots, buildFeeRulesSlots,
+  buildByeSlots, buildSoftRefusalSlots } from './grammar';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -446,6 +447,36 @@ export function detectFeeRules(text: string): boolean {
  *  it — the detector itself is state-free; the CALLER gates the states. */
 export function detectFeeTotalCost(text: string): boolean {
   return _feeTotalCostSlotsRe.test(text.replace(/\n/g, ' '));
+}
+
+// ── Conversation-exit family (the [13:2x] V16K11 ending) ────────────────────
+// "ne fala ti / cao" rode the dynamic fallback, whose system prompt FORCE-ENDS
+// every answer with a forward question — Lina thanked the client and asked
+// whether she can help with anything else AFTER he said goodbye. The exit is
+// owned deterministically: a short warm farewell, ending "Се најдобро!", NO
+// question, NO re-offer — she helped enough, it is his loss.
+
+const _byeSlotsRe = buildByeSlots();
+const _softRefusalSlotsRe = buildSoftRefusalSlots();
+
+/** True for a PURE conversation-exit burst ("cao", "ne fala ti cao", "чао
+ *  пријатно"). A criteria word, digits or a question mark disqualify (those
+ *  are search/fee traffic with their own lanes). */
+export function detectBye(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat || /\?/.test(flat)) return false;
+  return _byeSlotsRe.test(flat);
+}
+
+/** True for a BARE soft decline ("ne sakam", "ne fala", "не, благодарам") —
+ *  no payment object, no criteria noun, no question. Those carry content
+ *  (fee refusal / search change) and keep their lanes. */
+export function detectSoftRefusal(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat || /\?/.test(flat)) return false;
+  if (detectNegatedFeePay(flat) || detectNegatedAgreement(flat)) return false;
+  if (/(?:плат|plakj|plat|стан\b|stan\b|куќ|kukj|цен|cen|кириј|kirij|надомест|nadomest|посет|poset)/iu.test(flat)) return false;
+  return _softRefusalSlotsRe.test(flat);
 }
 
 // Bare fee pushback — statement-shaped, NO question word: "NAPLAKJATE ZA
@@ -1910,9 +1941,15 @@ const FEE_PAY_NEG_RE = new RegExp(
 /** Negated PAY/ACCEPT statement — "ne sakam da plakjam za otvaranje na stan",
  *  "ne prifakjam nadomestok" — the REFUSAL family even WITHOUT an agreement
  *  stem (the [09:1x] V16K11 capture read it as REJECTED and dumped property
- *  cards at a fee refusal). Callers gate on the fee context (closing). */
+ *  cards at a fee refusal). Callers gate on the fee context (closing).
+ *  GUARD: a bare "не сакам" (no payment object anywhere) is the SOFT-REFUSAL
+ *  family — the sakam arm alone must not eat it. */
 export function detectNegatedFeePay(text: string): boolean {
-  return FEE_PAY_NEG_RE.test(text);
+  if (!FEE_PAY_NEG_RE.test(text)) return false;
+  if (/(?:плат|plakj|plat|плаќ|дадад|дадам|dadam|прифа[ќк]|prifak|prihak|надомест|nadomest|посет|poset|такс|taks|пар[аие]|par[aei])/iu.test(text)) return true;
+  // No fee object: only a VERB within reach of the negation makes it a pay
+  // statement ("ne sakam da platam"); "ne sakam" alone does not.
+  return /(?:^|[^\p{L}])(?:ne|не)(?![\p{L}])[^.!?\n]{0,24}(?:plat\w*|plakj\w*|плаќ\w*|плат\w*)/iu.test(text);
 }
 
 export function detectFeePaymentAgreement(text: string): boolean {

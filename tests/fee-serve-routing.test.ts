@@ -41,8 +41,9 @@ import { setLearnedBank } from '../src/data/responseBank';
 import {
   detectFeeWhy, detectFeeComplaint, detectProvisionAsk,
   detectFeePaymentAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost,
+  detectBye, detectSoftRefusal,
 } from '../src/llm/deterministic';
-import { buildFeeAsk, feePersuasion, buildFeeRules } from '../src/llm/prompts';
+import { buildFeeAsk, feePersuasion, buildFeeRules, BYE_GRACEFUL, SOFT_REFUSAL_CLOSE } from '../src/llm/prompts';
 
 setLearnedBank({
   variants: () => [],
@@ -189,6 +190,68 @@ test('e2e [12:40]: agency-rules dismissal in closing → fee.rules rationale, st
   assert.ok(!reply.includes('300 денари') && !reply.includes('500 денари'), `fee re-disclosed: ${reply.slice(0, 120)}`);
   assert.equal(s.state, 'closing', 'stays at the fee question');
   assert.equal(s.slots.feeRejections, undefined, 'a rules dismissal never burns a rung');
+});
+
+// ── [13:2x] family: conversation exit + soft refusal ───────────────────────
+
+test('bye family: pure exits owned ("ne fala ti cao"), business messages never', () => {
+  assert.equal(detectBye('ne fala ti\ncao'), true, 'the live burst');
+  assert.equal(detectBye('cao'), true);
+  assert.equal(detectBye('ЧАО ПРИЈАТНО'), true, 'caps');
+  assert.equal(detectBye('до гледање'), true);
+  assert.equal(detectBye('cao, baram stan'), false, 'business word wins');
+  assert.equal(detectBye('fala, koga moze poseta?'), false, 'question stays in its lane');
+  for (const v of (RESPONSE_BANK['bye.graceful'] ?? [])) {
+    assert.ok(!/\?\s*$/.test(v), `bye variant ends with a question: ${v}`);
+    assert.ok(/најдобро!\s*$/iu.test(v), `bye variant missing the close: ${v}`);
+    assert.ok(!/туку сум|помогнам|доколку во иднина/iu.test(v), `bye variant re-offers help: ${v}`);
+  }
+  // сè/се (grave or plain) — the close must be the last thing the client reads.
+  assert.ok(/најдобро!\s*$/iu.test(BYE_GRACEFUL), `BYE_GRACEFUL lacks the farewell close: ${BYE_GRACEFUL}`);
+});
+
+test('soft refusal: bare declines owned, content-bearing negations keep their lanes', () => {
+  assert.equal(detectSoftRefusal('ne sakam'), true, 'the live capture');
+  assert.equal(detectSoftRefusal('НЕ ФАЛА'), true, 'caps');
+  assert.equal(detectSoftRefusal('ne, blagodaram'), true);
+  assert.equal(detectSoftRefusal('ne sakam da platam'), false, 'fee refusal keeps its lane');
+  assert.equal(detectSoftRefusal('ne sakam stan'), false, 'criteria negation keeps its lane');
+  assert.equal(detectSoftRefusal('ne sakam, ama kolku e kirijata?'), false, 'question keeps its lane');
+  for (const v of (RESPONSE_BANK['soft.refusal.close'] ?? [])) {
+    assert.ok(!/\?\s*$/.test(v), `soft-refusal variant ends with a question: ${v}`);
+    assert.ok(/најдобро!\s*$/iu.test(v), `soft-refusal variant missing the close: ${v}`);
+    assert.ok(!/можам ли да Ви помогнам|помогнам со уште нешто/iu.test(v), `re-offer ask leaked: ${v}`);
+  }
+  assert.ok(/најдобро!\s*$/iu.test(SOFT_REFUSAL_CLOSE), `SOFT_REFUSAL_CLOSE lacks the farewell close: ${SOFT_REFUSAL_CLOSE}`);
+});
+
+test('e2e [13:2x]: "ne fala ti / cao" after the graceful close → Се најдобро farewell, NO help-offer question', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'v16k11-bye';
+  // A hung turn must FAIL loudly, not wedge the suite: race each handle() against a 10 s clock.
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return sessions.get(chatId)!;
+  };
+
+  await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 79');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  let s = await send('KONTAKTIRAJTE GO I KAZETE MI');
+  assert.ok((sent[sent.length - 1] ?? '').includes('300 денари'));
+  s = await send('ne otkazi\nne sakam da plakjam za otvaranje na stan');
+  assert.equal(s.slots.feeRejections, 1);
+  s = await send('ne sakam');
+  assert.ok(/најдобро!/iu.test(sent[sent.length - 1] ?? ''), `not the graceful close: ${(sent[sent.length - 1] ?? '').slice(0, 90)}`);
+  assert.ok(!s.slots.feeRejections || (s.slots.feeRejections ?? 0) <= 2, 'soft decline must not burn rungs');
+
+  s = await send('ne fala ti\ncao');
+  const reply = sent[sent.length - 1] ?? '';
+  assert.ok(/најдобро!/iu.test(reply), `not the farewell: ${reply.slice(0, 90)}`);
+  assert.ok(!reply.includes('?'), `farewell asks a question: ${reply}`);
+  assert.ok(!/туку сум|помогнам|доколку во иднина/iu.test(reply), `farewell re-offers help: ${reply}`);
 });
 
 // ── Service-aware copy pins ──────────────────────────────────────────────────
