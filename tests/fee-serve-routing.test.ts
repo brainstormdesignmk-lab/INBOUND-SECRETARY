@@ -43,7 +43,7 @@ import {
   detectFeePaymentAgreement,  detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectAgreement,
   detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectNegatedAgreement,
 } from '../src/llm/deterministic';
-import { buildFeeAsk, feePersuasion, buildFeeRules, BYE_GRACEFUL, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK } from '../src/llm/prompts';
+import { buildFeeAsk, feePersuasion, buildFeeRules, BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK } from '../src/llm/prompts';
 
 setLearnedBank({
   variants: () => [],
@@ -427,4 +427,57 @@ test('e2e: provision ask in a FRESH idle session → service-agnostic answer, ne
   assert.ok(reply.includes('300 денари') && reply.includes('500 денари'), `agnostic answer names both scripts, got: ${reply.slice(0, 160)}`);
   assert.ok(/купување или изнајмување|изнајмување или купување/iu.test(reply), 'asks which market');
   assert.equal(s.slots.service, undefined, 'no market fabricated');
+});
+
+// ── [20:0x] family: bare "Pari zemate…? Zosto?" → fee.why; second bye → short parting ──
+
+test('e2e [20:0x]: "Pari zemate za posetam? Zosto?" → fee.why rationale, never the 0%/legal script', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'v16k11-why-reversed';
+  // A hung turn must FAIL loudly, not wedge the suite: race each handle() against a 10 s clock.
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return sessions.get(chatId)!;
+  };
+
+  await send('ZDRAVO');
+  await send('Pari zemate za posetam?\nZosto?');
+  const reply = sent[sent.length - 1] ?? '';
+  assert.ok(/филт|селекц|вистинск|сериозн|искрен|препознав|квалитет|енерги/iu.test(reply),
+    `not the filter rationale: ${reply.slice(0, 160)}`);
+  assert.ok(!/0%/u.test(reply), `the 0% provision script served: ${reply.slice(0, 160)}`);
+  assert.ok(!/адвокат|нотар/iu.test(reply), `the legal-obligations script served: ${reply.slice(0, 160)}`);
+});
+
+test('bye.again: a SECOND goodbye in one session serves the short parting, not a repeated thank-you', async () => {
+  for (const v of (RESPONSE_BANK['bye.again'] ?? [])) {
+    assert.ok(!/\?\s*$/.test(v), `bye.again variant ends with a question: ${v}`);
+    assert.ok(!/благодарам/iu.test(v), `bye.again variant thanks: ${v}`);
+    assert.ok(/пријатно|поздрав|нареден пат/iu.test(v), `bye.again variant not a parting: ${v}`);
+  }
+  assert.ok(!/благодарам/iu.test(BYE_AGAIN), `BYE_AGAIN thanks: ${BYE_AGAIN}`);
+
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'v16k11-bye-again';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return sessions.get(chatId)!;
+  };
+
+  await send('ZDRAVO');
+  await send('ne fala'); // soft refusal → graceful close (the FIRST goodbye)
+  const first = sent[sent.length - 1] ?? '';
+  assert.ok(/благодара|фала/iu.test(first), `first farewell is not the thank-you family: ${first.slice(0, 90)}`);
+  const s = await send('cao'); // the SECOND goodbye → bye.again
+  const reply = sent[sent.length - 1] ?? '';
+  assert.ok(/пријатно|поздрав|нареден пат/iu.test(reply), `second bye did not serve the short parting: ${reply}`);
+  assert.ok(!/благодарам/iu.test(reply), `second bye repeats the thank-you skeleton: ${reply}`);
+  assert.ok(!reply.includes('?'), `second bye asks a question: ${reply}`);
+  assert.equal(s.slots.byeServed, true, 'flag not persisted');
 });

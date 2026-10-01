@@ -202,8 +202,12 @@ export const QUEUED_CONFIRM =
 // The client says goodbye ("ne fala ti / cao") — she helped enough, it is
 // his loss. The farewell NEVER re-offers help and NEVER ends with a question:
 // it closes with „Се најдобро!" and stops. Bank-backed (bye.graceful).
-export const BYE_GRACEFUL =
-  'Ви благодарам за издвоеното време. Ви посакувам сè најдобро!';
+export const BYE_GRACEFUL = 'Ви благодарам за издвоеното време. Ви посакувам сè најдобро!';
+/** SECOND farewell in one session — all bye.graceful variants share the
+ *  «Ви благодарам за издвоеното време» skeleton, so a back-to-back goodbye
+ *  ("Ne fala" → "Cao") repeated it word-for-word. The repeat serve swaps to
+ *  a SHORT parting without the thank-you: no skeleton, no repeat. */
+export const BYE_AGAIN = 'Пријатно. До нареден пат. Поздрав!';
 
 // The bare soft decline ("ne sakam", "не фала") right after an answer — the
 // client is done with THIS topic. She respects it and closes warmly (the

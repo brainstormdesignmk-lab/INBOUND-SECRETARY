@@ -402,6 +402,21 @@ const FEE_AMOUNT_RE = /(?:како|како|која|која)[^.!?\n]{0,30}\d[^
 export function detectFeeWhy(text: string): boolean {
   // Normalize: join multi-line bursts into one line so cross-line patterns work
   const flat = text.replace(/\n/g, ' ');
+  // FORMAL-YOU charge+money question, WHY-FIRST (the [20:0x] V16K11 capture:
+  // "Pari zemate za posetam? Zosto?"): FEE_WHY_RE needs the why-word BEFORE
+  // the charge phrase, so this reversed burst fell to detectProvisionAsk's
+  // charge-verb arm → the 0%-provision/legal-obligations script, and the
+  // client had to RE-ASK ("Toa e save ok, ama zosto pari za posetam?") to
+  // reach the filter rationale. The formal-you (zemate/zemаte) charge+money
+  // pair IS the fee-why family when a why word rides ANYWHERE in the burst.
+  // Exclusions keep the amount lanes intact: KOLKU+money asks WHAT the fee
+  // IS (provision.ask), and a FEE-SIZED amount names it too — a bare
+  // "zosto?" tag then still belongs to the why answer, but the number-first
+  // turns must not be swallowed by the rationale.
+  if (_feeWhyYouRe.test(flat)
+    && /(?:зошто|зашто|zosto|zashto|застоа)/iu.test(flat)
+    && !/(?:колку|kolku)(?![\p{L}\p{N}])/iu.test(flat)
+    && !/(?:\d\s*(?:ден|денар|евр|den|evr|eur|€))/iu.test(flat)) return true;
   // The RULES family lives in its OWN detector (detectFeeRules → the
   // fee.rules bank). Folding it here made the rules dismissal answer with the
   // filter rationale (the feeWhyFast arm outranked the feeRules arm).
@@ -423,6 +438,13 @@ export function detectFeeWhy(text: string): boolean {
 //                         charge verb Lina recognized → wrong-script serve.
 const _feeWhySlotsRe = buildFeeWhySlots();
 const _feePracticeSlotsRe = buildFeePracticeSlots();
+// FORMAL-YOU charge+money pair ("zemate pari…", "парите плаќате…") with a
+// why-word anywhere in the burst — the fee-why family. Built eagerly: no
+// forward references (charge-verb + money-noun only).
+const _feeWhyYouRe = new RegExp(
+  _mB + '(?:земате|zemate|плаќате|plakjate|платите|platite|наплаќате|наплатувате|naplakjate|naplatuvate)'
+  + '[^.!?\\n]{0,30}' + _mB + '(?:пар[аие]|par[aei])'
+  + '|' + _mB + '(?:пар[аие]|par[aei])[^.!?\\n]{0,30}' + _mB + '(?:земате|zemate)', 'iu');
 
 // Fee RULES dismissal (the [12:40] live serve): "тоа се правилата на
 // агенцијата кои важат и за мене и за Вас" — the client files the fee under

@@ -28,7 +28,7 @@ import { loadConfig } from '../config';
 import { createLlm } from '../llm/factory';
 import { LlmClient, CompleteOpts } from '../llm/types';
 import { INITIAL_GREETINGS } from '../data/greetings';
-import { FALLBACKS, PATIENCE_LINE, buildFeeAsk, feePersuasion, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS, OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER, SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER, NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER, BYE_GRACEFUL, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK } from '../llm/prompts';
+import { FALLBACKS, PATIENCE_LINE, buildFeeAsk, feePersuasion, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS, OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER, SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER, NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER, BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK } from '../llm/prompts';
 import { OFFENSE_WARNINGS, STRIKE_1_RESPONSES, STRIKE_2_RESPONSES } from '../antiabuse/strikes';
 
 interface GenerationKey {
@@ -316,6 +316,20 @@ const SPEC: GenerationKey[] = [
   // warm, thanks for the time, and ends with „Се најдобро!" — NEVER a
   // question, NEVER an offer of further help (the exact anti-pattern the
   // client complained about).
+  // bye.again: a SECOND goodbye in the SAME session ("Ne fala" → "Cao") —
+  // every bye.graceful variant shares the thank-you-for-your-time skeleton,
+  // so the repeat sounded robotic. The repeat serve is a SHORT parting with
+  // NO thank-you: no skeleton, no repeat, no question, no help-offer.
+  {
+    key: 'bye.again',
+    sources: [BYE_AGAIN],
+    count: 6,
+    instructions: 'Клиентот се проштава ВТОР ПАТ во истиот разговор („не фала“ па „чао“) — благодарноста веќе е кажана. МНОГУ КРАТКА проштална фраза БЕЗ благодарност: „Пријатно“, „До нареден пат“, „Поздрав“ или комбинација. Ова е ВИБЕР чет — без гледање/слушање: ЗАБРАНЕТО „се гледаме“ и „се чуеме“. ЗАБРАНЕТО уште: зборот благодарност (благодарам/фала/заблагодарам), прашање, понуда за помош, спомнување на имоти/критериуми. Максимум 8 зборови, завршува со извичник.',
+    required: [/(?:пријатно|поздрав|нареден пат)/iu, /!\s*$/u],
+    banned: [/\?/, /благодарам|заблагодарам|фала\b|издвоен|одвоен|помогнам|доколку Ви затреба|туку сум/, /се\s+гледаме|се\s+чуеме|гледање|слушање/, /критериум|сопственик|имот|стан/, /\d/],
+    question: false,
+    maxLen: 60,
+  },
   {
     key: 'bye.graceful',
     sources: [BYE_GRACEFUL],

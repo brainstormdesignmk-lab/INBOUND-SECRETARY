@@ -42,7 +42,7 @@ import {
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
-  BYE_GRACEFUL, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK,
+  BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
   buildRecommendClose,
@@ -537,6 +537,9 @@ export class InboundHandler {
       const intakeOpen = session.state === 'discovery' || session.state === 'intent';
       if (funnelOpen) {
         touchInbound(session);
+        // The TTL gap restarted the conversation socially — a fresh farewell
+        // should thank again, so the second-bye swap never fires here.
+        delete session.slots.byeServed;
         const bridge = pickVariant('session.resume', { recent: assistantTexts(session) })
           ?? 'Враќаме се на вашиот избор — сè уште важи. Организираме посета?';
         pushHistory(session, { role: 'assistant', text: bridge }, this.cfg.maxHistory);
@@ -1554,12 +1557,21 @@ export class InboundHandler {
     // is a goodbye in every funnel state.
     if (detectBye(text)) {
       routeLog(chatId, text, 'BYE');
-      reply = pickVariant('bye.graceful', { recent: assistantTexts(session) }) ?? BYE_GRACEFUL;
-      bankKey = 'bye.graceful';
+      // SECOND goodbye in one session: every bye.graceful variant shares the
+      // «Ви благодарам за издвоеното време» skeleton — repeating it
+      // word-for-word sounded robotic (the [20:0x] "Ne fala" → "Cao"
+      // ending). A farewell already sent → swap to the short bye.again
+      // parting: no thank-you skeleton, no repeat, no re-offer question.
+      const byeAgain = session.slots.byeServed === true;
+      session.slots.byeServed = true;
+      reply = byeAgain
+        ? (pickVariant('bye.again', { recent: assistantTexts(session) }) ?? BYE_AGAIN)
+        : (pickVariant('bye.graceful', { recent: assistantTexts(session) }) ?? BYE_GRACEFUL);
+      bankKey = byeAgain ? 'bye.again' : 'bye.graceful';
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
-      console.log(`[timing] pipeline ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=bye.graceful`);
+      console.log(`[timing] pipeline ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
       await this.sendRaw(session, reply, 'deterministic:fast');
       return;
     }
