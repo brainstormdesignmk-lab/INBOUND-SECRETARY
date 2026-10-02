@@ -224,6 +224,18 @@ export const SOFT_REFUSAL_CLOSE =
 export const VISIT_CONFIRM_ASK =
   'Треба да го контактирам сопственикот, да ја проверам моменталната достапност и цена. Ако е сè во ред, тогаш би го договориле терминот за посета. Дали е тоа во ред со Вас?';
 
+// ── Exit final-check (the V16K11 second capture) ──────────────────────────
+// BEFORE the farewell — the client is ending the conversation without ever
+// being asked whether ANY offered option has a chance. ONE short question,
+// amount-free, property-free, no farewell inside. The first two lines are the
+// owner-dictated wordings; the third anchors the Gemini variants.
+export const EXIT_CRITERIA_CHECK =
+  'Пред да се поздравиме, кажете ми дали некој од понудените станови има шанса кај Вас?';
+export const EXIT_CRITERIA_CHECK_2 =
+  'Пред да прекинеме, кажете ми дали некоја од понудените опции ги задоволува Вашите критериуми?';
+export const EXIT_CRITERIA_CHECK_3 =
+  'Пред да Ви се поздравам, дали сакате да ги погледнеме уште еднаш понудените предлози, да кажете дали некој има шанса?';
+
 // --- Deterministic empty-result lines: the LLM must NEVER invent properties. ---
 // When a search/property lookup yields no data, the reply is code-built so the
 // model is never given a chance to fabricate listings.

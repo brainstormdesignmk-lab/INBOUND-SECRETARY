@@ -473,7 +473,7 @@ test('bye.again: a SECOND goodbye in one session serves the short parting, not a
   await send('ZDRAVO');
   await send('ne fala'); // soft refusal → graceful close (the FIRST goodbye)
   const first = sent[sent.length - 1] ?? '';
-  assert.ok(/благодара|фала/iu.test(first), `first farewell is not the thank-you family: ${first.slice(0, 90)}`);
+  assert.ok(/благодар|фала/iu.test(first), `first farewell is not the thank-you family: ${first.slice(0, 90)}`);
   const s = await send('cao'); // the SECOND goodbye → bye.again
   const reply = sent[sent.length - 1] ?? '';
   assert.ok(/пријатно|поздрав|нареден пат/iu.test(reply), `second bye did not serve the short parting: ${reply}`);

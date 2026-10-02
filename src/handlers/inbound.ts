@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExitCheck } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -42,7 +42,7 @@ import {
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
-  BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK,
+  BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
   buildRecommendClose,
@@ -540,6 +540,9 @@ export class InboundHandler {
         // The TTL gap restarted the conversation socially — a fresh farewell
         // should thank again, so the second-bye swap never fires here.
         delete session.slots.byeServed;
+        // Same for the exit final-check: a fresh session (a brand-new funnel)
+        // gets the last-chance question again exactly once.
+        delete session.slots.exitCheckServed;
         const bridge = pickVariant('session.resume', { recent: assistantTexts(session) })
           ?? 'Враќаме се на вашиот избор — сè уште важи. Организираме посета?';
         pushHistory(session, { role: 'assistant', text: bridge }, this.cfg.maxHistory);
@@ -1555,6 +1558,31 @@ export class InboundHandler {
     // closes gracefully too — criteria stay registered, no re-offer question,
     // and it never burns a fee-refusal rung. State-free by design: a goodbye
     // is a goodbye in every funnel state.
+    //
+    // 0-ter-b) EXIT FINAL-CHECK (the V16K11 second capture): "Se predomisliv /
+    // ke si piseme drugoat / moram da prekina" rode the dynamic fallback into
+    // a cold farewell — the conversation ended without the one last-chance
+    // question. BEFORE any farewell, serve the exit.criteria.check bank ask;
+    // the farewell comes after the client's next turn (a simple "не" keeps the
+    // pure-exit lane below; silence → TTL reset). Once per session.
+    if (detectExitCheck(text)) {
+      routeLog(chatId, text, 'EXIT_CHECK');
+      if (session.slots.exitCheckServed !== true) {
+        session.slots.exitCheckServed = true;
+        reply = pickVariant('exit.criteria.check', { recent: assistantTexts(session) }) ?? EXIT_CRITERIA_CHECK;
+        bankKey = 'exit.criteria.check';
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        console.log(`[timing] pipeline ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=exit.criteria.check`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+      // Already asked this session → let the farewell lanes below own it
+      // (a burst this exit-shaped is closer to soft.refusal.close than to
+      // bye.graceful: no fee-why, no EB, no question mark inside).
+      routeLog(chatId, text, 'EXIT_CHECK_REPEAT');
+    }
     if (detectBye(text)) {
       routeLog(chatId, text, 'BYE');
       // SECOND goodbye in one session: every bye.graceful variant shares the
@@ -2660,7 +2688,18 @@ export class InboundHandler {
       }
       session.slots.ladderQueue = [];   // rebuild the presentation ladder for the new search
       session.slots.areaExhausted = false;
-      props = await this.loadProps(session, false, false);
+      // Already-served guard (the [23:57–59] house capture): when the loadProps
+      // above already produced results (the typed-search tier widens IN-PLACE
+      // and returns a non-empty pool), re-running loadProps would exclude the
+      // just-served batch — the second call sees presentedIds already holding
+      // those houses, returns [], and the widened pool dies in the no-match
+      // ask (a Влае house search dead-ended though city-wide houses existed).
+      // Re-search only when the first load was empty: the true "drained area,
+      // fresh criteria" signal. The lock is still released and the area marked
+      // live again (the pivot means options exist), so the reset above stands.
+      if (props.length === 0) {
+        props = await this.loadProps(session, false, false);
+      }
       if (props.length === 0 && session.slots.location) {
         // New criteria in a drained area — the pivot means "elsewhere with
         // these specs" (same contract as the widen flow: rest of the city).
@@ -3726,6 +3765,20 @@ ${contactReminder}`;
           prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има слични опции кои би можеле да Ви се допаднат. `;
           }
         }
+        // TYPED-RELAX honesty (the [23:59] owner contract): a куќа/плац/
+        // деловен search served from the final fallback tier (nothing in the
+        // category anywhere in budget) must not read the cards as category
+        // matches — the prefix states the miss and offers the closest options.
+        // The drained area is named when known (the [23:59] capture spoke it:
+        // „немам… во Влае"), so the miss reads as area-specific, not generic.
+        const missLoc = session.slots.location ? ` во ${session.slots.location}` : '';
+        if (!prefix && session.slots.house === true && !props.some(p => p.house === true)) {
+          prefix = `Во моментов немам куќа според Вашите барања${missLoc}, но има опции што би можеле да Ве интересираат. `;
+        } else if (!prefix && session.slots.plac && !props.some(p => p.plac === true)) {
+          prefix = `Во моментов немам плац според Вашите барања${missLoc}, но има други опции во Вашиот буџет. `;
+        } else if (!prefix && session.slots.business === true && !props.some(p => p.business === true)) {
+          prefix = `Во моментов немам деловен простор според Вашите барања${missLoc}, но има други опции во Вашиот буџет. `;
+        }
         // Price-priority clients ("што поевтино", "daj nesto poeKtino") get a
         // dedicated bank intro — the default opener reads as if the price
         // concern was never heard. Details-led presentation remains for the
@@ -4505,6 +4558,95 @@ ${contactReminder}`;
           }
         }
       const pool = relaxedCandidates;
+      // CRITERIA-TYPE GUARD (the V16K11 Vlae capture): the client searched a
+      // 1-спална APARTMENT ≤100k; the ladder walked EB 46/54, and the next
+      // batch served EB 55 — a 240 m² HOUSE — because the row mapped as a
+      // type-less wildcard. An apartment-SHAPED search must never present a
+      // typed house: explicit стан (house === false) or an exact room count
+      // (bedrooms / garsonjera — rooms count presumes a flat) drops house rows
+      // from the pool BEFORE the ladder carves batches. Type-less searches
+      // (bare budget) keep houses eligible, a bedroom RANGE is deliberately
+      // not apartment-shaped (houses ride it as bedroom-less wildcards), an
+      // EXPLICIT куќа search (house === true) keeps them regardless of
+      // bedroom details ("DVE SPALNI" on a house funnel is a size spec, not
+      // a flat flip), and business rows keep their pre-existing wildcard
+      // behavior (not this complaint).
+      if (pool.length > 0
+        && session.slots.house !== true
+        && (session.slots.house === false
+          || session.slots.bedrooms !== undefined
+          || session.slots.garsonjera)) {
+        const houses = pool.filter(p => p.house === true);
+        if (houses.length > 0) {
+          const houseIds = new Set(houses.map(p => p.id));
+          pool.length = 0;
+          pool.push(...relaxedCandidates.filter(p => !houseIds.has(p.id)));
+        }
+      }
+      // LAST-RESORT TYPE FLOW (the [23:57–59] house capture): a PINNED area
+      // with zero matching properties must not dead-end in the no-match loop —
+      // the owner contract: "if they don't match, at least offer something
+      // different as an option". Retry the SAME specs city-wide once; the pool
+      // fills with the closest honest alternatives (popularity order) and the
+      // area is marked drained, so a rejection keeps walking other areas and
+      // the exhausted ask still fires when the widened pool drains too. Only
+      // TYPED searches (куќа / плац / деловен) take this tier — the [23:59]
+      // widen answer ("moze i vo druga naselba") must show houses from OTHER
+      // locations, never re-ask about a drained one. Plain apartment searches
+      // keep the pinned ask-then-widen protocol (options come only AFTER the
+      // ask — the stuck-loop tests pin that contract).
+      if (pool.length === 0 && session.slots.location && this.deps.properties.healthy
+        && (session.slots.house === true || session.slots.plac || session.slots.business === true)) {
+        const wide = await this.deps.properties.candidates({
+          location: undefined,
+          bedrooms: session.slots.bedrooms,
+          bedroomsMin: session.slots.bedroomsMin,
+          bedroomsMax: session.slots.bedroomsMax,
+          sqm: session.slots.sqm,
+          business: session.slots.business,
+          house: session.slots.house,
+          garsonjera: session.slots.garsonjera,
+          plac: session.slots.plac,
+          yard: session.slots.yard,
+          service: session.slots.service,
+          budget: session.slots.budget,
+          exclude: shown,
+          sortByPopularity: true,
+        });
+        // Locationless rows („Непозната“ address protocol) never ride the
+        // fallback tiers — presenting a no-location row as a "match" is the
+        // EB 56 mystery-property bug the stuck tests pin.
+        const wideLocated = wide.filter(p => !!p.location);
+        if (wideLocated.length > 0) {
+          session.slots.areaExhausted = true;
+          pool.push(...wideLocated);
+        }
+      }
+      // FINAL TIER — "at least offer something different" (the [23:59] owner
+      // instruction): a TYPED search (куќа / плац / деловен) whose pool is
+      // empty even CITY-WIDE means the category itself has nothing in budget.
+      // Dropping the type filter (service + budget stand) surfaces the closest
+      // honest alternatives instead of looping the no-match ask — the cards
+      // are real feed rows, the area stays drained, and a rejection keeps the
+      // normal walk going. Plain apartment searches keep the no-match →
+      // exhausted → register flow (offering a different TYPE there would
+      // ignore an explicit size criterion the client can still get later).
+      if (pool.length === 0
+        && (session.slots.house === true || session.slots.plac || session.slots.business === true)
+        && this.deps.properties.healthy) {
+        const anyType = await this.deps.properties.candidates({
+          location: undefined,
+          service: session.slots.service,
+          budget: session.slots.budget,
+          exclude: shown,
+          sortByPopularity: true,
+        });
+        const anyTypeLocated = anyType.filter(p => !!p.location);
+        if (anyTypeLocated.length > 0) {
+          session.slots.areaExhausted = true;
+          pool.push(...anyTypeLocated);
+        }
+      }
       // POI-ANCHORED PRESENTATION (the [22:41] transcript): the client named a
       // MAP PLACE in the search phrase ("okolu Kapitol Biser"). The feed's
       // neighborhood lock (Аеродром) is too coarse — EB 89 was on the other

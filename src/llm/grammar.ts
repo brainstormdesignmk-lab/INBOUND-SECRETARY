@@ -1166,3 +1166,49 @@ export function buildSoftRefusalSlots(): RegExp {
     + '(?:сакам\\p{L}*|sakam\\w*|фала\\p{L}*|fala\\w*|благодарам|blagodaram|ниту\\p{L}*|nitu\\w*|тоа|toa)?$',
     'iu');
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// EXIT-CHECK triggers — the client WANTS to end the conversation but has
+// never been asked the one final question: does any offered option have a
+// chance? The V16K11 capture: "Se predomisliv / ke si piseme drugoat / moram
+// da prekina" rode the dynamic fallback straight into a farewell — the funnel
+// closed WITHOUT the last-chance check and the session died cold.
+//
+// The family is QUESTION-shaped or FIRST-PERSON-wanting; an OFFER/choice
+// statement ("predomisliv sum, sakam go prviot") must keep its own lanes —
+// hence the negated OFFER/choice frame veto below.
+// ═════════════════════════════════════════════════════════════════════
+
+/** Change-of-mind about CONTINUING (never about a specific property):
+ *  predomisliv/se predomisliv, predomisluvam… both scripts. */
+export const EXIT_PREDOMISLIV_L = '(?:предомисл(?:ив|ен|ена|увам|ам)|predomisli[vw]|se\\s+predomisluvam)';
+
+/** Future-contact / stop-for-now: „ќе си пишеме“ (drugo Pat), ќе се чуваме…
+ *  Latin: "ke si piseme", "ke se cuvame", "ke se cueme" (client spelling).
+ *  The V16K11 miss: the client forms are stem + optional infix + optional Е +
+ *  ending — "piseme" = pis·e·me (uv-infix dropped), "cueme" = cu·e·me (va
+ *  dropped) — so BOTH infixes and the connecting Е are optional; the ending
+ *  carries the shape. The пис/цу roots are the normalizeMc image of the
+ *  Latin spellings (s→с, c→ц — no ш/ч without the digraph). */
+export const EXIT_CONTACT_LATER_L = '(?:ке\\s+си\\s+(?:пиш|пис)(?:ув)?а?е?(?:ме|т)|ке\\s+се\\s+(?:чу|цу)в?а?е?(?:ме|т)|ke\\s+si\\s+pis(?:uva?)?e?(?:me|at)|ke\\s+se\\s+ch?uv?a?e?(?:me|at))';
+
+/** End/stop/pause the conversation: морам да прекинам/паузирам, морам да
+ *  тргнам, треба да заминам, stop. "prekina" covers the client spelling
+ *  (prekina/prekinam/prekinuvam share the prek- stem). */
+export const EXIT_END_L = '(?:морам\\s+да\\s+прекин(?:ам|ем|и|ина)|морам\\s+да\\s+тргнам|морам\\s+да\\s+паузирам|треба\\s+да\\s+заминам|треба\\s+да\\s+тргнам|prekin(?:a|am|e|uva[mw]?|i)\\b|pauziram\\b|stop\\b)';
+
+/** OFFER/choice frame veto — "predomisliv sum, gi sakam drugite" is property
+ *  traffic, not an exit. Word-boundary-guarded against the \p{L} class. */
+export const EXIT_OFFER_VETO_L = '(?:понуд|ponud|опци|opcii?|стан\\w*|stan\\w*|куќ\\w*|kukj?\\w*|имот\\w*|imot\\w*|евра|evra|денари|denari|кириј|kirij|first|prvi|vtor|втор)';
+
+export function buildExitCheckSlots(): RegExp {
+  const atom = '(' + EXIT_PREDOMISLIV_L + '|' + EXIT_CONTACT_LATER_L + '|' + EXIT_END_L + ')';
+  // A pure burst may carry soft fillers; anything else must sit within the
+  // same 40-char window as the trigger ("se predomisliv, ke si piseme").
+  return new RegExp(
+    '(?:^' + atom + '(?:[^?\\n]{0,40}$)'
+    + '|^.{0,40}' + atom + '[^?\\n]{0,40}$'
+    + '|^' + atom + '$'
+    + ')',
+    'iu');
+}

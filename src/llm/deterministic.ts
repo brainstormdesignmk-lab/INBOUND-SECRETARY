@@ -11,7 +11,7 @@ import { extFires } from './detectorExt';
 import { AVAILABILITY_LEXICON, toRegexAlt, expandAdjective, adjectiveFormsV2, nounFormsV2, formsRegex } from './morphology';
 import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots,
   buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots, buildFeeRulesSlots,
-  buildByeSlots, buildSoftRefusalSlots } from './grammar';
+  buildByeSlots, buildSoftRefusalSlots, buildExitCheckSlots, EXIT_OFFER_VETO_L } from './grammar';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -501,6 +501,27 @@ export function detectSoftRefusal(text: string): boolean {
   return _softRefusalSlotsRe.test(flat);
 }
 
+// ── Exit final-check family (the V16K11 second capture) ───────────────────
+// The client says he is DONE — "Se predomisliv", "ke si piseme drugoat",
+// "moram da prekina" — but never got asked the one last-chance question: does
+// any offered option have a chance at all? Those bursts rode the dynamic
+// fallback into a cold farewell. Owned deterministically: BEFORE any farewell,
+// serve the exit.criteria.check bank question; the farewell comes after the
+// client's next turn (or his silence). No fee copy, no re-offer list — ONE
+// question. Vetoed when the burst names an offer/choice (property traffic).
+
+const _exitCheckSlotsRe = buildExitCheckSlots();
+const _exitOfferVetoRe = new RegExp(EXIT_OFFER_VETO_L, 'iu');
+
+export function detectExitCheck(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat || /\?/.test(flat)) return false;
+  if (detectBye(flat) || detectSoftRefusal(flat)) return false;   // their own lanes
+  if (/(?:плат|plakj|plat|надомест|nadomest|кириј|kirij|посет|poset)/iu.test(flat)) return false;
+  if (_exitOfferVetoRe.test(flat)) return false;
+  return _exitCheckSlotsRe.test(flat);
+}
+
 /** True when the client asks WHEN a visit could happen ("KOGA BI MOZELO DA
  *  SE POSETI", "koga moze poseta?") — a timing QUESTION, not a visit command.
  *  The [19:56] bug: the closing catch-all read the visit noun as visit
@@ -856,6 +877,28 @@ export function detectBedroomsRange(text: string): { min: number; max: number } 
 }
 
 export function detectBedrooms(text: string): number | undefined {
+  // NOUN-FIRST digits (the [23:57] capture): the funnel asked «колку спални»
+  // and the client typed "spalni minimum 2" — BED_NUM_RE needs the digit
+  // BEFORE the noun, the word loop found no word number, and the bare branch
+  // (noun veto) abstained, so the question re-asked twice and "pa ti kazav 2"
+  // still bounced. Shapes covered here:
+  //   "spalni minimum 2" / "спални најмалку 2"  — quantifier between noun and digit
+  //   "spalni 2" / "соби 3"                     — adjacent terse answer
+  //   "2 ili povekje spalni"                    — N-or-more tail (Latin + Cyrillic)
+  // The +1 room convention follows the noun (спални → rooms+1, соби direct),
+  // and the 1–5 band keeps unit numbers ("спални за 2 деца"-class tails) out.
+  {
+    const nounFirst = text.match(/(?:спални|спална|соби|соба|spalni|spalna|sobi|soba)\s*(?:(?:минимум|најмалку|најмалце|najmalku|najmalce|minimum|minimalno|barem|барем)\s*)?(\d+)(?!\d)/iu);
+    if (nounFirst) {
+      const n = parseInt(nounFirst[1], 10);
+      if (n >= 1 && n <= 5) return BED_ONLY_RE.test(nounFirst[0]) ? n + 1 : n;
+    }
+    const moreTail = text.match(/(\d+)\s*(?:ili|или)\s*(?:povekje|poveke|povekje|mnogu|повеќе)\s*(?:спалн\w*|spaln\w*|соб\w*|sob\w*)/iu);
+    if (moreTail) {
+      const n = parseInt(moreTail[1], 10);
+      if (n >= 1 && n <= 5) return /спалн|spaln/iu.test(moreTail[0]) ? n + 1 : n;
+    }
+  }
   // Range pattern: "edna ili dve spalni" / "2 ili 3 sobi" — user is flexible,
   // take the LOWER bound so the search is inclusive.
   if (/ili|или/iu.test(text) && /spalni|спални|spalna|спална|sobi|соби|soba|соба/iu.test(text)) {
@@ -920,7 +963,15 @@ export function detectBedrooms(text: string): number | undefined {
     // words, past the 1–3 budget that guards bare noun-less answers against
     // full sentences. A quantifier-marked range is still a short funnel
     // answer, so it gets its own ceiling instead of widening the budget.
+    // The [23:58] repeat ("pa ti kazav 2"): the client's irritation rides in
+    // FILLER words ("pa ti kazav"), not criteria — a ≤5-word message with a
+    // single count and no budget/size/type marker is still the answered
+    // funnel question. 6+ words stays a sentence.
     && (text.trim().split(/\s+/).length <= 3
+        // [23:58] "pa ti kazav 2": filler words + a STANDALONE single count is
+        // still the answered funnel question. A 2+-digit number (an EB/lookup
+        // reference like "go gledav ova 89") must NOT qualify — only \b\d\b.
+        || /(?:^|[\s,.:;!?])\d(?:$|[\s,.:;!?])/u.test(text)
         || /(?:^|[\s,.:;!?])(?:najmalku|najmalce|најмалку|најмалце)(?:[\s,.:;!?]|$)/iu.test(text))) {
     const bareWords: Array<[RegExp, number]> = [
       [/една|еден|едно|edna|eden|edno/iu, 2],   // 1 спална → 2-собен
@@ -2268,6 +2319,20 @@ const KNOWN_NEIGHBORHOODS = [
  * when the feed is down (locations() = []) — never a silent location loop.
  */
 export function detectLocation(text: string, feedLocations: string[]): string | undefined {
+  // WIDEN-PHRASE GUARD (the [23:59] capture): "moze i vo druga naselba" is a
+  // widen ANSWER, not a location ask. detectExplicitWiden matches the bare
+  // area phrases ("druga nselba", "drugi naselbi", typos included) — when it
+  // fires, the message names NO concrete area: returning one here (the word
+  // "населба" token-matched the parenthetical of "Центар (населба)") filled
+  // ev.location, vetoed the exhausted-widen release (`!ev.location` guard)
+  // and re-locked the DRAINED area. Feed locations are injected AFTER the
+  // module init, so the concrete feed names cannot be embedded in the const
+  // — test each phrase against this message via the shared locKeys match.
+  // The loc's OWN parenthetical is stripped first, or "населба" rides the
+  // reversed match (locTokens ∩ messageTokens) and defeats the veto.
+  if (detectExplicitWiden(text)
+    && KNOWN_NEIGHBORHOODS.concat(feedLocations)
+      .every(loc => !locMatches(loc.replace(/\([^)]*\)/gu, ' '), text))) return undefined;
   // Multi-area capture: a client open to several neighborhoods ("centar, kisela
   // voda, aerodrom") gets ALL of them stored, so presentations stay inside the
   // union of the named areas instead of a single first match. The joined string

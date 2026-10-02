@@ -58,6 +58,7 @@ export interface SlotData {
   queueAfterContact?: boolean;  // exhausted-options flow: collect contact, then queue
   ownerContactPending?: boolean; // availability ack sent — waiting for client to confirm they WANT owner contact (fee comes AFTER this)
   byeServed?: boolean;           // a farewell was already sent this session — a SECOND goodbye gets the short bye.again parting, not a repeated thank-you
+  exitCheckServed?: boolean;      // the exit final-check („дали некоја понудена опција има шанса?“) was already asked this session — an exit-shaped repeat goes straight to the farewell lanes
   bothServices?: boolean;        // client wants BOTH buy and rent — ask property type first, then service
   nearbyLandmarks?: string[];     // top-3 nearby landmark names for rotation ("каде?" → first, "каде поточно?" → second, …)
   nearbyLandmarkCoords?: Array<{ lat: number; lon: number }>; // parallel coords for Google Maps links

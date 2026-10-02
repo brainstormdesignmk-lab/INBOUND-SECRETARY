@@ -119,9 +119,23 @@ function isBusiness(r: Record<string, unknown>): boolean {
 }
 
 /** A HOUSE (куќа) — the feed carries houses as ordinary bedroom rows and marks
- *  them only in the opis text ("Се продава куќа…", "Се издава Куќа…"). */
+ *  them only in the opis text ("Се продава куќа…", "Се издава Куќа…"). The
+ *  STRUCTURED columns count too (the V16K11 live capture): a row titled
+ *  „Куќа Повеќе соби" with tip_na_nedviznina „Куќа" (EB 55, Влае) mapped as
+ *  a bedroom-less apartment wildcard and was presented to a 1-bedroom
+ *  apartment buyer — the type fields must win over a detail-less opis.
+ *  CAVEAT: naslov/adresa matching is passive-safe (opis first) so an ad
+ *  whose TEXT references a house (“стан во куќа” in the opis) still lands
+ *  apartment — only a row that is house-typed AND detail-less flips. */
 function isHouse(r: Record<string, unknown>): boolean {
-  return /(куќ|кука|house|kukja|kuka)/i.test(str(r.opis));
+  if (/(куќ|кука|house|kukja|kuka)/i.test(str(r.opis))) return true;
+  // Structured type columns: tip_na_nedviznina is the feed's own category
+  // ("Куќа"), naslov/adresa the agency's title ("Куќа Повеќе соби"). Checked
+  // only when the opis names NO property type at all — when the opis DOES
+  // name one, the legacy rule above stands verbatim (no behavior change for
+  // any row with a type-bearing opis).
+  const typed = `${str(r.tip_na_nedviznina)} ${str(r.naslov)} ${str(r.adresa)}`;
+  return /(куќ|кука|house|kukja|kuka)/i.test(typed);
 }
 
 /** A LAND PLOT (плац/земјиште) — the feed carries land rows as bedroom-less
@@ -531,7 +545,14 @@ export function locMatches(query: string, feedLoc: string): boolean {
       // word ("skopje sever"). The reverse (district ask → bare-city feed)
       // stays a match: the district IS inside the city.
       const aw0 = a.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-      const bw0 = b.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+      // Parenthetical disambiguators ("Центар (населба)") are CATEGORY words,
+      // not place names: the client's bare word "населба" ("moze i vo druga
+      // naselba", the [23:59] capture) must never match them at token level —
+      // it filled a location slot for a DRAINED area and the widen answer
+      // re-locked the search instead of widening. Strip the parenthetical
+      // from the FEED side before tokenizing; the concrete name ("центар")
+      // still matches through the alias/containment paths.
+      const bw0 = b.replace(/\([^)]*\)/gu, ' ').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
       if (aw0.length === 1 && CITY_TOKEN_RE.test(aw0[0]) && bw0.length > 1) continue;
       // Identical keys always match — MUST be checked before the sibling
       // guard, which fires on any compound vs itself ('ново лисиче' strips to

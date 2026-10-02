@@ -28,7 +28,7 @@ import { loadConfig } from '../config';
 import { createLlm } from '../llm/factory';
 import { LlmClient, CompleteOpts } from '../llm/types';
 import { INITIAL_GREETINGS } from '../data/greetings';
-import { FALLBACKS, PATIENCE_LINE, buildFeeAsk, feePersuasion, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS, OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER, SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER, NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER, BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK } from '../llm/prompts';
+import { FALLBACKS, PATIENCE_LINE, buildFeeAsk, feePersuasion, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS, OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER, SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER, NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER, BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK, EXIT_CRITERIA_CHECK_2, EXIT_CRITERIA_CHECK_3 } from '../llm/prompts';
 import { OFFENSE_WARNINGS, STRIKE_1_RESPONSES, STRIKE_2_RESPONSES } from '../antiabuse/strikes';
 
 interface GenerationKey {
@@ -53,6 +53,11 @@ interface GenerationKey {
   /** Per-key max length override (default 400) — rationale answers with a
    *  confirm + bind-both-sides + close read naturally longer. */
   maxLen?: number;
+  /** Keep the source sentences IN the bank (after the generated variants).
+   *  For keys whose sources are USER-DICTATED wordings that must stay
+   *  servable verbatim — generation only extends the pool, never replaces
+   *  the approved lines. */
+  keepSources?: boolean;
 }
 
 // --- The persona's voice, restated for the generator -------------------------
@@ -359,6 +364,24 @@ const SPEC: GenerationKey[] = [
   // ask FIRST — the fee is disclosed only after the client agrees. Every
   // variant MUST end with the confirm question and MUST NOT name any fee
   // amount (the fee comes later, from fee.ask.rent/buy).
+  // exit.criteria.check: the client WANTS to end the conversation ("se
+  // predomisliv", "ke si piseme drugoat", "moram da prekina") — BEFORE the
+  // farewell Lina asks the one last-chance question: does any offered option
+  // have a chance? The first two sources are the owner-dictated wordings (the
+  // exact lines from the V16K11 capture — meaning anchors); the third anchors
+  // the generated variations. ONE question, no farewell inside (the farewell
+  // comes after the client's answer), amount-free, EB-free, property-free.
+  {
+    key: 'exit.criteria.check',
+    sources: [EXIT_CRITERIA_CHECK, EXIT_CRITERIA_CHECK_2, EXIT_CRITERIA_CHECK_3],
+    count: 6,
+    instructions: 'Клиентот сака да ја заврши разговорот („се предомислив“, „ќе си пишеме другпат“, „морам да прекинам“) — ПРЕД да се поздравите, прашајте го ЕДНО последно прашање: дали НЕКОЈА од понудените опции има шанса кај него / ги задоволува неговите критериуми. ТОЧНО ЕДНО прашање на крајот (завршува со „?“), кратко (1–2 реченици), топло и ненаметливо. ЗАБРАНЕТО: проштална фраза (пријатно/поздрав/се гледаме/чао), било каков износ или валута, Евидентен број, адреса, населба, спомнување на конкретен имот, понуда на нови имоти, надомест/провизија, „доколку Ви затреба… туку сум“.',
+    required: [/(?:пред\s+да|уште\s+еднаш|последен\s+пат)/iu, /(?:понуден|предложен|издвоен)/iu, /(?:шанса|критериум|одговара|допага)/iu, /\?\s*$/u],
+    banned: [/пријатно|поздрав|се\s+гледаме|се\s+чуеме|чао|doviduvanje/, /\d/, /евр|денар|€|nadomest|надомест|провизиј/, /Евидентен|ID|ИД/, /стан\b|куќ\b|двособен|трисобен|населб/, /туку\s+сум|помогнам\s+со\s+уште/],
+    question: true,
+    maxLen: 200,
+    keepSources: true,
+  },
   {
     key: 'visit.confirm.ask',
     sources: [VISIT_CONFIRM_ASK],
@@ -1160,7 +1183,9 @@ async function main(): Promise<void> {
         console.error(`[${key.key}] attempt ${attempt} failed:`, (e as Error).message);
       }
     }
-    bank[key.key] = accepted;
+    bank[key.key] = key.keepSources
+      ? [...key.sources, ...dedupe(accepted, key.sources)]
+      : accepted;
     totalAccepted += accepted.length;
 
     console.log(`\n=== ${key.key}: ${accepted.length} variants accepted ===`);
