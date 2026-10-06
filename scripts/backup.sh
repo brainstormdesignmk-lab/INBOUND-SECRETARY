@@ -57,37 +57,89 @@ mkdir -p "$BACKUP_DIR/images"
 
 # --- Pull all tables as JSON ---
 echo "--- Pulling tables ---"
+FAILED=0
 for TABLE in "${TABLES[@]}"; do
   echo -n "  $TABLE... "
   # Pull all rows (pagination: use offset/limit to get everything)
+  #
+  # Not every table has created_at (landmark_resolution_log and price_change_log
+  # do not). Ordering by a missing column returns HTTP 400, whose error body was
+  # previously counted as "rows" and written into the backup as data. Probe for a
+  # usable order column ONCE per table, using the same headers as the pull:
+  # owner_lookup_log is service_role-only, so an apikey-only probe would report
+  # 401 and wrongly hide its created_at column.
+  ORDER_Q=""
+  for COL in created_at id; do
+    PROBE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+      "${REST_URL}/${TABLE}?select=${COL}&limit=1" \
+      -H "apikey: ${SUPABASE_ANON_KEY}" \
+      -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+    if [ "$PROBE" = "200" ]; then
+      ORDER_Q="&order=${COL}"
+      break
+    fi
+  done
   OFFSET=0
   LIMIT=1000
   ALL_ROWS="[]"
+  TFAILED=0
   while true; do
-    BATCH=$(curl -s "${REST_URL}/${TABLE}?select=*&order=created_at&offset=${OFFSET}&limit=${LIMIT}" \
+    RC=0
+    BATCH=$(curl -s --max-time 60 -w $'\n%{http_code}' "${REST_URL}/${TABLE}?select=*${ORDER_Q}&offset=${OFFSET}&limit=${LIMIT}" \
       -H "apikey: ${SUPABASE_ANON_KEY}" \
       -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
-      -H "Prefer: return=representation" 2>/dev/null || echo "[]")
-    COUNT=$(echo "$BATCH" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+      -H "Prefer: return=representation") || RC=$?
+    if [ "$RC" -ne 0 ]; then
+      echo "curl failed (rc=$RC) at offset=$OFFSET"
+      TFAILED=1; break
+    fi
+    HTTP="${BATCH##*$'\n'}"
+    BATCH="${BATCH%$'\n'*}"
+    if [ "$HTTP" != "200" ]; then
+      # PostgREST errors are JSON objects, not arrays. Without this guard an
+      # error body was counted as "rows" and written into the backup as if it
+      # were data, and a failed request was indistinguishable from a genuinely
+      # empty table (that is how "properties... 0 rows" was recorded).
+      echo "HTTP $HTTP at offset=$OFFSET: $(printf '%s' "$BATCH" | head -c 200)"
+      TFAILED=1; break
+    fi
+    COUNT=$(printf '%s' "$BATCH" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else -1)" 2>/dev/null || echo -1)
+    if [ "$COUNT" -lt 0 ]; then
+      echo "non-array body (${#BATCH} bytes): $(printf '%s' "$BATCH" | head -c 200)"
+      TFAILED=1; break
+    fi
     if [ "$COUNT" -eq 0 ]; then
       break
     fi
-    ALL_ROWS=$(python3 -c "
+    ALL_ROWS=$(printf '%s' "$BATCH" | python3 -c '
 import json, sys
-existing = json.loads('''${ALL_ROWS}''') if '''${ALL_ROWS}''' != '[]' else []
-new = json.loads(sys.stdin.read())
+new = json.load(sys.stdin)
+existing = json.loads(sys.argv[1]) if sys.argv[1] else []
 existing.extend(new)
 print(json.dumps(existing))
-" <<< "$BATCH")
+' "${ALL_ROWS:-[]}")
     OFFSET=$((OFFSET + LIMIT))
     if [ "$COUNT" -lt "$LIMIT" ]; then
       break
     fi
   done
-  echo "$ALL_ROWS" > "$BACKUP_DIR/json/${TABLE}.json"
-  ROW_COUNT=$(echo "$ALL_ROWS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+  if [ "$TFAILED" -ne 0 ]; then
+    # Leave the previous night's file untouched rather than overwrite it with
+    # a partial/empty result.
+    echo "FAILED - existing json/${TABLE}.json left untouched"
+    FAILED=1
+    continue
+  fi
+  printf '%s' "$ALL_ROWS" > "$BACKUP_DIR/json/${TABLE}.json"
+  ROW_COUNT=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))))" "$BACKUP_DIR/json/${TABLE}.json" 2>/dev/null || echo "0")
   echo "$ROW_COUNT rows"
 done
+if [ "$FAILED" -ne 0 ]; then
+  echo ""
+  echo "ABORT: one or more tables could not be pulled from ${REST_URL} (see messages above)."
+  echo "       No files were replaced for the failing tables; previous backup is intact."
+  exit 1
+fi
 
 # --- Download images ---
 echo ""
@@ -236,23 +288,32 @@ PYEOF
 # --- Write sync state ---
 echo ""
 echo "--- Writing sync state ---"
-python3 << PYEOF
-import json, os
+# NOTE: the table list is discovered in Python and the heredoc is quoted, so
+# bash does not expand anything into the Python source. The previous version
+# expanded ${TABLES[@]} into bare words ("for table in a b c;") which is a
+# Python SyntaxError - it aborted every run at the very last step.
+python3 - "$BACKUP_DIR" "$DATE" "$PROJECT_REF" << 'PYEOF'
+import json, os, sys
+
+backup_dir, date, project_ref = sys.argv[1], sys.argv[2], sys.argv[3]
+jdir = os.path.join(backup_dir, "json")
+tables = {}
+if os.path.isdir(jdir):
+    for name in sorted(os.listdir(jdir)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(jdir, name)) as f:
+                tables[name[:-5]] = len(json.load(f))
+        except Exception:
+            tables[name[:-5]] = None
 
 state = {
-    "lastSync": "$DATE",
-    "projectRef": "$PROJECT_REF",
-    "backupDir": "$BACKUP_DIR",
-    "tables": {}
+    "lastSync": date,
+    "projectRef": project_ref,
+    "backupDir": backup_dir,
+    "tables": tables,
 }
-
-backup_dir = "$BACKUP_DIR"
-for table in ${TABLES[@]};  # note: this is bash array expansion
-    filepath = os.path.join(backup_dir, f"json/{table}.json")
-    if os.path.exists(filepath):
-        with open(filepath) as f:
-            state["tables"][table] = len(json.load(f))
-
 with open(os.path.join(backup_dir, "sync-state.json"), "w") as f:
     json.dump(state, f, indent=2)
 
