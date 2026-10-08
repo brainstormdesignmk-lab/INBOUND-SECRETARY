@@ -1,7 +1,7 @@
 // Version: 2025-02-02-v7 - Added available_from filtering
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 
-const DEPLOY_VERSION = "v7-20250202-fallback";
+const DEPLOY_VERSION = "v9-20261008-landmarks";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "https://qkgioqotxjxffiaufgwd.supabase.co";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZ2lvcW90eGp4ZmZpYXVmZ3dkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxMTU0NjUsImV4cCI6MjA3MDY5MTQ2NX0.WVno6c6_rvFqFwj1fN8UWHYmlit0C-6J_h57P8d5eOI";
 const LOCAL_BACKUP_URL = Deno.env.get("LOCAL_BACKUP_URL") ?? "";
@@ -64,7 +64,14 @@ serve(async (req) => {
     // 1) Fetch published properties with ALL existing details for AI assistant
     // Filter out properties with future available_from dates
     const properties: Array<any> = await fetchJSON(
-      `/rest/v1/properties?select=id,property_number,title,property_type,room_type,neighborhood,address,price,area,floor,service_type,front_image_id,created_at,garage,elevator,heating,yard,orientation,year_built,total_floors,comments,description,parking,furnished,available_from,lat,lon,geo_source,geocoded_at&is_published=eq.true&or=(available_from.is.null,available_from.lte.${today})&order=created_at.desc`
+      // `landmarks` + `landmarks_resolved_at`: the ranked public-landmark list ANA
+      // resolves at import (JSONB, migration 20260820). Lina reads `landmarks`
+      // on EVERY conversation (LandmarkService.resolve layer 0) and falls back to
+      // a bare neighborhood answer when it is missing — which is why "кај е 76?"
+      // answered "во населбата Центар" while the row already carried 4 landmarks.
+      // They MUST be selected here and emitted below, or the whole enrichment is
+      // invisible to the assistant.
+      `/rest/v1/properties?select=id,property_number,title,property_type,room_type,neighborhood,address,price,area,floor,service_type,front_image_id,created_at,garage,elevator,heating,yard,orientation,year_built,total_floors,comments,description,parking,furnished,available_from,lat,lon,geo_source,geocoded_at,landmarks,landmarks_resolved_at&is_published=eq.true&or=(available_from.is.null,available_from.lte.${today})&order=created_at.desc`
     );
     
     // If JSON format requested, return formatted data for AI systems like Lina
@@ -102,6 +109,11 @@ serve(async (req) => {
         lon: p.lon ?? null,
         geo_source: p.geo_source ?? null,
         geocoded_at: p.geocoded_at ?? null,
+        // Ranked public landmarks ({type, landmark, maps_url, distance_m}[]).
+        // Without this, LandmarkService's feed layer never fires and every
+        // "каде е X?" degrades to the neighborhood line.
+        landmarks: p.landmarks ?? null,
+        landmarks_resolved_at: p.landmarks_resolved_at ?? null,
       }));
       
       return new Response(JSON.stringify({ 
