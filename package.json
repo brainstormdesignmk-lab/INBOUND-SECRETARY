@@ -31,6 +31,8 @@
     "test": "tsx --test tests/*.test.ts",
     "tui": "tsx src/tui/run.ts",
     "typecheck": "tsc --noEmit",
+    "link:geo": "node scripts/link-geo.js",
+    "postinstall": "node scripts/link-geo.js",
     "backup:to": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "restore:to": "tsx scripts/restore.ts",

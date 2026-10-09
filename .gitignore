@@ -15,3 +15,8 @@ tmp/
 session-*.md
 supabase/.temp/
 **/.temp/
+
+# geo engine lives in maps-realestate — this is a machine-local link created by
+# scripts/link-geo.js (npm run link:geo). Never commit it: the path differs per
+# machine. NOTE: no trailing slash — a symlink is a file to git, not a directory.
+src/geo

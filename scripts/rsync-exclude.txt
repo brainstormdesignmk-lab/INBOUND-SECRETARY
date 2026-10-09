@@ -33,6 +33,12 @@ logs/
 *.log
 nohup.out
 
+# ── The geo engine is NOT ours: src/geo is a machine-local symlink ──
+# maps-realestate owns the geo engine (single source). src/geo here is a link
+# created by scripts/link-geo.js; its target differs per machine, so rsync must
+# never carry it — deploy-atoms.sh recreates it on the target instead.
+src/geo
+
 # ── Environment / local hacks (never in git either) ──
 .env
 GOOGLEMAPS_API_KEY.txt

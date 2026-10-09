@@ -87,6 +87,17 @@ while IFS='|' read -r id host user key rpath note; do
     RESULTS+=("$id|RSYNC-FAIL"); continue
   fi
 
+  # 1b) recreate the machine-local src/geo link. The geo engine lives in the
+  #     maps-realestate project (single source of truth) and rsync never carries
+  #     it — the path differs per machine — so the target links it here, before
+  #     anything tries to build or run against it.
+  echo "  → linking src/geo → maps-realestate …"
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "    [dry-run] would run node scripts/link-geo.js on the target"
+  else
+    "${SSH[@]}" "cd '$rpath' && node scripts/link-geo.js" || { echo "    ✗ link-geo FAILED"; RESULTS+=("$id|LINK-FAIL"); continue; }
+  fi
+
   if [ "$DO_RESTART" = "1" ]; then
     # 2) restart: the bot's cmdline is RELATIVE ("node dist/index.js", from the
     #    @reboot line) and ANA on the same box may look identical — so LINA
