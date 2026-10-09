@@ -15,6 +15,12 @@
 
 # ── Live databases (the atom's own truth — never overwritten, never deleted) ──
 data/*.db
+# Any suffixed db file: .pre-*, .october, .bak.<stamp>, -shm/-wal style snapshots.
+# The atom must NEVER receive a map copy — LINA reads skopje-pois.db from the
+# maps-realestate project. These repair snapshots live in the workstation's data/
+# and were silently shipped (46 MB) because `data/*.db` alone does not match
+# `skopje-pois.db.pre-dedupe-*`.
+data/*.db.*
 data/*.db-shm
 data/*.db-wal
 data/*.db-journal
