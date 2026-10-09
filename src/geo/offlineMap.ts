@@ -1254,7 +1254,7 @@ function applyOverrides(db: Database.Database, file: string): number {
     const n = (db.prepare('SELECT COUNT(*) AS n FROM pois WHERE name = ? AND lat = ? AND lon = ?')
       .get(p.name, p.lat, p.lon) as { n: number }).n;
     if (n > 0) continue;
-    db.prepare('INSERT INTO pois (name, type, lat, lon, source, place_id) VALUES (?, ?, ?, ?, ?, ?)')
+    db.prepare(`INSERT INTO pois (name, type, lat, lon, source, place_id) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(place_id) DO UPDATE SET name = excluded.name, lat = excluded.lat, lon = excluded.lon`)
       .run(p.name, p.type, p.lat, p.lon, 'osm', p.place_id ?? null);
     added++;
   }
@@ -1263,7 +1263,7 @@ function applyOverrides(db: Database.Database, file: string): number {
   for (const r of ov.replaces ?? []) {
     if (!r.name || !r.type || !Number.isFinite(r.lat ?? NaN) || !Number.isFinite(r.lon ?? NaN)) continue;
     const del = db.prepare('DELETE FROM pois WHERE name = ?').run(r.name);
-    db.prepare('INSERT INTO pois (name, type, lat, lon, source, place_id) VALUES (?, ?, ?, ?, ?, ?)')
+    db.prepare(`INSERT INTO pois (name, type, lat, lon, source, place_id) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(place_id) DO UPDATE SET name = excluded.name, lat = excluded.lat, lon = excluded.lon`)
       .run(r.name, r.type, r.lat, r.lon, 'osm', r.place_id ?? null);
     added += del.changes + 1;
   }
@@ -1349,7 +1349,8 @@ export function writeMap(
         website TEXT,
         price_level TEXT,
         closed INTEGER NOT NULL DEFAULT 0,
-        types TEXT
+        types TEXT,
+        UNIQUE (place_id)
       );
       CREATE INDEX idx_pois_lat ON pois(lat);
       CREATE TABLE addresses (
@@ -1366,10 +1367,27 @@ export function writeMap(
     // Wrap ALL inserts in a single transaction — 10-100x faster than
     // auto-commit per row.
     const insertAll = db.transaction(() => {
+      // Upsert by place_id: re-scrapes UPDATE the existing Google row
+      // instead of INSERT OR IGNORE-ing a duplicate. OSM rows (place_id=NULL)
+      // are NOT affected — they still INSERT normally.
+      // Uses ON CONFLICT(place_id) which maps to the table's UNIQUE(place_id)
+      // constraint. SQLite's standard UNIQUE allows multiple NULLs, so OSM
+      // rows (NULL place_id) never conflict.
       const insPoi = db.prepare(`INSERT INTO pois (
         name, type, lat, lon, source, place_url, place_id,
         review_count, rating, plus_code, phone, website, price_level, closed, types
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(place_id) DO UPDATE SET
+        name = excluded.name,
+        type = excluded.type,
+        lat = excluded.lat,
+        lon = excluded.lon,
+        source = excluded.source,
+        place_url = COALESCE(excluded.place_url, pois.place_url),
+        review_count = excluded.review_count,
+        rating = excluded.rating,
+        types = excluded.types,
+        closed = excluded.closed`);
       for (const p of pois) insPoi.run(
         p.name, p.type, p.lat, p.lon, p.source ?? 'osm', p.place_url ?? null, p.place_id ?? null,
         p.review_count ?? null, p.rating ?? null, p.plus_code ?? null, p.phone ?? null,
@@ -1400,8 +1418,43 @@ export function writeMap(
 }
 
 /** Pull + rebuild the map. Writes a temp file and renames atomically, so a
- *  failed pull never leaves a half-written map for the resolver. */
+ *  failed pull never leaves a half-written map for the resolver.
+ *
+ *  Fix E — REBUILD PROTECTION: before writing, carry Google-enriched rows
+ *  (place_id + review/rating data) from the existing DB into the rebuild.
+ *  Without this, writeMap() would wipe the ~3,200 Google-anchored rows every
+ *  time buildSkopjeDb runs, since it creates a fresh DB from OSM-only fetchPois.
+ *  Merging Google rows into the pois array + the ON CONFLICT upsert in writeMap
+ *  makes the map rebuild-safe WITHOUT a cron or internet dependency: Google
+ *  data persists forever unless the place_id row is explicitly removed.
+ */
 export async function buildSkopjeDb(dbPath: string): Promise<MapStats> {
   const [pois, addresses] = await Promise.all([fetchPois(), fetchAddresses()]);
+
+  // Carry Google-enriched rows through the rebuild.
+  try {
+    if (existsSync(dbPath)) {
+      const existing = new Database(dbPath, { readonly: true });
+      const googlePois = existing.prepare(
+        `SELECT name, type, lat, lon, source, place_url, place_id,
+           review_count, rating, plus_code, phone, website, price_level, closed, types
+           FROM pois WHERE place_id IS NOT NULL`
+      ).all() as Array<{
+        name: string; type: string; lat: number; lon: number; source?: string;
+        place_url?: string; place_id?: string;
+        review_count?: number | null; rating?: number | null; plus_code?: string | null;
+        phone?: string | null; website?: string | null; price_level?: string | null;
+        closed?: number | null; types?: string | null;
+      }>;
+      existing.close();
+      if (googlePois.length > 0) {
+        console.log(`[skopje-map] carrying ${googlePois.length} Google-enriched POIs through rebuild`);
+        pois.push(...googlePois);
+      }
+    }
+  } catch {
+    // Existing DB missing or unreadable — fresh build (e.g., first run).
+  }
+
   return writeMap(dbPath, pois, addresses);
 }

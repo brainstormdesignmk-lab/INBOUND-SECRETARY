@@ -72,6 +72,17 @@ export interface CapturedPoi {
   source: string;            // 'google'
 }
 
+/** Number-coercion guards: a finite number or null. `round` for counts. */
+function numOrNull(v: unknown, round: boolean): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return round ? Math.round(v) : v;
+}
+
+/** String guard: a non-empty string or null. */
+function strOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v ? v : null;
+}
+
 /** THE capture function — pure, total, never throws. Every field the API
  *  returns for a place is mapped here exactly once. A row without
  *  coordinates is skipped (nothing to anchor); everything else is kept. */
@@ -102,12 +113,17 @@ export function capturePoi(r: any, fallbackType: string): CapturedPoi | null {
     type: typeof r.type === 'string' && r.type ? r.type : fallbackType,
     lat, lon,
     place_id: placeId,
-    review_count: typeof r.review_count === 'number' && Number.isFinite(r.review_count) ? Math.round(r.review_count) : null,
-    rating: typeof r.rating === 'number' && Number.isFinite(r.rating) ? r.rating : null,
+    // FIELD-NAME LESSON (same class as data_id): SerpApi's local_results
+    // item carries `reviews` (number) and `price` (string, "$"/"$$"/…),
+    // NOT `review_count`/`price_level`. Reading the wrong key silently
+    // returned null for EVERY place — the prominence signal was captured
+    // as nothing. Read the API's real names, accept the old ones defensively.
+    review_count: numOrNull(r.reviews ?? r.review_count, true),
+    rating: numOrNull(r.rating, false),
     plus_code: typeof r.plus_code === 'string' && r.plus_code ? r.plus_code : null,
     phone: typeof r.phone === 'string' && r.phone ? r.phone : null,
     website: typeof r.website === 'string' && r.website ? r.website : null,
-    price_level: typeof r.price_level === 'string' && r.price_level ? r.price_level : null,
+    price_level: strOrNull(r.price ?? r.price_level),
     closed: closed ? 1 : 0,
     types: Array.isArray(r.types) && r.types.length > 0 ? JSON.stringify(r.types) : null,
     source: 'google',

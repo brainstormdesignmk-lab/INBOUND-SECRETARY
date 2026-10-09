@@ -56,13 +56,50 @@ function loadSerpApiKeys(): string[] {
 
 const SERPAPI_KEYS = loadSerpApiKeys();
 let keyIdx = 0;
-let serpApiLeft = 250;
+// SerpApi no longer sends the `x-serpapi-searches-left` response header, so
+// the old live counter never moved — the budget guard was blind and one run
+// burned 4 keys. /account is the authoritative ledger and is FREE. keyLeft[i]
+// = that key's remaining searches (-1 = not yet probed).
+let serpApiLeft = 0;
+const keyLeft: number[] = SERPAPI_KEYS.map(() => -1);
+
+async function refreshBudget(): Promise<number> {
+  let total = 0;
+  for (let i = 0; i < SERPAPI_KEYS.length; i++) {
+    try {
+      const res = await fetch(`https://serpapi.com/account?api_key=${SERPAPI_KEYS[i]}`);
+      const j = await res.json();
+      keyLeft[i] = typeof j.total_searches_left === 'number' ? j.total_searches_left : 0;
+    } catch { /* keep previous value */ }
+    total += Math.max(0, keyLeft[i]);
+  }
+  serpApiLeft = total;
+  return total;
+}
+
+/** Spend one search against the current key's ledger (best-effort; /account
+ *  is re-probed on rotation and before each phase). */
+function spendOne(): void {
+  const i = keyIdx % Math.max(1, SERPAPI_KEYS.length);
+  if (keyLeft[i] > 0) keyLeft[i]--;
+  if (serpApiLeft > 0) serpApiLeft--;
+}
 
 // Cadence override: --full / --light on the command line wins over the
 // calendar (quarterly Jan/Apr/Jul/Oct = full, other months = light).
 const RUN_FLAG: '--full' | '--light' | undefined =
   process.argv.includes('--full') ? '--full'
   : process.argv.includes('--light') ? '--light' : undefined;
+
+// THE SPEND GUARD (the drained-keys lesson): --dry-run reports exactly how
+// many searches a real run would spend — from the tile×category ledger — and
+// exits WITHOUT touching a key. --limit=N caps a real run at N searches so a
+// partial pass can be sized to the budget on hand. No run spends blind again.
+const DRY_RUN = process.argv.includes('--dry-run');
+const LIMIT_ARG = process.argv.find(a => a.startsWith('--limit='));
+const SEARCH_LIMIT = LIMIT_ARG
+  ? Math.max(0, parseInt(LIMIT_ARG.split('=')[1] ?? '', 10) || 0)
+  : Infinity;
 
 async function serpApiSearch(query: string, ll?: string): Promise<any> {
   if (SERPAPI_KEYS.length === 0) return null;
@@ -78,10 +115,14 @@ async function serpApiSearch(query: string, ll?: string): Promise<any> {
     const left = res.headers.get('x-serpapi-searches-left');
     if (left) serpApiLeft = parseInt(left, 10);
     if (data?.error?.includes('run out')) {
+      keyLeft[keyIdx % Math.max(1, SERPAPI_KEYS.length)] = 0;
       keyIdx++;
-      if (keyIdx >= SERPAPI_KEYS.length) return null;
+      if (keyIdx >= SERPAPI_KEYS.length) { serpApiLeft = 0; return null; }
+      await refreshBudget();
+      if (serpApiLeft < 20) return null;
       return serpApiSearch(query, ll);
     }
+    spendOne();
     return data;
   } catch (e) {
     console.warn(`  ⚠ SerpApi failed: ${(e as Error).message}`);
@@ -154,10 +195,14 @@ async function serpApiGeocode(address: string): Promise<{ lat: number; lon: numb
     }
     if (data?.error?.includes('run out')) {
       log('  ⚠ Key exhausted, rotating...');
+      keyLeft[keyIdx % Math.max(1, SERPAPI_KEYS.length)] = 0;
       keyIdx++;
-      if (keyIdx >= SERPAPI_KEYS.length) return null;
+      if (keyIdx >= SERPAPI_KEYS.length) { serpApiLeft = 0; return null; }
+      await refreshBudget();
+      if (serpApiLeft < 20) return null;
       return serpApiGeocode(address);
     }
+    spendOne();
     const coords = data?.local_results?.[0]?.gps_coordinates
       ?? data?.place_results?.gps_coordinates;
     if (coords?.latitude && coords?.longitude) {
@@ -233,8 +278,7 @@ async function phaseA(db: Database.Database): Promise<number> {
     }
   }
 
-  return inserted;
-}  // ── SELF-PRUNE: purge any POI outside the Skopje bbox before top-up.    ──
+  // ── SELF-PRUNE: purge any POI outside the Skopje bbox before top-up.    ──
   // (Google's fuzzy expansion and one bad Overpass mirror pulled in 1,118
   // foreign rows — Walgreens in California, a New York hospital. A POI
   // outside Skopje can never be an honest "во близина" landmark.)
@@ -250,6 +294,9 @@ async function phaseA(db: Database.Database): Promise<number> {
     log(`  ✓ Pruned ${prePrune.n} outside-bbox POIs (Walgreens-class contamination)`);
   }
 
+  return inserted;
+}
+
   // ── PHASE B: SerpApi top-up ──────────────────────────────────────────
 async function phaseB(db: Database.Database): Promise<number> {
   const { categoriesForRun, capturePoi, insideSkopjeBbox } = await import('../src/geo/serpCapture');
@@ -261,12 +308,17 @@ async function phaseB(db: Database.Database): Promise<number> {
     return 0;
   }
 
-  // 0.01° tile grid over urban Skopje (~36 tiles)
-  const tiles: Array<{ lat: number; lon: number }> = [];
-  for (let lat = 41.96; lat <= 42.04; lat += 0.01) {
-    for (let lon = 21.36; lon <= 21.50; lon += 0.01) {
-      tiles.push({ lat: Math.round(lat * 100) / 100, lon: Math.round(lon * 100) / 100 });
-    }
+  // THE LEDGER: seed (tile × category) coverage from the Google POIs we
+  // already hold, then walk ONLY the unscanned pairs. A resumed run scans the
+  // gaps, never the ground a previous run already covered.
+  const { seedTileScansFromPois, uncoveredPairs, recordScan } = await import('../src/geo/tileCoverage');
+  const seeded = seedTileScansFromPois(db, cats);
+  const pairs = uncoveredPairs(db, cats);
+  log(`  Coverage ledger: seeded ${seeded} pair(s); ${pairs.length} unscanned (tile × category) pairs`
+    + (SEARCH_LIMIT !== Infinity ? `, capped at ${SEARCH_LIMIT}` : ''));
+  if (pairs.length === 0) {
+    log('  ✓ Every tile × category already scanned — nothing to spend');
+    return 0;
   }
 
   // THE IDENTITY RULE (the 678-row sin, never again): SerpApi returns
@@ -274,7 +326,8 @@ async function phaseB(db: Database.Database): Promise<number> {
   // They are the place's ID card — the only thing that merges "Амбасада на
   // Црна Гора" and "Црногорска Амбасада" into ONE place, and the key that
   // makes ?cid= place-card links work cluster-wide. Capture on EVERY row,
-  // even rows we already have (the UPDATE path backfills identity for free).  let inserted = 0;
+  // even rows we already have (the UPDATE path backfills identity for free).
+  let inserted = 0;
   let identityBackfilled = 0;
   let enriched = 0;
   // THE SCRAPER CONTRACT: every field captured via serpCapture.capturePoi —
@@ -293,50 +346,58 @@ async function phaseB(db: Database.Database): Promise<number> {
        phone = ?, website = ?, price_level = ?, closed = ?, types = ?
      WHERE rowid = ?`
   );
-  for (const tile of tiles) {
+  let spent = 0;
+  for (const { tile, category: q } of pairs) {
     if (serpApiLeft < 20) {
       log(`  ⚠ Quota low (${serpApiLeft} left) — stopping SerpApi top-up`);
       break;
     }
-    for (const q of cats) {
-      if (serpApiLeft < 20) break;
-      const ll = `@${tile.lat},${tile.lon},15z`;
-      const data = await serpApiSearch(q, ll);
-      await sleep(1100);
+    if (spent >= SEARCH_LIMIT) {
+      log(`  ⚠ Search limit (${SEARCH_LIMIT}) reached — stopping SerpApi top-up`);
+      break;
+    }
+    const ll = `@${tile.lat},${tile.lon},15z`;
+    const data = await serpApiSearch(q, ll);
+    await sleep(1100);
 
-      const results = data?.local_results ?? data?.place_results ?? [];
-      // place_results can be a single object instead of array
-      const resultArray = Array.isArray(results) ? results : (results.title ? [results] : []);
-      for (const r of resultArray) {
-        const cap = capturePoi(r, q);
-        if (!cap) continue;
-        // BBOX GATE (the Walgreens lesson): Google's fuzzy geographic expansion
-        // returns places FAR outside the map bounds — a Skopje search can still
-        // surface "Walgreens Pharmacy" (California) or a New York hospital.
-        // A POI outside Skopje can never be honestly "во близина" of anything.
-        if (!insideSkopjeBbox(cap.lat, cap.lon)) continue;
-        const info = insert.run(
-          cap.name, cap.type, cap.lat, cap.lon, cap.place_id,
-          cap.review_count, cap.rating, cap.plus_code, cap.phone,
-          cap.website, cap.price_level, cap.closed, cap.types,
-        );
-        if (info.changes > 0) {
-          inserted++;
-        } else if (cap.place_id) {
-          // Row exists but may predate identity/capture — backfill EVERYTHING
-          // by place_id (coords + all capture fields).
-          const existing = findByCid.get(cap.place_id) as { rowid: number } | undefined;
-          if (existing) {
-            updateAll.run(
-              cap.lat, cap.lon, cap.review_count, cap.rating, cap.plus_code,
-              cap.phone, cap.website, cap.price_level, cap.closed, cap.types,
-              existing.rowid,
-            );
-            identityBackfilled++;
-            enriched++;
-          }
+    const results = data?.local_results ?? data?.place_results ?? [];
+    // place_results can be a single object instead of array
+    const resultArray = Array.isArray(results) ? results : (results.title ? [results] : []);
+    for (const r of resultArray) {
+      const cap = capturePoi(r, q);
+      if (!cap) continue;
+      // BBOX GATE (the Walgreens lesson): Google's fuzzy geographic expansion
+      // returns places FAR outside the map bounds — a Skopje search can still
+      // surface "Walgreens Pharmacy" (California) or a New York hospital.
+      // A POI outside Skopje can never be honestly "во близина" of anything.
+      if (!insideSkopjeBbox(cap.lat, cap.lon)) continue;
+      const info = insert.run(
+        cap.name, cap.type, cap.lat, cap.lon, cap.place_id,
+        cap.review_count, cap.rating, cap.plus_code, cap.phone,
+        cap.website, cap.price_level, cap.closed, cap.types,
+      );
+      if (info.changes > 0) {
+        inserted++;
+      } else if (cap.place_id) {
+        // Row exists but may predate identity/capture — backfill EVERYTHING
+        // by place_id (coords + all capture fields).
+        const existing = findByCid.get(cap.place_id) as { rowid: number } | undefined;
+        if (existing) {
+          updateAll.run(
+            cap.lat, cap.lon, cap.review_count, cap.rating, cap.plus_code,
+            cap.phone, cap.website, cap.price_level, cap.closed, cap.types,
+            existing.rowid,
+          );
+          identityBackfilled++;
+          enriched++;
         }
       }
+    }
+    // Record the pair ONLY on a real response — a network failure must be
+    // retried next run, not marked done.
+    if (data != null) {
+      recordScan(db, tile, q);
+      spent++;
     }
   }
 
@@ -373,7 +434,14 @@ function phaseB2(db: Database.Database): number {
   }
 
   const upd = db.prepare(`UPDATE pois SET place_id = ?, lat = ?, lon = ? WHERE rowid = ?`);
+  // place_id is UNIQUE (partial index). Two OSM rows can both sit within 50m
+  // of ONE Google anchor (a duplicate pair), and the second adoption would
+  // violate the constraint and abort the whole pass. Identity is a merge key:
+  // only the FIRST row adopts it; the rest adopt coords only.
+  const ownedByOther = db.prepare(`SELECT rowid FROM pois WHERE place_id = ? AND rowid != ?`);
+  const updCoords = db.prepare(`UPDATE pois SET lat = ?, lon = ? WHERE rowid = ?`);
   let healed = 0;
+  let coordsOnly = 0;
   for (const o of osmRows) {
     if (o.lat == null || o.lon == null) continue;
     // Same-name OR same-place identity within 50m: adopt Google's pin + id.
@@ -390,11 +458,17 @@ function phaseB2(db: Database.Database): number {
       void sameName;
     }
     if (best) {
-      upd.run(best.place_id, best.lat, best.lon, o.rowid);
-      healed++;
+      if (ownedByOther.get(best.place_id, o.rowid)) {
+        // Identity already taken by another row — adopt the exact pin only.
+        updCoords.run(best.lat, best.lon, o.rowid);
+        coordsOnly++;
+      } else {
+        upd.run(best.place_id, best.lat, best.lon, o.rowid);
+        healed++;
+      }
     }
   }
-  log(`  Healed ${healed} OSM rows from Google anchors (identity: coords + place_id adopted)`);
+  log(`  Healed ${healed} OSM rows from Google anchors (identity: coords + place_id adopted; ${coordsOnly} coords-only, identity already owned)`);
   return healed;
 }
 
@@ -593,12 +667,39 @@ async function main() {
   // INSERT OR IGNORE actually dedupe across monthly runs. place_id: Google
   // identity — indexed (non-unique: two spellings of one place share an id
   // BY DESIGN; the query-time merge collapses them).
+  // place_id gets a partial UNIQUE so re-scrapes UPDATE existing rows
+  // instead of INSERT-ing duplicates. The non-unique idx_pois_place_id stays
+  // for fast lookups; the UNIQUE one enforces identity-level dedupe.
   const cols = (db.prepare('PRAGMA table_info(pois)').all() as Array<{ name: string }>).map(c => c.name);
   if (!cols.includes('osm_key')) db.exec('ALTER TABLE pois ADD COLUMN osm_key TEXT');
   if (!cols.includes('place_id')) db.exec('ALTER TABLE pois ADD COLUMN place_id TEXT');
+
+  // THE IDENTITY RULE (Fix C, runtime): before the UNIQUE(place_id) index,
+  // collapse any pre-existing duplicate place_id rows into one survivor.
+  // We keep the MIN(rowid) per place_id (oldest, most-established row);
+  // Phase B's re-scrape backfills ALL capture fields via updateAll on the
+  // next pass, so no data is permanently lost. This is idempotent — a DB
+  // that's already clean skips the block. Without this, the UNIQUE index
+  // creation fails with SQLITE_CONSTRAINT_UNIQUE on legacy dupes.
+  const dupeGroups = (db.prepare(
+    `SELECT place_id FROM pois WHERE place_id IS NOT NULL GROUP BY place_id HAVING COUNT(*) > 1`
+  ).all() as Array<{ place_id: string }>).length;
+  if (dupeGroups > 0) {
+    log(`  Collapsing ${dupeGroups} duplicate place_id groups`);
+    db.exec(
+      `DELETE FROM pois
+         WHERE place_id IS NOT NULL
+         AND rowid NOT IN (
+           SELECT MIN(rowid) FROM pois WHERE place_id IS NOT NULL GROUP BY place_id
+         )`
+    );
+    log(`  ✓ Collapsed to one row per place_id`);
+  }
+
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_pois_osm_key ON pois(osm_key) WHERE osm_key IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_pois_place_id ON pois(place_id) WHERE place_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pois_place_id_unique ON pois(place_id) WHERE place_id IS NOT NULL;
   `);
 
   const initialCount = (db.prepare('SELECT COUNT(*) as c FROM pois').get() as { c: number }).c;
@@ -617,11 +718,36 @@ async function main() {
     }
   } catch (e) { log(`⚠ Schema self-upgrade skipped: ${(e as Error).message}`); }
 
+  // ── DRY RUN ─────────────────────────────────────────────────────────
+  // Report the exact spend a real run would incur and exit. No key is
+  // touched, no POI is written. This is the check that must be read before
+  // any real pass (the drained-keys lesson).
+  if (DRY_RUN) {
+    const { planCoverage, seedTileScansFromPois } = await import('../src/geo/tileCoverage');
+    const { categoriesForRun } = await import('../src/geo/serpCapture');
+    const cats = categoriesForRun(RUN_FLAG);
+    const seeded = seedTileScansFromPois(db, cats);
+    const plan = planCoverage(db, cats);
+    log('=== DRY RUN (no keys touched) ===');
+    log(`  Cadence: ${RUN_FLAG ?? 'auto'} — ${cats.length} categories`);
+    log(`  Grid: ${plan.totalTiles} tiles × ${cats.length} categories = ${plan.totalPairs} pairs`);
+    log(`  Already scanned: ${plan.scannedPairs} pairs (ledger seeded this run: ${seeded})`);
+    log(`  Unscanned pairs (tiles touched: ${plan.uncoveredTiles}): ${plan.uncoveredPairs}`);
+    log(`  ESTIMATED SEARCHES to finish the pass: ${plan.estimatedSearches}`);
+    log(`  Keys loaded: ${SERPAPI_KEYS.length} (free plan = 250 each)`);
+    if (SEARCH_LIMIT !== Infinity) log(`  --limit would cap this run at: ${SEARCH_LIMIT}`);
+    log(`  Budget floor per run: 20 searches (hard stop)`);
+    db.close();
+    return;
+  }
+
   // Phase A: OSM restore
   const osmInserted = await phaseA(db);
   console.log('');
 
   // Phase B: SerpApi top-up
+  await refreshBudget();
+  log(`SerpApi budget: ${serpApiLeft} searches left across ${SERPAPI_KEYS.length} keys`);
   const googleInserted = await phaseB(db);
   console.log('');
 
