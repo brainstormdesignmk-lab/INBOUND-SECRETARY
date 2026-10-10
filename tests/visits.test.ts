@@ -208,6 +208,13 @@ test('sanitizeLandmarkAnswer: the echoed list annotation (type, distance) never 
   assert.equal(sanitizeLandmarkAnswer('Рептил (Supermarket, 21 m)', 'Тоне Томшиќ'), 'Рептил');
   assert.equal(sanitizeLandmarkAnswer('Кафе бар Ван Гог (cafe, 120м)', 'Партизанска'), 'Кафе бар Ван Гог');
   assert.equal(sanitizeLandmarkAnswer('Сити Мол 340м', 'Партизанска'), 'Сити Мол');
+  // A quote that OPENS inside the name is content, not decoration: stripping it
+  // while removing the trailing „“ would serve a half-quoted name (the live
+  // 2026-10-10 feed row „Приватна градинка „Little Me“ did exactly that).
+  assert.equal(
+    sanitizeLandmarkAnswer('Приватна градинка „Little Me“', 'Кузман Јосифовски Питу'),
+    'Приватна градинка „Little Me“');
+  assert.equal(sanitizeLandmarkAnswer('„Кафе Мак“', 'Партизанска'), 'Кафе Мак');
   // A parenthetical that is NOT our annotation is part of the name — keep it.
   assert.equal(
     sanitizeLandmarkAnswer('ГТЦ (Градски трговски центар) Скопје', 'Партизанска'),
