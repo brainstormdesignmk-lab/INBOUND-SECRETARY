@@ -2,6 +2,7 @@ import '../compat/node16';
 
 import { Service } from '../fsm/machine';
 import { LANDLORD_DATA } from './landlords';
+import { stripPoiAnnotation, FEED_LANDMARK_MAX_M } from '../geo/landmarks';
 
 // How a property's coordinates were obtained. Determines whether the
 // runtime may TRUST them as the search center:
@@ -73,20 +74,32 @@ export interface FeedLandmark {
 
 /** Parse the feed's `landmarks` column defensively — garbage rows are dropped,
  *  not thrown. The street-name guard runs later at pick time (defense in
- *  depth); here we only keep well-shaped entries. */
+ *  depth); here we only keep well-shaped entries.
+ *
+ *  Two CONTRACT rules are enforced here as well, because this is the single
+ *  door every consumer reads through (the chat rotation, mentionResolve, the
+ *  cards) and a stored list must not be able to smuggle a defect past it:
+ *    1. The `(type, distance)` annotation is metadata the enricher used to echo
+ *       into the NAME ("AgroTehnA - Head Office (Shopping mall, 257м"); it is
+ *       stripped whenever old rows surface it.
+ *    2. A claim beyond FEED_LANDMARK_MAX_M is dropped. Legacy rows written
+ *       when the enricher's radius was 2 km carry 600 m–1.2 km entries, and
+ *       serving those as "во близина на …" is simply false. */
 function parseFeedLandmarks(v: unknown): FeedLandmark[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const out: FeedLandmark[] = [];
   for (const e of v) {
     if (!e || typeof e !== 'object') continue;
     const o = e as Record<string, unknown>;
-    const name = str(o.landmark);
+    const name = stripPoiAnnotation(str(o.landmark));
     if (!name || name.length > 80) continue;
     const d = Number(o.distance_m);
+    const distance_m = Number.isFinite(d) && d >= 0 ? d : undefined;
+    if (distance_m != null && distance_m > FEED_LANDMARK_MAX_M) continue;
     out.push({
       landmark: name,
       type: str(o.type) || undefined,
-      distance_m: Number.isFinite(d) && d >= 0 ? d : undefined,
+      distance_m,
       maps_url: str(o.maps_url) || undefined,
     });
   }

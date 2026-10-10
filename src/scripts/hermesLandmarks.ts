@@ -27,7 +27,7 @@ import '../compat/node16';
 
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
-import { sanitizeLandmarkAnswer, stripPoiAnnotation, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
+import { sanitizeLandmarkAnswer, stripPoiAnnotation, FEED_LANDMARK_MAX_M, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
 import { OfflineMapStore } from '../geo/offlineMap';
 import { EventStore } from '../store/events';
 import { PropertyService, FeedLandmark } from '../data/properties';
@@ -197,10 +197,9 @@ async function llmPickLandmarks(
  *  map, the POIs come from the LOCAL SQLite store (zero network); the live
  *  Overpass query is the fallback when the map is missing or empty. */
 
-/** The client-facing ceiling for a feed landmark — the SAME 500m the runtime
- *  rotation claims (LandmarkService.nearbyLandmarks). Anything farther is a
- *  different neighbourhood, not "во близина". */
-export const FEED_LANDMARK_MAX_M = 500;
+// The client-facing ceiling for a feed landmark lives with the reader
+// (properties.parseFeedLandmarks enforces the same number) — neither side may
+// claim a place it cannot see from the door.
 async function rankedLandmarks(
   cfg: { hermesLlmBaseUrl: string; hermesLlmApiKey: string; hermesLlmModel: string },
   c: { address?: string; location?: string },

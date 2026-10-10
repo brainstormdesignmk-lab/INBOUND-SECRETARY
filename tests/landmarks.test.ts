@@ -41,6 +41,51 @@ test('feed: the landmarks JSONB column is parsed into the ranked list', async ()
   }
 });
 
+test('feed parse: over-cap claims and annotation residue never reach a consumer', async () => {
+  // Legacy rows (written when the enricher's radius was 2 km) and rows from
+  // before the annotation strip are exactly what production still holds: the
+  // reader is the one door every consumer goes through, so the contract is
+  // enforced THERE as well as at write time.
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ({
+      properties: [
+        {
+          evidenten_broj: 94, adresa: 'ТОНЕ ТОМШИЌ БР.25', naselba: 'Кисела Вода', servis: 'Продава',
+          landmarks: [
+            { landmark: 'Рептил', type: 'supermarket', distance_m: 7 },
+            { landmark: 'AgroTehnA - Head Office (Shopping mall, 257м', type: 'Shopping mall', distance_m: 257 },
+            { landmark: 'Амбасада на Кина', type: 'diplomatic', distance_m: 521 },   // over the cap
+            { landmark: 'Британска амбасада', type: 'diplomatic', distance_m: 1011 }, // far over
+          ],
+        },
+        {
+          evidenten_broj: 52, adresa: 'КОЗЛЕ', naselba: 'Козле',
+          landmarks: [
+            { landmark: 'ОУ Димо Хаџи Димов', type: 'school', distance_m: 1001 },
+          ],
+        },
+      ],
+    }),
+  })) as unknown as typeof fetch;
+  try {
+    const all = await new PropertyService('http://fake-feed').getAll();
+    const p94 = all.find(p => p.eb === 94)!;
+    assert.deepEqual(
+      p94.landmarks?.map(l => l.landmark),
+      ['Рептил', 'AgroTehnA - Head Office'],
+      'the annotation is stripped and every claim beyond 500m is dropped');
+    assert.equal(p94.landmarks?.[1].distance_m, 257, 'the metadata survives the strip');
+    // A row whose ONLY entries are over-cap degrades to no list at all — the
+    // runtime then serves its own ≤500m rotation instead of a false claim.
+    const p52 = all.find(p => p.eb === 52)!;
+    assert.equal(p52.landmarks, undefined);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
 test('LandmarkService: the FEED ranked list wins — nearest valid, street names rejected, EB-hash variety', async () => {
   const db = new Db(':memory:');
   const svc = new LandmarkService(db, { osm: false });
