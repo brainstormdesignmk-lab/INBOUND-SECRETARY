@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
 import dotenv from 'dotenv';
 
 // Lina's secrets live OUTSIDE the project: ~/.lina/lina.env (mode 600, her own keys —
@@ -74,6 +75,29 @@ const num = (v: string | undefined, d: number): number => {
   return Number.isFinite(n) ? n : d;
 };
 
+/** Canonical location of the offline map DB.
+ *
+ *  WHY this is not `path.join(process.cwd(), 'data', 'skopje-pois.db')`:
+ *  the DB lives WITH the map repo (maps-realestate/data), wired into this
+ *  project as the symlink `src/geo` — but this repo also carried a stale COPY
+ *  at data/skopje-pois.db. A TUI started from this cwd silently loaded the
+ *  stale map ([db:283d447b]) while production ran the real one, which is
+ *  exactly the "why do landmarks differ on my machine" bug. Resolve through
+ *  the symlink (realpath), so the answer follows the geo code itself and
+ *  never the cwd; fall back to the repo-local path only when nothing else
+ *  exists. */
+export function canonicalPoisDb(cwd: string = process.cwd()): string | undefined {
+  const candidates: string[] = [];
+  try {
+    // src/geo is a symlink to <maps-repo>/src/geo → <maps-repo>/data/
+    const geoReal = fs.realpathSync(path.join(__dirname, 'geo'));
+    candidates.push(path.resolve(geoReal, '..', '..', 'data', 'skopje-pois.db'));
+  } catch { /* no geo module next to us (compiled dist) — use the fallbacks */ }
+  candidates.push(path.resolve(__dirname, '..', 'data', 'skopje-pois.db'));
+  candidates.push(path.join(cwd, 'data', 'skopje-pois.db'));
+  return candidates.find(p => fs.existsSync(p));
+}
+
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const cfg: AppConfig = {
     port: num(process.env.PORT, 8080),
@@ -142,7 +166,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     //   nvidia/nemotron-3-super-120b-a12b → works; reasoning separated into
     //     reasoning_content (content stays clean) — consumers already handle it
     hermesLlmModel: process.env.HERMES_LLM_MODEL || 'nvidia/nemotron-3-super-120b-a12b',
-    skopjePoisDb: process.env.SKOPJE_POIS_DB || path.join(process.cwd(), 'data', 'skopje-pois.db'),
+    skopjePoisDb: process.env.SKOPJE_POIS_DB || canonicalPoisDb() || path.join(process.cwd(), 'data', 'skopje-pois.db'),
     linaApiUrl: process.env.LINA_API_URL || '',
     ownerBusPollMs: num(process.env.OWNER_BUS_POLL_MS, 2000),
     localBackupUrl: process.env.LOCAL_BACKUP_URL || '',
@@ -159,6 +183,11 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   }
   if ((cfg.llmProvider === 'gemini' || cfg.llmProvider === 'hybrid') && !cfg.geminiApiKey) {
     console.warn('[config] GEMINI_API_KEY missing — persona will fall back to Groq.');
+  }
+  // A missing map is a silent landmark-quality failure otherwise: say WHERE we
+  // looked, so a wrong SKOPJE_POIS_DB is one line of boot output to fix.
+  if (!fs.existsSync(cfg.skopjePoisDb)) {
+    console.warn(`[config] offline map NOT FOUND at ${cfg.skopjePoisDb} — landmarks fall back to live OSM. Set SKOPJE_POIS_DB to the maps repo's data/skopje-pois.db.`);
   }
   return cfg;
 }

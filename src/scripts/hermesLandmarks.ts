@@ -27,7 +27,7 @@ import '../compat/node16';
 
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
-import { sanitizeLandmarkAnswer, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
+import { sanitizeLandmarkAnswer, stripPoiAnnotation, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
 import { OfflineMapStore } from '../geo/offlineMap';
 import { EventStore } from '../store/events';
 import { PropertyService, FeedLandmark } from '../data/properties';
@@ -196,6 +196,11 @@ async function llmPickLandmarks(
  *  pick → sanitize each entry (the street must never leak). With the offline
  *  map, the POIs come from the LOCAL SQLite store (zero network); the live
  *  Overpass query is the fallback when the map is missing or empty. */
+
+/** The client-facing ceiling for a feed landmark — the SAME 500m the runtime
+ *  rotation claims (LandmarkService.nearbyLandmarks). Anything farther is a
+ *  different neighbourhood, not "во близина". */
+export const FEED_LANDMARK_MAX_M = 500;
 async function rankedLandmarks(
   cfg: { hermesLlmBaseUrl: string; hermesLlmApiKey: string; hermesLlmModel: string },
   c: { address?: string; location?: string },
@@ -206,18 +211,30 @@ async function rankedLandmarks(
     ? offline.nearestPois(geo.lat, geo.lon, 2000, 25)
     : await osmPoisNear(geo.lat, geo.lon);
   if (pois.length === 0) return [];
-  const picked = await llmPickLandmarks(cfg, { ...c, lat: geo.lat, lon: geo.lon }, pois);
+  // THE CLIENT-FACING CAP. The feed list is what the client reads ("во близина
+  // на X"), so it obeys the same 500m ceiling as the runtime rotation
+  // (LandmarkService.nearbyLandmarks). Without it the LLM picked a 521m embassy
+  // and a 1km bank and the property page claimed them as "nearby" — the live
+  // EB 94 row did exactly that on 2026-10-10. A landmark farther than 500m is
+  // not a landmark, it is a different neighbourhood.
+  const pool = pois.filter(p => typeof p.distance_m !== 'number' || p.distance_m <= FEED_LANDMARK_MAX_M);
+  if (pool.length === 0) return []; // nothing within 500m → an honest empty list
+  const picked = await llmPickLandmarks(cfg, { ...c, lat: geo.lat, lon: geo.lon }, pool);
   const out: FeedLandmark[] = [];
   for (const rawName of picked) {
     const name = sanitizeLandmarkAnswer(rawName, c.address);
     if (!name) continue;
     // Attach the POI's type/distance when the pick matches a list entry.
     const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ');
-    const poi = pois.find(p => norm(p.name) === norm(name) || norm(p.name).includes(norm(name)) || norm(name).includes(norm(p.name)));
+    const poi = pool.find(p => norm(p.name) === norm(name) || norm(p.name).includes(norm(name)) || norm(name).includes(norm(p.name)));
+    // A pick that matches NOTHING in the pool is the model inventing a place —
+    // it must not reach the feed. (It also cannot carry a distance, so the
+    // page would show an unverifiable "nearby" claim.)
+    if (!poi) continue;
     out.push({
       landmark: name,
-      type: poi?.type ?? 'place',
-      distance_m: poi?.distance_m,
+      type: poi.type ?? 'place',
+      distance_m: poi.distance_m,
       maps_url: googleMapsLink(name),
     });
   }
@@ -299,8 +316,28 @@ async function main(): Promise<void> {
 
     const props = new PropertyService(cfg.propertyDataUrl);
     const all = await props.getAll();
-    // The property row itself is the job: address present + no landmark list yet.
-    const candidates = all.filter(p => !!p.address && !isJunkAddress(p.address) && (!p.landmarks || p.landmarks.length === 0));
+    // The property row itself is the job: address present + no landmark list yet
+    // — OR a list that carries the OLD bug's residue. The 2026-10-10 rows were
+    // written with the prompt's own "(type, distance)" annotation inside the
+    // landmark string (EB 94: "AgroTehnA - Head Office (Shopping mall, 257м");
+    // without this second clause a row that is already WRONG is never revisited
+    // (the feed pass only ever looked at rows with NO list), so the corruption
+    // would have stayed in production forever. Detected with the same rule that
+    // now cleans new answers.
+    const dirtyLandmarks = (p: { landmarks?: Array<{ landmark?: string; distance_m?: number }> }): boolean =>
+      (p.landmarks ?? []).some(l =>
+        (typeof l.landmark === 'string' && stripPoiAnnotation(l.landmark) !== l.landmark.trim())
+        || (typeof l.distance_m === 'number' && l.distance_m > FEED_LANDMARK_MAX_M));
+    const needsList = (p: { landmarks?: Array<{ landmark?: string }> }): boolean =>
+      !p.landmarks || p.landmarks.length === 0 || dirtyLandmarks(p);
+    // Optional surgical run for ONE property (repairing a known-bad row must
+    // not drag the whole feed through the LLM): --eb 94.
+    const ebIdx = process.argv.indexOf('--eb');
+    const onlyEb = ebIdx >= 0 ? process.argv[ebIdx + 1] : undefined;
+    const candidates = all.filter(p =>
+      !!p.address && !isJunkAddress(p.address) && needsList(p) && (!onlyEb || String(p.eb) === onlyEb));
+    const repairs = all.filter(p => !!p.address && !isJunkAddress(p.address) && dirtyLandmarks(p)).length;
+    if (repairs > 0) console.log(`[hermes-landmarks] ${repairs} property row(s) carry annotation residue in the feed landmark list — re-resolving them.`);
     // Local OSM map (T60 plan): geocode + POIs come from SQLite when present;
     // live Nominatim/Overpass remain the fallback (missing map, unmatched
     // street, empty POI ring).
@@ -337,7 +374,7 @@ async function main(): Promise<void> {
         // Rate-limit: 2s between LLM calls to avoid 429 on NIM free tier.
         await sleep(LLM_DELAY_MS);
         if (list.length === 0) {
-          console.log(`  ✗ ${label} — нема јавни места во радиус 2 км (останува табелата)`);
+          console.log(`  ✗ ${label} — нема јавни места во радиус ${FEED_LANDMARK_MAX_M} м (останува табелата)`);
           failed++;
           continue;
         }

@@ -194,6 +194,29 @@ test('sanitizeLandmarkAnswer: cleans names and REJECTS the street (address priva
   assert.equal(sanitizeLandmarkAnswer('!!!', 'Бисер'), undefined);
 });
 
+test('sanitizeLandmarkAnswer: the echoed list annotation (type, distance) never reaches the feed', () => {
+  // The exact 2026-10-10 EB 94 row: the model echoed the prompt line back, the
+  // answer arrived truncated, and the client got a landmark that was half
+  // annotation. Balanced and dangling forms must both clean up.
+  assert.equal(
+    sanitizeLandmarkAnswer('AgroTehnA - Head Office (Shopping mall, 257м', 'Тоне Томшиќ 25'),
+    'AgroTehnA - Head Office',
+    'the real corrupted feed value must be repaired');
+  assert.equal(
+    sanitizeLandmarkAnswer('AgroTehnA - Head Office (Shopping mall, 257м)', 'Тоне Томшиќ 25'),
+    'AgroTehnA - Head Office');
+  assert.equal(sanitizeLandmarkAnswer('Рептил (Supermarket, 21 m)', 'Тоне Томшиќ'), 'Рептил');
+  assert.equal(sanitizeLandmarkAnswer('Кафе бар Ван Гог (cafe, 120м)', 'Партизанска'), 'Кафе бар Ван Гог');
+  assert.equal(sanitizeLandmarkAnswer('Сити Мол 340м', 'Партизанска'), 'Сити Мол');
+  // A parenthetical that is NOT our annotation is part of the name — keep it.
+  assert.equal(
+    sanitizeLandmarkAnswer('ГТЦ (Градски трговски центар) Скопје', 'Партизанска'),
+    'ГТЦ (Градски трговски центар) Скопје',
+    'only the numeric (type, distance) annotation is stripped');
+  // The street guard still applies AFTER the annotation is stripped.
+  assert.equal(sanitizeLandmarkAnswer('Тоне Томшиќ (Supermarket, 21м', 'Тоне Томшиќ'), undefined);
+});
+
 test('LandmarkService: a cached higher-tier row is served (upgrade-only cache holds)', async () => {
   const db = new Db(':memory:');
   const svc = new LandmarkService(db);

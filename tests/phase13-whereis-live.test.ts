@@ -125,7 +125,10 @@ test('TASK 1.3: imported trusted-coords property answers каде е? — landma
   // ── 5. resolveSearchCenter on that row: trusted, from STORED coords ──
   const row: PropertyRow = { id: EB, eb: EB, address: ADDRESS, lat: BUILDING_LAT, lon: BUILDING_LON, geo_source: 'osm_building' };
   const center = resolveSearchCenter(row);
-  assert.deepEqual(center, { lat: BUILDING_LAT, lon: BUILDING_LON, trusted: true });
+  // 'stored' (not 'map'): the feed point IS the trusted centre — the map's own
+  // address resolution may only override it when they disagree by >50m
+  // (CENTER_MISMATCH_M, the EB 94 rule).
+  assert.deepEqual(center, { lat: BUILDING_LAT, lon: BUILDING_LON, trusted: true, source: 'stored' });
   assert.equal(geocodeCalls, 0, 'resolveSearchCenter must not call geocodeAddress with stored coords');
 
   // ── 6. Lina asks "каде се наоѓа?" ──
