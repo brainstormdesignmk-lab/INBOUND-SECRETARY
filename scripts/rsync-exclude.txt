@@ -39,6 +39,14 @@ logs/
 *.log
 nohup.out
 
+# ── The atom's git object store is STATE, not code ──
+# Without this, the push mirrors the workstation's .git with --delete: the atom
+# lost the objects of its OWN commits (checked 2026-10-11 — atom01's HEAD
+# 525bbd8 and d328d27 exist on no other machine), leaving a repo whose branch
+# points at missing objects. Atoms never push, so their git is documentation
+# only — but it must not be destroyed by a code deploy.
+.git/
+
 # ── The geo engine is NOT ours: src/geo is a machine-local symlink ──
 # maps-realestate owns the geo engine (single source). src/geo here is a link
 # created by scripts/link-geo.js; its target differs per machine, so rsync must
