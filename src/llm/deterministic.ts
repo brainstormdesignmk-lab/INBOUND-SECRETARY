@@ -2802,6 +2802,16 @@ const WHERE_IS_GENERIC =
 // those are NOT place questions and must fall through to normal handling.
 const WHERE_IS_BLACKLIST =
   /^(?:цената|cenata|цена|cena|евра|evra|киријата|kirijata|кирија|kirija|бројот|brojot|број|broj|шифрата|sifrata|шифра|sifra|достапен|dostapen|достапна|dostapna|сместен|smesten|сместена|smestena|паркингот|parkingot|паркинг|parking)$/iu;
+// PRECISION / APPROXIMATION adverbs that MODIFY a where-is question instead of
+// naming a place ("каде се наоѓа ТОЧНО", "kade e POTOCNO", "од прилика каде").
+// They are never a location, so they must be stripped from `rest` before the
+// place is read — left in, they become the "place" the handler then fails to
+// resolve (the [08:26] class: "zdravo 73 kade se naogja tocno" was answered
+// with "Тоа место не ми е познато во нашата база" for a property that IS in
+// the feed). Note the same principle already holds PRE-verbally —
+// 'kade tocno se naogja ?' is generic, not the place "tocno".
+const WHERE_IS_PRECISION =
+  /(?:^|[\s,]+)(?:каде\s+)?(?:точно|тоцно|поточно|tochno|tocno|potochno|potocno|приближно|priblizno|одприлика|odprilika)(?=$|[\s,?.!])/giu;
 
 /**
  * "каде е X?" — a question about a PLACE's whereabouts ("каде е Палома
@@ -3012,6 +3022,31 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   rest = rest.replace(/[?!.]+$/u, '').replace(WHERE_IS_DETERMINER, '').trim();  // Strip trailing clauses after a comma — "кaj се наоѓа, за да знам дали е за мене"
   // The part after the comma is a reason/explanation, not a place name.
   rest = rest.replace(/,.*$/u, '').trim();
+  // ── LINE SCOPE (the [08:26] EB 73 bug) ──────────────────────────────────
+  // The place lives on the VERB's line. A newline right after it opens a NEW
+  // clause or intent — "zdravo 73 kade se naogja tocno\nsakam da go vidam"
+  // (I want to see it). The old code glued the two lines into ONE "place",
+  // so the EB the client named BEFORE the verb was dropped entirely and the
+  // handler answered "Тоа место не ми е познато во нашата база" for a property
+  // that IS in the feed.
+  // Only cut when the verb's own line carries real content: a question that
+  // ENDS at the newline ("STANOT SO BROJ KADE SE NAOGJA?\n94") must keep its
+  // next-line answer — there the number on the second line IS the place.
+  {
+    const nl = rest.indexOf('\n');
+    if (nl >= 0) {
+      const verbLine = rest.slice(0, nl).trim();
+      // A verb line with no letter/digit is just punctuation ("STANOT SO BROJ
+      // KADE SE NAOGJA?\n94") — the place is the NEXT line.
+      rest = /[\p{L}\p{N}]/u.test(verbLine) ? verbLine : rest.slice(nl + 1).trim();
+    }
+  }
+  // PRECISION ADVERBS are qualifiers, not places (see WHERE_IS_PRECISION).
+  // Stripped here so a bare "… KADE SE NAOGJA TOCNO" collapses to `rest === ''`
+  // and falls into the pre-verbal recovery below instead of resolving the
+  // placeholder word "tocno" as if it were the property. Punctuation is
+  // re-stripped because the narrowing above can reveal a new tail ("76?" → "76").
+  rest = rest.replace(WHERE_IS_PRECISION, ' ').replace(/[?!.]+$/u, '').trim();
   // "каде се наоѓа?" / "where is it?" — no named place after the verb.
   // BUT the place can sit BEFORE the каде-phrase ("ovoj 76 kade se naogja?"):
   // the extractor above only reads what FOLLOWS the verb, so a pre-verbal EB
