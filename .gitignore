@@ -31,6 +31,7 @@ tests/bbox-prune.test.ts
 tests/dedupe-suspects.test.ts
 tests/dedupe.test.ts
 tests/details-extract.test.ts
+tests/geocode-guard.test.ts
 tests/geo-trust-order.test.ts
 tests/landmark-tiers.test.ts
 tests/offlineMap.test.ts
