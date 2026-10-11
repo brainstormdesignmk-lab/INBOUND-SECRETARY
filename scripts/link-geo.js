@@ -71,8 +71,8 @@ const target = path.join(root, 'src', 'geo');
 // integration test (import-geo, map-learn, nearby-landmarks, poison-sweep,
 // queue-drain) — it exercises the atom's own store and stays a real file here.
 const GEO_ONLY_TESTS = [
-  'bbox-prune', 'dedupe-suspects', 'dedupe', 'details-extract', 'landmark-tiers',
-  'offlineMap', 'place-identity', 'resolve-offline', 'serp-capture',
+  'bbox-prune', 'dedupe-suspects', 'dedupe', 'details-extract', 'geo-trust-order',
+  'landmark-tiers', 'offlineMap', 'place-identity', 'resolve-offline', 'serp-capture',
   'street-census', 'tile-coverage', 'type-normalize',
 ];
 
