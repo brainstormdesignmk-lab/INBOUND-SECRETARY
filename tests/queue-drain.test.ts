@@ -203,7 +203,7 @@ test('2.1: centre mismatch → the MAP repairs it FREE, SerpApi is never called 
   offlineMap.close();
 });
 
-test('2.1: insideBbox guard sanity', () => {
+test('2.2: insideBbox guard sanity', () => {
   assert.equal(insideBbox(41.9976, 21.4351), true);   // TC BISER — Skopje
   assert.equal(insideBbox(42.10, 21.60), false);      // outside Skopje bbox
   assert.equal(insideBbox(41.95, 21.35), true);       // bbox edge inclusive

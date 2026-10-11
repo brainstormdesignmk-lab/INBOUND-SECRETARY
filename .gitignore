@@ -20,3 +20,26 @@ supabase/.temp/
 # scripts/link-geo.js (npm run link:geo). Never commit it: the path differs per
 # machine. NOTE: no trailing slash — a symlink is a file to git, not a directory.
 src/geo
+
+# The geo engine's SPEC is owned by the same project, so the pure-geo tests are
+# links too (see GEO_ONLY_TESTS in scripts/link-geo.js). Gitignored for the same
+# reason as src/geo: the relative target is machine-specific. `postinstall` and
+# the deploy both run link-geo.js, so a fresh checkout gets them back. The five
+# integration tests that import ./src/store/db stay REAL files (the atom's own
+# store) and are guarded against drift by link-geo.js instead.
+tests/bbox-prune.test.ts
+tests/dedupe-suspects.test.ts
+tests/dedupe.test.ts
+tests/details-extract.test.ts
+tests/landmark-tiers.test.ts
+tests/offlineMap.test.ts
+tests/place-identity.test.ts
+tests/resolve-offline.test.ts
+tests/serp-capture.test.ts
+tests/street-census.test.ts
+tests/tile-coverage.test.ts
+tests/type-normalize.test.ts
+
+# Runtime pid of a restarted TUI — written by the deploy (maps-realestate's
+# scripts/deploy_map.sh) on the machine running it, never a source artifact.
+data/tui.pid
