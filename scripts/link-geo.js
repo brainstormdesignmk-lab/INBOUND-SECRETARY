@@ -85,8 +85,17 @@ function linkFile(from, to, label) {
   try {
     const st = fs.lstatSync(to);
     if (st.isSymbolicLink()) {
-      if (fs.realpathSync(to) === fs.realpathSync(from)) return 'ok';
-      fs.unlinkSync(to);                       // stale link — repair it
+      // A link that does not RESOLVE must be repaired, not trusted.
+      // realpathSync throws ENOENT for a broken link, and that used to be
+      // swallowed by the catch below as if there were no entry at all — so the
+      // symlinkSync below then aborted the whole deploy with EEXIST, leaving
+      // the target with links it could not follow. (atom01, 2026-10-12: the
+      // workstation's four-deep test links had been rsynced verbatim, and the
+      // deploy died before it could restart the bot.)
+      let resolved = null;
+      try { resolved = fs.realpathSync(to); } catch { resolved = null; }
+      if (resolved && resolved === fs.realpathSync(from)) return 'ok';
+      fs.unlinkSync(to);                       // stale or broken — repair it
     } else if (st.isDirectory()) {
       fail(`${label} is a directory, not a file — refusing to touch it`);
     } else {
@@ -109,6 +118,12 @@ function linkFile(from, to, label) {
   const rel = path.relative(path.dirname(to), from) || '.';
   fs.mkdirSync(path.dirname(to), { recursive: true });
   fs.symlinkSync(rel, to);
+  // Prove the link RESOLVES — a link that points at nothing is worse than no
+  // link at all: tests silently vanish and only the next deploy notices.
+  if (!fs.existsSync(to)) {
+    fail(`${label} → ${rel} does not resolve (expected ${fromRel}).\n` +
+         `  Refusing to leave a dangling link behind.`);
+  }
   return 'linked';
 }
 
