@@ -3695,7 +3695,13 @@ test('[09:05] charge-verb + money fee ask ("ZEMATE PARI ZA POSETA?") routes to t
   const s2 = await send('ZEMATE PARI ZA POSETA?');
   const r2 = sent.at(-1)!;
   assert.ok(!r2.includes('спални соби'), `no bedroom intake for a fee ask: ${r2}`);
-  assert.ok(!r2.includes('износ'), `no budget intake for a fee ask: ${r2}`);
+  // The budget intake asks in its OWN words ("каков буџет…", "до која цена…").
+  // A bare "износ" is NOT a marker: pickVariant() serves the bank at random and
+  // the rental-commission answer legitimately says "Целосниот износ се
+  // подмирува на самиот ден на потпишување на договорот" — so the old
+  // substring test failed whichever run drew that variant (~1 in 6), while
+  // nothing about the behavior had changed.
+  assert.ok(!/буџет|до која цена|во кои рамки/iu.test(r2), `no budget intake for a fee ask: ${r2}`);
   assert.ok(/0%|провизи|надомест|500 денари|10 евра/iu.test(r2), `fee answer expected: ${r2}`);
   assert.notEqual(s2.state, 'intent', 'the fee ask must not restart discovery');
 
