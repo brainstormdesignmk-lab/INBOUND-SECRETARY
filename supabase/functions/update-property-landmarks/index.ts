@@ -61,9 +61,17 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'property_number is required' }, 400);
   }
 
-  const raw = Array.isArray(body.landmarks) ? body.landmarks : [];
-  if (raw.length === 0 || raw.length > 10) {
-    return json({ error: 'landmarks must be a non-empty array (max 10)' }, 400);
+  // An EMPTY array is a legitimate, explicit write: "the map resolved this
+  // property and sees nothing inside the client-facing ring". Clearing is the
+  // honest state (a stale list clients can never see would be a lie in the data
+  // layer), so it is accepted on purpose — but only when the field is present
+  // as an array; an absent field is a malformed request, never a wipe.
+  if (!Array.isArray(body.landmarks)) {
+    return json({ error: 'landmarks must be an array (an empty array explicitly clears the list)' }, 400);
+  }
+  const raw = body.landmarks;
+  if (raw.length > 10) {
+    return json({ error: 'landmarks must have at most 10 entries' }, 400);
   }
   if (!raw.every(validEntry)) {
     return json({ error: 'invalid landmark entry (street names are never landmarks)' }, 400);

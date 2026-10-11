@@ -28,6 +28,8 @@ import '../compat/node16';
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
 import { sanitizeLandmarkAnswer, stripPoiAnnotation, FEED_LANDMARK_MAX_M, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
+import { identityKey, type LocalPoi } from '../geo/offlineMap';
+import { landmarkLink } from '../geo/precision';
 import { OfflineMapStore } from '../geo/offlineMap';
 import { EventStore } from '../store/events';
 import { PropertyService, FeedLandmark } from '../data/properties';
@@ -38,17 +40,6 @@ const SYSTEM_PROMPT = `Ти си Хермес, агентот за локаци�
 Прифатливи знаменитости: училиште, трговски центар, кафе-бар/ресторан, болница/клиника, општина, универзитет/факултет, хотел, стадион, парк, супермаркет, музеј, автобуска станица. Користи го знаењето за Скопје и дадените координати за да одлучиш што е навистина најблиску.
 
 Одговори САМО со името на знаменитоста — кратко, како што клиент би ја препознала (најмногу 3-4 збора). НИКАКО не ја пишувај улицата или адресата. НИКАКВО објаснување, ниту вовед.`;
-
-// The RANKED-list prompt (feed mode): the client-facing answer is no longer one
-// fixed landmark per property — the import-time resolver stores 2-5 PUBLIC
-// places, nearest first, so Lina can vary the answer across sessions.
-const RANKED_SYSTEM_PROMPT = `Ти си Хермес, агентот за локации на агенцијата за недвижности Метрополис. Добиваш адреса на имот, нејзини координати и листа на јавни места во радиус од 1 километар, секое со растојание во метри.
-
-Задача: избери 2-5 места од ЛИСТАТА кои клиент најлесно би ги препознал како ориентир (училиште, трговски центар, кафе-бар, ресторан, болница, универзитет/факултет, хотел, стадион, парк, супермаркет). Почни од најблиското, потоа следните. ОТФРЛИ нејасни/бескорисни записи (без име, само броеви, генерички ознаки).
-
-Одговори САМО со JSON, користејќи ги ТОЧНИТЕ имиња од листата:
-{"landmarks": ["Име 1", "Име 2"]}
-НИКАКО не ја пишувај улицата или адресата. НИКАКВО објаснување, ниту вовед.`;
 
 /** Sleep helper for rate limiting. */
 function sleep(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
@@ -123,121 +114,108 @@ function meters(a: { lat: number; lon: number }, b: { lat: number; lon: number }
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-interface Poi {
-  name: string;
-  type: string;
-  distance_m: number;
-}
-
-/** ONE Overpass query, radius 2000m, collecting ALL named amenity POIs with
- *  their distances — the 100m…1000m rings are the distances, no 10 queries. */
-async function osmPoisNear(lat: number, lon: number): Promise<Poi[]> {
-  const AMENITIES = 'school|university|hospital|clinic|mall|hotel|theatre|cinema|stadium|library|cafe|restaurant|bar|bank|pharmacy|supermarket|park|townhall';
-  const q = `[out:json][timeout:10];(node["amenity"~"^(${AMENITIES})$"](around:2000,${lat},${lon});way["amenity"~"^(${AMENITIES})$"](around:2000,${lat},${lon}););out center tags;`;
-  const res = await fetchWithRetry(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`, {
-    headers: { 'User-Agent': 'metropolis-hermes/1.0' },
-  });
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  const data = await res.json() as { elements?: Array<{ lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string> }> };
-  const pois: Poi[] = [];
-  for (const e of data.elements ?? []) {
-    const p = { lat: e.lat ?? e.center?.lat ?? NaN, lon: e.lon ?? e.center?.lon ?? NaN };
-    if (!Number.isFinite(p.lat)) continue;
-    const name = (e.tags?.name ?? '').trim();
-    if (!name) continue; // unnamed POIs are useless landmarks
-    pois.push({ name, type: e.tags?.amenity ?? 'place', distance_m: Math.round(meters({ lat, lon }, p)) });
-  }
-  return pois.sort((a, b) => a.distance_m - b.distance_m).slice(0, 10);
-}
-
-/** One LLM call naming the 2-5 recognizable places, nearest first. */
-async function llmPickLandmarks(
-  cfg: { hermesLlmBaseUrl: string; hermesLlmApiKey: string; hermesLlmModel: string },
-  input: { address?: string; location?: string; lat: number; lon: number },
-  pois: Poi[],
-): Promise<string[]> {
-  const res = await fetchWithRetry(`${cfg.hermesLlmBaseUrl.replace(TRAILING_SLASH_RE, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.hermesLlmApiKey}` },
-    body: JSON.stringify({
-      model: cfg.hermesLlmModel,
-      temperature: 0.1,
-      max_tokens: 1024,
-      messages: [
-        { role: 'system', content: RANKED_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `Адреса: ${input.address ?? '?'}\nНаселба: ${input.location ?? '?'}\nКоординати: ${input.lat}, ${input.lon}\n\nЛиста:\n${pois.map(p => `- ${p.name} (${p.type}, ${p.distance_m}м)`).join('\n')}`,
-        },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`LLM HTTP ${res.status}`);
-  const data = await res.json() as { choices?: Array<{ message?: { content?: string | null; reasoning_content?: string } }> };
-  const msg = data.choices?.[0]?.message;
-  // Reasoning models (nemotron-nano, deepseek-r1) put the answer in content
-  // after thinking in reasoning_content. If content is null, fall back to
-  // reasoning_content (the answer is embedded there).
-  const raw = (msg?.content?.trim() || msg?.reasoning_content?.trim() || '').replace(/^\n+/, '');
-  // JSON object {"landmarks": [...]} — extract every quoted string as a fallback.
-  const m = raw.match(/\{[\s\S]*?\}/);
-  if (m) {
-    try {
-      const obj = JSON.parse(m[0]) as { landmarks?: unknown };
-      if (Array.isArray(obj.landmarks)) {
-        return obj.landmarks.map(x => String(x).trim()).filter(Boolean).slice(0, 5);
-      }
-    } catch { /* fall through */ }
-  }
-  return (raw.match(/"([^"]+)"/g) ?? []).map(x => x.replace(/"/g, '').trim()).filter(Boolean).slice(0, 5);
-}
-
-/** Resolve the RANKED list for one address: geocode once → POIs once → one LLM
- *  pick → sanitize each entry (the street must never leak). With the offline
- *  map, the POIs come from the LOCAL SQLite store (zero network); the live
- *  Overpass query is the fallback when the map is missing or empty. */
+/** The ranked landmark list for one address, straight from the map.
+ *
+ *  No model, no network with the offline map present: the pool is the engine's
+ *  own ranking (typeRank → Google prominence → distance) inside the client-facing
+ *  500m ring, and the list is its first N entries — the same ladder the chat
+ *  rotation serves, so the page and the conversation cannot disagree. The live
+ *  Overpass query remains the fallback when the map is missing or empty. */
 
 // The client-facing ceiling for a feed landmark lives with the reader
 // (properties.parseFeedLandmarks enforces the same number) — neither side may
 // claim a place it cannot see from the door.
-async function rankedLandmarks(
-  cfg: { hermesLlmBaseUrl: string; hermesLlmApiKey: string; hermesLlmModel: string },
+
+/** How many landmarks a feed row carries — the same count the conversation
+ *  rotates through (L1→L3), so the page and the replies name the same places. */
+export const FEED_LANDMARK_COUNT = 3;
+export function rankedLandmarks(
   c: { address?: string; location?: string },
   geo: { lat: number; lon: number },
   offline?: OfflineMapStore,
-): Promise<FeedLandmark[]> {
+): { list: FeedLandmark[]; poolSize: number } {
+  // THE RING IS THE RADIUS — measure first, rank inside it.
+  // nearestPois is PREFERENCE-ranked, not distance-sorted: asking it for 25 POIs
+  // within 2km fills the list with malls across the city (top rank first) and
+  // then a 500m filter finds none of them. That is exactly what happened on
+  // 2026-10-11 — EB 89 reported "нема јавни места во радиус 500 м" while
+  // „Парк Авионче“ sat 174m away, and the same bug made the pass declare a
+  // dozen properties (Емил Зола 35, Визбегово, Козле…) unresolvable. The radius
+  // must bound the query, so the client-facing 500m ceiling is applied HERE.
   const pois = offline?.available
-    ? offline.nearestPois(geo.lat, geo.lon, 2000, 25)
-    : await osmPoisNear(geo.lat, geo.lon);
-  if (pois.length === 0) return [];
-  // THE CLIENT-FACING CAP. The feed list is what the client reads ("во близина
-  // на X"), so it obeys the same 500m ceiling as the runtime rotation
-  // (LandmarkService.nearbyLandmarks). Without it the LLM picked a 521m embassy
-  // and a 1km bank and the property page claimed them as "nearby" — the live
-  // EB 94 row did exactly that on 2026-10-10. A landmark farther than 500m is
-  // not a landmark, it is a different neighbourhood.
+    ? offline.nearestPois(geo.lat, geo.lon, FEED_LANDMARK_MAX_M, 25)
+    : [] as LocalPoi[];
+  if (pois.length === 0) return { list: [], poolSize: 0 };
+  // Guard for the live fallback (osmPoisNear has its own 2km query).
   const pool = pois.filter(p => typeof p.distance_m !== 'number' || p.distance_m <= FEED_LANDMARK_MAX_M);
-  if (pool.length === 0) return []; // nothing within 500m → an honest empty list
-  const picked = await llmPickLandmarks(cfg, { ...c, lat: geo.lat, lon: geo.lon }, pool);
+  if (process.env.DBG_GEO) {
+    try {
+      process.stderr.write(`[feed-dbg] geo=${geo.lat.toFixed(5)},${geo.lon.toFixed(5)} map=${offline?.available ? 'yes' : 'no'} pois(2km)=${pois.length} pool(500m)=${pool.length}\n`);
+      process.stderr.write(`[feed-dbg] nearest raw: ${pois.slice(0, 4).map(p => `${p.name}@${p.distance_m}m`).join(' | ') || '(none)'}\n`);
+    } catch { /* ignore */ }
+  }
+  // Nothing within 500m → an honest empty list (the caller says so explicitly).
+  if (pool.length === 0) return { list: [], poolSize: 0 };
+  // THE LIST IS THE MAP'S OWN RANKED ORDER — no model in the loop.
+  //
+  // The pool arrives already ranked by the map (typeRank → Google prominence →
+  // distance), which is the SAME ladder the chat rotation serves. Asking an LLM
+  // to re-pick from it bought nothing and cost a lot: a 2–4 minute call per
+  // property, a different list every run, and three failure modes that all
+  // looked like "the map is empty" (a model that answered nothing usable, a
+  // model that echoed the prompt line back — the 2026-10-10 EB 94 corruption —
+  // and a missing API key that silently turned the whole pass into REPORT MODE).
+  // The page and the conversation now agree by construction, and the result is
+  // reproducible on any machine, with no keys.
   const out: FeedLandmark[] = [];
-  for (const rawName of picked) {
-    const name = sanitizeLandmarkAnswer(rawName, c.address);
+  const seen = new Set<string>();
+  for (const poi of pool) {
+    if (out.length >= FEED_LANDMARK_COUNT) break;
+    const name = sanitizeLandmarkAnswer(poi.name, c.address);
     if (!name) continue;
-    // Attach the POI's type/distance when the pick matches a list entry.
-    const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ');
-    const poi = pool.find(p => norm(p.name) === norm(name) || norm(p.name).includes(norm(name)) || norm(name).includes(norm(p.name)));
-    // A pick that matches NOTHING in the pool is the model inventing a place —
-    // it must not reach the feed. (It also cannot carry a distance, so the
-    // page would show an unverifiable "nearby" claim.)
-    if (!poi) continue;
+    const key = identityKey(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
     out.push({
       landmark: name,
       type: poi.type ?? 'place',
       distance_m: poi.distance_m,
-      maps_url: googleMapsLink(name),
+      // The SAME link policy as every other surface (precision.landmarkLink):
+      // a stored Google place URL, else ?cid=<decimal> from the place_id, else a
+      // coordinate pin. A name-query URL is never emitted — percent-encoded
+      // Cyrillic made it longer than the writer function's 300-char limit, so
+      // long-named rows (EB 37) were rejected with HTTP 400 and never healed.
+      maps_url: landmarkLink(name, poi.place_id ?? null, poi.lat ?? geo.lat, poi.lon ?? geo.lon, poi.place_url),
     });
   }
-  return out;
+  return { list: out, poolSize: pool.length };
+}
+
+/** The list AS STORED in the DB, before the reader's contract filter runs.
+ *
+ *  p.landmarks is the PARSED list: parseFeedLandmarks has already dropped
+ *  >500m claims, annotation residue and malformed entries. Comparing that
+ *  filtered list against `desired` makes a dirty row look already-correct — the
+ *  filter hides exactly the rows the sweep exists to repair, which is how 8
+ *  legacy rows kept live 600m–1.2km "во близина" claims for weeks while the
+ *  sweep reported them clean. The stored raw JSON is the thing that must
+ *  converge on the map, entry for entry; the reader's cap is a guard for
+ *  clients, never a licence for the writer to leave bad data behind. */
+export function storedLandmarkList(p: { landmarks?: FeedLandmark[]; raw?: Record<string, unknown> }): FeedLandmark[] {
+  const raw = p.raw?.landmarks;
+  return Array.isArray(raw) ? (raw as FeedLandmark[]) : (p.landmarks ?? []);
+}
+
+/** Same list, same order, same distances (the writer rounds to metres) — the
+ *  comparison behind "this row already matches the map". */
+export function sameFeedList(stored: FeedLandmark[], desired: FeedLandmark[]): boolean {
+  if (stored.length !== desired.length) return false;
+  for (let i = 0; i < desired.length; i++) {
+    if (identityKey(stored[i].landmark) !== identityKey(desired[i].landmark)) return false;
+    const a = stored[i].distance_m, b = desired[i].distance_m;
+    if (a != null && b != null && Math.abs(a - b) > 1) return false;
+  }
+  return true;
 }
 
 async function llmLandmark(
@@ -308,88 +286,106 @@ async function main(): Promise<void> {
 
   if (feedMode) {
     console.log('[hermes-landmarks] FEED mode (import-time resolution → ranked list next to the property)');
+    // FEED mode needs exactly ONE thing: the map. The list is derived from the
+    // engine's own ranking, so there is no model to be configured and no key to
+    // be missing — the old "no HERMES_LLM_API_KEY → REPORT MODE, nothing
+    // resolved" silence is gone with the model.
     const pushUrl = cfg.hermesLandmarksWriteUrl;
     if (!pushUrl) console.log('[hermes-landmarks] HERMES_LANDMARKS_WRITE_URL not set — REPORT MODE (nothing pushed).');
-    else if (!configured) console.log('[hermes-landmarks] HERMES_LLM_API_KEY / HERMES_LLM_MODEL not set — REPORT MODE (nothing resolved).');
-    else if (dryRun) console.log('[hermes-landmarks] --dry-run: reporting candidates, nothing written, no LLM calls.');
+    else if (dryRun) console.log('[hermes-landmarks] --dry-run: reporting candidates, nothing written.');
 
     const props = new PropertyService(cfg.propertyDataUrl);
     const all = await props.getAll();
-    // The property row itself is the job: address present + no landmark list yet
-    // — OR a list that carries the OLD bug's residue. The 2026-10-10 rows were
-    // written with the prompt's own "(type, distance)" annotation inside the
-    // landmark string (EB 94: "AgroTehnA - Head Office (Shopping mall, 257м");
-    // without this second clause a row that is already WRONG is never revisited
-    // (the feed pass only ever looked at rows with NO list), so the corruption
-    // would have stayed in production forever. Detected with the same rule that
-    // now cleans new answers.
-    const dirtyLandmarks = (p: { landmarks?: Array<{ landmark?: string; distance_m?: number }> }): boolean =>
-      (p.landmarks ?? []).some(l =>
-        (typeof l.landmark === 'string' && stripPoiAnnotation(l.landmark) !== l.landmark.trim())
-        || (typeof l.distance_m === 'number' && l.distance_m > FEED_LANDMARK_MAX_M));
-    const needsList = (p: { landmarks?: Array<{ landmark?: string }> }): boolean =>
-      !p.landmarks || p.landmarks.length === 0 || dirtyLandmarks(p);
-    // Optional surgical run for ONE property (repairing a known-bad row must
-    // not drag the whole feed through the LLM): --eb 94.
+    const offline = new OfflineMapStore(cfg.skopjePoisDb);
+    if (!offline.available) {
+      // The map IS the authority for this pass. Without it the honest answer is
+      // to stop, not to guess from a live query (unverifiable, unreproducible,
+      // and unreviewable against the engine's own ranking).
+      console.error(`[hermes-landmarks] ✗ offline map missing/unreadable at ${cfg.skopjePoisDb} — nothing written. Set SKOPJE_POIS_DB.`);
+      return;
+    }
+    const stats = offline.stats();
+
+    // Optional surgical run: --eb 89 repairs ONE property.
     const ebIdx = process.argv.indexOf('--eb');
     const onlyEb = ebIdx >= 0 ? process.argv[ebIdx + 1] : undefined;
-    const candidates = all.filter(p =>
-      !!p.address && !isJunkAddress(p.address) && needsList(p) && (!onlyEb || String(p.eb) === onlyEb));
-    const repairs = all.filter(p => !!p.address && !isJunkAddress(p.address) && dirtyLandmarks(p)).length;
-    if (repairs > 0) console.log(`[hermes-landmarks] ${repairs} property row(s) carry annotation residue in the feed landmark list — re-resolving them.`);
-    // Local OSM map (T60 plan): geocode + POIs come from SQLite when present;
-    // live Nominatim/Overpass remain the fallback (missing map, unmatched
-    // street, empty POI ring).
-    const offline = new OfflineMapStore(cfg.skopjePoisDb);
-    const stats = offline.available ? offline.stats() : null;
-    console.log(`[hermes-landmarks] offline map: ${stats ? `${stats.pois} POIs / ${stats.addresses} addresses` : 'NOT PRESENT (live OSM fallback)'} — ${cfg.skopjePoisDb}`);
-    console.log(`[hermes-landmarks] ${candidates.length} candidate(s) without a resolved landmark list.`);
+
+    // THE DETECTOR IS THE ENGINE: a row is a candidate when the list the map
+    // would produce TODAY differs from the list that is stored. That single rule
+    // replaces a detector per symptom — missing list, annotation residue,
+    // over-cap claim, a ranking that has since improved — so a row heals itself
+    // after any future change to the map, with no rule to remember.
+    //
+    // The map may only speak for addresses it KNOWS (resolvePropertyOffline:
+    // exact building or interpolated). When the snapshot has not seen the street,
+    // the property's OWN feed pin is the fallback — it is the same authoritative
+    // coordinate the map itself is built around (geo_source = stored/google_cached),
+    // so a row whose street is missing from the snapshot is still resolved
+    // deterministically and reproducibly. The live geocoder is never consulted.
+    const todo: Array<{ eb: number; address: string; location?: string; desired: FeedLandmark[] }> = [];
+    let unmapped = 0;
+    let current = 0;
+    for (const p of all) {
+      if (!p.address || isJunkAddress(p.address)) continue;
+      if (onlyEb && String(p.eb) !== onlyEb) continue;
+      // Two authorities, in order: the map's own address resolution when it is
+      // TRUSTED, else the property's own feed pin — the same authoritative
+      // coordinate the map itself is built from. Deliberately a plain {lat,lon}
+      // (never the resolver's wider union), so the point handed to the ranker is
+      // always a real coordinate.
+      const resolved = offline.available ? offline.resolvePropertyOffline(p.address) : undefined;
+      let geo: { lat: number; lon: number } | undefined;
+      if (resolved?.trusted && resolved.lat != null && resolved.lon != null) {
+        geo = { lat: resolved.lat, lon: resolved.lon };
+      } else if (typeof p.lat === 'number' && typeof p.lon === 'number') {
+        geo = { lat: p.lat, lon: p.lon };
+      }
+      if (!geo) { unmapped++; continue; }
+      const desired = rankedLandmarks({ address: p.address, location: p.location }, geo, offline).list;
+      if (desired.length === 0) {
+        // The map resolved this property and the ring is genuinely empty. A
+        // stored list here is dead weight — the reader already drops every
+        // out-of-ring claim, so the page shows nothing while the DB keeps
+        // promising places the client can never see. Write the honest empty
+        // list (the writer accepts [] as an explicit clear) instead of leaving
+        // legacy claims in the data layer.
+        if (storedLandmarkList(p).length > 0) {
+          todo.push({ eb: p.eb, address: p.address, location: p.location, desired: [] });
+        } else {
+          current++;
+        }
+        continue;
+      }
+      if (sameFeedList(storedLandmarkList(p), desired)) { current++; continue; }
+      todo.push({ eb: p.eb, address: p.address, location: p.location, desired });
+    }
+    console.log(`[hermes-landmarks] ${all.length} propert(ies): ${current} already match the map, ${todo.length} to write, ${unmapped} address(es) the map cannot resolve (left untouched).`);
+
     let resolved = 0;
     let failed = 0;
-    for (const c of candidates) {
+    for (const c of todo) {
       const label = `${c.address}${c.location ? ` (${c.location})` : ''}`;
-      if (!pushUrl || !configured || dryRun) {
-        console.log(`  candidate: ${label}`);
-        failed++;
+      const shown = c.desired.length === 0
+        ? '(clear — the map sees no public place inside the ring)'
+        : c.desired.map(l => `„${l.landmark}“ (${l.distance_m ?? '?'}м)`).join(', ');
+      if (!pushUrl || dryRun) {
+        console.log(`  would write: ${label} → ${shown}`);
         continue;
       }
       try {
-        // Local geocode first (Latin↔Cyrillic street match), live Nominatim fallback.
-        // Landmark-style addresses ("Кај Бранка", "Палома Бјанка") are looked up
-        // directly in the POI table — they aren't streets.
-        let geo = offline.available
-          ? offline.geocodeAddress(c.address) ?? await geocodeOsm(c.address, c.location)
-          : await geocodeOsm(c.address, c.location);
-        if (!geo && offline.available) {
-          const poi = offline.findPoiByName(c.address);
-          if (poi) geo = { lat: poi.lat, lon: poi.lon, street: poi.name } as any;
-        }
-        if (!geo) {
-          console.log(`  ✗ ${label} — не може да се геокодира (останува табелата)`);
-          failed++;
-          continue;
-        }
-        const list = await rankedLandmarks(cfg, { address: c.address, location: c.location }, geo, offline);
-        // Rate-limit: 2s between LLM calls to avoid 429 on NIM free tier.
-        await sleep(LLM_DELAY_MS);
-        if (list.length === 0) {
-          console.log(`  ✗ ${label} — нема јавни места во радиус ${FEED_LANDMARK_MAX_M} м (останува табелата)`);
-          failed++;
-          continue;
-        }
         const res = await fetch(pushUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', [cfg.hermesAuthHeader]: cfg.hermesToken },
-          body: JSON.stringify({ property_number: c.eb, landmarks: list }),
+          body: JSON.stringify({ property_number: c.eb, landmarks: c.desired }),
         });
-        const body = await res.json().catch(() => ({})) as { unchanged?: boolean };
+        const body = await res.json().catch(() => ({})) as { unchanged?: boolean; error?: string };
         if (!res.ok) {
-          console.log(`  ✗ ${label} — edge function HTTP ${res.status}`);
+          console.log(`  ✗ ${label} — edge function HTTP ${res.status}${body.error ? ` (${body.error})` : ''}`);
           failed++;
           continue;
         }
         resolved++;
-        console.log(`  ✓ ${label} → ${list.map(l => `„${l.landmark}“ (${l.distance_m ?? '?'}м)`).join(', ')}${body.unchanged ? ' (unchanged)' : ''}`);
+        console.log(`  ✓ ${label} → ${shown}${body.unchanged ? ' (unchanged)' : ''}`);
       } catch (e) {
         console.log(`  ✗ ${label} — ${(e as Error).message}`);
         failed++;
@@ -495,7 +491,15 @@ async function main(): Promise<void> {
   console.log(`[hermes-landmarks] done: ${resolved} resolved, ${failed} skipped/failed${dryRun ? ' (dry-run)' : ''}.`);
 }
 
-main().catch(e => {
-  console.error('[hermes-landmarks] fatal:', e);
-  process.exit(1);
-});
+// Run ONLY when executed (npm run hermes:landmarks …). Importing this module
+// must have no side effects: the tests import rankedLandmarks / sameFeedList /
+// storedLandmarkList, and an unguarded call fired a whole live pass — network
+// fetch, LLM calls, feed writes — inside the test process. Symptom: the sweep
+// test printed pages of rejected LLM answers and ran for minutes instead of
+// milliseconds. tsx compiles this file to CJS, so require.main is reliable.
+if (require.main === module) {
+  main().catch(e => {
+    console.error('[hermes-landmarks] fatal:', e);
+    process.exit(1);
+  });
+}
