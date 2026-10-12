@@ -3,6 +3,81 @@ import blessed from 'blessed';
 // blessed ships poor typings (@types/blessed disagrees with its runtime).
 // We use `any` for the widget boxes — the runtime API is what matters here.
 
+// Pane split. The CHAT pane must be wide enough to hold a client-facing map
+// link on ONE line: the URL is a single unbreakable token and the console
+// wraps it mid-string otherwise (the [22:46] capture — a 48-char
+// `https://maps.google.com/?cid=…` wrapped after its 47th character, the last
+// digit landed on the next visual line, and the clicked link reached Google
+// as an 18-digit cid → a blank zoomed-out map with no marker).
+// Usable text columns ≈ floor(cols × fraction) − 3 (2 borders + 1 scrollbar),
+// so 25/75 keeps a 48-char link whole from ~68 columns up.
+export const LEADS_PANE_FRACTION = 0.25;
+export const CHAT_PANE_FRACTION = 0.75;
+
+/** Text columns usable inside a bordered, scrollbarred box of that width. */
+export function paneTextWidth(screenCols: number, fraction: number): number {
+  return Math.max(8, Math.floor(screenCols * fraction) - 3);
+}
+
+/** Visible width of a blessed-marked string: tags render to nothing and the
+ *  `{open}`/`{close}` escapes render as one brace each. Counting raw
+ *  characters would over-measure every tagged line by the tag text. */
+export function visibleWidth(s: string): number {
+  let w = 0;
+  for (let i = 0; i < s.length; ) {
+    if (s.startsWith('{open}', i)) { w += 1; i += 6; continue; }
+    if (s.startsWith('{close}', i)) { w += 1; i += 7; continue; }
+    if (s[i] === '{') {
+      const close = s.indexOf('}', i);
+      if (close !== -1) { i = close + 1; continue; } // a tag renders to nothing
+    }
+    const cp = s.codePointAt(i)!;
+    w += 1;
+    i += cp > 0xffff ? 2 : 1;
+  }
+  return w;
+}
+
+/**
+ * Wrap marked text to `width` VISIBLE columns, never splitting a whitespace
+ * token. A URL is one token: if it does not fit on the current line it moves
+ * — whole — to the next one, so a link is never cut across two rendered
+ * lines. A token longer than the pane still gets its own line (nothing can
+ * make it fit; blessed then hard-splits it, and the pane widening is what
+ * keeps that case away from real map links).
+ *
+ * Pre-wrapping is what makes blessed's own `wrap: true` a no-op for links:
+ * blessed wraps at any character, including inside a URL.
+ */
+export function wrapMarked(text: string, width: number): string {
+  if (!Number.isFinite(width) || width < 8) return text;
+  const out: string[] = [];
+  for (const raw of text.split('\n')) {
+    // Tokens keep their trailing whitespace so nothing in the message is lost.
+    const tokens = raw.match(/\S+\s*|\s+/g) ?? [];
+    let line = '';
+    let lineW = 0;
+    for (const tok of tokens) {
+      if (line !== '' && lineW + visibleWidth(tok) > width) {
+        out.push(line.replace(/\s+$/, ''));
+        line = '';
+        lineW = 0;
+      }
+      line += tok;
+      lineW += visibleWidth(tok);
+      // A single token wider than the pane: flush it alone so the NEXT token
+      // starts on a fresh line instead of being glued to it.
+      if (visibleWidth(tok) > width) {
+        out.push(line.replace(/\s+$/, ''));
+        line = '';
+        lineW = 0;
+      }
+    }
+    out.push(line.replace(/\s+$/, ''));
+  }
+  return out.join('\n');
+}
+
 export interface TuiBoxes {
   screen: any;
   topBar: any;
@@ -39,7 +114,7 @@ export function buildLayout(
 
   // LEFT THIRD — the clients that contacted the agency (parallel leads)
   const leadsBox: any = blessed.box({
-    parent: screen, top: 1, left: 0, width: '33%', bottom: 1,
+    parent: screen, top: 1, left: 0, width: `${LEADS_PANE_FRACTION * 100}%`, bottom: 1,
     tags: true,
     scrollable: true, alwaysScroll: true,
     scrollbar: { ch: '│', style: { fg: 'cyan' } },
@@ -50,7 +125,7 @@ export function buildLayout(
 
   // RIGHT TWO-THIRDS — the active chat (client ↔ Lina)
   const chatBox: any = blessed.box({
-    parent: screen, top: 1, left: '33%', right: 0, bottom: 12,
+    parent: screen, top: 1, left: `${LEADS_PANE_FRACTION * 100}%`, right: 0, bottom: 12,
     tags: true,
     wrap: true,
     scrollable: true, alwaysScroll: true,
@@ -64,7 +139,7 @@ export function buildLayout(
   // ping-pong that arranges the visit time). [F3] switches the input to the
   // owner's side; the answer is parsed into a verdict and relayed to the client.
   const ownerBox: any = blessed.box({
-    parent: screen, left: '33%', right: 0, bottom: 4, height: 8,
+    parent: screen, left: `${LEADS_PANE_FRACTION * 100}%`, right: 0, bottom: 4, height: 8,
     tags: true,
     wrap: true,
     scrollable: true, alwaysScroll: true,
@@ -76,7 +151,7 @@ export function buildLayout(
 
   // Input line
   const inputBox: any = blessed.box({
-    parent: screen, left: '33%', right: 0, bottom: 1, height: 3,
+    parent: screen, left: `${LEADS_PANE_FRACTION * 100}%`, right: 0, bottom: 1, height: 3,
     tags: true,
     border: { type: 'line', fg: 'green' },
     label: ' ПОРАКА ',

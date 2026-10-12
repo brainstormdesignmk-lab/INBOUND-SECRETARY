@@ -16,7 +16,7 @@ import { ChannelRegistry } from '../channels/types';
 import { LlmClient } from '../llm/types';
 import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
-import { buildLayout, esc, hhmm } from './layout';
+import { buildLayout, esc, hhmm, wrapMarked, paneTextWidth, CHAT_PANE_FRACTION } from './layout';
 import { detectOwnerVerdict, detectOwnerAddressReply } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
 import { LandmarkService } from '../geo/landmarks';
@@ -972,6 +972,15 @@ export class TuiApp {
     leadsBox.setScrollPerc(100);
   }
 
+  /** Text columns available inside the chat/owner pane at the CURRENT
+   *  terminal width — recomputed per render, so a resize re-wraps instead of
+   *  leaving links split at the old width. */
+  private paneWidth(): number {
+    const screen: any = this.box.screen;
+    const cols = Number(screen?.width) || Number((process.stdout as any)?.columns) || 80;
+    return paneTextWidth(cols, CHAT_PANE_FRACTION);
+  }
+
   private renderChat(): void {
     const { chatBox } = this.box;
     const lead = this.activeLead();
@@ -993,7 +1002,13 @@ export class TuiApp {
       }
     });
     const perc = chatBox.getScrollPerc(); // preserve position if the user scrolled up
-    chatBox.setContent(lines.join('\n\n'));
+    // PRE-WRAP TO THE PANE (the [22:46] link-truncation fix): blessed wraps at
+    // ANY character, so a 48-char map URL used to be split mid-string and the
+    // last digit landed on the next line — the clicked link reached Google as
+    // an 18-digit cid and opened a blank, zoomed-out map. wrapMarked never
+    // splits a token: a link that does not fit moves whole to the next line.
+    const w = this.paneWidth();
+    chatBox.setContent(lines.map(l => wrapMarked(l, w)).join('\n\n'));
     if (this.chatFollow || perc >= 100) chatBox.setScrollPerc(100);
     else chatBox.setScrollPerc(perc);
     this.chatContent = lead.msgs.map(m => `${m.at}|${m.role}|${m.text}`).join('\u0001');
@@ -1019,7 +1034,7 @@ export class TuiApp {
           return `{red-fg}[${t}] ✗ ${esc(m.text)}{/red-fg}`;
       }
     });
-    ownerBox.setContent(lines.join('\n\n'));
+    ownerBox.setContent(lines.map(l => wrapMarked(l, this.paneWidth())).join('\n\n'));
     ownerBox.setScrollPerc(100);
     this.ownerContent = lead.ownerMsgs.map(m => `${m.at}|${m.role}|${m.text}`).join('\u0001');
   }
