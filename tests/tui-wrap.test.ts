@@ -14,11 +14,19 @@
 // Google answers with an empty, zoomed-out map and no marker (reproduced: that
 // URL renders "Најдете место" with no place and no pin). The fix has two parts,
 // both pinned here:
-//   1. the pane split is 25/75 (was 33/67), so a 48-char link fits from ~68
+//   1. the pane split is 25/75 (was 33/67), so the link fits from far fewer
 //      columns up instead of ~78;
 //   2. the message is PRE-WRAPPED with wrapMarked(), which never splits a
 //      whitespace token — a link that does not fit moves WHOLE to the next
 //      line instead of being cut mid-string.
+//
+// HOW WIDE IS WIDE ENOUGH (measured, not assumed): the link length depends on
+// the cid decimal, which is 17–20 digits. Audited over the POI table the atom
+// really serves (5,990 rows, 2026-10-12): 835 landmarks give a 48-char link
+// (19-digit cid) and 792 give a 49-char link (20-digit cid). Through the REAL
+// layout, a 48-char link is whole from 68 columns up; the 49-char worst case
+// needs 69 — at 68 columns it still breaks. These tests pin BOTH fixtures, so
+// the guarantee can never be restated more generously than the renderer allows.
 //
 // These tests drive the REAL buildLayout() headlessly (same approach as
 // scripts/tui-frame-check.ts), so they measure what the terminal actually
@@ -34,6 +42,16 @@ const CID_URL = 'https://maps.google.com/?cid=3966389678066766238';
 const CAPTURE_COLS = 74;
 const REPLY = `[22:46] ЛИНА [без LLM]: Тоа се наоѓа во близина на Трговски Центар Буњаковец.\n${CID_URL}`;
 
+// Live fixtures (maps-realestate/data/skopje-pois.db, audited 2026-10-12).
+// The cid is the decimal of the place_id's second hex half — 19 digits here,
+// 20 in the worst case, which is the whole reason the minimum width matters.
+const CID_19_URL = 'https://maps.google.com/?cid=7427314871128399880';   // Halkbank
+const CID_20_URL = 'https://maps.google.com/?cid=12819234492065746208'; // Apteka Vivalek - Kapishtec
+const WORST_URL = CID_20_URL;
+const REPLY_WORST = `[22:46] ЛИНА [без LLM]: Тоа се наоѓа во близина на Apteka Vivalek - Kapishtec.\n${WORST_URL}`;
+const MIN_COLS_48 = 68; // measured: 48-char link whole from here up
+const MIN_COLS_49 = 69; // measured: the 20-digit-cid worst case needs one more
+
 /** Render a chat message exactly as renderChat() does, and read the lines back. */
 async function renderPane(cols: number, text: string, tagged = false): Promise<string[]> {
   const input = new PassThrough(); (input as any).isTTY = true;
@@ -41,7 +59,9 @@ async function renderPane(cols: number, text: string, tagged = false): Promise<s
   (output as any).columns = cols; (output as any).rows = 40;
   const boxes = buildLayout('WRAP-TEST', { input, output });
   const chat: any = boxes.chatBox;
-  chat.width = Math.floor(cols * CHAT_PANE_FRACTION);
+  // NO width override: the real `width: '75%'` + `left: '25%'` geometry is what
+  // production renders. An absolute width here measured a DIFFERENT pane than
+  // the operator sees and certified a minimum one column too optimistic.
   const body = tagged ? text.replace(CID_URL, `{white-fg}${CID_URL}{/white-fg}`) : text;
   chat.setContent(wrapMarked(body, paneTextWidth(cols, CHAT_PANE_FRACTION)));
   await new Promise(r => setImmediate(r));
@@ -103,11 +123,30 @@ test('[22:46] the link keeps working with blessed tags around it (width counts V
     `the URL split despite fitting: ${lines.filter(l => l.includes('https')).map(l => `|${l}|`).join(' ')}`);
 });
 
-test('the link is intact on one line at every common terminal width ≥ 68', async () => {
-  for (const cols of [68, 72, 74, 76, 80, 100, 120]) {
-    const lines = await renderPane(cols, REPLY);
-    assert.equal(lines.some(l => l.includes(CID_URL)), true, `${cols} cols split the link`);
+test('a 48-char link (19-digit cid) is intact on one line at every common width ≥ 68', async () => {
+  for (const cols of [MIN_COLS_48, 72, 74, 76, 80, 100, 120]) {
+    const lines = await renderPane(cols, REPLY_WORST.replace(WORST_URL, CID_19_URL));
+    assert.equal(lines.some(l => l.includes(CID_19_URL)), true, `${cols} cols split the 48-char link`);
   }
+});
+
+test('the WORST case — a 49-char link (20-digit cid, 792 live POIs) — is whole from 69 cols up', async () => {
+  for (const cols of [MIN_COLS_49, 72, 74, 76, 80, 100, 120]) {
+    const lines = await renderPane(cols, REPLY_WORST);
+    assert.equal(lines.some(l => l.includes(WORST_URL)), true,
+      `${cols} cols split the 49-char link:\n${lines.filter(l => l.includes('https')).map(l => `  |${l}|`).join('\n')}`);
+  }
+  // …and the floor is MEASURED, not derived: at 68 columns the same link still
+  // breaks (the pane holds 48 usable columns there). If this assertion ever
+  // starts failing, the real pane grew 49 columns at 68 — lower MIN_COLS_49 and
+  // the layout.ts comment instead of deleting it.
+  const at68 = await renderPane(MIN_COLS_48, REPLY_WORST);
+  assert.equal(at68.some(l => l.includes(WORST_URL)), false,
+    `68 cols now holds the 49-char link — lower MIN_COLS_49 (${MIN_COLS_49}) and the layout.ts comment`);
+  // paneTextWidth() deliberately reserves the scrollbar column, so it may be
+  // conservative by one — it must never claim MORE room than the renderer has.
+  assert.equal(paneTextWidth(MIN_COLS_49, CHAT_PANE_FRACTION) <= WORST_URL.length, true,
+    `paneTextWidth is more optimistic than the renderer: ${paneTextWidth(MIN_COLS_49, CHAT_PANE_FRACTION)} vs ${WORST_URL.length}`);
 });
 
 // ── The wrapper itself ───────────────────────────────────────────────────────
@@ -132,6 +171,19 @@ test('wrapMarked leaves a token longer than the pane on its OWN line (nothing el
     `the over-long token must not share its line with preceding text: |${out[urlIdx]}|`);
   assert.equal(/потоа/.test(out[urlIdx]!), false,
     `nothing may be glued after a too-long token: |${out[urlIdx]}|`);
+});
+
+test('wrapMarked adds no blank line when the pane forces an over-wide final token', () => {
+  // Regression on the narrow-terminal path: the token is flushed inside the
+  // loop and reset, so the trailing push used to add an empty line to every
+  // message whose last token was a link too wide for the pane.
+  const out = wrapMarked(`Тоа се наоѓа во близина на ТЦ Капиштец.\n${WORST_URL}`, 40);
+  const lines = out.split('\n');
+  assert.equal(lines[lines.length - 1], WORST_URL,
+    `the link must be the last line, got: ${lines.map(l => `|${l}|`).join(' ')}`);
+  assert.equal(out.endsWith('\n'), false, 'no spurious trailing blank line');
+  // A genuinely blank input line still survives (the guard must not eat it).
+  assert.equal(wrapMarked('a\n\nb', 40), 'a\n\nb');
 });
 
 test('visibleWidth ignores blessed tags and counts the {open}/{close} escapes as one brace', () => {

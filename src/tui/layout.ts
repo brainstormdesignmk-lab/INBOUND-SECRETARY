@@ -9,8 +9,12 @@ import blessed from 'blessed';
 // `https://maps.google.com/?cid=…` wrapped after its 47th character, the last
 // digit landed on the next visual line, and the clicked link reached Google
 // as an 18-digit cid → a blank zoomed-out map with no marker).
-// Usable text columns ≈ floor(cols × fraction) − 3 (2 borders + 1 scrollbar),
-// so 25/75 keeps a 48-char link whole from ~68 columns up.
+// Usable text columns ≈ floor(cols × fraction) − 3 (2 borders + 1 scrollbar).
+// Measured through the REAL renderer (tests/tui-wrap.test.ts), on link lengths
+// taken from the live POI table the atom serves:
+//   • 48-char link (19-digit cid, 835 POIs) → whole from 68 columns up;
+//   • 49-char link (20-digit cid, 792 POIs — the WORST case) → needs 69
+//     columns; at 68 columns it still breaks. Never claim 68 as the minimum.
 export const LEADS_PANE_FRACTION = 0.25;
 export const CHAT_PANE_FRACTION = 0.75;
 
@@ -73,7 +77,11 @@ export function wrapMarked(text: string, width: number): string {
         lineW = 0;
       }
     }
-    out.push(line.replace(/\s+$/, ''));
+    // Emit the residual line only when something is on it. After an over-wide
+    // final token the loop above already flushed it and reset `line`, so this
+    // push used to append a spurious blank line to every message whose last
+    // token was a link too wide for the pane (the narrow-terminal case).
+    if (line !== '' || tokens.length === 0) out.push(line.replace(/\s+$/, ''));
   }
   return out.join('\n');
 }
