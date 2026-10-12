@@ -215,10 +215,39 @@ test('fresh session "zdravo kade se naogjaa 76 ?" (verb typo) answers the map AN
   assert.ok(!second.includes('организирам посета'), `no dead-end visit pitch when the property is known: ${second}`);
   assert.ok(!second.includes('Имотот е приближно тука:'), `follow-up has no second sentence: ${second}`);
 
+  // 3. THE [23:50] CAPTURE, end to end: the same question carrying the dative
+  //    clitic — "kade vi se naogja 76" / "каде ви се наоѓа 76". The clitic sits
+  //    between каде and the verb; before the fix NO detector matched and the
+  //    client got the generic service prompt ("Може ли да ми кажете дали Ве
+  //    интересира купување или изнајмување на имот?") with no map at all.
+  //
+  //    Each spelling gets a FRESH session so the ask is the FIRST location
+  //    question of that session: from the second one on, the location ladder
+  //    deliberately serves the privacy protocol instead of another landmark
+  //    (locationRouting.test.ts / location-ladder.test.ts own that contract).
+  for (const [cliticChat, ask, label] of [
+    ['phase13-clitic-latin', 'kade vi se naogja 76?', 'Latin'],
+    ['phase13-clitic-cyrillic', 'каде ви се наоѓа 76?', 'Cyrillic'],
+  ] as const) {
+    sessions.set(freshSession('test', cliticChat));
+    await handler.handle('test', cliticChat, ask);
+    const reply = sent[sent.length - 1];
+    assert.ok(!reply.includes('купување или изнајмување'),
+      `[${label}] the clitic must not fall through to the service prompt: ${reply}`);
+    assert.ok(reply.includes('во близина на'),
+      `[${label}] clitic phrasing answers a landmark: ${reply}`);
+    // …and the link is the coordinate PIN (2026-10-13 policy, same capture):
+    // a place card NAMES the landmark but shows no pin, so the client cannot
+    // see WHERE it is; ?q= drops a red pin on the spot.
+    assert.match(reply, /https:\/\/maps\.google\.com\/\?q=-?\d+\.\d{5},-?\d+\.\d{5}/,
+      `[${label}] the served link must be a coordinate pin: ${reply}`);
+    assert.ok(!/cid=/.test(reply), `[${label}] no place-card link while coordinates exist: ${reply}`);
+  }
+
   // Zero network AND zero local geocoding: the property row carries stored
   // trusted coords (osm_building), so resolve()/resolveSearchCenter() serve
   // from them — they never fall back to geocodeAddress. The follow-up is
-  // served from the DB cache (layer 2). Total across both messages: 0.
+  // served from the DB cache (layer 2). Total across all messages: 0.
   assert.equal(geocodeCalls, 0, 'geocodeAddress must NOT be called when stored trusted coords exist');
   offlineMap.close();
 });

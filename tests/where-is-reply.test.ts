@@ -109,17 +109,24 @@ describe('whereIsReply blocking tests', () => {
     assert.ok(!link.includes('tinyurl'), 'never a third-party shortener');
   });
 
-  it('landmarkLink: Google place_id → maps.google.com/?cid=<decimal> — the exact place card, original Google', () => {
-    // The cid form is Google's own domain, ~49 chars (survives the console
-    // truncation window) and opens the EXACT place card. Verified in a real
-    // browser: https://maps.google.com/?cid=16634210817354128158 renders
-    // „ПЗУ Аптека Линцура 2“.
+  it('landmarkLink: coordinates WIN over the place_id — the pin shows WHERE, the card only names it', () => {
+    // POLICY 2026-10-13 (the [23:50] capture): the operator reported "link with
+    // card for the landmark but no pin" for a where-is answer, so the pin became
+    // the primary form. The cid card is now the no-coordinate fallback — the
+    // place_id is still consumed (never a name search), just lower in priority.
     const link = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e', 41.9955976, 21.4151772);
-    assert.equal(link, 'https://maps.google.com/?cid=16634210817354128158');
-    assert.ok(link.length <= 55, `fits the console window: ${link.length} chars`);
+    assert.equal(link, 'https://maps.google.com/?q=41.99560,21.41518', link);
+    assert.ok(link.length <= 49, `fits the console window: ${link.length} chars`);
     assert.ok(!link.includes('%') && !/[^\x00-\x7F]/.test(link), 'pure ASCII');
     assert.ok(!link.includes('tinyurl'), 'never a third-party shortener');
     assert.ok(link.startsWith('https://maps.google.com/'), 'original Google link');
+    // No usable coordinate → Google's exact place card (still GOOGLE, still no
+    // name search): https://maps.google.com/?cid=16634210817354128158 renders
+    // „ПЗУ Аптека Линцура 2“ in a real browser.
+    const card = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e', NaN, NaN);
+    assert.equal(card, 'https://maps.google.com/?cid=16634210817354128158');
+    assert.ok(card.length <= 55, `fits the console window: ${card.length} chars`);
+    assert.ok(!/[^\x00-\x7F]/.test(card), 'pure ASCII');
   });
 
   it('landmarkLink: tinyurl place_url is NEVER emitted — falls back to the coordinate pin', () => {
@@ -171,8 +178,13 @@ describe('whereIsReply blocking tests', () => {
       // The name must NEVER be in the URL (ambiguity source).
       assert.ok(!/[a-z]{3,}/.test(link.split('?q=')[1] ?? ''), `${name}: no name text in the URL — ${link}`);
     }
-    // With a place_id → the cid place card (exact branch, original Google).
-    const withCid = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e', 41.9956, 21.41518);
+    // With a place_id AND coordinates → still the PIN (2026-10-13 policy): the
+    // landmark must be visible on the map, not merely named in a card.
+    const withId = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e', 41.9956, 21.41518);
+    assert.ok(withId.startsWith('https://maps.google.com/?q='), withId);
+    // The place_id is consumed for the no-coordinate case, so a landmark with
+    // identity but no usable coordinate still gets Google's own place card.
+    const withCid = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e', NaN, NaN);
     assert.ok(withCid.startsWith('https://maps.google.com/?cid='), withCid);
   });
 });
