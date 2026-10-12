@@ -2746,7 +2746,22 @@ export interface WhereIsQuestion {
 // essential: if only "kade se" matched, the leftover verb fragment ("naogjaa 76")
 // would be mistaken for a place name and the EB lookup would never fire. The
 // lookahead keeps the boundary so "каде е?" (no place) still yields empty rest.
-const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:поточно|потoчno|potocno|точно|tocno|tochno|ориентино|ориентирно|приближно|бас|bas)?\s*(?:(?:се|se)\s+)?(?:нао[ѓгјj]?[аa]{1,3}[тмшtm]?|naog?j?[аa]{1,3}[тмшtm]?|е|e|се|se|is)(?=\s|[?!.]|$)/iu; // wo+se: removed 'да\s+' from modifier to avoid backtracking issues
+// DATIVE-CLITIC SLOT (the [23:50] capture): "каде ви се наоѓа 77?" /
+// "kade vi se naogja 77?" — a possessive clitic between каде and the verb.
+// Without this slot the optional "се" never lines up and the verb alternation
+// starts at "ви", so a textbook where-is question matched NOTHING and the
+// pipeline answered with the generic service prompt. The clitic is a FILLER,
+// never a place: exactly one, from the dative/reflexive set. The
+// адресата/локацијата family is still owned by KADE_ADDR_NOUN_RE above.
+// DATIVE-CLITIC SLOT (the [23:50] capture): "каде ви се наоѓа 77?" /
+// "kade vi se naogja 77?" — a possessive clitic between каде and the verb.
+// Without this slot the optional "се" never lines up and the verb alternation
+// starts at "ви", so a textbook where-is question matched NOTHING and the
+// pipeline answered with the generic service prompt ("Може ли да ми кажете
+// дали Ве интересира купување или изнајмување на имот?"). The clitic is a
+// FILLER, never a place: exactly one, from the dative/reflexive set. The
+// адресата/локацијата family is still owned by KADE_ADDR_NOUN_RE above.
+const WHERE_IS_RE = /(?:^|\s)(?:каде|kade|где|gde|where|кај|kaj)\s+(?:поточно|потoчno|potocno|точно|tocno|tochno|ориентино|ориентирно|приближно|бас|bas)?\s*(?:(?:ми|му|ви|ти|ни|им|си|mi|mu|vi|ti|ni|im|si)\s+)?(?:(?:се|se)\s+)?(?:нао[ѓгјj]?[аa]{1,3}[тмшtm]?|naog?j?[аa]{1,3}[тмшtm]?|е|e|се|se|is)(?=\s|[?!.]|$)/iu;
 // A bare "каде?" / "kade ?" means "where [is it]?" — the last shown property.
 const WHERE_BARE_RE = /^(?:каде|каде|где|где|кај|кај|wхере)\s*\??\s*$/iu;
 // "што има во близина?" / "what's nearby?" — NEARBY questions about the last shown property.
@@ -3342,7 +3357,7 @@ const EXACT_ADDRESS_RE =
 // queries like "каде се наоѓа Рамстор?" keep their place extraction.
 const KADE_ADDR_NOUN_RE = new RegExp(
   '(?:каде|каде)' +
-  '(?:\\s+(?:точно|тоцно|точно|поточно|потоцно|ми|ми|му|му|и|i|е|e|се|се|нао[ѓг]а|нао[ѓ]a|би|би|било|било|била|била|биле|биле|биде|биде|бидат|бидат|ке|ке|ќе|само|само))*' +
+  '(?:\\s+(?:точно|тоцно|точно|поточно|потоцно|ми|ми|му|му|ви|vi|ти|ti|ни|ni|им|im|си|si|и|i|е|e|се|се|нао[ѓг]а|нао[ѓ]a|би|би|било|било|била|била|биле|биле|биде|биде|бидат|бидат|ке|ке|ќе|само|само))*' +
   '\\s*' +
   '(?:адрес(?:ата|а)|адрес(?:ата|a)|локациј(?:ата|а)|локациј(?:ата|a))' +
   '(?![а-яa-z])',

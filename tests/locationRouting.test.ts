@@ -28,6 +28,13 @@ test('generated каде-matrix: every prefix×filler×noun combo is LANDMARK', 
   const fillers = [
     '', ' точно', ' поточно', ' mu e', ' му е', ' ми е', ' samo e',
     ' се наоѓа', ' se naogja', ' bi bila', ' bi bilo', ' ќе биде',
+    // DATIVE-CLITIC fillers (the [23:50] capture): "каде ви се наоѓа …" /
+    // "каде ви е …" — the clitic sits between каде and the verb and defeated
+    // both the "се" slot and the address-noun filler list, so the whole matrix
+    // above silently excluded the ви/ти/ни/им/си persons.
+    ' ви е', ' vi e', ' ти е', ' ti e', ' ни е', ' ni e', ' им е', ' im e', ' си е',
+    ' ви се наоѓа', ' vi se naogja', ' ми се наоѓа', ' mi se naogja',
+    ' ти се наоѓа', ' ни се наоѓа', ' им се наоѓа',
   ];
   const nouns = ['адресата', 'adresata', 'локацијата', 'lokacijata', 'адреса', 'adresa', 'локација'];
   let checked = 0;
@@ -66,6 +73,66 @@ test('named-place queries keep place extraction (not generic)', () => {
   // address-noun rule so the street name stays extractable.
   const street = detectWhereIs('каде е улицата Партизанска?');
   assert.ok(street && !street.generic && /Партизанска/i.test(street.place));
+});
+
+test('[23:50] the dative clitic is TRANSPARENT — "kade vi se naogja 77" == "kade se naogja 77"', () => {
+  // The capture: "kade vi se naogja 77?" was matched by NO detector, so the
+  // pipeline answered the generic service prompt ("Може ли да ми кажете дали
+  // Ве интересира купување или изнајмување на имот?"). The clitic must behave
+  // exactly like its absence — same place, same generic flag.
+  const pairs: Array<[string, string]> = [
+    ['kade vi se naogja 77?', 'kade se naogja 77?'],
+    ['каде ви се наоѓа 77?', 'каде се наоѓа 77?'],
+    ['kade vi e 77?', 'kade e 77?'],
+    ['kade mi se naogja 41?', 'kade se naogja 41?'],
+    ['kade ni se naogja 41?', 'kade se naogja 41?'],
+    ['каде ви е локацијата?', 'каде е локацијата?'],
+    ['каде ви е адресата?', 'каде е адресата?'],
+  ];
+  for (const [withClitic, without] of pairs) {
+    assert.deepEqual(detectWhereIs(withClitic), detectWhereIs(without),
+      `${withClitic} must classify exactly like ${without}`);
+  }
+  // The heard phrase itself: the Евидентен број is the PLACE, not the clitic.
+  const heard = detectWhereIs('kade vi se naogja 77?');
+  assert.ok(heard && !heard.generic && heard.place === '77',
+    `expected place 77, got ${JSON.stringify(heard)}`);
+  const heardCy = detectWhereIs('каде ви се наоѓа 77?');
+  assert.ok(heardCy && !heardCy.generic && heardCy.place === '77',
+    `expected place 77 (Cyrillic), got ${JSON.stringify(heardCy)}`);
+  // …and an address/location NOUN after a clitic stays generic (never a place
+  // name — "каде ви е локацијата" must not resolve the word "локацијата").
+  for (const t of ['каде ви е локацијата?', 'каде ви е адресата?', 'kade vi e lokacijata?']) {
+    const r = detectWhereIs(t);
+    assert.ok(r && r.generic && r.place === '', `expected generic for ${t}, got ${JSON.stringify(r)}`);
+  }
+});
+
+test('the dative clitic adds no false positives — search intents stay out, and every verdict is parity', () => {
+  // Pure SEARCH intents must stay undetected, with or without the clitic.
+  for (const t of [
+    'kade ima nekoe stance do 250',
+    'каде има станови до 250 евра',
+    'kade moze da se najde parking',
+    'kade vi ima nekoe stance do 250',
+  ]) {
+    assert.equal(detectWhereIs(t), undefined, `${t} must not become a where-is ask`);
+  }
+  // For everything else the ONLY correct behaviour is parity: the clitic may
+  // not invent, drop or change a verdict. This includes phrases that already
+  // read as where-is BEFORE this change and extract the rest as a place name
+  // ("kade se naogjaat najevtinite stanovi", a pre-existing characteristic of
+  // the tolerant verb+rest extraction — recorded here so a future change has
+  // to make the same verdict with and without the clitic).
+  const parity: Array<[string, string]> = [
+    ['kade vi se naogjaat najevtinite stanovi', 'kade se naogjaat najevtinite stanovi'],
+    ['kade vi e vleznata vrata na zgradata', 'kade e vleznata vrata na zgradata'],
+    ['kade vi se naogja 77?', 'kade se naogja 77?'],
+  ];
+  for (const [withClitic, without] of parity) {
+    assert.deepEqual(detectWhereIs(withClitic), detectWhereIs(without),
+      `${withClitic} must classify exactly like ${without}`);
+  }
 });
 
 test('the original bug phrases route to LANDMARK', () => {
