@@ -113,6 +113,29 @@ test('[13:44] bare digit "2" and bare "две" also answer the funnel (LLM down)
   }
 });
 
+// THE [20:01] TRANSCRIPT — the client wrote "DVOSOBNO DO 100.000": the room
+// count AND the budget in one message. Lina replied «Ве молам кажете ми, за
+// колку спални соби во станот сте заинтересирани?» — the neuter -но form of
+// the room-type adjective was not in the word table, so the slot stayed empty
+// and the funnel re-asked a question the client had already answered.
+test('[20:01] "DVOSOBNO DO 100.000" captures the room count — the funnel must not re-ask', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  const s = freshSession('test', chat);
+  s.slots.service = 'buy';
+  sessions.set(s);
+
+  await handler.handle('test', chat, 'AERODROM DVOSOBNO DO 100.000');
+  const after = sessions.get(chat);
+  assert.equal(after?.slots.bedrooms, 2, 'dvosobno = 2 rooms (feed "2-собен")');
+  assert.equal(after?.slots.budget, '100000', 'the budget in the same message must survive');
+  assert.equal(after?.state, 'presentation', `must present, not re-ask: ${after?.state}`);
+  const reply = sent[sent.length - 1];
+  assert.ok(!/колку спални/iu.test(reply), `re-asked the bedrooms question: ${reply.slice(0, 160)}`);
+  assert.ok(reply.includes('41'), `the matching 2-room EB must be presented: ${reply.slice(0, 160)}`);
+
+  offlineMap.close();
+});
+
 test('bare number words are NOT answers when a budget/size/type word is present', async () => {
   const { detectBedrooms } = await import('../src/llm/deterministic');
   // "една гарсоњера" is a QUANTITY (the garsonjera branch keeps it), not an answer

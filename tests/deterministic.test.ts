@@ -444,6 +444,29 @@ test('detectBedrooms: "мало станче"/"гарсоњера" is a 1-bedroo
   assert.equal(detectBedrooms('zdravo'), undefined);
 });
 
+test('detectBedrooms: the NEUTER -но room-type form is recognised everywhere (the [20:01] capture)', () => {
+  // "DVOSOBNO DO 100.000" — the client named the room count in the same message
+  // as the budget, and the funnel still re-asked «за колку спални соби…?»
+  // because only the masculine -ен and feminine -на forms were listed. The
+  // neuter -но is a normal telegraphic spec; all four forms must match.
+  assert.equal(detectBedrooms('DVOSOBNO DO 100.000'), 2);
+  assert.equal(detectBedrooms('двособно до 100.000'), 2);
+  assert.equal(detectBedrooms('dvosoben'), 2);
+  assert.equal(detectBedrooms('dvosobna'), 2);
+  assert.equal(detectBedrooms('ednosobno'), 1);
+  assert.equal(detectBedrooms('еднособно'), 1);
+  assert.equal(detectBedrooms('трисобно'), 3);
+  assert.equal(detectBedrooms('трособно'), 3);
+  assert.equal(detectBedrooms('trisobno do 120000'), 3);
+  assert.equal(detectBedrooms('trosobno'), 3);
+  assert.equal(detectBedrooms('chetirisobno do 200000'), 4);
+  assert.equal(detectBedrooms('четирисобно'), 4);
+  // The room-count convention holds for the new form: dvosobno = 2 rooms
+  // (feed "2-собен"), never 2 bedrooms → 3 rooms.
+  assert.equal(detectBedrooms('trisobno'), 3);
+  assert.notEqual(detectBedrooms('trosobno'), 4);
+});
+
 test('detectBudget: currencies, илјади, and no false positives', () => {
   assert.equal(detectBudget('do 80.000 evra'), '80000');
   assert.equal(detectBudget('до 80 000 евра'), '80000');

@@ -117,18 +117,24 @@ const BED_ONLY_RE = /(?:спални|спална|spalni|spalna)/i;
 // Therefore: "спални" (bedrooms) needs +1 to convert to room count.
 // "соби" (rooms) and "собен" (room-type) map directly.
 const BED_WORDS: Array<[RegExp, number]> = [
-  // Room-type words → room count (direct match to feed)
-  [/(еднособен|еднособна|ednosoben|ednosobna)/i, 1],
-  [/(двособен|двособна|dvosoben|dvosobna)/i, 2],
-  [/(трисобен|трисобна|trisoben|trisobna)/i, 3],
-  [/(четирисобен|четирисобна|cetirisoben|cetirisobna|chetirisoben|chetirisobna)/i, 4],
+  // Room-type words → room count (direct match to feed).
+  //
+  // The adjective paradigm is -ен (m) / -на (f) / -но (n) / -ни (plural). The
+  // NEUTER -но form is how clients type a bare spec — "DVOSOBNO DO 100.000"
+  // ((20:01] capture: Lina re-asked "за колку спални соби…?" because only
+  // -ен/-на matched). "dvosobno" is a normal telegraphic answer, so all four
+  // forms are listed for every room count, Cyrillic and Latin.
+  [/(еднособен|еднособна|еднособно|ednosoben|ednosobna|ednosobno)/i, 1],
+  [/(двособен|двособна|двособно|dvosoben|dvosobna|dvosobno)/i, 2],
+  [/(трисобен|трисобна|трисобно|trisoben|trisobna|trisobno)/i, 3],
+  [/(четирисобен|четирисобна|четирисобно|cetirisoben|cetirisobna|cetirisobno|chetirisoben|chetirisobna|chetirisobno)/i, 4],
   // PLURAL + alternate-vowel forms (hardening sweep, exhausted-pivot family):
   // "a dvosobni stanovi ima?" / "trosoben stan" — the singular -ен/-на forms
   // above missed the plural -и and the common трособен spelling (o vs и),
   // so pivots like "a trosobni poevtini ima li" gapped.
   [/(еднособни|ednosobni)/i, 1],
   [/(двособни|dvosobni)/i, 2],
-  [/(трособен|трособна|трособни|trosoben|trosobna|trosobni)/i, 3],
+  [/(трособен|трособна|трособно|трособни|trosoben|trosobna|trosobno|trosobni)/i, 3],
   [/(четирисобни|cetirisobni|chetirisobni)/i, 4],
   // Room-count words → room count (direct match to feed)
   [/(една\s+соба|edna\s+soba)/i, 1],
