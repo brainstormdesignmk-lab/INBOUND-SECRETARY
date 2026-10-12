@@ -412,8 +412,11 @@ export class InboundHandler {
         // otherwise look it up in the offline map by name.
         // PLACE_ID REPAIR: sessions persisted before the identity map carry
         // coords-but-no-placeIds slots. When the slot lacks a place_id, look
-        // the landmark up in the CURRENT map — never fall to a coordinate pin
-        // when Google's own identity for that place exists in the POI table.
+        // the landmark up in the CURRENT map. That lookup supplies the SIGNED
+        // point Google itself verified (a feed name like "Трговски Центар
+        // Буњаковец" resolves to the Google row's own coordinates) — the link
+        // is then the coordinate pin ([23:50] policy), and the place_id rides
+        // along as the no-coordinate place-card fallback.
         let c = coords;
         let placeUrl: string | undefined;
         let placeId: string | null | undefined = session.slots.nearbyLandmarkPlaceIds?.[slot];
