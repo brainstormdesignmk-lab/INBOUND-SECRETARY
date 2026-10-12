@@ -136,6 +136,15 @@ const BED_WORDS: Array<[RegExp, number]> = [
   [/(двособни|dvosobni)/i, 2],
   [/(трособен|трособна|трособно|трособни|trosoben|trosobna|trosobno|trosobni)/i, 3],
   [/(четирисобни|cetirisobni|chetirisobni)/i, 4],
+  // SPLIT / HYPHENATED STEMS ("DVO SOBNO", "dvo-sobno", "едно собно"): the
+  // glued adjectives above need the stem and the ending in one token, and the
+  // separator is how a client types the same spec when they pause mid-word.
+  // Digits already ride this shape ("2-sobno" matches BED_NUM_RE); the WORD
+  // stem did not.
+  [/(?:едно|edno)[-\s]*(?:собен|собна|собно|собни|soben|sobna|sobno|sobni)/i, 1],
+  [/(?:дво|dvo)[-\s]*(?:собен|собна|собно|собни|soben|sobna|sobno|sobni)/i, 2],
+  [/(?:три|tro|tri)[-\s]*(?:собен|собна|собно|собни|soben|sobna|sobno|sobni)/i, 3],
+  [/(?:четири|chetiri|cetiri)[-\s]*(?:собен|собна|собно|собни|soben|sobna|sobno|sobni)/i, 4],
   // Room-count words → room count (direct match to feed)
   [/(една\s+соба|edna\s+soba)/i, 1],
   [/(две\s+соби|dve\s+sobi)/i, 2],

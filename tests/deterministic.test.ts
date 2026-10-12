@@ -461,6 +461,14 @@ test('detectBedrooms: the NEUTER -но room-type form is recognised everywhere (
   assert.equal(detectBedrooms('trosobno'), 3);
   assert.equal(detectBedrooms('chetirisobno do 200000'), 4);
   assert.equal(detectBedrooms('четирисобно'), 4);
+  // SPLIT / HYPHENATED STEMS — the same spec typed with a separator
+  // ("DVO SOBNO", "dvo-sobno") and a mixed-script stem ("DVOСОБНО").
+  assert.equal(detectBedrooms('DVO SOBNO DO 100.000'), 2);
+  assert.equal(detectBedrooms('dvo-sobno do 100000'), 2);
+  assert.equal(detectBedrooms('DVOСОБНО'), 2);
+  assert.equal(detectBedrooms('едно собно'), 1);
+  assert.equal(detectBedrooms('tri sobni'), 3);
+  assert.equal(detectBedrooms('chetiri sobno'), 4);
   // The room-count convention holds for the new form: dvosobno = 2 rooms
   // (feed "2-собен"), never 2 bedrooms → 3 rooms.
   assert.equal(detectBedrooms('trisobno'), 3);
