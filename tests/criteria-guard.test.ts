@@ -233,3 +233,103 @@ test('e2e: "moram da prekina" gets the exit-check QUESTION first — never a far
   const again = sent[sent.length - 1] ?? '';
   assert.ok(!/шанса|критериум/iu.test(again), `the check must fire once per session: ${again.slice(0, 200)}`);
 });
+
+// ── The [22:29] STUDIO-WILDCARD capture — same family, third layer ───────────
+//
+// The client asked for a TROSOBEN (3-room) flat, до 100.000, „bilo kade".
+// Lina answered „Во моментов нема стан со две спални во оваа населба во Вашата
+// цена, но има слични опции кои би можеле да Ви се допаднат." and served
+// **EB 63** — a 28 м² ГАРСОЊЕРА — followed by **EB 80**, another one.
+//
+// Cause: the feed stores „Гарсоњера" in `tip_na_sobi` instead of a room NUMBER,
+// so parseBedrooms() returned undefined and the row rode the bedroom WILDCARD
+// (`!p.bedrooms ||`) — a studio is a KNOWN one-room home, not an untagged row.
+// Sorted by popularity it led the batch (Центар), so a 3-room ask was answered
+// with studios while the real 3-room rows (EB 51 Водно, EB 87) sat further down.
+// The live feed rows used here are shaped exactly like the production feed.
+
+const STUDIO_ROWS: Property[] = [
+  { evidenten_broj: '63', naselba: 'Центар (населба)', adresa: 'ЦРНОГОРСКА АМБАСАДА', tip_na_sobi: 'Гарсоњера', tip_na_nedviznina: 'Стан', povrsina_m2: 28, cena_eur: 36000, servis: 'Продава', opis: 'Се Продава Гарсоњера во Сутерен на Зграда. Гарсоњерата е комплетно реновирана.' },
+  { evidenten_broj: '80', naselba: 'Кисела Вода', adresa: 'ЕФТИМ СПРОСТРАНОВ', tip_na_sobi: 'Гарсоњера', tip_na_nedviznina: 'Стан', povrsina_m2: 24, cena_eur: 46000, servis: 'Продава', opis: 'Агенција за Недвижности МЕТРОПОЛИС Продава Нова Гарсоњера во Кисела Вода.' },
+  { evidenten_broj: '51', naselba: 'Водно', adresa: 'КОЧО РАЦИН', tip_na_sobi: '3-собен', tip_na_nedviznina: 'Стан', povrsina_m2: 71, cena_eur: 99000, servis: 'Продава', opis: 'Се продава прекрасен наместен стан на Водно.' },
+  { evidenten_broj: '87', naselba: '', adresa: 'ЛАЗО АНГЕЛОВСКИ', tip_na_sobi: '3-собен', tip_na_nedviznina: 'Стан', povrsina_m2: 77, cena_eur: 95000, servis: 'Продава', opis: 'Се продава стан од 77м2 во Ново Лисиче.' },
+].map(mapRow).filter((p): p is Property => p !== null);
+
+test('mapRow: the feed\'s „Гарсоњера" category maps studio:true and leaves bedrooms undefined', () => {
+  const p = mapRow({
+    evidenten_broj: '63', naselba: 'Центар (населба)', adresa: 'ЦРНОГОРСКА АМБАСАДА',
+    tip_na_sobi: 'Гарсоњера', tip_na_nedviznina: 'Стан',
+    povrsina_m2: 28, cena_eur: 36000, servis: 'Продава',
+    opis: 'Се Продава Гарсоњера во Сутерен на Зграда.',
+  });
+  assert.ok(p);
+  assert.equal(p!.studio, true, 'the studio category must be marked');
+  // NOT a number: buildPropertyCard infers the гарсоњера noun from the size,
+  // and propertyType() would say "еднособен стан" for bedrooms:1.
+  assert.equal(p!.bedrooms, undefined, 'bedrooms must stay undefined (card wording)');
+  assert.equal(p!.business, false);
+  assert.equal(p!.house, false);
+});
+
+test('mapRow: a small 2-собен is NOT a studio — size alone must never flag one', () => {
+  // The live feed has 35 м² 2-собен (EB 79, EB 54) and an 8 м² 3-собен row:
+  // a ≤35 м² rule would mislabel them studios and drop them from the very
+  // room searches they legitimately answer.
+  const p = mapRow({
+    evidenten_broj: '79', naselba: 'Кисела Вода', adresa: 'X', tip_na_sobi: '2-собен',
+    tip_na_nedviznina: 'Стан', povrsina_m2: 35, cena_eur: 60000, servis: 'Продава',
+    opis: 'Се продава стан.',
+  });
+  assert.ok(p);
+  assert.equal(p!.studio, undefined);
+  assert.equal(p!.bedrooms, 2);
+});
+
+test('candidates: a 3-room ask never serves a studio; a studio ask still finds them', async () => {
+  const props = new FakeProps(STUDIO_ROWS);
+
+  const pool = await props.candidates({ service: 'buy', bedrooms: 3, budget: '100000', sortByPopularity: true });
+  const ebs = pool.map(p => p.eb);
+  assert.ok(!ebs.includes(63) && !ebs.includes(80),
+    `гарсоњери must not answer a 3-room ask: ${ebs.join(', ')}`);
+  assert.ok(ebs.includes(51) && ebs.includes(87),
+    `the exact 3-room rows must be in the pool: ${ebs.join(', ')}`);
+
+  // The studio category is still reachable — the fix narrows the WILDCARD, it
+  // does not hide studios from a client who asks for one.
+  const studios = await props.candidates({ service: 'buy', garsonjera: true, budget: '100000' });
+  assert.deepEqual(studios.map(p => p.eb).sort((a, b) => a - b), [63, 80],
+    'a garsonjera ask must still serve both studios');
+});
+
+test('e2e: „do 100000 trosoben . bilo kade" presents 3-room flats, never a гарсоњера', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(STUDIO_ROWS);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, text: string) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier: new Classifier(new FailingLlm(), cfg, properties),
+    responder: new Responder(new FailingLlm(), cfg), properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }) });
+  const send = send10(handler, sessions);
+  const chatId = 'studio-wildcard';
+
+  await send('SAKAM DA KUPAM STAN', chatId);
+  const s = await send('do 100000 trosoben . bilo kade', chatId);
+  const reply = sent[sent.length - 1] ?? '';
+
+  assert.equal(s.state, 'presentation', JSON.stringify(s.slots));
+  assert.equal(s.slots.bedrooms, 3, 'trosoben = 3 rooms');
+  assert.equal(s.slots.anywhere, true, '"bilo kade" waives the location');
+  // The studios must not appear — not as a card, not as a "similar option".
+  assert.ok(!/Евидентен број (63|80)/u.test(reply), `a гарсоњера was served: ${reply.slice(0, 300)}`);
+  assert.ok(!/гарсоњер/iu.test(reply), `the reply must not offer a studio: ${reply.slice(0, 300)}`);
+  // The real 3-room options are presented instead.
+  assert.ok(/Евидентен број (51|87)/u.test(reply), `3-room options missing: ${reply.slice(0, 300)}`);
+  assert.ok(/трисобен/u.test(reply), `the cards must read as 3-room flats: ${reply.slice(0, 300)}`);
+  // And no false "nothing matches, here are similar" framing.
+  assert.ok(!/нема стан со/u.test(reply), `no phantom mismatch prefix: ${reply.slice(0, 300)}`);
+});

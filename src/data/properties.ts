@@ -38,6 +38,14 @@ export interface Property {
   business?: boolean;      // деловен простор/канцеларија/локал — feed marks them by having NO bedroom type
   house?: boolean;         // куќа — the feed marks houses only in the opis text ("Се продава куќа…")
   plac?: boolean;          // плац/земјиште — land plot rows (no bedrooms, opis/address name the land)
+  /** The feed's STUDIO category ("Гарсоњера") — a KNOWN one-room home that
+   *  carries NO numeric room count. Without this flag the row rode the
+   *  unknown-bedroom wildcard and answered a multi-room ask (the [22:29]
+   *  trosoben capture: EB 63/80, both гарсоњери, were presented as the
+   *  "closest" options for a 3-room search). `bedrooms` stays undefined on
+   *  purpose: buildPropertyCard infers the гарсоњера noun from the size when
+   *  no count is recorded, and that wording must not change. */
+  studio?: boolean;
   features?: string[];     // garaza, lift, greenje, dvor, parking, opremenost (per feed napomena)
   details?: string;        // opis
   gmaps?: string;
@@ -122,6 +130,14 @@ function parseBedrooms(raw: unknown): number | undefined {
   if (!m) return undefined;
   const v = parseFloat(`${m[1]}.${m[2] ?? '0'}`);
   return Math.max(1, Math.round(v));
+}
+
+/** The feed's STUDIO category — the `tip_na_sobi` column literally says
+ *  "Гарсоњера". Deliberately NOT inferred from size: the live feed has 35 м²
+ *  2-собен and 8 м² 3-собен rows that a ≤35 м² rule would mislabel a studio
+ *  and drop from the room searches they legitimately answer. */
+function isStudio(r: Record<string, unknown>): boolean {
+  return /гарсоњер|garsonjer|студио|studio/i.test(str(r.tip_na_sobi));
 }
 
 /** A property is COMMERCIAL when it has NO bedroom type — the feed marks
@@ -291,6 +307,7 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     business: isBusiness(r) && !isPlac(r),
     house: isHouse(r) && !isPlac(r),
     plac: isPlac(r),
+    studio: isStudio(r) && !isPlac(r) ? true : undefined,
     size: (num(r.povrsina_m2) ?? 0) > 0 ? `${r.povrsina_m2} м²` : undefined,
     features: featurePhrases(r),
     details: cleanMacedonian(str(r.opis)) || undefined,
@@ -972,10 +989,21 @@ export class PropertyService {
     // RANGE ([09:17]): "edna ili dve" → EXACT 2…3 rooms, BOTH ends required —
     // a range is a bounded choice, not a minimum; rows with unknown bedrooms
     // stay in the pool so an untagged row can still serve.
+    // A row with NO recorded room count rides as a wildcard so an untagged row
+    // can still serve — but a STUDIO is not untagged, it is a known one-room
+    // home (the feed stores "Гарсоњера" instead of a number). Letting it ride
+    // is how a "trosoben до 100.000" search (bilo kade, no location) was led by
+    // EB 63/80, both гарсоњери: they matched the wildcard, sorted top by
+    // popularity (Центар) and were served as the "closest" options. A studio
+    // still answers a studio ask (opts.garsonjera) and a 1-room ask.
+    const askedMin = opts.bedrooms ?? opts.bedroomsMin;
+    const studioMayRide = opts.garsonjera === true || askedMin === undefined || askedMin < 2;
+    const wildcardOk = (p: Property): boolean => !p.bedrooms && (p.studio !== true || studioMayRide);
     const withBedrooms = opts.bedroomsMin !== undefined && opts.bedroomsMax !== undefined
-      ? base.filter(p => !p.bedrooms || (p.bedrooms >= (opts.bedroomsMin as number) && p.bedrooms <= (opts.bedroomsMax as number)))
+      ? base.filter(p => wildcardOk(p) || (p.bedrooms !== undefined
+        && p.bedrooms >= (opts.bedroomsMin as number) && p.bedrooms <= (opts.bedroomsMax as number)))
       : opts.bedrooms
-        ? base.filter(p => !p.bedrooms || p.bedrooms === opts.bedrooms)
+        ? base.filter(p => wildcardOk(p) || p.bedrooms === opts.bedrooms)
         : base;
     // Check if exact matches exist in the target location
     const exactInLoc = opts.location ? withBedrooms.filter(inLoc) : withBedrooms;
@@ -987,7 +1015,8 @@ export class PropertyService {
     } else {
       // No exact matches in target area — fall back to >= for the WHOLE pool,
       // then apply location filter so the client sees bigger/smaller options
-      baseFiltered = base.filter(p => !opts.bedrooms || !p.bedrooms || p.bedrooms >= (opts.bedrooms as number));
+      baseFiltered = base.filter(p => !opts.bedrooms || wildcardOk(p)
+        || (p.bedrooms !== undefined && p.bedrooms >= (opts.bedrooms as number)));
       relaxedBedrooms = !!(opts.bedrooms && baseFiltered.length > 0);
     }
     const sqmFiltered = opts.sqm ? baseFiltered.filter(p => !p.sqm || p.sqm >= (opts.sqm as number)) : baseFiltered;
