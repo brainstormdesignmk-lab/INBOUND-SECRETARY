@@ -320,6 +320,20 @@ export function buildExactAddressAnswer(recent: string[] = []): string {
     ?? EXACT_ADDRESS_LINES[Math.floor(Math.random() * EXACT_ADDRESS_LINES.length)];
 }
 
+/** The client names the places they can see and asks WHICH SIDE of them the
+ *  property is on („od stranata na trgovskiot ili odkaj pazarceto“ — the
+ *  [01:29] capture). Answered from the property's REAL anchors: the nearest
+ *  place the client named IS the side they mean, and the others are named as
+ *  further away — both distances come from the map, never from a guess.
+ *
+ *  CODE-OWNED, like buildWhereIsAnswer: the geography may never be generated.
+ *  The street still never appears — the answer names PUBLIC places only. */
+export function buildSideAnswer(nearest: string, further: string[] = []): string {
+  const head = `Имотот е на страната на ${nearest}.`;
+  if (further.length === 0) return head;
+  return `${head} ${further[0]} е понатаму од имотот.`;
+}
+
 function bedroomWord(n: number): string {
   if (n === 1) return 'една спална соба';
   if (n === 2) return 'две спални соби';
@@ -622,7 +636,8 @@ export const SYSTEM_PROMPT = `
 13. **НИКОГАШ не започнувај порака со „Супер. Уште неколку прашања.“ или „Одлично, уште последниве информации и завршуваме.“ — системот ги користи самиот, на точно едно место во разговорот. Ти прашањата поставувај ги директно, без такви воведи.**
 14. **ТАЈНОСТ НА АДРЕСАТА:** НИКОГАШ не ја кажувај точната улица и број на имотот („улица X“, „на адреса X“). Локацијата се опишува САМО приближно — преку блиската јавна знаменитост наведена во податоците („во близина на …“) или преку населбата („во Карпош“). Точната локација ја открива САМО системот, 2 часа пред договорената посета — не и ти.
 15. **ПРЕРАСКАЖИ ГО ОГЛАСОТ, НЕ ЦИТИРАЈ ГО:** Полето „details“ во податоците е оглас од сајтот за недвижности („Се Продава…“, „Агенција за Недвижности МЕТРОПОЛИС Продава…“, „Ексклузивно Преку…“, „Без Провизија за Купецот“) — НИКОГАШ не го препишувај збор-во-збор, тоа звучи копирано. Прераскажувај ги само фактите (состојба, кат, паркинг, тераса, реновирање, парно) во природни, разговорни реченици, како што секретарка би го опишала имотот. Без маркетинг фрази и без улица/адреса.
-16. **ОДГОВОРИ САМО НА ПРАШАЊЕТО — БЕЗ ПОНУДИ НАКРАЈ:** Ако клиентот праша за правило, цена, процедура, политика или изрази незадоволство („GLUPOSTI“, „зошто?“, „не ми се допаѓа“) — одговори САМО на тоа, со 1–3 реченици. ЗАБРАНЕТО е на крајот од таков одговор да додаваш понуди или презентација: никакво „Со цел да Ви помогнам… еве ги следните опции…“, никакво „Во меѓувреме, ги издвоив…“, никаков Евидентен број, листа или карта. Имоти се прикажуваат САМО кога тековната задача тоа го бара (презентација/пребарување). Еден одговор = една тема.
+16. **ОКОЛИНАТА НА ИМОТОТ („НА КОЈА СТРАНА?“):** Кога клиентот прашува што има околу имотот, на која страна е или го споредува со места што ги гледа („od stranata na trgovskiot ili odkaj pazarceto“), одговарај САМО од полето „nearby“ во податоците — тоа се вистинските јавни места до тој имот, со вистинската оддалеченост во метри. Најблиското НАВЕДЕНО место од нив Е страната за која прашува клиентот; другите спомни ги како подалечни. НИКОГАШ не измислувај место што го нема во податоците, не тврди страна што не произлегува од нив, и не кажувај улица. Ако клиентот именува место што не е во „nearby“, кажи дека не можеш да ја потврдиш страната и понуди посета за да го види на лице место.
+17. **ОДГОВОРИ САМО НА ПРАШАЊЕТО — БЕЗ ПОНУДИ НАКРАЈ:** Ако клиентот праша за правило, цена, процедура, политика или изрази незадоволство („GLUPOSTI“, „зошто?“, „не ми се допаѓа“) — одговори САМО на тоа, со 1–3 реченици. ЗАБРАНЕТО е на крајот од таков одговор да додаваш понуди или презентација: никакво „Со цел да Ви помогнам… еве ги следните опции…“, никакво „Во меѓувреме, ги издвоив…“, никаков Евидентен број, листа или карта. Имоти се прикажуваат САМО кога тековната задача тоа го бара (презентација/пребарување). Еден одговор = една тема.
 `;
 
 export function serviceLabel(s?: Service): string {
@@ -1042,6 +1057,21 @@ export function buildPropertyContext(properties: Property[]): string {
     // Address PRIVACY: the LLM gets the LANDMARK (approximate location), never
     // the street — it must not be able to leak the exact address either.
     address: p.landmark ?? p.location ?? null,
+    // SURROUNDINGS (the [01:29] lesson): the client may ask about the places
+    // around the property — "od stranata na trgovskiot ili odkaj pazarceto" —
+    // and the model can only answer those from what it is given. With no
+    // surroundings in the context it has nothing but the single resolved
+    // landmark, so it either ignores the question or invents the geography
+    // (the deterministic lane answers the named-place case; this is what the
+    // brain sees for every OTHER phrasing). REAL places with their REAL
+    // distance from the feed's own ranked public landmarks — the distances are
+    // what let the model name the nearest as the side the client means (the
+    // feed ranks by prominence, NOT by distance, so order alone proves
+    // nothing). The street is still never in the context.
+    nearby: (p.landmarks ?? [])
+      .filter(l => !!l.landmark && l.landmark !== p.landmark)
+      .slice(0, 3)
+      .map(l => ({ name: l.landmark, m: l.distance_m ?? null })),
     location: p.location ?? null,
     bedrooms: p.bedrooms ?? null,
     size: p.size ?? null,

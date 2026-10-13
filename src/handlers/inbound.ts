@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExitCheck } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExitCheck } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -45,6 +45,7 @@ import {
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer,
+  buildSideAnswer,
   buildRecommendClose,
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
   SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER,
@@ -839,6 +840,128 @@ export class InboundHandler {
       // Map miss / no anchor: fall through. isWhereLandmarkQuestion text also
       // carries каде, so the WHERE_IS lanes below answer it with property
       // context; inferPropertyId no longer binds the place-name number.
+    }
+
+    // ── WHICH-SIDE / SURROUNDINGS (the [01:29] capture) ─────────────────────
+    // "od stranata na trgovskiot ili odkaj pazarceto": the client names the
+    // places they can see and asks WHICH SIDE of them the property is on.
+    // Nothing in the chain claimed it, so the classifier's STAY path answered a
+    // LOCATION question with the closing fee pitch. Answered here from the
+    // property's REAL anchors — every named place resolved against the offline
+    // map and gated to the property's own radius (LandmarkService.findAnchor,
+    // which also strips the definite article a client types: "trgovskiot").
+    // The nearest named place IS the side the client is asking about; any
+    // others are named as further away. When no named place resolves locally,
+    // nothing is claimed and the chain keeps its existing behaviour.
+    //
+    // ABOVE POI-CONFIRM, on purpose: the confirm lane answers the FIRST named
+    // place with its yes/no template, so a two-place comparison question
+    // ("od stranata na X ili odkaj Y?") got "Да, директно до X" and the second
+    // place — the actual comparison the client asked for — was dropped. The
+    // confirm lane keeps every message this detector does NOT claim ("da ne e
+    // vo skopjanka ?" has no side word and no "или", so it still lands there),
+    // including its honest far-place correction when nothing here resolves.
+    //
+    // NOT gated on !skipInterceptors, unlike its neighbours: skipInterceptors
+    // means "some knowledge detector recognised this as a question", and a
+    // side ask is exactly such a question — "od stranata na X ili od Y?"
+    // co-fires the comparison reader and was punted to the classifier, where an
+    // LLM-down turn answers a LOCATION question with the closing fee pitch
+    // (the [01:29] capture again, only with a question mark). The code owns
+    // location facts, and nothing here is invented: with no anchor of THIS
+    // property to name, the lane serves the same approximate-location line the
+    // "kade e?" lane serves. Near-center asks ("poblisku do centar ili do
+    // aerodrom ?") are a SEARCH refinement and keep their own ladder.
+    if (!detectNearCenter(text)) {
+      const side = detectSurroundingsAsk(text);
+      if (side) {
+        const mbSide = await this.bindMention(text, session, { historyFallback: true });
+        if (await this.sendIfClarify(mbSide, text, session)) return;
+        const ebSide = mbSide?.prop?.eb ?? inferPropertyId(text);
+        const shownSide = session.slots.presentedIds ?? [];
+        const sideProp = mbSide?.prop
+          ?? (ebSide !== undefined
+            ? await this.deps.properties.getByEb(ebSide).catch(() => undefined)
+            : undefined)
+          ?? (session.slots.propertyId
+            ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
+            : undefined)
+          ?? (session.slots.interestedPropertyId
+            ? await this.deps.properties.getByEb(session.slots.interestedPropertyId).catch(() => undefined)
+            : undefined)
+          ?? (shownSide.length
+            ? await this.deps.properties.getByEb(shownSide[shownSide.length - 1]).catch(() => undefined)
+            : undefined);
+        // THE PROPERTY'S REAL POINT: the question is about the place itself, so
+        // the anchor search is centred on the stored coordinates — falling back
+        // to the map's own address resolution only for a row the feed never
+        // gave a point.
+        const sideCenter = sideProp
+          ? (sideProp.lat != null && sideProp.lon != null
+            ? { lat: sideProp.lat, lon: sideProp.lon }
+            : (() => {
+              const c = resolveSearchCenter({
+                id: sideProp.id, eb: sideProp.eb, address: sideProp.address,
+                lat: sideProp.lat, lon: sideProp.lon,
+                geo_source: sideProp.geo_source ?? null,
+              } as PropertyRow);
+              return c.lat && c.lon ? { lat: c.lat, lon: c.lon } : undefined;
+            })())
+          : undefined;
+        if (sideProp && sideCenter && this.landmarks) {
+          // ONE PLACE, ONE MENTION: two of the client's names can resolve to the
+          // same place ("castello by alikas" once whole, once cut in two). The
+          // answer must then never name that place as both the side AND the
+          // farther one — dedupe on the resolved point before ranking.
+          const found = side.anchors
+            .map(a => this.landmarks!.findAnchor(a, sideCenter))
+            .filter((a): a is { name: string; lat: number; lon: number; distance_m: number } => !!a)
+            .filter((a, idx, all) => all.findIndex(b => b.lat === a.lat && b.lon === a.lon) === idx);
+          if (found.length > 0) {
+            const nearest = found.reduce((a, b) => (a.distance_m <= b.distance_m ? a : b));
+            const further = found
+              .filter(a => a !== nearest)
+              .sort((a, b) => a.distance_m - b.distance_m);
+            const sideAnswer = buildSideAnswer(nearest.name, further.map(f => f.name));
+            routeLog(chatId, text, 'SURROUNDINGS');
+            // Same context contract as the landmark answers: the property the
+            // client is asking about becomes the one under discussion, so the
+            // next ask resolves to it instead of the visit pitch.
+            if (session.slots.propertyId !== sideProp.eb) {
+              session.slots.propertyId = sideProp.eb;
+              const presented = session.slots.presentedIds ?? [];
+              if (sideProp.id !== undefined && !presented.includes(sideProp.id)) {
+                session.slots.presentedIds = [...presented, sideProp.id];
+              }
+            }
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: sideAnswer }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, sideAnswer);
+            return;
+          }
+          // NOTHING THE CLIENT NAMED IS AN ANCHOR OF THIS PROPERTY — or they
+          // named nothing at all ("na koja strana e ?"). Two ways out, and the
+          // fee pitch is neither:
+          //   • a named place the map knows ELSEWHERE is POI-CONFIRM's honest
+          //     far correction ("Не, тоа е 2 км од имотот") — leave it there;
+          //   • with no place to correct, the message is still a LOCATION
+          //     question, so it gets the property's own approximate location —
+          //     the same code-owned line (and the same ladder) as "kade e?".
+          // The [01:29] capture's whole failure was a location question being
+          // served the closing fee pitch; an unnamed side ask must not reopen
+          // that hole through the back door.
+          if (!side.anchors.some(a => this.landmarks!.findPlace(a, sideCenter))) {
+            const approx = this.whereIsReply(sideProp, session);
+            routeLog(chatId, text, 'SURROUNDINGS');
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: approx }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, approx);
+            return;
+          }
+        }
+      }
     }
 
     // POI-CONFIRM — the 22:59 push-back ("da ne e vo skopjanka ?"). The client

@@ -13,7 +13,7 @@
 
 import { classifyOffensive } from '../antiabuse/offensive';
 import {
-  detectExactAddressAsk, detectWhereIs, detectOwnerContact,
+  detectExactAddressAsk, detectWhereIs, detectSurroundingsAsk, detectOwnerContact,
   isKadeTocno, detectPropertyDescription, detectService, detectBothServices,
   detectVisitCancellation, detectOfftopic, detectDefer, detectNegotiate,
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
@@ -42,6 +42,8 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectOwnerContact(t) },
   { intent: 'WHERE_IS', note: 'any каде-question → landmark rotation. Beats EXACT_ADDRESS by the guard above and beats description routing below',
     fires: t => !!detectWhereIs(t) },
+  { intent: 'SURROUNDINGS', note: 'which-side / relative-to-the-named-places ask ("od stranata na trgovskiot ili odkaj pazarceto") — a LOCATION question the classifier settled with the closing fee pitch ([01:29] capture). Sits after WHERE_IS, which owns the каде questions, and before every funnel branch',
+    fires: t => !!detectSurroundingsAsk(t) },
   { intent: 'PROPERTY_DESCRIPTION', note: '"гарсоњерата кај амбасадата" — remembered-property flow before FSM discovery swallows it',
     fires: (t) => detectPropertyDescription(t) && !detectService(t) && !detectBothServices(t) && !detectDrugAlternative(t) && !detectInvestmentOpinion(t) },
   { intent: 'VISIT_CANCEL', note: 'cancellation only meaningful in visit states',

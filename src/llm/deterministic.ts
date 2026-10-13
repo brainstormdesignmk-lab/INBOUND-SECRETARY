@@ -3117,6 +3117,100 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
   return { place: rest, generic: false };
 }
 
+// ── WHICH-SIDE / SURROUNDINGS ASK — grammar, not phrase lists ──────────────
+// "od stranata na trgovskiot ili odkaj pazarceto" (the [01:29] capture): the
+// client NAMES the places they can see and asks which side of them the
+// property is on. Nothing in the chain claimed it, so the classifier's STAY
+// path answered a LOCATION question with the closing fee pitch. The tell is a
+// SIDE/DIRECTION word — „од страната“, „одкај“, „на која страна“ — or a
+// NEARNESS-OR pair („поблиску до X или до Y“); the places themselves are
+// whatever content words are left, and the handler resolves them against the
+// real map (never by name alone: see LandmarkService.findAnchor).
+//
+// Written Cyrillic-canonical and tested against normalizeMc(text), so ONE
+// alternation covers Latin, Cyrillic and mixed-script typing.
+const SIDE_TRIGGER_SRC = '(?:од\\s+стран[аи][а-яѐ]*'          // од страната / од страна
+  + '|од\\s+кој[аио]\\s+стран[аи][а-яѐ]*'  // од која страна
+  + '|на\\s+кој[аио]\\s+стран[аи][а-яѐ]*'  // на која страна
+  + '|кон\\s+стран[аи][а-яѐ]*'            // кон страната
+  + '|одкај|од\\s+кај|накај)';            // одкај X / накај X
+const SIDE_TRIGGER_RE = new RegExp(`(?<![\\p{L}\\p{N}])${SIDE_TRIGGER_SRC}(?![\\p{L}\\p{N}])`, 'iu');
+// NEARNESS-OR: the client weighs two places against each other ("poblisku do
+// trgovskiot ili do pazarceto"). Both halves are required — „или“ alone is
+// every second search message ("do 100000 ili poevtino") and must stay out.
+const NEARNESS_WORD_SRC = '(?:поблиск[а-яѐ]*|поблиз[а-яѐ]*|близу|блиску)';
+const NEARNESS_WORD_RE = new RegExp(`(?<![\\p{L}\\p{N}])${NEARNESS_WORD_SRC}(?![\\p{L}\\p{N}])`, 'iu');
+const OR_WORD_SRC = '(?:или)';
+const OR_WORD_RE = new RegExp(`(?<![\\p{L}\\p{N}])${OR_WORD_SRC}(?![\\p{L}\\p{N}])`, 'iu');
+
+/** Words that carry NO place identity in a side/where question: the trigger
+ *  itself, prepositions, the copula, and the property nouns the client points
+ *  at. Normalized-Cyrillic canonical — normalizeMc() already folded the Latin
+ *  spellings into these forms. */
+const SIDE_STOPWORDS = new Set([
+  'од', 'на', 'во', 'до', 'за', 'со', 'кај', 'кон', 'накај', 'одкај', 'или', 'и', 'а', 'но', 'па', 'да', 'ли', 'дали',
+  'е', 'се', 'би', 'ќе', 'не', 'ми', 'му', 'ви', 'ни', 'ти', 'им', 'си',
+  'што', 'кое', 'кој', 'која', 'кои', 'каде', 'кадешто', 'тука', 'таму', 'тоа', 'ова', 'овој', 'оваа', 'тој', 'таа',
+  'страна', 'страната', 'страни', 'страните', 'странава', 'страната', 'дел', 'делот', 'делови',
+  'имот', 'имотот', 'станот', 'стан', 'куќата', 'куќа', 'гарсоњерата', 'гарсоњера', 'објектот', 'објект', 'зградата', 'зграда', 'влез', 'влезот',
+  'мислам', 'сакам', 'знам', 'знаеш', 'може', 'можете', 'кажи', 'кажете', 'прашам', 'речиси', 'дали',
+  'близу', 'близина', 'блиску', 'поблиску', 'поблизок', 'поблиску', 'околу', 'околината', 'наспроти', 'спроти',
+  'гледа', 'гледаат', 'гледаше', 'излегува', 'лежи', 'се', 'се`наоѓа', 'наоѓа', 'наоѓаат', 'наоѓаше',
+]);
+
+// English/Latin connectors that sit INSIDE a place name and must not break it.
+// They are ordinary Macedonian function words once normalized („by“→„би“,
+// „my“→„ми“, „the“→…), and every one of them is short enough to trip the
+// length rule too — so "castello by alikas" was cut in two, both halves
+// resolved to the same place, and the answer named it as both the side AND the
+// farther place. Only kept BETWEEN name words: a connector that opens a
+// phrase is still a breaker.
+const SIDE_NAME_CONNECTORS = new Set(['by', 'my', 'in', 'on', 'at', 'of', 'the', 'and']);
+
+/** The place NAMES a client typed in a side question, as CONTIGUOUS name
+ *  phrases: a run of words with place identity, broken by the words that carry
+ *  none. Contiguity is what makes multi-word names survive — "od stranata na
+ *  pizza jakomo ili odkaj ресторан буре срна" must yield the two names, not
+ *  four loose words, because a head word alone ("pizza") can resolve to a
+ *  DIFFERENT place than the one the client typed and the answer would then
+ *  name the wrong side of the wrong place. Four words is the cap
+ *  extractPoiConfirmPlace uses for multi-word names.
+ *
+ *  The words are taken from the RAW message, NOT the normalized one: English
+ *  and brand names ("Next Rooms", "Pizza Jakomo", "Shopping Center …") must
+ *  reach the map spelled the way the client typed them. normalizeMc() would
+ *  transliterate those into Cyrillic, and no round trip brings "next rooms"
+ *  back from "некст роомс" — the map would miss the nearest named place and
+ *  the answer would name a farther one as the side. The STOPWORD test runs on
+ *  the normalized form of each word, so the trigger is recognised in either
+ *  script while the name keeps its own. */
+function sideAnchorPhrases(text: string): string[] {
+  const phrases: string[] = [];
+  let cur: string[] = [];
+  const flush = () => { if (cur.length) { phrases.push(cur.join(' ')); cur = []; } };
+  for (const w of text.split(/[^\p{L}\p{N}]+/u)) {
+    if (cur.length > 0 && SIDE_NAME_CONNECTORS.has(w.toLowerCase())) { cur.push(w); continue; }
+    if (w.length < 3 || /^\d+$/u.test(w) || SIDE_STOPWORDS.has(normalizeMc(w))) flush();
+    else {
+      cur.push(w);
+      if (cur.length >= 4) flush();
+    }
+  }
+  flush();
+  return [...new Set(phrases)].slice(0, 3);
+}
+
+/** Does the message ask WHICH SIDE / relative to places the property is?
+ *  Returns the place NAMES the client named (possibly none — „на која страна
+ *  е?“ names nothing, and the caller then keeps its existing answer). */
+export function detectSurroundingsAsk(text: string): { anchors: string[] } | undefined {
+  const n = normalizeMc(text);
+  const sideAsk = SIDE_TRIGGER_RE.test(n);
+  const nearnessAsk = NEARNESS_WORD_RE.test(n) && OR_WORD_RE.test(n);
+  if (!sideAsk && !nearnessAsk) return undefined;
+  return { anchors: sideAnchorPhrases(text) };
+}
+
 // ── NEARBY ASK — grammar-based detector (order-free) ────────────────────────
 // The client asks what else is around the CURRENTLY DISCUSSED property:
 //   "sto uste ima vo blizina?" / "sto ima drugo vo blizina na zgradata?"
@@ -3180,7 +3274,7 @@ const NEARBY_AREA_TARGET_RE = new RegExp(
 //      "дали има училиште во близина?", "ima li avtobuska blisko?")
 //   C) далеку/daleku + … + ? ("daleku li e pazarot od kukjata?", "далеку е до
 //      автобуска станица?") — a distance question about the property.
-const NB2_NEAR = '(?:бли[зс]к\\p{L}*|близин\\p{L}*|бликсин\\p{L}*|окол\\p{L}*|покрај\\p{L}*)';
+const NB2_NEAR = '(?:бли[зс]к\\p{L}*|близин\\p{L}*|бликсин\\p{L}*|окол\\p{L}*|покрај\\p{L}*|сосед\\p{L}*|кварт\\p{L}*|комши\\p{L}*)';
 const NB2_AMEN = '(?:градин|скол|учил|учили|парк|играл|прода[вз]|маркет|аптек|пазар|автобуск|супермаркет|болниц|кафи|ресторан|зград|станиц|тргов|пекар|поликлин|теретан|спортск|локалч)';
 const NEARBY_RE2 = new RegExp(
   // "сто" — the colloquial h-less "shto" transliterates to СТО, not ШТО (a
@@ -3192,6 +3286,16 @@ const NEARBY_RE2 = new RegExp(
   '|(?:дали\\s+|да\\s+)?(?:има\\s*ли|има|имат)\\s*(?:ли)?\\s*(?:(?:некакв\\p{L}*|неко\\p{L}*|неколку)\\s+)?' + NB2_AMEN + '\\p{L}*(?:[^.!?\\n]{0,24}' + NB2_NEAR + '|[^.!?,\\n]{0,24}дале[кч]\\p{L}*)?' +
   '|(?:има\\s*ли|има)\\s+каде[^.!?\\n]{0,24}' + NB2_NEAR +
   '|(?:каков|каква|kakov|kakva)[^.!?,\\n]{0,16}(?:комши|комсилук|квартал|околи)' +
+  // ASK-WHAT-IT'S-LIKE: the client asks how the SURROUNDINGS are, without the
+  // „што има“ slots — "kako izgleda okolinata?", "kakva e okolinata?", "sto bi
+  // mi kazala za sosedstvoto?" (the live-brain probe). No HAVE slot, no
+  // „што“, so every other alternative missed it, the message fell through to
+  // the state reply, and an LLM-down closing turn served the viewing fee over
+  // a surroundings question. The shape is opinion-word + a proximity/surrounding
+  // NOUN, so "kako e stanot?" still never matches.
+  // („опиши“ arrives as ОПИСИ through the script bridge, „кажи/kaži“ as КАЗИ —
+  // both stems are listed, not just the sh-spelling.)
+  '|(?:как\\p{L}*|kak\\p{L}*|опис\\p{L}*|opish\\p{L}*|изглед\\p{L}*|izgled\\p{L}*|каз\\p{L}*|каж\\p{L}*)[^.!?,\\n]{0,20}' + NB2_NEAR +
   '|(?:дале[кч]\\p{L}*)[^.!?\\n]{0,30}\\?', 'iu');
 // The NB2 alternatives tested under the cap-exemption (same regex source —
 // precompiled separately because JS regexes carry lastIndex state per object).

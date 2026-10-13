@@ -41,7 +41,7 @@ import {
   detectSuggestAlternatives, detectTimeRejection, detectVagueTime,
   detectVisitCancellation, detectVisitInterest, detectVisitTime,
   detectWhereIs, detectWidenIntent, extractSlots, isKadeTocno,
-  detectWorkdaysQuestion, detectOwnerVerdict,
+  detectSurroundingsAsk, detectWorkdaysQuestion, detectOwnerVerdict,
 } from '../src/llm/deterministic';
 
 interface FamilySpec {
@@ -74,6 +74,7 @@ const C = {
   timeRej: b(detectTimeRejection), cancel: b(detectVisitCancellation),
   ownerContact: b(detectOwnerContact), exactAddr: b(detectExactAddressAsk),
   seeOffers: b(detectSeeOffers), alternatives: b(detectSuggestAlternatives),
+  side: b(detectSurroundingsAsk),
   exactInsist: b(detectExactAddressAsk),
   negot: b(detectNegotiate), defer: b(detectDefer), docs: b(detectDocumentsAsk),
   mortgage: b(detectMortgageAsk), hood: b(detectNeighborhoodAsk),
@@ -385,6 +386,27 @@ export const FAMILIES: FamilySpec[] = [
     // блиску" serves the same property thread (sweep nearby 24:09).
     crossFire: { feature: C.feature },
     benignCross: { whereIs: C.whereIs, avail: C.availability },
+  },
+  {
+    // WHICH-SIDE (the [01:29] capture): the client NAMES the places they can
+    // see and asks which side of them the property is on. Nothing claimed it,
+    // so the classifier's STAY path answered a LOCATION question with the
+    // closing fee pitch. The sweep key keeps that grammar in the global loop:
+    // a GAP here means a natural side question can be served the fee pitch
+    // again on any property, not just the one in the capture.
+    id: 'surroundings',
+    bankKey: 'SURROUNDINGS (which-side ask)',
+    protects: 'a side/relative question about the property\'s real surroundings — swallowed, the closing funnel pitches the fee over a location question',
+    seedLine: 'od stranata na trgovskiot ili odkaj pazarceto',
+    batches: 2,
+    genPrompt: `The client NAMES the places they can see around the property and asks WHICH SIDE of them it is on, or weighs two places it could be near. Vary: "od stranata na trgovskiot ili odkaj pazarceto", "na koja strana e ?", "od koja strana e vlezot ?", "od stranata na marketot ili od skoloto ?", "poblisku do trgovskiot ili do pazarceto ?", "од која страна е имотот?", "одкај паркот е?", "накај амбасадата е?" — both scripts, typos ("stranata"→"stranta", "pazarceto"→"pazarceto"), 2-9 words. MUST be a side/direction question about the property's surroundings. NOT "kade e" alone (where-is), NOT "sto ima vo blizina" alone (nearby), NOT a street demand ("na koja ulica"), NOT a price or fee question, NOT agreement.`,
+    target: C.side,
+    // exactAddr/whereIs: the location ladder owns the street demand and the
+    // каде asks, and their lanes sit ABOVE this one by design. agreement: the
+    // fee-consent gate is the greediest boundary in the funnel and is exactly
+    // what swallowed the capture — a co-fire is a pin candidate, not a pass.
+    crossFire: { agreement: C.agreement, exactAddr: C.exactAddr },
+    benignCross: { whereIs: C.whereIs, nearby: C.nearby },
   },
   {
     id: 'service',

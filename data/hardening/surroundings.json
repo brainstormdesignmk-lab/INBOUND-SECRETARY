@@ -1,0 +1,13 @@
+{
+  "bankKey": "SURROUNDINGS (which-side ask)",
+  "protects": "a side/relative question about the property's real surroundings — swallowed, the closing funnel pitches the fee over a location question",
+  "rows": [
+    {
+      "phrase": "od stranata na trgovskiot ili odkaj pazarceto",
+      "verdict": "COVERED",
+      "target": true,
+      "cross": [],
+      "benign": []
+    }
+  ]
+}

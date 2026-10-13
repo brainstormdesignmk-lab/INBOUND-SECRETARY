@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { guardText } from '../src/llm/respond';
-import { buildPropertyCards, buildPropertyCard, buildDiscoveryAsk, buildPropertyContext, buildFeeAsk, buildContactAsk, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS } from '../src/llm/prompts';
+import { buildPropertyCards, buildPropertyCard, buildDiscoveryAsk, buildPropertyContext, buildFeeAsk, buildContactAsk, SYSTEM_PROMPT, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS } from '../src/llm/prompts';
 import { RESPONSE_BANK } from '../src/data/responses';
 import { SlotData } from '../src/fsm/session';
 import { Property } from '../src/data/properties';
@@ -470,6 +470,42 @@ test('buildPropertyContext: no url field — the model cannot echo a link', () =
   assert.ok(!ctx.includes('property/'), ctx);
   assert.ok(ctx.includes('Центар'), ctx);
   assert.ok(ctx.includes('price_eur'), ctx);
+});
+
+test('buildPropertyContext: the brain gets the property\'s REAL surroundings with real distances (the [01:29] lesson)', () => {
+  const prop: Property = {
+    eb: 77, id: 77, address: 'МИРЧЕ ОРОЕЧАНЕЦ 86 - 1', location: 'Центар', price: 99000,
+    landmark: 'Трговски Центар Буњаковец',
+    landmarks: [
+      { type: 'Shopping mall', landmark: 'Трговски Центар Буњаковец', distance_m: 491 },
+      { type: 'Market', landmark: 'Пазарче Буњаковец', distance_m: 640 },
+      { type: 'Park', landmark: 'Градски парк', distance_m: 900 },
+    ],
+  };
+  const ctx = buildPropertyContext([prop]);
+  const parsed = JSON.parse(ctx) as Array<{ address: string; nearby: Array<{ name: string; m: number | null }> }>;
+  // The model must be able to say WHICH of the client's places is the side —
+  // that needs the real distances, because the feed ranks by prominence, not
+  // by distance, so list order proves nothing.
+  assert.deepEqual(parsed[0].nearby, [
+    { name: 'Пазарче Буњаковец', m: 640 },
+    { name: 'Градски парк', m: 900 },
+  ]);
+  // The resolved landmark IS the address; it is not repeated as a second place.
+  assert.equal(parsed[0].address, 'Трговски Центар Буњаковец');
+  // Privacy contract holds: the street is still never in the context.
+  assert.ok(!ctx.includes('МИРЧЕ'), ctx);
+  assert.ok(!ctx.includes('86'), ctx);
+});
+
+test('SYSTEM_PROMPT: the surroundings rule is explicit — side questions answered only from the real nearby list', () => {
+  assert.ok(SYSTEM_PROMPT.includes('ОКОЛИНАТА НА ИМОТОТ'),
+    'the model needs the rule, not just the data: it cannot derive the side on its own');
+  assert.ok(/„nearby“/.test(SYSTEM_PROMPT), 'the rule must point at the nearby field');
+  assert.ok(/Најблиското НАВЕДЕНО место/u.test(SYSTEM_PROMPT),
+    'nearest NAMED place is the side the client means');
+  assert.ok(/НИКОГАШ не измислувај место/u.test(SYSTEM_PROMPT),
+    'and it may never invent a place or a side');
 });
 
 test('buildContactAsk: bank-backed — name-only form never mentions a phone, name+phone asks both', () => {
