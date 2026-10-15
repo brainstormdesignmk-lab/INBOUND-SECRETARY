@@ -3,6 +3,8 @@ import '../compat/node16';
 import { Service } from '../fsm/machine';
 import { LANDLORD_DATA } from './landlords';
 import { stripPoiAnnotation, FEED_LANDMARK_MAX_M } from '../geo/landmarks';
+import { allowedLandmarkUrl } from '../geo/precision';
+import { identityKey } from '../geo/offlineMap';
 
 // How a property's coordinates were obtained. Determines whether the
 // runtime may TRUST them as the search center:
@@ -92,23 +94,37 @@ export interface FeedLandmark {
  *       stripped whenever old rows surface it.
  *    2. A claim beyond FEED_LANDMARK_MAX_M is dropped. Legacy rows written
  *       when the enricher's radius was 2 km carry 600 m–1.2 km entries, and
- *       serving those as "во близина на …" is simply false. */
+ *       serving those as "во близина на …" is simply false.
+ *    3. FEED HYGIENE (the fix list, item 4), applied on the way in so no
+ *       consumer has to know the rules:
+ *         • ONE PLACE, ONE ANCHOR — a duplicate of an entry already in the
+ *           list is dropped (identityKey: name order/script/noise free), so
+ *           the rotation can never spend two slots on one place;
+ *         • the link must be an ALLOWED form (?cid= card, coordinate pin,
+ *           stored canonical /maps/place/…) — a banned name-search URL
+ *           (`/maps/search/?api=1&query=…`) is dropped HERE rather than
+ *           emitted, and the reply's own link builder then re-derives the
+ *           link from the landmark's coordinates/place_id. */
 function parseFeedLandmarks(v: unknown): FeedLandmark[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const out: FeedLandmark[] = [];
+  const seen = new Set<string>();
   for (const e of v) {
     if (!e || typeof e !== 'object') continue;
     const o = e as Record<string, unknown>;
     const name = stripPoiAnnotation(str(o.landmark));
     if (!name || name.length > 80) continue;
+    const key = identityKey(name) || name.toLowerCase();
+    if (!key || seen.has(key)) continue;
     const d = Number(o.distance_m);
     const distance_m = Number.isFinite(d) && d >= 0 ? d : undefined;
     if (distance_m != null && distance_m > FEED_LANDMARK_MAX_M) continue;
+    seen.add(key);
     out.push({
       landmark: name,
       type: str(o.type) || undefined,
       distance_m,
-      maps_url: str(o.maps_url) || undefined,
+      maps_url: allowedLandmarkUrl(str(o.maps_url)) || undefined,
     });
   }
   return out.length > 0 ? out : undefined;

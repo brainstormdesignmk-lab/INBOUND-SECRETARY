@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Db } from '../src/store/db';
 import { LandmarkService } from '../src/geo/landmarks';
-import { landmarkLink, propertyAreaLink } from '../src/geo/precision';
+import { landmarkLink, propertyAreaLink, allowedLandmarkUrl } from '../src/geo/precision';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
 import path from 'path';
 import fs from 'fs';
@@ -32,6 +32,31 @@ describe('whereIsReply blocking tests', () => {
     db = new Db(':memory:');
     offlineMap = buildTestMap();
     svc = new LandmarkService(db, { osm: false, offlineMap });
+  });
+
+  // ── FIX LIST, ITEM 4 (feed hygiene — the link half) ─────────────────────
+  it('item 4: the banned name-search form is judged out, ?q= is only a pin when it really is a coordinate', () => {
+    // The production-bug form: a percent-encoded Cyrillic NAME in a search URL.
+    assert.equal(allowedLandmarkUrl(
+      'https://www.google.com/maps/search/?api=1&query=%D0%A1%D0%B8%D1%82%D0%B8%20%D0%9C%D0%BE%D0%BB'), undefined);
+    assert.equal(allowedLandmarkUrl('https://maps.google.com/?q=Сити+Мол'), undefined,
+      'a NAME in ?q= is a search, not a pin');
+    assert.equal(allowedLandmarkUrl('https://tinyurl.com/abc123'), undefined, 'never a third-party shortener');
+    for (const ok of [
+      'https://maps.google.com/?cid=3966389678066766238',
+      'https://maps.google.com/?q=41.98800,21.47700',
+      'https://www.google.com/maps/place/Рамстор+Мол/@42.0,21.428,17z/data=!3m1!4b1',
+    ]) {
+      assert.equal(allowedLandmarkUrl(ok), ok, `allowed form must ride through: ${ok}`);
+    }
+  });
+
+  it('item 4: landmarkLink never emits a banned link — it re-derives the pin from the coordinates', () => {
+    const banned = 'https://www.google.com/maps/search/?api=1&query=%D0%A1%D0%B8%D1%82%D0%B8%20%D0%9C%D0%BE%D0%BB';
+    const link = landmarkLink('Сити Мол', null, 42.0, 21.428, banned);
+    assert.ok(!link.includes('maps/search'), `never the name-search form: ${link}`);
+    assert.ok(!link.includes('query='), `never ?api=1&query=: ${link}`);
+    assert.equal(link, 'https://maps.google.com/?q=42.00000,21.42800');
   });
 
   it('no reply ever contains a 2-decimal coordinate or a search-form link', () => {

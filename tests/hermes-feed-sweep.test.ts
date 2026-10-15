@@ -53,6 +53,57 @@ test('a genuinely current row is still left alone (no needless rewrite)', () => 
   assert.equal(sameFeedList(storedLandmarkList({ landmarks: list, raw }), list), true);
 });
 
+// ── FIX LIST, ITEM 4 (feed hygiene at the reader door) ──────────────────────
+// parseFeedLandmarks is the single door every consumer reads through, so the
+// hygiene rules live there: one place gets one anchor, and only an ALLOWED link
+// form survives. A dirty stored row can then never reach a client verbatim.
+
+test('item 4: a duplicated anchor collapses to one slot — the first (highest-ranked) entry wins', () => {
+  const row = mapRow({
+    evidenten_broj: '48', adresa: 'Партизанска',
+    landmarks: [
+      { landmark: 'Сити Мол', type: 'Shopping mall', distance_m: 140, maps_url: 'https://maps.google.com/?cid=123' },
+      // Same place, shouted + retyped — identityKey makes them one.
+      { landmark: 'СИТИ МОЛ!', type: 'mall', distance_m: 145, maps_url: 'https://maps.google.com/?cid=123' },
+    ],
+  });
+  assert.ok(row, 'the fixture row maps');
+  assert.equal(row!.landmarks?.length, 1, `one place, one anchor: ${JSON.stringify(row!.landmarks)}`);
+  assert.equal(row!.landmarks![0].landmark, 'Сити Мол');
+  assert.equal(row!.landmarks![0].maps_url, 'https://maps.google.com/?cid=123', 'the allowed link is kept');
+});
+
+test('item 4: a banned name-search link is dropped on the way in, the pin next to it survives', () => {
+  const row = mapRow({
+    evidenten_broj: '50', adresa: 'Мирче Оровчанец',
+    landmarks: [
+      { landmark: 'Рамстор Мол', type: 'mall', distance_m: 200,
+        maps_url: 'https://www.google.com/maps/search/?api=1&query=%D0%A0%D0%B0%D0%BC%D1%81%D1%82%D0%BE%D1%80' },
+      { landmark: 'Парк Авионче', type: 'park', distance_m: 174,
+        maps_url: 'https://maps.google.com/?q=41.98800,21.47700' },
+    ],
+  });
+  assert.ok(row, 'the fixture row maps');
+  assert.equal(row!.landmarks?.length, 2, 'a bad LINK is not a bad anchor — the entry stays, its link does not');
+  assert.equal(row!.landmarks![0].maps_url, undefined,
+    'the name-search URL must never be carried into a reply');
+  assert.equal(row!.landmarks![1].maps_url, 'https://maps.google.com/?q=41.98800,21.47700',
+    'the coordinate pin is an allowed form');
+});
+
+test('item 4: the hygiene pass never reorders or pads the feed list', () => {
+  const row = mapRow({
+    evidenten_broj: '76', adresa: 'Васил Стефановски 16',
+    landmarks: [
+      { landmark: 'Трговски Центар Буњаковец', type: 'Shopping mall', distance_m: 341,
+        maps_url: 'https://maps.google.com/?cid=779770506876171031' },
+      { landmark: 'Католичка црква Свети Јосиф', type: 'church', distance_m: 430 },
+    ],
+  });
+  assert.deepEqual(row!.landmarks?.map(l => l.landmark),
+    ['Трговски Центар Буњаковец', 'Католичка црква Свети Јосиф'], 'feed order is the rotation order');
+});
+
 test('no raw column at all falls back to the parsed list', () => {
   const list = [{ landmark: 'Рептил', type: 'supermarket', distance_m: 53 }];
   assert.deepEqual(storedLandmarkList({ landmarks: list }), list);
