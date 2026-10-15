@@ -355,6 +355,10 @@ export class InboundHandler {
       lat: p.lat, lon: p.lon,
       geo_source: p.geo_source ?? null,
       details: p.details,
+      // The feed's OWN ranked landmark list (fix-list item 3): the rotation
+      // serves it when it exists — LandmarkService.nearbyLandmarks falls back
+      // to the offline map only for a property the feed has not placed.
+      landmarks: p.landmarks,
     };
     // NO-ADDRESS PROTOCOL (EB 58 class): the agency never learned this
     // property's street — any landmark, neighborhood pin or "во близина на"

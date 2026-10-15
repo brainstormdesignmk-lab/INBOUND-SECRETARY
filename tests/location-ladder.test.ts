@@ -64,6 +64,13 @@ const ROWS: Property[] = [
   { eb: 77, id: 77, location: 'Карпош', address: 'Ул. Втора 3', price: 220,
     service: 'rent', sqm: 30, bedrooms: 1, details: 'Стан во Карпош.',
     lat: 42.0021, lon: 21.4102 } as any,
+  // EB 78 carries the FEED's own landmark roster (item 3): the rotation must
+  // serve that, even though the map's own nearest POI is Универсална сала.
+  { eb: 78, id: 78, location: 'Центар', address: 'Ул. Трета 4', price: 240,
+    service: 'rent', sqm: 35, bedrooms: 1, details: 'Стан во Центар.',
+    lat: 41.9985, lon: 21.4265,
+    landmarks: [{ landmark: 'Градежен факултет', type: 'university', distance_m: 410,
+      maps_url: 'https://maps.google.com/?q=42.00300,21.43300' }] } as any,
 ];
 
 function makeHandler() {
@@ -247,6 +254,27 @@ test('item 2: the protocol round count is keyed by the property — a stale roun
   const after = sessions.get(chat)!;
   assert.equal(after.slots.addressProtocolEb, 77, 'the counter re-keys to the new property');
   assert.equal(after.slots.addressProtocolIndex, 1, 'EB 77 starts at round 1, not at EB 76\'s round 2');
+
+  offlineMap.close();
+});
+
+// ── FIX LIST, ITEM 3 ─────────────────────────────────────────────────────────
+// A property the feed HAS placed rotates on the feed's own curated landmark
+// list; the offline map's nearby scan is the fallback for the rest.
+
+test('item 3: a property with a feed roster rotates on the ROSTER, not the map scan', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  const s = freshSession('test', chat);
+  s.slots.propertyId = 78;
+  s.slots.interestedPropertyId = 78;
+  sessions.set(s);
+
+  await handler.handle('test', chat, 'kade e ?');
+  const a = sent[sent.length - 1];
+  assert.ok(a.includes('Градежен факултет'), `the feed roster is the rotation: ${a}`);
+  assert.ok(!a.includes('Универсална сала'),
+    `never the map's own nearest while a curated roster exists: ${a}`);
+  assert.deepEqual(sessions.get(chat)!.slots.nearbyLandmarks, ['Градежен факултет']);
 
   offlineMap.close();
 });
