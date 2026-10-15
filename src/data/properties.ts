@@ -229,9 +229,20 @@ export function featurePhrases(r: Record<string, unknown>): string[] {
   return out;
 }
 
-/** Macedonian-aware title case — the feed stores addresses in ALL CAPS. */
+/** Macedonian-aware title case — the feed stores addresses in ALL CAPS.
+ *
+ *  A BARE ROMAN NUMERAL keeps its capitals. The lowercase pass turned the
+ *  feed's own neighbourhood naming ("КАРПОШ III") into "Карпош Iii", which is
+ *  why normalizeLocation has always restored numerals afterwards — the ADDRESS
+ *  path (titleCase on `adresa`) never did, so any address carrying a numeral
+ *  was displayed mangled (EB 48: "Руските згради (кај Сити Мол), Карпош III").
+ *  One rule, both paths: a token that is nothing but numeral letters and was
+ *  written in caps stays as written. */
 export function titleCase(s: string): string {
-  return s.toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, sp: string, ch: string) => sp + ch.toUpperCase());
+  return s.replace(/(^|\s)(\S+)/gu, (_, sp: string, word: string) => {
+    if (/^[IVXLCDM]+$/.test(word)) return sp + word;
+    return sp + word.toLowerCase().replace(/^(\p{L})/u, c => c.toUpperCase());
+  });
 }
 
 // The agency feed was typed in lossy Latin (ž->z, č->c, š->s, ќ->k) and then

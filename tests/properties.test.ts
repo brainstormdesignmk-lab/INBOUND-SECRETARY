@@ -102,6 +102,16 @@ test('candidates: batches stay inside the requested area while it has matches', 
   assert.deepEqual(spill, []);
 });
 
+test('titleCase: a bare roman numeral in an address keeps its capitals', () => {
+  // The feed writes "КАРПОШ III"; lowercasing then capitalising the first
+  // letter produced "Карпош Iii" in every address that carried one (EB 48).
+  // normalizeLocation already restored numerals this way.
+  assert.equal(titleCase('КАРПОШ III'), 'Карпош III');
+  assert.equal(titleCase('БУЛЕВАР ИЛИНДЕН II'), 'Булевар Илинден II');
+  assert.equal(titleCase('РУСКИТЕ ЗГРАДИ (КАЈ СИТИ МОЛ), КАРПОШ III'),
+    'Руските Згради (кај Сити Мол), Карпош III');
+});
+
 test('titleCase: feed ALL-CAPS addresses become proper Macedonian titles', () => {
   assert.equal(titleCase('ШАМПИОНЧЕ КАК КИПЕР МАРКЕТ'), 'Шампионче Как Кипер Маркет');
   assert.equal(titleCase('ЛОКОВ 5'), 'Локов 5');
