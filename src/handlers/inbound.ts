@@ -25,6 +25,7 @@ import { AgentStore } from '../store/agents';
 import { CustomerStore } from '../store/customers';
 import { EventStore } from '../store/events';
 import { PriceChangeStore } from '../store/priceChanges';
+import { AddressChangeStore } from '../store/addressChanges';
 import { BlocklistStore } from '../store/blocklist';
 import { ChannelRegistry } from '../channels/types';
 import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/strikes';
@@ -113,12 +114,42 @@ export interface HandlerDeps {
   capture?: import('../store/capture').CaptureStore;
 }
 
+// EXPLICIT STREET/NUMBER ASK (the fix list, item 2): the client spells out
+// that they want the STREET and the NUMBER — "tocnata ulica i broj",
+// "koja e tocnata adresa", "дај адреса", a cadastral query. That ask gets the
+// AGENCY PROTOCOL line for the property under discussion (the address is only
+// revealed on visit day — the protocol IS the answer to the question asked),
+// and it must NOT spend a landmark rotation slot: the rotation belongs to the
+// WHERE/NEARBY asks ("kade e?", "sto ima vo blizina?"). A pure LOCATION word
+// ("na koja lokacija e", "точната локација") keeps the documented location
+// ladder — approximation first, protocol on the insist
+// (tests/location-ladder.test.ts owns that contract).
+const ADDRESS_WORD_RE =
+  /(?:адрес|adres|улиц|ulic|број|broj|катастар|katastar|cadastar|čestica|cestica)/iu;
+
+/** The address-privacy protocol rounds are counted PER PROPERTY: the count is
+ *  keyed by the Евидентен број it was accumulated for, so switching to another
+ *  property starts its own rotation of protocol variants instead of continuing
+ *  the previous property's (the client was hearing round 2 of the NEW property
+ *  because the LAST one had already reached round 1).
+ *  Returns the round ALREADY served for this property (0 = nothing yet). */
+function protocolRoundFor(session: ChatSession, eb: number): number {
+  if (session.slots.addressProtocolEb !== eb) {
+    session.slots.addressProtocolEb = eb;
+    session.slots.addressProtocolIndex = 0;
+  }
+  return session.slots.addressProtocolIndex ?? 0;
+}
+
 export class InboundHandler {
   readonly ownerAgent: OwnerAgent;
   readonly agents: AgentStore;
   readonly customers: CustomerStore;
   readonly events: EventStore;
   readonly priceChanges: PriceChangeStore;
+  /** Owner-corrected addresses, queued for the same Hermes pass that carries
+   *  prices (src/scripts/hermes.ts). Written by the visit scheduler's Turn 0. */
+  readonly addressChanges: AddressChangeStore;
   readonly appointments: AppointmentStore;
   readonly dispatcher: AgentDispatcher;
   readonly landmarks: LandmarkService;
@@ -163,6 +194,7 @@ export class InboundHandler {
     this.events = new EventStore(deps.db);
     this.blocklist = new BlocklistStore(deps.db);
     this.priceChanges = new PriceChangeStore(deps.db);
+    this.addressChanges = new AddressChangeStore(deps.db);
     this.appointments = deps.appointments;
     this.owners = new OwnerStore(deps.db);
     this.dispatcher = new AgentDispatcher(this.agents);
@@ -385,7 +417,9 @@ export class InboundHandler {
       // "во близина" asks get the polite shut-down — the neighborhood is
       // clear, the exact address comes on visit day. Bank-served so Gemini
       // variants accumulate over time (learned layer merges into the pool).
-      const protoIdx = session.slots.addressProtocolIndex ?? 0;
+      // The round count is PER PROPERTY (protocolRoundFor): "во близина"
+      // exhaustion on EB 76 must not deliver EB 50's round 2.
+      const protoIdx = protocolRoundFor(session, p.eb);
       if (protoIdx >= 2) {
         return pickVariant('nearby.exhausted', { recent: assistantTexts(session) })
           ?? 'Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.';
@@ -779,9 +813,24 @@ export class InboundHandler {
             return;
           }
         }
+        // EXPLICIT STREET/NUMBER ASK (fix-list item 2): the protocol line for
+        // THIS property, counted PER PROPERTY, and no rotation slot spent on it.
+        // The ladder's turn counter is not bumped either — an address ask is
+        // not a location rung, so a following LOCATION ask still starts at the
+        // approximation (the documented ladder, see tests/location-ladder).
+        const addressAsk = ADDRESS_WORD_RE.test(text);
         const turn = Math.max(session.slots.exactLocationTurns ?? 0, session.slots.landmarkIndex ?? 0) + 1;
-        session.slots.exactLocationTurns = turn;
-        if (turn >= 3) {
+        if (!addressAsk) session.slots.exactLocationTurns = turn;
+        if (addressAsk) {
+          const round = protocolRoundFor(session, target.eb);
+          if (round >= 2) {
+            answer = pickVariant('nearby.exhausted', { recent: assistantTexts(session) })
+              ?? 'Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.';
+          } else {
+            session.slots.addressProtocolIndex = round + 1;
+            answer = buildExactAddressAnswer(assistantTexts(session));
+          }
+        } else if (turn >= 3) {
           answer = pickVariant('nearby.exhausted', { recent: assistantTexts(session) })
             ?? 'Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.';
         } else if (turn === 2) {

@@ -76,6 +76,7 @@ export interface SlotData {
   pomaloSize?: boolean;
   landmarkIndex?: number;         // how many landmarks have been revealed so far
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
+  addressProtocolEb?: number;     // WHICH property (Евидентен број) the protocol round count belongs to — the counter is PER PROPERTY: round 2 of EB 50 must never serve for EB 76
   lastPrice?: string;             // last price answered to the client (for "та цена" resolution)
 }
 

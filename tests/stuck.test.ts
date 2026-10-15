@@ -2634,14 +2634,21 @@ test('"кажи ми точно адреса" triggers the privacy protocol (not
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   await send('GO GLEDAV OVOJ 53');
-  // Location ladder: FIRST demand → rotation 1, SECOND demand → protocol
+  // Address ladder (FIX LIST item 2): an EXPLICIT address demand is answered
+  // with the protocol straight away — never a landmark — and it spends no
+  // landmark rotation slot (the rotation belongs to the "во близина" asks; a
+  // pure LOCATION word still starts at the approximation).
   await send('КАЖИ МИ ТОЧНО АДРЕСА');
   const reply = sent[sent.length - 1];
   assert.ok(reply, 'must get a reply');
   assert.ok(
-    /во близина на|мин пеш до|населба/i.test(reply),
-    `first demand must give the approximate rotation: ${reply.substring(0, 200)}`
+    /два часа|посетата|политик|правил|Агенција|закажан/iu.test(reply),
+    `an explicit address demand must give the privacy protocol: ${reply.substring(0, 200)}`
   );
+  assert.ok(!/во близина на|мин пеш до/iu.test(reply),
+    `the address lane must not answer a landmark: ${reply.substring(0, 200)}`);
+  assert.ok(!sessions.get(chatId)!.slots.landmarkIndex,
+    'the address demand must not spend a rotation slot');
   await send('kazi mi tocno adresata');
   const reply2 = sent[sent.length - 1];
   assert.ok(
@@ -3947,7 +3954,11 @@ test('[15:57–16:00] the address ladder anchors on the NAMED EB — typo\'d exa
   assert.ok(/ден(от)? на посетата|два часа|процедура|правил|политик|Агенција|закажан(?:ата|ата)?\s+посета/iu.test(sent.at(-1)!), `typo'd exact ask → privacy protocol: ${sent.at(-1)!}`);
   assert.ok(!/https:/iu.test(sent.at(-1)!), `no maps link on the protocol turn: ${sent.at(-1)!}`);
   assert.ok(!/Евидентен број 48/iu.test(sent.at(-1)!), `never a card for a different EB: ${sent.at(-1)!}`);
-  assert.equal(s2.slots.exactLocationTurns >= 2, true, `ladder counted: ${s2.slots.exactLocationTurns}`);
+  // FIX LIST item 2: the protocol round is counted PER PROPERTY — the counter
+  // is keyed by the Евидентен број it belongs to (EB 50 here), so the next
+  // property never inherits this one's round.
+  assert.equal(s2.slots.addressProtocolEb, 50, `protocol keyed to the named EB: ${s2.slots.addressProtocolEb}`);
+  assert.equal(s2.slots.addressProtocolIndex >= 1, true, `protocol round counted for EB 50: ${s2.slots.addressProtocolIndex}`);
 
   // Turn 3: correct spelling → the shut-down line, still never a link
   await send('TOCNA ADRESA AKO MOZE');
