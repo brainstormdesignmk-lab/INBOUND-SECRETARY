@@ -166,6 +166,10 @@ test('detectPomaloAsk: the small-adjective family across declension, both script
     'edno malo stanče', 'mala soba', 'baram kompakten stan', 'kompaktno',
     'КОМПАКТНО', 'kompaktni', 'malo malecko', 'minimalno', 'MINIMALNA',
     'minimalen', 'pomalo pomalo',
+    // The [11:28] capture: the INVERSION "polmalo" (and its Cyrillic fold) —
+    // one edit from помало, and with it unrecognized Lina repeated the
+    // discovery question instead of moving the funnel to the bedrooms ask.
+    'nesto polmalo', 'POLMALO', 'polmala', 'nesto полмало', 'дали имате полмало нешто',
   ];
   for (const t of positives) {
     assert.equal(detectPomaloAsk(t), true, `must fire: ${t}`);
@@ -179,6 +183,9 @@ test('detectPomaloAsk: money modifiers and bare quantity never fire', async () =
     'najmala cena?', 'kirija mala', 'minimalna cena', 'kompaktna kirija',
     'malku', 'malku poveke', 'МАЛКУ',
     'neznam', 'odobrenie', 'shto imate vo ponuda',
+    // …and the SLIPPED price ask: the typo arm must not hand a cheaper-ask to
+    // the size lane (same money nouns, same tight windows as the fixed forms).
+    'polmala cena', 'polmalo cena?', 'cenata da e polmala', 'полмала кирија',
   ];
   for (const t of negatives) {
     assert.equal(detectPomaloAsk(t), false, `must NOT fire: ${t}`);

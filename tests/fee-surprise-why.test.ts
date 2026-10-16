@@ -112,7 +112,11 @@ test('08:32 flow: fee ask → "OVA E NESTO NOVO ?" → fee.why, never a second d
   // Covers ALL fee.why variants: most say филтер/филтрирање (v10 is
   // "филтрирање" — no "е" after филтр), селективност (v10 — "т" where
   // селекци needs "ц"), or the искрен-interest line.
-  assert.ok(/филт|селект|вистинск|сериозн|искрен/iu.test(reply), `no rationale in reply: ${reply}`);
+  // "правиме СЕЛЕКЦИЈА и ги препознаваме клиентите со реални намери" (the one
+  // bank variant) carries none of the other stems — pickVariant serves the
+  // bank at RANDOM, so missing it made this test fail ~1 run in 17. The word is
+  // the same rationale, so селекц belongs in the guard.
+  assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply), `no rationale in reply: ${reply}`);
   // Funnel keeps moving: still in closing, waiting for the fee agreement.
   assert.equal(s.state, 'closing');
 });

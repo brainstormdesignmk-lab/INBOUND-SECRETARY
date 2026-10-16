@@ -47,7 +47,7 @@ import {
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
-  buildExactAddressAnswer, displayPlaceName,
+  buildExactAddressAnswer, displayPlaceName, displayAreaName,
   buildSideAnswer,
   buildRecommendClose,
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
@@ -1819,7 +1819,7 @@ export class InboundHandler {
         // the generic "do you know the EB number?" and ask for the remaining
         // specs (m², price) — the client already told us the neighborhood.
         const answer = loc
-          ? LOCATE_MORE_SPECS_ASK.replace('{location}', loc)
+          ? LOCATE_MORE_SPECS_ASK.replace('{location}', displayAreaName(loc))
           : LOCATE_FIRST_ASK;
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
@@ -3104,7 +3104,7 @@ export class InboundHandler {
         // know the EB?" after the client just told us the neighborhood is the
         // dead-end the desc interceptor always skipped — mirror its smart ask.
         reply = session.slots.location
-          ? LOCATE_MORE_SPECS_ASK.replace('{location}', session.slots.location)
+          ? LOCATE_MORE_SPECS_ASK.replace('{location}', displayAreaName(session.slots.location))
           : LOCATE_FIRST_ASK;
       } else if (/го\s+знам|знам\s+го|znam\s+go|го\s+знам\s+бројот/i.test(text)) {
         // "да, го знам" — the client knows the number; prompt for it instead
@@ -3165,7 +3165,7 @@ export class InboundHandler {
         // Location known but m² / price / bedrooms missing — collect more
         // specs before dumping ALL properties in the area.  The client said
         // "stan na Vodno" but we need size and budget to narrow the list.
-        reply = LOCATE_MORE_SPECS_ASK.replace('{location}', session.slots.location ?? '');
+        reply = LOCATE_MORE_SPECS_ASK.replace('{location}', displayAreaName(session.slots.location ?? ''));
       } else if (session.slots.location || session.slots.sqm || session.slots.budget) {
         // A NEW identifying detail (населба / цена / квадрати) re-ranks the
         // WHOLE candidate pool — excluding already-shown matches here would

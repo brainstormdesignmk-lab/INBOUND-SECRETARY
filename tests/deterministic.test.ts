@@ -1061,10 +1061,33 @@ test('detectSeenProperty: a specific seen property without a number is NOT a fre
   assert.equal(detectSeenProperty('gledav eden stan kaj vas'), true);
   assert.equal(detectSeenProperty('gledav eden stan na vashata strana'), true);
   assert.equal(detectSeenProperty('видов еден стан на вашиот сајт'), true);
+  // the [11:29] capture: the client recalls a UNIT TYPE, not "стан", and the
+  // only place in the sentence is a landmark — "imavte edna garsonjera kaj
+  // crnogorska ambasada" fell through every slot (no saw-verb, гарсоњера not in
+  // the object list) and Lina asked for the городска населба a third time
+  // instead of the Евидентен број.
+  assert.equal(detectSeenProperty('imavte edna garsonjera kaj crnogorska ambasada'), true);
+  assert.equal(detectSeenProperty('имавте една гарсоњера кај црногорска амбасада'), true);
+  assert.equal(detectSeenProperty('ИМАВТЕ ЕДНА ГАРСОЊЕРА КАЈ ЦРНОГОРСКА АМБАСАДА'), true);
+  assert.equal(detectSeenProperty('imase edna garsonjera do ambasadata'), true);
+  assert.equal(detectSeenProperty('bese edna garsonjera vo blizina na ambasada'), true);
+  assert.equal(detectSeenProperty('gledav edna garsonjera kaj ambasada'), true);
+  // …but the same HAD-verb WITHOUT the determiner is a SEARCH ask ("did you
+  // have studios near X?"), and with "li" it is a plain question — neither may
+  // hijack the funnel into "which Евидентен број?".
+  assert.equal(detectSeenProperty('imavte garsonjera kaj crnogorska ambasada'), false);
+  assert.equal(detectSeenProperty('imavte li garsonjera ?'), false);
+  assert.equal(detectSeenProperty('imate li garsonjeri vo centar'), false);
+  assert.equal(detectSeenProperty('baram garsonjera vo centar'), false);
   // a fresh search is NOT a seen property
   assert.equal(detectSeenProperty('SAKAM DA KUPAM STAN VO KARPOS'), false);
   assert.equal(detectSeenProperty('MI TREBA STAN VO CENTAR'), false);
   assert.equal(detectSeenProperty('zdravo, imate li stanovi vo aerodrom'), false);
+  // …and the same HAD-verb WITH the determiner but no "li" is still read as a
+  // recall: "imavte eden stan?" names one unit, not the category. The funnel
+  // it enters ("which Евидентен број?") is the right one for that client, and
+  // a client who does not know the number is walked back out of it.
+  assert.equal(detectSeenProperty('imavte eden stan ?'), true);
 });
 
 test('detectLocatePick: position picks among presented matches (првиот/вториот)', () => {

@@ -98,6 +98,18 @@ export const LOCATE_REFINE_ASK =
 export const LOCATE_MORE_SPECS_ASK =
   'Разбрав — {location}. За да го стесниме изборот, кажете ми — колку квадрати има станот и по која цена беше? А ако го знаете Евидентен број на имотот, само кажете ми го — веднаш ќе го проверам.';
 
+/** The area label as the client hears it. The feed disambiguates settlement
+ *  rows with a parenthetical type ("Центар (населба)", "Аеродром (општина)") —
+ *  an internal marker the phone never says. It was printed verbatim in the
+ *  locate asks ("Разбрав — Центар (населба)…", the [11:29] capture) and, inside
+ *  the landmark sentence's own parentheses, read as a stutter:
+ *  "во близина на Црногорска Амбасада (Центар (населба))". Same strip as the
+ *  property card below; the SLOTS keep the feed's exact spelling, this is a
+ *  rendering decision only. */
+export function displayAreaName(area: string): string {
+  return area.replace(/\s*\([^)]*\)\s*$/u, '').trim();
+}
+
 export const LOCATE_PICK_CLOSER =
   'Дали некој од овие е тој што го видовте? Ако е, кажете ми „првиот“ или „вториот“, или Евидентен број на имотот.';
 
@@ -210,9 +222,15 @@ export function displayPlaceName(name: string): string {
  *  holds places NAMED after their neighborhood — "Автокоманда"). */
 function placeWithArea(place: string, area?: string): string {
   const shown = displayPlaceName(place);
-  const same = area && (area.trim().toLowerCase() === place.trim().toLowerCase()
-    || area.trim().toLowerCase() === shown.trim().toLowerCase());
-  return `${shown}${area && !same ? ` (${area})` : ''}`;
+  // The feed disambiguates settlement rows with a parenthetical type
+  // ("Центар (населба)", "Аеродром (општина)") — an internal marker, never
+  // spoken language. Inside this sentence's own parentheses it read as a
+  // stutter: "во близина на Црногорска Амбасада (Центар (населба))" (the
+  // [11:29] capture). Same strip as buildPropertyCard below.
+  const bare = area ? displayAreaName(area) : undefined;
+  const norm = (s: string) => s.trim().toLowerCase();
+  const same = !!bare && (norm(bare) === norm(place) || norm(bare) === norm(shown));
+  return `${shown}${bare && !same ? ` (${bare})` : ''}`;
 }
 
 export function buildLocateLandmarkIntro(place: string, area?: string): string {
@@ -236,7 +254,9 @@ export const LOCATE_LANDMARK_PRICE_PROBE =
 export function buildLocateMatchLine(p: Property): string {
   const what = p.plac ? 'плац' : p.house ? 'куќа' : p.business ? 'деловен простор' : propertyType(p);
   const bits = [
-    p.location ? `во ${p.location}` : '',
+    // The area the way a human says it — "во Центар", never the feed's own
+    // "во Центар (населба)" tag (see displayAreaName).
+    p.location ? `во ${displayAreaName(p.location)}` : '',
     p.size ? p.size : '',
     p.price !== undefined ? `${p.price.toLocaleString('mk-MK')} евра` : '',
   ].filter(Boolean);

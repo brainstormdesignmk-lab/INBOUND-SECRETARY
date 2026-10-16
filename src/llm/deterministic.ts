@@ -303,9 +303,16 @@ function smallWordIsMoneyModifier(text: string): boolean {
     '|буџет|bud[zž]?et\\p{L}*|износ|iznos|evra|евра|денари|denari)';
   const moneyNoun = new RegExp(small + '\\s*' + money, 'iu');
   const moneyFirst = new RegExp(money + '[^.!?\\d\\n]{0,16}' + small, 'iu');
+  // The FUZZY size arm (detectPomaloAsk's typo second chance) reads words the
+  // stems above cannot describe — an inverted "polmalo/polmala". Same two
+  // directions, same windows, so a PRICE ask with the same slip stays money
+  // ("polmala cena" is a cheaper ask, never a smaller unit).
+  const slipped = '(?:polmal|полмал)\\p{L}*';
+  const slippedNoun = new RegExp(slipped + '\\s*' + money, 'iu');
+  const slippedFirst = new RegExp(money + '[^.!?\\d\\n]{0,16}' + slipped, 'iu');
   const hasObjectNoun = /(?:стан|stan|куќ|kukj|kuc?j|нешто|nesto|нesto|простор|prostor|соба|soba|имот|imot|дуплекс|duplex)/iu.test(text);
-  if (moneyNoun.test(text)) return true;
-  if (moneyFirst.test(text) && !hasObjectNoun) return true;
+  if (moneyNoun.test(text) || slippedNoun.test(text)) return true;
+  if ((moneyFirst.test(text) || slippedFirst.test(text)) && !hasObjectNoun) return true;
   return false;
 }
 
@@ -313,7 +320,14 @@ function smallWordIsMoneyModifier(text: string): boolean {
  *  the whole мал/компакт/мини family, comparative and superlative included,
  *  money-modifier and bare-quantity false positives excluded. */
 export function detectPomaloAsk(text: string): boolean {
-  if (!SMALL_SIZE_RE.test(text)) return false;
+  // TYPO SECOND CHANCE (the [11:28] capture): "nesto POLMALO" — the adjective's
+  // last two letters inverted — matches none of the generated forms, and Lina
+  // re-asked the discovery question the client had just ignored, while a
+  // correctly spelled "nesto pomalo" moves the funnel on to the bedrooms ask.
+  // Same edit-distance rule as every other detector (посета→опсета is ONE
+  // edit); the money veto below covers the slipped price ask the same way.
+  if (!SMALL_SIZE_RE.test(text)
+    && !fuzzyHasToken(text, ['помало', 'помала', 'помали', 'помалечко', 'компактно'])) return false;
   if (smallWordIsMoneyModifier(text)) return false;
   return true;
 }

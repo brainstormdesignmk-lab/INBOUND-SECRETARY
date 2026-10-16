@@ -128,8 +128,11 @@ while IFS='|' read -r id host user key rpath note; do
   if [ "$DO_RESTART" = "1" ]; then
     # 2) restart: the bot's cmdline is RELATIVE ("node dist/index.js", from the
     #    @reboot line) and ANA on the same box may look identical — so LINA
-    #    processes are identified by /proc/PID/cwd == the LINA dir. Kill only
-    #    those, wait for the port to free, then relaunch exactly like @reboot.
+    #    processes are identified by /proc/PID/cwd == the LINA dir AND
+    #    /proc/PID/exe being a node binary (a wrapper SHELL whose command line
+    #    merely contains that text is not a bot). Kill only those, wait for the
+    #    shutdown (SIGTERM first: the close is graceful and slow; SIGKILL only
+    #    for a bot that will not close), then relaunch exactly like @reboot.
     echo "  → restarting bot (nohup, @reboot-style) …"
     if [ "$DRY_RUN" = "1" ]; then
       echo "    [dry-run] would kill cwd-matched 'node dist/index.js' && nohup node dist/index.js"
@@ -138,29 +141,63 @@ while IFS='|' read -r id host user key rpath note; do
 set -u
 cd '$rpath'
 mkdir -p logs
-for pid in \$(pgrep -f 'node .*dist/index\.js' 2>/dev/null); do
-  [ "\$(readlink /proc/\$pid/cwd 2>/dev/null)" = '$rpath' ] && kill "\$pid" 2>/dev/null && echo "killed \$pid"
-done
-for i in \$(seq 1 10); do
-  busy=0
+# A bot is identified by BOTH its cwd (the LINA dir — ANA on the same box
+# looks identical) and its exe (a node binary). The command line alone is not
+# enough: cron's own @reboot line and an operator's nohup both CONTAIN the text
+# "node dist/index.js", so a lingering wrapper shell (ppid 1, cwd = the LINA
+# dir) counted as a live bot. Measured on atom01, 2026-10-16.
+botpids() {
   for pid in \$(pgrep -f 'node .*dist/index\.js' 2>/dev/null); do
-    [ "\$(readlink /proc/\$pid/cwd 2>/dev/null)" = '$rpath' ] && busy=1
+    [ "\$(readlink /proc/\$pid/cwd 2>/dev/null)" = '$rpath' ] || continue
+    case "\$(readlink /proc/\$pid/exe 2>/dev/null)" in */node) echo "\$pid";; esac
   done
-  [ "\$busy" = "0" ] && break
+}
+for pid in \$(botpids); do kill "\$pid" 2>/dev/null && echo "killed \$pid"; done
+# GRACEFUL SHUTDOWN IS SLOW: the bot closes the relay and Hermes sockets on
+# SIGTERM, and on atom01 (2026-10-16) that outlasted the old 10 s window. The
+# old loop then read the dying bot as "STILL ALIVE", exited 3 WITHOUT starting
+# a replacement, and left the atom with NO bot at all — the summary only said
+# RESTART-FAIL and the outage had to be repaired by hand. Wait 30 s, then
+# escalate to SIGKILL: a bot that will not close must never outlive the deploy.
+for i in \$(seq 1 30); do
+  [ -z "\$(botpids)" ] && break
   sleep 1
 done
-for pid in \$(pgrep -f 'node .*dist/index\.js' 2>/dev/null); do
-  if [ "\$(readlink /proc/\$pid/cwd 2>/dev/null)" = '$rpath' ]; then echo 'OLD PROCESS STILL ALIVE — not starting a second one'; exit 3; fi
-done
+if [ -n "\$(botpids)" ]; then
+  for pid in \$(botpids); do kill -9 "\$pid" 2>/dev/null && echo "SIGKILL \$pid (would not close)"; done
+  for i in \$(seq 1 5); do [ -z "\$(botpids)" ] && break; sleep 1; done
+fi
+# Refuse to start a SECOND bot (two processes on :8080 would split the
+# traffic) — but never refuse to start the FIRST one: reaching this line means
+# the atom has no bot, which is strictly worse than a second process.
+if [ -n "\$(botpids)" ]; then echo 'OLD PROCESS STILL ALIVE AFTER SIGKILL — not starting a second one'; exit 3; fi
 : > logs/lina-stdout.log
 nohup node dist/index.js >> logs/lina-stdout.log 2>&1 &
 echo \$! > data/lina.pid
 EOF
-      # 3) boot verification: cwd-matched process alive AND boot-check lines.
+      # 3) boot verification: the bot must ANSWER, not merely exist.
+      #
+      #    A live pid says nothing about SERVING: Express can fail to bind (a
+      #    straggler holding the port, a bad PORT) and the process then sits
+      #    there taking no traffic at all — the exact silent state a deploy must
+      #    never report as healthy. GET /health (registered in BOTH outbound
+      #    modes — src/channels/viber.ts) is the client-independent proof:
+      #    HTTP 200 + {"ok":true}. The pid is still required: an answer from
+      #    something that is not our bot is not a healthy atom.
+      #
+      #    Probed from ON the atom against 127.0.0.1, and PORT is read from the
+      #    atom's own env — a per-atom port must never be assumed to be 8080.
+      port=$("${SSH[@]}" "grep -m1 -E '^PORT=' \"\$HOME/.lina/lina.env\" 2>/dev/null | cut -d= -f2 | tr -d ' '" || true)
+      port=${port:-8080}
       sleep 5
-      alive=$("${SSH[@]}" "n=0; for pid in \$(pgrep -f 'node .*dist/index\.js' 2>/dev/null); do [ \"\$(readlink /proc/\$pid/cwd 2>/dev/null)\" = '$rpath' ] && n=\$((n+1)); done; echo \$n")
-      if [ "${alive:-0}" = "1" ]; then
-        echo "    ✓ process alive (cwd-matched: 1)"
+      alive=$("${SSH[@]}" "n=0; for pid in \$(pgrep -f 'node .*dist/index\.js' 2>/dev/null); do [ \"\$(readlink /proc/\$pid/cwd 2>/dev/null)\" = '$rpath' ] || continue; case \"\$(readlink /proc/\$pid/exe 2>/dev/null)\" in */node) n=\$((n+1));; esac; done; echo \$n")
+      # RETRY: the boot does real work before listen() (DB open, feed fetch, bank
+      # self-test), so "not up yet" and "never came up" have to be told apart —
+      # 20 s is long enough for a slow start, short enough to fail the deploy.
+      health=$("${SSH[@]}" "for i in \$(seq 1 20); do if command -v curl >/dev/null 2>&1; then body=\$(curl -fsS --max-time 3 'http://127.0.0.1:$port/health' 2>/dev/null); elif command -v wget >/dev/null 2>&1; then body=\$(wget -qO- -T 3 'http://127.0.0.1:$port/health' 2>/dev/null); else echo NO-HTTP-CLIENT; exit 3; fi; [ -n \"\$body\" ] && { echo \"\$body\"; exit 0; }; sleep 1; done; exit 1" || true)
+      if [ "${alive:-0}" = "1" ] && echo "$health" | grep -q '"ok":true'; then
+        echo "    ✓ process alive (cwd+exe-matched: 1)"
+        echo "    ✓ /health answers on 127.0.0.1:$port — $health"
         checks=$("${SSH[@]}" "grep -E 'Lina online|boot-check' '$rpath/logs/lina-stdout.log' 2>/dev/null | tail -10 || true")
         if [ -n "$checks" ]; then
           echo "$checks" | sed 's/^/      /'
@@ -169,8 +206,11 @@ EOF
           echo "    ⚠ no boot lines yet — check logs/lina-stdout.log if the bot looks quiet"
         fi
         RESULTS+=("$id|OK")
+      elif [ "$health" = "NO-HTTP-CLIENT" ]; then
+        echo "    ⚠ bot RUNS but the atom has neither curl nor wget — serving NOT verified on :$port"
+        RESULTS+=("$id|BOOT-UNVERIFIED")
       else
-        echo "    ✗ bot did not come up (processes: ${alive:-0}) — inspect:"
+        echo "    ✗ bot is not serving (pid-matched: ${alive:-0}, /health on :$port: ${health:-no answer}) — inspect:"
         "${SSH[@]}" "tail -15 '$rpath/logs/lina-stdout.log'" 2>/dev/null | sed 's/^/      /'
         RESULTS+=("$id|BOOT-FAIL")
       fi

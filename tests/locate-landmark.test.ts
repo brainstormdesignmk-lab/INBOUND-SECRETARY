@@ -24,7 +24,7 @@ import { MetaStore } from '../src/store/meta';
 import { EnrichmentStore } from '../src/store/enrichment';
 import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
-import { displayPlaceName } from '../src/llm/prompts';
+import { displayAreaName, displayPlaceName } from '../src/llm/prompts';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
@@ -52,6 +52,9 @@ function buildRealMap(): OfflineMapStore {
     // contains it — the post office the [10:28] phantom came from.
     { name: 'Ново Лисиче', type: 'suburb', lat: 41.9843691, lon: 21.4768374, source: 'osm' },
     { name: 'ELS Novo Lisice', type: 'Post office', lat: 41.9829438, lon: 21.4768218, source: 'google' },
+    // The Montenegrin embassy, as the real map holds it (the feed's own
+    // address field for EB 63 is literally "Црногорска Амбасада").
+    { name: 'Црногорска Амбасада', type: 'embassy', lat: 41.9959869, lon: 21.418169, source: 'osm' },
   ], []);
   return new OfflineMapStore(dbPath);
 }
@@ -223,6 +226,10 @@ test('[10:29] the client reads place names in Cyrillic, the map keeps its own sp
   assert.equal(displayPlaceName('Tinex'), 'Тинекс');
   assert.equal(displayPlaceName('Hotel Kapistec'), 'Хотел Капиштец');
   assert.equal(displayPlaceName('Embassy of Montenegro'), 'Амбасада Монтенегро');
+  // The feed's own disambiguator is internal — the phone never says it.
+  assert.equal(displayAreaName('Центар (населба)'), 'Центар');
+  assert.equal(displayAreaName('Аеродром (општина)'), 'Аеродром');
+  assert.equal(displayAreaName('Центар'), 'Центар');
   // Already Cyrillic (or mixed) → shown exactly as the map holds it.
   assert.equal(displayPlaceName('Кафе бар Ван Гог'), 'Кафе бар Ван Гог');
   assert.equal(displayPlaceName('Трговски Лисиче'), 'Трговски Лисиче');
@@ -245,6 +252,78 @@ test('[13:28] he DOES know the number: the normal property_query workflow runs',
   assert.ok(reply.includes('204.000'), `the card quotes ITS price in евра: ${reply}`);
   assert.ok(!reply.includes('Дали го знаете Евидентен број'), `never the ask once the number is given: ${reply}`);
   assert.equal(sessions.get(chatId)!.slots.bedrooms, 3);
+  offlineMap.close();
+});
+
+test('[11:29] "IMAVTE EDNA GARSONJERA KAJ CRNOGORSKA AMBASADA": the unit type is a specific property too', async () => {
+  // The [11:28]/[11:29] capture, deterministic path (no LLM):
+  //   [11:28] sakam da kupam stance
+  //   [11:28] nesto polmalo
+  //   [11:28] ЛИНА: Во кој дел од градот…?
+  //   [11:29] imavte edna garsonjera kaj crnogorska ambasada
+  //   [11:29] ЛИНА: Во која градска населба…?          ← the bug: same ask, third time
+  //   [11:29] dali e uste na prodazba ?
+  // "гарсоњера" was not in the seen-property object list and the HAD-verb had
+  // no slot, so the client's OWN recall (with the place in it!) was read as a
+  // fresh search with no location. He answers the funnel's question with a
+  // PLACE — the funnel must take it, ask for the Евидентен број, and then
+  // answer the availability question from the rows nearest that place.
+  const EMBASSY_ROWS: Property[] = [
+    { eb: 63, id: 63, location: 'Центар (населба)', price: 36000, service: 'buy', sqm: 28, size: '28 м²', address: 'Црногорска Амбасада', lat: 41.995985, lon: 21.418172, geo_source: 'stored' } as Property,
+    { eb: 76, id: 76, location: 'Центар', price: 45000, service: 'buy', sqm: 24, size: '24 м²', address: 'Васил Стефановски 16', lat: 41.9958, lon: 21.4176, geo_source: 'stored' } as Property,
+    { eb: 84, id: 84, location: 'Центар', price: 117000, service: 'buy', bedrooms: 3, sqm: 48, size: '48 м²', address: 'Роза Луксембург', lat: 41.9941, lon: 21.4182, geo_source: 'stored' } as Property,
+  ];
+  const { send, sent, sessions, chatId, offlineMap } = await makeHandler(EMBASSY_ROWS);
+  await send('sakam da kupam stance');
+  await send('nesto polmalo');
+  const s = await send('imavte edna garsonjera kaj crnogorska ambasada');
+  const reply = sent[sent.length - 1];
+
+  assert.equal(s.state, 'property_locate', `the recall must locate, not search again: ${s.state}`);
+  // The question he already answered is never asked a third time.
+  assert.ok(!/градска населба|иден стан/.test(reply), `never the discovery question again: ${reply}`);
+  assert.ok(reply.includes('Евидентен број'), `the number is asked first: ${reply}`);
+  // The area comes back the way a human says it: the feed's settlement tag
+  // ("Центар (населба)") is internal and never spoken ("Разбрав — Центар (населба)"
+  // was what the client actually read).
+  assert.ok(reply.includes('Разбрав — Центар.'), `the area is spoken, not tagged: ${reply}`);
+  assert.ok(!reply.includes('(населба)'), `no internal feed tag in the reply: ${reply}`);
+  // The landmark he named IS the place — read off the map, not invented.
+  assert.equal(s.slots.poiAnchor, 'Црногорска Амбасада');
+  // The area comes from the bank's own rows near the place (EB 76 is tagged
+  // "Центар", EB 63 "Центар (населба)") — the funnel takes the neighborhood they
+  // agree on, never a guess of its own.
+  assert.match(String(s.slots.location), /^Центар/u, `the landmark assumes the area the bank puts it in: ${s.slots.location}`);
+
+  // …and the availability question that followed is answered from the rows
+  // nearest that place: the гарсоњера in the embassy's own building comes
+  // first, the 3-room flat 200 m away never pretends to be what he saw.
+  const s2 = await send('dali e uste na prodazba ?');
+  const avail = sent[sent.length - 1];
+  assert.ok(avail.includes('Црногорска Амбасада'), `the place is confirmed back: ${avail}`);
+  assert.ok(!/\(населба\)/.test(avail), `never nested tag parentheses in the sentence: ${avail}`);
+  assert.ok(avail.includes('Евидентен број 63'), `EB 63 is 3 m from the embassy and IS the гарсоњера: ${avail}`);
+  assert.ok(!/Евидентен број 84/.test(avail.split('Евидентен број 63')[1] ?? ''), `the nearest first: ${avail}`);
+  assert.equal(s2.state, 'property_locate', 'still locating until he names one');
+  void sessions; void chatId;
+  offlineMap.close();
+});
+
+test('[11:29] the same HAD-verb without the determiner stays a SEARCH ask', async () => {
+  // "imavte garsonjera kaj crnogorska ambasada" does not name ONE unit — it
+  // asks whether we have any, which is a search about a place. The anchor is
+  // taken (the search ranks from it), but the locate funnel must not fire and
+  // the number must not be asked.
+  const EMBASSY_ROWS: Property[] = [
+    { eb: 63, id: 63, location: 'Центар', price: 36000, service: 'buy', sqm: 28, size: '28 м²', address: 'Црногорска Амбасада', lat: 41.995985, lon: 21.418172, geo_source: 'stored' } as Property,
+  ];
+  const { send, sent, offlineMap } = await makeHandler(EMBASSY_ROWS);
+  await send('sakam da kupam stance');
+  const s = await send('imavte garsonjera kaj crnogorska ambasada');
+
+  assert.notEqual(s.state, 'property_locate', `a plain question is not a recall: ${s.state}`);
+  const reply = sent[sent.length - 1];
+  assert.ok(!reply.includes('Евидентен број'), `never the number ask here: ${reply}`);
   offlineMap.close();
 });
 

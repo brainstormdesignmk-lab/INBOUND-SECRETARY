@@ -135,9 +135,21 @@ const VISIT_CMD_L = ['zakazi', 'dogovori', 'organiziraj', 'organizirajte'];
 const SEEN_SAW = ['гледав', 'видов', 'видев'];
 const SEEN_SAW_L = ['gledav', 'vidov', 'videv'];
 
-/** Object nouns — "ad" / "apartment" / "property" (including definite forms) */
-const SEEN_OBJ = ['оглас', 'огласот', 'стан', 'станот', 'имот', 'имотот'];
-const SEEN_OBJ_L = ['oglas', 'oglasot', 'stan', 'stanot', 'imot', 'imotot'];
+/** Object nouns — "ad" / "apartment" / "property" (including definite forms).
+ *  "гарсоњера" is here too: the client recalls the STUDIO he saw ("imavte edna
+ *  garsonjera kaj crnogorska ambasada", the [11:29] capture) — without it the
+ *  whole reference fell through and Lina re-asked for the neighborhood. */
+const SEEN_OBJ = ['оглас', 'огласот', 'стан', 'станот', 'имот', 'имотот', 'гарсоњера', 'гарсоњерата', 'гарсонера'];
+const SEEN_OBJ_L = ['oglas', 'oglasot', 'stan', 'stanot', 'imot', 'imotot', 'garsonjera', 'garsonjerata', 'garconjera'];
+
+/** Past-tense "the agency HAD it" — the client remembers a listing he saw with
+ *  us: "imavte edna garsonjera kaj crnogorska ambasada" (the [11:29] capture),
+ *  "bese edna garsonjera kaj ambasada". These verbs also form QUESTIONS
+ *  ("imavte li garsonjera?", "imavte garsonjera vo centar?"), which are SEARCH
+ *  asks — so the slot built from them REQUIRES the determiner: "edna
+ *  garsonjera" names a specific unit, a bare "garsonjera" names a category. */
+const SEEN_HAD = ['имавте', 'имаше', 'имав', 'имаа', 'беше'];
+const SEEN_HAD_L = ['imavte', 'imase', 'imav', 'imaa', 'bese'];
 
 /** Online source — "on the internet" */
 const SEEN_ONLINE = ['на интерннет', 'на интернет'];
@@ -410,6 +422,7 @@ export function buildSeenSlots(): RegExp {
   const ONL = or([...SEEN_ONLINE, ...SEEN_ONLINE_L]);
   const SITE = or([...SEEN_SITE, ...SEEN_SITE_L]);
   const FILL = or([...SEEN_FILL, ...SEEN_FILL_L]);
+  const HAD = or([...SEEN_HAD, ...SEEN_HAD_L]);
   const GAPSEEN = '[^.!?\\n]{0,30}';
 
   const s = (base: string) => base;
@@ -422,6 +435,13 @@ export function buildSeenSlots(): RegExp {
     // Slot: SAW FILL? OBJ — "гледав еден стан", "GLEDAV EDEN STAN", "vidov
     // nekoj oglas" (the [13:27] capture: the determiner broke every slot)
     s(`${SAW}${WS}(?:${FILL}${WS}){0,2}${OBJ}`),
+    // Slot: HAD FILL OBJ — "imavte edna garsonjera kaj crnogorska ambasada",
+    // "имавте една гарсоњера кај амбасадата" (the [11:29] capture): the client
+    // recalls a listing he saw WITH US, which is the same funnel as "gledav
+    // eden stan". The determiner is required (see SEEN_HAD) so a search ask
+    // ("imavte li garsonjera?", "imavte garsonjera vo centar?") stays a
+    // search.
+    s(`${HAD}${WS}${FILL}${WS}${OBJ}`),
     // Slot: OBJ SAW — "оглас гледав" (reversed, no clitic)
     s(`${OBJ}${WS}${SAW}`),
     // Slot: OBJ CLITIC SAW — "огласот го гледав" (full reversal)
