@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
-# Hermes price sync (cron wrapper) — owner price corrections reach the app ASAP.
+# Hermes owner sync (cron wrapper) — owner corrections reach the app ASAP.
+#
+# REQUIRED, NOT OPTIONAL (2026-10-14). This is the ONE scheduled job that must
+# stay installed, and it drains TWO queues of owner-dictated facts:
+#   price_changes    — Lina asks the owner the CURRENT price; a different one is
+#                      pushed so the public price follows the owner's word.
+#   address_changes  — Lina confirms the ADDRESS with the owner before a visit;
+#                      when the owner gives a different street, the owner owns
+#                      the building and the listing learns the real one.
+# It is NOT map work. A no-cron sweep deleted this line once and every published
+# price silently froze while corrected addresses piled up locally.
+# `npm run cron:check -- --require-sync` now fails if it is missing.
 #
 # Lina records every owner price correction in data/lina.db (price_changes,
 # status='pending'); this pushes them through the T60 Hub (HERMES_WRITE_URL),
@@ -11,10 +22,10 @@
 # hermes` dies with `sh: 1: tsx: not found`).
 #
 # Usage:
-#   scripts/hermes-price.sh            # the cron entry
+#   scripts/hermes-price.sh            # the cron entry (and safe to run by hand)
 #   scripts/hermes-price.sh --dry-run  # report only, nothing sent, nothing resolved
 #
-# Cron line (every 5 min — corrections must not wait for a nightly):
+# Cron line (every 5 min — a correction must not wait for a nightly):
 #   */5 * * * * /home/atom/Documents/PROJECTS/LINA/scripts/hermes-price.sh
 #
 # Log: data/logs/hermes-price.log, rotated at ~2 MB (keeps 2 old copies).

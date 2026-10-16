@@ -42,6 +42,10 @@
     "bank:fallback-census": "tsx scripts/fallback-census.ts",
     "bank:meters": "tsx scripts/bank-meters.ts",
     "loop:a": "tsx scripts/loop-a.ts",
+    "cron:check": "tsx scripts/install-cron.ts --check",
+    "cron:remove": "tsx scripts/install-cron.ts --remove",
+    "verify:feed": "bash scripts/verify-feed.sh",
+    "deploy:supabase": "bash scripts/deploy-supabase.sh",
     "atoms:deploy": "bash scripts/deploy-atoms.sh",
     "atoms:collect": "bash scripts/collect-atoms.sh",
     "atoms:status": "bash scripts/atoms-status.sh"

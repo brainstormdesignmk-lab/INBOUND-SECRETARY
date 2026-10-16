@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# enrich-bank.sh — midnight cron job for response bank enrichment.
+# enrich-bank.sh — LEGACY duplicate of enrich-cron.sh. MANUAL RUN. NOT SCHEDULED.
 #
-# Usage (crontab):
-#   0 0 * * * /path/to/scripts/enrich-bank.sh >> /path/to/data/enrich-cron.log 2>&1
+# NO CRONS (2026-10-14): the `0 0 * * *` line is gone, and this file was never
+# the supported entry point anyway — enrich-cron.sh is (it covers BOTH DBs:
+# data/lina.db and data/tui.db, which the two-DB split requires). Kept only so
+# an old note does not turn into a mystery; prefer:
 #
-# Behavior:
-#   - Runs at 24:00 (midnight)
-#   - If the machine was off or cron missed, it catches up tomorrow
-#     — the queue accumulates across days
-#   - Processes all pending records from the enrichment_queue table
-#   - No electricity / no internet needed to READ — the queue lives in SQLite
+#   bash scripts/enrich-cron.sh              # both DBs, manual
+#   bash scripts/enrich-cron.sh --gapfill    # + the weekly gapfill pass
 #
-# The enriched bank file (src/data/responses.ts) is the single source of truth.
-# The cron job appends new variants and the bank grows automatically.
+# The enriched bank is the single source of truth for reply wording; nothing
+# touches it on a timer.
 
 set -euo pipefail
 
@@ -20,7 +18,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="${PROJECT_DIR}/data/enrich-cron.log"
 
-# Ensure log directory exists
 mkdir -p "$(dirname "$LOG_FILE")"
 
 echo "=== enrich-bank: $(date -Iseconds) ==="

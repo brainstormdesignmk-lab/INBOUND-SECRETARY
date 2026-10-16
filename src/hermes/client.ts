@@ -7,11 +7,13 @@ import { OwnerVerdict } from '../backoffice/ownerAgent';
 
 export interface LandmarkCandidate { id?: number; address?: string; location?: string; }
 export interface PriceChangeWork { id: number; eb: number; old_price: number | null; new_price: number; }
+export interface AddressChangeWork { id: number; eb: number; old_address: string | null; new_address: string; }
 export interface OwnerCheckWork { chat_id: string; eb: number | null; proposed_time: string; }
 
 export interface HermesWork {
   landmarks: LandmarkCandidate[];
   price_changes: PriceChangeWork[];
+  address_changes: AddressChangeWork[];
   owner_checks: OwnerCheckWork[];
   visits: Array<Record<string, unknown>>;
 }
@@ -42,6 +44,10 @@ export function pushLandmarks(
 
 export function reportPriceResult(baseUrl: string, token: string, id: number, ok: boolean): Promise<{ resolved: boolean }> {
   return request(baseUrl, token, `/hermes/v1/prices/${id}/result`, { method: 'POST', body: JSON.stringify({ ok }) });
+}
+
+export function reportAddressResult(baseUrl: string, token: string, id: number, ok: boolean): Promise<{ resolved: boolean }> {
+  return request(baseUrl, token, `/hermes/v1/addresses/${id}/result`, { method: 'POST', body: JSON.stringify({ ok }) });
 }
 
 export function answerOwner(

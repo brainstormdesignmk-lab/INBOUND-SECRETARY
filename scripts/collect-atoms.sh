@@ -82,11 +82,14 @@ while IFS='|' read -r id host user key rpath note; do
   pull data/feed-corrections.md
 
   # The atom's OWN DATABASE COPY (workstation-enrichment flow, 2026-09-26):
-  # the enrichment queue lives in the atom's lina.db, and enrichment runs on
-  # the WORKSTATION (3 Gemini keys) — the atom's single key starves on 503s.
+  # TWO queues live in the atom's lina.db and both are drained by the
+  # WORKSTATION, never by the atom:
+  #   • enrichment_queue      → 3 Gemini keys (the atom's single key starves)
+  #   • geo_reresolve_queue   → the map hub's SerpApi budget + offline map
   # A .copy-<ts> snapshot is pulled (never the live file — rsyncing a
-  # hot SQLite db can tear). The import tool reads the pending queue from
-  # it; the push side (push-bank.sh) returns the enriched bank to the atom.
+  # hot SQLite db can tear). import-atom-queue.ts merges both queues from it;
+  # the geo merge is ledger-guarded, so re-collecting an unchanged snapshot
+  # costs nothing. The push side (push-bank.sh) returns the enriched bank.
   if [ "$DRY_RUN" = "1" ]; then
     echo "  [dry-run] data/lina.db → $dest/lina.db.copy"
   else
@@ -96,7 +99,8 @@ while IFS='|' read -r id host user key rpath note; do
         "$user@$host:$rpath/data/lina.db.copy-$ts" "$dest/lina.db.copy" 2>/dev/null \
       && "${SSH[@]}" "rm -f '$rpath/data/lina.db.copy-$ts'"; then
       n=$(sqlite3 "$dest/lina.db.copy" 'SELECT COUNT(*) FROM enrichment_queue WHERE enriched=0' 2>/dev/null || echo '?')
-      echo "  ✓ lina.db.copy (pending: $n)"
+      g=$(sqlite3 "$dest/lina.db.copy" 'SELECT COUNT(*) FROM geo_reresolve_queue' 2>/dev/null || echo '?')
+      echo "  ✓ lina.db.copy (pending: $n, geo queue: $g)"
     else
       echo "  · lina.db.copy failed (ok if sqlite3 missing on atom)"
     fi
@@ -157,8 +161,15 @@ echo "══ collect summary ══"
 rc=0
 for r in "${RESULTS[@]:-}"; do
   [ -z "$r" ] && continue
-  id="${r%%|*}"; st="${r#*|}"
-  echo "  $id: $st — review data/atoms/$id/ and promote winners into the repo corpus"
+  id="${r%%|*}"; st="${r#*|}"    echo "  $id: $st — review data/atoms/$id/ and promote winners into the repo corpus"
+    if [ "$st" = "OK" ] && [ "$DRY_RUN" = "0" ]; then
+      # The geo queue is the part that CANNOT wait for a human: each row is a
+      # property the atom could not place. Name the file to hand to the merge.
+      g=$(sqlite3 "data/atoms/$id/lina.db.copy" 'SELECT COUNT(*) FROM geo_reresolve_queue' 2>/dev/null || true)
+      if [ "${g:-0}" != "0" ] && [ -n "${g:-}" ]; then
+        echo "    ⚑ $g geo queue row(s) — npx tsx scripts/import-atom-queue.ts data/atoms/$id/lina.db.copy"
+      fi
+    fi
   # Unmined-capture reminder (reminders, not automation): every pulled line is
   # a phrasing Gemini had to classify — each one mined is a detector forever.
   if [ "$st" = "OK" ] && [ "$DRY_RUN" = "0" ]; then

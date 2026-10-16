@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# Weekly offline-map pull (Sunday cron wrapper) — Hermes machine (T60 plan).
+# Offline-map pull — MANUAL RUN. NOT SCHEDULED.
+#
+# NO CRONS (2026-10-14), and this one mattered most: it REBUILDS
+# data/skopje-pois.db from OSM. The map is a FIXED ARTIFACT — finished and
+# deployed by a human, unchanged until that human runs the SerpApi pass. A
+# weekly timer that rebuilds it behind everyone's back is exactly the drift the
+# no-cron policy exists to stop, so the Sunday line is gone.
+#
+# ⚠ THIS IS A SECOND MAP PRODUCER. Only ONE machine may build this map. If the
+# Lenovo authors it and ships it here (deploy_map.sh), do NOT run this on this
+# box — you would overwrite the authored map with a local OSM build. Kept only
+# for the case where this machine IS the map author, on purpose, by hand.
 #
 # Refreshes data/skopje-pois.db: Skopje's NAMED POIs + address rows from OSM
-# (Overpass), the local geo engine the landmark resolver reads instead of live
-# Nominatim/Overpass. Atomic build — if the pull fails, the previous map keeps
-# serving. Output goes to data/logs/skopje-map.log, rotated at ~2 MB (2 old
-# copies), same pattern as hermes-nightly.sh.
+# (Overpass). Atomic build — if the pull fails, the previous map keeps serving.
+# Output goes to data/logs/skopje-map.log, rotated at ~2 MB (2 old copies).
 #
 # Usage:
-#   scripts/skopje-map-weekly.sh   # the cron entry
-#
-# Cron line (Sunday 03:17 — off-peak, same hour as the nightly):
-#   17 3 * * 0 /abs/path/to/scripts/skopje-map-weekly.sh
+#   scripts/skopje-map-weekly.sh   # a manual run, when YOU decide
 set -u
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Nightly Hermes landmark resolver (cron wrapper).
+# Hermes landmark resolver — MANUAL RUN. NOT SCHEDULED.
+#
+# NO CRONS (2026-10-14): nothing in this cluster runs on a timer. This wrapper
+# used to be installed as `17 3 * * *` on the workstation; that line has been
+# removed and scripts/install-cron.ts refuses to reinstall anything. Its log
+# rotation and --dry-run passthrough are still useful when a human runs it.
 #
 # Resolves the NEAREST public landmark for every property address that still
 # has only the coarse table fallback, using Hermes' own reasoning LLM (NVIDIA
@@ -7,11 +12,8 @@
 # data/logs/hermes-landmarks.log, rotated at ~2 MB (keeps 2 old copies).
 #
 # Usage:
-#   scripts/hermes-nightly.sh            # the cron entry
+#   scripts/hermes-nightly.sh            # a manual pass, when YOU decide
 #   scripts/hermes-nightly.sh --dry-run  # report-only (no LLM calls, no writes)
-#
-# Cron line (nightly 03:17 — off-peak, after the day's chat traffic settles):
-#   17 3 * * * /abs/path/to/scripts/hermes-nightly.sh
 #
 # NOTE (two machines): this runs where Hermes lives. Today that is the same box
 # as Lina (reads data/lina.db directly). When Hermes moves to its own machine,

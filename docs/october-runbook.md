@@ -230,6 +230,19 @@ Then on the T60: restart the bot, confirm in the log the map loaded, and ask it
 "kade tocno se naogja?" for EB 77 — the answer should name a nearby landmark
 with the map pin, straight from the new map, zero network.
 
-The two existing cron lines (`30 0 * * *` enrich, `17 3 * * *` hermes) need
-nothing — they operate on the transferred files and on Supabase, and the
-standing monthly loop (B3 + drain) keeps the street set closed from here on.
+There is **no cron** doing any of this. The old lines (`30 0 * * *` enrich,
+`17 3 * * *` landmarks) were removed on 2026-10-14 — enrichment and landmark
+resolution are run by hand, when you choose:
+
+```bash
+bash scripts/enrich-cron.sh            # after review
+bash scripts/hermes-nightly.sh
+```
+
+The one line that **stays** scheduled is the **owner price sync**
+(`*/5 hermes-price.sh`): Lina asks owners for the current price, and that job
+carries each correction to the app. It is not map work — `npm run cron:check --
+--require-sync` fails if it is missing.
+
+The transferred map is the fixed artifact: unchanged until a human runs the
+SerpApi pass again (maps repo, `npm run refresh`).

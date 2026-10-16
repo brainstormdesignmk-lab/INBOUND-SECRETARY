@@ -208,6 +208,16 @@ test('detectLocation: the exact ask wins over its sibling settlement', () => {
   assert.equal(detectLocation('vo novo madjari', feed), 'Ново Маџари');
   assert.equal(detectLocation('vo madjari', feed), 'Маџари');
   assert.equal(detectLocation('novo lisice, karpos', feed), 'Ново Лисиче, Карпош III');
+  // THE [10:28] ECHO BUG: the sibling guard above stopped the bare base from
+  // MATCHING, but only while the query was the compound itself — a full
+  // sentence carried other words, so 'lisice' still earned its bare alias and
+  // the slot echoed "Ново Лисиче, Лисиче", a place the client never named.
+  assert.equal(detectLocation('gledav eden stan kaj vas vo novo lisice', feed), 'Ново Лисиче');
+  assert.equal(detectLocation('sakam stan vo novo lisice', feed), 'Ново Лисиче');
+  assert.equal(detectLocation('sakam stan vo novo madjari', feed), 'Ново Маџари');
+  // …while a client who really names both keeps both.
+  assert.equal(detectLocation('novo lisice i lisice', feed), 'Ново Лисиче, Лисиче');
+  assert.equal(detectLocation('vo lisice', feed), 'Лисиче');
 });
 
 test('normalizeLocation: Latin asks canonicalize to the feed spelling', () => {

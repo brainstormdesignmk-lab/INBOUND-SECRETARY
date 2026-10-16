@@ -1,21 +1,29 @@
-# Hermes — nightly jobs & the two-machine move
+# Hermes — manual jobs & the two-machine move
+
+> **NO MAP JOB IS SCHEDULED (2026-10-14).** Every command below runs when a human
+> runs it — with ONE exception that must never be removed: the **owner price
+> sync**, `*/5 * * * * scripts/hermes-price.sh` on the bot atom. Lina asks owners
+> for the current price and that timer is the only thing that carries each
+> correction through the hub to the app. The historic cron lines for the MAP work
+> are quoted only so an old crontab entry is recognisable — `npm run cron:check`
+> must report COMPLIANT on every machine (add `--require-sync` on an atom), and
+> `scripts/install-cron.ts` refuses to install any NEW schedule.
 
 Hermes is the agency-side agent that runs on its own box (or, for now, the same
 box as Lina). It owns the jobs Lina must not do itself: the **price sync** to
 the public app and the **landmark resolution** (naming the nearest public place
 for each property address via its own reasoning LLM — NVIDIA NIM, free tier).
 
-## Nightly cron (landmark resolution)
+## Landmark resolution — MANUAL
 
-Installed entry (03:17 nightly — off-peak):
-
-```
-17 3 * * * <PROJECT_DIR>/scripts/hermes-nightly.sh
+```bash
+bash scripts/hermes-nightly.sh            # run it when YOU decide
+bash scripts/hermes-nightly.sh --dry-run  # report-only: no LLM calls, no writes
 ```
 
 - Wrapper: `scripts/hermes-nightly.sh` — logs to `data/logs/hermes-landmarks.log`,
-  rotates at ~2 MB (keeps 2 old copies), and exits non-zero on a real failure
-  (so cron can alert). `--dry-run` for a report-only pass.
+  rotates at ~2 MB (keeps 2 old copies), and exits non-zero on a real failure.
+- The name still says "nightly" from when it was scheduled; it is not.
 - Under the hood it runs `npm run hermes:landmarks`
   (`src/scripts/hermesLandmarks.ts`): for every feed address that still has
   only the coarse table landmark, it geocodes (OSM Nominatim, free) and asks
@@ -24,20 +32,25 @@ Installed entry (03:17 nightly — off-peak):
 - Env comes from `~/.lina/lina.env` (loaded by `loadConfig`):
   `HERMES_LLM_BASE_URL`, `HERMES_LLM_API_KEY`, `HERMES_LLM_MODEL`.
 
-## Offline map (T60 plan) — weekly Sunday pull
+## Offline map — MANUAL pull, and only on the machine that OWNS the map
 
 The landmark resolver used to hit live Nominatim + Overpass per property (rate
 limits, 429s, uptime). It now reads a LOCAL OSM map of Skopje instead — named
-POIs + address rows in a small SQLite file (`data/skopje-pois.db`, a few MB):
+POIs + address rows in a small SQLite file (`data/skopje-pois.db`, a few MB).
 
+```bash
+bash scripts/skopje-map-weekly.sh   # manual only; NOT weekly any more
 ```
-17 3 * * 0  <PROJECT_DIR>/scripts/skopje-map-weekly.sh
-```
+
+> **⚠ ONE PRODUCER.** This pulls and REBUILDS the map from OSM. If another
+> machine authors `skopje-pois.db` and ships it here with `deploy_map.sh`, do
+> NOT run this here — you would overwrite the authored map with a local build.
+> The map is a fixed artifact between deliberate refreshes.
 
 - Wrapper: `scripts/skopje-map-weekly.sh` — `npm run map:pull`
   (`src/scripts/skopjeMap.ts`), logs to `data/logs/skopje-map.log`, rotated at
-  ~2 MB like the nightly. The build is ATOMIC (temp file + rename): a failed
-  pull keeps the previous map serving.
+  ~2 MB. The build is ATOMIC (temp file + rename): a failed pull keeps the
+  previous map serving.
 - The resolver (`hermesLandmarks.ts`, feed mode) uses the map for geocoding
   (Latin↔Cyrillic street match) and the 1000m POI ring — live Nominatim/Overpass
   remain the fallback when the map is missing, a street is unmatched, or a ring
@@ -47,24 +60,33 @@ POIs + address rows in a small SQLite file (`data/skopje-pois.db`, a few MB):
   tourism/office POIs + `addr:street` rows — no buildings, roads or geometry.
   The exact POI count and DB size are printed on every pull.
 
-## Price sync (same pattern, same box or the cron above)
+## Owner sync — SCHEDULED on the atom (the one job that stays)
 
-`npm run hermes` / `src/scripts/hermes.ts` — POSTs pending `price_changes`
-rows to the Lovable-built `update-property-price` Supabase function
-(`HERMES_WRITE_URL` / `HERMES_TOKEN`) and resolves them on 2xx. Add it to the
-nightly wrapper when the price-cron is wanted:
+`npm run hermes` / `src/scripts/hermes.ts` — one pass over TWO queues of
+owner-dictated facts, each POSTed to its Lovable-built Supabase function and
+resolved on 2xx:
 
-```
-# in scripts/hermes-nightly.sh, after the landmarks run:
-#   npm run hermes >> "$LOG_FILE" 2>&1
-```
+| queue | what Lina asked the owner | function it lands in |
+|---|---|---|
+| `price_changes` | the CURRENT price — a different one becomes the public price | `update-property-price` (`HERMES_WRITE_URL`) |
+| `address_changes` | the ADDRESS, confirmed before a visit (Turn 0) — a different street is the real one | `update-property-address` (`HERMES_ADDRESS_WRITE_URL`, derived from `HERMES_WRITE_URL` when unset) |
+
+On the atom this is the REQUIRED `*/5 scripts/hermes-price.sh` cron entry — the
+wrapper is named after its first queue, but it carries both. Do not remove it:
+a no-cron sweep did once (2026-10-14) and every published price froze while
+corrected addresses piled up unread. `npm run cron:check -- --require-sync`
+fails if it is missing, and `npm run atoms:deploy` re-installs it.
+
+Run it by hand any time (`bash scripts/hermes-price.sh`, or `npm run hermes
+-- --dry-run` to report only). A failed push leaves the row `pending`, so an
+outage delays a correction — it never loses one.
 
 ## Logs
 
 | job | log |
 |---|---|
-| landmarks (nightly) | `data/logs/hermes-landmarks.log` (+ `.1`, `.2` rotated) |
-| price sync | same wrapper log when added, or `data/hermes.log` for a manual pass |
+| landmarks (manual) | `data/logs/hermes-landmarks.log` (+ `.1`, `.2` rotated) |
+| owner sync (price + address) | `data/logs/hermes-price.log`, or `data/hermes.log` for a bare pass |
 | TUI console | `data/tui.log` |
 | bot (pm2) | `pm2 logs metropolis-lina` |
 
@@ -113,8 +135,8 @@ HERMES_LLM_MODEL=deepseek-ai/deepseek-r1
 - `hermesLandmarks.ts` + `hermes.ts` auto-detect REMOTE mode from
   `LINA_API_URL`; local mode (no URL) still reads `data/lina.db` directly.
   In REMOTE mode no local DB is created or touched.
-- The nightly wrapper (`scripts/hermes-nightly.sh`) runs unchanged on machine B
-  — the log/rotation stay identical.
+- The wrapper (`scripts/hermes-nightly.sh`) runs unchanged on machine B — the
+  log/rotation stay identical. It is a manual entry point, not a schedule.
 
 ### Testing the whole system in parallel
 

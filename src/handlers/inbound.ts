@@ -11,8 +11,8 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExitCheck } from '../llm/deterministic';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey } from '../data/properties';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -32,6 +32,7 @@ import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/str
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extractDetailsLandmark, resolveSearchCenter, type PropertyRow, type Center } from '../geo/landmarks';
+import { toCyrillic, translitToLatin } from '../geo/offlineMap';
 import { walkMinutes, distM } from '../geo/precision';
 import { routeLog, resolveIntent, dispatchSimple } from './router';
 import { VisitScheduler } from '../visits/scheduler';
@@ -42,10 +43,11 @@ import {
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
+  buildLocateLandmarkIntro, buildLocateLandmarkFallback, LOCATE_LANDMARK_PRICE_PROBE,
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
-  buildExactAddressAnswer,
+  buildExactAddressAnswer, displayPlaceName,
   buildSideAnswer,
   buildRecommendClose,
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
@@ -55,6 +57,28 @@ import {
 import { detectRecommendAsk, collectMentionedEbs, buildRecommendation } from '../llm/recommend';
 
 const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуална порака за да можам да Ви помогнам.';
+// Landmark reading (the [13:28] capture). AREA_DERIVE_M: how far from a map
+// place the feed's own rows still count as "this place is in that area".
+// LANDMARK_NEAR_M: the radius a listing may honestly be called "близина на"
+// the place the client described (same honest walk radius the presentation
+// anchor uses).
+const AREA_DERIVE_M = 1500;
+const LANDMARK_NEAR_M = 1500;
+
+/** Does the MAP's place name stay within what the CLIENT said? Compared through
+ *  the loose Skopje fold (ч/ц, ш/с, ќ/к, ѓ/џ, and the area aliases), so "BROZ
+ *  KAFE" reaches "Broz Cafe" and "lisice" reaches "Лисиче". Only the map
+ *  name's FIRST word is required: that is where a phantom business name puts
+ *  the brand the client never typed ("ELS Novo Lisice"), while a real short
+ *  reference stays valid ("kaj Zegin" → "Zegin Apteka", "kaj Vero" → "Vero
+ *  Center"). Words shorter than 3 letters carry no identity and are skipped. */
+function poiNameFollowsClientWords(clientText: string, poiName: string): boolean {
+  const words = (s: string): string[] => placeLooseKey(normalizeLocation(s))
+    .split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 3);
+  const said = words(clientText);
+  const head = words(poiName)[0];
+  return !head || said.includes(head);
+}
 // GREETING_ONLY_RE moved to deterministic.ts (shared with the pre-classify's
 // greeting ownership — the 15:12 TUI capture) and imported below.
 const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветен имот.';
@@ -473,7 +497,7 @@ export class InboundHandler {
         const gmapsLine = c && Number.isFinite(c.lat) && Number.isFinite(c.lon)
           ? `\n${landmarkLink(landmark, placeId ?? null, c.lat, c.lon, placeUrl)}`
           : '';
-        return `Тоа се наоѓа во близина на ${landmark}.${gmapsLine}`;
+        return `Тоа се наоѓа во близина на ${displayPlaceName(landmark)}.${gmapsLine}`;
       }
     }
 
@@ -529,6 +553,90 @@ export class InboundHandler {
     //    gives the client the actionable escape: name the Евидентен број.
     void userText;
     return 'Можам да Ви ги покажам ориентирите околу имотот — кажете ми само Евидентен број на станот (на пр. „станот со број 77“), или ако сакате, организирам посета.';
+  }
+
+  // ---------------- landmark (map place) reading ----------------
+
+  /** Resolve a place the CLIENT named to the map's own POI. This is how a
+   *  human reads a landmark the customer drops in passing (the [13:28]
+   *  "PISUVASE DO BROZ KAFE"): not as a word to match exactly, but as a place
+   *  on the map.
+   *
+   *  Order of attempts — the precise reference first, the permissive readings
+   *  only after it:
+   *    1. the phrase as typed ("Капитол Бисер");
+   *    2. the OTHER script (a Latin tail the map stores Cyrillic, or the
+   *       Cyrillic fold extractPoiWish returns for Latin input);
+   *    3. the FIRST distinguishing token alone, and only for a 2-word
+   *       mention: "BROZ KAFE" never matches the map's "Broz Cafe"
+   *       word-by-word (phonetic k/c across two scripts), while "broz" finds
+   *       the bar. A longer phrase carries its own context — a stray first
+   *       token there would be a guess, so it stays unmatched and the funnel
+   *       asks for details instead. */
+  private resolvePlace(name: string | undefined): { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined {
+    const clean = (name ?? '').trim();
+    if (!this.landmarks || clean.length < 4) return undefined;
+    const variants = (s: string): string[] => [s, translitToLatin(s), toCyrillic(s)];
+    // CLAUSE PREFIXES: the extractor's capture is greedy, so a landmark typed
+    // ahead of a second clause keeps it ("PISUVASE DO BROZ KAFE. BESE OKOLU
+    // 200 000 EVRA" → "BROZ KAFE. BESE OKOLU"). The place is what stands
+    // before the boundary, so the proper prefixes are tried in turn.
+    const clauses = clean.split(/[.!?,;:]\s+/u).map(s => s.trim()).filter(Boolean);
+    const tries: string[] = [...variants(clean)];
+    for (let i = clauses.length - 1; i >= 1; i--) tries.push(...variants(clauses.slice(0, i).join(' ')));
+    // DISTINCTIVE TOKEN — the first word of the first clause, when that clause
+    // is a bare two-word reference ("BROZ KAFE"): it never matches the map's
+    // "Broz Cafe" word-by-word (phonetic k/c across two scripts), while
+    // "broz" alone finds the bar. Longer references keep their own context —
+    // a stray first token there would be a guess, so they stay unresolved and
+    // the funnel asks for details instead.
+    const head = clauses[0].split(/\s+/).filter(Boolean);
+    if (head.length === 2 && head[0].length >= 4) tries.push(...variants(head[0]));
+    for (const t of tries) {
+      const hit = this.landmarks.findPlace(t);
+      // UNMENTIONED-WORD GUARD (the [10:28] capture): findPlace is a FUZZY
+      // lookup, so an area the client named came back as the BUSINESS whose
+      // name merely contains it — "kaj vas vo novo lisice" resolved to the post
+      // office "ELS Novo Lisice", and the next turn served it as "баравте стан
+      // во близина на ELS Novo Lisice": a landmark nobody had mentioned. The
+      // map's own spelling therefore has to START with a word the client said
+      // ("BROZ KAFE" → "Broz Cafe", "AVTOKOMANDA" → "Автокоманда"), while a
+      // brand put in FRONT of the area ("ELS …") is refused. A client entering
+      // a chain by its own word still resolves ("kaj TTK Banka" → "TTK Banka
+      // Beverly Hills").
+      if (hit && poiNameFollowsClientWords(clean, hit.name)) return hit;
+    }
+    return undefined;
+  }
+
+  /** The AREA a map place sits in, read from the feed's OWN rows — the bank is
+   *  the agency's street knowledge here (the map carries no neighborhood
+   *  polygons): Broz Cafe's neighbours are Центар rows, so a property
+   *  "кај Broz Kafe" is assumed to be in Центар. The area is the most common
+   *  neighborhood among the rows within AREA_DERIVE_M of the place (ties and
+   *  the empty case fall back to the nearest row that has one). Beyond that
+   *  radius nothing is assumed — a landmark two neighborhoods away is not
+   *  evidence of an area. */
+  private async areaAtPlace(point: { lat: number; lon: number }): Promise<string | undefined> {
+    try {
+      const rows = await this.deps.properties.getAll();
+      const near = rows
+        .filter(p => typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0 && !!p.location)
+        .map(p => ({ loc: p.location as string, d: distM(point.lat, point.lon, p.lat as number, p.lon as number) }))
+        .filter(x => x.d <= AREA_DERIVE_M)
+        .sort((a, b) => a.d - b.d);
+      if (near.length === 0) return undefined;
+      const votes = new Map<string, number>();
+      for (const x of near) votes.set(x.loc, (votes.get(x.loc) ?? 0) + 1);
+      let best = near[0].loc;
+      let bestVotes = 0;
+      for (const [loc, n] of votes) {
+        // Ties resolve to the NEAREST row's area (near is distance-sorted).
+        const nearer = near[0].loc === loc;
+        if (n > bestVotes || (n === bestVotes && nearer)) { best = loc; bestVotes = n; }
+      }
+      return best;
+    } catch { return undefined; }
   }
 
 
@@ -2959,6 +3067,36 @@ export class InboundHandler {
           bankKey = 'property.liked';
         }
       }
+      // LANDMARK READING (the [13:28] capture: "PISUVASE DO BROZ KAFE") — the
+      // client anchors the property he saw to a MAP PLACE instead of a
+      // neighborhood. Resolve it ONCE, here, so every branch below reads the
+      // same geography: the map's OWN name for the place, and the AREA the
+      // feed's rows put it in (Broz Cafe → Центар — a human's street knowledge
+      // is exactly what the bank holds). A place the map does not know leaves
+      // the funnel untouched (the asks below stay honest).
+      let placeAnchor: { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined;
+      if (!reply && this.landmarks) {
+        // AREAS ARE NOT PLACES (the [10:28] capture): "kaj vas vo novo lisice"
+        // names a neighborhood, and the POI map's fuzzy lookup turned it into
+        // the post office "ELS Novo Lisice" — a landmark the client never
+        // mentioned, which the next turn then served as if he had. The feed's
+        // own area names are passed in so the tail can be vetoed as an area.
+        placeAnchor = this.resolvePlace(extractPoiWish(text, { withCriteria: true }));
+        if (placeAnchor) {
+          session.slots.poiAnchor = placeAnchor.name;
+          if (!session.slots.location) {
+            const area = await this.areaAtPlace(placeAnchor);
+            if (area) { session.slots.location = area; session.slots.poiArea = area; }
+          }
+        }
+      }
+      // The landmark may have arrived EARLIER ("пишуваше до Broz Kafe") and the
+      // client now adds a detail ("околу 200 000 беше"): the search keeps
+      // ranking from the place he named. Only while the area is still the one
+      // the landmark gave — a NEW neighborhood in the message means a
+      // different search, and the landmark stops steering it.
+      const anchor = placeAnchor ?? (session.slots.location === session.slots.poiArea
+        ? this.resolvePlace(session.slots.poiAnchor) : undefined);
       if (before !== 'property_locate' && !reply) {
         // Just entered — ask the number first (the easy path when known),
         // UNLESS the entering message already named the area ("go gledav
@@ -2979,6 +3117,49 @@ export class InboundHandler {
           ...locateOpts, exclude: session.slots.presentedIds ?? [],
         })).slice(0, 2);
         reply = nextBatch.length > 0 ? present(nextBatch) : LOCATE_REFINE_ASK;
+      } else if (before === 'property_locate' && anchor) {
+        // THE LANDMARK ANSWER (the [13:28] transcript): "пишуваше до Broz
+        // Kafe" — the client does not know the Евидентен број but he knows
+        // WHERE it was. Search the bank with the characteristics he already
+        // described (услуга, соби, цена, м²), ranked from the place he named,
+        // so the 3-room flat ~100 m from the bar leads. Nothing near the
+        // place → the SAME characteristics offered as the closest
+        // alternatives (the owner's rule: "if she does not find the apartment
+        // wanted she must offer him different ones with the characteristics
+        // discussed"). The area stays a lock, never a barrier: it was only
+        // ever ASSUMED from the landmark in the first place.
+        const distTo = (p: Property): number => (typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0)
+          ? distM(anchor.lat, anchor.lon, p.lat, p.lon)
+          : Number.POSITIVE_INFINITY;
+        // Order: the client's OWN price first when he gave one (that is the
+        // detail he remembers best), then how close it is to the place.
+        const ranked = async (extra: { location?: string }): Promise<Property[]> => {
+          const hits = await this.deps.properties.closestMatches({
+            ...locateOpts, location: extra.location, bedrooms: session.slots.bedrooms,
+          });
+          return [...hits].sort((a, b) =>
+            (price === undefined ? 0 : Math.abs((a.price ?? Number.POSITIVE_INFINITY) - price) - Math.abs((b.price ?? Number.POSITIVE_INFINITY) - price))
+            || distTo(a) - distTo(b) || a.eb - b.eb);
+        };
+        let matches = await ranked({ location: session.slots.location });
+        let near = matches.filter(p => distTo(p) <= LANDMARK_NEAR_M);
+        if (near.length === 0 && session.slots.location) {
+          // The assumed area had nothing matching his criteria — drop ONLY the
+          // assumption and re-search the same characteristics city-wide.
+          matches = await ranked({ location: undefined });
+        }
+        if (near.length > 0) {
+          session.slots.poiAnchorTooFar = undefined;
+          reply = `${buildLocateLandmarkIntro(anchor.name, session.slots.location)}\n\n${present(near.slice(0, 2))}`;
+        } else if (matches.length > 0) {
+          session.slots.poiAnchorTooFar = true;
+          reply = `${buildLocateLandmarkFallback(anchor.name, session.slots.location)}\n\n${present(matches.slice(0, 2))}`;
+        } else {
+          reply = LOCATE_REFINE_ASK;
+        }
+        // He remembers the place, not the price — keep the missing piece
+        // asked ("по која цена беше") without blocking the matches.
+        if (!session.slots.budget) reply += `\n\n${LOCATE_LANDMARK_PRICE_PROBE}`;
       } else if (session.slots.location && !session.slots.sqm && !session.slots.budget
         && !session.slots.bedrooms && !(session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined)) {
         // Location known but m² / price / bedrooms missing — collect more
@@ -3977,8 +4158,9 @@ ${contactReminder}`;
         // is within the honest 1.5 km walk radius of the client's named place,
         // SAY SO — never present a far apartment as if it answered the wish.
         if (!prefix && session.slots.poiAnchorTooFar && session.slots.poiAnchor) {
-          prefix = pickVariant('poi.tooFar', { recent: assistantTexts(session), vars: { place: session.slots.poiAnchor } })
-            ?? `Во моментов немам имот во непосредна близина на ${session.slots.poiAnchor}. Еве ги најблиските опции во ${session.slots.location ?? 'реонот'}:`;
+          const anchorPlace = displayPlaceName(session.slots.poiAnchor);
+          prefix = pickVariant('poi.tooFar', { recent: assistantTexts(session), vars: { place: anchorPlace } })
+            ?? `Во моментов немам имот во непосредна близина на ${anchorPlace}. Еве ги најблиските опции во ${session.slots.location ?? 'реонот'}:`;
           bankKey = 'poi.tooFar';
           session.slots.poiAnchorTooFar = undefined; // once per search
         }

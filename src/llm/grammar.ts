@@ -143,6 +143,19 @@ const SEEN_OBJ_L = ['oglas', 'oglasot', 'stan', 'stanot', 'imot', 'imotot'];
 const SEEN_ONLINE = ['на интерннет', 'на интернет'];
 const SEEN_ONLINE_L = ['na internet'];
 
+/** The place the client saw the ad — "кај вас", "на вашата страна", "на сајтот".
+ *  The [13:27] opener was "GLEDAV EDEN STAN KAJ VAS": the client names OUR
+ *  site (not "the internet") as where the property was seen — same funnel. */
+const SEEN_SITE = ['кај вас', 'на вашата страна', 'на вашиот сајт', 'на сајтот', 'на вашата веб страна', 'на веб страната'];
+const SEEN_SITE_L = ['kaj vas', 'na vashata strana', 'na vasiot sajt', 'na sajtot', 'na vashata veb strana', 'na veb stranata'];
+
+/** Determiners/fillers a client slips between the verb and the noun: the
+ *  [13:27] "GLEDAV **EDEN** STAN KAJ VAS" (also "vidov nekoj stan", "го гледав
+ *  овој стан"). Max TWO, so a sentence-wide "... гледав ... стан" can never
+ *  claim the slot. */
+const SEEN_FILL = ['еден', 'една', 'едно', 'некој', 'некоја', 'некое', 'тој', 'таа', 'тоа', 'овој', 'оваа', 'ова'];
+const SEEN_FILL_L = ['eden', 'edna', 'edno', 'nekoj', 'nekoja', 'nekoe', 'toj', 'taa', 'toa', 'ovoj', 'ovaa', 'ova'];
+
 // ── Size Waived (bedrooms don't matter) ──────────────────────────────────────
 // Client says size/rooms don't matter — used to skip bedrooms question.
 // Patterns: “goleminata ne mi e bitna“, “не ми се битни спални“,
@@ -395,6 +408,8 @@ export function buildSeenSlots(): RegExp {
   const SAW = or([...SEEN_SAW, ...SEEN_SAW_L]);
   const OBJ = or([...SEEN_OBJ, ...SEEN_OBJ_L]);
   const ONL = or([...SEEN_ONLINE, ...SEEN_ONLINE_L]);
+  const SITE = or([...SEEN_SITE, ...SEEN_SITE_L]);
+  const FILL = or([...SEEN_FILL, ...SEEN_FILL_L]);
   const GAPSEEN = '[^.!?\\n]{0,30}';
 
   const s = (base: string) => base;
@@ -404,6 +419,9 @@ export function buildSeenSlots(): RegExp {
     s(`${CL}${WS}${SAW}`),
     // Slot: SAW OBJ — "гледав оглас"
     s(`${SAW}${WS}${OBJ}`),
+    // Slot: SAW FILL? OBJ — "гледав еден стан", "GLEDAV EDEN STAN", "vidov
+    // nekoj oglas" (the [13:27] capture: the determiner broke every slot)
+    s(`${SAW}${WS}(?:${FILL}${WS}){0,2}${OBJ}`),
     // Slot: OBJ SAW — "оглас гледав" (reversed, no clitic)
     s(`${OBJ}${WS}${SAW}`),
     // Slot: OBJ CLITIC SAW — "огласот го гледав" (full reversal)
@@ -412,6 +430,10 @@ export function buildSeenSlots(): RegExp {
     s(`${SAW}${GAPSEEN}${ONL}`),
     // Slot: OBJ CLITIC SAW GAP? online — "огласот го гледав на интернет"
     s(`${OBJ}${WS}${CL}${WS}${SAW}${GAPSEEN}${ONL}`),
+    // Slot: SAW GAP? SITE — "гледав кај вас", "gledav na vashata strana"
+    s(`${SAW}${GAPSEEN}${SITE}`),
+    // Slot: CLITIC SAW GAP? SITE — "го гледав на вашиот сајт"
+    s(`${CL}${WS}${SAW}${GAPSEEN}${SITE}`),
     // Original: тој конкретен стан / конкретниот стан — guarded: "тој" is a
     // suffix of "сетој/оној"-class words.
     '(?<![\\p{L}\\p{N}])(?:тој\\s+конкретен\\s+стан|конкретниот\\s+стан)',
@@ -783,6 +805,12 @@ export function sampleSeenPhrases(): string[] {
     'gledav oglas',
     'на интернет го гледав',
     'na internet go gledav',
+    // ── The site/determiner family (the [13:27] capture) ──
+    'GLEDAV EDEN STAN KAJ VAS',
+    'gledav eden stan kaj vas',
+    'видов еден стан на вашата страна',
+    'vidov nekoj stan na vasiot sajt',
+    'го гледав станот на сајтот',
     // ── Reversed ──
     'огласот го гледав',
     'oglasot go gledav',

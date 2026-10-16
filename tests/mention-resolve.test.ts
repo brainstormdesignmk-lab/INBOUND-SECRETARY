@@ -122,8 +122,11 @@ test('12:33: "станот кај Димитар Миладинов" binds EB 69
   assert.ok(a1, 'the where-is question must be answered');
   assert.ok(!a1.includes('тачната адреса'), `not the privacy protocol — the client asked WHERE: ${a1}`);
   assert.ok(!a1.includes('Бисер'), `must NOT serve the other property's landmark: ${a1}`);
+  // The map's own name for that landmark is "Embassy of Montenegro" (Google,
+  // Latin) and the client is written to in Cyrillic — displayPlaceName renders
+  // it "Амбасада Монтенегро" (the [10:29] display policy).
   assert.ok(
-    a1.includes('во близина на') && (a1.includes('Embassy of Montenegro') || a1.includes('Димитар Миладинов')),
+    a1.includes('во близина на') && (a1.includes('Амбасада Монтенегро') || a1.includes('Димитар Миладинов')),
     `answer is EB 69's landmark: ${a1}`);
 
   // 2 — the push binds the SAME property again (not "the last one in the
@@ -132,14 +135,14 @@ test('12:33: "станот кај Димитар Миладинов" binds EB 69
   const a2 = sent[sent.length - 1];
   assert.ok(!a2.includes('Бисер'), `follow-up stays on the bound property (EB 69): ${a2}`);
   assert.ok(
-    a2.includes('во близина на') && (a2.includes('Embassy of Montenegro') || a2.includes('Димитар Миладинов')),
+    a2.includes('во близина на') && (a2.includes('Амбасада Монтенегро') || a2.includes('Димитар Миладинов')),
     `follow-up re-serves EB 69's landmark: ${a2}`);
 
   // 3 — "гарсоњерата" can only mean EB 63 → ITS landmark.
   await handler.handle('test', chat, 'kade e garsonjerata ?');
   const a3 = sent[sent.length - 1];
   assert.ok(a3.includes('Бисер'), `the garsonjera answer serves EB 63's landmark: ${a3}`);
-  assert.ok(!a3.includes('Embassy of Montenegro'), `and not EB 69's: ${a3}`);
+  assert.ok(!a3.includes('Амбасада Монтенегро'), `and not EB 69's: ${a3}`);
 
   offlineMap.close();
 });
@@ -153,7 +156,7 @@ test('12:33 price pick: "ovoij stan od 99000" binds EB 69 without an EB number',
   await handler.handle('test', chat, 'kade mu e lokacijata na ovoj stan od 99000 ?');
   const a = sent[sent.length - 1];
   assert.ok(
-    a.includes('во близина на') && (a.includes('Embassy of Montenegro') || a.includes('Димитар Миладинов')),
+    a.includes('во близина на') && (a.includes('Амбасада Монтенегро') || a.includes('Димитар Миладинов')),
     `price 99000 → EB 69's landmark: ${a}`);
   assert.ok(!a.includes('Бисер'), `never the other pair member: ${a}`);
 

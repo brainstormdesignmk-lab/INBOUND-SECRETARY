@@ -1,19 +1,28 @@
 #!/usr/bin/env tsx
 /**
- * import-atom-queue — pull the enrichment queue from a collected atom DB copy
- * into the workstation bank DB, so the WORKSTATION runs the enrichment
- * (3 Gemini keys) instead of the atom's single starved key.
+ * import-atom-queue — pull the atom's queues out of a collected DB copy.
  *
  *   npx tsx scripts/import-atom-queue.ts data/atoms/atom01/lina.db.copy
  *
- * Copy semantics:
- *   enrichment_queue rows with enriched=0 are INSERTED into the workstation
- *   queue (new ids; created_at preserved). bank_variants / bank_examples from
- *   the atom are imported too (dedup by UNIQUE(key,text) — INSERT OR IGNORE),
- *   so atom-side learning survives when the atom's own cron is starved.
- *   LIFECYCLE GUARD: learned variants whose source text fails replyIsClean
- *   (price/EB-template guards) are imported as 'retired' — a poisoned atom
- *   row must not become active on the workstation either.
+ * TWO queues travel this way, and both live in the atom's single lina.db:
+ *
+ *   1. THE ENRICHMENT QUEUE → the workstation bank DB, so the WORKSTATION runs
+ *      the enrichment (3 Gemini keys) instead of the atom's starved single key.
+ *      enrichment_queue rows with enriched=0 are INSERTED (new ids; created_at
+ *      preserved). bank_variants / bank_examples come across too (UNIQUE(key,
+ *      text) dedup), so atom-side learning survives. LIFECYCLE GUARD: learned
+ *      variants whose source text fails replyIsClean are imported 'retired' — a
+ *      poisoned atom row must not become active on the workstation either.
+ *
+ *   2. THE GEO RE-RESOLVE QUEUE → the CANONICAL runtime DB (the one
+ *      refresh-monthly Phase C drains). Nothing on an atom ever drains its
+ *      geo_reresolve_queue: the drain lives on the map hub, which is the box
+ *      owning the SerpApi budget, and atoms never push. Without this step the
+ *      rows live traffic on the atom created were write-only state — they could
+ *      never be resolved, no matter how many months passed.
+ *      `harvestQueues` merges them and its IMPORT LEDGER makes the next month's
+ *      re-collection of the SAME unchanged snapshot free (it cannot re-queue,
+ *      and therefore cannot re-spend a geocode).
  *
  * The workstation then runs: npx tsx src/scripts/enrichBank.ts
  * Finally push the enriched bank back: bash scripts/push-bank.sh atom01
@@ -22,6 +31,7 @@ import '../src/compat/node16';
 import * as fs from 'fs';
 import { Db } from '../src/store/db';
 import { replyIsClean } from '../src/llm/enrichQuality';
+import { resolveRuntimeDb, harvestQueues } from '../src/geo/runtimeDb';
 
 function main() {
   const srcPath = process.argv[2];
@@ -31,6 +41,25 @@ function main() {
   }
   const src = new Db(srcPath);
   const dst = new Db(process.env.DB_PATH || 'data/lina.db');
+
+  // ── 0. THE GEO QUEUE → the canonical runtime DB ───────────────────────────
+  // This script only ever runs on the workstation, and there `src/geo` (a link
+  // into the maps-realestate checkout) resolves the canonical runtime DB
+  // correctly and cwd-independently. `roots: []` keeps this a TARGETED import —
+  // exactly the snapshot named on the command line, not every .db on the box.
+  let geoLine = 'geo queue: none';
+  try {
+    const canonical = resolveRuntimeDb().file;
+    const geo = harvestQueues(canonical, { roots: [], atomFiles: [srcPath] });
+    for (const s of geo.skipped) console.error(`  ⚠ geo queue ${s.file}: ${s.why}`);
+    const ids = geo.rows.map(r => `EB ${r.propertyId}`).join(', ');
+    geoLine = `geo queue: +${geo.merged} row(s) → ${canonical}`
+      + (ids ? ` (${ids})` : '')
+      + (geo.alreadyImported ? ` · ${geo.alreadyImported} already imported (no re-spend)` : '');
+  } catch (e) {
+    // A missing geo engine must not lose the bank import (and vice versa).
+    geoLine = `geo queue: SKIPPED — ${(e as Error).message}`;
+  }
 
   const q = (db: Db, sql: string): any[] => db.db.prepare(sql).all() as any[];
   const run = (db: Db, sql: string, ...args: unknown[]): void => { db.db.prepare(sql).run(...args); };
@@ -80,8 +109,10 @@ function main() {
   }
 
   console.log(`imported: ${qIns} queue row(s), ${vNew} new variant(s), ${vRetired} retired-on-arrival, ${eNew} example(s)`);
+  console.log(`          ${geoLine}`);
   console.log(`next:     npx tsx src/scripts/enrichBank.ts   # workstation Gemini enrichment`);
   console.log(`then:     bash scripts/push-bank.sh atom01    # push the enriched bank back`);
+  console.log(`          # the geo rows above are drained by the monthly Phase C (map hub)`);
   src.close(); dst.close();
 }
 main();

@@ -113,6 +113,27 @@ export class Db {
         created_at  INTEGER NOT NULL,
         resolved_at INTEGER
       );
+      -- v8: ADDRESS corrections dictated by the OWNER — the same contract as
+      -- price_changes, for the same reason. Lina confirms the address with the
+      -- owner before a visit (Turn 0 of the visit protocol); when the owner
+      -- answers with a DIFFERENT address than the feed's, the owner is the
+      -- source of truth and the public listing must learn it. Before this table
+      -- the correction stopped at the appointment (appointments.corrected_address)
+      -- and the app kept the feed's wrong street forever. status pending = not
+      -- yet synced; resolved = Hermes applied it to the app.
+      CREATE TABLE IF NOT EXISTS address_changes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        eb          INTEGER NOT NULL,
+        old_address TEXT,
+        new_address TEXT NOT NULL,
+        source      TEXT NOT NULL DEFAULT 'owner',
+        status      TEXT NOT NULL DEFAULT 'pending',
+        chat_id     TEXT NOT NULL DEFAULT '',
+        created_at  INTEGER NOT NULL,
+        resolved_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_address_changes_pending
+        ON address_changes(status, created_at);
       -- v4: approximate locations (landmarks) per property — resolved ONCE via
       -- the layered resolver (deterministic table -> Google/OSM -> Hermes) and
       -- cached here so live APIs are hit at most once per property. The

@@ -75,6 +75,21 @@ tests/street-census.test.ts
 tests/tile-coverage.test.ts
 tests/type-normalize.test.ts
 
+# ── Retired duplicates that must never ship again ──
+# maps-realestate is the SINGLE SOURCE for the geo engine and the monthly pass.
+# These two were pre-extraction forks left behind in this repo — cwd-relative
+# logic, 801/170 lines against the real 981/179. Nothing referenced them, no npm
+# script invoked them, and they were rsynced to every atom, where an old runbook
+# or a curious `npx tsx scripts/refresh-monthly.ts` could run the WRONG one.
+# Deleted 2026-10-14 and excluded here so a stray copy cannot come back.
+#
+# NOTE the interaction with --delete: an excluded path is ALSO protected from
+# deletion on the receiver, so this exclusion is a belt ON TOP of their absence,
+# never a substitute for it. deploy-atoms.sh therefore FAILS the deploy if either
+# file exists locally — so the exclusion can never hide a re-added copy.
+scripts/refresh-monthly.ts
+scripts/geo-watcher.ts
+
 # ── Environment / local hacks (never in git either) ──
 .env
 GOOGLEMAPS_API_KEY.txt

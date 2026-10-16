@@ -7,6 +7,7 @@ import { Classifier } from '../src/llm/classify';
 import { Responder } from '../src/llm/respond';
 import { PropertyService, Property } from '../src/data/properties';
 import { AppointmentStore } from '../src/store/appointments';
+import { AddressChangeStore } from '../src/store/addressChanges';
 import { EscalationStore } from '../src/store/escalations';
 import { MetaStore } from '../src/store/meta';
 import { EventStore } from '../src/store/events';
@@ -524,6 +525,17 @@ test('e2e regression: refused-time ping-pong counters СРЕДА ВО 6, and the
   assert.ok(operatorLogs.some(l => l.includes('ADDRESS CORRECTED')), operatorLogs.join(' | '));
   const after = db.db.prepare(`SELECT corrected_address FROM appointments WHERE id = ?`).get(apptId) as { corrected_address: string | null };
   assert.equal(after.corrected_address, 'Vasil Stefanovski 16', JSON.stringify(after));
+
+  // 6b) …AND THE CORRECTION IS NOW QUEUED FOR THE APP. Storing it on the
+  //     appointment only ever fixed turns 2+3 of THIS visit: the public listing
+  //     kept the feed's street (EB 78 is "Народен Фронт" in the fixture) forever.
+  //     The same 5-minute Hermes pass that carries prices now carries this.
+  const addrQueue = new AddressChangeStore(db).listPending();
+  assert.equal(addrQueue.length, 1, `the owner correction must be queued for the app: ${JSON.stringify(addrQueue)}`);
+  assert.equal(addrQueue[0].eb, 78);
+  assert.equal(addrQueue[0].oldAddress, 'Народен Фронт', 'the queue must carry what the app currently has');
+  assert.equal(addrQueue[0].newAddress, 'Vasil Stefanovski 16');
+  assert.ok(operatorLogs.some(l => l.includes('queued for Hermes to publish')), operatorLogs.join(' | '));
 
   // 7) The location turn (visit − 2h) uses the CORRECTED address, not the feed's.
   //    "Среда во 6" books at 18:00 (the [12:42] PM shift: a bare hour after a

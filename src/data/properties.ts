@@ -516,17 +516,21 @@ function locKeys(s: string): Set<string> {
     // 'ново маџари') or it can never match its own neighborhood.
     ?? LAT_ALIASES[low.replace(/^(?:vo|во|во|na|на)\s+/iu, '')];
   if (alias) keys.add(alias);
-  for (const word of low.split(/\s+/)) {
+  const lowWords = low.split(/\s+/);
+  for (const word of lowWords) {
     const wAlias = LAT_ALIASES[word];
     if (!wAlias) continue;
     // Sibling-settlement guard: 'novo lisice' must not gain the bare-base key
     // ('lisice' → 'лисиче') — that would merge Ново Лисиче with Лисиче, two
-    // DIFFERENT municipalities. When every OTHER word of the query (leading
-    // prepositions stripped) is a settlement modifier, the word IS the
-    // compound's base — skip the alias. Bare 'lisice' and 'karpos 3' still
-    // get theirs.
-    const rest = low.split(/\s+/).filter(w => w !== word && !PREP_TOKENS.has(w));
-    if (rest.length > 0 && rest.every(w => SETTLEMENT_MOD_WORDS.has(w))) continue;
+    // DIFFERENT municipalities. The decision is the TOKEN's own neighborhood in
+    // the sentence: immediately behind a settlement modifier, the word IS the
+    // compound's base. The old test — "every OTHER word is a modifier" — only
+    // held while the query WAS the compound, so a full sentence ("gledav eden
+    // stan kaj vas vo novo lisice") added the bare key 'лисиче' and the
+    // location slot echoed "Ново Лисиче, Лисиче": a place the client never
+    // named. Bare 'lisice' and 'karpos 3' still get theirs.
+    const at = lowWords.map((w, i) => (w === word ? i : -1)).filter(i => i >= 0);
+    if (!at.some(i => !_modAdjacent(lowWords, i))) continue;
     keys.add(wAlias);
   }
   return keys;
@@ -732,6 +736,52 @@ export const NA_LOCATION_DEFINITE: Record<string, string> = {};
  */
 export function locPrep(loc: string): 'во' | 'на' {
   return NA_LOCATIONS.has(loc.trim().toLowerCase()) ? 'на' : 'во';
+}
+
+// The loose fold used for PLACE-IDENTITY comparisons: MK_LOOSE (ч/ц, ш/с,
+// ќ/к) plus the ѓ/џ collapse — informal Latin spells BOTH as "dj", which is
+// why MK_LAT2CYR_LOOSE exists ('madjari' = Маџари); without the collapse the
+// folded 'ново маѓари' never equals 'Ново Маџари'.
+const PLACE_LOOSE: Record<string, string> = { ...MK_LOOSE, ѓ: 'dz', џ: 'dz' };
+
+/** The LOOSE comparison key of a place word — the informal-Skopje Latin fold
+ *  (ч/ц, ш/с, ќ/к, ѓ/џ). Clients type one for the other ("lisice" for Лисиче,
+ *  "kapistec" for Капиштец) and the fold itself turns "лисице" into the key of
+ *  "лисиче". Used to ask "is this the same place?" — MATCHING ONLY, never for
+ *  display (the display form is normalizeLocation). */
+export function placeLooseKey(s: string): string {
+  return cyrToLat(s.toLowerCase(), PLACE_LOOSE).replace(/\s+/g, ' ').trim();
+}
+
+/** DISPLAY transliteration of a Latin-script name, capitalization preserved:
+ *  "ELS Novo Lisice" → "ЕЛС Ново Лисиче", "Broz Cafe" → "Броз Цафе". The same
+ *  digraph table the matcher uses, applied per Latin run, so a name never
+ *  reaches the client lowercased. Matching NEVER uses this — place identity
+ *  goes through placeLooseKey. */
+export function latinToCyrillicDisplay(s: string): string {
+  return s.replace(/[A-Za-z\u00C0-\u024F]+/gu, (w) => {
+    // Letters the Macedonian alphabet has no one-letter twin for: x is "кс"
+    // ("Tinex" → Тинекс, never "Тинеx" — a half-transliterated name reads as a
+    // broken font), and w/q are the English extras.
+    const pre = w.replace(/x/gi, m => (m === m.toUpperCase() ? 'KS' : 'ks'))
+      .replace(/w/gi, m => (m === m.toUpperCase() ? 'V' : 'v'))
+      .replace(/q/gi, m => (m === m.toUpperCase() ? 'K' : 'k'));
+    // Macedonian never doubles a letter: English spelling rides along
+    // ("Kipper" → Кипер, "Mozzart" → Мозарт; "Green" keeps its two vowels).
+    const cyr = latToCyr(pre).replace(/([\u0431\u0432\u0433\u0434\u0453\u0436\u0437\u0455\u0458\u043a\u043b\u0459\u043c\u043d\u045a\u043f\u0440\u0441\u0442\u045c\u0444\u0445\u0446\u0447\u045f\u0448])\1+/gu, '$1');
+    if (w === w.toUpperCase()) return cyr.toUpperCase();          // "ELS" → "ЕЛС"
+    if (/^[A-Z\u00C0-\u024F]/u.test(w)) return cyr.charAt(0).toUpperCase() + cyr.slice(1);
+    return cyr;
+  });
+}
+
+/** The canonical Cyrillic spelling of a single Latin place WORD when our alias
+ *  table knows it ("lisice" → "Лисиче", "kapistec" → "Капиштец"), else
+ *  undefined. The letter fold cannot recover ч/ќ/ѓ from "c/k/g" — the alias
+ *  table can, which is why the display renderer consults it before folding. */
+export function knownPlaceWordCyrillic(word: string): string | undefined {
+  const alias = LAT_ALIASES[word.toLowerCase()];
+  return alias ? titleCase(alias) : undefined;
 }
 
 export function normalizeLocation(s: string): string {
@@ -943,6 +993,10 @@ export class PropertyService {
     location?: string; price?: number; sqm?: number;
     business?: boolean; house?: boolean; service?: Service; exclude?: number[];
     plac?: boolean; yard?: boolean;
+    /** ROOM COUNT the client described ("троsoben" → 3). A seen-property search
+     *  matches the characteristics he remembers, so the room count narrows the
+     *  pool — the locate funnel relaxes it when the area has nothing. */
+    bedrooms?: number;
   }): Promise<Property[]> {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
@@ -958,6 +1012,7 @@ export class PropertyService {
       .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
       .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
       .filter(p => opts.plac ? p.plac === true : true)
+      .filter(p => opts.bedrooms === undefined ? true : p.bedrooms === opts.bedrooms)
       .map(p => ({
         p,
         score: (inLoc(p) ? 0 : 1_000_000) + priceDist(p) + sqmDist(p) * 500, // м² → €-ish weight

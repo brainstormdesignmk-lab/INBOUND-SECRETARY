@@ -15,6 +15,7 @@
 
 import { Db } from '../store/db';
 import { EventStore } from '../store/events';
+import { AddressChangeStore } from '../store/addressChanges';
 import { OwnerStore } from '../store/owners';
 import { PropertyService } from '../data/properties';
 import type { OfflineMapStore } from '../geo/offlineMap';
@@ -197,13 +198,36 @@ export class VisitScheduler {
     const eb = row.propertyId;
 
     // If the owner provided a corrected address, store it on the appointment
-    // so turns 2+3 use the real address instead of the feed address.
+    // so turns 2+3 use the real address instead of the feed address…
     if (newAddress) {
       this.db.db.prepare(
         `UPDATE appointments SET corrected_address = ? WHERE id = ?`
       ).run(newAddress, appointmentId);
+
+      // …AND queue it for the app. This used to stop at the appointment, so the
+      // owner's correction was used in this one visit's turns while the public
+      // listing kept the feed's wrong street forever. The owner is the source of
+      // truth for the address exactly as for the price, and the SAME 5-minute
+      // Hermes pass that carries prices now carries this (no extra schedule).
+      let queuedNote = '';
+      try {
+        const propNow = await this.deps.properties.getById(eb);
+        const queued = new AddressChangeStore(this.db).insertIfChanged({
+          eb,
+          oldAddress: propNow?.address ?? null,
+          newAddress,
+          chatId: row.chatId,
+        });
+        queuedNote = queued
+          ? ' — queued for Hermes to publish to the app.'
+          : ' — already correct/queued, nothing to publish.';
+      } catch (e) {
+        // The queue write must never break the visit protocol: the appointment
+        // already carries the corrected address and the operator is told.
+        queuedNote = ` — QUEUE WRITE FAILED (${(e as Error).message}); still local-only.`;
+      }
       await this.deps.notifyOperator(
-        `[ЛОГ ПОСЕТА ЕБ ${eb}] ADDRESS CORRECTED by owner: "${newAddress}"`);
+        `[ЛОГ ПОСЕТА ЕБ ${eb}] ADDRESS CORRECTED by owner: "${newAddress}"${queuedNote}`);
     }
 
     // Mark address_confirm as sent

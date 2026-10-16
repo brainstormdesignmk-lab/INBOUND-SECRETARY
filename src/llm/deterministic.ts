@@ -1,5 +1,5 @@
 import { Service, State, Event } from '../fsm/machine';
-import { locMatches, normalizeLocation, normalizeTimePhrase } from '../data/properties';
+import { locMatches, normalizeLocation, normalizeTimePhrase, placeLooseKey } from '../data/properties';
 import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE } from '../visits/time';
 
 // Re-export: the handler's split-intake gates (day-only vs clock-completion)
@@ -39,8 +39,22 @@ function matchesBothCapture(re: RegExp, text: string): string | undefined {
 // nowhere near the anchor (the [22:41] transcript). Extracted as a candidate
 // "POI NAME" tail after a proximity preposition; the handler verifies it
 // against the offline POI map.
+// "до/do" is the LISTING anchor — the client describes an ad that mentioned a
+// place as the position marker ("PISUVASE DO BROZ KAFE", the [13:28] capture);
+// the map's own landmark extractor has used "до" for the same job since the
+// address layer (NEAR_RE in geo/landmarks.ts). Guarded exactly like the other
+// anchors: a money/size tail ("do 250 evra") is vetoed in extractPoiWish.
+// Grammar words that may bridge the opener and the place ("kaj VAS VO novo
+// lisice"): a pronoun, a deictic or a second preposition. Only a LEADING run of
+// them is trimmed — a place name never starts with one.
+const FILLER_BRIDGE = new Set([
+  'vas', 'вас', 'mene', 'мене', 'nas', 'нас', 'tebe', 'тебе',
+  'toa', 'тоа', 'toj', 'тој', 'ovaa', 'оваа', 'ovoj', 'овој', 'onaa', 'онаа',
+  'ovde', 'овде', 'tamu', 'таму', 'kaj', 'кај', 'vo', 'во', 'na', 'на', 'u', 'у',
+]);
+
 export const POI_WISH_RE =
-  /(?:во\s+бли[зж]ин(?:а|ата|у)|бли[зж]у|околу|околин(?:а|ата)|спроти|наспроти|кај|во\s+реон\s+на)\s+([\p{L}.][\p{L}. '-]{3,47})/giu;
+  /(?:во\s+бли[зж]ин(?:а|ата|у)|бли[зж]у|околу|околин(?:а|ата)|спроти|наспроти|кај|во\s+реон\s+на|до|do)\s+([\p{L}.][\p{L}. '-]{3,47})/giu;
 
 /** The POI-wish tail of a search phrase ("околу Капитол Бисер" → "Капитол
  *  Бисер"), or undefined. Raw text first, then the normalizeMc fold (Latin
@@ -50,16 +64,37 @@ export const POI_WISH_RE =
  *  is NOT a POI and stays undefined here. Guarded: ≤4 words, no digits (an
  *  EB never follows okolu), no targeting vocabulary (цена/евра/спални … = a
  *  different wish). */
-export function extractPoiWish(text: string): string | undefined {
+export function extractPoiWish(text: string, opts: { withCriteria?: boolean } = {}): string | undefined {
+  // Money / size / number vocabulary — inside the CAPTURED tail it means the
+  // preposition opened a budget or a spec, never a place ("околу дваесет
+  // илјади евра").
+  const TARGETING_RE = /(?:евра|евро|eur|денар|denar|спалн|spaln|квадрат|kvadrat|м2|м²|број|broj|\d)/iu;
   const tail = (re: RegExp, src: string): string | undefined => {
     re.lastIndex = 0;
     const m = re.exec(src);
     if (!m) return undefined;
     // "во близина на X" / "околина на X" — the preposition inside the
     // proximity phrase is not part of the place name.
-    const t2 = m[1].trim().replace(/^(?:на|vo|во)\s+/iu, '');
+    let t2 = m[1].trim().replace(/^(?:на|vo|во)\s+/iu, '');
+    // FILLER BRIDGE (the [10:28] capture): the capture after the opener is
+    // greedy, so GRAMMAR rides into the tail — "gledav eden stan kaj VAS VO
+    // novo lisice" captured "вас во ново лисице", and the map lookup then fuzzed
+    // that Latin tail onto a business nobody had mentioned (the post office
+    // "ELS Novo Lisice"). The place starts after the last LEADING grammar word;
+    // a word that is part of a name stops the trim ("мост на …" keeps its head
+    // because "мост" is not filler).
+    const parts = t2.split(/\s+/).filter(Boolean);
+    let start = 0;
+    while (start < parts.length - 1 && FILLER_BRIDGE.has(parts[start].toLowerCase())) start++;
+    t2 = parts.slice(start).join(' ');
     const words = t2.split(/[\s.]+/).filter(Boolean);
     if (t2.length < 4 || t2.length > 48 || words.length > 4) return undefined;
+    if (TARGETING_RE.test(t2)) return undefined;
+    // NOTE: whether the tail names a real MAP PLACE is still the CALLER's
+    // check — and it must be a NAME check, not an area check: an area the map
+    // also holds as a place ("Автокоманда") is a legitimate anchor, while a
+    // business whose name merely CONTAINS the area ("ELS Novo Lisice") is not.
+    // That guard lives in InboundHandler.resolvePlace (the [10:28] capture).
     // Strip a trailing punctuation the greedy match may have swallowed.
     return t2.replace(/[?!,.:;]+$/u, '').trim() || undefined;
   };
@@ -69,10 +104,17 @@ export function extractPoiWish(text: string): string | undefined {
   // must never extract a wish tail, while "vo blizina na X" (multiword
   // preposition) still passes via its "во\s+бли[зж]ин" opener.
   const nf = ' ' + normalizeMc(t).replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim() + ' ';
-  if (!/ (?:во|бли[зж]ин(?:а|ата|у)?|бли[зж]у|околу|околин(?:а|ата)?|спроти|наспроти|кај) /iu.test(nf)) {
+  if (!/ (?:во|бли[зж]ин(?:а|ата|у)?|бли[зж]у|околу|околин(?:а|ата)?|спроти|наспроти|кај|до) /iu.test(nf)) {
     return undefined;
   }
-  if (/(?:евра|евро|eur|денар|denar|спалн|spaln|квадрат|kvadrat|м2|м²|број|broj|\d)/iu.test(t)) return undefined;
+  // WHOLE-MESSAGE veto (default): a message carrying a price/size/EB is a
+  // search with criteria, not a bare landmark wish (frozen: "SAKAM STAN OKOLU
+  // KAPITOL BISER DO 100000" keeps no POI tail). The locate funnel reads the
+  // wish WITH its criteria (withCriteria): a client describing the flat he saw
+  // names the place AND the price in one breath ("пишуваше до Броз кафе,
+  // беше околу 200.000 евра"), and the landmark must still be read — the
+  // tail-scoped veto above keeps a bare budget from ever becoming a place.
+  if (!opts.withCriteria && TARGETING_RE.test(t)) return undefined;
   return tail(POI_WISH_RE, t) ?? tail(POI_WISH_RE, normalizeMc(t));
 }
 

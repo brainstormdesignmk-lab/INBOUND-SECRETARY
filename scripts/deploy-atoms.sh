@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy-atoms.sh — push workstation code to the LINA atom fleet, restart each
-# bot, verify a healthy boot, and make sure the per-atom enrichment cron exists.
+# bot, verify a healthy boot, and ENFORCE THE NO-CRON POLICY on every atom.
 #
 # The fleet contract (see scripts/atoms.conf + scripts/rsync-exclude.txt):
 #   - Atoms are clonezilla clones of atom01: node 16.20 + a working
@@ -12,16 +12,20 @@
 #   - The bot runs via @reboot + nohup (no pm2, by decision). Restart =
 #     path-anchored kill + the exact same relaunch. The pattern is anchored to
 #     PROJECTS/LINA/dist so ANA running on the same box is never touched.
-#   - Every atom self-enriches on its own nightly cron and appends to its own
-#     logs/enrich.log. The workstation collects artifacts later
-#     (collect-atoms.sh); atoms never push anywhere.
+#   - NO CRONS ANYWHERE (2026-10-14): every atom is UNSCHEDULED by design. It
+#     accumulates what it learned in its own data/lina.db and logs/enrich.log;
+#     the workstation collects that later (collect-atoms.sh), a human reviews
+#     it, and only then does anything change. This script removes scheduled
+#     jobs from each atom and keeps only the @reboot autostart (boot recovery,
+#     not a job). See scripts/install-cron.ts + scripts/cron-policy.ts in the
+#     maps repo for the policy and its tests.
 #
 # Usage:
 #   npm run atoms:deploy                    # all enabled atoms
 #   npm run atoms:deploy -- --atoms atom01  # subset (comma-separated)
 #   npm run atoms:deploy -- --dry-run       # rsync -n + print remote commands
 #   npm run atoms:deploy -- --no-restart    # push code, leave the bot running
-#   npm run atoms:deploy -- --skip-cron     # don't touch the enrichment cron
+#   npm run atoms:deploy -- --skip-cron     # don't enforce the no-cron policy
 #
 # Exit code: 0 if every targeted atom is healthy at the end, 1 otherwise.
 
@@ -51,6 +55,24 @@ done
 echo "── building dist/ on the workstation ──"
 if [ "$DRY_RUN" = "1" ]; then echo "[dry-run] skipping build"; else npm run build --silent || { echo "FATAL: build failed — deploy aborted, atoms untouched"; exit 1; }; fi
 [ -f dist/index.js ] || { echo "FATAL: dist/index.js missing — build did not run"; exit 1; }
+
+# ── 0b) RETIRED DUPLICATES must not exist in this repo.
+#        refresh-monthly.ts and geo-watcher.ts were pre-extraction forks of the
+#        maps-realestate originals (cwd-relative logic, nothing referenced them).
+#        They are excluded in rsync-exclude.txt so a stray copy cannot reach an
+#        atom — but an exclusion ALSO protects a receiver file from --delete,
+#        which is exactly why their absence is asserted here instead of assumed:
+#        a copy that reappeared would sit excluded and silently diverge from the
+#        real one on the source machine.
+for f in scripts/refresh-monthly.ts scripts/geo-watcher.ts; do
+  if [ -e "$f" ]; then
+    echo "FATAL: retired duplicate is back: $f"
+    echo "  maps-realestate owns this file (single source). Delete it here — it is"
+    echo "  excluded from rsync, so shipping it would leave every atom on whatever"
+    echo "  stale copy it already has while the source moved on."
+    exit 1
+  fi
+done
 
 # ── key token → real file (ATOM01_KEY → ~/.ssh/id_ed25519_atom01) ──
 keyfile() {
@@ -93,7 +115,12 @@ while IFS='|' read -r id host user key rpath note; do
   #     anything tries to build or run against it.
   echo "  → linking src/geo → maps-realestate …"
   if [ "$DRY_RUN" = "1" ]; then
+    # Record a result in dry-run too. RESULTS was only appended in the RESTART
+    # branch, so a dry-run left it empty and the summary printed "no atoms
+    # matched" with exit 1 — i.e. the pre-deploy check reported failure no
+    # matter what. A dry-run that always fails is worse than none.
     echo "    [dry-run] would run node scripts/link-geo.js on the target"
+    RESULTS+=("$id|DRY-RUN")
   else
     "${SSH[@]}" "cd '$rpath' && node scripts/link-geo.js" || { echo "    ✗ link-geo FAILED"; RESULTS+=("$id|LINK-FAIL"); continue; }
   fi
@@ -152,33 +179,94 @@ EOF
     RESULTS+=("$id|NOT-RESTARTED")
   fi
 
-  # 4) enrichment cron: one nightly line per atom, logged to its own file.
-  #    Runs the COMPILED script (plain node) — atoms have no tsx.
+  # 4) NO MAP JOB MAY BE SCHEDULED — on the atom too (the policy applies ANYWHERE).
+  #
+  #    THE DECISION (2026-10-14): no MAP job is scheduled. The map is a fixed
+  #    artifact and the learning loop is human-gated — the atom accumulates what
+  #    it learned in its own data/lina.db, the WORKSTATION collects it
+  #    (collect-atoms.sh), a human reviews it, and only then does anything
+  #    change. An atom that enriches itself on a timer is exactly the automation
+  #    this decision removes.
+  #
+  #    Three classes of line exist and they are NOT the same thing:
+  #      • a scheduled MAP JOB (refresh-monthly, map pull, hermes-nightly,
+  #        healthcheck, enrich) → REMOVED, and the count of survivors is printed.
+  #      • the OWNER PRICE SYNC (`*/5 … hermes-price.sh`) → REQUIRED, never
+  #        removed, and re-installed if missing. It is not map work: Lina asks
+  #        owners for the current price, and each correction sits in
+  #        `price_changes` as 'pending' until this job pushes it through the Hub
+  #        to the app. A sweep that removed it (2026-10-14) silently froze every
+  #        published price, so its presence is now verified on every deploy.
+  #      • the `@reboot … # LINA_ATOM` autostart → KEPT. It runs no map work,
+  #        spends nothing and learns nothing; it only brings the bot back after
+  #        a power cut. Dropping it would leave a rebooted atom dead until
+  #        somebody notices. (Removing it is one flag in the maps repo:
+  #        `npm run cron:remove -- --remove-reboot`.)
+  #
+  #    The patterns mirror scripts/cron-policy.ts in the maps repo, which is the
+  #    source of truth and is unit-tested there.
   if [ "$DO_CRON" = "1" ]; then
-    echo "  → ensuring enrichment cron (03:30 nightly → logs/enrich.log) …"
-      # WORKSTATION-ENRICHMENT FLOW (2026-09-26): the atom NO LONGER enriches
-      # itself. Its single Gemini key starves on 503s; the workstation runs
-      # the enrichment (collect-atoms.sh pulls the DB copy → import-
-      # atom-queue.ts merges the pending queue → enrichBank.ts with 3 keys →
-      # push-bank.sh returns the bank). The legacy LINA_ENRICH cron line is
-      # removed here so older images don't keep self-enriching.
-      CRON_LINE="30 3 * * * cd $rpath && node dist/scripts/enrichBank.js >> $rpath/logs/enrich.log 2>&1 # LINA_ENRICH"
-      if [ "$DRY_RUN" = "1" ]; then
-        echo "    [dry-run] remove legacy $CRON_LINE"
-      else
-        if "${SSH[@]}" "crontab -l 2>/dev/null | grep -q 'LINA_ENRICH'"; then
-          "${SSH[@]}" "crontab -l | grep -v LINA_ENRICH | crontab -" && echo "    ✓ legacy enrich cron removed (enrichment moved to the workstation)"
-        else
-          echo "    cron: already clean (workstation-side enrichment)"
-        fi
-        # One log path everywhere: rebuild the @reboot line with a canonical
-        # single log target (logs/lina-stdout.log; it historically wrote
-        # ~/lina.log). No sed here — a '&' in a sed replacement expands to the
-        # whole match and silently corrupts the line (lesson of 2026-09-24).
-        "${SSH[@]}" "crontab -l 2>/dev/null | grep -v 'LINA_ATOM' > /tmp/lina-cron.new; echo '@reboot cd $rpath && nohup node dist/index.js >> $rpath/logs/lina-stdout.log 2>&1 & # LINA_ATOM' >> /tmp/lina-cron.new; crontab /tmp/lina-cron.new" >/dev/null
-        # log hygiene: rotate a runaway enrich.log instead of letting it eat the disk
-        "${SSH[@]}" "if [ -f '$rpath/logs/enrich.log' ] && [ \$(stat -c%s '$rpath/logs/enrich.log' 2>/dev/null || echo 0) -gt 20971520 ]; then tail -n 5000 '$rpath/logs/enrich.log' > '$rpath/logs/enrich.log.tmp' && mv '$rpath/logs/enrich.log.tmp' '$rpath/logs/enrich.log'; echo rotated; fi" >/dev/null
-      fi
+    echo "  → enforcing the policy (removing MAP jobs, keeping the owner sync + @reboot) …"
+    if [ "$DRY_RUN" = "1" ]; then
+      echo "    [dry-run] would strip MAP jobs and ensure the owner sync (*/5 hermes-price.sh) is installed"
+    elif "${SSH[@]}" bash -s "$rpath" <<'REMOTE'
+set -u
+RPATH="${1:?remote path}"
+PAT='refresh-monthly|healthcheck|hermes-nightly|skopje-map-weekly|enrich-cron|enrich-bank|cron-if-primary|LINA_ENRICH|map:pull'
+
+cur="$(crontab -l 2>/dev/null || true)"
+now="$(printf '%s\n' "$cur" | sed '/^[[:space:]]*$/d')"
+clean="$(printf '%s\n' "$cur" | grep -vE "$PAT" | sed '/^[[:space:]]*$/d')"
+if [ "$clean" != "$now" ]; then
+  if [ -n "$clean" ]; then printf '%s\n' "$clean" | crontab -; else crontab -r; fi
+  echo "    ✓ scheduled MAP job line(s) removed"
+else
+  echo "    cron: already compliant (no map jobs scheduled)"
+fi
+
+# The boot autostart, rebuilt onto one canonical log target (it historically
+# wrote ~/lina.log). grep -v + append, NEVER sed: an '&' in a sed replacement
+# expands to the whole match and silently corrupts the line (2026-09-24).
+crontab -l 2>/dev/null | grep -v 'LINA_ATOM' | sed '/^[[:space:]]*$/d' > /tmp/lina-cron.new || true
+echo "@reboot cd $RPATH && nohup node dist/index.js >> $RPATH/logs/lina-stdout.log 2>&1 & # LINA_ATOM" >> /tmp/lina-cron.new
+
+# THE OWNER SYNC MUST BE THERE. Lina's owner price corrections sit in
+# `price_changes` as 'pending' until this job pushes them through the Hub — so
+# the deploy ENSURES the line exists instead of trusting drift. Without it,
+# owners are told a new price and the public listing never changes.
+if ! grep -q 'hermes-price.sh' /tmp/lina-cron.new; then
+  echo "*/5 * * * * $RPATH/scripts/hermes-price.sh >/dev/null 2>&1" >> /tmp/lina-cron.new
+  echo "    ✓ owner price sync installed (*/5 hermes-price.sh)"
+else
+  echo "    ✓ owner price sync already present (kept — it is required)"
+fi
+
+crontab /tmp/lina-cron.new
+
+left="$(crontab -l 2>/dev/null | grep -cE "$PAT" || true)"
+echo "    scheduled map jobs remaining: ${left:-0}"
+if crontab -l 2>/dev/null | grep -q 'LINA_ATOM'; then
+  echo "    ✓ @reboot autostart present (kept — it is not a job)"
+else
+  echo "    ⚠ @reboot autostart missing — a reboot will not bring Lina back"
+fi
+if crontab -l 2>/dev/null | grep -q 'hermes-price.sh'; then
+  echo "    ✓ owner price sync running (owner corrections reach the app)"
+else
+  echo "    ✗ owner price sync MISSING — owner price corrections will NOT reach the app"
+fi
+
+# log hygiene: rotate a runaway enrich.log instead of letting it eat the disk
+if [ -f "$RPATH/logs/enrich.log" ] && [ "$(stat -c%s "$RPATH/logs/enrich.log" 2>/dev/null || echo 0)" -gt 20971520 ]; then
+  tail -n 5000 "$RPATH/logs/enrich.log" > "$RPATH/logs/enrich.log.tmp" && mv "$RPATH/logs/enrich.log.tmp" "$RPATH/logs/enrich.log"
+  echo "    ✓ enrich.log rotated"
+fi
+REMOTE
+    then
+      :
+    else
+      echo "    ⚠ cron cleanup FAILED on the atom — check its crontab manually"
+    fi
   fi
   echo ""
 done < "$ATOMS_CONF"
@@ -189,7 +277,7 @@ for r in "${RESULTS[@]:-}"; do
   [ -z "$r" ] && continue
   id="${r%%|*}"; st="${r#*|}"
   echo "  $id: $st"
-  case "$st" in OK|NOT-RESTARTED|SKIP*) ;; *) rc=1 ;; esac
+  case "$st" in OK|NOT-RESTARTED|DRY-RUN|SKIP*) ;; *) rc=1 ;; esac
 done
 [ ${#RESULTS[@]} -eq 0 ] && { echo "  (no atoms matched — check --atoms / atoms.conf)"; rc=1; }
 exit $rc

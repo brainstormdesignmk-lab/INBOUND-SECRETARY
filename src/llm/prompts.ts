@@ -2,7 +2,7 @@ import { State, Service } from '../fsm/machine';
 import { SlotData } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
-import { Property, locPrep, mkTimePhrase } from '../data/properties';
+import { Property, locPrep, mkTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic } from '../data/properties';
 import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint } from '../visits/time';
 
 export const BUY_FEE_MKD = '500 MKD';
@@ -91,11 +91,146 @@ export const LOCATE_REFINE_ASK =
 // remaining specs before showing matches.  Keeps the collect-first rhythm
 // so the bot doesn't dump all Водно properties when the client only said
 // "stan na Vodno".
+// The area-aware variant of the first ask. The Евидентен број invitation is
+// kept INSIDE it (the operator's rule: the client who saw a property is asked
+// about the number FIRST, whatever else he already told us) — the known area
+// only replaces the "во која населба" question, it never drops the number.
 export const LOCATE_MORE_SPECS_ASK =
-  'Разбрав — {location}. За да го стесниме изборот, кажете ми — колку квадрати има станот и по која цена беше?';
+  'Разбрав — {location}. За да го стесниме изборот, кажете ми — колку квадрати има станот и по која цена беше? А ако го знаете Евидентен број на имотот, само кажете ми го — веднаш ќе го проверам.';
 
 export const LOCATE_PICK_CLOSER =
   'Дали некој од овие е тој што го видовте? Ако е, кажете ми „првиот“ или „вториот“, или Евидентен број на имотот.';
+
+// --- Landmark-anchored locate (the [13:28] capture) ---------------------------
+// The client anchors the property he saw to a MAP PLACE instead of a
+// neighborhood: "SAKAM DA KUPAM STAN TROSOBEN" … "GLEDAV EDEN STAN KAJ VAS" …
+// "PISUVASE DO BROZ KAFE". A human agent reads that landmark off the map and
+// answers with the listings closest to it — Broz Cafe is in Центар, so the
+// 3-room flats around it are the ones he means. Code-built (protocol): the
+// LLM must never invent which listings sit near a place, and the {place} is
+// the MAP's own name for it, never a client echo.
+// ── CLIENT-FACING PLACE NAMES (the [10:29] capture) ─────────────────────────
+// The map holds what OSM and Google hold: ~38% of its POIs carry a Latin-only
+// name ("ELS Novo Lisice", "Broz Cafe", "Kipper Market"), and the copy below
+// printed it VERBATIM — a Macedonian client read "баравте стан во близина на
+// ELS Novo Lisice". Names that already carry Cyrillic are shown exactly as the
+// map holds them; a Latin-only name is rendered in Cyrillic for DISPLAY.
+// Slots, matching and the map itself keep the original spelling — this is a
+// rendering decision, never a data change.
+//
+// The word list is bounded on purpose (the map's own most frequent Latin words
+// — school/market/atm/hotel/bank/…): the letter fold alone mangles English
+// names ("School" → "Сцхоол"), and an open translator is not something this
+// bot may run.
+const PLACE_WORDS: Record<string, string> = {
+  // places of education
+  school: 'училиште', elementary: 'основно', kindergarten: 'градинка',
+  university: 'универзитет', faculty: 'факултет', gymnasium: 'гимназија',
+  // commerce
+  market: 'маркет', supermarket: 'супермаркет', mall: 'мол', shop: 'продавница',
+  store: 'продавница', pharmacy: 'аптека', apteka: 'аптека',
+  // lodging / housing
+  hotel: 'хотел', motel: 'мотел', hostel: 'хостел', apartments: 'станови',
+  apartment: 'стан', rooms: 'соби', house: 'куќа', office: 'канцеларија',
+  // money / services
+  atm: 'банкомат', bank: 'банка', banka: 'банка', post: 'пошта',
+  station: 'станица', parking: 'паркинг', garage: 'гаража',
+  // food
+  cafe: 'кафе', coffee: 'кафе', bar: 'бар', restaurant: 'ресторан',
+  pub: 'паб', pizzeria: 'пицерија',
+  // health / civic
+  hospital: 'болница', clinic: 'клиника', ambulance: 'амбуланта',
+  church: 'црква', 'mosque': 'џамија', monastery: 'манастир',
+  museum: 'музеј', theatre: 'театар', theater: 'театар', cinema: 'кино',
+  stadium: 'стадион', park: 'парк', embassy: 'амбасада', police: 'полиција',
+  municipality: 'општина', court: 'суд', library: 'библиотека',
+  gallery: 'галерија',
+  // geography / grammar
+  skopje: 'скопје', macedonia: 'македонија', center: 'центар', centre: 'центар',
+  city: 'сити', north: 'север', south: 'југ', east: 'исток', west: 'запад',
+  old: 'стар', new: 'нов', and: 'и', at: 'кај',
+  the: '', of: '', // articles/copulas — dropped, never spoken
+};
+
+/** Multi-word Latin names the word list cannot compose ("High school" would
+ *  read "High училиште"). Applied before the word pass. */
+const PLACE_PHRASES: Array<[RegExp, string]> = [
+  [/\bhigh\s+school\b/giu, 'средно училиште'],
+  [/\b(?:elementary|primary)\s+school\b/giu, 'основно училиште'],
+  [/\bold\s+town\b/giu, 'стар град'],
+];
+
+// HOW MANY words may be transliterated blind before the name is left alone.
+// English PROSE in the map ("Boris Sarafov Palace - Ministry of Foreign Affairs
+// of the Republic of North Macedonia") folded letter-by-letter becomes
+// pseudo-Cyrillic gibberish — worse than the Latin the map holds. Up to two
+// unknown words are ordinary names (Kipper Market, ELS Novo Lisice, Embassy of
+// Montenegro); three or more mean English vocabulary, and the map's own
+// spelling stands. The bot never invents a translation it cannot stand behind.
+const PLACE_RENDER_MAX_UNKNOWN = 2;
+
+/** The client-facing form of a map/feed place name: Cyrillic when the map holds
+ *  a Latin-only name we can render faithfully, unchanged otherwise. */
+export function displayPlaceName(name: string): string {
+  const src = (name ?? '').trim();
+  if (!src || /[\u0400-\u04FF]/u.test(src)) return src;
+  // A word counts as KNOWN when the list maps it (even to nothing — "of",
+  // "the") or when the place tables know how it is spelled.
+  const renderable = (tok: string): boolean => {
+    const bare = tok.toLowerCase().replace(/[^\p{L}]/gu, '');
+    return Object.prototype.hasOwnProperty.call(PLACE_WORDS, bare)
+      || knownPlaceWordCyrillic(bare) !== undefined;
+  };
+  const unknown = src.split(/\s+/).filter(t => /\p{L}/u.test(t) && !renderable(t));
+  if (unknown.length > PLACE_RENDER_MAX_UNKNOWN) return src;
+  let out = src;
+  for (const [re, mk] of PLACE_PHRASES) out = out.replace(re, mk);
+  const words = out
+    .split(/(\s+)/)
+    .map((tok) => {
+      if (!/\p{L}/u.test(tok)) return tok;
+      const bare = tok.toLowerCase().replace(/[^\p{L}]/gu, '');
+      const hit = PLACE_WORDS[bare];
+      if (hit === undefined) {
+        // A neighborhood name inside a business name must keep the spelling the
+        // map uses for it ("Novo Lisice" → "Ново Лисиче", never "Лисице" — the
+        // letter fold cannot tell ц from ч).
+        return knownPlaceWordCyrillic(bare) ?? latinToCyrillicDisplay(tok);
+      }
+      if (hit === '') return '';
+      // A known word is a DESCRIPTION, not a brand: one capital, never shouty
+      // ("ATM" the label reads "Банкомат", not "БАНКОМАТ").
+      return hit.charAt(0).toUpperCase() + hit.slice(1);
+    })
+    .join('');
+  return words.replace(/\s{2,}/g, ' ').trim();
+}
+
+/** The map place plus its area, without repeating one in the other (the map
+ *  holds places NAMED after their neighborhood — "Автокоманда"). */
+function placeWithArea(place: string, area?: string): string {
+  const shown = displayPlaceName(place);
+  const same = area && (area.trim().toLowerCase() === place.trim().toLowerCase()
+    || area.trim().toLowerCase() === shown.trim().toLowerCase());
+  return `${shown}${area && !same ? ` (${area})` : ''}`;
+}
+
+export function buildLocateLandmarkIntro(place: string, area?: string): string {
+  return `Разбрав — значи баравте стан во близина на ${placeWithArea(place, area)}. Еве ги најблиските имоти што одговараат на она што го опишавте:`;
+}
+
+// Nothing in the bank matched the criteria AT that landmark — the honest human
+// answer is the closest alternatives with the criteria the client himself
+// described (the operator's rule: "if she does not find the apartment wanted
+// she must offer him different ones with the characteristics discussed").
+export function buildLocateLandmarkFallback(place: string, area?: string): string {
+  return `Токму во близина на ${placeWithArea(place, area)} моментално немам имот што одговара точно на тие податоци. Еве ги најблиските алтернативи со истите карактеристики:`;
+}
+
+// The client remembers WHERE the property was, not how much it cost — the
+// landmark arm shows the matches and keeps the price as the missing piece.
+export const LOCATE_LANDMARK_PRICE_PROBE =
+  'Ако се сеќавате и по која цена беше станот, кажете ми — веднаш ќе го најдеме.';
 
 /** A compact "is this the one you saw?" line — EB, type, area, size, price. */
 export function buildLocateMatchLine(p: Property): string {
@@ -296,7 +431,7 @@ export function buildWhereIsAnswer(place: string, found?: { address?: string; lo
   // Address PRIVACY: "каде е X?" is answered with the nearest PUBLIC LANDMARK
   // ("во близина на City Mall") — like a human agent — never the street, so
   // the client can't bypass the agency by visiting the owner directly.
-  if (found?.landmark) return `Тоа се наоѓа во близина на ${found.landmark}.`;
+  if (found?.landmark) return `Тоа се наоѓа во близина на ${displayPlaceName(found.landmark)}.`;
   if (loc && eb) return `Тоа се наоѓа во населбата ${loc}.`;
   if (loc) return `${place || 'Тоа'} е населба во Скопје.`;
   if (place) return `Тоа место не ми е познато во нашата база. Ако сакате, можам да Ви организирам посета за да го погледнете на лице место.`;

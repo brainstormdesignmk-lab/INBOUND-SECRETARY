@@ -1054,6 +1054,13 @@ test('detectSeenProperty: a specific seen property without a number is NOT a fre
   assert.equal(detectSeenProperty('moze da mi kazete koj stan bese ?'), true);
   assert.equal(detectSeenProperty('ГО ГЛЕДАВ ОГЛАСОТ ЗА СТАН ВО КАРПОШ'), true);
   assert.equal(detectSeenProperty('gledav oglas za stan na internet'), true);
+  // the [13:27] capture: the determiner (EDEN) and OUR OWN site (KAJ VAS, "на
+  // вашата страна") broke every slot — the message fell through to discovery
+  // and Lina asked for the neighborhood instead of the Евидентен број.
+  assert.equal(detectSeenProperty('GLEDAV EDEN STAN KAJ VAS'), true);
+  assert.equal(detectSeenProperty('gledav eden stan kaj vas'), true);
+  assert.equal(detectSeenProperty('gledav eden stan na vashata strana'), true);
+  assert.equal(detectSeenProperty('видов еден стан на вашиот сајт'), true);
   // a fresh search is NOT a seen property
   assert.equal(detectSeenProperty('SAKAM DA KUPAM STAN VO KARPOS'), false);
   assert.equal(detectSeenProperty('MI TREBA STAN VO CENTAR'), false);
@@ -1411,7 +1418,42 @@ test('[22:47] owner-contact hold: a negated contact instruction / "not agreed ye
 test('[22:41] extractPoiWish: a POI anchor inside a SEARCH phrase is captured', () => {
   assert.equal(extractPoiWish('OKOLU KAPITOL BISER'), 'капитол бисер');
   assert.equal(extractPoiWish('okolucinar'), undefined, 'no proximity preposition → no wish');
-  assert.equal(extractPoiWish('vo blizina na centar'), 'центар', 'the caller verifies against the POI map');
+  // The tail is a CANDIDATE: the caller verifies it against the POI map, and
+  // that verification must be a NAME check — an area the map also holds as a
+  // place ("Автокоманда") is a legitimate anchor, a business whose name merely
+  // CONTAINS the area ("ELS Novo Lisice") is not (InboundHandler.resolvePlace).
+  assert.equal(extractPoiWish('vo blizina na centar'), 'центар');
   assert.equal(extractPoiWish('SAKAM STAN OKOLU KAPITOL BISER DO 100000'), undefined, 'a priced wish is not a bare POI tail');
   assert.equal(extractPoiWish('OKOLU KAPITOL BISER ?'), 'капитол бисер');
+});
+
+test('[13:28] extractPoiWish: the LISTING anchor ("PISUVASE DO BROZ KAFE")', () => {
+  // "до/do" is how an ad names the place the property sits at.
+  assert.equal(extractPoiWish('PISUVASE DO BROZ KAFE'), 'BROZ KAFE');
+  assert.equal(extractPoiWish('пишуваше до Броз кафе'), 'Броз кафе');
+  // …without ever reading a budget as a place.
+  assert.equal(extractPoiWish('do 250 evra'), undefined);
+  assert.equal(extractPoiWish('baram stan do 60000'), undefined);
+  assert.equal(extractPoiWish('do 60 kvadrati'), undefined);
+  // The locate lane reads the wish WITH the criteria in the same message —
+  // the client names the place and the price in one breath; the TAIL-scoped
+  // veto still keeps a bare budget from becoming a place.
+  assert.equal(extractPoiWish('PISUVASE DO BROZ KAFE. BESE OKOLU 200 000 EVRA', { withCriteria: true }) !== undefined, true);
+  assert.equal(extractPoiWish('okolu 200 000 evra', { withCriteria: true }), undefined);
+});
+
+test('[10:28] extractPoiWish: the GRAMMAR bridge is trimmed, never the place', () => {
+  // "gledav eden stan kaj vas vo novo lisice" — the client named WHERE the flat
+  // was. The greedy capture used to swallow the grammar and hand "вас во ново
+  // лисице" to the POI lookup, which fuzzed it onto the post office "ELS Novo
+  // Lisice" (the phantom landmark; the NAME guard that refuses it lives in
+  // InboundHandler.resolvePlace and is covered end-to-end in
+  // tests/locate-landmark.test.ts).
+  assert.equal(extractPoiWish('gledav eden stan kaj vas vo novo lisice', { withCriteria: true }), 'ново лисице');
+  assert.equal(extractPoiWish('gledav eden stan kaj vas vo novo lisice'), 'ново лисице');
+  // The grammar bridge goes, the name stays — in both scripts.
+  assert.equal(extractPoiWish('bese do vas vo broz kafe'), 'broz kafe');
+  assert.equal(extractPoiWish('bese kaj vas vo broz kafe'), 'броз кафе');
+  assert.equal(extractPoiWish('PISUVASE DO BROZ KAFE', { withCriteria: true }), 'BROZ KAFE');
+  assert.equal(extractPoiWish('PISUVASE DO TRGOVSKI LISICE', { withCriteria: true }), 'TRGOVSKI LISICE');
 });

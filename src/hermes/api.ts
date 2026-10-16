@@ -5,13 +5,14 @@
 // same :8080 Express server the Viber webhook uses:
 //
 //   GET  /hermes/v1/work                    — one pull: landmark candidates,
-//                                             pending price changes, pending
-//                                             owner checks, upcoming visits
+//                                             pending price AND address changes,
+//                                             pending owner checks, upcoming visits
 //   POST /hermes/v1/landmarks               — Hermes' named landmarks (written
 //                                             as source='hermes', street never
 //                                             accepted) + resolves matching
 //                                             landmark_requested events
 //   POST /hermes/v1/prices/:id/result       — ok/fail for an applied price sync
+//   POST /hermes/v1/addresses/:id/result    — ok/fail for an applied address sync
 //   POST /hermes/v1/owners/:chatId/answer   — Hermes' owner verdict (writes the
 //                                             bus + fast-paths ownerAnswer)
 //   GET  /hermes/v1/visits                  — finalized visits + turn statuses
@@ -73,6 +74,8 @@ export function registerHermesApi(app: Express, deps: HermesApiDeps): void {
       landmarks: landmarkCandidates,
       price_changes: pipeline.priceChanges.listPending()
         .map(r => ({ id: r.id, eb: r.eb, old_price: r.oldPrice, new_price: r.newPrice })),
+      address_changes: pipeline.addressChanges.listPending()
+        .map(r => ({ id: r.id, eb: r.eb, old_address: r.oldAddress, new_address: r.newAddress })),
       owner_checks: ownerChecks,
       visits: thisVisits(),
     });
@@ -137,6 +140,20 @@ export function registerHermesApi(app: Express, deps: HermesApiDeps): void {
       return;
     }
     if (ok) pipeline.priceChanges.resolve(id);
+    res.json({ resolved: ok });
+  });
+
+  // Hermes applied an ADDRESS correction via the Supabase function — report
+  // back. Same contract as the price result: resolved only on ok=true.
+  app.post('/hermes/v1/addresses/:id/result', guard, (req, res) => {
+    const id = Number(req.params.id);
+    const ok = req.body?.ok === true;
+    const row = deps.db.db.prepare(`SELECT id FROM address_changes WHERE id = ? AND status = 'pending'`).get(id);
+    if (!row) {
+      res.json({ resolved: false, reason: 'no pending row' });
+      return;
+    }
+    if (ok) pipeline.addressChanges.resolve(id);
     res.json({ resolved: ok });
   });
 

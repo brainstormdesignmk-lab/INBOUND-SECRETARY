@@ -50,6 +50,7 @@ export interface AppConfig {
   negotiationCap: number;
   ownerAgentMode: 'local' | 'deferred'; // local = instant verdicts (sim), deferred = wait for /owner or Hermes
   hermesWriteUrl: string;  // private Supabase edge function that updates the price (Lovable)
+  hermesAddressWriteUrl: string; // same, for the owner-corrected ADDRESS (Turn 0 of the visit protocol)
   hermesLandmarksWriteUrl: string; // edge function that writes the RANKED landmark list per property
   hermesToken: string;     // shared admin token the function checks (x-admin-token by default)
   hermesAuthHeader: string; // request header carrying the token
@@ -150,6 +151,11 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     negotiationCap: num(process.env.NEGOTIATION_CAP, 3),
     ownerAgentMode: (process.env.OWNER_AGENT_MODE as AppConfig['ownerAgentMode']) || 'deferred',
     hermesWriteUrl: process.env.HERMES_WRITE_URL || '',
+    // The address endpoint is derived from the price one when not set explicitly
+    // (same hub, different path) — so an atom that already points at the hub
+    // needs no new env var, and an explicit HERMES_ADDRESS_WRITE_URL wins.
+    hermesAddressWriteUrl: process.env.HERMES_ADDRESS_WRITE_URL
+      || (process.env.HERMES_WRITE_URL || '').replace(/\/ingest\/[a-z-]+$/, '/ingest/address'),
     hermesLandmarksWriteUrl: process.env.HERMES_LANDMARKS_WRITE_URL || '',
     hermesToken: process.env.HERMES_TOKEN || '',
     hermesAuthHeader: process.env.HERMES_AUTH_HEADER || 'x-admin-token',

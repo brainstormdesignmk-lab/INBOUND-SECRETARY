@@ -1,7 +1,15 @@
 # Deploying the Landmarks Pipeline (Steps 5–8)
 
-This guide covers deploying the landmark resolution system — from the Supabase
-edge functions to the T60 (Hermes) machine's cron jobs.
+This guide covers deploying the landmark resolution system — the Supabase edge
+functions and the manual runs on the machine that owns the map.
+
+> **NO MAP JOB IS SCHEDULED (2026-10-14):** the cron steps this document used to
+> contain are gone — the landmark/map work is human-gated. One line must STAY
+> installed and is not map work: the atom's **owner price sync**
+> (`*/5 * * * * scripts/hermes-price.sh`). `npm run cron:check` must report
+> COMPLIANT on every machine (add `--require-sync` on an atom);
+> `scripts/install-cron.ts` refuses to install a NEW schedule and
+> `npm run cron:remove` strips any MAP job that survived.
 
 ## Prerequisites
 
@@ -17,17 +25,22 @@ edge functions to the T60 (Hermes) machine's cron jobs.
 Run on a machine with the Supabase CLI linked to the project:
 
 ```bash
-# One-command deploy: migration + edge functions + secrets
-chmod +x scripts/deploy-supabase.sh
-HERMES_API_KEY=<your-token> ./scripts/deploy-supabase.sh
+# One-command deploy: link assertion + migration + edge functions + secrets + verify
+supabase link --project-ref qkgioqotxjxffiaufgwd    # the LIVE project — required once
+HERMES_API_KEY=<your-token> npm run deploy:supabase
+npm run verify:feed                                 # read-only proof the feed serves the geo fields
 ```
 
 This will:
+0. **Refuse to run** if the linked project is not the live one (a deploy into the
+   empty FREEBUFF project used to "succeed" and change nothing Lina can see)
 1. Run the `20260820_add_landmarks_and_audit.sql` migration
    (adds `landmarks` + `landmarks_resolved_at` columns, audit tables)
 2. Deploy `update-property-landmarks` edge function
 3. Deploy `update-property-price` edge function
-4. Set the `HERMES_API_KEY` secret
+4. Deploy `public-properties` — the feed Lina actually reads
+5. Set the `HERMES_API_KEY` secret
+6. Verify the live payload (version + lat/lon + landmarks)
 
 After deploy, note the function URLs. They follow this pattern:
 ```
@@ -70,15 +83,20 @@ npm install
 
 ## Step 7: First run on T60
 
-### 7a. Build the offline map
+### 7a. Get the offline map — from its OWNER, or build it here if this IS the owner
 
 ```bash
-npm run map:pull
+npm run map:pull        # ⚠ REBUILDS data/skopje-pois.db from OSM
 ```
 
 This downloads Skopje's named POIs + addresses from OSM into
-`data/skopje-pois.db`. Takes ~30 seconds. The resolver reads from this
-file instead of hitting live Overpass/Nominatim on the hot path.
+`data/skopje-pois.db`. Takes ~30 seconds. The resolver reads from this file
+instead of hitting live Overpass/Nominatim on the hot path.
+
+**⚠ One producer only.** If another machine authors the map and ships it with
+`scripts/deploy_map.sh` (checksum-verified), do NOT pull here — you would replace
+the authored map with a local OSM build and silently disagree with every other
+machine. The map is a fixed artifact between deliberate refreshes.
 
 ### 7b. Run the landmark feed resolver
 
@@ -122,43 +140,39 @@ Or verify directly in the properties table that the `landmarks` column is popula
 
 ---
 
-## Step 8: Set up cron jobs
+## Step 8: NO MAP JOB IS SCHEDULED (this step used to install three cron jobs)
 
-### 8a. Weekly offline map pull (Sunday 03:17)
+**NO MAP JOB IS SCHEDULED (2026-10-14).** The map is a fixed artifact, and
+enrichment/landmarks are human-gated. The three lines this step used to install
+are now forbidden, and `cron:remove` strips them.
 
-```bash
-chmod +x scripts/skopje-map-weekly.sh
-crontab -e
-# Add:
-17 3 * * 0 /path/to/scripts/skopje-map-weekly.sh
-```
+The one schedule that MUST exist is the atom's owner price sync
+(`*/5 * * * * scripts/hermes-price.sh`) — Lina asks owners for the current price
+and that job carries each correction to the app. It is not map work, and
+`npm run atoms:deploy` re-installs it if it is missing.
 
-### 8b. Nightly landmark resolver (daily 03:17)
-
-```bash
-chmod +x scripts/hermes-nightly.sh
-crontab -e
-# Add:
-17 3 * * * /path/to/scripts/hermes-nightly.sh
-```
-
-### 8c. Daily response bank enrichment (midnight)
+Prove it, and clean up any machine that still carries them:
 
 ```bash
-chmod +x scripts/enrich-bank.sh
-crontab -e
-# Add:
-0 0 * * * /path/to/scripts/enrich-bank.sh
+npm run cron:check      # exit 0 = COMPLIANT. exit 1 = a schedule is installed
+npm run cron:remove     # strips them (idempotent; keeps only the @reboot boot line)
 ```
 
-### Full crontab (all three):
+Run these on **every** machine you have an account on — hub, workstation, each
+atom — and after every restore from an old image. `npm run atoms:deploy`
+enforces the policy on the whole fleet automatically.
 
-```
-# Lina/Hermes cron jobs
-0 0 * * * /path/to/scripts/enrich-bank.sh >> /path/to/data/enrich-cron.log 2>&1
-17 3 * * 0 /path/to/scripts/skopje-map-weekly.sh
-17 3 * * * /path/to/scripts/hermes-nightly.sh
-```
+The three jobs are now manual entry points, run when you decide:
+
+| was | now |
+|---|---|
+| `17 3 * * 0 skopje-map-weekly.sh` | manual, and **only on the machine that owns the map** |
+| `17 3 * * * hermes-nightly.sh` | `bash scripts/hermes-nightly.sh` when you want a landmark pass |
+| `0 0 * * * enrich-bank.sh` | `bash scripts/enrich-cron.sh [--gapfill]` after you have reviewed what the fleet learned |
+
+> The `@reboot … # LINA_ATOM` autostart is the ONE non-job line and is kept: it
+> spends nothing and learns nothing, it only brings the bot back after a power
+> cut. `npm run cron:remove -- --remove-reboot` if you want it gone as well.
 
 ---
 

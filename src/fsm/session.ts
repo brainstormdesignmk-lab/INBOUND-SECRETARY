@@ -66,6 +66,11 @@ export interface SlotData {
   nearbyLandmarkEb?: number;      // WHICH property the slots were resolved for — a served slot must never outlive its property (21:51: EB 57 got EB 56's Завод landmarks 3.2 km away)
   poiAnchor?: string;             // client's POI wish from the SEARCH phrase ("okolu Kapitol Biser") — presentation must find candidates NEAR this point, not just in the neighborhood
   poiAnchorTooFar?: boolean;      // the resolved anchor has NO in-pool property within the honest 1.5 km walk radius — the intro must say so
+  /** The AREA the landmark anchor gave the locate funnel (Broz Cafe → Центар).
+   *  While slots.location still equals it, later details ("околу 200.000 беше")
+   *  keep ranking from that landmark; a NEW neighborhood in the message means
+   *  a different search and the landmark stops steering it. */
+  poiArea?: string;
   /** The [17:14] size-intent flag: "POMALO NESTO / нешто помало" means
    *  SMALLER-than-what-was-shown — could be a garsonjera OR a small 1-bedroom
    *  flat. The bedrooms slot alone must not decide the answer, so the pomalo
