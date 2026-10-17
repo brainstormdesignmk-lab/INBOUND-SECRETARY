@@ -106,8 +106,18 @@ const LEXICON: LexiconEntry[] = [
     excludeAfter: ['se', 'si', 'ime', 'ite', 'aat', 'eme', 'ot', 'ata'],
     reason: 'gradi (letter-bounded so "izgradi"=built stays clean; reflexive forms excluded)' },
   { id: 'S0c', category: 'sexual', severity: 3, confidence: 0.98, stems: ['picka'], reason: 'picka (picka/pichka/pi4ka/пичка all normalize here)' },
-  { id: 'S0d', category: 'sexual', severity: 3, confidence: 0.98, stems: ['kur', 'kuro', 'kura', 'kurac', 'kurvo', 'kurva', 'kurvi', 'kurcinja', 'penis'], boundary: true,
-    reason: 'kur/penis (letter-bounded: "skurat", "kultura" stay clean; inflected kurvo/kurva listed explicitly). Bare "cura" deliberately NOT here — it also means "girl" ("sopstvenikot e cura") — the directed insult forms live in S0d2' },
+  { id: 'S0d', category: 'sexual', severity: 3, confidence: 0.98, stems: [
+      'kur', 'kuro', 'kura', 'kurac', 'kurov', 'kurot', 'kurovot', 'kurovi', 'kurovite',
+      // Definite/possessive inflections the boundary guard rejects when embedded —
+      // each must be its own stem (the [14:01] 'kurov' lesson). kuracot/kuracov/
+      // kuracite (the dick), kurvata/kurvite (the bitch), kurcinjata (the dicks),
+      // penisot/penisite (the penis), kurvin/kurvina/kurvini (kurvin sin family).
+      'kuracot', 'kuracov', 'kuracite', 'kurci', 'kurcina', 'kurcinata', 'kurceto',
+      'kurvata', 'kurvite', 'kurcinjata',
+      'penisot', 'penisite', 'kurvin', 'kurvina', 'kurvini',
+      'kurvo', 'kurva', 'kurvi', 'kurcinja', 'penis',
+    ], boundary: true,
+    reason: 'kur/penis (letter-bounded: "skurat", "kultura" stay clean; inflected kurov/kurot/kurvo/kurva and their definite forms listed explicitly). "kurov" (куров) is the possessive form in "zemi kurov" — the [14:01] miss; "kurovski" stays clean via the boundary. Bare "cura" deliberately NOT here — it also means "girl" ("sopstvenikot e cura") — the directed insult forms live in S0d2' },
   { id: 'S0d2', category: 'sexual', severity: 3, confidence: 0.9, stems: ['ti cura', 'ti si cura', 'ti edna cura'], reason: 'directed cura insult (multi-word: neutral "sopstvenikot e cura" stays clean)' },
   { id: 'S0e', category: 'sexual', severity: 3, confidence: 0.98, stems: ['vagin', 'vulv'], reason: 'vagina/vulva' },
   // boundary on 'anal' (ANA had it bare): "направи анализа" (make an analysis)

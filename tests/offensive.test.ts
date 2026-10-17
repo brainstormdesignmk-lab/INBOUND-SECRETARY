@@ -30,6 +30,32 @@ test('prefixed/past ebam forms (poebam/naebam/ebal/jeban) are sexual severity 3'
   }
 });
 
+// The [14:01] field miss: "zimi kurov" (земи куров) was read as clean — the
+// S0d row only listed 'kur' and 'kuro', and the possessive 'kurov' is neither
+// (the boundary guard rejects 'kur'/'kuro' inside it). The possessive and
+// definite forms are their own stems now; surnames and the innocent
+// 'kultura'/'skurat' neighbours must stay clean via the boundary.
+test('[14:01] possessive kurov (zimi kurov / земи куров) is sexual severity 3', () => {
+  for (const t of [
+    'zimi kurov', 'ZEMI KUROV', 'земи куров', 'ЗЕМИ КУРОВ',
+    'kurov', 'kurot', 'kurovot', 'kurovi', 'kurovite',
+    'kurov ti', 'zemi go kurot', 'kurov?',
+    // the definite/possessive forms the boundary guard would otherwise reject
+    'kuracot', 'kuracov', 'kuracite', 'kurci', 'kurcina', 'kurcinata', 'kurceto',
+    'kurvata', 'kurvite', 'kurcinjata',
+    'penisot', 'penisite', 'kurvin', 'kurvin sin', 'kurvina', 'kurvini',
+  ]) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+    assert.equal(d.category, 'sexual', JSON.stringify(t));
+    assert.equal(d.severity, 3, JSON.stringify(t));
+  }
+  for (const t of ['kurovski', 'kurovska', 'kultura', 'skurat do park']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' -> ' + (d.reason ?? ''));
+  }
+});
+
 test('normalize: folds Latin digraphs and leetspeak', () => {
   assert.equal(normalize('pi4ka'), 'picka');
   assert.equal(normalize('pichka'), 'picka');

@@ -1587,6 +1587,31 @@ test('insult protocol: "DA SE EBETE VO GAZOT" is a strike — 3 strikes terminat
   assert.equal(sessions.get(chatId), null); // blocked at entry — session never re-created
 });
 
+test('insult protocol: [14:01] "ZIMI KUROV" is a strike — never a funnel answer', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'viber-kurov';
+  const send = async (m: string) => { await handler.handle('viber', chatId, m); return sessions.get(chatId)!; };
+
+  // The possessive 'kurov' was absent from the lexicon, so the deterministic
+  // scan stayed clean and the insult was answered like ordinary chat traffic.
+  // It is a severity-3 offense: strike 1 = professional rebuff, funnel untouched.
+  let s = await send('mi treba stan pod kirija');
+  assert.equal(s.state, 'discovery');
+  s = await send('zimi kurov');
+  assert.equal(s.strikes, 1, 'kurov is an offense');
+  assert.equal(s.state, 'discovery', 'the funnel does not advance on an insult');
+  assert.ok(/професионалн|Господине|ве молам/i.test(sent.at(-1)!), sent.at(-1));
+  assert.ok(!/Иден стан|градска населба|Евидентен број/i.test(sent.at(-1)!), sent.at(-1));
+
+  // Two more offenses follow the normal ladder: final warning, then terminate.
+  s = await send('kurov ti');
+  assert.equal(s.strikes, 2);
+  assert.ok(/последна опомена/i.test(sent.at(-1)!), sent.at(-1));
+  s = await send('glupava si');
+  assert.equal(s.strikes, 3);
+  assert.equal(s.state, 'terminated');
+});
+
 test('insult protocol: the [00:29] disappointment burst ("NE ZNAM KONKRETEN STAN" / "SE NADEVAV…") is never a strike — both lines are answered and the discovery funnel advances', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'viber-disappointment';
