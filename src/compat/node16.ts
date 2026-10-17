@@ -14,7 +14,23 @@
 // `fetch` (and, when streaming, a global `ReadableStream`), and documents
 // polyfilling globalThis as the supported path.
 
-import * as undici from 'undici';
+// undici is the Node 16 polyfill, but it is OPTIONAL at runtime: on Node 18+/
+// 22 every global below is native and the package may not be installed at all
+// (the T60 deployment runs Node 22 and keeps its own dependency set). A
+// module-scope `import` made that tree fail to BOOT with MODULE_NOT_FOUND
+// before it ever reached the guard below, even though it needed no polyfill.
+// Load it lazily, and only when a global is actually missing.
+let undici: any = null;
+function loadUndici(): any {
+  if (undici) return undici;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    undici = require('undici');
+  } catch {
+    undici = {};
+  }
+  return undici;
+}
 
 // node:stream/web exists on Node 16.5+ and is the same Web Streams
 // implementation Node 18 exposes globally. Best-effort: if it is unavailable
@@ -30,13 +46,19 @@ try {
 // Guarded: on Node 18+ these exist natively — leave them alone so native
 // behavior (and Node's own keep-alive agent) is preserved.
 if (typeof (globalThis as any).fetch !== 'function') {
+  const u = loadUndici();
+  if (typeof u.fetch !== 'function') {
+    throw new Error(
+      'fetch is unavailable and the optional undici polyfill is not installed — run "npm install undici" on Node < 18',
+    );
+  }
   const g = globalThis as any;
-  g.fetch = (undici as any).fetch;
-  g.Headers = (undici as any).Headers;
-  g.Request = (undici as any).Request;
-  g.Response = (undici as any).Response;
-  g.FormData = (undici as any).FormData;
-  g.File = g.File ?? (undici as any).File;
+  g.fetch = u.fetch;
+  g.Headers = u.Headers;
+  g.Request = u.Request;
+  g.Response = u.Response;
+  g.FormData = u.FormData;
+  g.File = g.File ?? u.File;
   if (streamWeb) {
     g.ReadableStream = g.ReadableStream ?? streamWeb.ReadableStream;
     g.WritableStream = g.WritableStream ?? streamWeb.WritableStream;
