@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk, detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, isDistanceQuestion, extractDistancePlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -979,6 +979,70 @@ export class InboundHandler {
       // Map miss / no anchor: fall through. isWhereLandmarkQuestion text also
       // carries каде, so the WHERE_IS lanes below answer it with property
       // context; inferPropertyId no longer binds the place-name number.
+    }
+
+    // ── DISTANCE TO A NAMED PLACE (the [22:25] capture) ─────────────────────
+    // „KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?“ — how far is the discussed
+    // property from a place the client names. This is neither a каде ask (so
+    // the WHERE_LANDMARK lane above never saw it) nor a property lookup: the
+    // classifier read „STANOT“ as PROPERTY_ID_REQUESTED and answered with the
+    // property CARD, which tells the client nothing about the distance they
+    // asked for.
+    //
+    // The place is resolved by the geo engine (findPlace, which bridges script,
+    // word order AND language: „BUNJAKOVEC TRGOVSKI“ ≡ „Shopping Center
+    // Bunjakovec“) and measured from the property's OWN coordinates — the same
+    // distance line the where-is lane serves. A map miss or an unanchored
+    // session falls through untouched: the code answers only what it can
+    // measure, never an invented number.
+    if (isDistanceQuestion(text)
+      && !detectService(text) && !detectBothServices(text)) {
+      const placeName = extractDistancePlace(text);
+      // Anchor: the property on the table. An EB named a turn or two ago still
+      // owns the conversation — read straight from the history, because
+      // inferPropertyId() deliberately VETOES any text containing каде/наоѓа
+      // (it guards the landmark lane), and the turn before this one is exactly
+      // that („KADE VI SE NAOGJA EV BR 70?“). The local regex understands the
+      // EB spellings (EB/EV/ЕВ + бр/br/број).
+      const histEb = (() => {
+        for (const h of [...session.history].reverse()) {
+          if (h.role !== 'user') continue;
+          const m = h.text.match(/\b(?:ev|eb|ев|еб)\s*(?:br|бр|broj|број)?\.?\s*(\d{1,3})\b/iu)
+            ?? h.text.match(/\b(?:na|на)\s+(\d{1,3})\b/iu);
+          if (!m) continue;
+          const n = parseInt(m[1], 10);
+          if (n >= 10 && n <= 999) return n;
+        }
+        return undefined;
+      })();
+      const anchorEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
+        ?? histEb;
+      const anchorProp = anchorEb != null
+        ? await this.deps.properties.getByEb(anchorEb).catch(() => undefined)
+        : undefined;
+      if (placeName && anchorProp?.lat != null && anchorProp?.lon != null) {
+        const hit = this.landmarks.findPlace(placeName, { lat: anchorProp.lat, lon: anchorProp.lon });
+        if (hit) {
+          const d = Math.round(distM(anchorProp.lat, anchorProp.lon, hit.lat, hit.lon));
+          const distPhrase = d < 1000
+            ? `${Math.max(10, Math.round(d / 10) * 10)} метри`
+            : `${(d / 1000).toFixed(1).replace('.', ',')} километри`;
+          const prep = locPrep(anchorProp.location ?? '');
+          // Walking time only when it is honest (a real walk, not a 3-hour one).
+          const mins = walkMinutes(d);
+          const walk = d >= 100 && d <= 2000 ? ` (околу ${mins} минути пешки)` : '';
+          const answer = `${hit.name} се наоѓа на ${distPhrase}${walk} од имотот кој го разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на имотот се открива на денот на посетата.`;
+          session.slots.location = anchorProp.location ?? session.slots.location;
+          routeLog(chatId, text, 'DISTANCE');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
+          return;
+        }
+      }
+      // No place / no anchor / map miss → the chains below keep the turn.
     }
 
     // ── WHICH-SIDE / SURROUNDINGS (the [01:29] capture) ─────────────────────

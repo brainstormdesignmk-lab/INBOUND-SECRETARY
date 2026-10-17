@@ -4566,6 +4566,79 @@ export function extractWhereLandmarkPlace(text: string): string | undefined {
   return place.length >= 3 ? place : undefined;
 }
 
+// ── DISTANCE TO A NAMED PLACE ─────────────────────────────────────────────────
+// „KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?“ ([22:25]) — the client asks how
+// FAR the property on the table is from a place they can name. Nothing claimed
+// this: it is not a каде question (the WHERE_LANDMARK lane), and the classifier
+// saw „STANOT“ and routed PROPERTY_ID_REQUESTED, so the reply was a property
+// card instead of a distance. A distance ask needs its own lane and its own
+// detector pair: the PLACE (after „do/до“) plus the distance cue.
+
+/** Distance-vs-price guard: „kolku e stanot“ / „kolku chini“ is a PRICE ask,
+ *  never a distance. The cue list below is deliberately narrow (далеку /
+ *  оддалечено / метри / минути / пешки) so an ordinary „kolku“ never lands
+ *  here. */
+export function isDistanceQuestion(text: string): boolean {
+  if (detectPriceAsk(text) || detectBudget(text)) return false;
+  // NOTE: `\b` is ASCII-word-based in Node 18 and never matches around a
+  // Cyrillic letter — every boundary below is therefore written as an explicit
+  // whitespace/edge class, or dropped where the surrounding words already
+  // constrain the match.
+  const W = '(?:^|[\\s,.;:!?„“"(])';
+  const E = '(?:[\\s,.;:!?„“")]|$)';
+  // „kolku ima/e od X do Y“ / „КОЛКУ ИМА ОД X ДО Y“ — the transcript's
+  // phrasing. BOTH prepositions must be present; a lone „од“ is a statement.
+  if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}[^.?!\\n]{0,30}${W}(?:od|од)${E}[^.?!\\n]{0,40}${W}(?:do|до)${E}`, 'iu'), text)) return true;
+  // Explicit distance words, with or without „kolku“.
+  if (matchesBoth(new RegExp(`${W}(?:daleku|далеку|oddalec\\p{L}*|оддалеч\\p{L}*|dalecina|далечина|distanc\\p{L}*|дистанц\\p{L}*)`, 'iu'), text)) {
+    // …but only as a QUESTION. A bare „da ne e daleku“ („it isn't far, is
+    // it?“) is a statement and keeps its own lane — so the cue is a question
+    // mark, a „kolku“, or an explicit „dali/дали“, never a bare copula.
+    return text.includes('?')
+      || matchesBoth(new RegExp(`${W}(?:kolku|колку|dali|дали)${E}`, 'iu'), text);
+  }
+  // „kolku minuti / metri“ — the unit IS the distance ask.
+  if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}(?:[^.?!\\n]{0,20})${W}(?:minuti|минути|metri|метри|km|км)${E}`, 'iu'), text)) return true;
+  // „…peske?“ / „walking?“ — a walking ask is a distance ask when it asks at all.
+  if (matchesBoth(new RegExp(`${W}(?:peske|пешке|peshki|пешки|walk(?:ing)?)${E}`, 'iu'), text)
+    && (text.includes('?') || matchesBoth(/(?:kolku|колку)/iu, text))) return true;
+  return false;
+}
+
+/** The destination of a distance question: the tail after the last „do/до“
+ *  („… DO BUNJAKOVEC TRGOVSKI?“ → „BUNJAKOVEC TRGOVSKI“). Undefined when the
+ *  tail is a number/quantity („do 250 evra“, „do 60 m2“) — that „do“ is a
+ *  CAP, not a place. */
+export function extractDistancePlace(text: string): string | undefined {
+  if (!isDistanceQuestion(text)) return undefined;
+  // The last „do/до“ wins: „od stanot do …“ has one; „do 300 evra do centar“
+  // (a cap followed by a place) must resolve the PLACE.
+  // RAW text first (the client's own script is what the geo layer prefers),
+  // the normalized Cyrillic form only as the fallback — so a Latin typing is
+  // never silently rewritten into Cyrillic before the map sees it.
+  const tails = [...text.matchAll(/(?:^|[\s,;])(?:do|до)\s+([\p{L}][\p{L}\p{N}'’\- ]{1,60})/giu)];
+  const cyrTails = tails.length > 0
+    ? []
+    : [...normalizeMc(text).matchAll(/(?:^|[\s,;])(?:do|до)\s+([\p{L}][\p{L}\p{N}'’\- ]{1,60})/giu)];
+  const all = tails.length > 0 ? tails : cyrTails;
+  if (all.length === 0) return undefined;
+  for (let i = all.length - 1; i >= 0; i--) {
+    let place = (all[i][1] ?? '').trim().replace(/[.?!,:;]+$/u, '').trim();
+    // Drop trailing scaffold words („do centar li e“ → „centar“)
+    let words = place.split(/\s+/);
+    while (words.length > 1
+      && POI_CONFIRM_TAIL_WORDS.has((words[words.length - 1] ?? '').toLowerCase())) {
+      words = words.slice(0, -1);
+    }
+    place = words.join(' ');
+    if (place.length < 3) continue;
+    // A quantity tail is a cap, not a place: money, area, metres, minutes.
+    if (/(?:^|\s)(?:\d|evra|evro|евра|евро|eur|denari|денари|ден|m2|m²|м2|квадрат|metri|метри|minuti|минути)(?:\s|$)/iu.test(place)) continue;
+    return place;
+  }
+  return undefined;
+}
+
 /** The place candidate after vo/na/kaj in a POI-confirm question
  *  ("da ne e vo skopjanka ?" → "skopjanka"), or undefined. Trailing
  *  copula/particle words are trimmed; multi-word names ("kam marketing")
