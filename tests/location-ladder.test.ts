@@ -201,47 +201,40 @@ test('bare insistence with NO location thread and NO anchor never pitches the fe
   offlineMap.close();
 });
 
-// ── FIX LIST, ITEM 2 ─────────────────────────────────────────────────────────
-// An EXPLICIT STREET/NUMBER ask (улица и број / адреса) is answered with the
-// agency protocol line FOR THAT PROPERTY, gets no landmark instead, and spends
-// no rotation slot: the rotation belongs to the WHERE/NEARBY asks. A pure
-// LOCATION word still rides the documented ladder above (approximation first).
+// ── ADDRESS PRIVACY LADDER ───────────────────────────────────────────────────
+// Street/address wording follows the same ladder: landmark first, privacy
+// protocol on the second ask. The exact street is never disclosed.
 
-test('item 2: an explicit street/number ask serves the protocol, never a landmark, and spends no rotation slot', async () => {
+test('a first explicit street ask gives landmark 1; the repeated ask gives the privacy protocol', async () => {
   const { handler, sessions, sent, offlineMap } = makeHandler();
   const s = freshSession('test', chat);
   s.slots.propertyId = 76;
   s.slots.interestedPropertyId = 76;
   sessions.set(s);
 
-  await handler.handle('test', chat, 'tocnata ulica i broj , ako moze?');
-  const a = sent[sent.length - 1];
-  assert.ok(/два часа пред|ден(от)? на (посетата|гледањето)|правил|политик|предвидува|непосредно пред/iu.test(a),
-    `an explicit street ask must serve the agency protocol: ${a}`);
-  assert.ok(!/во близина на/iu.test(a), `no landmark for an explicit street ask: ${a}`);
-  assert.ok(!/https?:/iu.test(a), `no maps link for an explicit street ask: ${a}`);
-  const after = sessions.get(chat)!;
-  assert.equal(after.slots.landmarkIndex, undefined, 'the address ask must NOT advance the landmark rotation');
-  assert.equal(after.slots.addressProtocolEb, 76, 'the protocol round is keyed by the property');
-  assert.equal(after.slots.addressProtocolIndex, 1, 'round 1 served for EB 76');
+  await handler.handle('test', chat, 'na koja ulica e?');
+  const a1 = sent[sent.length - 1];
+  assert.ok(/во близина на/iu.test(a1), `first street ask must get landmark 1: ${a1}`);
+  assert.ok(!/два часа пред|денот на посетата|ден на посетата/iu.test(a1), `first ask must not get the protocol: ${a1}`);
+  assert.ok(!a1.includes('Тест 12'), `exact street must never be disclosed: ${a1}`);
+  assert.equal(sessions.get(chat)!.slots.landmarkIndex, 1, 'first ask advances landmark rotation');
 
-  // …and the LOCATION ladder is untouched by it: the next location ask still
-  // starts at the approximation (the documented ladder, not round 2).
-  await handler.handle('test', chat, 'НА КОЈА ЛОКАЦИЈА Е');
-  const loc = sent[sent.length - 1];
-  assert.ok(/во близина на/iu.test(loc), `a location ask still starts at the approximation: ${loc}`);
-  assert.equal(sessions.get(chat)!.slots.landmarkIndex, 1, 'the location ladder advanced on its own ask');
+  await handler.handle('test', chat, 'кажете ми ја точната адреса');
+  const a2 = sent[sent.length - 1];
+  assert.ok(/два часа пред|ден(от)? на (посетата|гледањето)|правил|политик|предвидува|непосредно пред/iu.test(a2),
+    `second exact-location ask must serve the agency protocol: ${a2}`);
+  assert.ok(!a2.includes('Тест 12'), `exact street must never be disclosed: ${a2}`);
+  assert.equal(sessions.get(chat)!.slots.addressProtocolEb, 76, 'protocol counter is keyed by the property');
+  assert.equal(sessions.get(chat)!.slots.addressProtocolIndex, 1, 'protocol served on second ask');
 
   offlineMap.close();
 });
 
-test('item 2: the protocol round count is keyed by the property — a stale round never leaks onto another ЕВ', async () => {
+test('the first address ask for a property without a known street gives its honest neighborhood', async () => {
   const { handler, sessions, sent, offlineMap } = makeHandler();
   const s = freshSession('test', chat);
-  // EB 77 is the property under discussion, but the counter still carries EB
-  // 76's round 1 (the pre-fix session shape). The new property must start its
-  // OWN rotation — round 2 would be EB 76's answer, and round ≥2 is the
-  // shut-down, i.e. the client asking about 77 would never get the protocol.
+  // EB 77 has no usable street address in this fixture. Its answer must be
+  // the honest neighborhood fallback, not an invented landmark or protocol.
   s.slots.propertyId = 77;
   s.slots.interestedPropertyId = 77;
   s.slots.addressProtocolIndex = 1;
@@ -249,11 +242,10 @@ test('item 2: the protocol round count is keyed by the property — a stale roun
 
   await handler.handle('test', chat, 'koja e tocnata adresa na 77?');
   const a = sent[sent.length - 1];
-  assert.ok(/два часа пред|ден(от)? на (посетата|гледањето)|правил|политик|предвидува|непосредно пред/iu.test(a),
-    `EB 77 must get its own round 1 protocol line: ${a}`);
+  assert.ok(/во населбата Карпош/iu.test(a), `addressless property should use its neighborhood: ${a}`);
+  assert.ok(!/Точната адреса.*(час|ден)/iu.test(a), `first ask should not jump to the protocol: ${a}`);
   const after = sessions.get(chat)!;
-  assert.equal(after.slots.addressProtocolEb, 77, 'the counter re-keys to the new property');
-  assert.equal(after.slots.addressProtocolIndex, 1, 'EB 77 starts at round 1, not at EB 76\'s round 2');
+  assert.equal(after.slots.exactLocationTurns, 1, 'the honest approximation counts as the first rung');
 
   offlineMap.close();
 });

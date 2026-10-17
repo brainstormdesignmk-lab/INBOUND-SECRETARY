@@ -1,7 +1,7 @@
 // Location-question routing regression tests — the "same question, different
 // phrasing" bug class. Any каде/kade-prefixed question about адреса/локација
-// must route to WHERE_IS (landmark rotation); only explicit demands without
-// каде ("улица и број", "дај ми ја адресата") get the privacy protocol.
+// routes to WHERE_IS; explicit demands without каде use EXACT_ADDRESS. Both
+// handler paths share the location ladder: landmark first, protocol second.
 //
 // The LANDMARK cases are GENERATED (prefix × fillers × noun matrix) so new
 // phrasings are covered by construction, not by remembering to add them.
@@ -9,12 +9,8 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { detectWhereIs, detectExactAddressAsk } from '../src/llm/deterministic';
 
-/** The handler's DETECTOR classification: EXACT_ADDRESS only wins when it is
- *  NOT a where-is. Mirrors the inbound.ts routing guards. NOTE the handler
- *  contract on top of this: the EXACT family serves the landmark ROTATION on
- *  turn 1 (approximate location for every location lurker) and the privacy
- *  PROTOCOL on turn 2 (the second insistence) — the ladder is e2e-tested in
- *  location-ladder.test.ts. */
+/** Detector precedence only. These labels do not select the response stage;
+ *  the handler applies the shared ladder after routing. */
 function routesTo(text: string): 'LANDMARK' | 'PROTOCOL' | 'OTHER' {
   const w = detectWhereIs(text);
   const e = detectExactAddressAsk(text);
@@ -50,7 +46,7 @@ test('generated каде-matrix: every prefix×filler×noun combo is LANDMARK', 
   assert.ok(checked >= 300, `matrix should cover 300+ combos, got ${checked}`);
 });
 
-test('explicit demands without каде stay PROTOCOL', () => {
+test('explicit demands without каде stay in EXACT_ADDRESS', () => {
   const demands = [
     'ulica i broj ?', 'улица и број?',
     'daj mi ja adresata', 'дај ми ја адресата',

@@ -24,7 +24,7 @@ test('WHERE_IS beats EXACT_ADDRESS for каде-prefixed questions (the lokacija
   }
 });
 
-test('explicit demands without каде still get the protocol', () => {
+test('explicit demands without каде enter the exact-address handler lane', () => {
   for (const t of ['ulica i broj?', 'moram da znam adresata', 'daj mi ja adresata']) {
     assert.equal(resolveIntent(t, 'closing'), 'EXACT_ADDRESS', `"${t}"`);
   }

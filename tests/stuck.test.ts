@@ -2628,27 +2628,25 @@ test('a pure greeting with a hostile LLM never enters property_locate', async ()
   assert.ok(!sent.some(t => t.includes('Дали го знаете Евидентен број')), 'EB question must not fire on a greeting');
 });
 
-test('"кажи ми точно адреса" triggers the privacy protocol (not a landmark)', async () => {
+test('"кажи ми точно адреса" gets an approximation first and the privacy protocol on repeat', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'kazi-adresa-test';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
   await send('GO GLEDAV OVOJ 53');
-  // Address ladder (FIX LIST item 2): an EXPLICIT address demand is answered
-  // with the protocol straight away — never a landmark — and it spends no
-  // landmark rotation slot (the rotation belongs to the "во близина" asks; a
-  // pure LOCATION word still starts at the approximation).
+  // Exact address asks share the location ladder. This property has no known
+  // street, so Lina gives its honest neighborhood first; the next ask gets
+  // the agency privacy protocol. She never invents a landmark or reveals a
+  // street.
   await send('КАЖИ МИ ТОЧНО АДРЕСА');
   const reply = sent[sent.length - 1];
   assert.ok(reply, 'must get a reply');
-  assert.ok(
-    /два часа|посетата|политик|правил|Агенција|закажан/iu.test(reply),
-    `an explicit address demand must give the privacy protocol: ${reply.substring(0, 200)}`
-  );
-  assert.ok(!/во близина на|мин пеш до/iu.test(reply),
-    `the address lane must not answer a landmark: ${reply.substring(0, 200)}`);
-  assert.ok(!sessions.get(chatId)!.slots.landmarkIndex,
-    'the address demand must not spend a rotation slot');
+  assert.ok(/во населбата Аеродром/iu.test(reply),
+    `the first address ask must give an honest neighborhood approximation: ${reply.substring(0, 200)}`);
+  assert.ok(!/улица|адреса ќе ја добиете|два часа/iu.test(reply),
+    `the first ask must not reveal the street or jump to protocol: ${reply.substring(0, 200)}`);
+  assert.equal(sessions.get(chatId)!.slots.exactLocationTurns, 1,
+    'the honest approximation counts as the first rung');
   await send('kazi mi tocno adresata');
   const reply2 = sent[sent.length - 1];
   assert.ok(

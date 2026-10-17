@@ -36,7 +36,7 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => classifyOffensive(t).isOffensive },
   { intent: 'WORKDAYS_QUESTION', note: 'agency-hours question ("VO NEDELA RABOTITE?") — answered from the bank, never forwarded to the owner as a proposed term; must beat the visit-time capture (the day token inside it used to reach the owner)',
     fires: t => detectWorkdaysQuestion(t) },
-  { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT каде → privacy protocol. Must sit before WHERE_IS only via the !whereIs guard — каде-prefixed questions fall through',
+  { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT каде enters the deterministic privacy ladder. Must sit before WHERE_IS only via the !whereIs guard — каде-prefixed questions fall through',
     fires: (t) => detectExactAddressAsk(t) && !isKadeTocno(t) && !detectWhereIs(t) },
   { intent: 'OWNER_CONTACT', note: 'client leaves name/phone — captured before any other reply',
     fires: t => detectOwnerContact(t) },

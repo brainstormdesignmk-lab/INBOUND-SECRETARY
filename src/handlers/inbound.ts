@@ -138,19 +138,9 @@ export interface HandlerDeps {
   capture?: import('../store/capture').CaptureStore;
 }
 
-// EXPLICIT STREET/NUMBER ASK (the fix list, item 2): the client spells out
-// that they want the STREET and the NUMBER — "tocnata ulica i broj",
-// "koja e tocnata adresa", "дај адреса", a cadastral query. That ask gets the
-// AGENCY PROTOCOL line for the property under discussion (the address is only
-// revealed on visit day — the protocol IS the answer to the question asked),
-// and it must NOT spend a landmark rotation slot: the rotation belongs to the
-// WHERE/NEARBY asks ("kade e?", "sto ima vo blizina?"). A pure LOCATION word
-// ("na koja lokacija e", "точната локација") keeps the documented location
-// ladder — approximation first, protocol on the insist
-// (tests/location-ladder.test.ts owns that contract).
-const ADDRESS_WORD_RE =
-  /(?:адрес|adres|улиц|ulic|број|broj|катастар|katastar|cadastar|čestica|cestica)/iu;
-
+// Address/street wording does not bypass the location ladder. First location
+// ask gets an approximate landmark; a repeated ask gets the agency's address
+// privacy rule. Exact street data is never sent to the client.
 /** The address-privacy protocol rounds are counted PER PROPERTY: the count is
  *  keyed by the Евидентен број it was accumulated for, so switching to another
  *  property starts its own rotation of protocol variants instead of continuing
@@ -423,6 +413,8 @@ export class InboundHandler {
       session.slots.nearbyLandmarkPlaceIds = undefined;
       session.slots.nearbyLandmarkEb = undefined;
       session.slots.landmarkIndex = 0;
+      session.slots.addressProtocolIndex = 0;
+      session.slots.exactLocationTurns = 0;
     }
     const lm = session.slots.nearbyLandmarks;
     if ((!lm || lm.length === 0) && this.landmarks) {
@@ -811,16 +803,10 @@ export class InboundHandler {
       && !detectPropertyDescription(text)  // excluded — property descriptions need the fast path
       && !detectExactAddressAsk(text);    // excluded — exact address has its own WHERE_IS guard
 
-    // The client asks for the EXACT street/address ("потoчно која улица?",
-    // "точно која адреса?", "на која адреса е?") — address PRIVACY is
-    // absolute: answered deterministically (bank-backed address.exact: "Точната
-    // адреса ќе ја добиете 2 часа пред посетата"), NEVER with the street. Must
-    // Explicit address demands ("кажи ми точно адреса", "дај ми ја точната адреса")
-    // go to the privacy protocol. But "каде точно се наоѓа?" is a WHERE_IS question
-    // that should get a nearby landmark first — only protocol if the client persists.
-    // Also: "каде му е адресата?" matches EXACT_ADDRESS but is really a WHERE_IS
-    // question — the client wants to know WHERE it is, not the exact address.
-    // WHERE_IS takes priority: landmark rotation first, protocol on follow-ups.
+    // Exact street/address questions are deterministic and NEVER disclose the
+    // street. Both the EXACT_ADDRESS and WHERE_IS routes share one ladder:
+    // first ask gets an approximate landmark; a repeated ask gets the agency
+    // privacy rule. The detector chooses the route, not the response stage.
     // WHERE-IS DEFERRAL, refined (the [22:15] transcript): the old gate used
     // the whole detectWhereIs — but the where-is EXTENSION also fires on
     // exact-address phrases without any каде word ("TOCNATA ULICA I BROJ AKO
@@ -829,7 +815,8 @@ export class InboundHandler {
     // privacy protocol. Deferral now requires a REAL where/proximity anchor
     // (hasWhereWord): a каде word or близина/близу/околу/наспроти/спроти/тука.
     // Exact demands without them (улица и број / точната адреса families) ride
-    // the EXACT ladder — turn 1 nearby, turn 2 the day-of-visit protocol.
+    // the same ladder in the EXACT_ADDRESS handler — turn 1 nearby, turn 2 the
+    // day-of-visit protocol.
     if (detectExactAddressAsk(text) && !isKadeTocno(text)
       && !(detectWhereIs(text) && hasWhereWord(text)) && !skipInterceptors) {
       routeLog(chatId, text, 'EXACT_ADDRESS');
@@ -925,27 +912,18 @@ export class InboundHandler {
             return;
           }
         }
-        // EXPLICIT STREET/NUMBER ASK (fix-list item 2): the protocol line for
-        // THIS property, counted PER PROPERTY, and no rotation slot spent on it.
-        // The ladder's turn counter is not bumped either — an address ask is
-        // not a location rung, so a following LOCATION ask still starts at the
-        // approximation (the documented ladder, see tests/location-ladder).
-        const addressAsk = ADDRESS_WORD_RE.test(text);
+        // All location questions use the same ordered ladder, including
+        // "на која улица е?" and explicit address requests: first landmark,
+        // second ask privacy protocol, later asks a polite close. The street
+        // and number are never disclosed.
         const turn = Math.max(session.slots.exactLocationTurns ?? 0, session.slots.landmarkIndex ?? 0) + 1;
-        if (!addressAsk) session.slots.exactLocationTurns = turn;
-        if (addressAsk) {
-          const round = protocolRoundFor(session, target.eb);
-          if (round >= 2) {
-            answer = pickVariant('nearby.exhausted', { recent: assistantTexts(session) })
-              ?? 'Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.';
-          } else {
-            session.slots.addressProtocolIndex = round + 1;
-            answer = buildExactAddressAnswer(assistantTexts(session));
-          }
-        } else if (turn >= 3) {
+        session.slots.exactLocationTurns = turn;
+        const protocolRound = protocolRoundFor(session, target.eb);
+        if (turn >= 2 && protocolRound >= 1) {
           answer = pickVariant('nearby.exhausted', { recent: assistantTexts(session) })
             ?? 'Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.';
-        } else if (turn === 2) {
+        } else if (turn >= 2) {
+          session.slots.addressProtocolIndex = protocolRound + 1;
           answer = buildExactAddressAnswer(assistantTexts(session));
         } else {
           answer = this.whereIsReply(target, session, text); // landmarkIndex++ inside
@@ -1396,8 +1374,11 @@ export class InboundHandler {
           session.slots.propertyId = hit.eb;
           session.slots.nearbyLandmarks = undefined;
           session.slots.nearbyLandmarkCoords = undefined;
+          session.slots.nearbyLandmarkPlaceIds = undefined;
+          session.slots.nearbyLandmarkEb = undefined;
           session.slots.landmarkIndex = 0;
           session.slots.addressProtocolIndex = 0;
+          session.slots.exactLocationTurns = 0;
         }
         const answer = this.whereIsReply(hit, session, '');
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -1673,8 +1654,11 @@ export class InboundHandler {
           // property's L1→L2→L3 start fresh.
           session.slots.nearbyLandmarks = undefined;
           session.slots.nearbyLandmarkCoords = undefined;
+          session.slots.nearbyLandmarkPlaceIds = undefined;
+          session.slots.nearbyLandmarkEb = undefined;
           session.slots.landmarkIndex = 0;
           session.slots.addressProtocolIndex = 0;
+          session.slots.exactLocationTurns = 0;
         }
         answer = this.whereIsReply(hit, session, whereIs.place);
       } else if (whereIs.place) {

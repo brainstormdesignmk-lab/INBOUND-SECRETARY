@@ -254,7 +254,7 @@ test('detectWhereIs: "каде е X?" is a place question, never a search', () =
   assert.deepEqual(detectWhereIs('каде е еб 89'), { place: '89', generic: false });
 });
 
-test('detectExactAddressAsk: exact-address questions get the privacy answer, not a landmark', () => {
+test('detectExactAddressAsk: recognizes exact-address wording for the handler privacy ladder', () => {
   // the user's exact phrasings, both scripts
   assert.equal(detectExactAddressAsk('potocno koja ulica ?'), true);
   assert.equal(detectExactAddressAsk('tocno koja adresa'), true);
