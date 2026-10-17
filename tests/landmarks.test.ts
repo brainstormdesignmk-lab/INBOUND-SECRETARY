@@ -15,7 +15,7 @@ test('feed: the landmarks JSONB column is parsed into the ranked list', async ()
           evidenten_broj: 48, adresa: 'ул. Пример 5', naselba: 'Карпош III', servis: 'Издава',
           landmarks: [
             { landmark: 'Кафе бар Ван Гог', type: 'cafe', distance_m: 120, maps_url: 'https://x' },
-            { landmark: 'Градежен факултет', type: 'university', distance_m: 340, maps_url: 'https://x' },
+            { landmark: 'Градежен факултет', type: 'university', distance_m: 180, maps_url: 'https://x' },
             { landmark: 'Улица Македонија', type: 'road', distance_m: 50 }, // parses; the pick guard rejects it
             { garbage: true },                 // no landmark string — dropped
             { landmark: '' },                  // empty — dropped
@@ -32,7 +32,7 @@ test('feed: the landmarks JSONB column is parsed into the ranked list', async ()
     const p48 = all.find(p => p.eb === 48)!;
     assert.equal(p48.landmarks?.length, 3);
     assert.equal(p48.landmarks![0].landmark, 'Кафе бар Ван Гог');
-    assert.equal(p48.landmarks![1].distance_m, 340);
+    assert.equal(p48.landmarks![1].distance_m, 180);
     assert.equal(p48.landmarks![2].landmark, 'Улица Македонија');
     const p50 = all.find(p => p.eb === 50)!;
     assert.equal(p50.landmarks, undefined);
@@ -55,7 +55,7 @@ test('feed parse: over-cap claims and annotation residue never reach a consumer'
           evidenten_broj: 94, adresa: 'ТОНЕ ТОМШИЌ БР.25', naselba: 'Кисела Вода', servis: 'Продава',
           landmarks: [
             { landmark: 'Рептил', type: 'supermarket', distance_m: 7 },
-            { landmark: 'AgroTehnA - Head Office (Shopping mall, 257м', type: 'Shopping mall', distance_m: 257 },
+            { landmark: 'AgroTehnA - Head Office (Shopping mall, 157м', type: 'Shopping mall', distance_m: 157 },
             { landmark: 'Амбасада на Кина', type: 'diplomatic', distance_m: 521 },   // over the cap
             { landmark: 'Британска амбасада', type: 'diplomatic', distance_m: 1011 }, // far over
           ],
@@ -75,10 +75,10 @@ test('feed parse: over-cap claims and annotation residue never reach a consumer'
     assert.deepEqual(
       p94.landmarks?.map(l => l.landmark),
       ['Рептил', 'AgroTehnA - Head Office'],
-      'the annotation is stripped and every claim beyond 500m is dropped');
-    assert.equal(p94.landmarks?.[1].distance_m, 257, 'the metadata survives the strip');
+      'the annotation is stripped and every claim beyond the 200 m ring is dropped');
+    assert.equal(p94.landmarks?.[1].distance_m, 157, 'the metadata survives the strip');
     // A row whose ONLY entries are over-cap degrades to no list at all — the
-    // runtime then serves its own ≤500m rotation instead of a false claim.
+    // runtime then serves its own in-ring rotation instead of a false claim.
     const p52 = all.find(p => p.eb === 52)!;
     assert.equal(p52.landmarks, undefined);
   } finally {

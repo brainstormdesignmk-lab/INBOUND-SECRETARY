@@ -51,13 +51,16 @@ class FakeProps extends PropertyService {
   get healthy(): boolean { return true; }
 }
 
-// A small offline map: two POIs 350–420 m from EB 77's center (inside the
-// 300–500m grace window) and Градежен факултет 425 m from EB 76's.
+// A small offline map around EB 77's center (41.999, 21.4138): ONE place inside
+// the 200 m client-claim ring (~80 m) and two well outside it (315–331 m). The
+// ring is what decides who may be named; the out-of-ring rows prove that a
+// wider map does not widen the claim.
 function buildTestMap(): OfflineMapStore {
   const dbPath = path.join(os.tmpdir(), `where-stuck-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
   writeMap(dbPath, [
-    { name: 'ТЦ Олимписки', type: 'mall', lat: 41.9990, lon: 21.4178, source: 'osm' },   // ≈331 m
-    { name: 'ОУ Гоце Делчев', type: 'school', lat: 42.0018, lon: 21.4132, source: 'osm' }, // ≈315 m
+    { name: 'Градски музеј', type: 'museum', lat: 41.9995, lon: 21.4145, source: 'osm' },   // ≈80 m
+    { name: 'ТЦ Олимписки', type: 'mall', lat: 41.9990, lon: 21.4178, source: 'osm' },      // ≈331 m
+    { name: 'ОУ Гоце Делчев', type: 'school', lat: 42.0018, lon: 21.4132, source: 'osm' },  // ≈315 m
     { name: 'Градежен факултет', type: 'university', lat: 42.003, lon: 21.433, source: 'osm' },
   ], []);
   return new OfflineMapStore(dbPath);
@@ -93,8 +96,14 @@ test('detector: the three transcript messages all fire the generic where-is fami
   assert.deepEqual(detectWhereIs('kazi mi togas odprilika kade e'), { place: '', generic: true });
 });
 
-test('low-confidence coords still rotate landmarks (never the stuck pitch)', async () => {
-  const svc = new LandmarkService(new Db(':memory:'), { osm: false, offlineMap: buildTestMap() });
+test('an untrusted center gets the honest neighbourhood line — never the stuck pitch', async () => {
+  // The transcript bug this file guards: a low-confidence row answered the
+  // location ask with the visit pitch. Since the 200 m ring, such a row also
+  // cannot name a landmark — the centre is a neighbourhood centroid, not a
+  // door — so the honest answer is the NEIGHBOURHOOD, and the row is queued for
+  // a real geocode. A location question is always answered with a location.
+  const ldb = new Db(':memory:');
+  const svc = new LandmarkService(ldb, { osm: false, offlineMap: buildTestMap() });
   const { handler, sessions, sent } = makeHandler(svc);
   const chatId = 'eb77';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
@@ -104,22 +113,39 @@ test('low-confidence coords still rotate landmarks (never the stuck pitch)', asy
   await send('kade tocno se naogja ?');
   const s1 = sessions.get(chatId)!;
   assert.equal(s1.slots.propertyId, 77, 'the EB from msg 1 must anchor the session');
-  assert.ok(!VISIT_PITCH.test(sent[1]), `L1 must be a landmark, not the pitch: ${sent[1]}`);
-  assert.ok(LANDMARK_LINE.test(sent[1]), `L1 must be a landmark line: ${sent[1]}`);
+  assert.ok(!VISIT_PITCH.test(sent[1]), `L1 must never be the pitch: ${sent[1]}`);
+  assert.match(sent[1], /во населбата Центар/u, `L1 must be the honest area line: ${sent[1]}`);
 
   await send('kazi mi togas odprilika kade e');
-  assert.ok(LANDMARK_LINE.test(sent[2]), `second ask must advance the rotation: ${sent[2]}`);
-  assert.notEqual(sent[1], sent[2], 'the two landmark lines must differ (rotation)');
+  assert.ok(!VISIT_PITCH.test(sent[2]), `second ask must never be the pitch: ${sent[2]}`);
+  assert.match(sent[2], /Центар|Евидентен/u, `second ask still answers about the location: ${sent[2]}`);
+
+  // The row itself is queued so the FEED gets repaired, not just this answer.
+  const queue = ldb.db.prepare('SELECT reason FROM geo_reresolve_queue WHERE property_id = ?')
+    .get(77) as { reason: string } | undefined;
+  assert.equal(queue?.reason, 'low_confidence_center', 'the untrusted centre is queued for a real geocode');
 });
 
-test('grace window: POIs 300–500m from a low-confidence center are servable', async () => {
+test('no grace claims: only the in-ring place is servable, the 300–500 m ones never are', async () => {
+  // The old 300–500 m "grace window" was removed on purpose: inside a 200 m
+  // ring a 330 m place is not "во близина", and a low-confidence centre cannot
+  // support ANY claim. Both halves are asserted, so this test proves the ring
+  // rather than the absence of an answer.
   const svc = new LandmarkService(new Db(':memory:'), { osm: false, offlineMap: buildTestMap() });
-  const nearby = svc.nearbyLandmarks({
+  const untrusted = svc.nearbyLandmarks({
     id: 77, eb: 77, address: 'МИРЧЕ ОРОВЧАНЕЦ 86 - 1', location: 'Центар',
     lat: 41.999, lon: 21.4138, geo_source: 'osm_low_confidence',
   });
-  assert.ok(nearby.length >= 2, `grace window must surface POIs: ${JSON.stringify(nearby)}`);
-  assert.ok(nearby.every(n => n.landmark.length >= 3));
+  assert.deepEqual(untrusted, [], 'an untrusted centre names nothing — no grace window');
+
+  const trusted = svc.nearbyLandmarks({
+    id: 78, eb: 78, address: 'МИРЧЕ ОРОВЧАНЕЦ 86 - 1', location: 'Центар',
+    lat: 41.999, lon: 21.4138, geo_source: 'osm_building',
+  });
+  assert.deepEqual(trusted.map(n => n.landmark), ['Градски музеј'],
+    `only the place inside the 200 m ring is servable: ${JSON.stringify(trusted)}`);
+  const d = Math.round(Math.hypot((trusted[0].lat - 41.999) * 111000, (trusted[0].lon - 21.4138) * 82000));
+  assert.ok(d <= 200, `${trusted[0].landmark} is ${d}m away — inside the ring`);
 });
 
 test('coordinate-less low-confidence rows stay blocked (no invented geography)', async () => {

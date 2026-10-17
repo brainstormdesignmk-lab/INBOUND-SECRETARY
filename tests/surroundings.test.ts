@@ -46,8 +46,11 @@ const ROW: Property = {
   eb: EB, id: EB, uuid: '487240e9-6e15-4a23-9093-9e05600fb141',
   address: 'МИРЧЕ ОРОЕЧАНЕЦ 86 - 1', location: 'Центар',
   lat: 41.999, lon: 21.4138, geo_source: 'osm_low_confidence',
+  // The roster entry is the place the map really resolves INSIDE the 200 m ring
+  // around this pin (~115 m). The old 491 m mall entry is exactly what the ring
+  // guard now drops: a flat a kilometre from a mall may not call it „во близина“.
   landmarks: [
-    { type: 'Shopping mall', landmark: 'Трговски Центар Буњаковец', maps_url: 'https://maps.google.com/?cid=3966389678066766238', distance_m: 491 },
+    { type: 'place_of_worship', landmark: 'Евангелска Конгрешанска Црква', distance_m: 115 },
   ] as FeedLandmark[],
   service: 'buy', price: 99000,
 };
@@ -302,13 +305,13 @@ test('[01:29] a side ask that names nothing, or nothing this property has, is ST
   // same approximate-location line "kade e?" gets (code-owned, ladder advanced,
   // street never shown) — never the fee pitch.
   const nameless = await sideTurn('na koja strana e ?', 'nameless-side');
-  assert.match(nameless, /во близина на Трговски Центар Буњаковец/, nameless);
+  assert.match(nameless, /во близина на Евангелска Конгрешанска Црква/, nameless);
   assert.ok(!FEE_PITCH.test(nameless), `no fee pitch for a location question: ${nameless}`);
 
   // The same shape that CO-FIRES the comparison reader ("X или Y") and used to
   // be punted to the classifier by skipInterceptors.
   const unknown = await sideTurn('od stranata na nekoe nepoznato mesto ili od drugo nepoznato ?', 'unknown-names');
-  assert.match(unknown, /во близина на Трговски Центар Буњаковец/, unknown);
+  assert.match(unknown, /во близина на Евангелска Конгрешанска Црква/, unknown);
   assert.ok(!/на страната на/.test(unknown),
     `nothing the map cannot place is claimed as a side: ${unknown}`);
   assert.ok(!FEE_PITCH.test(unknown), `no fee pitch for a location question: ${unknown}`);

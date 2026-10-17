@@ -41,7 +41,9 @@ function buildTestMap(): OfflineMapStore {
   const dbPath = tmpMapDb();
   const pois = [
     { name: 'Универзална сала', type: 'hall', lat: 41.998, lon: 21.425, source: 'google' },
-    { name: 'Градски парк', type: 'park', lat: 41.996, lon: 21.428, source: 'osm' },
+    // Inside the 200 m client-claim ring around EB 76 (41.9985,21.4265): the
+    // ladder test needs TWO servable slots to prove L1→L2 is a rotation.
+    { name: 'Градски парк', type: 'park', lat: 41.9972, lon: 21.4274, source: 'osm' },
     { name: 'Градежен факултет', type: 'university', lat: 42.003, lon: 21.433, source: 'osm' },
   ];
   writeMap(dbPath, pois, []);
@@ -69,8 +71,10 @@ const ROWS: Property[] = [
   { eb: 78, id: 78, location: 'Центар', address: 'Ул. Трета 4', price: 240,
     service: 'rent', sqm: 35, bedrooms: 1, details: 'Стан во Центар.',
     lat: 41.9985, lon: 21.4265,
-    landmarks: [{ landmark: 'Градежен факултет', type: 'university', distance_m: 410,
-      maps_url: 'https://maps.google.com/?q=42.00300,21.43300' }] } as any,
+    // The roster pin must be measurably inside the ring from EB 78's own
+    // coordinates (41.9985,21.4265) — see feedRosterSlots' ring guard.
+    landmarks: [{ landmark: 'Градежен факултет', type: 'university', distance_m: 171,
+      maps_url: 'https://maps.google.com/?q=42.00000,21.42700' }] } as any,
 ];
 
 function makeHandler() {

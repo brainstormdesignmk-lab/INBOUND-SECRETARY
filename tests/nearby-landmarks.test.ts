@@ -14,9 +14,11 @@ function tmpDb(): string {
 // Build a tiny in-memory map with 3 POIs near (42.0, 21.43)
 function buildTestMap(): OfflineMapStore {
   const dbPath = tmpDb();
+  // Every POI must sit inside the 200 m client-claim ring around (42.0, 21.43)
+  // — a place the chat may not call „во близина“ is not a rotation slot.
   const pois = [
     { name: 'Кафе бар Ван Гог', type: 'cafe', lat: 42.001, lon: 21.430, source: 'osm' },
-    { name: 'Градежен факултет', type: 'university', lat: 42.003, lon: 21.433, source: 'osm' },
+    { name: 'Градежен факултет', type: 'university', lat: 42.0012, lon: 21.4310, source: 'osm' },
     { name: 'Рамстор Мол', type: 'mall', lat: 42.000, lon: 21.428, source: 'google' },
   ];
   const addresses = [
@@ -102,8 +104,8 @@ describe('nearbyLandmarks', () => {
       id: 21, eb: 210, address: 'Тест 1', location: 'Центар',
       lat: 42.0, lon: 21.43, geo_source: 'stored',
       landmarks: [
-        { landmark: 'Градежен факултет', type: 'university', distance_m: 410, maps_url: 'https://maps.google.com/?cid=123' },
-        { landmark: 'Рамстор Мол', type: 'mall', distance_m: 430 },
+        { landmark: 'Градежен факултет', type: 'university', distance_m: 156, maps_url: 'https://maps.google.com/?cid=123' },
+        { landmark: 'Рамстор Мол', type: 'mall', distance_m: 165 },
       ],
     });
     assert.deepEqual(result.map(r => r.landmark), ['Градежен факултет', 'Рамстор Мол'],
@@ -118,13 +120,13 @@ describe('nearbyLandmarks', () => {
     const result = svc.nearbyLandmarks({
       id: 22, eb: 220, address: 'Тест 1', location: 'Центар',
       lat: 42.0, lon: 21.43, geo_source: 'stored',
-      landmarks: [{ landmark: 'Некој Нов Локал', type: 'place', distance_m: 250,
-        maps_url: 'https://maps.google.com/?q=42.00100,21.43999' }],
+      landmarks: [{ landmark: 'Некој Нов Локал', type: 'place', distance_m: 115,
+        maps_url: 'https://maps.google.com/?q=42.00080,21.43050' }],
     });
     assert.equal(result.length, 1);
     assert.equal(result[0].landmark, 'Некој Нов Локал');
-    assert.equal(result[0].lat, 42.001, 'the curated pin is the point — not a looked-up one');
-    assert.equal(result[0].lon, 21.43999);
+    assert.equal(result[0].lat, 42.0008, 'the curated pin is the point — not a looked-up one');
+    assert.equal(result[0].lon, 21.4305);
   });
 
   it('item 3: a STALE roster entry (no pin, unknown to the map) is dropped, never served as an unpinnable claim', () => {
@@ -134,7 +136,7 @@ describe('nearbyLandmarks', () => {
       lat: 42.0, lon: 21.43, geo_source: 'stored',
       landmarks: [
         { landmark: 'Избришан Пои', type: 'place', distance_m: 120, maps_url: 'https://maps.google.com/?cid=9' },
-        { landmark: 'Рамстор Мол', type: 'mall', distance_m: 430 },
+        { landmark: 'Рамстор Мол', type: 'mall', distance_m: 165 },
       ],
     });
     assert.deepEqual(result.map(r => r.landmark), ['Рамстор Мол'],

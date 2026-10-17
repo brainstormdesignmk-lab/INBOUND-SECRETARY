@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import assert from 'node:assert/strict';
 import { feedListCurrent, rankedLandmarks, sameFeedList, storedLandmarkList } from '../src/scripts/hermesLandmarks';
 import { OfflineMapStore, LANDMARK_RANKING_POLICY_VERSION, writeMap } from '../src/geo/offlineMap';
+import { FEED_LANDMARK_MAX_M } from '../src/geo/landmarks';
 import { mapRow } from '../src/data/properties';
 
 // WHAT WENT WRONG (2026-10-11, the "8 legacy rows"):
@@ -72,13 +73,18 @@ test('feed ranking and runtime map fallback share the same ranked candidates', (
   const center = { lat: 41.996, lon: 21.4302 };
   writeMap(dbPath, [
     { name: 'Амбасада на Црна Гора', type: 'embassy', lat: center.lat, lon: center.lon + 0.00093, review_count: 7 },
-    { name: 'Беверли Хилс', type: 'mall', lat: center.lat, lon: center.lon + 0.00334, review_count: 1551 },
+    // Both candidates sit inside the client-facing ring: the feed writer and the
+    // runtime rotation must agree on the SAME pool, not just on the nearest one.
+    { name: 'Беверли Хилс', type: 'mall', lat: center.lat, lon: center.lon + 0.00150, review_count: 1551 },
   ], []);
   const map = new OfflineMapStore(dbPath);
   const feed = rankedLandmarks({ address: 'Пример 1' }, center, map).list;
-  const runtime = map.nearestPois(center.lat, center.lon, 500, 3);
+  // The SAME cap the writer uses — asking the map for a wider radius would
+  // compare two different questions and call the difference a bug.
+  const runtime = map.nearestPois(center.lat, center.lon, FEED_LANDMARK_MAX_M, 3);
   assert.deepEqual(feed.map(x => x.landmark), runtime.map(x => x.name));
   assert.equal(feed[0].landmark, 'Амбасада на Црна Гора');
+  assert.equal(feed.length, 2, 'both in-ring places are ranked, not just the nearest');
   map.close();
 });
 
@@ -130,9 +136,11 @@ test('item 4: the hygiene pass never reorders or pads the feed list', () => {
   const row = mapRow({
     evidenten_broj: '76', adresa: 'Васил Стефановски 16',
     landmarks: [
-      { landmark: 'Трговски Центар Буњаковец', type: 'Shopping mall', distance_m: 341,
+      // The SECOND entry is nearer than the first on purpose: the hygiene pass
+      // must never reorder by distance, only dedupe and drop bad links.
+      { landmark: 'Трговски Центар Буњаковец', type: 'Shopping mall', distance_m: 141,
         maps_url: 'https://maps.google.com/?cid=779770506876171031' },
-      { landmark: 'Католичка црква Свети Јосиф', type: 'church', distance_m: 430 },
+      { landmark: 'Католичка црква Свети Јосиф', type: 'church', distance_m: 130 },
     ],
   });
   assert.deepEqual(row!.landmarks?.map(l => l.landmark),
