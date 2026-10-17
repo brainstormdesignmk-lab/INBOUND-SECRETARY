@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk, detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, isDistanceQuestion, extractDistancePlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, isDistanceQuestion, extractDistancePlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -39,14 +39,14 @@ import { VisitScheduler } from '../visits/scheduler';
 import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
-  buildOwnerAsk, ownerPropertyLabels, buildWhereIsAnswer, feePersuasion, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime,
+  buildOwnerAsk, ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
   buildLocateLandmarkIntro, buildLocateLandmarkFallback, LOCATE_LANDMARK_PRICE_PROBE,
   AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
-  buildFeePivotNeighborhood, buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
+  buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer, displayPlaceName, displayAreaName,
   buildSideAnswer,
   buildRecommendClose,
@@ -2028,6 +2028,55 @@ export class InboundHandler {
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
+      // FEE CHARGE ACCUSATION ([00:27] TUI): "PARI ZA POSETA BARATE" — the
+      // client objects to PAYING for the visit at all. Not a why-question
+      // (nothing to explain) and not a refusal with a payment object: it is
+      // the FIRST resistance rung, so she PERSUADES ONCE (value framing, the
+      // declared market's copy) instead of re-disclosing the fee — the
+      // re-disclosure is exactly what the capture showed (the accusation was
+      // read as fresh INTERESTED and served the fee.ask again).
+      if (session.state === 'closing' && !session.slots.viewingFeeAgreed
+        && detectFeeChargePushback(text)) {
+        if (!session.slots.service) session.slots.service = this.feeServiceHint;
+        session.slots.feeRejections = (session.slots.feeRejections ?? 0) + 1;
+        if ((session.slots.feeRejections ?? 0) >= 4) {
+          // The decision question was already asked and not accepted — the
+          // bye protocol (same close the FSM leg serves through 'queued').
+          session.state = 'queued';
+          this.queueCustomer(session, '3x одбиен надомест');
+          reply = pickVariant('fee.graceful.close', { recent: assistantTexts(session) }) ?? FEE_GRACEFUL_CLOSE;
+          bankKey = 'fee.graceful.close';
+        } else {
+          const rung = feeLadder(session.slots.service, session.slots.feeRejections ?? 1);
+          reply = pickVariant(rung.key, { recent: assistantTexts(session) }) ?? rung.line;
+          bankKey = rung.key;
+        }
+        routeLog(chatId, text, 'FEE_PUSH:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_PUSH_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
+      // FIRST TIME HEARING THE FEE ([00:28] TUI): "OVA PRV PAT SLUSAM" — the
+      // client is not asking WHY the fee exists, he is saying he never met it
+      // before. The answer is the FACT, not another filter rationale: it is
+      // the agency's standing rule, in our price list, the same for every
+      // client. Explanation traffic — no rung burned, funnel stays at the fee.
+      if (detectFeeFirstTime(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(session.state)) {
+        reply = pickVariant('fee.rule.hold', { recent: assistantTexts(session) }) ?? buildFeeRule();
+        bankKey = 'fee.rule.hold';
+        routeLog(chatId, text, 'FEE_FIRST_TIME:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_FIRST_TIME_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
       if (detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(session.state)) {
         reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? 'Разбирам. Надоместот за разгледување е симболичен и служи како филтер за сериозни клиенти.';
         bankKey = 'fee.why';
@@ -3491,6 +3540,8 @@ ${contactReminder}`;
         && !detectFeeWhy(text)
         && !detectInvestmentOpinion(text)
         && !detectFeeComplaint(text)
+        && !detectFeeChargePushback(text) // the charge ACCUSATION is resistance, never a fresh visit interest (the [00:27] re-disclosure)
+        && !detectFeeFirstTime(text)       // "prv pat slusam" asks for the RULE, not a second disclosure
         && !detectExhaustedFollowUp(text)
         && (before === 'property_query' || before === 'presentation' || before === 'discovery')) {
       // Explicit visit interest: 'sakam da ja vidam', 'koga moze da se
@@ -3572,56 +3623,58 @@ ${contactReminder}`;
       bankKey = 'fee.why';
     } else if ((next === 'closing')
         && ev.type === 'FEE_REFUSED') {
-      // Fee resistance: the client pushes back on the viewing fee.
-      // 1st refusal → persuasion attempt (empathy + value framing).
-      // 2nd refusal → ask what concerns you + one more try.
-      // 3rd refusal → final persuasion attempt.
-      // 4th+ refusal → pivot to alternative properties or graceful close.
+      // FEE RESISTANCE — THE LADDER (feeLadder, prompts.ts):
+      //   1st pushback → ONE persuasion (value framing, the declared market)
+      //   2nd pushback → the AGENCY RULE (the fee is in our published price list)
+      //   3rd pushback → THE DECISION (book under these conditions, or not)
+      //   4th pushback → 'queued' (already set above) → the bye protocol
+      // The old deep-persuasion rungs and the neighborhood PIVOT are gone:
+      // offering other neighborhoods to a client who is fighting the FEE only
+      // restarts the same fight on a new property. The decision question is
+      // what ends the loop — yes moves to contact collection, no closes the
+      // chat gracefully (fee.graceful.close).
       // Property backfill (the [09:0x] bug): no declared market anywhere →
-      // the property on the table IS the market; the 300-vs-500 rungs below
-      // must never quote the wrong script.
+      // the property on the table IS the market; the 300-vs-500 rungs must
+      // never quote the wrong script.
       if (!session.slots.service) session.slots.service = props[0]?.service;
       const rejections = session.slots.feeRejections ?? 1;
-      // Empty-props guard (audit): with no property on the table the pivot's
-      // criteria are all undefined and candidates() would return a raw
-      // city-wide batch — dumping random properties at a client mid-fee-fight.
-      // Without a current property, keep persuading (the ladder's fallback).
-      if (rejections <= 2 || !props[0]) {
-        reply = feePersuasion(session.slots.service, rejections);
+      const rung = feeLadder(session.slots.service, rejections);
+      reply = pickVariant(rung.key, { recent: assistantTexts(session) }) ?? rung.line;
+      bankKey = rung.key;
+    } else if ((next === 'closing' || session.state === 'closing')
+        && !session.slots.viewingFeeAgreed
+        && detectFeeChargePushback(text)) {
+      // CHARGE ACCUSATION FSM-leg mirror ("PARI ZA POSETA BARATE" — the [00:27]
+      // TUI capture): the client objects to PAYING for the visit at all. Not a
+      // why-question (nothing to explain) and not a refusal with a payment
+      // object — it is the FIRST resistance rung, so she PERSUADES ONCE
+      // (value framing) instead of re-disclosing the fee. Without this lane
+      // the classifier read the accusation as INTERESTED and served the
+      // fee.ask again.
+      if (!session.slots.service) session.slots.service = props[0]?.service;
+      session.slots.feeRejections = (session.slots.feeRejections ?? 0) + 1;
+      if ((session.slots.feeRejections ?? 0) >= 4) {
+        // The decision question was asked and not accepted — the bye protocol.
+        next = 'queued';
+        session.state = 'queued';
+        this.queueCustomer(session, '3x одбиен надомест');
+        reply = pickVariant('fee.graceful.close', { recent: assistantTexts(session) }) ?? FEE_GRACEFUL_CLOSE;
+        bankKey = 'fee.graceful.close';
       } else {
-        const cur = props[0];
-        const shown = [...(session.slots.presentedIds ?? [])];
-        if (cur) shown.push(cur.id);
-        if (session.slots.soldEb) shown.push(session.slots.soldEb);
-        const all = await this.deps.properties.candidates({
-          service: session.slots.service ?? cur?.service,
-          business: session.slots.business,
-          house: session.slots.house,
-          bedrooms: session.slots.bedrooms,
-          sqm: session.slots.sqm,
-          budget: session.slots.budget,
-          exclude: shown,
-        });
-        const curLoc = cur?.location;
-        const pool = curLoc
-          ? all.filter(p => !locMatches(curLoc, p.location ?? ''))
-          : all;
-        const batch = pool.slice(0, 2);
-        if (batch.length > 0) {
-          session.slots.presentedIds = [...shown, ...batch.map(p => p.id)];
-          session.slots.currentBatch = batch.map(p => p.id);
-          session.slots.alternativesExhausted = pool.length === 0;
-          session.slots.feeRejections = undefined;
-          session.slots.service = session.slots.service ?? cur?.service;
-          session.state = 'presentation';
-          await this.landmarks.enrich(batch);
-          reply = `${pickVariant('fee.pivot.neighborhood', { recent: assistantTexts(session) })
-            ?? buildFeePivotNeighborhood()}\n\n${batch.map(p => buildPropertyCard(p)).join('\n\n')}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
-          bankKey = 'fee.pivot.neighborhood';
-        } else {
-          reply = feePersuasion(session.slots.service, session.slots.feeRejections ?? 1);
-        }
+        const rung = feeLadder(session.slots.service, session.slots.feeRejections ?? 1);
+        reply = pickVariant(rung.key, { recent: assistantTexts(session) }) ?? rung.line;
+        bankKey = rung.key;
       }
+    } else if (detectFeeFirstTime(text)
+        && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)) {
+      // FIRST TIME HEARING IT ("OVA PRV PAT SLUSAM" — the [00:28] TUI capture):
+      // the client is not asking WHY the fee exists, he is saying he never met
+      // it before. The answer he needs is the FACT, not another filter
+      // rationale: it is the agency's standing rule, it is in our price list
+      // and it is the same for every client. Explanation traffic — no rung
+      // burned; the funnel stays at the fee question.
+      reply = pickVariant('fee.rule.hold', { recent: assistantTexts(session) }) ?? buildFeeRule();
+      bankKey = 'fee.rule.hold';
     } else if (ev.type === 'REJECTED' && ['idle', 'intent', 'discovery'].includes(before)) {
       // The client denies the current direction ("не барам стан", "нешто
       // друго") before anything was shown — pivot to what they DO want

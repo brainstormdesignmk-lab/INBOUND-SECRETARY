@@ -25,6 +25,11 @@ export const FROZEN_BANK_KEYS = new Set([
   'fee.ask.buy', 'fee.ask.rent',
   'fee.persuade.1.buy', 'fee.persuade.1.rent',
   'fee.persuade.2.buy', 'fee.persuade.2.rent',
+  // The fee-resistance ladder ABOVE the first persuasion (see feeLadder): the
+  // agency-rule statement and the binary decision question. Both are
+  // funnel-critical (the decision line is what closes or advances the chat),
+  // amount-free protocol wording — frozen, seeded-only.
+  'fee.rule.hold', 'fee.decide',
   'fee.why', 'investment.opinion', 'price.ask',
   // Price-freshness disclaimer (08:50 protocol): system price + owner-relay
   // policy. Data-carrier ({price}) + funnel-critical wording.

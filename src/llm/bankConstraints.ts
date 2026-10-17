@@ -111,6 +111,34 @@ export const BANK_CONSTRAINTS: Record<string, KeyConstraint> = {
     allowedAmounts: FEE_ALLOWED_AMOUNTS,
     note: 'explains why the visit fee exists (filter for serious clients); must end with a question; figures allowed but never required',
   },
+  // The ladder rung ABOVE the first persuasion: the AGENCY RULE. It states
+  // that the fee is the agency's published policy (ценовник/правило), the same
+  // for every client — amount-free on purpose (the sum was already disclosed
+  // in the fee.ask; repeating it here re-opens the price debate) and ending
+  // with the agreement ask so the funnel keeps moving.
+  'fee.rule.hold': {
+    mustIncludeAny: [/(?:правил|политик|ценовник|деловник)/iu],
+    mustEndWithQuestion: true,
+    forbid: [/нотар|адвокат/],
+    maxLength: BASELINE_MAX_LENGTH,
+    allowedAmounts: FEE_ALLOWED_AMOUNTS,
+    note: 'states the visit fee as the agency\'s published rule/price list, the same for every client; must end with a question; figures allowed but never required',
+  },
+  // The FINAL rung: the binary decision. Nothing to persuade — the client is
+  // asked to decide, and the answer drives the funnel (yes → contact
+  // collection, no → the graceful close). Owner-specified wording; no figures
+  // and no new arguments live here. NOTE the shape: unlike every other fee key
+  // the decision line does NOT end on the question — the question mark sits
+  // mid-line and the line closes on the ownership statement (the owner's
+  // "…или не? Одлуката е Ваша."), so mustEndWithQuestion is deliberately absent.
+  'fee.decide': {
+    mustInclude: [/дали\s+да\s+(?:ја\s+)?закажам/iu],
+    mustIncludeAny: [/(?:одлуката е ваша|ваша е одлуката|вие одлучувате|решението е ваше)/iu],
+    forbid: [/нотар|адвокат/],
+    maxLength: BASELINE_MAX_LENGTH,
+    allowedAmounts: FEE_ALLOWED_AMOUNTS,
+    note: 'the binary decision question (book the visit under the stated conditions, or not) + the ownership of the decision; the answer decides the funnel — yes → contact collection, no → the graceful close',
+  },
   'owner.contact.refusal': CONTACT_REFUSAL_CONTRACT,
   'owner.contact.protocol': CONTACT_REFUSAL_CONTRACT,
   // The provision family's JOB is to name the buyer's side: 0% commission,

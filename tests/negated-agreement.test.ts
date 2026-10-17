@@ -97,13 +97,18 @@ test('[22:2x] LLM-down closing refusal: "ne sum soglasen za ova plakjanje" runs 
   assert.equal(s1.state, 'closing', `refusal stays in the fee funnel, got ${s1.state}`);
   assert.equal(s1.slots.feeRejections, 1, 'the refusal is counted');
   assert.ok(!/име|презиме|телефон/iu.test(r1.reply), `never the contact ask: ${r1.reply}`);
-  assert.ok(/надомест|симболичн|фиkлтер|разбирам|согласувате/iu.test(r1.reply), `fee protocol served: ${r1.reply}`);
+  // Rung 1 is bank-backed now (the persuasion rotates), so the contract is
+  // the FEE PROTOCOL itself: the rent fee is named and the buy copy never
+  // leaks into a rent client's ladder.
+  assert.ok(/300 денари|надомест|симболич|филтер/iu.test(r1.reply), `fee protocol served: ${r1.reply}`);
+  assert.ok(!r1.reply.includes('500 денари'), `buy fee leaked into the rent ladder: ${r1.reply}`);
 
-  // a second refusal escalates the persuasion (still never contact)
+  // a second refusal serves the AGENCY RULE (still never contact)
   const r2 = await send(chat, 'ne se soglasuvam, skapo e');
   assert.equal(sessions.get(chat)!.state, 'closing');
   assert.equal(sessions.get(chat)!.slots.feeRejections, 2);
   assert.ok(!/име и презиме/iu.test(r2.reply), `never the contact ask: ${r2.reply}`);
+  assert.ok(/правил|ценовник|политик/iu.test(r2.reply), `the agency rule is rung 2: ${r2.reply}`);
 
   // ...and a REAL agreement still advances to contact collection
   const r3 = await send(chat, 'da, se soglasuvam, ke platam');

@@ -517,6 +517,46 @@ const _feeWhyYouRe = new RegExp(
   + '[^.!?\\n]{0,30}' + _mB + '(?:пар[аие]|par[aei])'
   + '|' + _mB + '(?:пар[аие]|par[aei])[^.!?\\n]{0,30}' + _mB + '(?:земате|zemate)', 'iu');
 
+// The CHARGE ACCUSATION about the visit — "PARI ZA POSETA BARATE", "parite
+// gi barate za poseta", "zemate pari za poseta" (statement shape). Not a
+// why-question (nothing to explain), not a refusal with a payment object: the
+// client objects to paying AT ALL. The [00:27] TUI capture: this message fell
+// through EVERY lane, the classifier read it as fresh INTERESTED and the
+// fee.ask was disclosed a second time instead of a single persuasion.
+const FEE_CHARGE_PUSH_RE = new RegExp(
+  _mB + '(?:барате|barate|бараат|земате|zemate|земат|zemat|наплаќате|наплаќа|naplakjate|naplakate|naplakja|наплатувате|наплатув|naplatuvate|плаќате|плаќа|plakjate|plakja|платите|platite|давате|davate)'
+  + '[^.!?\\n]{0,30}' + _mB + '(?:пар[аие]|par[aei]|надомест|nadomest|такс[ауи]|taks[au])'
+  + '|' + _mB + '(?:пар[аие]|par[aei])[^.!?\\n]{0,30}' + _mB + '(?:за|za)\\s*' + _mB + '(?:посет\\p{L}*|poset\\p{L}*|разглед\\p{L}*|razgled\\p{L}*|влез\\p{L}*|vlez\\p{L}*)',
+  'iu');
+
+/** True for the charge ACCUSATION family ("pari za poseta barate") — the FIRST
+ *  resistance rung of the fee ladder (one persuasion). Callers gate on state
+ *  (closing, fee not yet agreed) and on the explanation lanes having
+ *  declined: a why/rules/complaint/surprise frame is traffic of its OWN, and
+ *  a provision ask or a payment refusal keeps its lane too. Genuine questions
+ *  (kolku/dali) belong to the amount/provision family, never here. */
+export function detectFeeChargePushback(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ');
+  if (detectFeeWhy(flat) || detectFeeRules(flat) || detectFeeComplaint(flat) || detectFeeSurprise(flat)) return false;
+  if (detectProvisionAsk(flat) || detectNegatedFeePay(flat) || detectNegatedAgreement(flat) || detectRejection(flat)) return false;
+  if (/(?:колку|kolku|дали|dali)/iu.test(flat)) return false;
+  return FEE_CHARGE_PUSH_RE.test(flat);
+}
+
+// FIRST TIME HEARING THE FEE — "OVA PRV PAT SLUSAM", "prv pat slusam da se
+// naplatuva poseta", "prv pat cuvam za toa". The client is not asking WHY the
+// fee exists, he is saying he never met it before: the honest answer is the
+// FACT (the agency's standing rule, in our price list, the same for every
+// client), not another filter rationale. Same explanation family as fee.why
+// (detectFeeWhy owns these bursts too) — only the SERVE differs.
+const FEE_FIRST_TIME_RE =
+  /(?:прв\s*пат|првпат|prv\s*pat|prvi\s*pat|prvpat)[^.!?\n]{0,40}(?:слушам|слушна|чујам|чув|чул|чуш|slusam|slusnal|slusnav|cuvam|cuv|cul|chuvam|chuv)/iu;
+
+/** True when the client says he is hearing the visit fee for the first time. */
+export function detectFeeFirstTime(text: string): boolean {
+  return FEE_FIRST_TIME_RE.test(text.replace(/\n/g, ' '));
+}
+
 // Fee RULES dismissal (the [12:40] live serve): "тоа се правилата на
 // агенцијата кои важат и за мене и за Вас" — the client files the fee under
 // "just your agency's rules". A POLICY-ASSERTION frame: the answer is the

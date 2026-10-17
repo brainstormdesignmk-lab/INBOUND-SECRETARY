@@ -295,6 +295,39 @@ const SPEC: GenerationKey[] = [
     question: true,
     maxLen: 480,
   },
+  // fee.rule.hold: the SECOND resistance rung (see feeLadder in prompts.ts).
+  // One persuasion is the whole budget — from here Lina stops selling and
+  // states the fact the client argues with: the visit fee is the agency's
+  // published rule (in our ценовник, on every offer), the same for every
+  // client, never her personal decision. Amount-free (the sum was disclosed
+  // in the fee.ask) and ending with the agreement ask.
+  {
+    key: 'fee.rule.hold',
+    sources: [
+      'Ова е востановено правило на Агенцијата и се применува за секој клиент без исклучок — надоместот за посета е дел од нашиот официјален ценовник, ист за сите, а не моја лична одлука. Дали се согласувате со овој услов за да продолжиме?',
+    ],
+    count: 10,
+    instructions: 'Клиентот се противи на надоместот ВТОР пат — не убедувај повеќе, туку соопшти го ФАКТОТ: надоместот за посета е востановено правило на Агенцијата, запишано во нашиот официјален ценовник и исто за секој клиент, без исклучоци; тоа не е лична одлука на агентката. Смирен, професионален, ненаметлив тон. Заврши со прашање дали се согласува. БЕЗ износи, БЕЗ провизија, БЕЗ 0%, БЕЗ Евидентен броеви, БЕЗ нови аргументи за вредност.',
+    required: [/(?:правил|политик|ценовник|деловник)/iu, /(?:секој клиент|сите клиенти|без исклучок|ист за сите|подеднакво)/iu, /(?:Дали се согласувате|Дали го прифаќате|Дали Ви одговара|Дали сте согласни|Дали се согласуваме)/],
+    banned: [/\d/, /евра|денари/, /провизиј/, /0\s*%/, /адвокат|нотар/, /Евидентен|ID|ИД/],
+    question: true,
+    maxLen: 480,
+  },
+  // fee.decide: the FINAL rung. The client kept pushing after the value
+  // (rung 1) and the agency rule (rung 2) — nothing left to persuade. Lina
+  // asks for the DECISION: book the visit under the stated conditions, or
+  // not. The answer drives the funnel (yes → contact collection, no → the
+  // graceful close). Owner-specified wording, no new arguments, no figures.
+  {
+    key: 'fee.decide',
+    sources: ['Да го решиме ова едноставно: дали да ја закажам посетата по наведените услови или не? Одлуката е Ваша.'],
+    count: 8,
+    instructions: 'Клиентот продолжува да се противи на надоместот откако веќе ја слушнал вредноста и правилото на Агенцијата — престани со убедување и побарај ЈАСНА ОДЛУКА: дали да се закаже посетата по наведените услови или не, нагласувајќи дека одлуката е негова. Кратко, смирено, без нови аргументи. Заврши со прашањето за одлуката. БЕЗ износи, БЕЗ провизија, БЕЗ Евидентен броеви.',
+    required: [/дали\s+да\s+(?:ја\s+)?закажам/iu, /(?:Одлуката е Ваша|одлуката е ваша|Вие одлучувате|Ваша е одлуката|решението е Ваше)/iu],
+    banned: [/\d/, /евра|денари/, /провизиј/, /0\s*%/, /адвокат|нотар/, /Евидентен|ID|ИД/],
+    question: true,
+    maxLen: 300,
+  },
   // fee.pivot.neighborhood: the client pushes back on the viewing fee
   // ("зошто наплаќате посета?", "никoj не го прави тоа", "не сакам да
   // платам") — instead of pushing the fee, Lina OFFERS the remaining

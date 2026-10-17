@@ -5,7 +5,7 @@ import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
 import { fallbackVariant, pickVariant, retrieveVariant, getLearnedBank } from '../data/responseBank';
 import { dynamicAnswer } from './dynamicFallback';
-import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feePersuasion, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
+import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feeLadder, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
 
 // Anchored so a property price like "68.300 евра" never trips it — only a
@@ -387,13 +387,16 @@ export class Responder {
       // the responder correct even when called standalone.)
       const service = session.slots.service ?? properties[0]?.service ?? 'buy';
       const rejects = session.slots.feeRejections ?? 0;
-      const key = rejects === 0
-        ? (service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy')
-        : rejects === 1
-          ? (service === 'rent' ? 'fee.persuade.1.rent' : 'fee.persuade.1.buy')
-          : (service === 'rent' ? 'fee.persuade.2.rent' : 'fee.persuade.2.buy');
-      const line = pickVariant(key, { recent: assistantTexts(session) })
-        ?? (rejects > 0 ? feePersuasion(service, rejects) : buildFeeAsk(service));
+      // THE LADDER (see feeLadder): disclosure → ONE persuasion → the agency
+      // rule → the binary decision. A 4th resistance never reaches here — the
+      // FSM has already moved the session to 'queued' (the bye protocol).
+      if (rejects === 0) {
+        const key = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+        const line = pickVariant(key, { recent: assistantTexts(session) }) ?? buildFeeAsk(service);
+        return { text: guardText(session.state, line, this.cfg.publicSiteUrl, assistantTexts(session)), source: 'deterministic' };
+      }
+      const rung = feeLadder(service, rejects);
+      const line = pickVariant(rung.key, { recent: assistantTexts(session) }) ?? rung.line;
       return { text: guardText(session.state, line, this.cfg.publicSiteUrl, assistantTexts(session)), source: 'deterministic' };
       } // end !isDigression — digressions fall through to the LLM below
     }

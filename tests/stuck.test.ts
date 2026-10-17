@@ -570,7 +570,7 @@ async function reachClosing(send: (m: string) => Promise<unknown>): Promise<void
   await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
 }
 
-test('fee resistance PIVOTS to other neighborhoods when alternatives exist ("zosto naplatuvate poseta ?")', async () => {
+test('fee resistance runs the LADDER: one persuasion → the agency rule → the decision (never a neighborhood pivot)', async () => {
   const { handler, sessions, sent } = makeFeeHandler(ROWS, new FeeWhyMisclassifyingLlm());
   const chatId = 'zoki3';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
@@ -591,52 +591,65 @@ test('fee resistance PIVOTS to other neighborhoods when alternatives exist ("zos
   assert.ok(!why.includes('500 денари'), why); // never a disclosure repeat
   assert.ok(!/Евидентен број/.test(why), why); // no property cards in a why-answer
 
-  // 1st genuine refusal → persuasion (stays at closing, no pivot yet)
+  // 1st genuine refusal → the ONE persuasion (value framing, the buy copy)
   s = await send('не сакам да платам');
-  assert.equal(s.state, 'closing'); // persuasion, not pivot
-  assert.equal(s.slots.feeRejections, 1); // 1st refusal counted
+  assert.equal(s.state, 'closing'); // the fee question is still on the table
+  assert.equal(s.slots.feeRejections, 1); // 1st resistance counted
+  assert.ok(sent[3].includes('500 денари'), sent[3]); // persuade.1 anchors the amount
+  assert.ok(!PIVOT_OFFER.test(sent[3]), sent[3]); // no alternatives dumped mid-fee-fight
 
-  // 2nd refusal → still persuasion (3-attempt ladder)
+  // 2nd resistance → the AGENCY RULE (the fee is in our published price list),
+  // never a second persuasion and never a property pivot
   s = await send('не сакам да платам');
-  assert.equal(s.state, 'closing'); // still persuasion
-  assert.equal(s.slots.feeRejections, 2); // 2nd refusal counted
+  assert.equal(s.state, 'closing');
+  assert.equal(s.slots.feeRejections, 2); // 2nd resistance counted
+  const rule = sent[4];
+  assert.ok(/правил|ценовник|политик/iu.test(rule), rule); // the rule is stated
+  assert.ok(!rule.includes('500 денари'), rule); // no second disclosure
+  assert.ok(!/Евидентен број/.test(rule), rule); // never property cards
 
-  // 3rd refusal → NOW the pivot fires (alternatives exist in other areas)
+  // 3rd resistance → THE DECISION: book under these conditions, or not
   s = await send('не сакам да платам');
-  assert.equal(s.state, 'presentation'); // pivoted
-  const pivot = sent[5]; // index shifted: 2 extra persuasion messages
-  assert.ok(PIVOT_OFFER.test(pivot), pivot); // the other-neighborhoods offer
-  assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(pivot), pivot); // price-closest alternatives
-  assert.ok(!/(?:Евидентен број 78)/.test(pivot), pivot); // the current property is NOT re-offered
-  assert.ok(!/Капиштец/.test(pivot), pivot); // its neighborhood is NOT re-offered
-  assert.ok(!pivot.includes('500 денари'), pivot); // never a fee disclosure repeat
-  assert.ok(/(?:допаѓа|одговара|посета)/iu.test(pivot), pivot); // the pick-closer follows
+  assert.equal(s.state, 'closing'); // the answer (not the question) moves the funnel
+  assert.equal(s.slots.feeRejections, 3);
+  const decision = sent[5];
+  assert.ok(/дали\s+да\s+(?:ја\s+)?закажам/iu.test(decision), decision); // the binary ask
+  assert.ok(/Одлуката е Ваша/iu.test(decision), decision); // the decision is the client's
+  assert.ok(!PIVOT_OFFER.test(decision), decision); // still no pivot
 
-  // a rejection of the pivoted batch pulls the NEXT batch (normal presentation)
-  s = await send('NE MI SE DOPAGA');
-  assert.equal(s.state, 'presentation');
-  assert.ok((s.slots.currentBatch ?? []).includes(80), JSON.stringify(s.slots)); // next price-closest alternative
-  assert.ok(!(s.slots.currentBatch ?? []).includes(78), JSON.stringify(s.slots)); // the resisted property is never re-shown
-  assert.equal(s.slots.service, 'buy', JSON.stringify(s.slots)); // pinned from the resisted property
+  // 4th resistance → the bye protocol: the client answered the decision with NO
+  s = await send('NE, NEMA DA PLATAM');
+  assert.equal(s.state, 'queued', JSON.stringify(s));
+  assert.equal(s.slots.feeRejections, 4);
+  assert.ok(/(?:најдобро|пријатен ден|Убав ден)/iu.test(sent[6]), sent[6]); // the graceful close
 });
 
-test('a fee REFUSAL with alternatives also pivots — and the refusal rung resets for the fresh property', async () => {
+test('the DECISION answered with YES continues the workflow (contact collection), never a re-persuasion', async () => {
   const { handler, sessions, sent } = makeFeeHandler(ROWS, new FeeWhyMisclassifyingLlm());
   const chatId = 'zoki4';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
-  await reachClosing(send);
-  let s = await send('не сакам да платам'); // 1st refusal → persuasion
-  assert.equal(s.state, 'closing'); // persuasion, not pivot
+  // The fee is DISCLOSED but not agreed: the visit interest serves the ask.
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  let s = await send('SAKAM DA JA VIDAM');
+  assert.equal(s.state, 'closing');
+  assert.equal(s.slots.viewingFeeAgreed, undefined, 'disclosed, not agreed');
+  assert.ok(sent[1].includes('500 денари'), sent[1]);
+
+  s = await send('не сакам да платам'); // 1st resistance → the one persuasion
   assert.equal(s.slots.feeRejections, 1);
-  s = await send('не сакам да платам'); // 2nd refusal → still persuasion
-  assert.equal(s.state, 'closing'); // still persuasion (3-attempt ladder)
+  assert.ok(sent[2].includes('500 денари'), sent[2]);
+  s = await send('не сакам да платам'); // 2nd → the agency rule
   assert.equal(s.slots.feeRejections, 2);
-  s = await send('не сакам да платам'); // 3rd refusal → pivot
-  assert.equal(s.state, 'presentation'); // pivoted — alternatives exist
-  assert.equal(s.slots.feeRejections, undefined, JSON.stringify(s.slots)); // reset: the new property gets a fresh fee ask
-  assert.ok(PIVOT_OFFER.test(sent[4]), sent[4]);
-  assert.ok(/(?:Евидентен број 63|Евидентен број 55)/.test(sent[4]), sent[4]);
+  assert.ok(/правил|ценовник|политик/iu.test(sent[3]), sent[3]);
+  s = await send('не сакам да платам'); // 3rd → the decision question
+  assert.equal(s.slots.feeRejections, 3);
+  assert.ok(/дали\s+да\s+(?:ја\s+)?закажам/iu.test(sent[4]), sent[4]);
+
+  // The client answers the decision with YES → the workflow continues.
+  s = await send('DOBRO, ZAKAZI');
+  assert.equal(s.state, 'contact_collection', JSON.stringify(s));
+  assert.ok(/име|презиме|телефон/iu.test(sent[5]), sent[5]); // the contact ask, not a fee line
 });
 
 test('no alternatives anywhere: the fee question stays — filter rationale for why, persuasion ladder for refusals', async () => {

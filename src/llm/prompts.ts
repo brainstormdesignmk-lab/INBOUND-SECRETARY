@@ -692,6 +692,58 @@ export const buildFeeRules = (): string =>
   'Точно — ова се правилата на нашата агенција, и важат подеднакво за Вас и за нас. Никој кај нас не е над правилата: сите клиенти го плаќаат истиот симболичен надомест за посета, а провизијата е на сопственикот. Сè зависи од Вашите критериуми, не од расположението — затоа побаруваме истиот услов од секого. Дали се согласувате со овој услов за да продолжиме?';
 
 /**
+ * Fee-resistance rung 2 — THE AGENCY RULE, never another pitch. The client
+ * pushed back once (rung 1 = one persuasion) and pushes back again —
+ * "PARI ZA POSETA BARATE", "OVA PRV PAT SLUSAM", "ne sakam da platam". She
+ * stops selling and states the fact the client is really arguing with: the
+ * visit fee is part of the agency's published price list (our MENU — it is on
+ * every offer, not something she invented), it is the same for every client
+ * and it is not her personal decision. Bank-backed (fee.rule.hold);
+ * amount-free on purpose (the sum was already disclosed in the fee.ask) and
+ * ending with the agreement ask so the funnel keeps moving.
+ */
+export const buildFeeRule = (): string =>
+  'Ова е востановено правило на Агенцијата и се применува за секој клиент без исклучок — надоместот за посета е дел од нашиот официјален ценовник, ист за сите, а не моја лична одлука. Дали се согласувате со овој услов за да продолжиме?';
+
+/**
+ * Fee-resistance rung 3 — THE DECISION. The client heard the value (rung 1),
+ * then the agency rule (rung 2), and keeps pushing: Lina stops arguing and
+ * asks the question the whole resistance is about — book under the stated
+ * conditions, or not. The ANSWER decides the funnel: yes → contact
+ * collection (the workflow continues), no → the graceful close
+ * (fee.graceful.close, the bye protocol). Owner-specified wording, kept
+ * literal.
+ */
+export const buildFeeDecision = (): string =>
+  'Да го решиме ова едноставно: дали да ја закажам посетата по наведените услови или не? Одлуката е Ваша.';
+
+/**
+ * THE FEE-RESISTANCE LADDER — one place, so the responder and the handler can
+ * never serve different rungs (they drifted apart before: the same rung got
+ * the persuasion in one path and the pivot in the other).
+ *
+ *   rejects 1  → a SINGLE persuasion (value framing, the declared market's copy)
+ *   rejects 2  → the AGENCY RULE (the fee is in our published price list)
+ *   rejects 3+ → THE DECISION (book under these conditions, or not)
+ *
+ * A rung is only burned by RESISTANCE (a refusal or a charge pushback) — a
+ * why/rules/complaint question is explanation traffic and never advances the
+ * ladder. The 4th resistance never reaches a rung: the FSM moves the session
+ * to 'queued' and the bye protocol (fee.graceful.close) closes the chat. The
+ * retired deep-persuasion rung (fee.persuade.2.*) stays seeded for direct
+ * callers, but the live ladder no longer serves it — one persuasion is the
+ * whole budget, then the rule, then the decision.
+ */
+export function feeLadder(service: Service | undefined, rejects: number): { key: string; line: string } {
+  if (rejects >= 3) return { key: 'fee.decide', line: buildFeeDecision() };
+  if (rejects === 2) return { key: 'fee.rule.hold', line: buildFeeRule() };
+  return {
+    key: service === 'rent' ? 'fee.persuade.1.rent' : 'fee.persuade.1.buy',
+    line: feePersuasion(service, 1),
+  };
+}
+
+/**
  * Answer to "why do you charge for a visit?" ("зошто наплаќате посета?",
  * "зошто надомест?", "никој не го прави тоа") — a QUESTION, not a refusal.
  * The fee is the agency's FILTER that recognizes REAL clients; for a serious
@@ -705,12 +757,12 @@ export const buildFeeWhy = (): string =>
   'Надоместот за посета е филтер на агенцијата со кој ги препознаваме вистинските клиенти. За сериозен клиент тој е симболичен — вака функционира нашата агенција: симболична цена со која се овозможува квалитетна и селективна услуга за навистина заинтересираните клиенти. Дали се согласувате со овој услов за да продолжиме?';
 
 /**
- * Fee-resistance PIVOT: the client pushes back on the viewing fee ("зошто
- * наплаќате посета?", "никoj не го прави тоа", "не сакам да платам") —
- * instead of pushing the fee, Lina OFFERS the remaining properties in OTHER
- * neighborhoods ("if available"). Bank-backed (fee.pivot.neighborhood) with
- * this exact line as the code-built fallback; the property cards and the
- * pick-closer follow in the next lines (code-built, like every presentation).
+ * RETIRED from the live serve (kept with its bank pool because the wording was
+ * owner-approved and the flow may return): the fee-resistance PIVOT used to
+ * answer the 3rd refusal with other neighborhoods. It restarted the same fee
+ * fight on a fresh property, so the ladder now answers rung 2 with the AGENCY
+ * RULE and rung 3 with THE DECISION (see feeLadder). Bank-backed pool:
+ * fee.pivot.neighborhood; the property cards + pick-closer followed it.
  * Declarative on purpose — no question mark, no fee mention, no concrete
  * properties here.
  */
