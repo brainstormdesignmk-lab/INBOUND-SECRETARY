@@ -62,6 +62,8 @@ export interface Property {
    *  nearest VALID entry (rotating by EB hash for variety) and falls back to
    *  the deterministic table when the field is empty. Never a street name. */
   landmarks?: FeedLandmark[];
+  /** Ranking policy used to create the stored landmarks list; missing means legacy. */
+  landmark_policy_version?: number;
   url?: string;
   service?: Service;       // Продава -> buy, Издава -> rent
   landlordName?: string;
@@ -313,6 +315,10 @@ export function mapRow(r: Record<string, unknown>): Property | null {
   const lat = num(r.lat);
   const lon = num(r.lon);
   const geoRaw = str(r.geo_source).trim();
+  const policyRaw = r.landmark_policy_version;
+  const policyNum = Number(policyRaw);
+  const landmarkPolicyVersion = policyRaw != null && Number.isSafeInteger(policyNum) && policyNum >= 0
+    ? policyNum : undefined;
   const prop: Property = {
     eb,
     id: eb,
@@ -340,6 +346,7 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     details: cleanMacedonian(str(r.opis)) || undefined,
     gmaps: str(r.gmaps) || undefined,
     landmarks: parseFeedLandmarks(r.landmarks),
+    landmark_policy_version: landmarkPolicyVersion,
     url: str(r.url) || undefined,
     service: parseService(r.servis),
     raw: r,

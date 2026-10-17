@@ -49,7 +49,7 @@ Deno.serve(async (req: Request) => {
   const g = guard(req, 'POST');
   if (g instanceof Response) return g;
 
-  let body: { property_number?: unknown; evidenten_broj?: unknown; landmarks?: unknown };
+  let body: { property_number?: unknown; evidenten_broj?: unknown; landmarks?: unknown; landmark_policy_version?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -70,6 +70,10 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'landmarks must be an array (an empty array explicitly clears the list)' }, 400);
   }
   const raw = body.landmarks;
+  const policyVersion = body.landmark_policy_version == null ? 0 : Number(body.landmark_policy_version);
+  if (!Number.isSafeInteger(policyVersion) || policyVersion < 0) {
+    return json({ error: 'landmark_policy_version must be a non-negative integer' }, 400);
+  }
   if (raw.length > 10) {
     return json({ error: 'landmarks must have at most 10 entries' }, 400);
   }
@@ -91,7 +95,7 @@ Deno.serve(async (req: Request) => {
       event_type: 'landmarks_write',
       status: 'rejected',
       property_number: propNum,
-      payload: { landmarks },
+      payload: { landmarks, landmark_policy_version: policyVersion },
       note: 'property not found',
       source: 'lina',
     });
@@ -99,16 +103,17 @@ Deno.serve(async (req: Request) => {
   }
 
   // Read current landmarks for idempotency check.
-  const rows = await restGet(`/properties?select=landmarks&id=eq.${prop.id}&limit=1`);
+  const rows = await restGet(`/properties?select=landmarks,landmark_policy_version&id=eq.${prop.id}&limit=1`);
   const existing = rows?.[0];
   const prev = Array.isArray(existing?.landmarks) ? existing.landmarks : [];
-  if (JSON.stringify(prev) === JSON.stringify(landmarks)) {
+  if (JSON.stringify(prev) === JSON.stringify(landmarks)
+      && Number(existing?.landmark_policy_version ?? 0) === policyVersion) {
     await logEvent({
       event_type: 'landmarks_write',
       status: 'processed',
       property_id: prop.id,
       property_number: propNum,
-      payload: { landmarks },
+      payload: { landmarks, landmark_policy_version: policyVersion },
       note: 'unchanged',
       source: 'lina',
     });
@@ -118,6 +123,7 @@ Deno.serve(async (req: Request) => {
   // Write landmarks + audit via REST helpers (no esm.sh import needed).
   await restPatch('properties', `id=eq.${prop.id}`, {
     landmarks,
+    landmark_policy_version: policyVersion,
     landmarks_resolved_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   });
@@ -127,6 +133,7 @@ Deno.serve(async (req: Request) => {
     property_id: prop.id,
     property_number: propNum,
     landmarks,
+    landmark_policy_version: policyVersion,
   }).catch(e => console.error('audit insert failed:', e.message));
 
   await logEvent({
@@ -134,9 +141,9 @@ Deno.serve(async (req: Request) => {
     status: 'processed',
     property_id: prop.id,
     property_number: propNum,
-    payload: { landmarks },
+    payload: { landmarks, landmark_policy_version: policyVersion },
     source: 'lina',
   });
 
-  return json({ property_number: propNum, landmarks });
+  return json({ property_number: propNum, landmarks, landmark_policy_version: policyVersion });
 });

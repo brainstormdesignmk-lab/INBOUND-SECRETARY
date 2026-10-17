@@ -28,7 +28,7 @@ import '../compat/node16';
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
 import { sanitizeLandmarkAnswer, stripPoiAnnotation, FEED_LANDMARK_MAX_M, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
-import { identityKey, type LocalPoi } from '../geo/offlineMap';
+import { identityKey, LANDMARK_RANKING_POLICY_VERSION, type LocalPoi } from '../geo/offlineMap';
 import { landmarkLink } from '../geo/precision';
 import { OfflineMapStore } from '../geo/offlineMap';
 import { EventStore } from '../store/events';
@@ -134,14 +134,9 @@ export function rankedLandmarks(
   geo: { lat: number; lon: number },
   offline?: OfflineMapStore,
 ): { list: FeedLandmark[]; poolSize: number } {
-  // THE RING IS THE RADIUS — measure first, rank inside it.
-  // nearestPois is PREFERENCE-ranked, not distance-sorted: asking it for 25 POIs
-  // within 2km fills the list with malls across the city (top rank first) and
-  // then a 500m filter finds none of them. That is exactly what happened on
-  // 2026-10-11 — EB 89 reported "нема јавни места во радиус 500 м" while
-  // „Парк Авионче“ sat 174m away, and the same bug made the pass declare a
-  // dozen properties (Емил Зола 35, Визбегово, Козле…) unresolvable. The radius
-  // must bound the query, so the client-facing 500m ceiling is applied HERE.
+  // One ranking implementation serves both this feed writer and Lina's live
+  // map fallback. The nearest unique candidates are selected inside the 500m
+  // circle first; popularity can only reorder a 50m distance cohort.
   const pois = offline?.available
     ? offline.nearestPois(geo.lat, geo.lon, FEED_LANDMARK_MAX_M, 25)
     : [] as LocalPoi[];
@@ -216,6 +211,11 @@ export function sameFeedList(stored: FeedLandmark[], desired: FeedLandmark[]): b
     if (a != null && b != null && Math.abs(a - b) > 1) return false;
   }
   return true;
+}
+
+/** A stored row is current only when both order/distances and policy version match. */
+export function feedListCurrent(stored: FeedLandmark[], desired: FeedLandmark[], policyVersion?: number): boolean {
+  return policyVersion === LANDMARK_RANKING_POLICY_VERSION && sameFeedList(stored, desired);
 }
 
 async function llmLandmark(
@@ -356,7 +356,7 @@ async function main(): Promise<void> {
         }
         continue;
       }
-      if (sameFeedList(storedLandmarkList(p), desired)) { current++; continue; }
+      if (feedListCurrent(storedLandmarkList(p), desired, p.landmark_policy_version)) { current++; continue; }
       todo.push({ eb: p.eb, address: p.address, location: p.location, desired });
     }
     console.log(`[hermes-landmarks] ${all.length} propert(ies): ${current} already match the map, ${todo.length} to write, ${unmapped} address(es) the map cannot resolve (left untouched).`);
@@ -376,7 +376,7 @@ async function main(): Promise<void> {
         const res = await fetch(pushUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', [cfg.hermesAuthHeader]: cfg.hermesToken },
-          body: JSON.stringify({ property_number: c.eb, landmarks: c.desired }),
+          body: JSON.stringify({ property_number: c.eb, landmarks: c.desired, landmark_policy_version: LANDMARK_RANKING_POLICY_VERSION }),
         });
         const body = await res.json().catch(() => ({})) as { unchanged?: boolean; error?: string };
         if (!res.ok) {

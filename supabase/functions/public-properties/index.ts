@@ -1,7 +1,7 @@
 // Version: 2025-02-02-v7 - Added available_from filtering
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 
-const DEPLOY_VERSION = "v9-20261008-landmarks";
+const DEPLOY_VERSION = "v10-20261017-landmark-policy";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "https://qkgioqotxjxffiaufgwd.supabase.co";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZ2lvcW90eGp4ZmZpYXVmZ3dkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxMTU0NjUsImV4cCI6MjA3MDY5MTQ2NX0.WVno6c6_rvFqFwj1fN8UWHYmlit0C-6J_h57P8d5eOI";
 const LOCAL_BACKUP_URL = Deno.env.get("LOCAL_BACKUP_URL") ?? "";
@@ -71,7 +71,7 @@ serve(async (req) => {
       // answered "во населбата Центар" while the row already carried 4 landmarks.
       // They MUST be selected here and emitted below, or the whole enrichment is
       // invisible to the assistant.
-      `/rest/v1/properties?select=id,property_number,title,property_type,room_type,neighborhood,address,price,area,floor,service_type,front_image_id,created_at,garage,elevator,heating,yard,orientation,year_built,total_floors,comments,description,parking,furnished,available_from,lat,lon,geo_source,geocoded_at,landmarks,landmarks_resolved_at&is_published=eq.true&or=(available_from.is.null,available_from.lte.${today})&order=created_at.desc`
+      `/rest/v1/properties?select=id,property_number,title,property_type,room_type,neighborhood,address,price,area,floor,service_type,front_image_id,created_at,garage,elevator,heating,yard,orientation,year_built,total_floors,comments,description,parking,furnished,available_from,lat,lon,geo_source,geocoded_at,landmarks,landmarks_resolved_at,landmark_policy_version&is_published=eq.true&or=(available_from.is.null,available_from.lte.${today})&order=created_at.desc`
     );
     
     // If JSON format requested, return formatted data for AI systems like Lina
@@ -114,6 +114,7 @@ serve(async (req) => {
         // "каде е X?" degrades to the neighborhood line.
         landmarks: p.landmarks ?? null,
         landmarks_resolved_at: p.landmarks_resolved_at ?? null,
+        landmark_policy_version: p.landmark_policy_version ?? null,
       }));
       
       return new Response(JSON.stringify({ 

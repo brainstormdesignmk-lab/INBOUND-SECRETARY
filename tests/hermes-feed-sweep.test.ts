@@ -1,6 +1,10 @@
 import { test } from 'node:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import assert from 'node:assert/strict';
-import { sameFeedList, storedLandmarkList } from '../src/scripts/hermesLandmarks';
+import { feedListCurrent, rankedLandmarks, sameFeedList, storedLandmarkList } from '../src/scripts/hermesLandmarks';
+import { OfflineMapStore, LANDMARK_RANKING_POLICY_VERSION, writeMap } from '../src/geo/offlineMap';
 import { mapRow } from '../src/data/properties';
 
 // WHAT WENT WRONG (2026-10-11, the "8 legacy rows"):
@@ -45,6 +49,37 @@ test('a raw over-cap entry makes the row differ from the map — the sweep rewri
     false,
     'the as-stored list still carries the 1.2km claim, so the sweep must rewrite it',
   );
+});
+
+
+test('the property mapper carries a stored landmark policy version', () => {
+  const current = mapRow({ evidenten_broj: '76', adresa: 'Пример 1', landmark_policy_version: LANDMARK_RANKING_POLICY_VERSION });
+  const legacy = mapRow({ evidenten_broj: '77', adresa: 'Пример 2', landmark_policy_version: null });
+  assert.equal(current?.landmark_policy_version, LANDMARK_RANKING_POLICY_VERSION);
+  assert.equal(legacy?.landmark_policy_version, undefined);
+});
+
+test('a changed or missing ranking policy makes an otherwise identical feed row stale', () => {
+  const list = [{ landmark: 'Амбасада на Црна Гора', type: 'embassy', distance_m: 76 }];
+  assert.equal(feedListCurrent(list, list, LANDMARK_RANKING_POLICY_VERSION), true);
+  assert.equal(feedListCurrent(list, list, LANDMARK_RANKING_POLICY_VERSION - 1), false);
+  assert.equal(feedListCurrent(list, list, undefined), false);
+});
+
+test('feed ranking and runtime map fallback share the same ranked candidates', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'landmark-policy-'));
+  const dbPath = path.join(dir, 'map.db');
+  const center = { lat: 41.996, lon: 21.4302 };
+  writeMap(dbPath, [
+    { name: 'Амбасада на Црна Гора', type: 'embassy', lat: center.lat, lon: center.lon + 0.00093, review_count: 7 },
+    { name: 'Беверли Хилс', type: 'mall', lat: center.lat, lon: center.lon + 0.00334, review_count: 1551 },
+  ], []);
+  const map = new OfflineMapStore(dbPath);
+  const feed = rankedLandmarks({ address: 'Пример 1' }, center, map).list;
+  const runtime = map.nearestPois(center.lat, center.lon, 500, 3);
+  assert.deepEqual(feed.map(x => x.landmark), runtime.map(x => x.name));
+  assert.equal(feed[0].landmark, 'Амбасада на Црна Гора');
+  map.close();
 });
 
 test('a genuinely current row is still left alone (no needless rewrite)', () => {
