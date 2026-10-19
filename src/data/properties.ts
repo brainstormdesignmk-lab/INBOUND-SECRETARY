@@ -231,6 +231,11 @@ export function featurePhrases(r: Record<string, unknown>): string[] {
     else out.push(`греење на ${g}`);
   }
   if (yes('dvor')) out.push('двор');
+  // Terrace/basement/AC were stored by the agency card but the feed never
+  // selected them (v11 does), so "има ли тераса / подрум / клима" had no data.
+  if (yes('terasa')) out.push('тераса');
+  if (yes('podrum')) out.push('подрум');
+  if (yes('klima')) out.push('клима');
   const pk = v('parking');
   if (yes('parking')) {
     if (pk.includes('приватен')) out.push('приватен паркинг');
@@ -255,6 +260,9 @@ export function absentFeaturePhrases(r: Record<string, unknown>): string[] {
   if (no('garaza')) out.push('гаража');
   if (no('lift')) out.push('лифт');
   if (no('dvor')) out.push('двор');
+  if (no('terasa')) out.push('тераса');
+  if (no('podrum')) out.push('подрум');
+  if (no('klima')) out.push('клима');
   return out;
 }
 
@@ -383,7 +391,9 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     // maps `floor` and `total_floors` to them). "Не е наведено" is a STRING in
     // that payload, so it must parse to undefined, not NaN/0.
     floor: parseStorey(r.kat) ?? parseStorey(r.floor),
-    totalFloors: parseStorey(r.vkupno_katovi) ?? parseStorey(r.total_floors),
+    // 0 storeys is not a building — the old card wrote 0 for an empty
+    // "Кат на објект". Keep it unknown so the answer never says "0 ката".
+    totalFloors: (parseStorey(r.vkupno_katovi) ?? parseStorey(r.total_floors)) || undefined,
     business: isBusiness(r) && !isPlac(r),
     house: isHouse(r) && !isPlac(r),
     plac: isPlac(r),

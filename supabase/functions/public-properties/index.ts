@@ -1,7 +1,7 @@
-// Version: 2025-02-02-v7 - Added available_from filtering
+// Version: 2026-10-19-v11 - Terrace/basement/cooling/last-floor/renovation/net areas
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 
-const DEPLOY_VERSION = "v10-20261017-landmark-policy";
+const DEPLOY_VERSION = "v11-20261019-property-attributes";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "https://qkgioqotxjxffiaufgwd.supabase.co";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZ2lvcW90eGp4ZmZpYXVmZ3dkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxMTU0NjUsImV4cCI6MjA3MDY5MTQ2NX0.WVno6c6_rvFqFwj1fN8UWHYmlit0C-6J_h57P8d5eOI";
 const LOCAL_BACKUP_URL = Deno.env.get("LOCAL_BACKUP_URL") ?? "";
@@ -71,7 +71,7 @@ serve(async (req) => {
       // answered "во населбата Центар" while the row already carried 4 landmarks.
       // They MUST be selected here and emitted below, or the whole enrichment is
       // invisible to the assistant.
-      `/rest/v1/properties?select=id,property_number,title,property_type,room_type,neighborhood,address,price,area,floor,service_type,front_image_id,created_at,garage,elevator,heating,yard,orientation,year_built,total_floors,comments,description,parking,furnished,available_from,lat,lon,geo_source,geocoded_at,landmarks,landmarks_resolved_at,landmark_policy_version&is_published=eq.true&or=(available_from.is.null,available_from.lte.${today})&order=created_at.desc`
+      `/rest/v1/properties?select=id,property_number,title,property_type,room_type,neighborhood,address,price,area,net_area,terrace_area,basement_area,floor,is_last_floor,service_type,front_image_id,created_at,garage,elevator,heating,yard,terrace,basement,cooling,orientation,year_built,renovation_year,total_floors,comments,description,parking,furnished,tax,available_from,lat,lon,geo_source,geocoded_at,landmarks,landmarks_resolved_at,landmark_policy_version&is_published=eq.true&or=(available_from.is.null,available_from.lte.${today})&order=created_at.desc`
     );
     
     // If JSON format requested, return formatted data for AI systems like Lina
@@ -87,17 +87,30 @@ serve(async (req) => {
         adresa: p.address,
         cena_eur: p.price,
         povrsina_m2: p.area,
+        neto_m2: p.net_area ?? "Не е наведено",
+        terasa_m2: p.terrace_area ?? "Не е наведено",
+        podrum_m2: p.basement_area ?? "Не е наведено",
         kat: p.floor,
-        vkupno_katovi: p.total_floors ?? "Не е наведено",
+        // "Последен кат" has no storey number; without the flag it was stored
+        // as a NULL floor and the fact disappeared.
+        posleden_kat: p.is_last_floor === true ? "Да" : "Не",
+        // 0 is not a building — it is the old card's empty input. Never let
+        // Lina answer "зградата има 0 ката".
+        vkupno_katovi: typeof p.total_floors === "number" && p.total_floors > 0 ? p.total_floors : "Не е наведено",
         godina_na_gradba: p.year_built ?? "Не е наведено",
+        renoviran: p.renovation_year ?? "Не е наведено",
         orientacija: p.orientation ?? "Не е наведено",
         // KEY FEATURES - explicit human readable for AI
         garaza: p.garage === true ? "Да" : p.garage === false ? "Не" : "Не е наведено",
         lift: p.elevator === true ? "Да" : p.elevator === false ? "Не" : "Не е наведено",
         greenje: p.heating ?? "Не е наведено",
         dvor: p.yard === true ? "Да" : p.yard === false ? "Не" : (typeof p.yard === "string" ? p.yard : "Не е наведено"),
+        terasa: p.terrace === true ? "Да" : p.terrace === false ? "Не" : "Не е наведено",
+        podrum: p.basement === true ? "Да" : p.basement === false ? "Не" : "Не е наведено",
+        klima: p.cooling === true ? "Да" : p.cooling === false ? "Не" : "Не е наведено",
         parking: p.parking ?? "Не е наведено",
         opremenost: p.furnished ?? "Не е наведено",
+        danok: p.tax ?? "Не е наведено",
         dostapno_od: p.available_from ?? "Веднаш",
         // Text fields
         opis: p.description ?? "",
@@ -121,7 +134,7 @@ serve(async (req) => {
         version: DEPLOY_VERSION,
         properties: formattedProperties, 
         count: formattedProperties.length,
-        napomena: "Koristi garaza, lift, greenje, dvor, parking, opremenost za karakteristiki na imotot."
+        napomena: "Koristi garaza, lift, greenje, dvor, terasa, podrum, klima, parking, opremenost za karakteristiki na imotot."
       }), {
         headers: {
           "Content-Type": "application/json",
