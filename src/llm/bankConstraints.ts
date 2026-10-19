@@ -65,6 +65,11 @@ const BASELINE_FORBID: RegExp[] = [
   /garant[\p{L}]*\s+(?:that\b|available|cheapest|price)/iu,
   /сто\s*%?\s*сигур|100%\s*сигур/i,                  // "100% sure"
   /сигурно\s+е\s+достапен|достапноста\s+е\s+100/i,   // availability promises
+  // VOCABULARY (owner rule, 2026-10-19): "имот" means land/a plot in this
+  // agency's usage; the general noun in every client answer is "недвижност".
+  // Keep the document term "имотен лист" out of the veto via the negative
+  // lookahead on the stem ending.
+  /(?:^|[^\p{L}])имот(?:от|ите|и)?(?![\p{L}])/iu,
   // NOTE: no superlative veto — price.* seeds legitimately say
   // "најевтините во таа населба" (a data-backed, scoped claim from the
   // sorted offer). An UNSCOPED superlative promise would be caught by the
@@ -138,6 +143,42 @@ export const BANK_CONSTRAINTS: Record<string, KeyConstraint> = {
     maxLength: BASELINE_MAX_LENGTH,
     allowedAmounts: FEE_ALLOWED_AMOUNTS,
     note: 'the binary decision question (book the visit under the stated conditions, or not) + the ownership of the decision; the answer decides the funnel — yes → contact collection, no → the graceful close',
+  },
+  // ── The RENT-COMMISSION ladder (the second money topic) ──────────────────
+  // Same protocol shape as the fee ladder, its own copy and its own counter.
+  // The rent tier rule may be restated (the client is arguing about a figure),
+  // so 50% is REQUIRED on the persuasion rung; the only sanctioned figure
+  // anywhere in this family is the 1.000 eur tier threshold — a filled-in
+  // commission number would be a bug (the live amount lives in rent.math.*,
+  // computed at serve time).
+  'provision.persuade.1.rent': {
+    mustIncludeAny: [/50\s*%|педесет\s*процент/i],
+    mustEndWithQuestion: true,
+    // The persuasion must state the value AND the tier rule — that reads
+    // longer than the fee rung (the fee asks for one figure, this one for a
+    // figure plus the whole service framing), so the key carries its own
+    // budget. Contract follows the human seeds, never the reverse.
+    maxLength: BASELINE_MAX_LENGTH + 140,
+    allowedAmounts: ['1000:eur'],
+    note: 'ONE value persuasion for the rent commission (a one-off that covers the whole rental process: vetted offers, owner coordination, legal check, contract); must restate the 50% tier and end with the agreement ask; the 1.000 eur tier threshold is the only sanctioned figure',
+  },
+  'provision.rule.hold': {
+    mustIncludeAny: [/(?:правил|политик|ценовник|деловник)/iu],
+    mustEndWithQuestion: true,
+    maxLength: BASELINE_MAX_LENGTH,
+    allowedAmounts: ['1000:eur'],
+    note: 'the rent commission as the agency\'s published rule/price list, the same for every tenant, not the agent\'s personal decision; must end with a question',
+  },
+  // Same house sentence as fee.decide, for the commission: the binary
+  // continue-or-not question (mid-line) and the ownership of the decision, kept
+  // verbatim so the client hears ONE protocol. Only the opener before it may
+  // vary (see the generation spec).
+  'provision.decide': {
+    mustInclude: [/дали\s+да\s+продолжиме\s+по\s+наведените\s+услови\s+или\s+не/iu],
+    mustIncludeAny: [/одлуката\s+е\s+ваша/iu],
+    maxLength: BASELINE_MAX_LENGTH,
+    allowedAmounts: ['1000:eur'],
+    note: 'the binary decision for the commission terms (continue under the stated conditions, or not) + ownership of the decision; the question mark sits mid-line, so mustEndWithQuestion is deliberately absent',
   },
   'owner.contact.refusal': CONTACT_REFUSAL_CONTRACT,
   'owner.contact.protocol': CONTACT_REFUSAL_CONTRACT,
@@ -231,6 +272,7 @@ export function renderPromptBlock(key: string): string {
     lines.push('- NEVER state any specific price or amount. If a price is needed, use the {price} placeholder — it is filled from the property record.');
   }
   lines.push('- NEVER promise availability, a discount, a guarantee, or a future action you cannot control.');
+  lines.push('- NEVER use the word „имот“ — it means land/a plot here. Write „недвижност“ for any property.');
   if (c.forbid?.length) lines.push('- NEVER mention: ' + c.forbid.map(re => re.source.slice(0, 30)).join(', ') + '.');
   lines.push(`- Maximum ${c.maxLength} characters.`);
   return lines.join('\n');

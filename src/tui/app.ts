@@ -12,11 +12,13 @@ import { Responder } from '../llm/respond';
 import { InboundHandler } from '../handlers/inbound';
 import { CaptureStore } from '../store/capture';
 import * as path from 'path';
+import * as fs from 'fs';
 import { ChannelRegistry } from '../channels/types';
 import { LlmClient } from '../llm/types';
 import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
-import { buildLayout, esc, hhmm, wrapMarked, paneTextWidth, CHAT_PANE_FRACTION } from './layout';
+import { buildLayout, esc, guardGlyphs, hhmm, wrapMarked, paneTextWidth, CHAT_PANE_FRACTION } from './layout';
+import { FramePainter } from './paint';
 import { detectOwnerVerdict, detectOwnerAddressReply } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
 import { LandmarkService } from '../geo/landmarks';
@@ -27,6 +29,7 @@ import { OwnerStore } from '../store/owners';
 import { EnrichmentStore } from '../store/enrichment';
 import { BankStore } from '../store/bank';
 import { setLearnedBank } from '../data/responseBank';
+import { sessionStateDump, sessionStateRows, sessionStateFullRows } from './state';
 
 type Role = 'user' | 'assistant' | 'system' | 'error';
 // source = which brain produced the reply ('gemini:1..3', 'groq',
@@ -100,6 +103,10 @@ export class TuiApp {
   private ownerContent = '';
   private quietTicks = 0;
   private lastPaintSig = '';
+  /** The single writer to the terminal — change-gated, whole-row repaints
+   *  (see src/tui/paint.ts for why the naive per-tick diff garbled the frame
+   *  during the send/typing waits). */
+  private painter!: FramePainter;
 
   private cfg: AppConfig;
   private brainSummary = '';
@@ -253,6 +260,9 @@ export class TuiApp {
     };
 
     this.box = buildLayout('METROPOLIS · ЛИНА · TUI');
+    // The menu is the only box outside the layout; its content rides the frame
+    // signature so opening/closing it NEVER needs a forced repaint.
+    this.painter = new FramePainter(this.box, () => this.menuBox ? String(this.menuBox.getContent?.() ?? 'menu') : '');
   }
 
   start(): void {
@@ -264,25 +274,35 @@ export class TuiApp {
       // then full-repaint. (blessed also self-clears on resize — verified
       // headlessly — but an explicit wipe costs one escape per resize.)
       this.box.screen.program.write('\x1b[H\x1b[2J');
-      this.renderAll();
+      this.renderAll({ force: true });
     });
 
     this.banner = 'Добредојдовте. [Space] = нов клиент. Вие сте клиентот — тестирајте ја Лина.';
     this.renderAll();
 
+    // The clock line is minute-granular now, so most seconds are a NO-OP: the
+    // painter's change gate turns this into zero bytes written.
     this.clock = setInterval(() => { this.renderTop(); this.repaint(); }, 1000);
     this.ticker = setInterval(() => {
-      // SELF-HEAL (the [14:34] transcript): web-terminal brokers silently
-      // garble blessed's cell-diff output — duplicated pane headers, rows
-      // interleaved mid-line. When the pane CONTENT has been unchanged for
-      // ~1.5s, re-emit the whole screen once (healScreen) so a garbled
-      // repaint is replaced by the correct frame. Idle-only and once per
-      // content burst; a correctly-rendering terminal pays one redundant
-      // full draw per burst.
+      // SELF-HEAL (the [14:34] and [00:32] captures): web-terminal brokers
+      // silently garble output — duplicated pane headers, rows interleaved
+      // mid-line, fragments of an earlier frame left behind. When the pane
+      // CONTENT has been unchanged for ~1.5 s, re-emit the whole screen once
+      // (healScreen), so any damage is replaced by a correct frame.
+      //
+      // The heal is now the ONLY writer that re-addresses rows the diff engine
+      // skipped: FramePainter.paint() rewrites the surfaces that changed, and
+      // heal() additionally marks/touches EVERY row (whole-row writes, one
+      // flush). A wait (client's typing window, owner ping-pong, antiban send
+      // delay) only ticks the status line once a second, so while one is open
+      // the heal runs on a 3 s cadence: damage cannot outlive the wait.
       const sig = `${this.chatContent}\u0000${this.ownerContent}`;
       if (sig === this.lastPaintSig) {
         this.quietTicks++;
-        if (this.quietTicks === 15 && sig !== '\u0000') this.healScreen();
+        const waiting = !!(this.typing || this.ownerTyping || this.clientWindow || this.busy.size > 0);
+        if (sig !== '\u0000' && (this.quietTicks === 15 || (waiting && this.quietTicks > 15 && (this.quietTicks - 15) % 30 === 0))) {
+          this.healScreen();
+        }
       } else {
         this.quietTicks = 0;
         this.lastPaintSig = sig;
@@ -480,7 +500,7 @@ export class TuiApp {
       if (this.capture) {
         const fc = this.capture.fileCounts();
         if (fc.total > 0) {
-          lines.push(`⏳ УЧЕЊЕ: ${fc.total} каптури во data/tui-capture.jsonl (fallthrough: ${fc.fallthrough} · prose: ${fc.prose}) — минирај во hardening/банка`);
+          lines.push(`» УЧЕЊЕ: ${fc.total} каптури во data/tui-capture.jsonl (fallthrough: ${fc.fallthrough} · prose: ${fc.prose}) — минирај во hardening/банка`);
         }
       }
       this.appendMsg(lead.chatId, { role: 'system', text: `СТАТУС:\n${lines.join('\n')}`, at: Date.now() });
@@ -633,6 +653,59 @@ export class TuiApp {
         `${c.name || '(без име)'} · ${c.phone || '(без тел)'} · ${c.service || '?'} · ${c.location || '?'} · EB ${c.refusedEb ?? '-'} · ${c.reason}`
       ).join('\n');
       this.appendMsg(lead.chatId, { role: 'system', text: `РЕДИЦА КЛИЕНТИ:\n${rows || '(празно)'}`, at: Date.now() });
+      this.renderAll();
+      return;
+    }
+    // /state — THE NOTEBOOK, on the operator's screen.
+    //
+    // The pty check proves what a CLIENT sees; the session slots are what the
+    // PIPELINE decided, and until now the real-terminal harness had no way to
+    // read them (it asserted copy only, so a correct sentence with a wrong
+    // counter was invisible). This command renders the ACTIVE session's state
+    // and every slot as short `[state] key: value` rows — one row per slot, so
+    // terminal wrapping can never split a value, and the harness can assert
+    // "feeRejections: 3" or "anywhere: true" on the real screen.
+    const stateCmd = text.match(/^\/(?:state|slots)(?:\s+(.*))?$/);
+    if (stateCmd) {
+      // ARGUMENTS:
+      //   /state                 the compact operator rows for the ACTIVE chat
+      //   /state full            EVERY defined slot on the pane (no JSON file)
+      //   /state client-2        the notebook of ANOTHER client (stops the
+      //                          "I ran /state on the wrong chat" misread)
+      // The dump written below always describes the SAME session the rows do.
+      const stateArgs = (stateCmd[1] ?? '').trim();
+      const full = /(?:^|\s)full(?:\s|$)/.test(stateArgs);
+      const targetChatId = stateArgs.replace(/(?:^|\s)full(?:\s|$)/, ' ').trim() || lead.chatId;
+      const s = this.sessions.get(targetChatId);
+      // THE ROWS ARE AN OPERATOR PROJECTION, not the notebook: six short rows
+      // covering the funnel position, both money ladders, the search intent,
+      // the property anchor, the appointment and the blockers that explain a
+      // stuck/widening/closed chat. The audit (which field earns a row and
+      // which stays in the dump) lives with the formatter in src/tui/state.ts.
+      // Rows stay under the narrowest supported pane (48 columns at 68) so
+      // blessed never wraps a value apart, and the whole set is out of a
+      // 10-row chat pane's way — the newest reply keeps its tail.
+      // THE FULL NOTEBOOK ON DISK: a reader that needs EVERY slot — arrays and
+      // objects included — reads data/session-state.json. Atomic (tmp + rename)
+      // so a reader never sees half a file, and rewritten on every /state so it
+      // always describes the last read. The dump is part of the command's
+      // contract: a failed write is SAID on the pane, never swallowed.
+      let dumpStatus = 'off';
+      if (s) {
+        try {
+          const dir = path.join(process.cwd(), 'data');
+          fs.mkdirSync(dir, { recursive: true });
+          const file = path.join(dir, 'session-state.json');
+          const tmp = `${file}.tmp`;
+          fs.writeFileSync(tmp, JSON.stringify(sessionStateDump(targetChatId, s), null, 1));
+          fs.renameSync(tmp, file);
+          dumpStatus = 'data/session-state.json';
+        } catch (e) {
+          dumpStatus = `error (${(e as Error).message})`;
+        }
+      }
+      const rows = full ? sessionStateFullRows(s, dumpStatus) : sessionStateRows(s, dumpStatus);
+      this.appendMsg(lead.chatId, { role: 'system', text: rows.join('\n'), at: Date.now() });
       this.renderAll();
       return;
     }
@@ -935,6 +1008,10 @@ export class TuiApp {
         top: 'center',
         left: 'center',
       } as any);
+      // Same glyph guard as the layout boxes: the menu is created here, not in
+      // buildLayout, but it must not print a rune the terminal draws wider than
+      // blessed measures it either (see narrowGlyphs in layout.ts).
+      guardGlyphs(this.menuBox);
     }
     const lines = QUICK_INTROS.map((q, i) =>
       i === this.menuIndex ? `{inverse}${esc(q.label)}{/inverse}` : esc(q.label)
@@ -948,7 +1025,12 @@ export class TuiApp {
   private renderTop(): void {
     const lead = this.activeLead();
     const now = new Date();
-    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    // HH:MM, NOT HH:MM:SS. The seconds used to change the top line once per
+    // second, which forced a cell-diff write every second of every wait — the
+    // exact tiny-fragment class that garbles the frame behind a broker (the
+    // [00:32] capture). With the minute-granular clock + the change gate the
+    // top bar is silent unless something real happened.
+    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const banner = this.banner ? ` · ${this.banner}` : '';
     this.box.topBar.setContent(
       ` METROPOLIS · ЛИНА · TUI   ${time}   клиенти: ${this.leads.length}   активен: ${lead ? lead.name : '—'}   испратено: ${this.channel.sends}   ${this.brainSummary}${banner}`
@@ -964,7 +1046,7 @@ export class TuiApp {
     const lines = this.leads.map((l, i) => {
       const sel = i === this.selected;
       const busyMark = this.busy.has(l.chatId) ? ' …' : '';
-      const strikes = l.strikes > 0 ? ` ⚑${l.strikes}` : '';
+      const strikes = l.strikes > 0 ? ` ✗${l.strikes}` : '';
       const row = `${sel ? '▸' : ' '} ${l.name}${busyMark}\n   ${l.chatId} · ${l.state}${strikes} · ${l.outbound}/100 · мозок: ${l.brain}`;
       return sel ? `{inverse}${esc(row)}{/inverse}` : esc(row);
     });
@@ -1018,7 +1100,7 @@ export class TuiApp {
     const { ownerBox } = this.box;
     const lead = this.activeLead();
     if (!lead || !lead.ownerMsgs.length) {
-      ownerBox.setContent('{gray-fg}Тука Лина ќе го праша сопственикот дали имотот е достапен и дали го прифаќа терминот за посета. Одговорете со [F3].{/gray-fg}');
+      ownerBox.setContent('{gray-fg}Тука Лина ќе го праша сопственикот дали недвижноста е достапна и дали го прифаќа терминот за посета. Одговорете со [F3].{/gray-fg}');
       return;
     }
     const lines = lead.ownerMsgs.map(m => {
@@ -1060,24 +1142,38 @@ export class TuiApp {
     const lead = this.activeLead();
     let s = '';
     if (this.ownerMode) {
-      s += '{white-bg}{black-fg} ⌨ СОПСТВЕНИК режим — пишувате како сопственик {/black-fg}{/white-bg} · ';
+      s += '{white-bg}{black-fg} СОПСТВЕНИК режим — пишувате како сопственик {/black-fg}{/white-bg} · ';
     }
+    // COUNTDOWNS ARE WHOLE SECONDS. They used to render with one decimal, so
+    // the status line changed TEN times a second and the change gate had to
+    // write a frame for every tick — during a 30 s client-typing wait that was
+    // ~300 partial writes, the exact storm that garbled the frame behind a
+    // terminal broker (the [00:32] capture). A whole-second countdown needs
+    // one repaint per second, and the painter turns each of those into a single
+    // whole-row write of the status line — nothing else is touched.
+    //
+    // NO EMOJI HERE. This line sits on the BOTTOM row for the whole wait, and
+    // blessed measures an emoji as one column while terminals draw it two — the
+    // row would be a column wider than composed, the terminal would wrap it and
+    // SCROLL, and blessed's cell model would be out of sync for the rest of the
+    // session. '»' is one column everywhere; narrowGlyphs() (layout.ts) guards
+    // the same way for text that comes from clients and from Lina.
     if (this.ownerTyping) {
       const rem = Math.max(0, this.ownerTyping.until - Date.now()) / 1000;
       const who = this.ownerTyping.chatId === lead?.chatId ? '' : ` (${this.ownerTyping.chatId})`;
-      s += `{white-bg}{black-fg} ⏳ сопственикот пишува…${who} ${rem.toFixed(1)}s — [Enter] инстант {/black-fg}{/white-bg} · `;
+      s += `{white-bg}{black-fg} » сопственикот пишува…${who} ${Math.ceil(rem)}s — [Enter] инстант {/black-fg}{/white-bg} · `;
     }
     if (this.clientWindow) {
       const rem = Math.max(0, this.clientWindow.until - Date.now()) / 1000;
       const who = this.clientWindow.chatId === lead?.chatId ? '' : ` (${this.clientWindow.chatId})`;
-      s += `{white-bg}{black-fg} ⏳ клиентот пишува…${who} ${rem.toFixed(1)}s — [Enter] инстант {/black-fg}{/white-bg} · `;
+      s += `{white-bg}{black-fg} » клиентот пишува…${who} ${Math.ceil(rem)}s — [Enter] инстант {/black-fg}{/white-bg} · `;
     }
     if (this.typing) {
       const rem = Math.max(0, this.typing.until - Date.now()) / 1000;
       const who = this.typing.chatId === lead?.chatId ? '' : ` (${this.typing.chatId})`;
-      s += `{white-bg}{black-fg} ⏳ Лина пишува… ${rem.toFixed(1)}s — [Enter] инстант {/black-fg}{/white-bg} · `;
+      s += `{white-bg}{black-fg} » Лина пишува… ${Math.ceil(rem)}s — [Enter] инстант {/black-fg}{/white-bg} · `;
     } else if (lead && this.busy.has(lead.chatId)) {
-      s += '{white-bg}{black-fg} ⏳ Лина размислува… {/black-fg}{/white-bg} · ';
+      s += '{white-bg}{black-fg} » Лина размислува… {/black-fg}{/white-bg} · ';
     }
     if (lead && !this.chatFollow) {
       s += '{white-bg}{black-fg} ▲ нови пораки — PgDn за долу {/black-fg}{/white-bg} · ';
@@ -1088,64 +1184,35 @@ export class TuiApp {
     statusBar.setContent(s);
   }
 
-  private renderAll(): void {
+  private renderAll(opts: { force?: boolean } = {}): void {
     this.renderTop();
     this.renderLeads();
     this.renderChat();
     this.renderOwner();
     this.renderInput();
     this.renderStatus();
-    this.repaint();
-  }  /**
-   * blessed's screen.render() is cell-diff based: after a keystroke it emits
-   * only the changed cells as cursor-jump + single-character writes. Web-based
-   * terminal brokers (Freebuff) mis-position those tiny writes — the reason
-   * letters never appear while typing, and (the "worse after full-repaint"
-   * field test) a full-screen repaint makes it WORSE: every mis-positioned
-   * CUP dumps an entire row of text at the stale cursor position, so pane
-   * headers repeat horizontally. Blank ONLY the input rows (the empirically
-   * working fix): the input line is always re-emitted whole, and the rest of
-   * the screen stays on the small, cheap diff that survives best.
-   */
-  private forceFullInputRedraw(): void {
-    const { screen, inputBox } = this.box;
-    const lpos = inputBox.lpos;
-    const top = lpos ? lpos.yi : inputBox.atop;
-    const bottom = lpos ? lpos.yl : inputBox.abottom; // exclusive
-    for (let y = top; y < bottom; y++) {
-      const old = screen.olines[y];
-      if (!old) continue;
-      for (let x = 0; x < old.length; x++) old[x] = [screen.dattr, '\x00'];
-    }
+    this.repaint(opts.force);
   }
 
   /**
-   * SELF-HEAL (the [14:34] garbled transcript): some web-terminal brokers
-   * mis-execute blessed's cell-diff writes — cursor-jump + tiny fragments get
-   * misplaced, so pane text duplicates/interleaves even though Lina's reply
-   * data was correct (the transcript's state line proved the flow was fine).
-   * blessed renders by diffing `screen.lines` (the desired frame) against
-   * `screen.olines` (what it BELIEVES is on screen). Poisoning olines with
-   * NUL cells makes the next render() see the ENTIRE screen as dirty and
-   * re-emit every row — a full correct repaint that overwrites the garble.
-   * The heal runs idle-only (~1.5s after the content stopped changing, see
-   * the ticker) and once per content burst, so the redundant full draw never
-   * interleaves with typing.
+   * SELF-HEAL — see FramePainter.heal(): mark EVERY row for a whole-row write
+   * and re-emit the screen once, so any frame a terminal broker garbled is
+   * replaced wholesale (a row blessed would otherwise skip can never survive as
+   * a ghost). Runs ~1.5 s after the content settled (the ticker) and every 3 s
+   * while a wait is open.
    */
   private healScreen(): void {
-    const { screen } = this.box;
-    for (let y = 0; y < screen.rows; y++) {
-      const o = screen.olines[y];
-      if (!o) continue;
-      for (let x = 0; x < o.length; x++) o[x] = [screen.dattr, '\x00'];
-    }
-    this.repaint();
+    this.painter.heal();
   }
 
-  /** Centralized repaint: input-row re-emission + the diff render. */
-  private repaint(): void {
-    this.forceFullInputRedraw();
-    this.box.screen.render();
+  /**
+   * Centralized repaint. The painter owns the two rules that keep the frame
+   * intact behind a lossy broker (src/tui/paint.ts): nothing changed → no
+   * write at all, and every write re-emits the volatile rows WHOLE. `force`
+   * is only for a resize, where blessed reallocates the screen underneath us.
+   */
+  private repaint(force = false): void {
+    this.painter.paint({ force });
   }
 
   // ---------------- quit ----------------

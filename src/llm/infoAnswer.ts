@@ -36,7 +36,7 @@ export interface InfoFacets {
 const TAIL = '(?=[\\s?!.,]|$)';
 const STEM = '[а-яa-z]*';
 const NON_PRICE_KOLKU_RE =
-  new RegExp(`колку\\s+(?:саат${STEM}|годин${STEM}|далеку|други${STEM}|имоти${STEM}|стана${STEM}|станови${STEM}|опции${STEM}|време${STEM}|луѓе${STEM})`, 'iu');
+  new RegExp(`колку\\s+(?:саат${STEM}|годин${STEM}|далеку|други${STEM}|имоти${STEM}|недвижности${STEM}|стана${STEM}|станови${STEM}|опции${STEM}|време${STEM}|луѓе${STEM})`, 'iu');
 
 const SQM_KOLKU_RE = new RegExp(`колку\\s*(?:квадрат${STEM}|м2|м²)|колку\\s+(?:е\\s+)?голем${STEM}`, 'iu');
 const SQM_WORD_RE = /(?:површина|големина)/iu;
@@ -60,7 +60,7 @@ const FEATURE_PROBES: Array<[RegExp, string]> = [
 /** The honest answer when a facet is asked about but the feed stores nothing:
  *  the agency relays owner questions, so the line promises exactly that. */
 export const INFO_NO_DATA_LINE =
-  'Тоа не е наведено во податоците што ги имам за имотот — ќе го прашам сопственикот и ќе Ви потврдам.';
+  'Тоа не е наведено во податоците што ги имам за недвижноста — ќе го прашам сопственикот и ќе Ви потврдам.';
 
 /** Which facets the message asks about, or undefined when it is not an info
  *  ask. Question scaffolds are mandatory for every facet except price's own

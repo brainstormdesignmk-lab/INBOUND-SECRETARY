@@ -41,6 +41,11 @@ export const FROZEN_BANK_KEYS = new Set([
   // owner-approved wording only. Gemini-grown variants were removed by
   // request — the key serves the seeded clientela lines and never grows.
   'recommend.close',
+  // The RENT-COMMISSION ladder (the second money topic, see provisionLadder):
+  // one persuasion, the published agency rule, the binary decision. All three
+  // are funnel-critical protocol wording with sanctioned figures only — frozen,
+  // seeded-only, exactly like their fee-ladder twins.
+  'provision.persuade.1.rent', 'provision.rule.hold', 'provision.decide',
   // Commission law + contact collection + owner-contact protocol:
   'provision.ask.buy', 'provision.ask.rent',
   'provision.who.buy', 'provision.who.rent', 'provision.who.danok.buy',

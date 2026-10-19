@@ -83,7 +83,7 @@ test('EB 58 e2e: "kade se naogja?" serves the honest no-location protocol, never
   // LADDER CONTRACT (turn 1 = approximate for every lurker): the feed knows
   // the neighborhood, so the honest approximation is served — ЦР data, never
   // invented geography. The street protocol line still closes the reply.
-  assert.match(answer, /Имотот се наоѓа во населбата Центар/u, `feed neighborhood expected: ${answer}`);
+  assert.match(answer, /Недвижноста се наоѓа во населбата Центар/u, `feed neighborhood expected: ${answer}`);
   assert.match(answer, /Точната адреса ќе ја добиете на денот на посетата/u, `street-protocol closer expected: ${answer}`);
   // NEVER invented geography or a maps link:
   assert.ok(!/во близина на/iu.test(answer), `no landmark claim allowed: ${answer}`);

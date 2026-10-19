@@ -96,7 +96,10 @@ test('[22:2x] LLM-down closing refusal: "ne sum soglasen za ova plakjanje" runs 
   const s1 = sessions.get(chat)!;
   assert.equal(s1.state, 'closing', `refusal stays in the fee funnel, got ${s1.state}`);
   assert.equal(s1.slots.feeRejections, 1, 'the refusal is counted');
-  assert.ok(!/име|презиме|телефон/iu.test(r1.reply), `never the contact ask: ${r1.reply}`);
+  // The contact ask is "име и презиме" + "телефон(ски)" — matching a bare
+  // /име/ also matched "договориме" inside the bank persuasion (which rotates),
+  // so the assertion fired on a correct serve. Pin the ACTUAL contact ask.
+  assert.ok(!/име и презиме|телефон/iu.test(r1.reply), `never the contact ask: ${r1.reply}`);
   // Rung 1 is bank-backed now (the persuasion rotates), so the contract is
   // the FEE PROTOCOL itself: the rent fee is named and the buy copy never
   // leaks into a rent client's ladder.

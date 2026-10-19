@@ -72,7 +72,8 @@ export function normalize(text: string): string {
 //   confidence  — confidence score (0..1), reported as metadata
 //   stems       — canonical phrases (normalized space). FIRST match wins.
 //   boundary    — optional: require non-letter on BOTH sides of the stem
-//                 ('vol' must not match inside "dozvola", 'ebam' not in "trebam")
+//                 ('vol' must not match inside "dozvola", 'ebam' not in "trebam",
+//                  'fakj' not in "prifakjam"=прифаќам)
 //   exclude     — optional: if ANY of these substrings appear anywhere in the
 //                 canonical message, the entry does NOT match
 //   excludeAfter— optional: if the word immediately AFTER a matched stem is one
@@ -126,7 +127,18 @@ const LEXICON: LexiconEntry[] = [
   { id: 'S0f', category: 'sexual', severity: 3, confidence: 0.95, stems: ['oralen', 'analen', 'anal'], boundary: true, reason: 'oral/anal' },
   { id: 'S0g', category: 'sexual', severity: 3, confidence: 0.95, stems: ['dupka', 'durka'], reason: 'dupka' },
   { id: 'S0h', category: 'sexual', severity: 3, confidence: 0.95, stems: ['gluva', 'gluvac'], reason: 'gluva/gluvac' },
-  { id: 'S0i', category: 'sexual', severity: 3, confidence: 0.97, stems: ['fuck', 'fuk', 'fakj', 'fakji'], reason: 'fuck variants' },
+  { id: 'S0i', category: 'sexual', severity: 3, confidence: 0.97, stems: ['fuck', 'fuk'], reason: 'fuck variants (English; infixed forms like "fucking" must match, so no boundary here)' },
+  // The Macedonian-Latin spellings ('fakj…') are LETTER-BOUNDED, and that guard
+  // is the whole point: the polite verb "прифаќам" (to accept) normalizes to
+  // "prifakjam", which the unbounded 'fakj' stem read as a severity-3 insult —
+  // so "не прифаќам" / "не ја прифаќам понудата" / "провизијата не ја
+  // прифаќам" got the professional-tone warning and a strike INSTEAD of
+  // climbing the money ladder. Every true swear spelling is a standalone word,
+  // so each surface form is listed explicitly (the S0d lesson: a boundary
+  // guard rejects embedded occurrences, so inflections need their own stem).
+  { id: 'S0i2', category: 'sexual', severity: 3, confidence: 0.97, boundary: true,
+    stems: ['fakj', 'fakji', 'fakju', 'fakjen', 'fakjaj'],
+    reason: 'fakj variants (letter-bounded: прифаќам→prifakjam, прифаќањe→prifakjanje stay clean)' },
   { id: 'S0j', category: 'sexual', severity: 3, confidence: 0.97, stems: ['fak'], boundary: true, reason: 'fak (letter-bounded so "fakt"/"fakel" stay clean)' },
   { id: 'S0k', category: 'sexual', severity: 3, confidence: 0.97, stems: ['ebam', 'ebes', 'ebete', 'ebeme', 'ebat'], boundary: true, reason: 'ebam/ebete vulgar verb (letter-bounded so "trebam"/"trebete"/"nebesa" stay clean)' },
   // Prefixed/perfective forms of the same vulgar verb — "A DA TE POEBAM
@@ -148,7 +160,14 @@ const LEXICON: LexiconEntry[] = [
   { id: 'S0q', category: 'sexual', severity: 3, confidence: 0.9, stems: ['sakam da te vidam'], reason: 'sakam da te vidam' },
   { id: 'S0r', category: 'sexual', severity: 3, confidence: 0.9, stems: ['ke te voljam', 'kje te voljam', 'ke te voleam'], reason: 'ke te voljam' },
   { id: 'S0s', category: 'sexual', severity: 3, confidence: 0.85, stems: ['elena'], requireRegex: /\d/, reason: 'elena + phone digits (prostitution reference)' },
-  { id: 'S0t', category: 'sexual', severity: 3, confidence: 0.9, stems: ['masaza', 'masage', 'erot'], reason: 'masaza/erotic services' },
+  { id: 'S0t', category: 'sexual', severity: 3, confidence: 0.9, stems: ['masaza', 'masage', 'masazi', 'masaze'], reason: 'masaza (massage parlour)' },
+  // 'erot' is LETTER-BOUNDED: unbounded it matched "менаџерот" (the manager) →
+  // "menadzEROT" — so asking for the manager ("сакам да зборувам со менаџерот")
+  // was a severity-3 SEXUAL strike against the client. Every real erotic
+  // spelling is its own word (the S0d lesson), so the inflections are listed.
+  { id: 'S0t2', category: 'sexual', severity: 3, confidence: 0.9, boundary: true,
+    stems: ['erot', 'erotski', 'erotik', 'erotika', 'erotic', 'eroticen', 'erotika so'],
+    reason: 'erotic services (letter-bounded: менаџерот→menadzerot stays clean)' },
   { id: 'S0u', category: 'sexual', severity: 3, confidence: 0.9, stems: ['privatni uslugi'], reason: 'privatni uslugi' },
   { id: 'S1', category: 'sexual', severity: 3, confidence: 0.98, stems: ['sakam da mi bides devojka'], reason: 'sakam da mi bides devojka' },
   { id: 'S2', category: 'sexual', severity: 3, confidence: 0.97, stems: ['si vruba zenska', 'si vruka zenska', 'si vruca zenska', 'vruba si', 'vruka si', 'vruca si'], reason: 'si vruba zenska' },
@@ -280,11 +299,24 @@ const LEXICON: LexiconEntry[] = [
     stems: ['so site devojki', 'so site devojko', 'kako site devojki', 'kako site devojko',
       'so site zenski', 'kako site zenski', 'isti si kako site devojki', 'isti si kako site zenski'],
     reason: 'so/kako site devojki (sexist you-are-like-all-the-girls jab, incl. the devojko typo)' },
+  // Directed "are you normal?" — the [00:07] live burst: "MA KAKVI 500 DEN ,
+  // DALI SI TI NORMALNA". The question form does not soften it: it questions
+  // the agent's sanity, not the fee. SECOND-PERSON forms only, boundary-guarded
+  // so a third-person "normalna e situacijata" (the situation is normal) and
+  // "nenormalna" (a different word) stay clean. Cyrillic нормална folds to
+  // normalna; "ne si normalna" is covered by the "si normalna" stem.
+  { id: 'H20', category: 'heavy_insult', severity: 2, confidence: 0.9, boundary: true,
+    stems: ['si normalna', 'si normalen', 'normalna si', 'normalen si',
+      'si ti normalna', 'si ti normalen', 'dali si ti normalna', 'dali si normalen',
+      'normalna li si', 'normalen li si'],
+    reason: 'dali si ti normalna (are you normal — directed 2nd-person only)' },
 
   // ---------- MILD (severity 1) ----------
   { id: 'M1', category: 'mild', severity: 1, confidence: 0.8, stems: ['mlci', 'mlcis', 'utkni', 'zatkni'], reason: 'shut up (mlci/utkni/zatkni)' },
   { id: 'M2', category: 'mild', severity: 1, confidence: 0.8, stems: ['odjebi', 'odjebi se'], reason: 'odjebi' },
-  { id: 'M3', category: 'mild', severity: 1, confidence: 0.8, stems: ['begaj', 'gubi se', 'nosi se'], reason: 'begaj/gubi se/nosi se' },
+  // boundary: 'nosi se' matched inside "…ги носи сегашниот пазар" ("nosi seGASNIOT") —
+  // a legitimate market complaint was a mild strike. Word-bounded phrases only.
+  { id: 'M3', category: 'mild', severity: 1, confidence: 0.8, boundary: true, stems: ['begaj', 'gubi se', 'nosi se'], reason: 'begaj/gubi se/nosi se (word-bounded phrases)' },
   { id: 'M4', category: 'mild', severity: 1, confidence: 0.8, stems: ['zajebavaj', 'zajebavas', 'zajebuvaj', 'zajebuvas', 'zaebavaj', 'zaebes', 'ne me zajebavaj', 'ne me zaebavaj'], reason: 'zajebavas family' },
   { id: 'M5', category: 'mild', severity: 1, confidence: 0.8, stems: ['mars'], boundary: true, reason: 'mars (letter-bounded: "marselski" stays clean)' },
   { id: 'M6', category: 'mild', severity: 1, confidence: 0.8, stems: ['bolesnik', 'bolesna'], reason: 'bolesnik' },

@@ -184,6 +184,33 @@ test('E: plac widen surfaces land in other areas (no paren re-lock)', async () =
   assert.doesNotMatch(body, /Центар \(населба\)/, 'plac widen must not re-lock to a parenthetical area');
 });
 
+test('G: a business ask with NO business space never answers with apartments (the [09:29] capture)', async () => {
+  // The live transcript: client asks деловен простор, Центар, до 500 м², budžet
+  // 500.000 €. The feed has no business space in that area/budget — but the
+  // funnel's old last-resort tier dropped the type filter and served EB 95/74,
+  // two 72–74 м² apartments, under a "немам деловен простор…" prefix.
+  const rows: Property[] = [
+    { eb: 95, id: 95, location: 'Центар', address: 'ул. А', price: 204000, service: 'buy',
+      sqm: 74, size: '74 м²', bedrooms: 3, details: 'трисобен стан' },
+    { eb: 74, id: 74, location: 'Центар', address: 'ул. Б', price: 180000, service: 'buy',
+      sqm: 72, size: '72 м²', bedrooms: 3, details: 'трисобен стан' },
+  ];
+  const { handler, sessions, sent } = makeHandler(rows);
+  const chatId = 'biz-G';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('SAKAM DA KUPAM DELOVEN PROSTOR VO CENTAR');
+  await send('DO 500 KVADRATI, IMAM 500000 EVRA BUDJET');
+  const body = sent.at(-1)!;
+  assert.doesNotMatch(body, /Евидентен број 95|Евидентен број 74/,
+    'a business ask must never be answered with apartments: ' + body);
+  assert.match(body, /деловен простор/iu, 'the miss names the requested category: ' + body);
+  assert.match(body, /500000/, 'the miss states the budget it searched: ' + body);
+  assert.match(body, /запишам|забележам/iu, 'the miss offers the register step: ' + body);
+  // The session keeps the category so the next turn cannot drift either.
+  assert.equal(sent.length, 2, `turns: ${sent.join(' | ')}`);
+});
+
 test('F: delovni (business) widen surfaces other-area business space', async () => {
   const rows: Property[] = [
     { eb: 82, id: 82, location: 'Влае', address: 'ул. Д1', price: 400, service: 'rent',
@@ -202,6 +229,7 @@ test('F: delovni (business) widen surfaces other-area business space', async () 
   await send('40 KVADRATI, DO 300 EVRA'); // EB 82 (400>300) empty in Влае
   const body = sent.at(-1)!;
   assert.match(body, /Евидентен број 83/, 'business widen must surface the Аеродром office');
+  assert.match(body, /немам деловен простор во Влае/, 'the widen names the drained area honestly');
   assert.doesNotMatch(body, /немам достапни имоти во Влае|Ги разгледавме сите|немам слободни опции/,
     'business empty-pool must not dead-end in the no-match ask: ' + body);
   assert.doesNotMatch(body, /Центар \(населба\)/, 'business widen must not re-lock to a parenthetical area');

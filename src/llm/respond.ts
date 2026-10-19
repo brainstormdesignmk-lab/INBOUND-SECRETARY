@@ -120,7 +120,7 @@ export function guardText(state: State, text: string, publicSiteUrl?: string, re
   // the whole fallback card (opener rotated onto the matching phrase →
   // pivotIdx landed inside line 1 → EB card and closer sliced off) — the
   // sources.test.ts flake.
-  const pivotIdx = out.search(/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu);
+  const pivotIdx = out.search(/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти|недвижности)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu);
   if (pivotIdx >= 0) {
     const presentationState = state === 'presentation' || state === 'property_locate';
     const firstLineEnd = out.indexOf('\n');

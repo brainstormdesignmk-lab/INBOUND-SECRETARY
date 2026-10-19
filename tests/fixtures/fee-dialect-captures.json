@@ -1,0 +1,167 @@
+{
+  "version": "fee-dialect-v1",
+  "howToAdd": "Append a capture whenever a transcript surfaces a new dismissal shape. Field transcripts are the source of truth: set source=field and the id to the transcript time (HH:MM). source=coverage entries exist to pin the word CLASS before a field capture arrives; when one does, add the field entry — never edit or delete the coverage one, so a regression in either shows up as a failure. The test reads every entry and asserts detectFeeNag against `expect` ('nag' or 'not-nag'). No code change is needed to add a capture.",
+  "captures": [
+    {
+      "id": "23:12-skapo-300",
+      "source": "field",
+      "text": "SKAPO E TOA . ZA SEKOJ STAN PO 300DEN",
+      "expect": "nag",
+      "why": "The [23:12] field burst: calls the principle expensive and names the fee-sized amount; no viewing noun and no fee-object noun, so every noun arm missed it and the cheaper-search lane read it as a property budget."
+    },
+    {
+      "id": "23:12-princip-rabota",
+      "source": "field",
+      "text": "NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA",
+      "expect": "nag",
+      "why": "The [23:12] practice disapproval — the deployed session answered it with rung 2's copy, so the ladder already owned it; the predicate must agree with the ladder."
+    },
+    {
+      "id": "23:11-pari-zemate",
+      "source": "field",
+      "text": "PARI ZEMATE ZA POSETA ?",
+      "expect": "nag",
+      "why": "The [23:11]/[23:12] charge question; before the fix the rent capture read it as the commission ask and jumped to contact collection without one rung."
+    },
+    {
+      "id": "22:03-kaj-se-videlo",
+      "source": "field",
+      "text": "KAJ SE VIDELO PARI ZA OTVARANJE STAN",
+      "expect": "nag",
+      "why": "The [22:03] rhetorical challenge — the field session answered it with the landmark rotation (a map pin for a place the client never asked about)."
+    },
+    {
+      "id": "22:0x-neznam",
+      "source": "field",
+      "text": "NEZNAM",
+      "expect": "nag",
+      "why": "The fee-context hesitation family: everything that is not a POSITIVE climbs the planned order."
+    },
+    {
+      "id": "dialect-skupo",
+      "source": "coverage",
+      "text": "SKUPO E TOA . ZA SEKOJ STAN PO 300DEN",
+      "expect": "nag",
+      "why": "The standard скупо form beside the fee-sized figure; a Skopje client mixes скапо/скупо freely."
+    },
+    {
+      "id": "dialect-kupo",
+      "source": "coverage",
+      "text": "KUPO E OVA ZA POSETA",
+      "expect": "nag",
+      "why": "The dialect к- form of скапо. A token, not a stem: a 'куп' stem would swallow \"kupiv stan\"."
+    },
+    {
+      "id": "typing-scapo",
+      "source": "coverage",
+      "text": "SCAPO E TOA . ZA SEKOJ STAN PO 300DEN",
+      "expect": "nag",
+      "why": "The common c-for-k typing. normalizeMc maps c→ц, so the normalised string is 'сцапо' — the class is tested against the RAW text as well or this capture never fires."
+    },
+    {
+      "id": "dialect-besmislica",
+      "source": "coverage",
+      "text": "OVA E BESMISLICA ZA POSETA",
+      "expect": "nag",
+      "why": "Dismissal noun with productive inflection (бесмислица/бесмислено/бесмислени); anchored by the visit noun."
+    },
+    {
+      "id": "dialect-apsurd",
+      "source": "coverage",
+      "text": "APSURD E DA SE PLATI ZA POSETA",
+      "expect": "nag",
+      "why": "Same family, the Latin-spelled form that normalizeMc maps to апсурд."
+    },
+    {
+      "id": "dialect-sramota",
+      "source": "coverage",
+      "text": "SRAMOTA E OVA ZA POSETA",
+      "expect": "nag",
+      "why": "Moral dismissal (срамота/срамно/срамотен) — a value complaint, not a why-question."
+    },
+    {
+      "id": "dialect-iznuduvanje",
+      "source": "coverage",
+      "text": "ова е чисто изнудување за посета",
+      "expect": "nag",
+      "why": "Accusation noun (изнудување) about the fee; the charge-stem arm does not own it because no charge verb is present."
+    },
+    {
+      "id": "dialect-nema-logika",
+      "source": "coverage",
+      "text": "NEMA LOGIKA DA NAPLAKJATE POSETA",
+      "expect": "nag",
+      "why": "Dismissal phrase; normalises to 'нема логика'."
+    },
+    {
+      "id": "dialect-ne-vredi",
+      "source": "coverage",
+      "text": "NE VREDI ZA POSETA",
+      "expect": "nag",
+      "why": "Worth dismissal — value complaint about the fee."
+    },
+    {
+      "id": "dialect-nekjam",
+      "source": "coverage",
+      "text": "NEKJAM DA PLATAM",
+      "expect": "nag",
+      "why": "The dialect negator неќам (не сакам). This one was a CONSENT bug: the standalone 'платам' arm matched and the refusal ran as agreement — the negator class must own it."
+    },
+    {
+      "id": "dialect-nejkjam-cyr",
+      "source": "coverage",
+      "text": "НЕЈЌАМ ДА ПЛАТАМ ЗА ПОСЕТА",
+      "expect": "nag",
+      "why": "Cyrillic и-form of the same negator."
+    },
+    {
+      "id": "other-kupiv-stan",
+      "source": "coverage",
+      "text": "KUPIV STAN VO CENTAR",
+      "expect": "not-nag",
+      "why": "A PURCHASE, not a fee. The value class must use the exact token 'купо', never a 'куп' stem."
+    },
+    {
+      "id": "other-skapi-stanovi",
+      "source": "coverage",
+      "text": "скапи се становите по 1.000 евра",
+      "expect": "not-nag",
+      "why": "A PROPERTY-price complaint: only the exact скапо/скупо token may fire the fee lane, never the 'скап' stem."
+    },
+    {
+      "id": "other-bare-value",
+      "source": "coverage",
+      "text": "OVA E BESMISLICA",
+      "expect": "not-nag",
+      "why": "A value word with no visit/fee anchor is not fee traffic by itself."
+    },
+    {
+      "id": "other-kolku",
+      "source": "coverage",
+      "text": "KOLKU E ZA POSETA?",
+      "expect": "not-nag",
+      "why": "Neutral amount question — the disclosure lane owns it."
+    },
+    {
+      "id": "other-zosto",
+      "source": "coverage",
+      "text": "ZOSTO NAPLAKJATE ZA POSETA?",
+      "expect": "not-nag",
+      "why": "Neutral why-question (leading why) — fee.why owns it, no rung burned."
+    },
+    {
+      "id": "other-payment-method",
+      "source": "coverage",
+      "text": "NE MOZAM DA PLATAM SO KARTICKA",
+      "expect": "not-nag",
+      "why": "A bare negation is not the refusal family: only не сакам/нема да/неќам open the bare-refusal arm, or a payment-method line burns a rung."
+    },
+    {
+      "id": "other-consent",
+      "source": "coverage",
+      "text": "KE PLATAM 300 ZA POSETA",
+      "expect": "not-nag",
+      "why": "Positive consent is never resistance."
+    }
+  ]
+}

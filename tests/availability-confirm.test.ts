@@ -78,7 +78,9 @@ test('21:23 flow: availability ack → "DA SAKAM" → VISIT FEE (not contact ask
   let s = await send('DALI USTE E NA PRODAZBA 78?');
   assert.ok(s, 'session must exist');
   const ack = sent[sent.length - 1] ?? '';
-  assert.ok(/достапен|активен|баз|евиденц|слободен|располага/iu.test(ack), `availability ack expected, got: ${ack}`);
+  // Stems, not masculine endings: "имотот е достапен" is now "недвижноста е
+  // достапна" — the contract is the availability claim, not its gender.
+  assert.ok(/достап|активн|баз|евиденц|слободн|располага/iu.test(ack), `availability ack expected, got: ${ack}`);
   assert.ok(!FORBIDDEN_CONNECT.test(ack), `connect-phrasing leaked: ${ack}`);
   assert.equal(s.slots.ownerContactPending, true, 'ack must arm the owner-contact gate');
 

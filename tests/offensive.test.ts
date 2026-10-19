@@ -208,6 +208,30 @@ test('[22:48] classify: directed crazy/sexist jabs are caught (the TI LUDA SI tr
   }
 });
 
+// THE прифаќам BUG: the polite verb "прифаќам" (to accept) normalizes to
+// "prifakjam", and the unbounded 'fakj' stem read it as an English swear —
+// severity 3, sexual. Every "не прифаќам" (the commission refusal!), "не ја
+// прифаќам понудата", "да, прифаќам" got the professional-tone warning and a
+// STRIKE instead of climbing the money ladder. The 'fakj' row is
+// letter-bounded now; the real swear spellings stand alone and still fire.
+test('прифаќам (to accept) is polite consent, never the fakj swear', () => {
+  const clean = [
+    'не прифаќам', 'НЕ ПРИФАЌАМ', 'прифаќам', 'да, прифаќам', 'не ја прифаќам понудата',
+    'провизијата не ја прифаќам', 'ne ja prifakjam', 'prifakjam uslovite', 'не прифаќам провизија',
+    'прифаќам, кога може да се погледне', 'ne prifakjam da plakjam provizija',
+  ];
+  for (const t of clean) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' flagged: ' + (d.reason ?? ''));
+  }
+  // The genuine spellings of the same swear are standalone words — still caught.
+  for (const t of ['fakj', 'fakji!', 'fakju', 'FAKJ TI MATER', 'fakjaj se', 'FUCK YOU', 'fucking hell']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' must fire');
+    assert.equal(d.severity, 3, JSON.stringify(t));
+  }
+});
+
 test('classify: normal real-estate talk is never offensive', () => {
   const clean = [
     'Здраво, сакам стан под кирија.',

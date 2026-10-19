@@ -538,7 +538,7 @@ test('buildDiscoveryAsk: the recap NEVER appears — only the missing question, 
 test('buildDiscoveryAsk: a bare "zdravo" gets a GENERIC greeting — never an apartment assumption', () => {
   const ask = buildDiscoveryAsk({} as SlotData);
   const bank = RESPONSE_BANK['greeting.open'] ?? [];
-  const fallback = 'Повелете. Дали Ве интересира купување или изнајмување на имот?';
+  const fallback = 'Повелете. Дали Ве интересира купување или изнајмување на недвижност?';
   assert.ok(bank.includes(ask) || ask === fallback, ask);
   // the property type is UNKNOWN — no apartment (or any type) talk
   assert.ok(!ask.includes('стан'), ask);
@@ -547,6 +547,20 @@ test('buildDiscoveryAsk: a bare "zdravo" gets a GENERIC greeting — never an ap
   // but it still asks the buy/rent intent question
   assert.ok(/куп|изнајм|кириј/i.test(ask), ask);
   assert.ok(ask.endsWith('?'), ask);
+});
+
+test('buildDiscoveryAsk: never greets twice — the second message drops the opener', () => {
+  // [09:21] ZDRAVO → [09:22] MI TREBA LOKAL: Lina greeted with "Здраво" and
+  // then opened the business-space intro with "Добар ден!" — a second hello
+  // in the very next message. Once the conversation has started the intro
+  // keeps its body but loses the greeting.
+  const prior = ['Здраво. Дали барате недвижност за купување или повеќе Ве интересира изнајмување?'];
+  const second = buildDiscoveryAsk({ business: true } as SlotData, prior);
+  assert.ok(!/^(?:Здраво|Добар\s+ден|Добредојдовте|Добродојдовте|Повелете)/iu.test(second), second);
+  assert.ok(/деловен простор/.test(second), second);
+  // the FIRST outbound message still opens with a greeting
+  const first = buildDiscoveryAsk({ business: true } as SlotData);
+  assert.ok(/^(?:Здраво|Добар\s+ден|Добредојдовте|Добродојдовте|Повелете)/iu.test(first), first);
 });
 
 test('buildDiscoveryAsk: never re-asks known slots, never the generic buy/rent battery', () => {

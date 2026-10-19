@@ -26,11 +26,11 @@ export interface OwnerAgent {
 function verdictFor(status: OwnerStatus, proposedTime: string, note?: string): OwnerVerdict {
   switch (status) {
     case 'sold':
-      return { status: 'gone', note: note || 'имотот е продаден' };
+      return { status: 'gone', note: note || 'недвижноста е продадена' };
     case 'rented':
-      return { status: 'gone', note: note || 'имотот е издаден' };
+      return { status: 'gone', note: note || 'недвижноста е издадена' };
     case 'under_option':
-      return { status: 'gone', note: note || 'имотот е под опција — за жал не е достапен за посета во моментов' };
+      return { status: 'gone', note: note || 'недвижноста е под опција — за жал не е достапна за посета во моментов' };
     case 'unknown':
       return { status: 'counter', ownerTime: undefined, note: note || 'сопственикот допрва треба да потврди термин' };
     case 'available':
@@ -139,11 +139,11 @@ export class DeferredOwnerAgent implements OwnerAgent {
         this.owners.setStatus(eb, 'available');
         break;
       case 'sold':
-        verdict = { status: 'gone', note: 'имотот е продаден' };
+        verdict = { status: 'gone', note: 'недвижноста е продадена' };
         this.owners.setStatus(eb, 'sold', 'продаден');
         break;
       case 'rented':
-        verdict = { status: 'gone', note: 'имотот е издаден' };
+        verdict = { status: 'gone', note: 'недвижноста е издадена' };
         this.owners.setStatus(eb, 'rented', 'издаден');
         break;
       case 'price': {

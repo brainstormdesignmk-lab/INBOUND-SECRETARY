@@ -531,6 +531,79 @@ test('detectAnywhere: "bilo kade" means no location preference', () => {
   // a where-is question is NOT anywhere
   assert.equal(detectAnywhere('каде е Палома Бјанка?'), false);
   assert.equal(detectAnywhere('vo karpos'), false);
+  // THE [23:47] CAPTURE — a one-word dismissal + the place adverb (and the bare
+  // dismissal, which is an ANSWER to "во кој дел од градот?"). Without these the
+  // funnel re-asked the neighbourhood the client had just released.
+  assert.equal(detectAnywhere('NEBITNO KADE'), true);
+  assert.equal(detectAnywhere('nebitno kade'), true);
+  assert.equal(detectAnywhere('небитно каде'), true);
+  assert.equal(detectAnywhere('NEBITNO'), true, 'the bare answer to the location question');
+  assert.equal(detectAnywhere('небитно ми е каде'), true);
+  assert.equal(detectAnywhere('nebitno mi e kaj'), true);
+  // [23:48] — "BILO KOJA" answered the населба question with the noun ELIDED.
+  // The grammar is the wh-word + било (either order), all inflections: without
+  // the "која" spelling the most common answer was unrecognised and the funnel
+  // asked for a neighbourhood a second time.
+  assert.equal(detectAnywhere('BILO KOJA'), true);
+  assert.equal(detectAnywhere('bilo koja'), true);
+  assert.equal(detectAnywhere('bilo koja naselba'), true);
+  assert.equal(detectAnywhere('koja bilo'), true);
+  assert.equal(detectAnywhere('било кое'), true);
+  assert.equal(detectAnywhere('било кои'), true);
+  assert.equal(detectAnywhere('SEEDNO'), true);
+  // …but a bare dismissal that RELEASES A DIFFERENT CRITERION keeps its lane:
+  // these are size/price waivers, not "any area is fine".
+  assert.equal(detectAnywhere('nebitno mi e kolku sobi'), false);
+  assert.equal(detectAnywhere('небитно колку е цената'), false);
+  assert.equal(detectAnywhere('небитно колку е голем станот'), false);
+  // …and "any" + a PROPERTY noun is "any house/apartment", not "any area":
+  // releasing the type says nothing about where it should stand.
+  assert.equal(detectAnywhere('bilo koja kukja'), false);
+  assert.equal(detectAnywhere('bilo koj stan'), false);
+  assert.equal(detectAnywhere('bilo koja cena'), false);
+});
+
+test('anywhere grammar: the whole slot space, not the sentences that happened to be captured', () => {
+  // Built in grammar.ts from WORD CLASSES (adverb / wh+било / predicate / place
+  // noun), so a phrasing nobody has typed yet still lands. This matrix is the
+  // grammar itself: if a slot stops composing, one of these fails.
+  const releases = [
+    // ADV — self-sufficient
+    'секаде', 'насекаде', 'каде и да е', 'kaj i da e', 'где да е', 'kade da e',
+    'во секоја населба', 'vo sekoja naselba', 'во секој дел', 'po cel grad',
+    'низ целиот град', 'anywhere', 'wherever',
+    // BILO + WH (+ noun), both orders
+    'било која населба', 'bilo koja naselba', 'koja bilo naselba',
+    'koja i da e naselba', 'било кој дел', 'koi bilo', 'bilo koe', 'koja bilo',
+    // PRED (+ optional preposition + place noun)
+    'нема врска каде', 'nema vrska kade', 'сеедно каде', 'seedno kade',
+    'se e ednakvo', 'не ми е гајле каде', 'ne mi e gajle kade',
+    'не сум ограничен на населба', 'bez ogranicuvanje', 'без преференца',
+    'населбата не е битна',
+    // the bare ANSWER shapes
+    'NEBITNO', 'NEBITNO KADE', 'BILO KOJA', 'SEEDNO', 'свеедно', 'sveedno',
+    // DIALECT / Serbian-influenced spellings, and the quantifier slot over a
+    // noun we never enumerated ("во секоја општина") — generated, not listed.
+    'svejedno', 'свеједно', 'није битно', 'nije bitno', 'kako god', 'како год',
+    'gde god', 'kud god', 'куд год', 'bilo kud', 'sve jedno', 'које било',
+    'во секоја општина', 'vo sekoja opstina',
+    // ONE-KEY TYPOS of the bare dismissal (fuzzyHasToken, edit distance 1) —
+    // no capture needed to teach each misspelling.
+    'nebitnno', 'nebinto', 'seadno', 'nebitnoo',
+  ];
+  for (const t of releases) assert.equal(detectAnywhere(t), true, `release not recognised: ${t}`);
+  // A dismissal that NAMES ANOTHER CRITERION (or a real place question) must not
+  // release the area: price, the property TYPE, size, a named neighbourhood, or
+  // "каде е X?".
+  const others = [
+    'bilo koja cena', 'bilo koj stan', 'bilo koja kukja',
+    'небитно колку соби', 'nebitno kolku sobi', 'небитно колку е цената',
+    'во Центар', 'vo karpos', 'каде е Палома Бјанка?',
+    'kade e najbliskiot market?', 'каде е Клинички центар',
+    'sakam stan do 60000', 'kolku e kirijata?',
+    'не сум ограничен на квадратура',   // a SIZE release, not the area
+  ];
+  for (const t of others) assert.equal(detectAnywhere(t), false, `false positive: ${t}`);
 });
 
 test('detectNearCenter: the "vo blizina na centar" family (23:08 transcript)', () => {

@@ -86,6 +86,58 @@ export function wrapMarked(text: string, width: number): string {
   return out.join('\n');
 }
 
+/**
+ * RUNES THE TERMINAL DRAWS TWO CELLS WIDE. blessed measures every one of them
+ * as ONE column (`unicode.charWidth('⏳') === 1`), so a row containing one is a
+ * column wider than blessed composed it: the terminal wraps that row, and a
+ * wrap on the BOTTOM row SCROLLS the whole screen — after which blessed's cell
+ * model no longer matches the terminal and every later diff lands in the wrong
+ * place. That is the [00:32] failure: the waiting status line
+ * ("⏳ клиентот пишува… 5s") sat on the bottom row for the whole wait, so the
+ * frame came apart exactly while waiting and snapped back the moment the line
+ * went away.
+ *
+ * Everything the TUI prints therefore goes through `narrowGlyphs()` — emoji
+ * become narrow text, variation selectors and ZWJ are dropped — and the boxes
+ * are wrapped with `guardGlyphs()` so no future call site can bypass it.
+ * (Cyrillic and CJK are untouched: blessed measures those correctly.)
+ */
+const WIDE_GLYPH = /[\u{1F000}-\u{1FAFF}\u{231A}-\u{231B}\u{2328}\u{23E9}-\u{23EC}\u{23F0}\u{23F3}\u{25FD}-\u{25FE}\u{2614}-\u{2615}\u{2648}-\u{2653}\u{267F}\u{2691}\u{2693}\u{26A1}\u{26AA}-\u{26AB}\u{26BD}-\u{26BE}\u{26C4}-\u{26C5}\u{26CE}\u{26D4}\u{26EA}\u{26F2}-\u{26F3}\u{26F5}\u{26FA}\u{26FD}\u{2705}\u{270A}-\u{270B}\u{2728}\u{274C}\u{274E}\u{2753}-\u{2755}\u{2757}\u{2764}\u{2795}-\u{2797}\u{27B0}\u{27BF}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{FE0F}\u{200D}]/gu;
+
+/** Narrow text for the emoji the TUI actually uses; anything else is dropped
+ *  (a missing flourish beats a scrolled frame). */
+const GLYPH_TEXT: Record<string, string> = {
+  '⏳': '»', '⌨': '', '⚑': '✗', '✅': '[ok]', '❌': '[x]', '⚠': '[!]',
+  '🔥': '[hot]', '⭐': '*', '📍': '>', '📞': 'tel', '📅': 'data', '🏠': 'stan',
+};
+
+/** Strip the characters a terminal may draw wider than blessed measures them. */
+export function narrowGlyphs(text: string): string {
+  return text.replace(WIDE_GLYPH, ch => GLYPH_TEXT[ch] ?? '');
+}
+
+/** True when a string still contains such a rune (used by the frame check). */
+export function hasWideGlyph(text: string): boolean {
+  WIDE_GLYPH.lastIndex = 0;
+  return WIDE_GLYPH.test(text);
+}
+
+/** Make every `setContent` / `setLabel` on this box pass through narrowGlyphs(),
+ *  so the protection holds for all callers, present and future. */
+export function guardGlyphs(box: any): any {
+  if (!box || typeof box !== 'object') return box;
+  for (const fn of ['setContent', 'setLabel'] as const) {
+    const orig = box[fn];
+    if (typeof orig !== 'function' || orig.__glyphGuarded) continue;
+    const wrapped = function (this: any, s: any) {
+      return orig.call(this, typeof s === 'string' ? narrowGlyphs(s) : s);
+    };
+    (wrapped as any).__glyphGuarded = true;
+    box[fn] = wrapped;
+  }
+  return box;
+}
+
 export interface TuiBoxes {
   screen: any;
   topBar: any;
@@ -172,6 +224,10 @@ export function buildLayout(
     tags: true,
     style: { bg: 'black', fg: 'yellow' },
   } as any);
+
+  // No pane text may reach the terminal unfiltered — one emoji in a row makes
+  // the terminal wrap that row (see narrowGlyphs above).
+  for (const box of [topBar, leadsBox, chatBox, ownerBox, inputBox, statusBar]) guardGlyphs(box);
 
   return { screen, topBar, leadsBox, chatBox, ownerBox, inputBox, statusBar };
 }

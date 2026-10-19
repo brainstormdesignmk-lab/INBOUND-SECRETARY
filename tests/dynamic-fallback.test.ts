@@ -22,7 +22,7 @@ function fresh(): { bank: BankStore; dir: string } {
   return { bank: new BankStore(db), dir };
 }
 
-const CLEAN = 'Секогаш почнуваме со преглед на документацијата на имотот. Дали сакате да организираме посета за да ги видите документите во оригинал?';
+const CLEAN = 'Секогаш почнуваме со преглед на документацијата на недвижноста. Дали сакате да организираме посета за да ги видите документите во оригинал?';
 
 test('validation: clean pass, fact violations, hygiene violations, promises', () => {
   assert.deepEqual(validateDynamicAnswer(CLEAN), []);

@@ -141,7 +141,7 @@ test('[22:25] the distance question is answered with the measured distance to th
   // THE NUMBER: EB 70's own pin (41.9993,21.4213) to the mall — 133 m, so a
   // three-digit metre figure. Measured, never invented.
   assert.match(answer, /на 1[0-9]0 метри/, `the measured distance, rounded to 10 m: ${answer}`);
-  assert.match(answer, /од имотот/, `it is stated as a distance FROM the property: ${answer}`);
+  assert.match(answer, /од недвижноста/, `it is stated as a distance FROM the property: ${answer}`);
   // The three wrong answers this capture produced are gone.
   assert.ok(!/купување или|изнајмување|Ве интересира/.test(answer),
     `never the service question: ${answer}`);

@@ -244,6 +244,86 @@ test('ambiguous mention asks back ONCE naming the options — never a silent gue
   offlineMap.close();
 });
 
+// ── THE [23:09] CAPTURE — the type noun over a feed STUDIO row ───────────
+// The pair was EB 70 (ДВОСОБЕН, „со една спална соба“ in its opis) + EB 76
+// (Гарсоњера — a feed STUDIO row with NO room count). The client asked
+// "GARSONJERAVA KAJ SE NAOGJA TOCNO?" and got the OTHER property's landmark.
+// Two independent defects, both pinned below:
+//   1. the type noun scored on the `bedrooms === 1` GUESS, so the real
+//      гapсоњера (no count) and the двособен both scored NEGATIVE → nothing
+//      bound → the where-is lane fell back;
+//   2. that fallback was `shown[last]` over the FEED-ordered list, so "the
+//      last shown" could be a card from the TOP of the batch.
+const EB70S = 70, EB76S = 76;
+const ROWS_2309: Property[] = [
+  {
+    eb: EB76S, id: EB76S, location: 'Центар', address: 'Ул. Мите Богоевски 3',
+    price: 200, service: 'rent', studio: true, sqm: 24,
+    lat: C63.lat, lon: C63.lon, geo_source: 'osm_building',
+    details: 'Реновирана Ефтина Гарсоњера во Строг Центар. Во потегот меѓу Универзална Сала и Католичка Црква, на 100м од Црногорска Амбасада. Гарсоњерата е во Сутерен на Објект од 2015 г.',
+    landmarks: [{ landmark: 'ТЦ Бисер', distance_m: 100 }],
+  },
+  {
+    eb: EB70S, id: EB70S, location: 'Центар', address: 'Ул. Буњаковец 5',
+    price: 350, service: 'rent', bedrooms: 2, sqm: 39,
+    lat: C69.lat, lon: C69.lon, geo_source: 'osm_building',
+    details: 'Тест наместен стан со една спална соба во буњаковец.',
+    landmarks: [{ landmark: 'Евангелска Конгрешанска Црква', distance_m: 120 }],
+  },
+];
+
+test('[23:09] "GARSONJERAVA KAJ SE NAOGJA TOCNO?" binds the STUDIO row — never the batch tail', async () => {
+  // FEED ORDER puts the ДВОСОБЕН last, so a feed-ordered "shown[last]" replies
+  // with ITS landmark — exactly the field answer.
+  const { handler, sessions, sent, offlineMap } = makeHandler(POIS_1233, ROWS_2309);
+  const s = freshSession('test', chat);
+  seed(s, [EB70S, EB76S]);   // the batch as presented: 70 first, 76 second
+  sessions.set(s);
+
+  await handler.handle('test', chat, 'GARSONJERAVA KAJ SE NAOGJA TOCNO?');
+  const a = sent[sent.length - 1];
+  assert.ok(a.includes('Бисер'), `the GARSONJERA's landmark: ${a}`);
+  assert.ok(!a.includes('Евангелска'), `never the ДВОСОБЕН's landmark: ${a}`);
+  assert.equal(sessions.get(chat)?.slots.nearbyLandmarkEb, EB76S,
+    'the rotation must be tagged to the garsonjera');
+
+  offlineMap.close();
+});
+
+test('[23:09] the studio flag (not the bedrooms guess) decides the type noun — "so edna spalna" opis never impersonates a garsonjera', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler(POIS_1233, ROWS_2309);
+  const s = freshSession('test', chat);
+  seed(s, [EB70S, EB76S]);
+  sessions.set(s);
+
+  // The ДВОСОБЕН is named → ITS landmark (the guess must not confuse it with
+  // the garsonjera just because its opis mentions „една спална соба“).
+  await handler.handle('test', chat, 'KADE E DVOSOBNIOT STAN ?');
+  const a = sent[sent.length - 1];
+  // The definite form ("двособниот") must yield the room-count signal at all:
+  // the rotation is what proves the bind, since the exact landmark NAME comes
+  // from the enrichment step (the map's own nearest POI).
+  assert.equal(sessions.get(chat)?.slots.nearbyLandmarkEb, EB70S,
+    `the двособен is the property under rotation: ${a}`);
+  assert.ok(!a.includes('Бисер'), `never the garsonjera's: ${a}`);
+
+  offlineMap.close();
+});
+
+test('[23:09] a bare "KADE E TOCNO?" continues on the LAST PRESENTED property (presentedIds order, not feed order)', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler(POIS_1233, ROWS_2309);
+  const s = freshSession('test', chat);
+  seed(s, [EB70S, EB76S]);
+  sessions.set(s);
+
+  await handler.handle('test', chat, 'KADE E TOCNO?');
+  const a = sent[sent.length - 1];
+  assert.ok(a.includes('Бисер'), `the batch tail is the last PRESENTED (EB 76): ${a}`);
+  assert.ok(!a.includes('Евангелска'), `never the feed-order tail (EB 70): ${a}`);
+
+  offlineMap.close();
+});
+
 // ── Pure units ──────────────────────────────────────────────────────────────
 
 test('signals: price (од/currency), type, sqm, suteren — both scripts via the normalizer', () => {

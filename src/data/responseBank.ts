@@ -26,6 +26,8 @@ export function normalizeVariant(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').replace(/[.,!?;:„“"'()—–-]/g, '').trim();
 }
 
+const IMOT_VOCAB_RE = /(?:^|[^\p{L}])имот(?:от|ите|и)?(?![\p{L}])/iu;
+
 function fillVars(text: string, vars?: Record<string, string>): string {
   if (!vars) return text;
   let out = text;
@@ -56,7 +58,11 @@ export interface PickOpts {
  *  the DB is corrupted. Repeat avoidance spans BOTH layers. */
 export function pickVariant(key: string, opts: PickOpts = {}): string | undefined {
   const seed = RESPONSE_BANK[key] ?? [];
-  const learnedVars = learned ? learned.variants(key) : [];
+  // Owner rule (2026-10-19): "имот" means land/a plot in this agency's usage —
+  // every general property answer says "недвижност". Learned rows that predate
+  // the rule must not keep serving the old vocabulary until the next relearn
+  // pass; the seed bank is rewritten and the generator vetoes it at write time.
+  const learnedVars = (learned ? learned.variants(key) : []).filter(v => !IMOT_VOCAB_RE.test(v));
   const variants = [...seed, ...learnedVars];
   // P0 meters: every serve is a hit, every empty lookup a miss — this is the
   // single funnel all bank-backed replies pass through, so the per-key

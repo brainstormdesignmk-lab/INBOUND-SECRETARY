@@ -99,7 +99,7 @@ export function replyIsClean(reply: string): boolean {
   // matched the example and answered "Станот со Евидентен број 69 се
   // наоѓа во Центар" in a session about EB 89). Same DATA-DRIVEN rule as
   // the price guard: property facts live in the row, never in bank prose.
-  if (/Евидентен\s+број|Evidenten\s+broj|\b(?:стан|stan|куќ|kukj|имот|imot)[а-яa-z]{0,3}\s+(?:со|so|under|број|broj)\s*\d/iu.test(out)) return false;
+  if (/Евидентен\s+број|Evidenten\s+broj|\b(?:стан|stan|куќ|kukj|имот|imot|недвижност|nedviznost)[а-яa-z]{0,8}\s+(?:со|so|under|број|broj)\s*\d/iu.test(out)) return false;
   // MARKDOWN GUARD: chat prose, not a formatted report. Reject bold/heading
   // markdown so the bank stores only natural chat lines (learn.kazi-nesto-nego
   // stored **Локација:** bullets — correct facts, wrong format for chat).
@@ -110,7 +110,7 @@ export function replyIsClean(reply: string): boolean {
   // behavior, never bank prose — the runtime sanitizer cuts it from replies,
   // so the bank must not store it either. Same regex as the runtime pivot
   // signature in guardText (respond.ts) — keep them in sync.
-  if (/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu.test(out)) return false;
+  if (/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти|недвижности)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu.test(out)) return false;
   // COMPLETENESS GUARD: a line that ends mid-sentence (no terminal mark) is a
   // truncation artifact (token cap / stream cut). Banking it would serve
   // broken sentences to clients forever. Reject — only complete sentences

@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectFeeNag, detectFeeAmountAsk, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 export interface Classified {
@@ -571,6 +571,25 @@ export class Classifier {
 
     // Fee WHY guard — agreement overridden to STAY when WHY-question
     if (session.state === 'closing' && ev.type === 'FEE_AGREED' && detectFeeWhy(text)) {
+      ev = { type: 'STAY' };
+    }
+    // …and a NEGATED pay/accept statement is ladder RESISTANCE, never consent:
+    // "NEMA DA PLATAM" reached FEE_AGREED above (its bare "да" is the agree
+    // word) and jumped the rent funnel to contact collection, skipping the rule
+    // and decision rungs. An agreement verdict standing on a negated refusal
+    // becomes FEE_REFUSED so the 300/500 ladder runs (both scripts).
+    if (session.state === 'closing' && ev.type === 'FEE_AGREED'
+      && !detectFeeWhy(text) && !detectRejection(text) && !detectInvestmentOpinion(text)
+      && (detectNegatedFeePay(text) || detectNegatedAgreement(text))) {
+      ev = { type: 'FEE_REFUSED', service: session.slots.service };
+    }
+    // A NAG IS NEVER CONSENT. Charge accusations, value complaints, "nobody
+    // charges but you" and amount questions are the LADDER's traffic: a model
+    // that labels "PARI ZEMATE ZA POSETA ?" as FEE_AGREED must not jump the
+    // funnel to contact collection (the rent capture's exact failure). STAY
+    // hands the message to the fee lane, which climbs one rung.
+    if (session.state === 'closing' && ev.type === 'FEE_AGREED'
+      && (detectFeeNag(text) || detectFeeAmountAsk(text))) {
       ev = { type: 'STAY' };
     }
 
@@ -1241,6 +1260,20 @@ export class Classifier {
     // must be corrected — the handler answers fee resistance, the funnel stays
     // at the fee question, never advances to contact collection.
     if (session.state === 'closing' && parsed.event.type === 'FEE_AGREED' && detectFeeWhy(text)) {
+      parsed.event = { type: 'STAY' };
+    }
+    // …and a NEGATED pay/accept statement the model labeled as agreement
+    // ("NEMA DA PLATAM" — a bare "да" to a token-counting model) is ladder
+    // RESISTANCE: FEE_REFUSED, so the rent 300-ден / buy 500-ден rungs run.
+    if (session.state === 'closing' && parsed.event.type === 'FEE_AGREED'
+      && !detectFeeWhy(text) && !detectRejection(text) && !detectInvestmentOpinion(text)
+      && (detectNegatedFeePay(text) || detectNegatedAgreement(text))) {
+      parsed.event = { type: 'FEE_REFUSED', service: session.slots.service };
+    }
+    // LLM-down mirror of the nag guard: agreement standing on resistance is
+    // STAY, so the fee lane climbs a rung instead of collecting the contact.
+    if (session.state === 'closing' && parsed.event.type === 'FEE_AGREED'
+      && (detectFeeNag(text) || detectFeeAmountAsk(text))) {
       parsed.event = { type: 'STAY' };
     }
     // Visit time in visit_scheduling -> VISIT_TIME_PROVIDED, so the owner

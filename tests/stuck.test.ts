@@ -353,13 +353,17 @@ test('business: деловен простор never asks bedrooms — location/s
   assert.ok(!sent[0].includes('спални'), sent[0]);
 
   // sqm + price -> complete, but Карпош has NO business space ≤ 500 (EB 56 is
-  // locationless, EB 59 is Центар) -> honest no-match that ASKS about other
-  // areas — never a locationless mystery property presented as "in Карпош"
+  // locationless, EB 59 is Центар) -> honest no-match: names the drained area
+  // and offers registration. [09:29] contract change — the old answer asked
+  // "other areas?" after the city-wide retry had already found nothing there,
+  // and its last-resort tier then served APARTMENTS to a business ask; a typed
+  // miss must never swap the category (see widen-flow test G).
   s = await send('40 KVADRATI, DO 500 EVRA');
   assert.equal(s.state, 'presentation');
   assert.ok(sent[1].includes('Карпош'), sent[1]);
-  assert.ok(/други|друга/.test(sent[1]), sent[1]);
+  assert.ok(/запишам|забележам/iu.test(sent[1]), sent[1]);
   assert.ok(!sent[1].includes('Евидентен број 56'), sent[1]);
+  assert.ok(!/Евидентен број/.test(sent[1]), 'never offer another category: ' + sent[1]);
 });
 
 test('ZOKI: visit interest ("дали е достапен?") -> fee disclosed -> agreement -> owner ping-pong — never a phone ask before the fee', async () => {
@@ -519,7 +523,11 @@ test('ZOKI: "кога може да се погледне" is visit interest too
   assert.ok(!sent[1].includes('телефонски'), sent[1]);
   const s2 = await send('VO RED');
   assert.ok((sent[sent.length - 1] ?? '').includes('500 денари'), sent[sent.length - 1]);
-  assert.equal(s2.slots.viewingFeeAgreed, true);
+  // CHANGED CONTRACT (the 300-ден capture): "VO RED" agreed to the VISIT,
+  // which is exactly why the fee is now being disclosed. The turn that
+  // DISCLOSES the fee cannot also register fee consent — the next message
+  // (even a fee question) used to jump straight to contact collection.
+  assert.equal(s2.slots.viewingFeeAgreed, undefined, 'the disclosure turn is not fee consent');
 });
 
 // The LLM is UP but (mis)classifies the fee-why question as FEE_REFUSED — its
@@ -621,7 +629,13 @@ test('fee resistance runs the LADDER: one persuasion → the agency rule → the
   s = await send('NE, NEMA DA PLATAM');
   assert.equal(s.state, 'queued', JSON.stringify(s));
   assert.equal(s.slots.feeRejections, 4);
-  assert.ok(/(?:најдобро|пријатен ден|Убав ден)/iu.test(sent[6]), sent[6]); // the graceful close
+  // The graceful close is a POOL of ten variants and TWO of them are
+  // "Благодарам"-only (no "пријатен ден"/"Убав ден"/"најдобро"), so pinning
+  // those three words made this check depend on which variant the rotation
+  // happened to serve that run. The contract is: the bye protocol answered —
+  // i.e. the reply IS a fee.graceful.close variant and it asks nothing.
+  assert.ok(RESPONSE_BANK['fee.graceful.close'].includes(sent[6].trim()), sent[6]);
+  assert.ok(!/\?/.test(sent[6]), sent[6]);
 });
 
 test('the DECISION answered with YES continues the workflow (contact collection), never a re-persuasion', async () => {
@@ -1028,7 +1042,7 @@ test('visit time survives an LLM misread: "MOZAM UTRE POSLE 18:00" as DETAILS_PR
   assert.equal(s.state, 'owner_checking'); // NOT stuck re-asking the time
   assert.ok(s.slots.visitTime?.includes('UTRE'), JSON.stringify(s.slots));
   assert.equal(ownerAsks.length, 1);
-  assert.ok(ownerAsks[0].includes('78') && ownerAsks[0].includes('достапен'), ownerAsks[0]);
+  assert.ok(ownerAsks[0].includes('78') && /достап|слободн/iu.test(ownerAsks[0]), ownerAsks[0]);
   assert.ok(sent[5].includes('потврдам'), sent[5]); // to the client: waiting
 });
 
@@ -1054,7 +1068,7 @@ test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed —
   assert.ok(last().includes('потврдам'), last()); // to the client: waiting
   // the ping-pong QUESTION reached the owner (available now? agree to the time?)
   assert.equal(ownerAsks.length, 1);
-  assert.ok(ownerAsks[0].includes('78') && ownerAsks[0].includes('достапен'), ownerAsks[0]);
+  assert.ok(ownerAsks[0].includes('78') && /достап|слободн/iu.test(ownerAsks[0]), ownerAsks[0]);
   // Weekday enumerated across the WEEK: "утре" resolves to a concrete date
   // whose name rolls over at midnight (written Saturday → Недела; run past
   // midnight → Недела). The contract being pinned is the CANONICAL dated
@@ -1739,6 +1753,90 @@ test('anywhere + rent + "do 250": a budget, not EB 250 — city-wide presentatio
   assert.ok(!sent[2].includes('Евидентен број 250'), sent[2]);
 });
 
+test('[23:47/23:48] a bare area dismissal IS the location answer — the budget is what matters, and the funnel stops asking for an area', async () => {
+  // The field capture: house + buy declared → Lina asks "во кој дел од градот?".
+  // The client releases the area and names the one criterion he does care about
+  // ("VAZNO E DA E DO 80000"). Two dismissal shapes came back to back —
+  // "NEBITNO KADE" (nothing specific matters) and "BILO KOJA" (any [naselba]
+  // will do) — and BOTH were unread, so the funnel asked for a neighbourhood a
+  // second time to a client who had already said the area is free.
+  const HOUSES: Property[] = [
+    { eb: 90, id: 90, location: 'Центар', price: 75000, service: 'buy', house: true, bedrooms: 3, size: '150 м²' },
+    { eb: 91, id: 91, location: 'Аеродром', price: 79000, service: 'buy', house: true, bedrooms: 4, size: '180 м²' },
+    { eb: 92, id: 92, location: 'Влае', price: 95000, service: 'buy', house: true, bedrooms: 3 },
+  ];
+  for (const dismissal of ['NEBITNO KADE', 'BILO KOJA', 'NEBITNO']) {
+    const { handler, sessions, sent } = makeHandlerWithRows(HOUSES);
+    const chatId = `dismiss-${dismissal.replace(/\s+/g, '-').toLowerCase()}`;
+    const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+    let s = await send('SAKAM DA KUPAM KUKJA');
+    assert.equal(s.state, 'discovery');
+    assert.ok(/дел од градот|населба/iu.test(sent[0]), `the location ask must come first: ${sent[0]}`);
+
+    s = await send(dismissal);
+    assert.equal(s.slots.anywhere, true, `"${dismissal}" must release the location slot`);
+    // The regression: the same slot asked twice. The next question must be the
+    // one thing still missing (the price), never the area again.
+    assert.ok(!/дел од градот|населба/iu.test(sent[1]), `"${dismissal}": the area was just released, not re-asked: ${sent[1]}`);
+    assert.ok(/цена|буџет|граница/iu.test(sent[1]), `"${dismissal}": the missing criterion is the budget: ${sent[1]}`);
+
+    s = await send('VAZNO E DA E DO 80000');
+    assert.equal(s.state, 'presentation');
+    assert.equal(s.slots.budget, '80000');
+    assert.equal(s.slots.location, undefined, 'no area was ever named');
+    assert.ok(/Евидентен број (?:90|91)/u.test(sent[2]), `the city-wide houses serve: ${sent[2]}`);
+    assert.ok(!sent[2].includes('Евидентен број 92'), `the over-budget house never serves: ${sent[2]}`);
+    // …and the opener names the budget it filtered by. Asserted as the FIGURE,
+    // not as one intro phrasing: the bank rotates openers (a size-waived client
+    // gets the "reduced by size" intro instead of the neighborhood one), and
+    // pinning wording would make this fail the first time copy is regenerated.
+    assert.ok(/80000|80\.000/u.test(sent[2]), `the budget the search used must be named: ${sent[2]}`);
+  }
+});
+
+test('[23:12] a fee objection while the client is LOOKING at a batch climbs the ladder — never another batch of properties', async () => {
+  // The field session was in `presentation` (the client already had cards in
+  // front of him) when he objected to the fee. The funnel treated the objection
+  // as criteria traffic and re-entered the criteria/present machinery, so a fee
+  // complaint was answered with MORE PROPERTIES — the pivot the transcript
+  // shows. Presentation IS a fee context: the objection climbs the same ladder,
+  // on the same counter, and the cards on screen stay where they are.
+  const HOUSES: Property[] = [
+    { eb: 90, id: 90, location: 'Центар', price: 75000, service: 'buy', house: true, bedrooms: 3, size: '150 м²' },
+    { eb: 91, id: 91, location: 'Аеродром', price: 79000, service: 'buy', house: true, bedrooms: 4, size: '180 м²' },
+    { eb: 78, id: 78, location: 'Капиштец', price: 60000, service: 'buy', bedrooms: 2, size: '60 м²' },
+  ];
+  const { handler, sessions, sent } = makeHandlerWithRows(HOUSES);
+  const chatId = 'pres-nag';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return { s: sessions.get(chatId)!, reply: sent.at(-1) ?? '' }; };
+
+  await send('SAKAM DA KUPAM KUKJA');
+  await send('NEBITNO KADE');
+  let r = await send('VAZNO E DA E DO 80000');
+  assert.equal(r.s.state, 'presentation');
+  assert.ok(/Евидентен број 90/u.test(r.reply), `the batch is on screen first: ${r.reply}`);
+  const presentedIds = [...(r.s.slots.presentedIds ?? [])];
+
+  // The objection. Its own counter starts at 0 and must reach 1 (rung 1).
+  r = await send('SKAPO E TOA . ZA SEKOJ STAN PO 300DEN');
+  assert.equal(r.s.state, 'presentation', 'the client keeps looking at his batch');
+  assert.equal(r.s.slots.feeRejections, 1, 'the objection is a nag in presentation too');
+  assert.ok(!/Евидентен број \d+/u.test(r.reply), `a fee objection must never serve a property: ${r.reply}`);
+  assert.ok(!/најпопуларните|најбараните/iu.test(r.reply), `no new search opener: ${r.reply}`);
+  assert.deepEqual(r.s.slots.presentedIds, presentedIds, 'the shown-set must not grow on a fee objection');
+
+  // …and the ladder keeps its order on the SAME counter.
+  r = await send('MNOGU SE 300 DENARI');
+  assert.equal(r.s.slots.feeRejections, 2, 'rung 2 on the same counter');
+  assert.ok(/ценовник|правил|политик/iu.test(r.reply), `rung 2 is the agency rule: ${r.reply}`);
+  r = await send('NE SAKAM DA PLATAM');
+  assert.equal(r.s.slots.feeRejections, 3, 'rung 3');
+  assert.ok(/дали да ја закажам посетата|Одлуката е Ваша/iu.test(r.reply), `rung 3 is the decision: ${r.reply}`);
+  // The fee amount never became an Евидентен број along the way.
+  assert.ok(!/Евидентен број 300/u.test(sent.join('\n')), sent.join('\n'));
+});
+
 test('unknown EB escape: "predlozi mi" / "drugi lokaciii" / "да" pivot to real alternatives, never repeat the not-found line', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'dile';
@@ -1824,7 +1922,7 @@ test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" 
   assert.equal(s.slots.interestedPropertyId, 53);
   // availability ack anchor (bank-backed — pickVariant rotates, so the anchor
   // must cover every legitimate ack wording: available/in-database/free)
-  assert.ok(/(?:достапен|достапност|постои|база|слободен|активен|располагање|евидентиран)/i.test(sent[0]), sent[0]);
+  assert.ok(/(?:достап|постои|баз|слободн|активн|располагање|евидентиран)/i.test(sent[0]), sent[0]);
   assert.ok(sent[0].includes('?'), sent[0]); // must be a QUESTION (permission ask)
   assert.ok(!sent[0].includes('500 денари'), sent[0]); // fee NOT yet disclosed
   assert.ok(!sent[0].includes('Станот под Евидентен'), sent[0]); // never the card
@@ -2012,7 +2110,7 @@ test('a куќа funnel stays куќа through type-less detail messages — a �
   assert.ok(!sent[3].includes('станот под'), sent[3]);
 });
 
-test('"помало нешто" mid-discovery answers with SMALLEST м² offers — empty area asks about other locations', async () => {
+test('"помало нешто" mid-discovery answers with SMALLEST м² offers — an empty business area answers in its OWN category', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'ponuda';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
@@ -2026,12 +2124,14 @@ test('"помало нешто" mid-discovery answers with SMALLEST м² offers 
 
   // "што имате во понуда?" -> REAL DB offers, not the repeated sqm question.
   // ROWS has NO Центар business ≤ 500 (EB 59 is 950, EB 56 has no location) —
-  // so the honest no-match line asks about other locations.
+  // so the honest typed miss names the area and offers registration. The
+  // [09:29] contract: never swap the category (this lane used to widen to
+  // apartments); see widen-flow test G.
   s = await send('sto imate vo ponuda?');
   assert.equal(s.state, 'presentation');
   assert.ok(sent[3].includes('Центар'), sent[3]);
-  // honest no-match: asks about OTHER areas (bank wording varies)
-  assert.ok(/други|друга/.test(sent[3]), sent[3]);
+  assert.ok(/запишам|забележам/iu.test(sent[3]), sent[3]);
+  assert.ok(!/Евидентен број/.test(sent[3]), 'never offer another category: ' + sent[3]);
   assert.ok(!sent[3].includes('Која површина'), sent[3]);
 
   // the client keeps asking — a pomalo more-ask while in presentation pulls
@@ -2608,7 +2708,7 @@ test('the [19:28] bug: EB named in line 1, digit-less availability ask in line 2
   s = await send('DALI SEUSTE E DOSTAPEN?');
   const reply = sent[sent.length - 1];
   assert.ok(!reply.includes('Дали го знаете Евидентен број'), `EB question must not fire: ${reply.substring(0, 160)}`);
-  assert.ok(/(?:достапен|достапност|постои|база|слободен|активен|располагање|евидентиран|поврзам|исконтактирам|стапам)/i.test(reply), `availability ack expected: ${reply.substring(0, 160)}`);
+  assert.ok(/(?:достап|постои|баз|слободн|активн|располагање|евидентиран|поврзам|исконтактирам|стапам)/i.test(reply), `availability ack expected: ${reply.substring(0, 160)}`);
   assert.equal(s.state, 'closing');
 });
 
@@ -2639,7 +2739,7 @@ test('the [20:02] bug: a 3-line paste with the EB inside must NEVER ask for the 
   assert.equal(s.slots.propertyId, 53, `EB must be captured: ${JSON.stringify(s.slots)}`);
   assert.ok(!sent.some(t => t.includes('Дали го знаете Евидентен број')),
     `EB question must not fire: ${JSON.stringify(sent)}`);
-  assert.ok(/(?:достапен|достапност|постои|база|слободен|активен|располагање|евидентиран|поврзам|исконтактирам|стапам)/i.test(sent[sent.length - 1] ?? ''),
+  assert.ok(/(?:достап|постои|баз|слободн|активн|располагање|евидентиран|поврзам|исконтактирам|стапам)/i.test(sent[sent.length - 1] ?? ''),
     `availability ack expected: ${sent[sent.length - 1]?.substring(0, 160)}`);
   assert.equal(s.state, 'closing');
 });
@@ -3010,8 +3110,10 @@ test('22:18 TTL resume: a mid-close session survives the 73-min gap — bridge, 
   await send('DA');
   const s2 = sessions.get(chatId)!;
   assert.equal(s2.state, 'closing');
-  assert.ok(s2.slots.viewingFeeAgreed, 'DA after the resume-bridge = fee consent');
+  // "DA" accepts the re-asked offer, so the FEE is disclosed on this very
+  // turn — and the disclosure turn is never consent (see the 300-ден capture).
   assert.ok(/500 денари/.test(sent[sent.length - 1]), sent[sent.length - 1]);
+  assert.equal(s2.slots.viewingFeeAgreed, undefined, 'DA accepted the offer; the fee still needs its own yes');
 });
 
 test('22:18b visit-command typo "ORGABIZIRAJ MI" registers as visit interest — fee first, no flow reset', async () => {
@@ -3340,6 +3442,9 @@ test('exhausted-pivot: "a plac za gradenje" switches to land rows, house slot cl
   assert.equal(s.slots.house, undefined, 'a plac is not a house');
   assert.equal(s.slots.areaExhausted, false, 'the pivot must release the area lock');
   assert.ok(/Евидентен број 74/.test(sent.at(-1)!), `the plac row must present: ${sent.at(-1)!}`);
+  // The card must name the CATEGORY: a land plot announced as "Станот… е
+  // стан" is the wrong-category reading the [09:29] business capture fixed.
+  assert.match(sent.at(-1)!, /Плацот под Евидентен број 74/, `the plac card names the category: ${sent.at(-1)!}`);
   assert.ok(!EXHAUSTED_ASK.test(sent.at(-1)!), `must not loop the exhausted ask: ${sent.at(-1)!}`);
 });
 
@@ -3745,7 +3850,13 @@ test('[09:05] charge-verb + money fee ask ("ZEMATE PARI ZA POSETA?") routes to t
   // substring test failed whichever run drew that variant (~1 in 6), while
   // nothing about the behavior had changed.
   assert.ok(!/буџет|до која цена|во кои рамки/iu.test(r2), `no budget intake for a fee ask: ${r2}`);
-  assert.ok(/0%|провизи|надомест|500 денари|10 евра/iu.test(r2), `fee answer expected: ${r2}`);
+  // The fee copy is a POOL and the two services carry different figures (rent
+  // 300 денари / 5 евра vs buy 500 / 10), so the old list — written for the buy
+  // disclosure — rejected a legitimate RENT persuasion ("Со овој симболичен
+  // износ од 300 денари (5 евра)…"). The contract is: fee copy for THIS
+  // session's service (its sanctioned figure or the symbolic-fee wording),
+  // never the discovery intake.
+  assert.ok(/симболич|надомест|300 денари|5 евра|0%/iu.test(r2), `fee answer expected: ${r2}`);
   assert.notEqual(s2.state, 'intent', 'the fee ask must not restart discovery');
 
   // The availability family stays intact: a genuine offer-side земат/нудите
@@ -4249,7 +4360,7 @@ test('[22:44] nearby ask with the BLIXINA typo reaches the landmark rotation, ne
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   let s = await send('STO USTE IMA VO BLIXINA NA STANOT');
   const reply = sent.at(-1)!;
-  assert.ok(!/(достапн|контактирам со сопственикот|потврдим)/iu.test(reply), `never the availability ack: ${reply}`);
+  assert.ok(!/(достап|контактирам со сопственикот|потврдим)/iu.test(reply), `never the availability ack: ${reply}`);
   assert.ok(/близина на|населб|мин пеш|Аеродром/iu.test(reply), `a location answer instead: ${reply}`);
   assert.equal(s.state, 'property_query', `stays in the property funnel (got ${s.state})`);
 });

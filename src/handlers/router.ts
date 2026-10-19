@@ -132,7 +132,7 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
   {
     intent: 'OFFTOPIC',
     bankKey: 'offtopic.redirect',
-    fallback: 'Одете на темата, ве молам — како можам да Ви помогнам со имотите?',
+    fallback: 'Одете на темата, ве молам — како можам да Ви помогнам со недвижностите?',
     detect: detectOfftopic,
     allowedStates: undefined, // every state except owner_checking/pending — handled by stateGate below
   },
@@ -186,7 +186,7 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
   {
     intent: 'DOCUMENTS_ASK',
     bankKey: 'documents.info',
-    fallback: 'За документите ќе добиете информации при посетата на имотот.',
+    fallback: 'За документите ќе добиете информации при посетата на недвижноста.',
     detect: detectDocumentsAsk,
     allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
   },
@@ -207,14 +207,14 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
   {
     intent: 'COMPARISON',
     bankKey: 'comparison.help',
-    fallback: 'Можам да ги споредам имотите за Вас. Кои карактеристики Ви се најважни?',
+    fallback: 'Можам да ги споредам недвижностите за Вас. Кои карактеристики Ви се најважни?',
     detect: detectComparison,
     allowedStates: ['presentation', 'property_query'],
   },
   {
     intent: 'FEATURE_ASK',
     bankKey: 'feature.after.show',
-    fallback: 'Ќе Ви ги кажам сите детали за имотот. Што конкретно Ве интересира?',
+    fallback: 'Ќе Ви ги кажам сите детали за недвижноста. Што конкретно Ве интересира?',
     detect: detectFeatureAsk,
     allowedStates: ['property_query', 'presentation', 'closing'],
   },

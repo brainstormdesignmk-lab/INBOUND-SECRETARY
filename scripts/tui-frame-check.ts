@@ -13,30 +13,43 @@
 //   2. every pane label appears exactly once; panes hold their own content;
 //   3. after a mid-session SHRINK (the web-broker re-layout) the orphaned
 //      rows are cleared — no stale borders/text under the new layout;
-//   4. SELF-HEALING: the final flushed chunk re-addresses EVERY row (the
-//      forceFullRedraw contract) — so any write a lossy web broker drops is
-//      re-emitted wholesale on the next repaint instead of leaving a hole
-//      blessed never repaints (the field bug mechanism).
+//   4. the WAIT WINDOW (send delay / typing countdown) writes at most one
+//      frame per visible second, and an unchanged frame writes nothing;
+//   5. HEAL REPAIRS A GARBLED TERMINAL: rogue bytes printed into the middle of
+//      a pane (what a broker does when it mis-executes a frame) are gone after
+//      painter.heal() — every row is re-addressed, including the rows blessed
+//      would otherwise skip forever (the [00:32] ghost-row mechanism).
 //
 // Run: npx tsx scripts/tui-frame-check.ts   (exit 0 = frames valid)
 //   TUI_COLS / TUI_ROWS   terminal size (default 80x24)
 //   TUI_ROUNDS            transcript rounds (default 4; ~30 overflows scrollback)
 //   TUI_RESIZE_ROWS       shrink to N rows mid-session (0 = no resize)
 //   TUI_SKIP_RESIZE_CLEAR=1  simulate the pre-fix resize handler
-//   TUI_WIDE_AMB=1        replay treating ambiguous-width runes as wide
+//   TUI_WIDE_AMB=1        replay treating ambiguous-width runes as wide (a
+//                         DIAGNOSTIC model: blessed composes rows assuming
+//                         those runes are one column, so a terminal that
+//                         renders them double-width overflows on any row that
+//                         contains them — reported, not enforced)
 //   TUI_DUMP=path         dump the raw ANSI stream
 
 import { PassThrough } from 'stream';
 import * as fs from 'fs';
-import { buildLayout } from '../src/tui/layout';
+import { buildLayout, hasWideGlyph } from '../src/tui/layout';
+import { FramePainter } from '../src/tui/paint';
+import { Terminal } from '../src/tui/terminal';
 
 const COLS = parseInt(process.env.TUI_COLS ?? '80', 10);
 const ROWS = parseInt(process.env.TUI_ROWS ?? '24', 10);
 const ROUNDS = parseInt(process.env.TUI_ROUNDS ?? '4', 10);
 const RESIZE_ROWS = parseInt(process.env.TUI_RESIZE_ROWS ?? '0', 10);
+// Duration of the simulated send-delay / typing WAIT (the [00:32] capture).
+const WAIT_SECS = parseInt(process.env.TUI_WAIT_SECS ?? '6', 10);
 
 // ── fake terminal streams ────────────────────────────────────────────────────
 const chunks: string[] = [];
+// Problems found while driving the scenarios (they are reported with the
+// frame-invariant failures at the end).
+const setupFailures: string[] = [];
 const input = new PassThrough();
 (input as any).isTTY = true;
 const output = new PassThrough();
@@ -49,26 +62,11 @@ const tick = (): Promise<void> => new Promise(r => setImmediate(r));
 // ── the REAL layout, driven headlessly ───────────────────────────────────────
 const boxes = buildLayout('FRAME-CHECK', { input, output });
 
-// Mirror of TuiApp.forceFullInputRedraw (src/tui/app.ts): blank ONLY the
-// input rows — the full-screen blanking variant was field-tested WORSE (the
-// broker mis-positions CUPs, so each extra full row dumped at a stale cursor
-// repeated pane headers horizontally).
-function forceFullInputRedraw(): void {
-  const screen: any = boxes.screen;
-  const inputBox: any = boxes.inputBox;
-  const lpos = inputBox.lpos;
-  const top = lpos ? lpos.yi : inputBox.atop;
-  const bottom = lpos ? lpos.yl : inputBox.abottom;
-  for (let y = top; y < bottom; y++) {
-    const old = screen.olines[y];
-    if (!old) continue;
-    for (let x = 0; x < old.length; x++) old[x] = [screen.dattr, '\x00'];
-  }
-}
-function repaint(): void {
-  forceFullInputRedraw();
-  boxes.screen.render();
-}
+// THE PAINTER IS THE REAL ONE (src/tui/paint.ts) — the app and this check must
+// never drift apart again. It owns the change gate (nothing changed → no write)
+// and re-emits the volatile rows (clock, input, status) WHOLE.
+const painter = new FramePainter(boxes);
+function repaint(force = false): void { painter.paint({ force }); }
 
 // ── render pipeline (mirrors src/tui/app.ts) ─────────────────────────────────
 interface Msg { role: 'user' | 'assistant'; at: number; text: string; }
@@ -97,6 +95,12 @@ function renderInput(): void {
 }
 function renderStatus(): void {
   boxes.statusBar.setContent(` presentation · 0/100 · мозок: deterministic · ${msgs.length} пораки `);
+}
+// The WAIT status line, exactly as TuiApp.renderStatus renders it during the
+// send delay / typing window: a WHOLE-SECOND countdown (the old one-decimal
+// countdown changed ten times a second and forced a frame each time).
+function renderWaitStatus(secondsLeft: number): void {
+  boxes.statusBar.setContent(`{white-bg}{black-fg} ⏳ клиентот пишува… ${secondsLeft}s — [Enter] инстант {/black-fg}{/white-bg} · antiban: 9/s бакет · мозок: deterministic `);
 }
 function renderTop(): void {
   boxes.topBar.setContent(` METROPOLIS · ЛИНА · TUI   клиенти: 1   активен: Клиент-1   испратено: ${msgs.length}   мозок: deterministic`);
@@ -139,113 +143,14 @@ async function turn(user: string, assistant: string): Promise<void> {
   await tick();
 }
 
-// ── mini terminal emulator ───────────────────────────────────────────────────
-// DEC special graphics (ACS): blessed draws borders in this charset.
-const ACS: Record<string, string> = {
-  l: '┌', q: '─', k: '┐', x: '│', m: '└', j: '┘',
-  t: '├', u: '┤', n: '┼', v: '┴', w: '┬', '~': '·', '0': '█', a: '▒', '`': '◆',
-};
-// East-Asian AMBIGUOUS-width runes used in the TUI chrome (informational).
-const AMBIGUOUS = new Set(['·', '▸', '⚑', '…', '✗', '—', '–', '•', '→', '←']);
+// ── the terminal emulator ────────────────────────────────────────────────────
+// The screen model lives in src/tui/terminal.ts, SHARED with the pty harness
+// (scripts/tui-pty-check.ts): the headless check and the real-terminal check
+// must never disagree about what a frame looks like.
 
-interface TermState {
-  grid: string[][]; cx: number; cy: number; pendingWrap: boolean;
-  scrolled: boolean; overflowCup: boolean;
-  regionTop: number; regionBot: number;
-  tinyRuns: number; maxRun: number; ed2Count: number;
-}
-
-function replay(stream: string): TermState {
-  const grid: string[][] = Array.from({ length: ROWS }, () => Array<string>(COLS).fill(' '));
-  const t: TermState = {
-    grid, cx: 0, cy: 0, pendingWrap: false, scrolled: false, overflowCup: false,
-    regionTop: 0, regionBot: ROWS - 1, tinyRuns: 0, maxRun: 0, ed2Count: 0,
-  };
-  let g0: 'ascii' | 'acs' = 'ascii';
-  let runLen = 0;
-  let saved: { cx: number; cy: number } | null = null;
-  const wideAmb = process.env.TUI_WIDE_AMB === '1';
-  const scrollUp = () => {
-    for (let r = t.regionTop; r < t.regionBot; r++) grid[r] = grid[r + 1];
-    grid[t.regionBot] = Array<string>(COLS).fill(' ');
-    t.scrolled = true;
-  };
-  const put = (ch: string) => {
-    runLen++;
-    if (t.pendingWrap) {
-      t.cx = 0; t.cy++; t.pendingWrap = false;
-      if (t.cy >= ROWS) { t.cy = ROWS - 1; scrollUp(); }
-    }
-    grid[t.cy][t.cx] = g0 === 'acs' ? (ACS[ch] ?? ch) : ch;
-    const w = wideAmb && AMBIGUOUS.has(ch) ? 2 : 1;
-    if (w === 2 && t.cx + 1 < COLS) grid[t.cy][t.cx + 1] = '';
-    if (t.cx + w >= COLS) t.pendingWrap = true; else t.cx += w;
-  };
-  let i = 0;
-  while (i < stream.length) {
-    const ch = stream[i];
-    if (ch === '\x1b') {
-      if (runLen > 0) { if (runLen <= 2) t.tinyRuns++; if (runLen > t.maxRun) t.maxRun = runLen; runLen = 0; }
-      if (stream[i + 1] === '[') {
-        let j = i + 2;
-        while (j < stream.length && stream[j].charCodeAt(0) < 0x40) j++;
-        if (j >= stream.length) break;
-        const final = stream[j];
-        const params = stream.slice(i + 2, j);
-        const priv = params.startsWith('?');
-        const nums = params.replace(/^\?/, '').split(';').map(p => parseInt(p || '1', 10));
-        if (!priv && (final === 'H' || final === 'f')) {
-          const row = nums[0] || 1, col = nums[1] || 1;
-          if (row > ROWS || col > COLS) t.overflowCup = true;
-          t.cy = Math.min(Math.max(row - 1, 0), ROWS - 1);
-          t.cx = Math.min(Math.max(col - 1, 0), COLS - 1);
-          t.pendingWrap = false;
-        } else if (!priv && final === 'J') {
-          const mode = nums[0] ?? 0;
-          const clearRow = (r: number, from: number, to: number) => { for (let c = from; c < to; c++) grid[r][c] = ' '; };
-          if (mode === 0) { clearRow(t.cy, t.cx, COLS); for (let r = t.cy + 1; r < ROWS; r++) clearRow(r, 0, COLS); }
-          else if (mode === 1) { for (let r = 0; r < t.cy; r++) clearRow(r, 0, COLS); clearRow(t.cy, 0, t.cx + 1); }
-          else { t.ed2Count++; for (let r = 0; r < ROWS; r++) clearRow(r, 0, COLS); }
-        } else if (!priv && final === 'K') {
-          const mode = nums[0] ?? 0;
-          if (mode === 0) for (let c = t.cx; c < COLS; c++) grid[t.cy][c] = ' ';
-          else if (mode === 1) for (let c = 0; c <= t.cx; c++) grid[t.cy][c] = ' ';
-          else for (let c = 0; c < COLS; c++) grid[t.cy][c] = ' ';
-        } else if (!priv && 'ABCD'.includes(final)) {
-          const n = nums[0] || 1;
-          if (final === 'A') t.cy = Math.max(0, t.cy - n);
-          else if (final === 'B') t.cy = Math.min(ROWS - 1, t.cy + n);
-          else if (final === 'C') t.cx = Math.min(COLS - 1, t.cx + n);
-          else t.cx = Math.max(0, t.cx - n);
-          t.pendingWrap = false;
-        } else if (final === 'r' && !priv) {
-          t.regionTop = Math.max(0, (nums[0] || 1) - 1);
-          t.regionBot = Math.min(ROWS - 1, (nums[1] || ROWS) - 1);
-        } else if (final === 'h' && params.includes('1049')) {
-          for (let r = 0; r < ROWS; r++) grid[r] = Array<string>(COLS).fill(' ');
-          t.cx = 0; t.cy = 0; t.pendingWrap = false;
-        }
-        i = j + 1;
-        continue;
-      } else if (stream[i + 1] === ']') {
-        let j = i + 2;
-        while (j < stream.length && stream[j] !== '\x07' && !(stream[j] === '\x1b' && stream[j + 1] === '\\')) j++;
-        i = stream[j] === '\x07' ? j + 1 : j + 2;
-        continue;
-      } else if (stream[i + 1] === '(') {
-        g0 = stream[i + 2] === '0' ? 'acs' : 'ascii';
-        i += 3; continue;
-      } else if ('#%'.includes(stream[i + 1] ?? '')) { i += 3; continue; }
-      else if (stream[i + 1] === '7') { saved = { cx: t.cx, cy: t.cy }; i += 2; continue; }
-      else if (stream[i + 1] === '8') { if (saved) { t.cx = saved.cx; t.cy = saved.cy; t.pendingWrap = false; } i += 2; continue; }
-      else { i += 2; continue; }
-    } else if (ch === '\r') { t.cx = 0; t.pendingWrap = false; i++; }
-    else if (ch === '\n') { t.pendingWrap = false; t.cy++; if (t.cy >= ROWS) { t.cy = ROWS - 1; scrollUp(); } i++; }
-    else if (ch === '\x08') { t.cx = Math.max(0, t.cx - 1); i++; }
-    else if (ch === '\x07' || ch === '\x0e' || ch === '\x0f') { i++; }
-    else { put(ch); i++; }
-  }
-  if (runLen > 0) { if (runLen <= 2) t.tinyRuns++; if (runLen > t.maxRun) t.maxRun = runLen; }
+function replay(stream: string): Terminal {
+  const t = new Terminal({ cols: COLS, rows: ROWS, wideAmbiguous: process.env.TUI_WIDE_AMB === '1' });
+  t.write(stream);
   return t;
 }
 
@@ -261,6 +166,68 @@ async function main(): Promise<void> {
       await tick();
     }
   }
+
+  // ── THE WAIT WINDOW (the [00:32] "acting strangely" capture) ─────────────
+  // While Lina's send delay / the client's typing window runs, the status line
+  // carries a countdown. Before the fix that countdown had one decimal AND the
+  // ticker repainted every 100 ms, so a 30 s wait emitted ~300 partial frames
+  // (cursor jump + a digit or two) — the tiny-write class web terminal brokers
+  // mis-execute. Contract now: at most ONE frame per visible second, each one
+  // a whole-row write.
+  let waitFrames = 0, waitChunks = 0, waitTiny = 0, waitMaxRun = 0, waitBytes = 0;
+  if (WAIT_SECS > 0) {
+    const framesBefore = painter.frames;
+    const chunksBefore = chunks.length;
+    const bytesBefore = chunks.join('').length;
+    for (let s = WAIT_SECS; s > 0; s--) {
+      for (let t = 0; t < 10; t++) { // the 100 ms ticker, ten ticks per second
+        renderWaitStatus(s);         // the countdown advances once per SECOND
+        repaint();
+        await tick();
+      }
+    }
+    waitFrames = painter.frames - framesBefore;
+    waitChunks = chunks.length - chunksBefore;
+    const waitStream = chunks.join('').slice(bytesBefore);
+    const wr = replay(waitStream);
+    waitTiny = wr.tinyRuns;
+    waitMaxRun = wr.maxRun;
+    waitBytes = waitStream.length;
+  }
+  // The status line goes back to normal — one last write, then the gate closes.
+  renderAll(); await tick(); await tick(); // let every buffered write flush
+
+  // ── A BROKER GARBLES THE FRAME, THEN THE HEAL REPAIRS IT ─────────────────
+  // The [00:32] capture ended with rows of a previous frame still on screen.
+  // Emulate the cause (a broker printing a frame's bytes at the cursor as
+  // literal text inside a pane) and require the heal to wipe it: every row is
+  // marked dirty AND poisoned, so blessed re-emits the whole screen — a row it
+  // would otherwise skip can never survive as a ghost.
+  {
+    const garbled = 'GHOST-GARBLE-MARK';
+    const preGrid = replay(chunks.join('') + `\x1b[5;25H${garbled}`).rowsText();
+    if (!preGrid.some(r => r.includes(garbled))) {
+      setupFailures.push('the injected garble never reached the emulated screen (test setup is broken)');
+    }
+    painter.heal();
+    await tick(); await tick();
+    const postGrid = replay(chunks.join('')).rowsText();
+    const ghost = postGrid.map((r, i) => (r.includes(garbled) ? i : -1)).filter(i => i >= 0);
+    for (const row of ghost) {
+      failures.push(`a HEAL did not erase the garbled row ${row}: ${postGrid[row].trim().slice(0, 50)}`);
+    }
+  }
+
+  // ── NOTHING CHANGED → NOTHING WRITTEN ────────────────────────────────────
+  // The change gate must make idle repaints free: three full render passes over
+  // identical content may not emit a single byte (this is what keeps a broker
+  // from ever seeing a redundant write).
+  const noopFramesBefore = painter.frames;
+  const noopBytesBefore = chunks.join('').length;
+  renderAll(); renderAll(); renderAll();
+  await tick(); await tick();
+  const noopFrames = painter.frames - noopFramesBefore;
+  const noopBytes = chunks.join('').length - noopBytesBefore;
 
   let resized = false;
   if (RESIZE_ROWS > 0 && RESIZE_ROWS < ROWS) {
@@ -279,15 +246,70 @@ async function main(): Promise<void> {
 
   const stream = chunks.join('');
   const t = replay(stream);
-  const rows = t.grid.map(r => r.join(''));
-  const failures: string[] = [];
+  const rows = t.rowsText();
+  const failures: string[] = [...setupFailures];
+  let wideAmbNote = '';
 
-  if (t.scrolled) failures.push('the physical terminal SCROLLED — blessed\'s cell-diff model is desynced from here on');
+  // No rune the terminal draws wider than blessed measures it may ever reach
+  // the screen: such a row is one column wider than composed, so the terminal
+  // wraps it — and a wrap on the BOTTOM row scrolls the whole frame out of
+  // sync. The waiting status line ('⏳ клиентот пишува…') was exactly that bug;
+  // this pins the narrowGlyphs() guard (src/tui/layout.ts) end to end.
+  {
+    const wide: string[] = [];
+    for (const ch of stream) if (hasWideGlyph(ch)) wide.push(ch);
+    if (wide.length) {
+      failures.push(`${wide.length} wide-glyph rune(s) reached the terminal (e.g. ${JSON.stringify(wide.slice(0, 3).join(''))}) — the row they sit in will wrap`);
+    }
+  }
+
+  if (t.scrolled) {
+    const why = 'the physical terminal SCROLLED — blessed\'s cell-diff model is desynced from here on';
+    // In the AMBIGUOUS-WIDTH model every row carrying '·' / '…' overflows the
+    // margin, because blessed composed it for width 1 — that is a property of
+    // the layout, not of the writes. Report it; enforce no-scroll only under
+    // the width model the terminal actually uses (the default replay).
+    if (process.env.TUI_WIDE_AMB === '1') wideAmbNote = why;
+    else failures.push(why);
+  }
   if (t.overflowCup) failures.push('blessed addressed a cursor position OUTSIDE the screen');
 
-  for (const l of ['┌─ ПОРАКА', '┌─ РАЗГОВОР', '┌─ СОПСТВЕНИК']) {
+  // The wait-window contract (one write per visible second, whole rows only)
+  // and the idle gate (a redundant render writes nothing).
+  if (WAIT_SECS > 0) {
+    if (waitFrames > WAIT_SECS + 1) {
+      failures.push(`the ${WAIT_SECS}s wait wrote ${waitFrames} frames (max ${WAIT_SECS + 1} — one per visible second)`);
+    }
+    if (waitChunks > WAIT_SECS + 1) {
+      failures.push(`the ${WAIT_SECS}s wait flushed ${waitChunks} chunks (max ${WAIT_SECS + 1})`);
+    }
+    // NOTE: per-run granularity is informational here. A whole-row write is
+    // still made of attribute-separated runs (borders, colours), so short runs
+    // can appear inside ONE cursor-addressed write; the hazard is the NUMBER
+    // of writes, which is what the frame/chunk bounds above pin. The
+    // whole-row property itself is pinned in tests/tui-paint.test.ts.
+  }
+  if (noopFrames !== 0 || noopBytes !== 0) {
+    failures.push(`an unchanged frame was still written: ${noopFrames} frame(s) / ${noopBytes} bytes for three identical renders`);
+  }
+
+  // Labels: each pane's label must appear EXACTLY once — except when the pane
+  // is too short to hold a labeled border at all (a 14-row terminal leaves the
+  // chat pane a single row, so blessed legitimately omits its label there).
+  const panes: Array<[string, any]> = [
+    ['┌─ ПОРАКА', boxes.inputBox],
+    ['┌─ РАЗГОВОР', boxes.chatBox],
+    ['┌─ СОПСТВЕНИК', boxes.ownerBox],
+  ];
+  for (const [l, box] of panes) {
     const n = rows.filter(r => r.includes(l)).length;
-    if (n !== 1) failures.push(`label "${l}" appears ${n}× (must be exactly 1)`);
+    if (n === 1) continue;
+    const height = Number(box?.lpos?.height ?? 0);
+    if (n === 0 && height < 2) {
+      console.log(`  note: pane "${l}" is ${height} row(s) tall at ${ROWS} rows — its label cannot be drawn`);
+      continue;
+    }
+    failures.push(`label "${l}" appears ${n}× (must be exactly 1)`);
   }
 
   const ownerRow = rows.findIndex(r => r.includes('┌─ СОПСТВЕНИК'));
@@ -323,6 +345,9 @@ async function main(): Promise<void> {
 
   console.log(`frame-check ${COLS}x${ROWS} rounds=${ROUNDS}${resized ? ` shrink→${RESIZE_ROWS}` : ''}${process.env.TUI_WIDE_AMB === '1' ? ' wide-amb' : ''}: ${chunks.length} flushed frames, ${stream.length} bytes`);
   console.log(`  write runs: ${t.tinyRuns} tiny (≤2 chars, info only — healed by the full repaint), longest ${t.maxRun}, ED2×${t.ed2Count}`);
+  console.log(`  wait window: ${waitFrames} frames / ${waitChunks} chunks / ${waitBytes} bytes for ${WAIT_SECS}s (limit ${WAIT_SECS + 1} frames), ${waitTiny} tiny runs (info), longest ${waitMaxRun}`);
+  console.log(`  idle gate: ${noopFrames} frames / ${noopBytes} bytes for 3 redundant renders (must be 0)`);
+  if (wideAmbNote) console.log(`  wide-amb diagnostic: ${wideAmbNote}`);
   if (failures.length) {
     console.error('FRAME CORRUPTION REPRODUCED:');
     for (const f of failures) console.error('  ✗ ' + f);

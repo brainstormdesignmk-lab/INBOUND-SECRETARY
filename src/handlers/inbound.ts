@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, isDistanceQuestion, extractDistancePlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, isDistanceQuestion, extractDistancePlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -53,6 +53,7 @@ import {
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
   SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER,
   NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER,
+  provisionLadder, type ProvisionRung,
 } from '../llm/prompts';
 import { detectRecommendAsk, collectMentionedEbs, buildRecommendation } from '../llm/recommend';
 
@@ -81,7 +82,7 @@ function poiNameFollowsClientWords(clientText: string, poiName: string): boolean
 }
 // GREETING_ONLY_RE moved to deterministic.ts (shared with the pre-classify's
 // greeting ownership — the 15:12 TUI capture) and imported below.
-const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветен имот.';
+const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветна недвижност.';
 const OWNER_COUNTER_RELAY = (t: string) =>
   `Сопственикот е достапен, но предложи поинаков термин: ${mkTimePhrase(t)}. Дали овој термин Ви одговара?`;
 // The owner CAN'T do the client's proposed time and gave NO alternative. Lina
@@ -92,7 +93,32 @@ const OWNER_COUNTER_RELAY = (t: string) =>
 const OWNER_CANT_TIME_RELAY = (t: string) =>
   `Сопственикот не може во тој термин (${mkTimePhrase(t)}). ${VISIT_TIME_QUESTION}`;
 const OWNER_GONE_REPLY = (eb: number, note: string) =>
-  `За жал, имотот со Евидентен број ${eb} ${note}. Дозволете ми да проверам што друго имаме што одговара на Вашите критериуми.`;
+  `За жал, недвижноста со Евидентен број ${eb} ${note}. Дозволете ми да проверам што друго имаме што одговара на Вашите критериуми.`;
+
+/**
+ * TYPED-CATEGORY EMPTY (the [09:29] business capture) — the answer for a
+ * деловен простор / куќа / плац search with NOTHING in its own category
+ * anywhere in budget. The category is never swapped (a typing client asked
+ * for THAT kind of property; serving flats — the capture answered a 500 м² /
+ * 500.000 € business ask with two ЕБ apartments — is a wrong answer, not a
+ * consolation). The line names the category and the budget and offers the
+ * register step; a bare „да" then walks the existing queueAfterContact →
+ * contact_collection flow, so the criteria are kept.
+ * Returns undefined for untyped (apartment) searches — they keep the normal
+ * no-match → exhausted → register ladder.
+ */
+function typedNoMatchLine(slots: ChatSession['slots']): string | undefined {
+  const kind = slots.business === true ? 'деловен простор'
+    : slots.house === true ? 'куќа'
+    : slots.plac ? 'плац'
+    : undefined;
+  if (!kind) return undefined;
+  // The slot often carries a feed qualifier ("Центар (населба)"); clients
+  // never say the parenthetical — displayAreaName drops it for prose.
+  const where = slots.location ? ` во ${displayAreaName(slots.location)}` : '';
+  const budget = slots.budget ? ` (буџет до ${slots.budget} евра)` : '';
+  return `Во моментов немам ${kind}${where} што одговара на Вашите барања${budget}. Можам да ги забележам Вашите критериуми и да Ве известам штом се појави соодветна опција — дали да Ве запишам?`;
+}
 
 export interface HandleOpts {
   kind?: 'text' | 'other';
@@ -268,7 +294,7 @@ export class InboundHandler {
    *  nothing. Reply shape — agency rules:
    *    „Тоа се наоѓа во близина на {landmark}."
    *    + one original Google link (no tinyurl, no second coordinate sentence)
-   *  No "X мин пеш", no "Имотот е приближно тука:" — the client drills into
+   *  No "X мин пеш", no "Недвижноста е приближно тука:" — the client drills into
    *  the landmark itself, never the street. */
 
   // ── MENTION BINDING (the 12:33 transcript, approved scope B) ──────────
@@ -308,7 +334,11 @@ export class InboundHandler {
     const cands: MentionCandidate[] = discussed.map(p => {
       const c: MentionCandidate = {
         eb: p.eb, price: p.price, bedrooms: p.bedrooms, sqm: p.sqm,
-        business: p.business, house: p.house, location: p.location,
+        business: p.business, house: p.house,
+        // The feed's Гарсоњера category (see isStudio): without it the type
+        // noun "garsonjerava" scores negative on every candidate and binds
+        // nothing (the [23:09] capture).
+        studio: p.studio, location: p.location,
         details: p.details, landmark: p.landmark, landmarks: p.landmarks,
         lat: p.lat, lon: p.lon,
       };
@@ -345,7 +375,7 @@ export class InboundHandler {
     // never a silent wrong property).
     const labels = (match.candidates ?? []).map(describeCandidate).join(', ');
     if (!labels) return undefined;
-    return { clarify: `Кажете ми точно на кој имот мислите — ${labels}?` };
+    return { clarify: `Кажете ми точно на која недвижност мислите — ${labels}?` };
   }
 
   /** Sends the clarify line for an ambiguous mention; reports that it did. */
@@ -387,7 +417,7 @@ export class InboundHandler {
         // names "населбата" — echoing the tag reads as a stutter
         // ("во населбата Центар (населба)"). Strip only the settlement tag.
         const loc = p.location.replace(/\s*\(населба\)\s*$/u, '');
-        return `Имотот се наоѓа во населбата ${loc}. Точната адреса ќе ја добиете на денот на посетата.`;
+        return `Недвижноста се наоѓа во населбата ${loc}. Точната адреса ќе ја добиете на денот на посетата.`;
       }
       return pickVariant('location.unknown', {
         recent: assistantTexts(session),
@@ -445,9 +475,9 @@ export class InboundHandler {
           ?? 'Мислам дека Ви е јасен реонот во кој се наоѓа недвижнината. Точната адреса ќе ја дознаете на ден на посетата.';
       }
       const protoLines = [
-        'Точната адреса на имотот ја споделуваме два часа пред средбата, согласно политиките на Агенцијата.',
+        'Точната адреса на недвижноста ја споделуваме два часа пред средбата, согласно политиките на Агенцијата.',
         'За безбедност на сопственикот, точната адреса се открива на денот на посетата — тоа е правило на Агенцијата.',
-        'Агенцијата ги штити информациите за имотот. Точната адреса ќе ја дознаете кога ќе се договориме за термин.',
+        'Агенцијата ги штити информациите за недвижноста. Точната адреса ќе ја дознаете кога ќе се договориме за термин.',
         'Заради приватноста на сопственикот, адресата се споделува само по закажување на посета. Дали би сакале да закажеме?',
       ];
       session.slots.addressProtocolIndex = protoIdx + 1;
@@ -544,7 +574,7 @@ export class InboundHandler {
     //    for the FIRST unanchored ask); repeating it is the loop. This line
     //    gives the client the actionable escape: name the Евидентен број.
     void userText;
-    return 'Можам да Ви ги покажам ориентирите околу имотот — кажете ми само Евидентен број на станот (на пр. „станот со број 77“), или ако сакате, организирам посета.';
+    return 'Можам да Ви ги покажам ориентирите околу недвижноста — кажете ми само Евидентен број на станот (на пр. „станот со број 77“), или ако сакате, организирам посета.';
   }
 
   // ---------------- landmark (map place) reading ----------------
@@ -904,7 +934,7 @@ export class InboundHandler {
             // Count the rung: the NEXT exact ask must land on turn 2 (the
             // day-of-visit protocol), not re-serve the approximation forever.
             session.slots.exactLocationTurns = turnNoAddr;
-            answer = `Имотот се наоѓа во населбата ${target.location!.replace(/\s*\(населба\)\s*$/u, '')}. Точната адреса ќе ја добиете на денот на посетата.`;
+            answer = `Недвижноста се наоѓа во населбата ${target.location!.replace(/\s*\(населба\)\s*$/u, '')}. Точната адреса ќе ја добиете на денот на посетата.`;
             pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
             pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
             this.deps.sessions.set(session);
@@ -963,9 +993,9 @@ export class InboundHandler {
             const d = Math.round(distM(anchorProp.lat, anchorProp.lon, hit.lat, hit.lon));
             const distPhrase = d < 1000 ? `${Math.max(10, Math.round(d / 10) * 10)} метри` : `${(d / 1000).toFixed(1).replace('.', ',')} километри`;
             const prep = locPrep(anchorProp.location ?? '');
-            answer = `${hit.name} се наоѓа на ${distPhrase} од имотот кој го разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на имотот се открива на денот на посетата.`;
+            answer = `${hit.name} се наоѓа на ${distPhrase} од недвижноста што ја разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на недвижноста се открива на денот на посетата.`;
           } else {
-            answer = `Тоа е ориентир во градот — имотот кој го разгледуваме е ${locPrep(anchorProp.location ?? '')} ${anchorProp.location}.`;
+            answer = `Тоа е ориентир во градот — недвижноста што ја разгледуваме е ${locPrep(anchorProp.location ?? '')} ${anchorProp.location}.`;
           }
           session.slots.location = anchorProp.location ?? session.slots.location;
           routeLog(chatId, text, 'WHERE_LANDMARK');
@@ -1032,7 +1062,7 @@ export class InboundHandler {
           // Walking time only when it is honest (a real walk, not a 3-hour one).
           const mins = walkMinutes(d);
           const walk = d >= 100 && d <= 2000 ? ` (околу ${mins} минути пешки)` : '';
-          const answer = `${hit.name} се наоѓа на ${distPhrase}${walk} од имотот кој го разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на имотот се открива на денот на посетата.`;
+          const answer = `${hit.name} се наоѓа на ${distPhrase}${walk} од недвижноста што ја разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на недвижноста се открива на денот на посетата.`;
           session.slots.location = anchorProp.location ?? session.slots.location;
           routeLog(chatId, text, 'DISTANCE');
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -1147,7 +1177,7 @@ export class InboundHandler {
           // named nothing at all ("na koja strana e ?"). Two ways out, and the
           // fee pitch is neither:
           //   • a named place the map knows ELSEWHERE is POI-CONFIRM's honest
-          //     far correction ("Не, тоа е 2 км од имотот") — leave it there;
+          //     far correction ("Не, тоа е 2 км од недвижноста") — leave it there;
           //   • with no place to correct, the message is still a LOCATION
           //     question, so it gets the property's own approximate location —
           //     the same code-owned line (and the same ladder) as "kade e?".
@@ -1227,7 +1257,7 @@ export class InboundHandler {
               : `на ${(d / 1000).toFixed(1).replace('.', ',')} километри од`;
             answer = near
               ? `${d != null && d <= 300 ? 'Да, директно до' : 'Да, во непосредна близина на'} ${hit.name}. ${poiHint}`
-              : `Не, тоа е ${distPhrase} ${hit.name}, а имотот е ${prep} ${actualLoc}. Точната адреса се открива на денот на посетата.`;
+              : `Не, тоа е ${distPhrase} ${hit.name}, а недвижноста е ${prep} ${actualLoc}. Точната адреса се открива на денот на посетата.`;
           }
         }
         if (!answer && placeCandidate) {
@@ -1254,6 +1284,169 @@ export class InboundHandler {
       }
       // No map hit, no neighborhood reading, no confirm form → fall through
       // untouched (LLM handles it with full context).
+    }
+
+    // WHICH PROPERTY / PROPERTY CHOICE (the [00:06]–[00:08] live burst).
+    // A batch is on the table; the client says "E OVOJ MOZE" (this one works)
+    // and then "ZA KOJ STAN STANUVA ZBOR ?". Two deterministic obligations:
+    //   • the CHOICE arms the flat the client is looking at (the last served
+    //     card) and, when the fee has not been disclosed yet, hands the session
+    //     to the fee question — it is NOT consent, and it must never jump to
+    //     contact collection before the money gate (the [00:06] field bug);
+    //   • the WHICH-question names that flat (EB + neighbourhood + price) and
+    //     asks whether the choice stands. It used to be answered with the FEE
+    //     copy — the client asked which flat, and heard the 500 again.
+    // Runs before the fee/price/contact lanes; a fee-sized amount in the
+    // message disqualifies the choice reading (detectPropertyChoice).
+    if (!session.slots.viewingFeeAgreed && !['queued', 'terminated', 'escalated'].includes(session.state)) {
+      const whichAsk = detectWhichPropertyAsk(text);
+      const choice = !whichAsk && detectPropertyChoice(text);
+      if (whichAsk || choice) {
+        const anchorEb = session.slots.interestedPropertyId ?? session.slots.propertyId
+          ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
+          ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+        const anchor = anchorEb != null
+          ? await this.deps.properties.getById(anchorEb).catch(() => undefined)
+          : undefined;
+        if (anchor) {
+          session.slots.interestedPropertyId = anchor.eb;
+          if (session.slots.propertyId == null) session.slots.propertyId = anchor.eb;
+        }
+        const fmtPrice = (n: number | undefined) => n === undefined ? '-' : n.toLocaleString('mk-MK', { maximumFractionDigits: 1 });
+        let reply: string;
+        let bankKey: string;
+        if (whichAsk) {
+          bankKey = anchor ? 'property.which.anchor' : 'property.which.none';
+          reply = anchor
+            ? (pickVariant('property.which.anchor', {
+                recent: assistantTexts(session),
+                vars: { eb: String(anchor.eb), location: anchor.location ?? '', price: fmtPrice(anchor.price) },
+              }) ?? `За станот што го одбравте — Евидентен број ${anchor.eb}${anchor.location ? ` во ${anchor.location}` : ''}${anchor.price !== undefined ? `, ${fmtPrice(anchor.price)} евра` : ''}. Дали останува Вашиот избор?`)
+            : (pickVariant('property.which.none', { recent: assistantTexts(session) })
+              ?? 'Не можам да одредам за кој стан зборувате — кажете ми го Евидентен број (на пр. „станот со број 88“) и веднаш ќе Ви кажам детали.');
+          routeLog(chatId, text, 'WHICH_PROPERTY:fast');
+        } else {
+          // The choice was made in the PRESENTATION (or earlier): disclose the
+          // fee first. In closing the fee is already on the table, so the
+          // normal fee/interest lanes own the turn (no duplicate disclosure).
+          if (session.state === 'closing' || !anchor) {
+            reply = ''; bankKey = '';
+          } else {
+            session.slots.ownerContactPending = false;
+            session.state = 'closing';
+            const svc = session.slots.service ?? anchor.service ?? 'buy';
+            bankKey = svc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+            reply = pickVariant(bankKey, { recent: assistantTexts(session) }) ?? buildFeeAsk(svc);
+            routeLog(chatId, text, 'PROPERTY_CHOICE:fast');
+          }
+        }
+        if (reply) {
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PROPERTY_ANCHOR_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+          console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-property-anchor) state=${session.state} src=deterministic bank=${bankKey}`);
+          await this.sendRaw(session, reply, 'deterministic:fast');
+          return;
+        }
+      }
+    }
+
+    // FEE-AMOUNT ASK — the client asks what the VISIT costs: "KOLKU E ZA
+    // POSETA?", "kolku ke me kosta 10 poseti?", "KOJA E CENATA NA
+    // RAZGLEDUVANJETO?". The OBJECT of the question is the FEE, so every
+    // property lane below answers the wrong thing — the INFO block served the
+    // flat's rent ("Станот со Евидентен број 79 — киријата изнесува 250 евра"),
+    // the negotiate lane the owner-price policy. The answer is the fee
+    // DISCLOSURE (fee.ask; the AGNOSTIC copy when no market is declared) and
+    // the funnel lands at the fee question. Runs FIRST in this region, before
+    // freshness/negotiate/INFO/price can claim the message.
+    if (detectFeeAmountAsk(text)
+      && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle', 'property_locate', 'contact_collection'].includes(session.state)) {
+      if (!session.slots.service) session.slots.service = this.feeServiceHint;
+      const askSvc = session.slots.service;
+      const askKey = askSvc === undefined ? undefined : askSvc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+      // NO DECLARED MARKET → the AGNOSTIC disclosure (buildFeeAsk(undefined)
+      // names BOTH fees), never a defaulted buy copy — the [09:0x] rule, which
+      // exists because a reset session used to quote 500 ден/0% at a renter.
+      const askReply = askKey
+        ? (pickVariant(askKey, { recent: assistantTexts(session) }) ?? buildFeeAsk(askSvc))
+        : buildFeeAsk(undefined);
+      // The fee is on the table now — the same place every other disclosure
+      // leaves the funnel. From a post-gate state (contact_collection) the
+      // state stands: the client is asking about a fee already agreed.
+      if (['property_query', 'presentation', 'discovery', 'intent', 'idle', 'property_locate'].includes(session.state)) {
+        session.state = 'closing';
+      }
+      routeLog(chatId, text, 'FEE_AMOUNT_ASK:fast');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: askReply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_AMOUNT_ASK_FAST', userMsg: text, replyText: askReply, replySource: 'deterministic', bankKey: askKey ?? 'fee.ask.agnostic' }); } catch { /* ignore */ } }
+      console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-fee-amount) state=${session.state} src=deterministic bank=${askKey ?? 'fee.ask.agnostic'}`);
+      await this.sendRaw(session, askReply, 'deterministic:fast');
+      return;
+    }
+
+    // PROVISION (rent-commission) RESISTANCE — the second money topic, its OWN
+    // ladder and its OWN counter. The rent commission (50% of one monthly rent
+    // below 1.000 €, one full rent from 1.000 € up) is money the client pays us
+    // BESIDE the visit fee, and it gets resisted the same way: "50% E MNOGU",
+    // "NE SAKAM DA PLATAM PROVIZIJA", "нема да платам провизија". Before this
+    // lane those bursts burned a VISIT-FEE rung (the negation + payment verb
+    // read as a fee refusal) and answered a commission complaint with the
+    // visit-fee copy — wrong topic AND wrong ladder. The serve is the
+    // commission's own four rungs; slots.feeRejections is never touched (the
+    // isolation contract, tests/fee-serve-routing.test.ts). A buyer pays 0%
+    // commission: resistance there is a misunderstanding, so provisionLadder
+    // returns the 0%-clarification and no rung is counted. Runs FIRST in this
+    // region — before freshness/negotiate/INFO/price can claim the message.
+    if (detectProvisionResistance(text)
+      && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle', 'property_locate', 'contact_collection'].includes(session.state)) {
+      const served = this.serveProvisionResistance(session, text);
+      routeLog(chatId, text, 'PROVISION_PUSH:fast');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: served.reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PROVISION_PUSH_FAST', userMsg: text, replyText: served.reply, replySource: 'deterministic', bankKey: served.bankKey }); } catch { /* ignore */ } }
+      console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-provision-ladder) state=${session.state} src=deterministic bank=${served.bankKey} rung=${served.rung}`);
+      await this.sendRaw(session, served.reply, 'deterministic:fast');
+      return;
+    }
+
+    // THE FEE-NAG LADDER (both markets, one order) — EARLY, right after the
+    // commission ladder and for the same reason: a nag is money traffic, and
+    // money traffic must not pass through the search machinery. Every resistance
+    // shape — charge accusation ("PARI ZA POSETA BARATE"), value complaint
+    // ("MNOGU NEKAKO 500DEN…", "SKAPO E TOA . ZA SEKOJ STAN PO 300DEN"),
+    // "nobody charges but you", refusal and surprise — burns exactly ONE visit-
+    // fee rung: persuade → agency rule → decision → graceful close. Runs in
+    // `closing` AND in `presentation` (the [23:12] field case: the client was
+    // looking at a batch when he objected; from the late lane the criteria/
+    // present path claimed the message first and answered a fee objection with
+    // MORE PROPERTIES, and the bookkeeping grew by a batch nobody saw). The
+    // commission counter is never touched (the isolation contract).
+    if ((session.state === 'closing' || session.state === 'presentation')
+      && !session.slots.viewingFeeAgreed
+      && detectFeeNag(text)
+      // OPTIONS ASK WINS (the [22:2x] joined burst): the relay joins a client's
+      // burst into one turn, so "pari za poseta / nesto novo" carries a fee jab
+      // AND a shopping ask. The client is asking for alternatives, and the fee
+      // was already disclosed — answering with another rung is the loop the
+      // field transcript shows. detectMoreOptions is deliberately narrow: the
+      // fee-sized amount complaint ("SKAPO E TOA . ZA SEKOJ STAN PO 300DEN")
+      // reads as suggest-alternatives, so THAT predicate must never gate this
+      // lane, or nag 3 of the ladder would be lost to the options engine.
+      && !detectMoreOptions(text)) {
+      const served = this.serveFeeNagLadder(session);
+      routeLog(chatId, text, 'FEE_PUSH:fast');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: served.reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_PUSH_FAST', userMsg: text, replyText: served.reply, replySource: 'deterministic', bankKey: served.bankKey }); } catch { /* ignore */ } }
+      console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-fee-ladder) state=${session.state} src=deterministic bank=${served.bankKey} rung=${served.rung}`);
+      await this.sendRaw(session, served.reply, 'deterministic:fast');
+      return;
     }
 
     // PRICE FRESHNESS (08:50 protocol) — "a dali mu e uste taa cena?" (the
@@ -1353,6 +1546,18 @@ export class InboundHandler {
         // the fee funnel swallowed the shopping intent. A more-marker ask
         // belongs to the options lane even when it names the old price.
         && !detectMoreOptions(text)
+        // FEE-TRAFFIC veto (the [00:08] burst): "KOJA SIMBOLICNA CENA .
+        // 500DEN SE PARI" carries a cena facet, but it is an objection to the
+        // VISIT FEE — the INFO block answered it with the flat's 133.000. Any
+        // fee traffic belongs to the fee lanes, never the price facet.
+        && !isFeeTraffic(text)
+        // COMMISSION veto (the same misclassification class as the fee-amount
+        // ask): "KOLKU E PROVIZIJATA?" is a money question whose OBJECT is the
+        // agency commission, and the price facet claimed it — the client got
+        // the flat's rent ("Станот со Евидентен број 79 — киријата изнесува
+        // 250 евра") instead of the published tier rule. Commission traffic
+        // belongs to provision.ask / provision.who below.
+        && !detectProvisionAsk(text) && !detectProvisionWho(text)
         && (session.slots.propertyId || session.slots.interestedPropertyId
           || session.slots.presentedIds?.length)) {
         const mbInfo = await this.bindMention(text, session, { historyFallback: true });
@@ -1630,8 +1835,16 @@ export class InboundHandler {
     if (whereIs) {
       routeLog(chatId, text, 'WHERE_IS');
       const all = await this.deps.properties.getAll();
-      const shownIds = new Set(session.slots.presentedIds ?? []);
-      const shown = all.filter(p => shownIds.has(p.id));
+      // PRESENTATION ORDER, not feed order: "the last shown" must mean the last
+      // card the client SAW. Filtering the feed left shown[] in feed order, so
+      // the tail could be a card from the TOP of the batch — the [23:09]
+      // capture answered "GARSONJERAVA KAJ SE NAOGJA TOCNO?" with the other
+      // property's landmark whenever the feed ordered them the other way
+      // round. Every other "last shown" site in this file already reads
+      // presentedIds[last]; this is the same rule.
+      const shown = (session.slots.presentedIds ?? [])
+        .map(id => all.find(p => p.id === id))
+        .filter((p): p is Property => !!p);
       let hit: Property | undefined;
       // MENTION BINDING — the 12:33 rule: name-by-anything beats "last
       // shown". A clear bind takes the reply, ambiguity asks back once,
@@ -2028,38 +2241,30 @@ export class InboundHandler {
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
-      // FEE CHARGE ACCUSATION ([00:27] TUI): "PARI ZA POSETA BARATE" — the
-      // client objects to PAYING for the visit at all. Not a why-question
-      // (nothing to explain) and not a refusal with a payment object: it is
-      // the FIRST resistance rung, so she PERSUADES ONCE (value framing, the
-      // declared market's copy) instead of re-disclosing the fee — the
-      // re-disclosure is exactly what the capture showed (the accusation was
-      // read as fresh INTERESTED and served the fee.ask again).
-      if (session.state === 'closing' && !session.slots.viewingFeeAgreed
-        && detectFeeChargePushback(text)) {
-        if (!session.slots.service) session.slots.service = this.feeServiceHint;
-        session.slots.feeRejections = (session.slots.feeRejections ?? 0) + 1;
-        if ((session.slots.feeRejections ?? 0) >= 4) {
-          // The decision question was already asked and not accepted — the
-          // bye protocol (same close the FSM leg serves through 'queued').
-          session.state = 'queued';
-          this.queueCustomer(session, '3x одбиен надомест');
-          reply = pickVariant('fee.graceful.close', { recent: assistantTexts(session) }) ?? FEE_GRACEFUL_CLOSE;
-          bankKey = 'fee.graceful.close';
-        } else {
-          const rung = feeLadder(session.slots.service, session.slots.feeRejections ?? 1);
-          reply = pickVariant(rung.key, { recent: assistantTexts(session) }) ?? rung.line;
-          bankKey = rung.key;
-        }
-        routeLog(chatId, text, 'FEE_PUSH:fast');
-        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
-        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
-        this.deps.sessions.set(session);
-        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_PUSH_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
-        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
-        await this.sendRaw(session, reply, 'deterministic:fast');
-        return;
-      }
+      // THE FEE-NAG LADDER (both markets, one order): every resistance shape —
+      // charge accusation ("PARI ZA POSETA BARATE", "PARI ZEMATE ZA POSETA ?"),
+      // value complaint ("MNOGU NEKAKO 500DEN..."), "nobody charges but you",
+      // refusal and surprise — burns exactly ONE visit-fee rung: persuade →
+      // agency rule → decision → graceful close. Before this, complaints and
+      // "nikoj ne naplatuva" were answered from fee.why WITHOUT advancing, so
+      // the ladder stalled on repeated filter answers and never reached the
+      // rule or the decision (the 300/500 transcript). detectFeeNag is the one
+      // grammar-based predicate for both fees; the commission lane above keeps
+      // its own counter untouched (the isolation contract).
+      // PRESENTATION IS A FEE CONTEXT TOO (the [23:12] field case): a client
+      // looking at a batch of flats can object to the fee he was told about
+      // earlier. Before this gate, the nag fell into the criteria/present
+      // machinery and the funnel answered a fee objection with MORE PROPERTIES —
+      // the exact pivot the fix above killed for the cheaper-search lane. The
+      // ladder owns the objection in presentation as well; the counter is the
+      // same one (a nag is a nag wherever the client is standing).
+      // (The fee-nag ladder used to live HERE, ~800 lines into the chain — after
+      // the criteria extraction, the area locks and the property loaders had
+      // already run. A nag therefore MUTATED the search bookkeeping on its way
+      // to the ladder: presentedIds grew by a batch the client never saw
+      // (fee=1 in presentation appended EB 78). It now runs FIRST in this
+      // region — see the lane right after the commission ladder — so a fee
+      // objection reaches NO search machinery at all.)
       // FIRST TIME HEARING THE FEE ([00:28] TUI): "OVA PRV PAT SLUSAM" — the
       // client is not asking WHY the fee exists, he is saying he never met it
       // before. The answer is the FACT, not another filter rationale: it is
@@ -2286,7 +2491,10 @@ export class InboundHandler {
       // classifier as DETAILS_PROVIDED instead of being swallowed here.
       if (detectPriceAsk(text) && !detectBudget(text)
           && !detectProvisionAsk(text) && !detectProvisionWho(text) && !detectDrugAlternative(text)
-          && !detectFeeComplaint(text)) {
+          && !detectFeeComplaint(text)
+          // FEE-TRAFFIC veto: a fee objection that happens to carry "cena"
+          // must climb the fee ladder, never quote the property's price.
+          && !isFeeTraffic(text)) {
         // MENTION BINDING (12:33 rule, fast leg): this path PREEMPTS the FSM
         // price branch (same detector guard, earlier in the pipeline), so
         // without a bind here a NAMED price ask ("KOLKU E GARSONJERATA KAJ
@@ -2528,6 +2736,9 @@ export class InboundHandler {
     }
     const before = session.state;
     let next = transition(before, ev);
+    /** True when the FSM-leg nag branch already served (and counted) this
+     *  turn's visit-fee rung — the FEE_REFUSED ladder must not count it twice. */
+    let nagRungServed = false;
 
     // Mid-discovery the client asks to SEE current offers before the criteria
     // are complete ("што имате во понуда?", "помало нешто", "покажи ми") —
@@ -2643,7 +2854,7 @@ export class InboundHandler {
     // the why-question (the [12:40] family).
     const feeRulesQuestion = detectFeeRules(text) && !feeWhyQuestion;
     const feeExplQuestion = feeWhyQuestion || feeRulesQuestion;
-    if (ev.type === 'FEE_REFUSED' && before === 'closing' && !feeExplQuestion) {
+    if (ev.type === 'FEE_REFUSED' && before === 'closing' && !feeExplQuestion && !nagRungServed) {
       // Copy follows the DECLARED market (the [09:0x] 500-den bug): the
       // message itself is the truth — a rent declaration in a burst must win
       // over the stale/reset slot before the 300-vs-500 rungs are built.
@@ -2651,6 +2862,9 @@ export class InboundHandler {
       // FSM-leg refusal branch where props is in scope.)
       if (!session.slots.service) session.slots.service = this.feeServiceHint;
       session.slots.feeRejections = (session.slots.feeRejections ?? 0) + 1;
+      // The rung is counted here; the FSM-leg nag branch must serve it without
+      // incrementing again (one turn = one rung).
+      nagRungServed = true;
       // 3 persuasion attempts before graceful close: 1st refusal → persuade,
       // 2nd refusal → ask what concerns you + persuade, 3rd refusal → one more
       // try, 4th → graceful close (queued).
@@ -2899,6 +3113,12 @@ export class InboundHandler {
         // Fee traffic stays in the fee lanes (fee.why at closing).
         && !detectNegatedAgreement(text)
         && !detectFeeComplaint(text)
+        // FEE-NAG VETO (the [23:12] capture): "SKAPO E TOA . ZA SEKOJ STAN PO
+        // 300DEN" is a complaint about the FEE whose only number IS the fee —
+        // it was not recognised as fee traffic at all, so this pivot fired and
+        // the funnel abandoned the fee ladder for a property pair. A nag
+        // belongs to the ladder, never to the search machinery.
+        && !detectFeeNag(text)
         // In presentation, a criteria message that carries a cheaper-word
         // ("една спална, нешто поевтино, до 50") is a FILTER — the dedicated
         // re-present branch's job. A BARE cheaper-ask (no bedrooms/sqm/
@@ -2984,7 +3204,7 @@ export class InboundHandler {
       // Check if this is a price/availability complaint (not a fresh search)
       if (detectExhaustedFollowUp(text) || detectInvestmentOpinion(text) || detectPriceAsk(text) || detectFeeComplaint(text)) {
         reply = pickVariant('investment.opinion', { recent: assistantTexts(session) })
-          ?? 'Ве разбирам. Цените ги одредуваат сопствениците на имотите, а ние сме тука само како посредници. Дали сакате да Ви понудам некои опции во друг реон, или да го контактирам сопственикот за моменталната цена?';
+          ?? 'Ве разбирам. Цените ги одредуваат сопствениците на недвижностите, а ние сме тука само како посредници. Дали сакате да Ви понудам некои опции во друг реон, или да го контактирам сопственикот за моменталната цена?';
         bankKey = 'investment.opinion';
       } else {
         // Pure new search — reset exhausted and reload props
@@ -3106,7 +3326,12 @@ export class InboundHandler {
     // Exhausted dead-end escape: once every option is shown (props empty), an
     // agreement message must move to contact collection, never loop the same
     // exhausted line. (Runs after the state transition above.)
-    if (next === 'presentation' && props.length === 0 && detectAgreement(text)) {
+    if (next === 'presentation' && props.length === 0 && detectAgreement(text)
+        // PROPERTY CHOICE is not agreement (the [00:06] burst): "E OVOJ MOZE"
+        // picks a flat from the batch on screen; treating it as exhausted-
+        // options consent jumped to contact collection with the FEE NEVER
+        // DISCLOSED. The choice lane above owns it.
+        && !detectPropertyChoice(text)) {
       next = 'contact_collection';
       session.state = next;
       session.slots.queueAfterContact = true;
@@ -3566,6 +3791,38 @@ ${contactReminder}`;
       reply = fee;
       bankKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
 
+    } else if ((next === 'closing' || session.state === 'closing' || before === 'closing')
+        && detectProvisionResistance(text)) {
+      // PROVISION ladder — the FSM-leg mirror of the fast lane. It sits BEFORE
+      // every fee leg for two reasons: the commission has its OWN rungs (a
+      // commission complaint must not be answered with visit-fee copy), and a
+      // commission refusal must never burn a VISIT-FEE rung (the isolation
+      // contract). The fast lane owns the common case; this leg is what makes
+      // the guarantee hold for FSM-forced turns too.
+      const served = this.serveProvisionResistance(session, text);
+      reply = served.reply;
+      bankKey = served.bankKey;
+    } else if ((before === 'closing' || before === 'presentation')
+        && !session.slots.viewingFeeAgreed && detectFeeNag(text)
+        && !detectMoreOptions(text)) { // OPTIONS ASK WINS — same rule as the fast lane
+      // THE NAG LADDER — the FSM-leg mirror of the fast lane above. Same order
+      // for the 300 and the 500: one rung per nag, its own counter, and the
+      // commission counter is never touched (provision resistance is handled
+      // by the branch above). Without this leg, FSM-forced turns bypassed the
+      // fast lane and fee.why answered complaints without advancing.
+      // nagRungServed suppresses the FEE_REFUSED counter below — the same turn
+      // must never burn two rungs (fast lane / refusal ladder are one rung).
+      // The classifier's FEE_REFUSED ladder above may ALREADY have counted
+      // this turn (it runs before the reply chain); never count it twice.
+      // ONE ladder implementation (serveFeeNagLadder): the fast lane and this
+      // leg can never drift apart, and `counted` carries the classifier's
+      // already-burned rung so one message never costs two rungs.
+      const counted = nagRungServed;
+      nagRungServed = true;
+      const served = this.serveFeeNagLadder(session, { counted });
+      reply = served.reply;
+      bankKey = served.bankKey;
+      next = served.rung === 'closed' ? 'queued' : 'closing';
     } else if (detectFeeRules(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)) {
       // Fee-RULES dismissal (the [12:40] serve): "тоа се правилата на
       // агенцијата кои важат и за мене и за Вас" — the client files the fee
@@ -3751,7 +4008,8 @@ ${contactReminder}`;
     } else if (session.state === 'queued') {
       reply = QUEUED_STAY_LINE;
     } else if (detectPriceAsk(text) && !detectProvisionAsk(text) && !detectProvisionWho(text)
-        && !detectDrugAlternative(text)) {
+        && !detectDrugAlternative(text)
+        && !isFeeTraffic(text)) {
       // Price question: the client asks "која е цената?" / "колку чини?"
       // or "не ја памтам цената" (I forgot the price).
       // Look up the most recently discussed property from the feed and show
@@ -3871,7 +4129,7 @@ ${contactReminder}`;
       // discussed property is; Lina must CONFIRM or CORRECT against the
       // property's actual feed location. Never a re-search: the old behavior
       // parsed the named neighborhood as a fresh request and answered "немам
-      // слободен имот во Водно" about a property that IS in Водно — stupid.
+      // слободна недвижност во Водно" about a property that IS in Водно — stupid.
       const isQuestion = !isLocationConfirmMarker(text);
       // MENTION BINDING (12:33 rule): a confirm that NAMES the property
       // ("znaci garsonjerata kaj ambasadata e vo centar?") anchors on THAT
@@ -3924,13 +4182,15 @@ ${contactReminder}`;
       // widen question varies like the other protocol lines; the code-built
       // line stays the fallback.
       session.slots.areaExhausted = true;
+      const typedMiss = typedNoMatchLine(session.slots);
       reply = !this.deps.properties.healthy
         ? FEED_UNAVAILABLE_LINE
-        : (before === 'discovery' || areaRequested
-          ? noMatchLine(session.slots.location ?? ev.location, assistantTexts(session))
-            ?? NO_MATCH_LINE(session.slots.location ?? ev.location)
-          : exhaustedLine(session.slots.location, assistantTexts(session))
-            ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location));
+        : typedMiss
+          ?? (before === 'discovery' || areaRequested
+            ? noMatchLine(session.slots.location ?? ev.location, assistantTexts(session))
+              ?? NO_MATCH_LINE(session.slots.location ?? ev.location)
+            : exhaustedLine(session.slots.location, assistantTexts(session))
+              ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location));
     } else if (next === 'property_query' && props.length > 0
         && !detectAvailabilityAsk(text)
         // A POSITIVE evaluation of the card ("OVOJ 79 NE E LOS", "odlichen")
@@ -3992,7 +4252,7 @@ ${contactReminder}`;
       // ("да") or an alternatives request ("predlozi mi", "drugi lokaciii")
       // must PIVOT to a REAL city-wide presentation instead of repeating the
       // not-found line forever (the stuck loop: every follow-up re-rendered
-      // "не можам да го најдам имотот со Евидентен број 250"). The bad EB is
+      // "не можам да ја најдам недвижноста со Евидентен број 250"). The bad EB is
       // cleared so a later INTERESTED ("sakam da ja vidam") never grabs it.
       const pivot = detectAgreement(text) || detectSuggestAlternatives(text);
       if (pivot && this.deps.properties.healthy) {
@@ -4173,6 +4433,7 @@ ${contactReminder}`;
     // in the final else block below.  Order matters: the table in
     // router.ts SIMPLE_DETECTORS encodes the same precedence.
     } else if (next === 'presentation'
+        && !detectFeeNag(text)   // a fee objection is never a criteria refinement (the [23:12] pivot)
         && (ev.type === 'DETAILS_PROVIDED' || ev.type === 'SEARCH_REQUESTED')) {
       // LLM-free: the client refined criteria mid-presentation ("една спална",
       // "гарсоњера", "во Карпош") — re-search and re-present with the
@@ -4187,7 +4448,7 @@ ${contactReminder}`;
           ? FEED_UNAVAILABLE_LINE
           : (session.slots.propertyId != null
             ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId)
-            : NO_MATCH_LINE(session.slots.location));
+            : typedNoMatchLine(session.slots) ?? NO_MATCH_LINE(session.slots.location));
       } else {
         // The 19:34 fix: the relaxed-intro is TYPE-AWARE. Garsonjera asks get
         // a garsonjera line (never the fabricated "стан со една спална" — the
@@ -4226,19 +4487,31 @@ ${contactReminder}`;
           prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има слични опции кои би можеле да Ви се допаднат. `;
           }
         }
-        // TYPED-RELAX honesty (the [23:59] owner contract): a куќа/плац/
-        // деловен search served from the final fallback tier (nothing in the
-        // category anywhere in budget) must not read the cards as category
-        // matches — the prefix states the miss and offers the closest options.
-        // The drained area is named when known (the [23:59] capture spoke it:
-        // „немам… во Влае"), so the miss reads as area-specific, not generic.
-        const missLoc = session.slots.location ? ` во ${session.slots.location}` : '';
-        if (!prefix && session.slots.house === true && !props.some(p => p.house === true)) {
-          prefix = `Во моментов немам куќа според Вашите барања${missLoc}, но има опции што би можеле да Ве интересираат. `;
-        } else if (!prefix && session.slots.plac && !props.some(p => p.plac === true)) {
-          prefix = `Во моментов немам плац според Вашите барања${missLoc}, но има други опции во Вашиот буџет. `;
-        } else if (!prefix && session.slots.business === true && !props.some(p => p.business === true)) {
-          prefix = `Во моментов немам деловен простор според Вашите барања${missLoc}, но има други опции во Вашиот буџет. `;
+        // TYPED-AREA RELAX (the [23:59] owner contract, tightened by the
+        // [09:29] capture): a typed pool (куќа / плац / деловен простор) can
+        // ONLY be non-empty here from the city-wide retry — every tier keeps
+        // the category, so the cards always match the ask. The prefix says
+        // WHY the area changed instead of reading them as local matches, and
+        // names the drained area the client asked about.
+        if (!prefix && session.slots.location) {
+          const kind = session.slots.business === true ? 'деловен простор'
+            : session.slots.house === true ? 'куќа'
+            : session.slots.plac ? 'плац'
+            : undefined;
+          // Every card sits OUTSIDE the pinned area (the city-wide retry
+          // supplied them) — read that off the rows themselves; the
+          // areaExhausted flag is cleared by the fresh-criteria release on
+          // this same turn and would miss the widen.
+          const elsewhere = props.length > 0
+            && props.every(p => !!p.location && !locMatches(session.slots.location as string, p.location));
+          if (kind && elsewhere) {
+            // Name the areas the cards actually come from: "во други населби"
+            // is the exhausted ASK's wording (and reads as a loop right after
+            // a fresh-criteria pivot), while the concrete names are a fact.
+            const areas = [...new Set(props.map(p => displayAreaName(p.location as string)).filter(Boolean))].slice(0, 2);
+            const cardsIn = areas.length > 1 ? `во ${areas[0]} и ${areas[1]}` : `во ${areas[0]}`;
+            prefix = `Во моментов немам ${kind} во ${displayAreaName(session.slots.location)} што одговара на Вашите барања, но имам ${kind} ${cardsIn}: `;
+          }
         }
         // Price-priority clients ("што поевтино", "daj nesto poeKtino") get a
         // dedicated bank intro — the default opener reads as if the price
@@ -4261,7 +4534,7 @@ ${contactReminder}`;
         if (!prefix && session.slots.poiAnchorTooFar && session.slots.poiAnchor) {
           const anchorPlace = displayPlaceName(session.slots.poiAnchor);
           prefix = pickVariant('poi.tooFar', { recent: assistantTexts(session), vars: { place: anchorPlace } })
-            ?? `Во моментов немам имот во непосредна близина на ${anchorPlace}. Еве ги најблиските опции во ${session.slots.location ?? 'реонот'}:`;
+            ?? `Во моментов немам недвижност во непосредна близина на ${anchorPlace}. Еве ги најблиските опции во ${session.slots.location ?? 'реонот'}:`;
           bankKey = 'poi.tooFar';
           session.slots.poiAnchorTooFar = undefined; // once per search
         }
@@ -4405,6 +4678,17 @@ ${contactReminder}`;
       } catch (e) {
         console.error('[enrichment] log failed:', (e as Error).message);
       }
+    }
+
+    // THE DISCLOSURE TURN IS NEVER CONSENT. A visit command ("KONTAKTIRAJTE
+    // GO I KAZETE MI", "DOGOVORI MI") is also an agreement token, so the
+    // classifier could set viewingFeeAgreed on the very turn that DISCLOSED
+    // the fee. The next message — even a fee question ("PARI ZEMATE ZA
+    // POSETA ?") — then jumped straight to contact collection: the rent
+    // capture. Serving fee.ask means the fee is by definition NOT yet agreed.
+    if ((bankKey === 'fee.ask.rent' || bankKey === 'fee.ask.buy') && session.slots.viewingFeeAgreed) {
+      session.slots.viewingFeeAgreed = undefined;
+      this.deps.sessions.set(session); // re-persist after clearing
     }
 
     const pipelineMs = Date.now() - pipelineStart;
@@ -4675,6 +4959,87 @@ ${contactReminder}`;
       propertyId, service: serviceLabel(session.slots.service), viewingFee: fee, time,
     })}`);
     return rowId;
+  }
+
+  /** The RENT-COMMISSION ladder serve — the SINGLE source of truth for the
+   *  second money topic, shared by the pre-classifier lane and the FSM leg so
+   *  the two can never serve different rungs (the same reason feeLadder lives
+   *  in prompts.ts).
+   *
+   *  Counting contract: ONLY the rent script resists a real commission, so only
+   *  the rent branch moves slots.provisionRejections. A buyer (0% — the owner
+   *  pays) or an undeclared market gets the CLARIFICATION and no rung, and
+   *  slots.feeRejections is never touched: the visit-fee ladder and the
+   *  commission ladder are independent (resisting one must not advance the
+   *  other, in either direction).
+   *
+   *  The 4th rent resistance closes the chat: the decision question was asked
+   *  and refused, so the customer is queued and served the graceful close.
+   */
+  private serveProvisionResistance(session: ChatSession, text: string):
+    { reply: string; bankKey: string; rung: ProvisionRung | 'closed' } {
+    // Market backfill (the [09:0x] rule): an undeclared session on a rent
+    // property IS a rent session — never default to the buy 0% copy.
+    if (!session.slots.service) session.slots.service = this.feeServiceHint;
+    const service = session.slots.service;
+    if (service === 'rent') {
+      session.slots.provisionRejections = (session.slots.provisionRejections ?? 0) + 1;
+      if ((session.slots.provisionRejections ?? 0) >= 4) {
+        session.state = 'queued';
+        this.queueCustomer(session, '3x одбиена провизија');
+        return {
+          reply: pickVariant('fee.graceful.close', { recent: assistantTexts(session) }) ?? FEE_GRACEFUL_CLOSE,
+          bankKey: 'fee.graceful.close',
+          rung: 'closed',
+        };
+      }
+    }
+    const rung = provisionLadder(service, session.slots.provisionRejections ?? 0);
+    return {
+      reply: pickVariant(rung.key, { recent: assistantTexts(session) }) ?? rung.line,
+      bankKey: rung.key,
+      rung: rung.rung,
+    };
+  }
+
+  /** The VISIT-FEE nag ladder — the SINGLE source of truth for the first money
+   *  topic, shared by the pre-classifier lane and the FSM leg so the two can
+   *  never serve different rungs (the same reason serveProvisionResistance and
+   *  feeLadder exist).
+   *
+   *  Counting contract: one nag = one rung. `counted` says the caller already
+   *  moved the counter this turn (the classifier's FEE_REFUSED leg runs before
+   *  the reply chain), so the same message is never billed twice. The
+   *  commission counter (slots.provisionRejections) is never touched — the two
+   *  ladders are independent in both directions.
+   *
+   *  The 4th resistance closes the chat: the decision question was asked and
+   *  refused, so the customer is queued and served the graceful close.
+   */
+  private serveFeeNagLadder(session: ChatSession, opts: { counted?: boolean } = {}):
+    { reply: string; bankKey: string; rung: number | 'closed' } {
+    // Market backfill (the [09:0x] rule): an undeclared session on a rent
+    // property IS a rent session — never default to the buy 500 copy.
+    if (!session.slots.service) session.slots.service = this.feeServiceHint;
+    const rungNo = opts.counted
+      ? (session.slots.feeRejections ?? 1)
+      : (session.slots.feeRejections ?? 0) + 1;
+    session.slots.feeRejections = rungNo;
+    if (rungNo >= 4) {
+      session.state = 'queued';
+      this.queueCustomer(session, '3x одбиен надомест');
+      return {
+        reply: pickVariant('fee.graceful.close', { recent: assistantTexts(session) }) ?? FEE_GRACEFUL_CLOSE,
+        bankKey: 'fee.graceful.close',
+        rung: 'closed',
+      };
+    }
+    const rung = feeLadder(session.slots.service, rungNo);
+    return {
+      reply: pickVariant(rung.key, { recent: assistantTexts(session) }) ?? rung.line,
+      bankKey: rung.key,
+      rung: rungNo,
+    };
   }
 
   private queueCustomer(session: ChatSession, reason: string): void {
@@ -5084,31 +5449,15 @@ ${contactReminder}`;
           pool.push(...wideLocated);
         }
       }
-      // FINAL TIER — "at least offer something different" (the [23:59] owner
-      // instruction): a TYPED search (куќа / плац / деловен) whose pool is
-      // empty even CITY-WIDE means the category itself has nothing in budget.
-      // Dropping the type filter (service + budget stand) surfaces the closest
-      // honest alternatives instead of looping the no-match ask — the cards
-      // are real feed rows, the area stays drained, and a rejection keeps the
-      // normal walk going. Plain apartment searches keep the no-match →
-      // exhausted → register flow (offering a different TYPE there would
-      // ignore an explicit size criterion the client can still get later).
-      if (pool.length === 0
-        && (session.slots.house === true || session.slots.plac || session.slots.business === true)
-        && this.deps.properties.healthy) {
-        const anyType = await this.deps.properties.candidates({
-          location: undefined,
-          service: session.slots.service,
-          budget: session.slots.budget,
-          exclude: shown,
-          sortByPopularity: true,
-        });
-        const anyTypeLocated = anyType.filter(p => !!p.location);
-        if (anyTypeLocated.length > 0) {
-          session.slots.areaExhausted = true;
-          pool.push(...anyTypeLocated);
-        }
-      }
+      // NO CROSS-CATEGORY TIER (the [09:29] business capture): an earlier
+      // tier dropped the type filter when a typed pool was empty city-wide
+      // ("at least offer something different"), so a 500 м² / 500.000 €
+      // business ask was answered with two apartments after the "немам
+      // деловен простор…" prefix. That answers a search the client never
+      // made — the wrong CATEGORY is worse than an honest miss. The category
+      // is now a hard invariant of every tier (area → city-wide); a typed
+      // pool that is empty everywhere lands in typedNoMatchLine(), which
+      // names the category and offers registration instead of other types.
       // POI-ANCHORED PRESENTATION (the [22:41] transcript): the client named a
       // MAP PLACE in the search phrase ("okolu Kapitol Biser"). The feed's
       // neighborhood lock (Аеродром) is too coarse — EB 89 was on the other

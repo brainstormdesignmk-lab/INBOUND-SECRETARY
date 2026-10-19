@@ -11,7 +11,9 @@ import { extFires } from './detectorExt';
 import { AVAILABILITY_LEXICON, toRegexAlt, expandAdjective, adjectiveFormsV2, nounFormsV2, formsRegex } from './morphology';
 import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots,
   buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots, buildFeeRulesSlots,
-  buildByeSlots, buildSoftRefusalSlots, buildExitCheckSlots, EXIT_OFFER_VETO_L } from './grammar';
+  buildByeSlots, buildSoftRefusalSlots, buildExitCheckSlots, EXIT_OFFER_VETO_L,
+  buildAnywhereSlots, buildAnywhereBareSlots, buildFeePracticeDislikeSlots, buildFeeValueComplaintSlots,
+  ANYWHERE_TYPO_TOKENS } from './grammar';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -517,6 +519,24 @@ const _feeWhyYouRe = new RegExp(
   + '[^.!?\\n]{0,30}' + _mB + '(?:пар[аие]|par[aei])'
   + '|' + _mB + '(?:пар[аие]|par[aei])[^.!?\\n]{0,30}' + _mB + '(?:земате|zemate)', 'iu');
 
+// [22:21] THE VIEWING-NOUN FAMILY (owner enrichment list): the visit fee is
+// asked about by MANY nouns — посета/poseta, показување/покажување/pokazuvanje,
+// гледање/gledanje, визита/vizita, влез/vlez, влезница/vleznica (entrance fee),
+// отварање/otvaranje. One source constant so every arm stays in sync — the
+// charge-accusation family below ("PARI ZA OTVARANJE STAN"), the amount-first
+// fee question and the nag grammar all read THIS list, so a new viewing noun is
+// added once.
+const VIEWING_NOUN_SRC =
+  '(?:посет\\p{L}*|poset\\p{L}*'
+  + '|показ\\p{L}*|покаж\\p{L}*|pokazh?\\p{L}*'
+  + '|гледањ\\p{L}*|gledanj\\p{L}*'
+  + '|визит\\p{L}*|vizit\\p{L}*'
+  + '|влезниц\\p{L}*|vleznits?\\p{L}*|vleznic\\p{L}*'
+  + '|влез|vlez'
+  + '|отварањ\\p{L}*|otvaranj\\p{L}*'
+  + '|отворањ\\p{L}*|otvoranj\\p{L}*|otvor\\p{L}*)';
+const VIEWING_NOUN_RE = new RegExp('(?<![\\p{L}\\p{N}])' + VIEWING_NOUN_SRC, 'iu');
+
 // The CHARGE ACCUSATION about the visit — "PARI ZA POSETA BARATE", "parite
 // gi barate za poseta", "zemate pari za poseta" (statement shape). Not a
 // why-question (nothing to explain), not a refusal with a payment object: the
@@ -526,8 +546,33 @@ const _feeWhyYouRe = new RegExp(
 const FEE_CHARGE_PUSH_RE = new RegExp(
   _mB + '(?:барате|barate|бараат|земате|zemate|земат|zemat|наплаќате|наплаќа|naplakjate|naplakate|naplakja|наплатувате|наплатув|naplatuvate|плаќате|плаќа|plakjate|plakja|платите|platite|давате|davate)'
   + '[^.!?\\n]{0,30}' + _mB + '(?:пар[аие]|par[aei]|надомест|nadomest|такс[ауи]|taks[au])'
-  + '|' + _mB + '(?:пар[аие]|par[aei])[^.!?\\n]{0,30}' + _mB + '(?:за|za)\\s*' + _mB + '(?:посет\\p{L}*|poset\\p{L}*|разглед\\p{L}*|razgled\\p{L}*|влез\\p{L}*|vlez\\p{L}*)',
+  // Money noun + "за" + the WHOLE viewing-noun family (the [22:03] capture:
+  // "PARI ZA OTVARANJE STAN" — a charge claim about OPENING a flat, the same
+  // resistance as "pari za poseta" but with a noun the old list did not carry).
+  + '|' + _mB + '(?:пар[аие]|par[aei])[^.!?\\n]{0,30}' + _mB + '(?:за|za)\\s*' + _mB + VIEWING_NOUN_SRC,
   'iu');
+
+// WHY-WORD POSITION — the explanation lane owns "why", but only when the
+// client ASKS it. "zosto barate pari za poseta?" leads with the question, so
+// the honest answer is the rationale (fee.why). "PARI ZA POSETA ZEMATE ?
+// ZOSTO?" (the [22:02] field burst) NAMES the money as the object of the
+// complaint and appends the why as an afterthought — the accusation is the
+// message, so it is resistance and climbs one rung. One positional rule
+// decides: a why-word AFTER every accusation token = nag; a why-word BEFORE
+// them (or with no accusation token at all) = the explanation lane.
+const _whyWordPosRe = /(?:зошто|зосто|зашто|засто)/iu;
+const _accusationTokenPosRe = /(?:пар[аие]|надомест|такс|зема|наплат|бара|плаќ|дава)/iu;
+
+/** True when the message asks "why" about something OTHER than an accusation
+ *  already made — i.e. the why-word comes before every charge/money token
+ *  (normaliseMc first: both scripts, one comparison). */
+function whyLeadsAccusation(text: string): boolean {
+  const cyr = normalizeMc(text);
+  const why = cyr.search(_whyWordPosRe);
+  if (why < 0) return false;
+  const acc = cyr.search(_accusationTokenPosRe);
+  return acc < 0 || why < acc;
+}
 
 /** True for the charge ACCUSATION family ("pari za poseta barate") — the FIRST
  *  resistance rung of the fee ladder (one persuasion). Callers gate on state
@@ -537,8 +582,18 @@ const FEE_CHARGE_PUSH_RE = new RegExp(
  *  (kolku/dali) belong to the amount/provision family, never here. */
 export function detectFeeChargePushback(text: string): boolean {
   const flat = text.replace(/\n/g, ' ');
-  if (detectFeeWhy(flat) || detectFeeRules(flat) || detectFeeComplaint(flat) || detectFeeSurprise(flat)) return false;
-  if (detectProvisionAsk(flat) || detectNegatedFeePay(flat) || detectNegatedAgreement(flat) || detectRejection(flat)) return false;
+  // A why-word only defers to the explanation lane when it LEADS the message;
+  // a trailing "zosto" after "pari za poseta zemate ?" is part of the
+  // accusation (see whyLeadsAccusation).
+  if (detectFeeWhy(flat) && whyLeadsAccusation(flat)) return false;
+  if (detectFeeRules(flat) || detectFeeComplaint(flat) || detectFeeSurprise(flat)) return false;
+  // A provision ask whose OBJECT is the visit ("земате пари за посета") is the
+  // VISIT-FEE lane, not the commission ask — the rent capture "PARI ZEMATE ZA
+  // POSETA ?" was vetoed here and handed to provision.ask.rent while the fee
+  // was on the table. Only a commission-object ask keeps the veto.
+  const visitObject = NAG_VISIT_RE.test(normalizeMc(flat));
+  if ((detectProvisionAsk(flat) && !visitObject)
+    || detectNegatedFeePay(flat) || detectNegatedAgreement(flat) || detectRejection(flat)) return false;
   if (/(?:колку|kolku|дали|dali)/iu.test(flat)) return false;
   return FEE_CHARGE_PUSH_RE.test(flat);
 }
@@ -580,6 +635,88 @@ export function detectFeeRules(text: string): boolean {
  *  it — the detector itself is state-free; the CALLER gates the states. */
 export function detectFeeTotalCost(text: string): boolean {
   return _feeTotalCostSlotsRe.test(text.replace(/\n/g, ' '));
+}
+
+// THE CLIENT ASKS WHAT THE VIEWING FEE COSTS (the [02:16] fee-funnel family):
+// "KOLKU E ZA POSETA?", "KOLKU E POSETATA?", "KOLKU KE ME KOSTA 10 POSETI?",
+// "KOJA E CENATA NA RAZGLEDUVANJETO?".
+//
+// The OBJECT of the question is the FEE, so the property-price lane must not
+// serve it: the live funnel answered "KOLKU E ZA POSETA?" with the flat's rent
+// ("Станот со Евидентен број 79 — киријата изнесува 250 евра") — a fee question
+// answered with the property price, which is the same misclassification class as
+// the exhausted-criteria nag on fee arithmetic.
+//
+// The slot right after the question word decides: whichever object noun comes
+// FIRST wins, so "kolku e poseta za stanot?" is the fee while "kolku e
+// kirijata za stanot?" (and "kolku e stanot?") stay the property price.
+const FEE_AMOUNT_ASK_HEAD_L =
+  '(?:kolku|колку|how\\s+much|sto\\s+cini|што\\s+чини|koja\\s+e\\s+cenata|која\\s+е\\s+цената|koja\\s+e\\s+cena|која\\s+е\\s+цена)';
+/** The FEE objects — a visit/browse noun or the charge noun itself. */
+const FEE_AMOUNT_OBJECT_L =
+  '(?:посет\\p{L}*|poset\\w*|разглед\\p{L}*|razgled\\w*|гледањ\\p{L}*|gledanj\\w*|преглед\\p{L}*|pregled\\w*|влезниц\\p{L}*|vleznic\\w*|визит\\p{L}*|vizit\\w*|надомест\\p{L}*|nadomest\\w*|такса\\p{L}*|taks\\w*)';
+/** PROPERTY/price objects — a question about one of these is the price lane. */
+const FEE_AMOUNT_PROP_OBJECT_L =
+  '(?:кирија\\p{L}*|kirija\\w*|кира|kira|месечн\\p{L}*|mesecn\\w*|депозит\\p{L}*|depozit\\w*|стан\\p{L}*|stan\\w*|имот\\p{L}*|imot\\w*|ку[ќк]а\\p{L}*|ku[ќk]j\\w*|price|rent|najam|наем)';
+const _feeAmountHeadRe = new RegExp('(?<![\\p{L}\\p{N}])' + FEE_AMOUNT_ASK_HEAD_L + '(?![\\p{L}\\p{N}])([^.!?\\n]{0,28})', 'iu');
+const _feeAmountObjectRe = new RegExp('(?<![\\p{L}\\p{N}])' + FEE_AMOUNT_OBJECT_L, 'iu');
+const _feeAmountPropObjectRe = new RegExp('(?<![\\p{L}\\p{N}])' + FEE_AMOUNT_PROP_OBJECT_L, 'iu');
+
+/** True when the client asks the PRICE OF THE VISIT (`fee.amount.ask`) — the
+ *  amount question the property-price lane must never answer. */
+export function detectFeeAmountAsk(text: string): boolean {
+  const m = _feeAmountHeadRe.exec(text.replace(/\n/g, ' '));
+  if (!m) return false;
+  const slot = m[1];
+  const fee = _feeAmountObjectRe.exec(slot);
+  if (!fee) return false;
+  const prop = _feeAmountPropObjectRe.exec(slot);
+  return !prop || fee.index < prop.index;
+}
+
+// ── Which property / property choice (the [00:06]–[00:08] live burst) ────────
+// The transcript: a batch is on screen, the client says "E OVOJ MOZE" (this one
+// works), then "ZA KOJ STAN STANUVA ZBOR ?" — and the session answered with the
+// FEE copy instead of naming the flat. Two facts are needed to answer like a
+// human:
+//   1. the CHOICE ("ovoj moze") must ARM the property the client is looking at
+//      (the last served card), and
+//   2. the WHICH-question must read that anchor and answer EB + city + price,
+//      then ask whether the choice still stands.
+// Both are one predicate, so the lanes can never disagree about the anchor.
+
+/** True for "this one works" / "I'll take this one" about a SHOWN property.
+ *  SECOND-PERSON-THIS forms only (овој/оваа/ова/тој/таа): a bare "moze" is
+ *  consent traffic and keeps its lane. A fee object anywhere disqualifies
+ *  ("500 den moze?" is a fee question, not a property choice). */
+export function detectPropertyChoice(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ');
+  const cyr = normalizeMc(flat);
+  if (/(?:плат|плаќ|надомест|такс|провизи|денар|denar|евра|evra|\d)/iu.test(cyr)) return false;
+  const re = /(?:^|[^\p{L}])(?:е|e)?\s*(?:овој|ovoj|оваа|ovaa|ова|ova|тој|toj|таа|taa)\s+(?:може|moze|ми\s+одговара|mi\s+odgovara|ми\s+се\s+допаѓа|mi\s+se\s+dopagja|е\s+добар|e\s+dobar|е\s+добра|e\s+dobra|го\s+сакам|go\s+sakam)(?=$|[^\p{L}])|(?:^|[^\p{L}])(?:може|moze)\s+(?:овој|ovoj|оваа|ovaa|ова|ova)(?=$|[^\p{L}])/iu;
+  return re.test(cyr) || re.test(flat);
+}
+
+/** True when the client asks WHICH property is being discussed: "za koj stan
+ *  stanuva zbor", "koj stan go izbravme", "za stanot sto go odbravte",
+ *  "koe e stanot?", "koj stan mi go pokazavte?". A price/fee question is NOT
+ *  this family (its lanes own the amount). */
+export function detectWhichPropertyAsk(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ');
+  const cyr = normalizeMc(flat);
+  const re = new RegExp(
+    // "za koj stan stanuva zbor / zboruvame / se raboti" and the choice verbs
+    '(?:^|[^\\p{L}])(?:за|za)\\s+(?:кој|koj)\\s+(?:стан|stan)(?![\\p{L}])[^.!?\\n]{0,30}'
+      + '(?:збор|zbor|станува|stanuva|зборуваме|zboruvame|се\\s+работи|se\\s+raboti|одбрав|odbrav|избрав|izbrav)'
+      // "koj stan e toa / go odbrav / mi go pokazavte"
+      + '|(?:^|[^\\p{L}])(?:кој|koj)\\s+(?:стан|stan)(?![\\p{L}])[^.!?\\n]{0,24}'
+      + '(?:е\\s+тоа|e\\s+toa|е\\s+тоа\\?|го\\s+одбрав|go\\s+odbrav|го\\s+избрав|go\\s+izbrav|ми\\s+го\\s+покажавте|mi\\s+go\\s+pokazavte|зборуваме|zboruvame)'
+      // "za stanot sto go odbravte / izbravte"
+      + '|(?:^|[^\\p{L}])(?:за|za)\\s+(?:станот|stanot)\\s+(?:што|sto)\\s+(?:го|go)\\s+(?:одбравте|odbravte|избравте|izbravte)'
+      // "koe e stanot / koj e stanot"
+      + '|(?:^|[^\\p{L}])(?:кое|koe)\\s+(?:е|e)\\s+(?:станот|stanot)(?=$|[^\\p{L}])',
+    'iu');
+  return re.test(cyr) || re.test(flat);
 }
 
 // ── Conversation-exit family (the [13:2x] V16K11 ending) ────────────────────
@@ -1252,11 +1389,58 @@ export function detectBudget(text: string): string | undefined {
 // the whole city, ordered from the most popular neighborhoods (Центар,
 // Капиштец, Карпош, Аеродром, Кисела Вода, Влае, Ѓорче Петров, then the
 // rest). Latin + Cyrillic.
-const ANYWHERE_RE = /(било\s+каде|било\s+кај|било\s+где|каде\s+било|кај\s+било|где\s+да\s+е|каде\s+да\s+е|секаде|не\s+е\s+битно\s+каде|не\s+е\s+важно\s+каде|није\s+битно\s+где|није\s+важно\s+где|не\s+ми\s+е\s+битно|не\s+ми\s+е\s+важно|не\s+ми\s+е\s+гајле|било\s+каде|било\s+кај|било\s+где|каде\s+било|кај\s+било|каде\s+да\s+e|где\s+да\s+e|секаде|не\s+e\s+битно\s+каде|не\s+e\s+важно\s+каде|ние\s+је\s+битно\s+где|ние\s+је\s+важно\s+где|не\s+ми\s+e\s+битно|не\s+ми\s+e\s+важно|не\s+ми\s+e\s+гајле|анywхере)/iu;
+// "NEBITNO KADE" ([23:47] capture): the one-word negative + the place adverb.
+// Missing from the list, so the funnel re-asked the neighbourhood the client had
+// just released and the next turn ("VAZNO E DA E DO 80000" — what matters is
+// the price, not the area) landed on the SAME question a second time. The bare
+// dismissal ("NEBITNO" alone, answering "во кој дел?") is handled by the
+// guarded branch in detectAnywhere below, never by this list: "небитно колку
+// соби" is a SIZE waive and must keep its own lane.
+// The anywhere grammar is BUILT (grammar.ts), not enumerated here: the ADVERB
+// family (било каде / секаде / каде и да е / во секој дел), the wh+било forms
+// with an OPTIONAL place noun, and the dismissal predicates with or without
+// one. The "bare" half (noun elided — NEBITNO, SEEDNO, BILO KOJA) needs the
+// caller's criterion guard, so it is a separate pattern.
+
+/**
+ * A criterion the client names INSTEAD of the area. When one of these sits in the
+ * message, a bare "any" dismissal is releasing THAT criterion — price, size,
+ * floor, or the property type itself — not the neighbourhood. "небитно колку
+ * соби" is the size waive; "bilo koja kuca" is "any house", which says nothing
+ * about where it should stand. Latin is normalised to Cyrillic first.
+ */
+// Latin alternatives stay: normalizeMc leaves letters it cannot map (and "dz"
+// does not become "џ"), so an unnormalised spelling must still trip the guard.
+const ANYWHERE_OTHER_CRITERION_RE = /(?:колку|цена|цени|цената|буџет|пари|денар|евра|спалн|соби|собен|квадрат|м2|спрат|лифт|паркинг|греење|старост|куќ|стан|имот|простор|соба|cen|budzet|pari|denar|evr|spaln|sobi|soben|kvadrat|sprat|lift|parking|kukj|stan|imot|prostor|soba)/iu;
+
+const _anywhereSlotsRe = buildAnywhereSlots();
+const _anywhereBareRe = buildAnywhereBareSlots();
 
 /** True when the client says "anywhere" — no location preference. */
 export function detectAnywhere(text: string): boolean {
-  return matchesBoth(ANYWHERE_RE, text);
+  if (matchesBoth(_anywhereSlotsRe, text)) return true;
+  // BARE DISMISSALS, answer-shaped (the [23:47]/[23:48] captures): the client
+  // replies to "во кој дел од градот?" with the noun ELIDED — "NEBITNO"
+  // ("[I have] no preference") or "BILO KOJA" ("[any neighbourhood] will do").
+  // Both ARE the location answer; without them the funnel re-asked the area the
+  // client had just released (the [23:48] capture asked for a населба twice).
+  // The grammar is a dismissal FORM, not a phrase list: any wh-word with "било"
+  // on either side (било кој/која/кое/кои, кој/која/кое/кои било), plus сеедно
+  // and the one-word negative. The guard keeps the OTHER dismissals in their own
+  // lanes by the criterion they name (ANYWHERE_OTHER_CRITERION_RE).
+  // The shapes themselves come from grammar.ts (buildAnywhereBareSlots):
+  // било+кој/која/кое/кои, the reversed order, NEBITNO/SEEDNO, and the
+  // predicate forms. Raw AND normalised are tested — normalizeMc lowercases and
+  // transliterates, but a Latin spelling it cannot map must still fire.
+  // The grammar, then the ONE-KEY TYPO class (fuzzyHasToken, edit distance 1):
+  // "nebitnno", "seadno" are the same answer, and a capture should not be
+  // needed to teach each misspelling.
+  const dismissed = _anywhereBareRe.test(text) || _anywhereBareRe.test(normalizeMc(text))
+    || fuzzyHasToken(text, ANYWHERE_TYPO_TOKENS);
+  const cyr = normalizeMc(text);
+  return dismissed
+    && !ANYWHERE_OTHER_CRITERION_RE.test(text)
+    && !ANYWHERE_OTHER_CRITERION_RE.test(cyr);
 }
 
 // ── Size Waived ──────────────────────────────────────────────────────────────
@@ -1915,6 +2099,21 @@ const DA_PURPOSE_CLAUSE_RE = /(?:да|да)\s+се\s+[а-яa-z]{3,}|(?:да|да
 // дали (whether), not a standalone yes.
 const DA_LI_RE = /(?:^|[^а-яa-z])(?:да|да)\s+ли|дали/iu;
 
+// NEGATED FUTURE of paying/accepting — the 300-ден rent-ladder gap: "НЕМА ДА
+// ПЛАТАМ" / "NEMA DA PLATAM" (I won't pay). The negated auxiliary is NOT the
+// plain не/ne particle, so every "ne"-based guard missed it and the bare "да"
+// inside it is an AGREE_WORD: the refusal closed the fee deal and the funnel
+// jumped to contact collection, skipping the ladder's rule and decision rungs
+// (probe: rent 300-ден ladder, "PA I TI VAKA RABOTIS. NEMA DA PLATAM" →
+// agreed=true). The auxiliary form REQUIRES the да (future), so the consent
+// phrases "нема проблем / нема гајле / нема фрка" are never flipped.
+const NEGATED_FUTURE_L =
+  '(?:(?:nema|нема)(?:m|м|me|ме|sh|ш|te|те)?)(?![\\p{L}])\\s*(?:da|да)(?![\\p{L}])';
+const NEGATED_FUTURE_PAY_RE = new RegExp(
+  '(?<![\\p{L}])' + NEGATED_FUTURE_L + '[^.!?\\n]{0,16}?' +
+  '(?:plat|plakj|плат|плаќ|sakam|сакам|dadam|дадам|dava|дава|prihak|prifak|прифаќ|прифак)',
+  'iu');
+
 // Whole-message CLIENT CONFIRMATION: "да сакам" / "DA SAKAM" — a direct yes
 // to Lina's own yes/no question ("Дали да го исконтактирам сопственикот?").
 // The purpose-clause guards below read "да сакам" as "in order to want…" and
@@ -1967,6 +2166,10 @@ export function detectAgreement(text: string): boolean {
   // OPPOSITE of agreement — same flip logic as the hold above, for the
   // agree-words themselves (the [22:2x] LLM-down fee-refusal gap).
   if (detectNegatedAgreement(text)) return false;
+  // A NEGATED FUTURE pay/accept statement ("нема да платам", "nema da platam")
+  // is the refusal the ladder counts — its "да" must never read as the yes
+  // token (see NEGATED_FUTURE_PAY_RE).
+  if (NEGATED_FUTURE_PAY_RE.test(text)) return false;
   const low = text.toLowerCase();
   // A property-sized counter-offer is NEVER consent — symmetric to the
   // negotiate veto on fee consent. "Дадам 450 евра и да завршиме работа",
@@ -2163,8 +2366,19 @@ export function detectConditionalFeeAccept(text: string): boolean {
 // (the [22:2x] follow-up: "prihakam" covered only the h-spelling — Latin
 // "prifakjam" (f+jam) slipped the neg guard and "ne prifakjam nadomestok"
 // read as CONSENT. Stem-family arms cover every spelling.)
+// The negation is EITHER the plain не/ne particle OR the negated FUTURE
+// auxiliary (нема да / nema da, every person suffix). Without the auxiliary
+// arm "NEMA DA PLATAM" slipped the guard, matched the POSITIVE standalone-
+// payment arm, and the refusal ran as consent (the rent-ladder probe).
+// Dialect negators ride the SAME class (the NEKJAM family): "неќам/нејќам" is
+// "не сакам" in everyday speech, and "NEKJAM DA PLATAM" used to slip the guard
+// and match the POSITIVE standalone-payment arm — a refusal ran as consent.
+// Latin prefixes cover the raw-text callers (detectNegatedFeePay); the Cyrillic
+// read covers normalizeMc output, which maps "nekjam" → "неќам".
+const FEE_PAY_NEG_L = '(?:ne|не)(?![\\p{L}])|' + NEGATED_FUTURE_L
+  + '|(?:nekj|nejkj)[a-z]*|(?:неќ|нејќ|некј)[\\p{L}]*';
 const FEE_PAY_NEG_RE = new RegExp(
-  '(?:^|[^\\p{L}])(?:ne|не)(?![\\p{L}])[^.!?\\n]{0,40}(?:plat\\w*|plakj\\w*|плаќ\\w*|плат\\w*|sakam\\w*|сакам\\w*|dadam|дадам|prihak\\w*|prifak\\w*|прифаќ\\w*|прифак\\w*)', 'iu');
+  '(?:^|[^\\p{L}])(?:' + FEE_PAY_NEG_L + ')[^.!?\\n]{0,40}(?:plat\\w*|plakj\\w*|плаќ\\w*|плат\\w*|sakam\\w*|сакам\\w*|dadam|дадам|prihak\\w*|prifak\\w*|прифаќ\\w*|прифак\\w*)', 'iu');
 
 /** Negated PAY/ACCEPT statement — "ne sakam da plakjam za otvaranje na stan",
  *  "ne prifakjam nadomestok" — the REFUSAL family even WITHOUT an agreement
@@ -2181,6 +2395,14 @@ export function detectNegatedFeePay(text: string): boolean {
 }
 
 export function detectFeePaymentAgreement(text: string): boolean {
+  // A NEGATED agreement phrase is the OPPOSITE of consent. "не ви е во ред, пари
+  // за посета земате зошто" (a nag) contains "во ред" and the token scan below
+  // read it as the yes — in the fee context that is the rent-capture class of
+  // bug: a resisting client pushed straight into contact collection. The
+  // agreement detector already consults detectNegatedAgreement; the FEE
+  // agreement must too, or detectFeeNag's first guard ("consent is never
+  // resistance") silently swallows every negated-red nag.
+  if (detectNegatedAgreement(text)) return false;
   if (/(?:^|[^\p{L}])dali(?:$|[^\p{L}])/iu.test(text)
       // The question gap may cross sentence punctuation: "KAKO TOA ? DA PLATAM
       // ZA POSETA ?" is a HOW-QUESTION even though a "?" splits the clause —
@@ -2951,6 +3173,13 @@ const PROPERTY_TYPE_END_RE = /(?:гарсоњер(?:ата|та|а)|гарсоњ
 const WHERE_IS_BLACKLIST_START = /^(?:цената|цената|циената|цена|цена|циена|колк[ао]|колко|колку|колку|бројот|бројот|број|број|шифрата|сифрата|шифра|сифра|достапен|достапен|достапна|достапна|сместен|сместен|сместена|сместена)/iu;
 
 export function detectWhereIs(text: string): WhereIsQuestion | undefined {
+  // FEE-TRAFFIC STAND-DOWN (the [22:03] capture: "KAJ SE VIDELO PARI ZA
+  // OTVARANJE STAN" — a challenge about the visit fee). The extractor below
+  // read the whole clause as a PLACE ("VIDELO PARI ZA OTVARANJE STAN"), the
+  // lookup missed, and the session's landmark rotation answered with a map pin
+  // for a place the client never asked about. A fee challenge is never a
+  // location question: stand down so the fee ladder owns the turn.
+  if (isFeeTraffic(text)) return undefined;
   // Generated extension — 'where-is' family (see scripts/propose-stems.ts):
   // na koja ulica / vo koj kvart / kazete tochna adresa ...
   if (extFires('where-is', text)) return { place: '', generic: true };
@@ -3487,7 +3716,7 @@ export function detectMoreOptions(text: string): boolean {
 export function lastReplyWasExhausted(lastAssistantText: string): boolean {
   return /(?:исцрпив|искористив|прегледав|разгледав|поминав|погледнав)\p{L}*\s+сите/iu.test(lastAssistantText)
     || /друг(?:а\s+населба|и\s+населби|\s+дел\s+од\s+градот)/iu.test(lastAssistantText)
-    || /(?:немам|немаме)\s+(?:слободни\s+)?(?:имоти|други|понуди)/iu.test(lastAssistantText);
+    || /(?:немам|немаме)\s+(?:слободни\s+)?(?:имоти|недвижности|други|понуди)/iu.test(lastAssistantText);
 }
 
 /** The last assistant reply presented PROPERTY content — a card, an options
@@ -3498,7 +3727,7 @@ export function lastReplyWasProperty(lastAssistantText: string): boolean {
   return /(?:под|со)\s+Евидентен\s+број/iu.test(lastAssistantText)
     || /(?:составив\s+листа|ги\s+одбрав\s+следниве|предлози\s+кои)/iu.test(lastAssistantText)
     || /ЛОКАЦИЈА\s+ЗА\s+ЕВИДЕНТЕН\s+БРОЈ/iu.test(lastAssistantText)
-    || /(?:што\s+одговараат\s+на\s+Вашите\s+критериуми|немам\s+слободни\s+имоти|не\s+можам\s+да\s+го\s+најдам\s+имотот)/iu.test(lastAssistantText)
+    || /(?:што\s+одговараат\s+на\s+Вашите\s+критериуми|немам\s+слободни\s+(?:имоти|недвижности)|не\s+можам\s+да\s+(?:го\s+најдам\s+имотот|ја\s+најдам\s+недвижноста))/iu.test(lastAssistantText)
     || lastReplyWasExhausted(lastAssistantText);
 }
 
@@ -3952,20 +4181,233 @@ const PROVISION_RE =
   /(?:провизи[јjа]+|provizija|provizion|provizia|commission|агенциск[аои]\s+(?:надомест|цена|трошок|услуга)|агенциск[аои]а?т?а?\s+услуга|[аa]генck[аa]а?т?[аa]?\s+(?:услуга|usluga)|agencka[аaтt]*\s+(?:услуга|usluga)|колку\s+(?:е|е\s+провизијата|чиња)|(?:дали|dali)\s+(?:има|постои|ќе\s+плаќам)\s+провизиј)/iu;
 
 /** True when the client asks about provision/commission. */
-// [22:21] THE VIEWING-NOUN FAMILY (owner enrichment list): the visit fee is
-// asked about by MANY nouns — посета/poseta, показување/покажување/pokazuvanje,
-// гледање/gledanje, визита/vizita, влез/vlez, влезница/vleznica (entrance fee),
-// отварање/otvaranje. One source constant so every arm below stays in sync.
-const VIEWING_NOUN_SRC =
-  '(?:посет\\p{L}*|poset\\p{L}*'
-  + '|показ\\p{L}*|покаж\\p{L}*|pokazh?\\p{L}*'
-  + '|гледањ\\p{L}*|gledanj\\p{L}*'
-  + '|визит\\p{L}*|vizit\\p{L}*'
-  + '|влезниц\\p{L}*|vleznits?\\p{L}*|vleznic\\p{L}*'
-  + '|влез|vlez'
-  + '|отварањ\\p{L}*|otvaranj\\p{L}*'
-  + '|отворањ\\p{L}*|otvoranj\\p{L}*|otvor\\p{L}*)';
-const VIEWING_NOUN_RE = new RegExp('(?<![\\p{L}\\p{N}])' + VIEWING_NOUN_SRC, 'iu');
+// ── THE FEE-NAG GRAMMAR (visit fee, 300 and 500) ────────────────────────────
+// A client never quotes our bank. Resistance arrives in productive Macedonian
+// families, so matching the FAMILY — stems + any inflection (\p{L}*), free word
+// order, optional clitics (не/ќе/да/ми/се) — recognises paraphrases the fixed
+// phrase lists miss. Input is normalised to Cyrillic (normalizeMc), so every
+// stem is written ONCE:
+//
+//   1 NEGATED PAY/ACCEPT    "не плаќам за посета", "нема да платам",
+//                           "никогаш не сум платил", "не прифаќам надомест"
+//   2 CHARGE + OBJECT       "земате пари за посета", "за гледање барате пари",
+//                           "наплаќате за разгледување" (money optional)
+//   3 UNIVERSAL/COMPARATIVE "никој не наплаќа", "кај другите агенции е
+//                           бесплатно", "само вие земате пари"
+//   4 VALUE COMPLAINT       "300 денари се многу", "превисоко за посета",
+//                           "глупости се овие"
+//
+// NOT nags: positive consent ("ќе платам 300 за посета"), a neutral
+// how-much/why question ("колку е за посета?", "зошто наплаќате?") and fee
+// doubt without a resistance verb ("не знам дали да платам").
+const NAG_VISIT_RE = new RegExp(VIEWING_NOUN_SRC, 'iu');
+// Money NOUNS only — a bare amount ("60.000 евра") is a property price, never
+// a fee object; "baram stan do 60000 evra" must not read as fee resistance.
+const NAG_FEE_OBJECT_RE = /(?:пари|парите|надомест\p{L}*|такс\p{L}*|провизи\p{L}*|комиси\p{L}*|цената|цена)/iu;
+// Word boundary AFTER the particle: "не плаќам" (space follows) must match;
+// the earlier (?![^\p{L}]) required a letter next and silently never fired.
+// Dialect negators ride in the same class: "неќам/нејќам" (не сакам) and the
+// Latin typing "nekjam" (normalizeMc → некјам) were not particles anywhere, so
+// "NEKJAM DA PLATAM" never reached the negated-pay arm and burned no rung.
+const NAG_NEGATION_RE = /(?:^|[^\p{L}])(?:не|нема|немам|неможам|никогаш|ниту|неќ\p{L}*|нејќ\p{L}*|некј\p{L}*)(?=$|[^\p{L}])/iu;
+const NAG_PAY_STEM_RE = /(?:плат|плаќ|прифаќ|прифат|дад|дава|подмир|покрив)\p{L}*/iu;
+const NAG_CHARGE_STEM_RE = /(?:зема|наплаќ|наплат|бара|дава|плаќ)\p{L}*/iu;
+const NAG_UNIVERSAL_RE = /(?:никој|ниту еден|сите|другите|други агенции|друга агенција|секаде|на друго место|кај другите|само вие|само ви|само кај вас)/iu;
+// The VALUE predicate is a WORD CLASS (grammar.ts, buildFeeValueComplaintSlots):
+// the dialects a capture surfaces (скупо/купо, бесмислица, апсурд, срамота,
+// нема смисла, изнудување…) are entries there, never new logic here. Two
+// spellings need the raw text as well as the normalised form: "scapo" is the
+// common c-for-k typing and normalizeMc maps c→ц, so the normalised string is
+// "сцапо" — the class carries both and the caller tests both.
+const NAG_VALUE_RE = buildFeeValueComplaintSlots();
+// "зошто" also appears as "зосто" once normalized: normalizeMc maps Latin
+// letter-by-letter, so the common typing "zosto" becomes з-о-с-т-о (the sh
+// digraph only fires for "sh"). Missing this variant made "zosto naplatuvate
+// poseta?" a NAG and burned a rung on a genuine why-question.
+const NAG_NEUTRAL_ASK_RE = /(?:колку|која е цената|која е цена|зошто|зосто|зашто|засто|дали)\p{L}*/iu;
+const NAG_DOUBT_RE = /(?:не знам|незнам|не ми е јасно|не разбирам|не сум сигурен|се мислам)/iu;
+// RHETORICAL CHALLENGE — a place-word (каде/кај, also "од каде") plus an
+// ATTRIBUTION verb: the client asks where WE saw/wrote the fee. Normalised to
+// Cyrillic by normalizeMc, so the Latin typings ("kaj se videlo") arrive as
+// кај/каде and one alternation covers both scripts.
+// PRACTICE DISAPPROVAL — the client rejects the FEE MODEL, not a property:
+// "NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA" ([23:12]), "не ми се допаѓа
+// вашиот пристап", "не ми е ок оваа политика". Grammar: a DISLIKE verb plus a
+// POLICY noun in the same breath. A dislike of the PROPERTY ("ne mi se dopagja
+// stanot", "не ми се допаѓа локацијата") names no policy noun and keeps its own
+// lane, and the ASSERTION frame ("тоа се вашите правила") stays the fee.rules
+// EXPLANATION — its no-rung contract is pinned in tests/fee-serve-routing
+// ("e2e [12:40]"). Only the disapproval is resistance.
+// …and the VERB+NOUN grammar itself lives in grammar.ts
+// (buildFeePracticeDislikeSlots), both scripts, both orders:
+//   не ми се допаѓа + принцип/работа/пристап/политика/услов/начин/пракса
+const NAG_PRACTICE_DISLIKE_RE = buildFeePracticeDislikeSlots();
+
+// HESITATION family (family 5) — bare non-acceptance in the fee context.
+// Trailing \p{L}* so the stems take their inflections ("не го очекував", "незнам"):
+// without it the lookahead rejected every inflected form and the family never
+// fired for the live burst.
+// "о[чц]е[кј]?ува": normalizeMc maps a bare Latin "c" to ц (че only exists for
+// the "ch" digraph), so "ocekuvav" arrives as оцекував while a Cyrillic
+// "очекував" keeps ч — and the "kju" typo adds а ј. Every inflection carries
+// \p{L}*: without it the trailing lookahead rejected "сигурен" and the family
+// never fired for the live burst.
+const NAG_HESITATION_RE = /(?:^|[^\p{L}])(?:не\s*знам|не\s+сум\s+сигур\p{L}*|се\s+мислам|не\s+(?:го\s+)?о[чц]е[кј]{0,2}ува\p{L}*)(?=$|[^\p{L}])/iu;
+// A where-word ("ne znam KADE e stanot") is a LOCATION ask, never hesitation.
+const WHERE_WORD_IN_HESITATION_RE = /(?:^|[^\p{L}])(?:каде|кај|kade|kaj|kaj|kude)(?=$|[^\p{L}])/iu;
+// A timing word alone ("ne znam KOGA") is scheduling intent, never hesitation.
+const TIMING_INTENT_RE = /(?:^|[^\p{L}])(?:кога|koga)(?=$|[^\p{L}])/iu;
+// "пиш" AND "пис": normalizeMc transliterates letter-by-letter, so "pise/
+// pisuva" arrives as пис- (the sh digraph only fires for "sh"), while a
+// Cyrillic "пишува" keeps the ш. Both stems are needed.
+const NAG_CHALLENGE_RE = /(?:^|[^\p{L}])(?:каде|кде|кај)[^.!?\n]{0,28}?(?:вид|глед|пиш|пис|чит|најд|чу)\p{L}*/iu;
+// "од каде пари за посета" — the source demand without an attribution verb.
+const NAG_FROM_RE = /(?:^|[^\p{L}])од\s+каде(?=$|[^\p{L}])/iu;
+
+/**
+ * True when the client RESISTS the visit fee (300 or 500) — the single
+ * predicate the ladder uses, so a nag in any wording or script climbs exactly
+ * one rung. Genuine questions and consent are excluded (see the grammar block
+ * above); callers gate on the fee context (closing, fee not yet agreed).
+ */
+export function detectFeeNag(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ');
+  // Positive consent is never resistance; negated pay is never consent (the
+  // detector already refuses negations, so this only screens real agreement).
+  if (detectFeePaymentAgreement(flat)) return false;
+  // The fixed-phrase accusation family stays the first gate (it owns the
+  // "PARI ZA POSETA" shape with no charge verb at all).
+  if (detectFeeChargePushback(flat)) return true;
+  const cyr = normalizeMc(flat);
+  const hasVisit = NAG_VISIT_RE.test(cyr);
+  const hasFeeObject = NAG_FEE_OBJECT_RE.test(cyr);
+  const negated = NAG_NEGATION_RE.test(cyr);
+  const universal = NAG_UNIVERSAL_RE.test(cyr);
+  const valueComplaint = NAG_VALUE_RE.test(cyr) || NAG_VALUE_RE.test(flat);
+  const doubt = NAG_DOUBT_RE.test(cyr);
+
+  // 1) NEGATED PAY/ACCEPT. The verb is required — a bare "не" is never
+  //    resistance — and an explicit doubt ("не знам дали да платам") is a
+  //    question, not a refusal.
+  if (negated && !doubt && NAG_PAY_STEM_RE.test(cyr) && (hasVisit || hasFeeObject)) return true;
+  // A bare refusal with no object still counts inside the fee funnel
+  // ("не сакам да платам" / "нема да платам" / the dialect "неќам да платам"):
+  // the caller only asks in the fee context, where the only thing payable is
+  // the visit fee. The NEGATOR LIST is the refusal particles — a bare negation
+  // is not enough here ("не можам да платам со картичка" is a payment method,
+  // not a refusal), which is also why the dialect particle had to be ADDED to
+  // the list rather than loosening the arm to "any negated pay".
+  if (!doubt && /(?:^|[^\p{L}])(?:не\s*сакам|нема\s*да|неќ\p{L}*|нејќ\p{L}*|некј\p{L}*)\p{L}*\s+[^.!?]{0,20}(?:плат|плаќ)/iu.test(cyr)) return true;
+  // Inability framed as resistance: "немам пари за посета".
+  if (/(?:немам|нема)\p{L}*\s+[^.!?]{0,20}(?:пари|надомест|денар)/iu.test(cyr) && (hasVisit || hasFeeObject)) return true;
+
+  // 2) CHARGE + OBJECT in either order. A neutral how-much/why question is
+  //    explanation traffic unless it also carries a complaint frame.
+  if (NAG_CHARGE_STEM_RE.test(cyr) && (hasVisit || hasFeeObject)) {
+    const neutralAsk = NAG_NEUTRAL_ASK_RE.test(cyr) && !universal && !valueComplaint && !negated;
+    if (!neutralAsk) return true;
+  }
+
+  // 3) UNIVERSAL/COMPARATIVE — "nobody charges", "other agencies are free",
+  //    "only you".
+  if (universal && (hasVisit || hasFeeObject)) return true;
+
+  // 4) VALUE COMPLAINT about fee traffic; a bare amount is not a complaint.
+  if (valueComplaint && (hasVisit || hasFeeObject)) return true;
+  // 4b) THE FEE-SIZED VALUE COMPLAINT — "SKAPO E TOA . ZA SEKOJ STAN PO 300DEN"
+  //     (the [23:12] burst). The client calls the PRINCIPLE expensive and names
+  //     the amount; the message carries NO viewing noun and NO fee-object noun
+  //     ("тоа" is the fee under discussion, "стан" is the property it is
+  //     charged for), so every noun-based arm above missed it — and the
+  //     cheaper-search interceptor read "скапо + 300" as a PROPERTY BUDGET and
+  //     dumped a property pair mid-fee ("...најпристапно таму во овој момент").
+  //     FEE-SIZED is the discriminating truth (≤2.000 ден / ≤100 евр — the same
+  //     ceiling a counter-offer uses): a complaint about the PROPERTY price
+  //     ("скапи се становите по 1.000 евра") sits over the ceiling and keeps
+  //     its own lane. No keyed amount at all stays out too (a bare "скапо е"
+  //     with no figure is the fee.why/rules explanation family).
+  if (valueComplaint && FEE_SIZED_RE.exec(cyr) && counterOfferFeeSized(cyr)) return true;
+
+  // 4c) PRACTICE DISAPPROVAL — "NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA"
+  //     (the [23:12] burst): the client rejects the way the agency works. The
+  //     field session served rung 2's copy to this very message, so the ladder
+  //     already owned it there; here the noun families above missed it and the
+  //     turn was answered from the explanation pool WITHOUT advancing — the
+  //     ladder stopped one rung short of the decision the owner expects.
+  if (NAG_PRACTICE_DISLIKE_RE.test(cyr) || NAG_PRACTICE_DISLIKE_RE.test(flat)) return true;
+
+  // 4d) FEE-FRAMING CHALLENGE — "KOJA SIMBOLICNA CENA . 500DEN SE PARI"
+  //     (the [00:08] live burst). The client attacks the WORD "symbolic" and
+  //     restates the amount as money; there is no viewing noun and no
+  //     value-adjective from the class above, so the fee-sized arm missed it
+  //     and the PRICE lane answered with the flat's 133.000. The amount must
+  //     be FEE-SIZED (the same ≤2.000 ден / ≤100 евр ceiling every other fee
+  //     arm uses) — a property price keeps its own lane — and the message must
+  //     either challenge "symbolic" or call the amount MONEY ("se pari").
+  if (FEE_SIZED_RE.test(cyr) && counterOfferFeeSized(cyr)
+    && (/(?:која|каква|koja|kakva)\s+(?:е\s+|e\s+)?симболичн|симболичн\p{L}*\s+(?:цена|cena)/iu.test(cyr)
+      || /(?:^|[^\p{L}])пари(?=$|[^\p{L}])/iu.test(cyr))) return true;
+
+  // 5) FEE-CONTEXT HESITATION / NON-ACCEPTANCE — the client neither accepts nor
+  //    refuses, he stalls ("NEZNAM", "OVA NE GO OCEKUVAV", "ne sum siguren",
+  //    "se mislam"). Before this, the turn was answered with the fee.ask copy
+  //    AGAIN (the re-disclosure the owner flagged as a bug) and burned no rung,
+  //    so the ladder never reached its end — the [22:0x] field rule: everything
+  //    that is not a POSITIVE climbs the planned order. No fee vocabulary is
+  //    required ("NEZNAM" is the whole message): the callers gate on the fee
+  //    context (closing, fee not yet agreed), where the only open question IS
+  //    the fee. The doubt QUESTION ("ne znam dali da platam") is included: the
+  //    ladder already counted it as a refusal rung, and one predicate must
+  //    describe what the ladder does — rung 1's copy ends with exactly the ask
+  //    that doubt needs ("дали овој услов ви е прифатлив?").
+  //    SCHEDULING IS NOT HESITATION ("ne znam koga ke mozam", "не знам утре
+  //    дали можам"): a timing word, a day word or a concrete time means the
+  //    client is answering the visit question, and that turn belongs to the
+  //    scheduler — it must never burn a fee rung.
+  if (NAG_HESITATION_RE.test(cyr) && !TIMING_INTENT_RE.test(cyr)
+    && !WHERE_WORD_IN_HESITATION_RE.test(cyr)
+    && !hasDayWord(flat) && detectVisitTime(flat) === undefined) return true;
+
+  // 6) RHETORICAL CHALLENGE — the client DENIES the fee exists and demands its
+  //    source: "KAJ SE VIDELO PARI ZA OTVARANJE STAN" ([22:03]), "каде пишува
+  //    дека се плаќа за посета", "од каде пари за посета", "где виде такса".
+  //    The frame is a place-word + an ATTRIBUTION verb (виде/гледа/пишува/чита/
+  //    најде/чу) — the client asks where WE saw or wrote the fee, so it is never
+  //    a location question, even though it opens with каде. Fee traffic in the
+  //    same message is what decides (see isFeeTraffic, which stands the location
+  //    lanes down).
+  if ((hasVisit || hasFeeObject)
+    && (NAG_CHALLENGE_RE.test(cyr) || NAG_FROM_RE.test(cyr))) return true;
+
+  // NOT a nag: the surprise reaction ("OVA E NESTO NOVO") stays with the
+  // fee.why lane — it is not resistance, and its copy is the literal "is this
+  // new?" rationale. The owner's nag list is complaints, "nobody charges but
+  // you", accusations and refusals.
+  return false;
+}
+
+/**
+ * True when the message is FEE TRAFFIC — money/charge vocabulary beside a
+ * VIEWING noun ("PARI ZA OTVARANJE STAN"), or one of the nag shapes. The
+ * LOCATION lanes (WHERE_IS, WHERE_LANDMARK) call this and stand down: the
+ * [22:03] capture "KAJ SE VIDELO PARI ZA OTVARANJE STAN" is a challenge about
+ * the visit fee, but the where-is extractor read the clause as a PLACE
+ * ("VIDELO PARI ZA OTVARANJE STAN"), the lookup missed, and the session's
+ * landmark rotation answered with a map pin for a place the client never asked
+ * about. A fee challenge is never a location question.
+ */
+export function isFeeTraffic(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ');
+  const cyr = normalizeMc(flat);
+  const money = NAG_FEE_OBJECT_RE.test(cyr);
+  const visit = NAG_VISIT_RE.test(cyr);
+  // FEE VOCABULARY IS THE PRECONDITION. Without it the nag predicate's
+  // hesitation family ("не знам") would hijack the location lanes —
+  // "ne znam kade e stanot" is a WHERE-IS question, not fee traffic.
+  if (!money && !visit) return false;
+  if (money && visit) return true;
+  return detectFeeNag(flat);
+}
 
 // AMOUNT-FIRST FEE QUESTION — "500DEN ZA POSETA ?", "za poseta 500 den ?":
 // amount + currency beside a viewing noun IS the fee question even with no
@@ -4025,6 +4467,13 @@ export function detectProvisionAsk(text: string): boolean {
       _mB + '(?:да|da)\\s+(?:плат|plat|плаќ|plakj)\\p{L}*\\s+(?:за|za)\\s+' + VIEWING_NOUN_SRC, 'iu'), text)
     && !matchesBoth(new RegExp(
       _mB + '(?:наплаќ|наплат|naplak|naplat)[^.!?\\n]{0,24}' + VIEWING_NOUN_SRC, 'iu'), text)) return false;
+  // RESISTANCE VETO: a refusal or a value complaint about the commission is NOT
+  // a request to be informed, so it must never read as the ask. Without this,
+  // "ПРОВИЗИЈАТА НЕ ЈА ПРИФАЌАМ" satisfied PROVISION_RE below and the router's
+  // lane PREDICTION logged PROVISION_ASK while the turn actually climbed the
+  // commission ladder — the predict/actual drift the TUI's /routes view reports.
+  // The resistance ladder owns those messages (see detectProvisionResistance).
+  if (detectProvisionResistance(text)) return false;
   if (PROVISION_RE.test(text)) return true;
   // NEGATED-PAY VETO (today's [09:1x] capture: "ne sakam da plakjam za
   // otvaranje na stan"): the volitional arm below matched the DA-PLAT shape
@@ -4243,6 +4692,90 @@ const PROVISION_WHO_RE = new RegExp(
 /** True when the client asks WHO pays lawyer/notary/tax. */
 export function detectProvisionWho(text: string): boolean {
   return PROVISION_WHO_RE.test(text) || extFires('provision-who', text);
+}
+
+// ── PROVISION (rent commission) RESISTANCE — the second money ladder ────────
+//
+// The rent commission (50% of one monthly rent below 1.000 €, one full monthly
+// rent from 1.000 € up) is a money topic BESIDE the visit fee. A client can
+// fight the fee, the commission, or both — so each topic runs its OWN four
+// rungs (disclosure → persuasion → agency rule → decision) with its OWN
+// counter. THE ISOLATION CONTRACT: resisting the commission never burns a
+// visit-fee rung, and resisting the fee never burns a commission rung.
+//
+// Detection is deliberately STRICT — only explicit RESISTANCE about the
+// commission counts:
+//   (a) a NEGATED pay/accept statement whose object is the commission
+//       ("NE SAKAM DA PLATAM PROVIZIJA", "нема да платам провизија");
+//   (b) a VALUE COMPLAINT naming the commission or the rent tier figure
+//       ("PROVIZIJATA E MNOGU", "50% E MNOGU", "провизијата е висока");
+//   (c) a demand to drop it ("bez provizija", "не плаќам провизија"), or a
+//       negation + volition/pay verb whose object IS the commission
+//       ("NE SAKAM PROVIZIJA", "PROVIZIJATA NE JA PLAKJAM").
+// A real QUESTION (kolku/dali/koj/zosto/kako/?) stays the provision.ask /
+// provision.who lane: that is a request to be INFORMED, and the tier rule is
+// the answer — never a persuasion rung. A complaint that happens to carry a
+// question mark ("50% E MNOGU?") is still resistance: the complaint word is
+// the intent, the interrogative is the venting.
+
+/** The commission noun family (both scripts) — the topic marker. */
+const PROVISION_TOPIC_L =
+  '(?:провизи\\p{L}*|provizij\\p{L}*|provizia\\w*|provizion\\w*|provision\\w*|commission\\w*'
+  + '|агенциск\\p{L}*\\s+(?:услуг\\p{L}*|трошок\\w*|надомест\\w*|usluga\\w*|troshok\\w*|nadomest\\w*))';
+/** A value complaint about money — "многу", "скапо", "високо", "големо". */
+const PROVISION_COMPLAINT_L =
+  '(?:многу|mnogu|скап\\p{L}*|skap\\p{L}*|висок\\p{L}*|visok\\p{L}*|голем\\p{L}*|golem\\p{L}*'
+  + '|превисок\\p{L}*|previsok\\p{L}*|не\\s+ми\\s+одговара|ne\\s+mi\\s+odgovara|не\\s+вреди|ne\\s+vredi)';
+/** The rent TIER figure — "50%", "педесет проценти", "пола кирија". */
+const PROVISION_TIER_L =
+  '(?:50\\s*%|педесет\\s*процент\\w*|pedeset\\s*posto\\w*|пола\\s+кириј\\p{L}*|половина\\s+(?:од\\s+)?(?:кириј\\p{L}*|kirij\\p{L}*))';
+const _provisionTopicRe = new RegExp(_mB + PROVISION_TOPIC_L, 'iu');
+const _provisionTierRe = new RegExp(_mB + PROVISION_TIER_L, 'iu');
+const _provisionComplaintRe = new RegExp(_mB + PROVISION_COMPLAINT_L, 'iu');
+const _provisionDropDemandRe =
+  /(?<!\p{L})(?:без\s+провизиј|bez\s+provizij|не\s+плаќам\s+провизиј|ne\s+plakjam\s+provizij|не\s+давам\s+провизиј|ne\s+davam\s+provizij)/iu;
+// A REFUSAL aimed at the commission: a negation + a volitional/pay verb that
+// takes the commission as its object. detectNegatedFeePay only recognises
+// FEE objects (надомест, посета, такса), so "NE SAKAM PROVIZIJA" — a refusal
+// whose object is the commission and which carries no pay verb at all — fell
+// through every arm and the visit-fee ladder stole the turn. The commission
+// noun is the object here, in either word order:
+//   "NE SAKAM PROVIZIJA", "NEMA DA PLATAM PROVIZIJA", "не давам провизија"
+//   "PROVIZIJATA NE JA PLAKJAM", "провизијата не ја прифаќам"
+// The noun is REQUIRED, so "NE SAKAM DA PLATAM" (no object) stays the
+// visit-fee refusal it has always been.
+const PROVISION_REFUSE_VERB_L =
+  '(?:sak\\w*|сак\\w*|plat\\w*|плат\\w*|plakj\\w*|плаќ\\w*|dad\\w*|дад\\w*'
+  + '|davam|давам|prihak\\w*|prifak\\w*|прифа[ќк]\\w*|podmira\\w*|подмира\\w*)';
+const _provisionRefusalBeforeRe = new RegExp(
+  '(?:^|[^\\p{L}])(?:' + FEE_PAY_NEG_L + ')[^.!?\\n]{0,24}' + PROVISION_REFUSE_VERB_L + '[^.!?\\n]{0,32}' + PROVISION_TOPIC_L,
+  'iu');
+const _provisionRefusalAfterRe = new RegExp(
+  '(?:^|[^\\p{L}])' + PROVISION_TOPIC_L + '[^.!?\\n]{0,24}(?:' + FEE_PAY_NEG_L + ')[^.!?\\n]{0,16}' + PROVISION_REFUSE_VERB_L,
+  'iu');
+// A NEGATED complaint is agreement, not resistance: "PROVIZIJATA NE E VISOKA"
+// (the commission is NOT high) must never climb the ladder. The span is cut
+// out before the complaint arm runs, so a mixed sentence ("ne e visoka, ama
+// 50% e mnogu") keeps its genuine complaint instead of being suppressed whole.
+const _provisionNegatedComplaintRe = new RegExp(
+  '(?:^|[^\\p{L}])(?:' + FEE_PAY_NEG_L + ')[^.!?\\n]{0,12}(?:многу|mnogu|скап\\w*|skap\\w*|висок\\w*|visok\\w*|голем\\w*|golem\\w*|превисок\\w*|previsok\\w*)',
+  'iu');
+
+/** True when the client RESISTS the rent commission (its own ladder). An
+ *  informational question never fires here — it carries neither a payment
+ *  refusal nor a complaint word, so provision.ask / provision.who keep it. */
+export function detectProvisionResistance(text: string): boolean {
+  const t = text.replace(/\n/g, ' ');
+  // (c) a demand to drop the commission at all
+  if (_provisionDropDemandRe.test(t)) return true;
+  // (c2) a refusal whose OBJECT is the commission (either word order)
+  if (_provisionRefusalBeforeRe.test(t) || _provisionRefusalAfterRe.test(t)) return true;
+  const topic = _provisionTopicRe.test(t);
+  // (a) a payment refusal stated about the commission
+  if (topic && detectNegatedFeePay(t)) return true;
+  // (b) a value complaint on the commission or on the rent tier figure
+  const unnegated = t.replace(new RegExp(_provisionNegatedComplaintRe.source, 'giu'), ' ');
+  return (topic || _provisionTierRe.test(t)) && _provisionComplaintRe.test(unnegated);
 }
 
 // Price ask — the client asks about the property price: "која е цената?",
@@ -4563,6 +5096,11 @@ export function hasWhereWord(text: string): boolean {
  *  tc ?", "kade e skopjanka?"). These are landmark questions — the number in
  *  the text belongs to the place name, never to the Евидентен-број intake. */
 export function isWhereLandmarkQuestion(text: string): boolean {
+  // FEE-TRAFFIC STAND-DOWN — the mirror of detectWhereIs' veto: "KADE PISE
+  // DEKA SE PLATKA ZA POSETA" is a fee challenge that merely opens with каде,
+  // and it must never be resolved as a place (nor carry its number into the
+  // Евидентен-број intake — the classifier gates on THIS predicate).
+  if (isFeeTraffic(text)) return false;
   // Must ask about a place, not about the PROPERTY on the table: the каде
   // + property-family ("kade mu e lokacijata?", "каде се наоѓа станот") has
   // its own WHERE_IS lane with the property as topic. Landmark questions
@@ -4846,6 +5384,17 @@ export function fsmRequired(text: string): boolean {
   // the full path, where the INTERESTED verdict advanced idle→closing. The
   // fast explanation lane owns this family; the FSM never needs it.
   if (detectFeeTotalCost(text)) return false;
+  // The fee-AMOUNT question ("kolku e za poseta?") carries the visit word
+  // "poseta"/"razgleduvanjeto", so fsmRequired read it as visit interest and
+  // forced the full path — where the price-ask leg answered with the PROPERTY
+  // price. The fast fee lane discloses the fee; the FSM never needs it.
+  if (detectFeeAmountAsk(text)) return false;
+  // RENT-COMMISSION resistance ("50% E MNOGU", "NE SAKAM DA PLATAM PROVIZIJA")
+  // carries a figure or a payment verb that would also read as a criteria/
+  // refusal event. It is fee-topic traffic with its OWN ladder — the fast
+  // provision lane owns it, and (the isolation contract) the visit-fee counter
+  // must not move because of it.
+  if (detectProvisionResistance(text)) return false;
   // The result-set question rides the FSM lane in presentation — the count
   // answer needs the candidate pool, not a canned fast-path line.
   if (detectResultSetQuestion(text)) return true;

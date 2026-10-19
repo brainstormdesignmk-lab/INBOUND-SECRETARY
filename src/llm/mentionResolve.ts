@@ -57,9 +57,13 @@ export function extractMentionSignals(text: string): MentionSignals {
   if (/гарсоњер|студио/.test(norm)) s.garsonjera = true;
 
   // Room-count words: "еднособен" → 1, "двособен" → 2 …
-  const bedWord = norm.match(/(?:едно|дво|три|четири|пет)\s*собен/);
+  // "соб" + any tail, not the bare nominative "собен": the DEFINITE forms drop
+  // the е ("двособниот стан", "двособната") and the old pattern silently read no
+  // signal at all — the [23:09] follow-up ("KADE E DVOSOBNIOT STAN ?") bound
+  // nothing and the where-is lane answered with the batch tail instead.
+  const bedWord = norm.match(/(?:едно|дво|три|четири|пет)\s*соб\p{L}*/u);
   if (bedWord) {
-    const w = bedWord[0].slice(0, bedWord[0].indexOf('собен')).trim();
+    const w = bedWord[0].slice(0, bedWord[0].indexOf('соб')).trim();
     s.bedrooms = { 'едно': 1, 'дво': 2, 'три': 3, 'четири': 4, 'пет': 5 }[w] ?? undefined;
   } else {
     // "со една спална" / "so 2 spalni" → спальни соби = bedrooms
@@ -101,6 +105,9 @@ export interface MentionCandidate {
   sqm?: number;
   business?: boolean;
   house?: boolean;
+  /** The feed's own STUDIO/Гарсоњера category (Property.studio) — the ONLY
+   *  reliable type signal: the feed records no numeric room count for them. */
+  studio?: boolean;
   location?: string;      // населба
   details?: string;       // feed opis — descriptor source
   landmark?: string;      // "во близина на X"
@@ -181,12 +188,23 @@ function haystack(c: MentionCandidate): string {
   return normalizeMc(parts.filter(Boolean).join(' · '));
 }
 
+/** Is this candidate a Гарсоњера? The feed's `studio` flag is authoritative;
+ *  the old `bedrooms === 1 && !business && !house` guess stays only as the
+ *  LEGACY fallback for rows imported before the flag. Scoring on the guess
+ *  alone mis-bound the type noun: the [23:09] capture ("GARSONJERAVA KAJ SE
+ *  NAOGJA TOCNO?" over EB 70 + EB 76) put a ДВОСОБЕН with a bedroom count
+ *  below zero and left the REAL гapсоњера (no room count, studio: true)
+ *  unmatched too — so no candidate scored, the mention fell through, and the
+ *  where-is lane answered with the batch's wrong tail. */
+export function isStudio(c: MentionCandidate): boolean {
+  return c.studio === true || (c.bedrooms === 1 && !c.business && !c.house);
+}
+
 function scoreCandidate(sig: MentionSignals, c: MentionCandidate, poi: MentionPoi | undefined): number {
   let score = 0;
   if (sig.eb !== undefined && c.eb === sig.eb) score += 10; // decisive
   if (sig.price !== undefined && c.price !== undefined && Math.abs(c.price - sig.price) <= 1) score += 4;
-  const cGarsonjera = c.bedrooms === 1 && !c.business && !c.house;
-  if (sig.garsonjera) score += cGarsonjera ? 3 : -3;
+  if (sig.garsonjera) score += isStudio(c) ? 3 : -3;
   if (sig.bedrooms !== undefined) score += c.bedrooms === sig.bedrooms ? 3 : (c.bedrooms !== undefined ? -3 : 0);
   if (sig.sqm !== undefined && c.sqm !== undefined) score += c.sqm === sig.sqm ? 3 : -2;
   if (sig.suteren) {
@@ -253,7 +271,7 @@ export function resolveMention(text: string, candidates: MentionCandidate[], opt
 
 /** "гарсоњерата во Центар" / "станот кај Димитар Миладинов" / "деловниот простор во Аеродром". */
 export function describeCandidate(c: MentionCandidate): string {
-  const type = c.bedrooms === 1 && !c.business && !c.house ? 'гарсоњерата'
+  const type = isStudio(c) ? 'гарсоњерата'
     : c.house ? 'куќата'
     : c.business ? 'деловниот простор'
     : 'станот';

@@ -1,8 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { RESPONSE_BANK } from '../src/data/responses';
-import { pickVariant, fallbackVariant, noMatchLine, exhaustedLine, normalizeVariant } from '../src/data/responseBank';
-import { randomGreeting } from '../src/data/greetings';
+import { INITIAL_GREETINGS, randomGreeting } from '../src/data/greetings';
+import { pickVariant, fallbackVariant, noMatchLine, exhaustedLine, normalizeVariant, setLearnedBank } from '../src/data/responseBank';
+import type { BankStore } from '../src/store/bank';
+
+// "имот" means land/a plot in this agency's usage — the general property noun
+// in every client answer is "недвижност" (owner rule, 2026-10-19).
+const IMOT_RE = /(?:^|[^\p{L}])имот(?:от|ите|и)?(?![\p{L}])/iu;
 
 test('response bank: every entry is non-empty and placeholders live only where expected', () => {
   for (const [key, variants] of Object.entries(RESPONSE_BANK)) {
@@ -27,6 +32,13 @@ test('response bank: every entry is non-empty and placeholders live only where e
         // The 20:24 whole-day counter: {day} fills with the owner's proposed
         // day name at serve time (a data-carrier, like {price}).
         assert.ok((v.match(/\{day\}/g)?.length ?? 0) === 1, `${key}: "${v}"`);
+      } else if (key === 'property.which.anchor') {
+        // "Which flat are we talking about?" — the anchor sentence names the
+        // flat: EB, neighbourhood and price, each exactly once (filled at
+        // serve time from the anchored feed row).
+        for (const ph of ['eb', 'location', 'price']) {
+          assert.equal(v.match(new RegExp(`\\{${ph}\\}`, 'g'))?.length ?? 0, 1, `${key}: {${ph}} in "${v}"`);
+        }
       } else if (key === 'owner.ask') {
         // The owner-facing ask: {eb} = the property number, {time} = the
         // client's proposed term — both exactly once.
@@ -53,6 +65,29 @@ test('response bank: every entry is non-empty and placeholders live only where e
       }
     }
   }
+});
+
+test('response bank: "имот" is never used — the general noun is "недвижност"', () => {
+  for (const [key, variants] of Object.entries(RESPONSE_BANK)) {
+    for (const v of variants) assert.ok(!IMOT_RE.test(v), `${key}: ${v}`);
+  }
+  for (const g of INITIAL_GREETINGS) assert.ok(!IMOT_RE.test(g), `greeting: ${g}`);
+  // the document term "имотен лист" is the ONE sanctioned use and must survive
+  assert.ok(!IMOT_RE.test('Чист имотен лист'));
+});
+
+test('pickVariant: learned rows that still say "имот" are never served', () => {
+  const fake = {
+    variants: () => ['Овој имот е одличен избор за Вас.'],
+    metric: () => {},
+  } as unknown as BankStore;
+  setLearnedBank(fake);
+  try {
+    for (let i = 0; i < 20; i++) {
+      const v = pickVariant('greeting');
+      assert.ok(v && !IMOT_RE.test(v), v);
+    }
+  } finally { setLearnedBank(undefined); }
 });
 
 test('pickVariant: unknown key returns undefined; known key fills {location}', () => {

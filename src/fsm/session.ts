@@ -44,7 +44,13 @@ export interface SlotData {
   // v2 — visit sub-funnel
   visitTime?: string;           // client's proposed time (free text)
   ownerTime?: string;           // owner's counter-proposal (from OwnerAgent)
-  feeRejections?: number;       // 1..3; 3 = graceful close + customer queued
+  feeRejections?: number;       // VISIT-FEE ladder: 1..3; 3 = graceful close + customer queued
+  /** RENT-COMMISSION ladder (the second money topic, see provisionLadder): its
+   *  own counter so resisting the commission never burns a visit-fee rung and
+   *  vice versa. 1..3; 3 = graceful close + customer queued. Only the rent
+   *  script uses it — a buyer pays 0% commission, so a "refusal" there is a
+   *  misunderstanding answered with the 0%-clarification (no rung burned). */
+  provisionRejections?: number;
   negotiationCount?: number;    // owner counter-proposals so far (cap)
   // Question-prefix counters ("once per funnel"): discoveryAsks counts criteria
   // questions actually asked, contactAsks counts contact asks sent. The first of

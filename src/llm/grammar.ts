@@ -1036,6 +1036,27 @@ export const FEE_VIEWING_CLAIM_L = '(?:\\s+(?:за|za)\\s+' + FEE_VIEWING_NOUN_L
  *  use \p{L}* (JS \w is ASCII-only — 'стана' must extend 'стан'). */
 export const FEE_MULTI_NOUN_L = '(?:стан\\p{L}*|stan\\w*|имот\\p{L}*|imot\\w*|ку[ао]ј\\p{L}*|kukj\\w*|посет\\p{L}*|poset\\w*|разглед\\p{L}*|razgled\\w*|гледањ\\p{L}*|gledanj\\w*)';
 
+/** Currency/unit allowed GLUED to the amount — "5000DEN" (the [02:16] capture),
+ *  "300ден", "5eur", "250 мкд". */
+export const FEE_CURRENCY_L = '(?:ден\\p{L}*|денар\\p{L}*|den(?:ar)?\\w*|евр\\p{L}*|евра|evr\\w*|eur|мкд|mkd)';
+
+/** A fee-sized amount: ≤4 digits with an OPTIONAL glued or spaced currency.
+ *  5-digit sums (property prices: 185000) can never match; "5000DEN" is ONE
+ *  token, so the right boundary is checked after the currency, not the digits. */
+export const FEE_AMOUNT_L = '(?<![\\p{L}\\p{N}])\\d{1,4}(?:\\s?' + FEE_CURRENCY_L + ')?(?![\\p{L}\\p{N}])';
+
+/** A verb of visiting/browsing — the client counting the viewings he would do
+ *  ("ако посетам 10 стана", "ako gledam 10 stanovi", "разгледам 5"). */
+export const FEE_VISIT_VERB_L = '(?:посет\\p{L}*|poset\\w*|разглед\\p{L}*|razgled\\w*|обикол\\p{L}*|obikol\\w*|гледа\\p{L}*|gleda\\w*|вид\\p{L}*|vid\\w*)';
+
+/** Total-sum head in front of the amount — "тоа се / значи / вкупно / заедно". */
+export const FEE_TOTAL_HEAD_L = '(?:тоа\\s+се|toa\\s+se|значи|znaci|znachi|вкупно|vkupno|заедно|zaedno|сè|сите|site|сума\\p{L}*|suma\\w*)';
+
+/** "for nothing" anchor — the client's own money with nothing to show for it:
+ *  "на гладно" (the [02:16] burst), "за ништо". Sits where FEE_POCKET_L sits
+ *  in arm A: both pin the client's own spend, never a budget or a price. */
+export const FEE_NOTHING_L = '(?:на\\s+гладно|na\\s+gladno|за\\s+ништо|za\\s+nishto|za\\s+niso|бадава|badava)';
+
 /** Grammar-built fee-negotiation patterns (see module docs). BOTH word orders
  *  per family; all scripts; typoes tolerated. Callers gate on state — these
  *  patterns describe fee talk, not property talk. */
@@ -1061,25 +1082,40 @@ export function buildFeePracticeSlots(): RegExp {
     'iu');
 }
 
-/** Multiplication total-cost complaint: "10 стана × 500 = 5000 од мој џеб".
- *  STRICT multiplication shapes only — the loose noun+amount arm false-
- *  positivized BUDGETS ("стан … до 250 евра" ate the whole funnel, the
- *  [12:4x] regression):
- *    A) noun … amount(≤4 digits) … pocket marker ("…се 5000 од мој џеб" —
- *       the capture carried no currency; џеб pins the client's own spend);
+/** Multiplication total-cost arithmetic about the VISIT FEE: "10 стана × 500
+ *  = 5000 од мој џеб". STRICT arithmetic shapes only — the loose noun+amount
+ *  arm false-positivized BUDGETS ("стан … до 250 евра" ate the whole funnel,
+ *  the [12:4x] regression):
+ *    A) noun … amount(≤4 digits) … the client's own-spend anchor
+ *       ("…се 5000 од мој џеб", "…5000 на гладно" — џеб/на гладно pin the
+ *       client's own money, which a budget or a property price never does);
  *    B) COUNT + noun + по/× + amount (+optional currency): "10 стана по 500
- *       денари", "10 stanovi x 500".
- *  Budgets ("стан до 250 евра") carry neither a pocket phrase nor a
- *  multiplication token — they can never match. 5-digit numbers (property
- *  prices 185.000) are out by \d{1,4}+boundary. */
+ *       денари", "10 stanovi x 500";
+ *    C) the MULTI-VISIT total (the [02:16] live burst "PA AKO POSETAM 10
+ *       STANA TOA SE 5000DEN NA GLADNO?"): a visit verb + COUNT + noun, with
+ *       the sum either introduced by a total head ("тоа се / значи / вкупно")
+ *       or following the count directly — the client is multiplying the FEE by
+ *       the number of viewings he plans, not naming a budget;
+ *    D) COUNT + noun + total head + amount, same arithmetic without the verb
+ *       ("10 посети, тоа се 3000 ден").
+ *  Budgets ("стан до 250 евра") carry no anchor, no visit verb and no total
+ *  head — they can never match. 5+ digit numbers (property prices 185.000) are
+ *  out by \d{1,4}+boundary, and a currency may ride GLUED to the amount
+ *  ("5000DEN" — the live capture's spelling, one token, no space). */
 export function buildFeeTotalCostSlots(): RegExp {
-  const AMT = '(?<![\\p{L}\\p{N}])\\d{1,4}(?![\\p{L}\\p{N}])';
-  const CUR = '(?:\\s*(?:ден\\p{L}*|денар\\p{L}*|den(?:ar)?\\w*|евр\\p{L}*|евра|evr\\w*|eur|мкд|mkd))(?![\\p{L}\\p{N}])';
+  const COUNT = '(?<![\\p{L}\\p{N}])\\d{1,3}';
+  const TOTAL = '(?:' + FEE_TOTAL_HEAD_L + ')\\s*';
   return new RegExp(
-    // A: pocket-anchored sum
-    _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,60}' + AMT + '[^.!?\\n]{0,20}' + _b(FEE_POCKET_L)
+    // A: own-spend anchored sum
+    _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,60}' + FEE_AMOUNT_L + '[^.!?\\n]{0,20}'
+      + '(?:' + _b(FEE_POCKET_L) + '|' + _b(FEE_NOTHING_L) + ')'
     // B: explicit multiplication (COUNT + noun + по/× + amount)
-    + '|' + '(?<![\\p{L}\\p{N}])\\d{1,3}\\s*' + _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,10}(?:по|po|×|[хx]|\\*)\\s*' + AMT + '(?:' + CUR + ')?',
+    + '|' + COUNT + '\\s*' + _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,10}(?:по|po|×|[хx]|\\*)\\s*' + FEE_AMOUNT_L
+    // C: multi-visit total — visit verb + HOW MANY + noun (+ total head) + sum
+    + '|' + _b(FEE_VISIT_VERB_L) + '[^.!?\\n]{0,40}' + COUNT + '\\s*' + _b(FEE_MULTI_NOUN_L)
+      + '[^.!?\\n]{0,40}(?:' + TOTAL + ')?' + FEE_AMOUNT_L
+    // D: the same arithmetic without the verb — COUNT + noun + total head + sum
+    + '|' + COUNT + '\\s*' + _b(FEE_MULTI_NOUN_L) + '[^.!?\\n]{0,40}' + TOTAL + FEE_AMOUNT_L,
     'iu');
 }
 
@@ -1258,5 +1294,217 @@ export function buildExitCheckSlots(): RegExp {
     + '|^.{0,40}' + atom + '[^?\\n]{0,40}$'
     + '|^' + atom + '$'
     + ')',
+    'iu');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  FLEXIBLE LOCATION — "anywhere" / "any neighbourhood"
+// ══════════════════════════════════════════════════════════════════════════════
+// The discovery funnel asks "во кој дел од градот / во која населба?" and the
+// client releases the criterion. Enumerating the sentences people actually
+// typed always lags: the [23:47] capture answered "NEBITNO KADE" and the
+// [23:48] one "BILO KOJA" (the noun ELIDED) — both were unread, so the funnel
+// asked the same question twice. This is a GRAMMAR, not a phrase list:
+//
+//   ADV                          секаде / било каде / каде и да е / во секој дел
+//   BILO + WH (+ PLACE_NOUN)     било која [населба]
+//   WH + BILO (+ PLACE_NOUN)     која било [населба]
+//   WH + И ДА Е (+ PLACE_NOUN)   која и да е [населба]
+//   PRED (+ PLACE_NOUN)          не ми е битно / нема врска / сеедно + каде
+//   PRED alone                   NEBITNO / SEEDNO / свеедно
+//
+// The PLACE_NOUN slot includes the wh-adverbs (каде/кај/где) because
+// "не ми е битно каде" and "во која населба" are the same answer shape.
+const ANY_LOC_ADV = [
+  'било каде', 'било кај', 'било где', 'каде било', 'кај било', 'где било',
+  'каде и да е', 'кај и да е', 'где и да е', 'каде да е', 'кај да е', 'где да е',
+  'секаде', 'насекаде', 'по цел град', 'низ цел град', 'во целиот град',
+  'по целиот град', 'низ целиот град', 'во секој дел', 'во секоја населба',
+  'во секое место', 'секоја населба', 'секој дел', 'секое место',
+];
+const ANY_LOC_ADV_L = [
+  'bilo kade', 'bilo kaj', 'bilo gde', 'kade bilo', 'kaj bilo', 'gde bilo',
+  'kade i da e', 'kaj i da e', 'gde i da e', 'kade da e', 'kaj da e', 'gde da e',
+  'sekade', 'nasekade', 'po cel grad', 'niz cel grad', 'vo celiot grad',
+  'vo sekoj del', 'vo sekoja naselba', 'sekoja naselba', 'sekoj del',
+  'anywhere', 'any area', 'wherever',
+];
+const ANY_LOC_NOUN = [
+  'населба', 'населби', 'населбата', 'населбите', 'дел', 'делот', 'општина',
+  'општината', 'локација', 'локацијата', 'место', 'местото', 'кварт', 'квартот',
+  'маало', 'маалото', 'град', 'градот', 'каде', 'кај', 'где',
+];
+const ANY_LOC_NOUN_L = [
+  'naselba', 'naselbi', 'naselbata', 'naselbite', 'del', 'delot', 'opstina',
+  'opstinata', 'lokacija', 'lokacijata', 'mesto', 'mestoto', 'kvart', 'kvartot',
+  'maalo', 'maaloto', 'grad', 'gradot', 'kade', 'kaj', 'gde',
+];
+// Wh-words across the dialects that actually reach the feed: Macedonian
+// кој/која/кое/кои, the Serbian-influenced које/koje, and the eastern куд/kud
+// ("куд год", "било куд").
+const ANY_WH = ['кој', 'која', 'кое', 'кои', 'које', 'куд'];
+const ANY_WH_L = ['koj', 'koja', 'koe', 'koi', 'koje', 'kud'];
+/** "Dismissal" predicates — the criterion is released, not named. */
+const ANY_PRED = [
+  'не ми е битно', 'не ми е важно', 'не ми е гајле', 'не ми е грижа',
+  'не е битно', 'не е важно', 'нема врска', 'сеедно', 'сеедно ми е',
+  'свеедно', 'се е едно', 'се е еднакво', 'сеедно е', 'не сум ограничен',
+  'не сме ограничени', 'не сум врзан', 'без ограничување', 'без ограничувања',
+  'без преференца', 'без преференции', 'каде сакаш', 'каде сакате',
+  // Dialect / Serbian-influenced spellings seen in Skopje chat traffic:
+  'свеједно', 'свеједно ми е', 'није битно', 'није важно', 'како год',
+  'где год', 'куд год', 'било куд', 'се једно', 'све едно',
+];
+const ANY_PRED_L = [
+  'ne mi e bitno', 'ne mi e vazno', 'ne mi e gajle', 'ne mi e grizha',
+  'ne e bitno', 'ne e vazno', 'nema vrska', 'seedno', 'seedno mi e',
+  'sveedno', 'se e edno', 'se e ednakvo', 'ne sum ogranicen',
+  'ne sme ograniceni', 'bez ogranicuvanje', 'bez preferenca',
+  'kade sakas', 'kade sakate',
+  'svejedno', 'svejedno mi e', 'nije bitno', 'nije vazno', 'kako god',
+  'gde god', 'kud god', 'bilo kud', 'se jedno', 'sve edno',
+];
+/** The bare dismissal — a one-word ANSWER ("NEBITNO", "SEEDNO", "BILO KOJA"). */
+const ANY_PRED_BARE = ['небитно', 'nebitno', 'сеедно', 'seedno', 'свеедно', 'sveedno', 'се едно', 'se edno',
+  'свеједно', 'svejedno', 'се једно', 'sve jedno', 'све едно',
+  // Phrase releases that need no place noun: "није битно", "како год",
+  // "где год", "било где". They are the same ANSWER shape as NEBITNO.
+  'није битно', 'nije bitno', 'није важно', 'nije vazno', 'како год', 'kako god',
+  'где год', 'gde god', 'куд год', 'kud god', 'било где', 'bilo gde', 'нее битно', 'nee bitno'];
+/**
+ * The ONE-KEY TYPO class for the bare dismissal ("nebitnno", "seadno",
+ * "sveednо" with a Cyrillic о). fuzzyHasToken allows edit distance 1 on a
+ * single token, both scripts; the caller's criterion guard still applies, so a
+ * typo of "nebitno" beside a size/price word keeps its own lane.
+ */
+export const ANYWHERE_TYPO_TOKENS = ['небитно', 'сеедно', 'свеедно', 'свеједно'];
+
+/** Anything that NAMES where (the adverb / the wh+било + place noun / the
+ *  predicate + place noun). Self-sufficient — no criterion guard needed. */
+export function buildAnywhereSlots(): RegExp {
+  const ADV = or([...ANY_LOC_ADV, ...ANY_LOC_ADV_L]);
+  const WH = or([...ANY_WH, ...ANY_WH_L]);
+  const NOUN = or([...ANY_LOC_NOUN, ...ANY_LOC_NOUN_L]);
+  const BILO = or(['било', 'bilo']);
+  const IDA = or(['и да е', 'i da e', 'да е', 'da e']);
+  const PRED = or([...ANY_PRED, ...ANY_PRED_L]);
+  // The predicate may GOVERN the place noun through a preposition:
+  // "не сум ограничен НА населба", "nema vrska ZA gradot". Optional, because
+  // "не ми е битно каде" has none — the wh-adverb is already in NOUN.
+  const PREP = opt(`${or(['на', 'за', 'со', 'во', 'na', 'za', 'so', 'vo'])}${WS}`);
+  // Blanket quantifiers + any place noun: "во секоја општина", "по цел град",
+  // "низ целиот град", "во секое маало" — generated, so a noun we never listed
+  // with a quantifier still lands.
+  const EVERY = `${or(['во', 'по', 'низ', 'vo', 'po', 'niz'])}${WS}${or(['секој', 'секоја', 'секое', 'цел', 'целиот', 'целата', 'sekoj', 'sekoja', 'sekoe', 'cel', 'celiot', 'celata'])}${WS}${NOUN}`;
+  return new RegExp(
+    ADV
+    + `|${EVERY}`
+    + `|${BILO}${WS}${WH}${WS}${NOUN}`
+    + `|${WH}${WS}${BILO}${WS}${NOUN}`
+    + `|${WH}${WS}${IDA}${WS}${NOUN}`
+    + `|${PRED}${WS}${PREP}${NOUN}`
+    + `|${NOUN}${WS}${or(['не е битна', 'не е важна', 'ne e bitna', 'ne e vazna'])}`,
+    'iu');
+}
+
+/** The bare dismissal, noun elided: "NEBITNO", "SEEDNO", "BILO KOJA",
+ *  "KOJA BILO", "НЕ МИ Е БИТНО". The caller guards by the criterion the
+ *  dismissal NAMES ("небитно колку соби" is a SIZE waive, "bilo koja kukja"
+ *  is the TYPE) — this builder deliberately cannot tell them apart. */
+export function buildAnywhereBareSlots(): RegExp {
+  const WH = or([...ANY_WH, ...ANY_WH_L]);
+  const BILO = or(['било', 'bilo']);
+  const PRED = or([...ANY_PRED_BARE, 'не ми е битно', 'не ми е важно', 'не ми е гајле',
+    'ne mi e bitno', 'ne mi e vazno', 'ne mi e gajle', 'нема врска', 'nema vrska',
+    'се е еднакво', 'se e ednakvo',
+    // blanket releases: "не сум ограничен", "без ограничување/преференца" —
+    // a criterion noun in the same message (квадратура, цена…) still trips the
+    // caller's guard, so "не сум ограничен на квадратура" stays a size waive.
+    'не сум ограничен', 'ne sum ogranicen', 'не сме ограничени', 'ne sme ograniceni',
+    'без ограничување', 'без ограничувања', 'bez ogranicuvanje',
+    'без преференца', 'без преференции', 'bez preferenca']);
+  return new RegExp(`${BILO}${WS}${WH}|${WH}${WS}${BILO}|${PRED}`, 'iu');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  PRACTICE DISAPPROVAL — the client rejects the FEE MODEL, not a property
+// ══════════════════════════════════════════════════════════════════════════════
+// [23:12] "NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA". Grammar: a DISLIKE verb
+// plus a POLICY noun in the same clause, either order. A dislike of the
+// PROPERTY ("ne mi se dopagja stanot") names no policy noun, and the POLICY
+// ASSERTION ("тоа се вашите правила") is the fee.rules explanation — neither
+// is resistance, so the noun slot is what separates them.
+const PRACTICE_DISLIKE_VERB = [
+  'не ми се допаѓа', 'не ми се допадна', 'не ми се свиѓа', 'не ми се свидна',
+  'не ми одговара', 'не ми е ок', 'не ми чини', 'не ми се бендисува',
+];
+const PRACTICE_DISLIKE_VERB_L = [
+  'ne mi se dopagja', 'ne mi se dopaga', 'ne mi se dopadna', 'ne mi se svigja',
+  'ne mi se svigna', 'ne mi odgovara', 'ne mi e ok', 'ne mi cini', 'ne mi se bendisuva',
+];
+const PRACTICE_POLICY_NOUN = [
+  'принцип', 'работа', 'пристап', 'политик', 'правил', 'услов', 'начин',
+  'пракса', 'деловник', 'протокол',
+];
+const PRACTICE_POLICY_NOUN_L = [
+  'princip', 'rabota', 'pristap', 'politik', 'pravil', 'uslov', 'nacin',
+  'praksa', 'delovnik', 'protokol',
+];
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  FEE VALUE COMPLAINT — the predicate word class for "this fee is worthless"
+// ══════════════════════════════════════════════════════════════════════════════
+// detectFeeNag's family 4 (a VALUE complaint) reads THIS class, so a dialect a
+// capture surfaces is one entry here and every caller inherits it — no new
+// branch anywhere. Two shapes, and the difference is deliberate:
+//
+//   • STEMS — a family with productive inflection: бесмислица / бесмислено /
+//     бесмислени, апсурд / апсурдно, срамота / срамно / срамотен, изнудување,
+//     рекет / рекетари. The stem is safe because no other intent starts there.
+//   • TOKENS — a form whose stem would swallow a DIFFERENT intent. "скупо" and
+//     the dialect "купо" must not match "купив стан" (a 'куп' stem would), and
+//     "скапи станови по 1.000 евра" is a PROPERTY-price complaint: only the
+//     exact "скапо"/"скупо" token may fire the fee lane, and only when the
+//     visit/fee object (or the fee-sized arm) anchors it.
+//
+// The Latin entries are not redundant: "scapo" (the common c-for-k typing)
+// normalises to "сцапо", not "скапо", so the caller tests this class against
+// the RAW text as well.
+const FEE_VALUE_TOKEN = [
+  'скапо', 'скупо', 'купо', 'скапичко', 'skapo', 'scapo', 'skupo', 'kupo', 'skapicko',
+];
+const FEE_VALUE_STEM = [
+  'глупост', 'безобраз', 'превисок', // carried here from the original list
+  'бесмисл', 'апсурд', 'нелогич', 'срамот', 'изнуд', 'рекет',
+];
+const FEE_VALUE_STEM_L = [
+  'glupost', 'bezobraz', 'previsok',
+  'besmislen', 'apsurd', 'nelogic', 'sramot', 'iznud', 'reket',
+];
+const FEE_VALUE_PHRASE = [
+  'многу', 'премногу', 'не е во ред', 'не е нормално', 'не е фер', 'зарем не',
+  'није у реду', 'није фер', 'нема логика', 'нема смисла', 'не вреди',
+  'nema logika', 'nema smisla', 'ne vredi', 'nije u redu', 'nije fer',
+];
+
+/** True for a VALUE complaint about the fee (family 4 of detectFeeNag).
+ *  Boundary-guarded tokens, inflected stems, both scripts. The caller decides
+ *  whether a value word is about the FEE (visit/fee object or a fee-sized
+ *  figure) — this builder deliberately cannot tell that apart. */
+export function buildFeeValueComplaintSlots(): RegExp {
+  const stems = [...FEE_VALUE_STEM, ...FEE_VALUE_STEM_L].map(w => `${w}\\p{L}*`);
+  return new RegExp(or([...FEE_VALUE_TOKEN, ...FEE_VALUE_PHRASE, ...stems]), 'iu');
+}
+
+/** True for "I dislike the way you work / this principle / your approach". */
+export function buildFeePracticeDislikeSlots(): RegExp {
+  // STEM + any inflection, not the bare stem: or() boundary-guards every
+  // alternative, so a bare 'политик' could never match "политика" (the trailing
+  // 'а' fails the lookahead) and 'не ми е ок оваа политика' was missed.
+  const inflected = (words: string[]) => words.map(w => `${w}\\p{L}*`);
+  const V = or([...inflected(PRACTICE_DISLIKE_VERB), ...inflected(PRACTICE_DISLIKE_VERB_L)]);
+  const N = or([...inflected(PRACTICE_POLICY_NOUN), ...inflected(PRACTICE_POLICY_NOUN_L)]);
+  return new RegExp(
+    `${V}[^.!?\\n]{0,60}${N}|${N}[^.!?\\n]{0,60}${V}`,
     'iu');
 }

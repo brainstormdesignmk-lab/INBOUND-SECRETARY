@@ -21,6 +21,7 @@ import { BankStore } from '../src/store/bank';
 import { Db } from '../src/store/db';
 import { loadConfig } from '../src/config';
 import { violationsFor, constraintsFor } from '../src/llm/bankConstraints';
+import { classifyOffensive } from '../src/antiabuse/offensive';
 
 const json = process.argv.includes('--json');
 
@@ -56,17 +57,51 @@ const seedBad = auditSet(
 const learnedKeys = bank.learnedKeys().filter(k => k.startsWith('learn.'));
 const learnedBad = auditSet(k => bank.variants(k), learnedKeys, 'LEARNED');
 
+/**
+ * P5 — THE OFFENSIVE-FALSE-POSITIVE SWEEP.
+ *
+ * classifyOffensive runs on every INBOUND message before routing, and a hit
+ * spends a strike and serves the professional-tone warning. The bank's SEED
+ * variants are also inputs of that scan whenever they are fed back through the
+ * TUI/bank tooling, and the lexicon's own stems are what the client's words are
+ * matched against — so any variant the lexicon flags is proof that a stem is
+ * over-broad. Two live bugs came out of exactly this sweep: 'fakj' firing on
+ * "прифаќам" (prifakjam) and 'erot' firing on "менаџерот" (menadzerot).
+ * Runs over the seeds AND every learned variant the cron grew.
+ */
+function auditOffensive(variants: string[], label: string): number {
+  let bad = 0;
+  for (const v of variants) {
+    const d = classifyOffensive(v);
+    if (!d.isOffensive) continue;
+    bad++;
+    if (bad <= 5) console.log(`\n✗ [${label}] offensive-lexicon false positive (${d.reason}): ${v.slice(0, 110)}…`);
+  }
+  return bad;
+}
+
+const seedOffensive = auditOffensive(
+  Object.values(RESPONSE_BANK).flat().filter((v): v is string => typeof v === 'string'),
+  'SEED',
+);
+const learnedOffensive = auditOffensive(
+  learnedKeys.flatMap(k => bank.variants(k)),
+  'LEARNED',
+);
+
 if (json) {
   // JSON consumers want silence on stdout — re-run compactly.
   const compact = {
     seedViolations: seedBad,
     learnedViolations: learnedBad,
+    offensiveFalsePositives: seedOffensive + learnedOffensive,
     learnedKeysChecked: learnedKeys.length,
   };
   console.error(JSON.stringify(compact));
-  process.exit(seedBad + learnedBad > 0 ? 1 : 0);
+  process.exit(seedBad + learnedBad + seedOffensive + learnedOffensive > 0 ? 1 : 0);
 }
 
 const total = Object.values(RESPONSE_BANK).reduce((a, v) => a + v.length, 0);
-console.log(`\n${seedBad + learnedBad === 0 ? '✓' : '✗'} seed audit: ${seedBad + learnedBad} violations across ${Object.keys(RESPONSE_BANK).length} seed keys / ${total} seed variants, ${learnedKeys.length} learned keys`);
-process.exit(seedBad + learnedBad > 0 ? 1 : 0);
+console.log(`\n${seedOffensive + learnedOffensive === 0 ? '✓' : '✗'} offensive sweep: ${seedOffensive + learnedOffensive} lexicon false positives across ${total} seed variants (the classifier must never strike on the agency's own copy)`);
+console.log(`${seedBad + learnedBad + seedOffensive + learnedOffensive === 0 ? '✓' : '✗'} seed audit: ${seedBad + learnedBad} contract violations · ${seedOffensive + learnedOffensive} offensive false positives, across ${Object.keys(RESPONSE_BANK).length} seed keys / ${total} seed variants, ${learnedKeys.length} learned keys`);
+process.exit(seedBad + learnedBad + seedOffensive + learnedOffensive > 0 ? 1 : 0);
