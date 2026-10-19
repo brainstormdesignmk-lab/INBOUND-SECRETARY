@@ -28,6 +28,8 @@ import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
 import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LINE } from '../src/llm/infoAnswer';
+import { hasParkingWord } from '../src/llm/morphology';
+import { detectFeatureAsk, detectPriceAsk } from '../src/llm/deterministic';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429'); }
@@ -113,6 +115,61 @@ test('facets: price/sqm/rooms/floor/features, both scripts', () => {
   assert.equal(detectInfoFacets('сутерен ли е ?')?.floor, true);
   assert.deepEqual(detectInfoFacets('dali 76 ima lift ?')?.features, ['лифт']);
   assert.deepEqual(detectInfoFacets('ima li parking ?')?.features, ['паркинг']);
+});
+
+// ── PARKING — the [22:26] transcript ────────────────────────────────────────
+// „O E RESENO PARKIRANJETO?“ fell to the presentation card and „KAKO E RESENO
+// PARKIRANJETO?“ to the off-topic redirect, while only „IMA PARKING“ was
+// recognized. The family is matched by MORPHOLOGY (two stems: паркинг- /
+// паркир-), plus a one-edit typo tolerance.
+test('parking: every derivation and a one-slip typo is recognized', () => {
+  for (const m of [
+    'IMA PARKING ?', 'DALI IMA PARKING?', 'PARKING?',
+    'DALI IMA PARKIRANJE?', 'KAKO E RESENO PARKIRANJETO?',
+    'O E RESENO PARKIRANJETO?', 'KAKO E RESHENO PARKIRANETO?',
+    'дали има паркиралиште?', 'паркинзи има?', 'kolku parking mesta?',
+    'PAKRING?', 'PARKNIG?', 'PARKIG?', 'PARKINGS?',
+  ]) {
+    assert.equal(hasParkingWord(m), true, m);
+  }
+  // Unrelated words that share letters must never fire.
+  for (const m of ['паркет', 'пари', 'стан со двор', 'гаража', 'партија']) {
+    assert.equal(hasParkingWord(m), false, m);
+  }
+  assert.equal(detectFeatureAsk('PARKING?'), true, 'trailing punctuation is not a boundary miss');
+  assert.equal(detectFeatureAsk('KAKO E RESENO PARKIRANJETO ?'), true);
+});
+
+test('parking: the ask becomes a parking facet — and not a price facet', () => {
+  assert.deepEqual(detectInfoFacets('KAKO E RESENO PARKIRANJETO ?')?.features, ['паркинг']);
+  assert.deepEqual(detectInfoFacets('PAKRING?')?.features, ['паркинг']);
+  // "колку паркинг места" counts the FEATURE; the old "пар" money arm read it
+  // as "колку пари" and the answer carried the flat price beside the parking line.
+  const count = detectInfoFacets('Колку паркинг места има?')!;
+  assert.deepEqual(count.features, ['паркинг']);
+  assert.equal(count.price, undefined);
+  assert.equal(detectPriceAsk('Колку паркинг места има?'), false);
+
+  const parked = { ...ROWS_INFO[0], features: ['јавен паркинг'] } as Property;
+  assert.equal(buildInfoAnswer(parked, { features: ['паркинг'] }), 'Има јавен паркинг.');
+});
+
+test('parking: a SEARCH criterion is intake, not an info ask about the bound flat', () => {
+  // The client wants a flat WITH parking — the funnel owns this.
+  assert.equal(detectInfoFacets('BARAM STAN SO PARKING ?'), undefined);
+  assert.equal(detectInfoFacets('ми треба стан со паркинг?'), undefined);
+  assert.equal(detectInfoFacets('IMATE LI STAN SO PARKING?'), undefined);
+  // …but asking ABOUT the discussed flat is still an info ask.
+  assert.deepEqual(detectInfoFacets('BARAM DA ZNAM DALI IMA PARKING ?')?.features, ['паркинг']);
+});
+
+test('handler: a parking ask routes to INFO, never the presentation card', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  seed(sessions, 'parking', [EB63]);
+  await handler.handle('test', 'parking', 'KAKO E RESENO PARKIRANJETO ?');
+  // EB 63 stores nothing about parking — the honest owner-relay line, NOT the
+  // full property card / off-topic redirect.
+  assert.equal(sent.at(-1), INFO_NO_DATA_LINE);
 });
 
 test('facets: criteria and opinions are NOT info asks', () => {

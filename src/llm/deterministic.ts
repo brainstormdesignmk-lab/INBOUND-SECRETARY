@@ -8,7 +8,7 @@ export { hasClockHint };
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
-import { AVAILABILITY_LEXICON, toRegexAlt, expandAdjective, adjectiveFormsV2, nounFormsV2, formsRegex } from './morphology';
+import { AVAILABILITY_LEXICON, toRegexAlt, expandAdjective, adjectiveFormsV2, nounFormsV2, formsRegex, hasParkingWord } from './morphology';
 import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots,
   buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots, buildFeeRulesSlots,
   buildByeSlots, buildSoftRefusalSlots, buildExitCheckSlots, EXIT_OFFER_VETO_L,
@@ -4873,7 +4873,10 @@ const PRICE_ASK_RE2 = new RegExp(
   '(?:за|za)\\s*(?:колку|колко|kolku|kolko)\\s*(?:[^.!?\\n]{0,16}(?:дава\\p{L}*|дад\\p{L}*|бара\\p{L}*|прода\\p{L}*|dava\\p{L}*|bara\\p{L}*|prodava\\p{L}*)|(?:е|e)\\s*(?:\\?|\\p{L}{2,}))' +
   // kolku + optional clitic/reflexive ("Колку ЈА даваат…?", "Kolku SE bara…?")
   // + the give/ask/prodave/cost/pari class
-  '|(?:колку|колко|kolku|kolko|кој|koj)\\s*(?:(?:ја|го|ги|ja|go|mu|се|se)\\s*)?(?:пар\\p{L}*|дава\\p{L}*|дад\\p{L}*|бара\\p{L}*|прода\\p{L}*|dava\\p{L}*|bara\\p{L}*|prodava\\p{L}*|кошт\\p{L}*|kosht\\p{L}*|ko\\u0161t\\p{L}*)' +
+  // "пар" is the MONEY arm (пари/пара) — it must not swallow "паркинг"
+  // ("KOLKU PARKING MESTA IMA?" was read as a price ask and the answer carried
+  // the flat's price beside the parking line).
+  '|(?:колку|колко|kolku|kolko|кој|koj)\\s*(?:(?:ја|го|ги|ja|go|mu|се|se)\\s*)?(?:пар(?!ки)\\p{L}*|дава\\p{L}*|дад\\p{L}*|бара\\p{L}*|прода\\p{L}*|dava\\p{L}*|bara\\p{L}*|prodava\\p{L}*|кошт\\p{L}*|kosht\\p{L}*|ko\\u0161t\\p{L}*)' +
   '|(?:цен[уаи]|цена|цна|cena|cenua|cna)\\p{L}*\\s*(?:за|на|na)\\s+\\p{L}{2,}\\s*\\?' +
   '|^\\s*(?:цен[уаи]|цена|цна|cena|cenua|cna|цени|ceni)\\p{L}*\\s*\\?' +
   '|(?:која|коиа|koja|koia|кое|koe|колко|kolko|коа|koa|кој|koj)[^.!?\\n]{0,14}(?:цен\\p{L}|cena\\p{L}*|cenua|cna|цифр\\p{L}*|cifr\\p{L}*)' +
@@ -5354,9 +5357,12 @@ export function detectComparison(text: string): boolean {
 const FEATURE_RE =
   /(?:има\s+ли\s+(?:паркинг|лифт|кујна|тераса|башта|двор|orman|klima|garazha|garage|lift|elevator|kujna|kitchen|terasa|terrace|yard|balkon|orman|ormar|klima|centralno|kamin|solarni|alarm|video|security)|(?:дали|е\s+ли)\s+(?:е\s+)?(?:реновиран|новоградба|стар|нов)|е\s+ли\s+(?:реновиран|новоградба|стар|нов)|newly\s+renovated|renovated|new\s+build|(?:паркинг|лифт|кујна|тераса|двор|balkon|orman|klima|garazha|garage|lift|elevator|kujna|kitchen|terasa|terrace|yard|orman|ormar|klima|centralno|kamin|solarni|alarm|video|security)\s+(?:ли|да|е|има|ќе\s+има|би\s+имало)|energy\s+(?:class|rating|efficien)|енергетска\s+(?:класа|ефикасност|рејтинг)|колку\s+(?:квадрати|м2|квадратни)|колку\s+е\s+(?:голем|големина)|колку\s+(?:спални|соби)|колку\s+е\s+(?:голем|големина)|spalni|sobi|kvadrati|kolku\s+(?:spalni|sobi|kvadrati)|колку\s+спални|колку\s+соби|колку\s+квадрати|колку\s+м2|спални(?:\s|$)|соби(?:\s|$)|кујна(?:\s|$)|тераса(?:\s|$)|лифт(?:\s|$)|паркинг(?:\s|$)|garage(?:\s|$)|lift(?:\s|$)|kitchen(?:\s|$)|bedroom(?:\s|$)|parking(?:\s|$))/iu;
 
-/** True when the client asks about a specific property feature. */
+/** True when the client asks about a specific property feature.
+ *  Parking is matched by the morphology family (hasParkingWord) rather than
+ *  the phrase table — it catches „паркирање“, „паркинзи“, „паркиралиште“ and
+ *  one-slip typos the literal arms never saw. */
 export function detectFeatureAsk(text: string): boolean {
-  return matchesBoth(FEATURE_RE, text) || extFires('feature-ask', text);
+  return matchesBoth(FEATURE_RE, text) || hasParkingWord(text) || extFires('feature-ask', text);
 }
 
 // Result-set question — "SAMO OVIE DVA STANA GI IMATE SO DVE ILI TRI SPALNI ?"

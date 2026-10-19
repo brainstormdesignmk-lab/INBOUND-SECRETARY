@@ -18,6 +18,7 @@
 
 import { Property } from '../data/properties';
 import { normalizeMc } from './normalize';
+import { hasParkingWord } from './morphology';
 import { detectPriceAsk, detectBudget } from './deterministic';
 
 export interface InfoFacets {
@@ -49,6 +50,14 @@ const ROOMS_KOLKU_RE = new RegExp(`колку\\s+(?:соби${STEM}|спалн${
 const FLOOR_WORD_RE = new RegExp(`(?:сутерен|спрат${STEM}|приземј${STEM}|кат(?:от|а|ови|овите|че)?${TAIL})`, 'iu');
 // "последен кат", "најгорниот спрат" — a yes/no about the TOP floor.
 const LAST_FLOOR_RE = /(?:последен|последниот|најгорниот)\s*(?:кат|спрат)/iu;
+// The ELLIPTICAL follow-up: after "на кој кат е?" → "Се наоѓа на 3 кат." the
+// client types just "POSLEDEN ?" — the noun is carried by the conversation,
+// and without this the message has no facet at all and fell into the
+// presentation lane (the [22:23] transcript: the exhausted-options bank line
+// instead of the yes/no "Да — станот е на последниот кат (3 од 3)"). It must be the
+// WHOLE reply — "posledniot stan" (the last flat) or "posleden pat" (last
+// time) are different questions and never match.
+const BARE_LAST_FLOOR_RE = /^(?:[иа]\s+)?(?:дали\s+(?:е\s+)?)?(?:на\s+)?(?:последен|последниот|најгорниот|најгорен)$/iu;
 // "колку (вкупно) ката/спратови" — a COUNT, so the noun must be PLURAL (or
 // "ката"). A bare "на 3 кат" is a location inside a size question ("колку е
 // голем станот на 3 кат") and must stay a size question.
@@ -58,9 +67,12 @@ const TOTAL_FLOORS_RE = new RegExp(
 
 // Feature probes: canonical name → what it looks like in the message.
 // Cyrillic-only because the text is probed through normalizeMc (Latin→Cyrillic).
+// NOTE: parking is NOT in this table — it is matched by hasParkingWord()
+// (morphology.ts), which recognizes the whole derivational family
+// (паркирање/паркинзи/паркиралиште) and one-slip typos, not just the literal
+// noun. See the FEATURE block below.
 const FEATURE_PROBES: Array<[RegExp, string]> = [
   [/(?:^|\s)лифт/iu, 'лифт'],
-  [/(?:^|\s)паркинг/iu, 'паркинг'],
   [/(?:^|\s)гараж/iu, 'гаража'],
   [/(?:^|\s)(?:гре|парно)/iu, 'греење'],
   [/(?:^|\s)клим/iu, 'клима'],
@@ -69,6 +81,17 @@ const FEATURE_PROBES: Array<[RegExp, string]> = [
   [/(?:^|\s)(?:наместен|опремен)/iu, 'наместен'],
   [/(?:^|\s)реновиран/iu, 'реновиран'],
 ];
+
+// A SEARCH CRITERION is not a feature ask. "BARAM STAN SO PARKING?" names the
+// feature the CLIENT WANTS, not one the discussed flat is being asked about —
+// serving it from the bound property would answer "Има јавен паркинг" about a
+// flat they never asked about. Same for "имате ли стан со паркинг?". The
+// parking family made this reachable (the literal probe missed the derived
+// forms), so the veto is explicit: a search verb / "имате ли стан" turns the
+// feature word into intake, and the FSM owns it.
+// The verb alone is not enough ("барам да знам дали има паркинг?" IS an info
+// ask) — the criterion needs the property OBJECT: "барам стан со паркинг".
+const SEARCH_CRITERION_RE = /(?:(?:^|[\s,.])(?:барам|бараме|барате|бара|ми\s+треба|ни\s+треба|baram|barame|barate|bara|mi\s+treba|ni\s+treba|looking\s+for)[^.!?\n]{0,25}(?:стан|станови|куќ|нешто|nesto|stan|stanovi|kuc))|(?:(?:има(?:те)?\s+ли|imate\s+li)\s+(?:стан|станови|куќ|нешто|nesto|stan|stanovi|kuc))/iu;
 
 /** The honest answer when a facet is asked about but the feed stores nothing:
  *  the agency relays owner questions, so the line promises exactly that. */
@@ -82,12 +105,27 @@ export const INFO_NO_DATA_LINE =
 export const INFO_NO_FLOORS_LINE =
   'Немам податок во базата колку ката има зградата — ќе го прашам сопственикот и ќе Ви потврдам.';
 
+export interface InfoAskContext {
+  /** The previous assistant line already named a floor ("Се наоѓа на 3 кат" /
+   *  "Зградата има 5 ката") — what makes a bare "posleden?" a last-floor ask
+   *  and not a question about the last property shown. */
+  floorOnTable?: boolean;
+}
+
 /** Which facets the message asks about, or undefined when it is not an info
  *  ask. Question scaffolds are mandatory for every facet except price's own
  *  detector (which carries its own keyword gate) — a criterion or an opinion
  *  can never become an info answer. */
-export function detectInfoFacets(text: string): InfoFacets | undefined {
+export function detectInfoFacets(text: string, ctx: InfoAskContext = {}): InfoFacets | undefined {
   const t = normalizeMc(text); // Cyrillic-canonical — probes below are Cyrillic-only
+  // "POSLEDEN ?" / "DALI E NA POSLEDNIOT?" — no noun. Only the conversation
+  // can supply it, so the caller passes floorOnTable; an explicit "дали" is
+  // a question on its own. A bare word with no floor on the table stays
+  // ambiguous ("the last one?") and is NEVER turned into a floor answer.
+  const bareLastFloor = BARE_LAST_FLOOR_RE.test(t.replace(/[\s?!.,…:;]+$/u, '').trim())
+    // JS \b is ASCII-only and never fires after a Cyrillic letter — an
+    // explicit lookahead is the boundary here.
+    && (ctx.floorOnTable === true || /(?:^|\s)дали(?=[\s?!.,]|$)/iu.test(t));
   const isQuestion = /\?/.test(text)
     || new RegExp(`(?:^|\\s)(?:колку|дали|кој|која|кое|што|каков)${TAIL}`, 'iu').test(t)
     || /(?:^|\s)има\s+ли/iu.test(t);
@@ -112,6 +150,23 @@ export function detectInfoFacets(text: string): InfoFacets | undefined {
     if (LAST_FLOOR_RE.test(t)) f.lastFloor = true;
     else if (TOTAL_FLOORS_RE.test(t)) f.totalFloors = true;
     else f.floor = true;
+  } else if (bareLastFloor) {
+    // the noun lived in the previous turn — still a yes/no about the TOP floor
+    f.lastFloor = true;
+  }
+
+  // FEATURES — feature words inside a question ("dali ima lift?", "klima?",
+  // "kako e reseno parkiranjeto?"). Computed BEFORE price: a feature word
+  // means the question counts the FEATURE ("kolku parking mesta ima?"), so
+  // the bare-колку price branch below must yield to it — otherwise the answer
+  // was the flat's price AND the parking line together.
+  if (isQuestion && !SEARCH_CRITERION_RE.test(t)) {
+    const asked: string[] = [];
+    for (const [re, name] of FEATURE_PROBES) {
+      if (re.test(t) && !asked.includes(name)) asked.push(name);
+    }
+    if (hasParkingWord(t)) asked.push('паркинг');
+    if (asked.length) f.features = asked;
   }
 
   // PRICE — the established detector (keyword-gated), minus the budget sense
@@ -121,15 +176,6 @@ export function detectInfoFacets(text: string): InfoFacets | undefined {
   else if (!f.sqm && !f.rooms && !f.floor
     && new RegExp(`(?:^|\\s)колку\\s*(?:е|чини|стои)${TAIL}`, 'iu').test(t)
     && !NON_PRICE_KOLKU_RE.test(t)) f.price = true;
-
-  // FEATURES — feature words inside a question ("dali ima lift?", "klima?").
-  if (isQuestion) {
-    const asked: string[] = [];
-    for (const [re, name] of FEATURE_PROBES) {
-      if (re.test(t) && !asked.includes(name)) asked.push(name);
-    }
-    if (asked.length) f.features = asked;
-  }
 
   if (!f.price && !f.sqm && !f.rooms && !f.floor && !f.totalFloors && !f.lastFloor
     && !f.features?.length) return undefined;

@@ -1534,7 +1534,13 @@ export class InboundHandler {
     // invented. Facets with no stored data fall through to the owner-relay
     // paths; an ambiguous mention asks back once (the clarify machinery).
     {
-      const infoFacets = detectInfoFacets(text);
+      // The ELLIPTICAL last-floor follow-up ("POSLEDEN ?") carries its noun in
+      // the previous answer — only when Lina's last line named a floor is the
+      // bare word a top-floor yes/no rather than "the last property".
+      const lastAssistant = [...session.history].reverse().find(h => h.role === 'assistant')?.text ?? '';
+      const infoFacets = detectInfoFacets(text, {
+        floorOnTable: /(?:кат|спрат|приземје|сутерен)/iu.test(lastAssistant),
+      });
       // A fee complaint that ECHOES Lina's wording can contain "cena ?" (the
       // 10:18 line: "1 EVRO E SIMBOLICNA CENA ?") — that reads as a price ask
       // facet. Fee traffic belongs to the fee protocol, never the INFO block.

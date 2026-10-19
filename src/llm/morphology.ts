@@ -1,3 +1,5 @@
+import { normalizeMc } from './normalize';
+
 /**
  * Macedonian Morphology Engine
  *
@@ -329,4 +331,56 @@ export function formsToRegexSource(forms: string[], opts: { unguarded?: boolean 
 /** Compile forms straight into a RegExp (default 'iu'). */
 export function formsRegex(forms: string[], opts: { unguarded?: boolean; flags?: string } = {}): RegExp {
   return new RegExp(formsToRegexSource(forms, opts), opts.flags ?? 'iu');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PARKING — the [22:26] family: „како е решено паркирањето?“, „има
+// паркирање?“, „parking?“, „pakring?“. Before this, the probes matched the
+// literal „паркинг“ only, so every OTHER derivation of the same word was
+// invisible (the client got the presentation/off-topic line) while "IMA
+// PARKING" worked.
+//
+// GRAMMAR, not a phrase list: Macedonian derives the whole family from two
+// stems — the noun паркинг- (паркинг, паркингот, паркинзи, паркинзите,
+// паркинг-место) and the verb паркир- (паркирам, паркираш, паркира,
+// паркирање, паркирањето, паркиралиште, паркирано, паркиран, паркирај).
+// BOTH live under the prefix „парки“, so ONE prefix test recognizes every
+// inflection the language can produce from them.
+//
+// TYPOS: the same word typed with one slip („pakring“, „parknig“, „parkig“,
+// „parkng“, „parkings“). A one-edit Damerau comparison (transposition counts
+// as ONE edit, so „pakring“ is a typo, not two) against the two base forms
+// covers that class without a phrase table and without accepting unrelated
+// words: the candidate must start with п and be 6–9 letters long.
+
+/** True when `a` is `b` with at most one edit — substitution, insertion,
+ *  deletion, or a single adjacent transposition (Damerau). */
+function withinOneEdit(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  const n = Math.min(a.length, b.length);
+  while (i < n && a[i] === b[i]) i++;
+  if (a.length === b.length) {
+    // substitution at i… or a transposition of a[i]/a[i+1]
+    return a.slice(i + 1) === b.slice(i + 1)
+      || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
+  }
+  // insertion/deletion at i
+  return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
+}
+
+/** True when the message asks about PARKING in any grammatical form or with a
+ *  single typing slip. Input may be Latin or Cyrillic (normalized first). */
+export function hasParkingWord(text: string): boolean {
+  const t = normalizeMc(text);
+  for (const w of t.split(/[^\p{L}\p{N}]+/u)) {
+    if (!w) continue;
+    // the whole derivational family: паркинг, паркинзи, паркирање, паркира…
+    if (w.startsWith('парки')) return true;
+    // one-slip typings of the two base forms (pakring, parknig, parkig…)
+    if (w.length >= 6 && w.length <= 9 && w.startsWith('п')
+      && (withinOneEdit(w, 'паркинг') || withinOneEdit(w, 'паркира'))) return true;
+  }
+  return false;
 }

@@ -129,6 +129,36 @@ test('unit floor comes from the feed column first, the ad text only as fallback'
   assert.equal(buildInfoAnswer(nothing, facets), INFO_NO_DATA_LINE);
 });
 
+// THE [22:23] ELLIPSIS — "POSLEDEN ?" after "KAZI MI NA KOJ SPRAT E ?"
+// ("Се наоѓа на 3 кат."). The noun was in the previous turn; without reading
+// that context the message carried no facet, fell out of the INFO block and
+// got the exhausted-options line instead of the yes/no answer.
+test('elliptical last-floor follow-up: bare "POSLEDEN ?" after a floor answer', () => {
+  // Without the floor on the table the bare word is ambiguous — never a facet.
+  assert.equal(detectInfoFacets('POSLEDEN ?'), undefined);
+
+  const ctx = { floorOnTable: true };
+  const ell = detectInfoFacets('POSLEDEN ?', ctx)!;
+  assert.equal(ell.lastFloor, true);
+  assert.equal(ell.floor, undefined, 'the unit floor is already known');
+  // 3 of 5 is NOT the top floor — the answer must say so with both numbers.
+  assert.equal(buildInfoAnswer(P85, ell), 'Не, станот е на 3 кат од вкупно 5.');
+  // 5 of 5 IS the top floor.
+  assert.match(buildInfoAnswer({ ...P85, floor: 5 } as Property, ell)!, /Да — станот е на последниот кат \(5 од 5\)/);
+
+  // Spelling variants a client actually types.
+  for (const m of ['A POSLEDEN?', 'NA POSLEDEN ?', 'DALI E NA POSLEDNIOT?', 'NAJGORNIOT?']) {
+    assert.equal(detectInfoFacets(m, ctx)?.lastFloor, true, m);
+  }
+  // "дали" alone is a question even before any floor talk.
+  assert.equal(detectInfoFacets('DALI E NA POSLEDEN?')?.lastFloor, true);
+
+  // BUT "the last flat" / "last time" are different questions. With floor
+  // context the bare noun is the floor ask; a noun after it changes the ask.
+  assert.equal(detectInfoFacets('POSLEDNIOT STAN ?', ctx), undefined);
+  assert.equal(detectInfoFacets('POSLEDEN PAT ?', ctx), undefined);
+});
+
 test('a floor question about ANOTHER EB answers that EB, not the discussed one', () => {
   const facets = detectInfoFacets('KOLKU VKUPNO SPRATOVI IMA ZGRADATA KAGE STO SE NAOGJA 73?')!;
   assert.match(buildInfoAnswer(P73, facets)!, /Зградата има 4 ката/);
