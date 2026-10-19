@@ -29,11 +29,29 @@ Concretely, that means:
 
 ```bash
 npm run typecheck                       # tsc --noEmit
-npm test                                # the whole suite
+npm test                                # the whole suite (tsx, authoritative)
 npx tsx scripts/tui-frame-check.ts      # headless layout/painter invariants
 npx tsx scripts/tui-pty-check.ts        # the REAL TUI under a REAL pty
 npm run bank:audit-seeds                # contracts + offensive false positives
 ```
+
+### The fast loop (do NOT spend 5 minutes per fix)
+
+`npm test` stays the authoritative gate, but it pays `tsx` boot + transpile for
+all 116 files. While iterating:
+
+```bash
+npx tsx --test tests/<the files you touched>.test.ts   # seconds
+npm run test:fast                                      # compiled, no PTY file
+npm run test:c                                         # compiled, everything
+```
+
+`test:c`/`test:fast` bundle each file with esbuild and run plain
+`node --test` (same tests, same assertions; ~40% faster on 4 cores because the
+per-file transpile disappears and the runner oversubscribes the cores, since
+the suite is latency-bound). The PTY funnel file owns ~60 s of wall by itself —
+that is why `test:fast` leaves it out; it MUST run before a deploy, together
+with the full `npm test`.
 
 Every one of these must pass. `npm run bank:audit-seeds` also runs the P5
 offensive sweep over all seeds and learned variants.

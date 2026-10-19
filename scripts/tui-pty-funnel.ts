@@ -42,7 +42,19 @@ export interface FunnelReport {
   panes: Record<string, string>;
 }
 
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+// Walk up to the directory that owns package.json. The compiled test run
+// bundles this file into dist-test/tests/, where `__dirname/..` is NOT the
+// repo root — a hard-coded parent would spawn a non-existent entry point.
+const PROJECT_ROOT = (() => {
+  let dir = __dirname;
+  for (let i = 0; i < 6; i++) {
+    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
+    const parent = path.resolve(dir, '..');
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return path.resolve(__dirname, '..');
+})();
 const FEED_FIXTURE = path.join(PROJECT_ROOT, 'tests', 'fixtures', 'pty-feed.json');
 
 /** Serve the fixture feed on an ephemeral local port; returns its URL + closer. */

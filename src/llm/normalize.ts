@@ -40,8 +40,15 @@ const MAX_DIGRAPH = Math.max(...DIGRAPHS.map(([k]) => k.length));
  * Lowercase + transliterate any Macedonian-Latin text to Cyrillic.
  * Non-letter characters (digits, punctuation, emoji) pass through untouched;
  * unknown letters (q, w, x, y) are preserved verbatim.
+ *
+ * MEMOIZED at the exported boundary (see normalizeMc below). The detector
+ * stack folds the SAME message dozens of times per turn — every `matchesBoth`
+ * regex and every `extFires` family folds it again; the profiler showed ~5 000
+ * folds per turn and ~50% of a test file's CPU. Caching a pure function is
+ * behavior-preserving, and doing it HERE means the generated detector-ext
+ * table (which must not be hand-edited) benefits without a single edit there.
  */
-export function normalizeMc(text: string): string {
+function normalizeMcRaw(text: string): string {
   const lower = text.toLowerCase().replace(/x/g, 'кс');
   let out = '';
   let i = 0;
@@ -63,6 +70,21 @@ export function normalizeMc(text: string): string {
     out += SINGLES[ch] ?? ch;
     i++;
   }
+  return out;
+}
+
+const NORM_CACHE = new Map<string, string>();
+const NORM_CACHE_MAX = 512;
+
+/** The public fold: same output as normalizeMcRaw, memoized by input string.
+ *  Long blobs are not cached (rare, and they would evict the hot entries). */
+export function normalizeMc(text: string): string {
+  if (text.length > 400) return normalizeMcRaw(text);
+  const hit = NORM_CACHE.get(text);
+  if (hit !== undefined) return hit;
+  const out = normalizeMcRaw(text);
+  if (NORM_CACHE.size >= NORM_CACHE_MAX) NORM_CACHE.clear();
+  NORM_CACHE.set(text, out);
   return out;
 }
 

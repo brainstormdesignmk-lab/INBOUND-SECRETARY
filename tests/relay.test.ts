@@ -98,7 +98,13 @@ async function startRelayApp(cfgOverrides: Record<string, unknown> = {}): Promis
   return {
     app, sent, handler, sessions, db,
     url: `http://127.0.0.1:${port}`,
-    close: () => new Promise<void>(r => server.close(() => r())),
+    // closeAllConnections: `fetch` (undici) keeps its socket alive for ~4 s, and
+    // a bare server.close() waits for it — five seconds of dead wall time in
+    // EVERY test of this file. Nothing here reuses the socket after the test.
+    close: () => new Promise<void>(r => {
+      (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+      server.close(() => r());
+    }),
   };
 }
 

@@ -20,13 +20,48 @@ import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaive
  *  every Latin phrasing — no dual-script alternations needed anymore.
  *  Raw text keeps priority so place-name extraction stays in the client's
  *  original script (POI names are often Latin-scripted). */
+/**
+ * Result cache for `matchesBoth` / `matchesBothCapture`.
+ *
+ * WHY: the detector stack asks the SAME question about the SAME text from
+ * several lanes (router, extractSlots, the fee/visit guards, the reply
+ * fallbacks). The profiler put `matchesBoth` at ~1.3 s of a 6 s test file and
+ * "5 000 extFires calls per turn" — nearly all of it repeating an answer the
+ * message already gave. The match is pure (raw text or its fold), so caching
+ * by text is behavior-preserving; a stateful `g`/`y` regex bypasses the cache
+ * so `lastIndex` semantics never change.
+ */
+const MATCH_CACHE = new WeakMap<RegExp, Map<string, boolean>>();
+const CAPTURE_CACHE = new WeakMap<RegExp, Map<string, string | null>>();
+const MATCH_CACHE_MAX = 256;
+
 function matchesBoth(re: RegExp, text: string): boolean {
-  return re.test(text) || re.test(normalizeMc(text));
+  if (re.global || re.sticky || text.length > 400) {
+    return re.test(text) || re.test(normalizeMc(text));
+  }
+  let m = MATCH_CACHE.get(re);
+  if (!m) { m = new Map(); MATCH_CACHE.set(re, m); }
+  const hit = m.get(text);
+  if (hit !== undefined) return hit;
+  const out = re.test(text) || re.test(normalizeMc(text));
+  if (m.size >= MATCH_CACHE_MAX) m.clear();
+  m.set(text, out);
+  return out;
 }
 
 /** First capture group across both scripts (raw + normalized). */
 function matchesBothCapture(re: RegExp, text: string): string | undefined {
-  return re.exec(text)?.[1] ?? re.exec(normalizeMc(text))?.[1];
+  if (re.global || re.sticky || text.length > 400) {
+    return re.exec(text)?.[1] ?? re.exec(normalizeMc(text))?.[1];
+  }
+  let m = CAPTURE_CACHE.get(re);
+  if (!m) { m = new Map(); CAPTURE_CACHE.set(re, m); }
+  const hit = m.get(text);
+  if (hit !== undefined) return hit ?? undefined;
+  const out = re.exec(text)?.[1] ?? re.exec(normalizeMc(text))?.[1] ?? null;
+  if (m.size >= MATCH_CACHE_MAX) m.clear();
+  m.set(text, out);
+  return out ?? undefined;
 }
 
 // LLM-independent intent/slot extraction. When every LLM is down (or the model

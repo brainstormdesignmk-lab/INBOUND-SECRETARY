@@ -29,6 +29,8 @@
     "backup:serve": "tsx scripts/serve-backup.ts",
     "backup:restore": "tsx scripts/restore.ts",
     "test": "tsx --test tests/*.test.ts",
+    "test:c": "bash scripts/run-tests-compiled.sh",
+    "test:fast": "bash scripts/run-tests-compiled.sh --skip-slow",
     "tui": "tsx src/tui/run.ts",
     "tui:frame-check": "tsx scripts/tui-frame-check.ts",
     "tui:pty-check": "tsx scripts/tui-pty-check.ts",

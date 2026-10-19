@@ -39,7 +39,15 @@ function startServer(payload: unknown): Promise<{ url: string; close: () => Prom
   return new Promise(resolve => {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address() as AddressInfo;
-      resolve({ url: `http://127.0.0.1:${port}`, close: () => new Promise(r => server.close(() => r())) });
+      // See relay.test.ts: without closeAllConnections the undici keep-alive
+      // socket keeps server.close() pending for ~4 s per test.
+      resolve({
+        url: `http://127.0.0.1:${port}`,
+        close: () => new Promise<void>(r => {
+          (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+          server.close(() => r());
+        }),
+      });
     });
   });
 }

@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Compiled test bundles (scripts/run-tests-compiled.sh) — build output, ~100 MB.
+dist-test/
 data/*.db
 data/*.db-*
 .env

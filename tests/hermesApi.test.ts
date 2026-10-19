@@ -68,7 +68,12 @@ async function startApi(): Promise<ApiEnv> {
     base: `http://127.0.0.1:${port}`,
     token: 'test-token',
     handler, sessions, db,
-    close: () => new Promise<void>(r => server.close(() => r())),
+    // See relay.test.ts: undici's keep-alive socket makes a bare server.close()
+    // wait ~4 s per test. Nothing reuses the socket after the test.
+    close: () => new Promise<void>(r => {
+      (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+      server.close(() => r());
+    }),
   };
 }
 

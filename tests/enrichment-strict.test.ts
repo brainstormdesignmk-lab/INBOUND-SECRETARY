@@ -16,6 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'fs';
+import path from 'path';
 import { replyIsClean } from '../src/llm/enrichQuality';
 import { loadConfig } from '../src/config';
 
@@ -73,7 +74,10 @@ test('every enrichment entry point uses the strict generator (source-level pin)'
     { file: 'scripts/gapfill-location-unknown.ts', must: 'createLlmStrict(cfg)' },
   ];
   for (const { file, must } of sources) {
-    const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    // Resolve from the project root, not import.meta: the compiled test run
+    // (tsc → dist-test, CommonJS) has no import.meta, and every runner
+    // (tsx or node --test) starts from the repo root via npm.
+    const src = readFileSync(path.resolve(file), 'utf8');
     assert.ok(src.includes(must), `${file} must call ${must}`);
     assert.ok(!/\bcreateLlm\(cfg\)/.test(src), `${file} must never call the degrading createLlm`);
   }
