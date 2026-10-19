@@ -36,6 +36,13 @@ export interface Property {
   geocoded_at?: string;
   bedrooms?: number;       // from tip_na_sobi
   sqm?: number;            // povrsina_m2 as a number (business spaces have no bedrooms — size matters)
+  /** STRUCTURED storey data from the feed (public-properties returns `kat` and
+   *  `vkupno_katovi` — filled by hand entry AND by Ana's import). The unit's
+   *  floor and the BUILDING's storey count are different facts: a client may
+   *  ask either one, and "е на последен кат?" needs both. `details` stays the
+   *  fallback for rows whose ad text names the floor only. */
+  floor?: number;          // kat — which floor the unit sits on (0 = приземје)
+  totalFloors?: number;    // vkupno_katovi — storeys in the building
   size?: string;           // povrsina_m2
   business?: boolean;      // деловен простор/канцеларија/локал — feed marks them by having NO bedroom type
   house?: boolean;         // куќа — the feed marks houses only in the opis text ("Се продава куќа…")
@@ -49,6 +56,10 @@ export interface Property {
    *  no count is recorded, and that wording must not change. */
   studio?: boolean;
   features?: string[];     // garaza, lift, greenje, dvor, parking, opremenost (per feed napomena)
+  /** Features the feed marks as EXPLICITLY ABSENT ("Не"/"Нема"). The feed's
+   *  `lift: "Не"` is a known fact ("no lift"), not missing data — answering
+   *  "not in the data" for it was the [10:39] "85 DALI E SO LIFT?" bug. */
+  noFeatures?: string[];
   details?: string;        // opis
   gmaps?: string;
   /** Approximate public location ("во близина на Градежен Факултет") — the
@@ -231,6 +242,22 @@ export function featurePhrases(r: Record<string, unknown>): string[] {
   return out;
 }
 
+/** The features the feed KNOWS ARE ABSENT (`lift: "Не"`, `dvor: "Не"` …).
+ *  `yes()` in featurePhrases treats "Не"/"Нема" as "no feature"; without
+ *  this second reading the yes/no ask cannot tell "no lift" from "not
+ *  recorded", and both got the owner-relay line. */
+export function absentFeaturePhrases(r: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const no = (k: string) => {
+    const x = str(r[k]).trim().toLowerCase();
+    return x === 'не' || x === 'нема';
+  };
+  if (no('garaza')) out.push('гаража');
+  if (no('lift')) out.push('лифт');
+  if (no('dvor')) out.push('двор');
+  return out;
+}
+
 /** Macedonian-aware title case — the feed stores addresses in ALL CAPS.
  *
  *  A BARE ROMAN NUMERAL keeps its capitals. The lowercase pass turned the
@@ -308,6 +335,21 @@ export function cleanMacedonian(text: string): string {
 
 const GEO_SOURCES = new Set(['stored', 'google_cached', 'osm_building', 'osm_interpolated', 'osm_low_confidence']);
 
+/** A storey number from the feed: 3, "3", "3 кат", "приземје" → 0, and the
+ *  payload's "Не е наведено" / empty / null → undefined. Shared by `kat`
+ *  (unit floor) and `vkupno_katovi` (building storeys) so the two can never
+ *  drift apart in parsing. */
+function parseStorey(v: unknown): number | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? v : undefined;
+  const s = str(v).trim().toLowerCase();
+  if (!s || s.includes('не е наведено')) return undefined;
+  if (s.startsWith('призем')) return 0;
+  const m = s.match(/\d{1,3}/);
+  if (!m) return undefined;
+  const n = Number(m[0]);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 // Exported for tests — the feed→Property contract (0 м² = missing) is pinned.
 export function mapRow(r: Record<string, unknown>): Property | null {
   const eb = Math.floor(Number(str(r.evidenten_broj)));
@@ -337,12 +379,18 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     // area). A 0 m² property does not exist — treat as absent so the card
     // never prints "Има 0 м² деловна површина" (the EB 57 transcript bug).
     sqm: num(r.povrsina_m2) || undefined,
+    // kat / vkupno_katovi are the feed's structured columns (public-properties
+    // maps `floor` and `total_floors` to them). "Не е наведено" is a STRING in
+    // that payload, so it must parse to undefined, not NaN/0.
+    floor: parseStorey(r.kat) ?? parseStorey(r.floor),
+    totalFloors: parseStorey(r.vkupno_katovi) ?? parseStorey(r.total_floors),
     business: isBusiness(r) && !isPlac(r),
     house: isHouse(r) && !isPlac(r),
     plac: isPlac(r),
     studio: isStudio(r) && !isPlac(r) ? true : undefined,
     size: (num(r.povrsina_m2) ?? 0) > 0 ? `${r.povrsina_m2} м²` : undefined,
     features: featurePhrases(r),
+    noFeatures: absentFeaturePhrases(r),
     details: cleanMacedonian(str(r.opis)) || undefined,
     gmaps: str(r.gmaps) || undefined,
     landmarks: parseFeedLandmarks(r.landmarks),

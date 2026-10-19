@@ -25,6 +25,10 @@ export interface InfoFacets {
   sqm?: boolean;
   rooms?: boolean;      // "колку спални/соби"
   floor?: boolean;      // "на кој кат", "сутерен ли е"
+  /** "колку ката има зградата" — the BUILDING height, not the unit's floor. */
+  totalFloors?: boolean;
+  /** "дали е на последен кат" — needs the unit floor AND the building height. */
+  lastFloor?: boolean;
   features?: string[];  // canonical feature names asked about
 }
 
@@ -41,7 +45,16 @@ const NON_PRICE_KOLKU_RE =
 const SQM_KOLKU_RE = new RegExp(`колку\\s*(?:квадрат${STEM}|м2|м²)|колку\\s+(?:е\\s+)?голем${STEM}`, 'iu');
 const SQM_WORD_RE = /(?:површина|големина)/iu;
 const ROOMS_KOLKU_RE = new RegExp(`колку\\s+(?:соби${STEM}|спалн${STEM})`, 'iu');
-const FLOOR_WORD_RE = new RegExp(`(?:сутерен|спрат${STEM}|приземј${STEM}|кат${TAIL})`, 'iu');
+// кат/катови/катот… but never "каталог"/"катастрофа": the suffix is explicit.
+const FLOOR_WORD_RE = new RegExp(`(?:сутерен|спрат${STEM}|приземј${STEM}|кат(?:от|а|ови|овите|че)?${TAIL})`, 'iu');
+// "последен кат", "најгорниот спрат" — a yes/no about the TOP floor.
+const LAST_FLOOR_RE = /(?:последен|последниот|најгорниот)\s*(?:кат|спрат)/iu;
+// "колку (вкупно) ката/спратови" — a COUNT, so the noun must be PLURAL (or
+// "ката"). A bare "на 3 кат" is a location inside a size question ("колку е
+// голем станот на 3 кат") and must stay a size question.
+const TOTAL_FLOORS_RE = new RegExp(
+  `(?:(?:колку|вкупно)[^.!?]{0,30}(?:катови|спратови|ката|спрата|кати|спрати)|`
+  + `(?:зграда|објект)[^.!?]{0,20}(?:има|висока)[^.!?]{0,15}(?:кат|спрат))`, 'iu');
 
 // Feature probes: canonical name → what it looks like in the message.
 // Cyrillic-only because the text is probed through normalizeMc (Latin→Cyrillic).
@@ -60,7 +73,14 @@ const FEATURE_PROBES: Array<[RegExp, string]> = [
 /** The honest answer when a facet is asked about but the feed stores nothing:
  *  the agency relays owner questions, so the line promises exactly that. */
 export const INFO_NO_DATA_LINE =
-  'Тоа не е наведено во податоците што ги имам за недвижноста — ќе го прашам сопственикот и ќе Ви потврдам.';
+  'Немам информација во системот; немам податок во базата — ќе го прашам сопственикот и ќе Ви потврдам.';
+
+/** The BUILDING-height miss: the feed's `vkupno_katovi` is "Не е наведено".
+ *  Distinct from the generic line because the client asked a countable fact —
+ *  saying exactly which fact is missing (and that the owner is being asked)
+ *  is the honest answer, not a restatement of the unit's floor. */
+export const INFO_NO_FLOORS_LINE =
+  'Немам податок во базата колку ката има зградата — ќе го прашам сопственикот и ќе Ви потврдам.';
 
 /** Which facets the message asks about, or undefined when it is not an info
  *  ask. Question scaffolds are mandatory for every facet except price's own
@@ -82,8 +102,17 @@ export function detectInfoFacets(text: string): InfoFacets | undefined {
   // ROOMS — "колку соби/спални".
   if (ROOMS_KOLKU_RE.test(t)) f.rooms = true;
 
-  // FLOOR — a floor word inside a question ("на кој кат е?", "сутерен ли е?").
-  if (isQuestion && FLOOR_WORD_RE.test(t)) f.floor = true;
+  // FLOOR FAMILY — three different questions that all name a floor:
+  //   "на кој кат е?"            → floor (the unit's storey)
+  //   "колку ката има зградата?" → totalFloors (building height)
+  //   "дали е на последен кат?"  → lastFloor (needs both facts)
+  // Serving the unit's floor for the last two is the [10:40] transcript bug:
+  // "KOLKU IMA SPRATOVI ZGRADATA?" was answered with "Се наоѓа на 3 кат."
+  if (isQuestion && FLOOR_WORD_RE.test(t)) {
+    if (LAST_FLOOR_RE.test(t)) f.lastFloor = true;
+    else if (TOTAL_FLOORS_RE.test(t)) f.totalFloors = true;
+    else f.floor = true;
+  }
 
   // PRICE — the established detector (keyword-gated), minus the budget sense
   // ("до 500 евра" is a criterion, never a price ask); plus bare "колку е" —
@@ -102,7 +131,8 @@ export function detectInfoFacets(text: string): InfoFacets | undefined {
     if (asked.length) f.features = asked;
   }
 
-  if (!f.price && !f.sqm && !f.rooms && !f.floor && !f.features?.length) return undefined;
+  if (!f.price && !f.sqm && !f.rooms && !f.floor && !f.totalFloors && !f.lastFloor
+    && !f.features?.length) return undefined;
   return f;
 }
 
@@ -117,19 +147,50 @@ function typeWord(p: Property): string {
   return 'Станот';
 }
 
+/** The same noun mid-sentence ("…, станот е на 3 кат од вкупно 5"). */
+function typeLower(p: Property): string {
+  if (p.house) return 'куќата';
+  if (p.business) return 'деловниот простор';
+  if (p.bedrooms === 1) return 'гарсоњерата';
+  return 'станот';
+}
+
+/** Macedonian: 1 кат, 2+ ката. */
+function floorsWord(n: number): string {
+  return n === 1 ? 'кат' : 'ката';
+}
+
 function bedroomPhrase(n: number): string {
   if (n === 1) return 'Има една спална соба.';
   if (n === 2) return 'Има две спални соби.';
   return `Има ${n} спални соби.`;
 }
 
-function floorPhrase(p: Property): string | undefined {
+/** The unit's storey: the STRUCTURED feed column first (`kat` — hand-entered
+ *  or imported by Ana), the ad text only as a fallback. Reading the text first
+ *  meant a row whose opis never names the floor answered "not in the data"
+ *  although the feed knew the floor all along. */
+function unitFloor(p: Property): number | undefined {
+  if (p.floor !== undefined) return p.floor;
+  if (p.totalFloors !== undefined) {
+    // no structured unit floor — the text may still carry "3/5"
+    const d = p.details ? normalizeMc(p.details) : '';
+    const pair = d.match(/(\d{1,2})\s*\/\s*\d{1,2}/u);
+    if (pair) return Number(pair[1]);
+  }
   const d = p.details ? normalizeMc(p.details) : '';
-  if (/сутерен/iu.test(d)) return 'Се наоѓа во сутерен.';
-  if (/приземј/iu.test(d)) return 'Се наоѓа во приземје.';
+  if (/сутерен/iu.test(d)) return -1;
+  if (/приземј/iu.test(d)) return 0;
   const kat = d.match(/(?:на\s*)?(\d{1,2})\s*(?:ти)?\s*[-\s]?\s*(?:кат|спрат)/iu);
-  if (kat) return `Се наоѓа на ${kat[1]} кат.`;
-  return undefined;
+  return kat ? Number(kat[1]) : undefined;
+}
+
+function floorPhrase(p: Property): string | undefined {
+  const n = unitFloor(p);
+  if (n === undefined) return undefined;
+  if (n === -1) return 'Се наоѓа во сутерен.';
+  if (n === 0) return 'Се наоѓа во приземје.';
+  return `Се наоѓа на ${n} кат.`;
 }
 
 function findFeaturePhrase(p: Property, canon: string): string | undefined {
@@ -185,23 +246,61 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
   }
   if (facets.floor) {
     const fl = floorPhrase(p);
-    if (fl) {
-      sentences.push(fl);
-      answered = true;
+    // A floor ask with no stored floor is a missing FACT, not a silent fall
+    // through to the generic lane (which used to answer with something else).
+    sentences.push(fl ?? INFO_NO_DATA_LINE);
+    answered = true;
+  }
+  // "колку ката има зградата" — the BUILDING's height. Never the unit floor.
+  if (facets.totalFloors) {
+    if (p.totalFloors !== undefined && p.totalFloors > 0) {
+      sentences.push(`${p.house ? 'Куќата' : 'Зградата'} има ${p.totalFloors} ${floorsWord(p.totalFloors)}.`);
+    } else {
+      sentences.push(INFO_NO_FLOORS_LINE);
     }
+    answered = true;
+  }
+  // "дали е на последен кат" — yes/no needs BOTH facts; with the height
+  // unknown, state the floor and defer the rest to the owner (never a bare
+  // "Се наоѓа на 3 кат", which does not answer the question asked).
+  if (facets.lastFloor) {
+    const fl = unitFloor(p);
+    const total = p.totalFloors;
+    if (fl !== undefined && fl > 0 && total !== undefined && total > 0) {
+      sentences.push(fl >= total
+        ? `Да — ${typeLower(p)} е на последниот кат (${fl} од ${total}).`
+        : `Не, ${typeLower(p)} е на ${fl} кат од вкупно ${total}.`);
+    } else if (fl !== undefined && fl >= 0) {
+      sentences.push(`${fl === 0 ? 'Се наоѓа во приземје' : `Се наоѓа на ${fl} кат`}, но немам податок во базата колку ката има зградата — ќе го прашам сопственикот и ќе Ви потврдам.`);
+    } else {
+      sentences.push(INFO_NO_DATA_LINE);
+    }
+    answered = true;
   }
   if (facets.features?.length) {
     const yes: string[] = [];
+    const absent: string[] = [];
     for (const canon of facets.features) {
       const phrase = findFeaturePhrase(p, canon);
       if (phrase) yes.push(phrase);
+      // The feed's explicit "Не" is a KNOWN answer — "Нема лифт", never the
+      // owner-relay line (the [10:39] EB 85 lift ask).
+      else if (p.noFeatures?.includes(canon)) absent.push(canon);
     }
     if (yes.length) {
       sentences.push(`Има ${yes.join(' и ')}.`);
       answered = true;
-    } else if (!facets.price && !facets.sqm && !facets.rooms && !facets.floor) {
-      // Feature-only ask about data the feed doesn't store — honest deferral,
-      // never a fabricated feature.
+    }
+    if (absent.length) {
+      sentences.push(`${absent.map(x => `Нема ${x}`).join(' и ')}.`);
+      answered = true;
+    }
+    if (!answered && sentences.length === 0
+      && !facets.price && !facets.sqm && !facets.rooms
+      && !facets.floor && !facets.totalFloors && !facets.lastFloor) {
+      // Feature-ONLY ask about data the feed doesn't store — honest deferral,
+      // never a fabricated feature. When another facet already answered
+      // ("na koj kat e i ima lift?"), the stored fact must not be discarded.
       return INFO_NO_DATA_LINE;
     }
   }

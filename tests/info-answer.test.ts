@@ -27,7 +27,7 @@ import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
-import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE } from '../src/llm/infoAnswer';
+import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LINE } from '../src/llm/infoAnswer';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429'); }
@@ -152,10 +152,24 @@ test('builders: known feature answered, unknown feature gets the honest no-data 
   assert.equal(no, INFO_NO_DATA_LINE);
 });
 
-test('builders: no data at all for the asked facets → undefined (falls through)', () => {
+test('builders: an explicit feed "Не" answers Нема, not the owner-relay line', () => {
+  // The feed stores lift: "Не" for EB 85 — a KNOWN fact, not missing data.
+  const noLift: Property = { ...P63, features: [], noFeatures: ['лифт'] };
+  assert.equal(buildInfoAnswer(noLift, { features: ['лифт'] }), 'Нема лифт.');
+  // Genuinely unrecorded stays the honest deferral.
+  const unknown: Property = { eb: 98, id: 98, address: 'Y', location: 'Центар', service: 'buy' };
+  assert.equal(buildInfoAnswer(unknown, { features: ['лифт'] }), INFO_NO_DATA_LINE);
+});
+
+test('builders: missing PRICE falls through; missing FLOOR is answered honestly', () => {
   const bare: Property = { eb: 99, id: 99, address: 'X', location: 'Центар', service: 'buy' };
+  // Price has a legacy fallback lane (the FSM price path) — never steal it.
   assert.equal(buildInfoAnswer(bare, { price: true }), undefined);
-  assert.equal(buildInfoAnswer(bare, { floor: true }), undefined);
+  // Floor has NO such lane: falling through used to hand the ask to whatever
+  // answered next (the [10:40] "колку ката" → unit-floor bug). A missing
+  // fact is stated as missing and deferred to the owner.
+  assert.equal(buildInfoAnswer(bare, { floor: true }), INFO_NO_DATA_LINE);
+  assert.equal(buildInfoAnswer(bare, { totalFloors: true }), INFO_NO_FLOORS_LINE);
 });
 
 // ── E2E: the 12:33 chat, one family over ────────────────────────────────────
