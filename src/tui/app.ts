@@ -28,6 +28,7 @@ import { EventStore } from '../store/events';
 import { OwnerStore } from '../store/owners';
 import { EnrichmentStore } from '../store/enrichment';
 import { BankStore } from '../store/bank';
+import { loopStatusLines } from './status';
 import { setLearnedBank } from '../data/responseBank';
 import { sessionStateDump, sessionStateRows, sessionStateFullRows } from './state';
 
@@ -505,6 +506,13 @@ export class TuiApp {
           // learned layer rather than the seed file. This is what "climbing"
           // should mean — free-rate alone is 100% on a seed-only bank.
           lines.push(`научено: ${bs.learnedServes} од ${bs.learnedServes + bs.seedServes} банка-одговори${bs.learnedRate === null ? '' : ' (' + (bs.learnedRate * 100).toFixed(1) + '% од банката)'}`);
+          // The loop's two silent failure modes: the store stops filling, or the
+          // backlog stops draining. Both are invisible in the chat itself.
+          const sess = this.sessions.get(lead.chatId);
+          lines.push(...loopStatusLines({
+            pending: bs.dynamicPending,
+            generated: sess?.slots.generatedAnswers ?? 0,
+          }));
         }
       } catch { /* bank stats are non-critical */ }
       // LEARNING LAYER reminder — captures waiting for review/mining.

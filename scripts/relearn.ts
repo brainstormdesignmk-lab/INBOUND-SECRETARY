@@ -21,7 +21,12 @@
  *   npm run bank:relearn -- --reject 37                          # drop a staged row
  *   npm run bank:relearn -- --pending                            # captures awaiting a key
  *   npm run bank:relearn -- --bind 12 visit.interest             # verbatim, NO Gemini
+ *   npm run bank:relearn -- --bind-file binds.txt                # many at once
  *   npm run bank:relearn -- --digest-dynamic                     # stage answers for review
+ *
+ * The four no-model commands are implemented in src/scripts/relearnBank.ts and
+ * also ship COMPILED as dist/scripts/relearnBank.js — the atoms have no tsx, and
+ * these are the commands that make sense to run there.
  *
  * --bind is the FREE half of the digest (step 3 of the loop). A dynamic row is
  * a client phrase the deterministic layer could not name + a generated answer.
@@ -38,7 +43,7 @@ import * as path from 'path';
 
 import { Db } from '../src/store/db';
 import { BankStore, DATA_DRIVEN_KEYS, FROZEN_BANK_KEYS, MAX_VARIANTS_PER_KEY } from '../src/store/bank';
-import { EnrichmentStore } from '../src/store/enrichment';
+import { main as relearnBankMain } from '../src/scripts/relearnBank';
 import { createLlmStrict } from '../src/llm/factory';
 import { loadConfig } from '../src/config';
 import { RESPONSE_BANK } from '../src/data/responses';
@@ -129,71 +134,13 @@ function list(): void {
   console.log(`\npromote: npm run bank:relearn -- --promote <id>…   reject: npm run bank:relearn -- --reject <id>`);
 }
 
-/**
- * NIGHTLY DIGEST (P-runtime): fold bank_dynamic groups into deterministic
- * coverage. Trigger side: client messages become retrieval examples for the
- * dynamic key. Answer side: the stored answer becomes ONE staged variant
- * (bank:review promotes it — nothing auto-serves into the response bank).
- * FIFO purge keeps the dynamic store a fresh signal, not an archive.
- */
-function digestDynamic(): void {
-  const groups = bank.dynamicGroups();
-  let examples = 0, staged = 0;
-  for (const g of groups) {
-    for (const m of g.msgs) {
-      if (bank.addExample(g.key, m)) examples++;
-    }
-    if (bank.addStagedVariant(g.key, g.answer, `dynamic digest from ${g.msgs.length} stored question(s)`)) staged++;
-  }
-  const purged = bank.purgeDynamic(400);
-  // Mark the corresponding serve rows processed — keeps listPending clean.
-  let marked = 0;
-  try { marked = new EnrichmentStore(db).markDynamicProcessed(); } catch { /* advisory */ }
-  console.log(`[digest] ${groups.length} dynamic group(s): +${examples} retrieval examples, ${staged} answer variant(s) staged for review, ${purged} purged, ${marked} serve row(s) marked`);
-}
-
-/** Captures awaiting a key: the operator's queue for --bind. */
-function listPending(): void {
-  const rows = bank.pendingDynamic();
-  if (rows.length === 0) { console.log('(no dynamic rows awaiting a binding)'); return; }
-  for (const r of rows) {
-    console.log(`  #${r.id}  [${r.state}]  "${r.msg.slice(0, 90)}${r.msg.length > 90 ? '…' : ''}"`);
-  }
-  console.log(`\nbind: npm run bank:relearn -- --bind <id> <key>   (verbatim, no model call)`);
-}
-
-/** VERBATIM promotion: id + key in, routing fact out. Never calls a model. */
-function bind(id: number, key: string): void {
-  // The key must already be servable, or the binding routes to a dead end and
-  // silently falls through — the exact failure this command exists to fix.
-  const servable = seedVariants(key).length;
-  if (servable === 0) {
-    console.error(`✗ ${key} has no seed or active variant — bind to a key that can actually answer.`);
-    console.error('  list keys with variants: npm run bank:meters');
-    process.exit(1);
-  }
-  const res = bank.bindDynamic(id, key);
-  if (!res.ok) { console.error(`✗ #${id} → ${key}: ${res.reason}`); process.exit(1); }
-  if (res.added) {
-    console.log(`✓ bound "${res.msg}" → ${key} (verbatim; dynamic row #${id} retired)`);
-  } else {
-    console.log(`• ${res.reason} — dynamic row #${id} retired anyway (the binding already exists)`);
-  }
-}
-
 async function main(): Promise<void> {
-  if (process.argv.includes('--digest-dynamic')) { digestDynamic(); return; }
+  // The no-model commands (digest / pending / bind / bind-file) live in src/ so
+  // the ATOM can run them compiled (no tsx there). One implementation, two
+  // entry points — see src/scripts/relearnBank.ts.
+  const bankCli = relearnBankMain(process.argv.slice(2), { bank, db });
+  if (bankCli !== undefined) process.exit(bankCli);
   if (process.argv.includes('--list')) { list(); return; }
-  if (process.argv.includes('--pending')) { listPending(); return; }
-  if (process.argv.includes('--bind')) {
-    const rest = process.argv.slice(process.argv.indexOf('--bind') + 1).filter(a => !a.startsWith('--'));
-    if (rest.length < 2 || !/^\d+$/.test(rest[0])) {
-      console.error('usage: npm run bank:relearn -- --bind <dynamicId> <bankKey>');
-      process.exit(1);
-    }
-    bind(Number(rest[0]), rest[1]);
-    return;
-  }
   const promote = process.argv.includes('--promote');
   const reject = process.argv.includes('--reject');
   if (promote || reject) {

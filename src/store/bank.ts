@@ -596,17 +596,20 @@ export class BankStore {
     ).run(note, Date.now(), id);
   }
 
-  /** Aggregate stats for the TUI dashboard / health check. */
-  stats(): { totalVariants: number; keys: number; examples: number; corrections: number; hitRate: number | null; learnedServes: number; seedServes: number; learnedRate: number | null } {
+  /** Aggregate stats for the TUI dashboard / health check. `dynamicPending` is
+   *  the backlog the operator must act on: captures the loop generated but no
+   *  bank key owns yet (bind them with bank:relearn --pending/--bind). */
+  stats(): { totalVariants: number; keys: number; examples: number; corrections: number; dynamicPending: number; hitRate: number | null; learnedServes: number; seedServes: number; learnedRate: number | null } {
     const v = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_variants`).get() as { c: number };
     const k = this.db.db.prepare(`SELECT COUNT(DISTINCT key) AS c FROM bank_variants`).get() as { c: number };
     const e = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_examples`).get() as { c: number };
     const co = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_corrections`).get() as { c: number };
+    const dp = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_dynamic`).get() as { c: number };
     const m = this.db.db.prepare(`SELECT SUM(hits) AS h, SUM(misses) AS ms FROM bank_metrics`).get() as { h: number | null; ms: number | null };
     const h = m.h ?? 0, ms = m.ms ?? 0;
     const lr = this.learnedRate();
     return {
-      totalVariants: v.c, keys: k.c, examples: e.c, corrections: co.c,
+      totalVariants: v.c, keys: k.c, examples: e.c, corrections: co.c, dynamicPending: dp.c,
       hitRate: h + ms > 0 ? h / (h + ms) : null,
       learnedServes: lr.learned, seedServes: lr.seed, learnedRate: lr.rate,
     };
