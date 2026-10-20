@@ -54,11 +54,35 @@ export function dynamicSlug(state: string, msg: string): string {
   return `dynamic:${state}:${words.slice(0, 3).join('-') || 'misc'}`;
 }
 
-/** Validation for a dynamic candidate — P1 baseline + hygiene + no-facts. */
-export function validateDynamicAnswer(answer: string): string[] {
+/** The client asked for a FACT (which/whose/what/how many/when/where/whether).
+ *  Used only to judge whether the answer actually addresses the question. */
+const FACTUAL_ASK_RE = /(?:^|[\s?!.,])(?:koja|koj|koe|kolku|koga|kade|dali|od\s+koja|која|кој|кое|колку|кога|каде|дали|од\s+која)(?=[\s?!.,]|$)/iu;
+
+/** The visit/presentation pitch family — the [00:33] "od koja godina e
+ *  zgradata?" answer. It is a fine closing move and a terrible answer to a
+ *  factual question. */
+const GENERIC_PITCH_RE = /(?:извлеков|прилагодени на вашиот вкус|да договориме време|дали би сакале да (?:договориме|организираме|посетиме))/iu;
+
+/** An answer that admits the datum is missing (the honest shape). */
+const UNCERTAINTY_RE = /(?:не е наведено|немам (?:податок|информација)|не ми е достапно|ќе (?:го )?прашам (?:сопственикот|сопственик)|ќе проверам|не знам|не располагам)/iu;
+
+/** Validation for a dynamic candidate — P1 baseline + hygiene + no-facts +
+ *  RELEVANCE. `userMsg` is optional so existing callers/tests keep their
+ *  contract; when given, a generic presentation pitch can no longer answer a
+ *  factual question, because that is how the bank stored a wrong answer. */
+export function validateDynamicAnswer(answer: string, userMsg?: string): string[] {
   const violations = violationsFor(answer, 'dynamic.fallback');
   if (!replyIsClean(answer)) violations.push('fails reply hygiene (replyIsClean)');
   for (const re of FORBIDDEN_FACTS) if (re.test(answer)) { violations.push('names a concrete fact (EB/amount/address)'); break; }
+  if (userMsg && FACTUAL_ASK_RE.test(userMsg) && GENERIC_PITCH_RE.test(answer)
+    && !UNCERTAINTY_RE.test(answer)) {
+    // Deliberately narrower than "any answer that offers a visit": a legit
+    // answer may end with an offer („…документите. Дали сакате да
+    // организираме посета?“). What is rejected is the BOILERPLATE pitch that
+    // carries no content at all — the shape the year question was answered
+    // with, then stored and recalled.
+    violations.push('does not answer the question (generic pitch for a factual ask)');
+  }
   return violations;
 }
 
@@ -77,7 +101,7 @@ export function recallDynamic(
   if (!hit) return undefined;
   // Re-validate on recall: a contract change or hygiene tightening applies
   // retroactively — stale rows degrade to the normal path instead of serving.
-  if (validateDynamicAnswer(hit.answer).length > 0) return undefined;
+  if (validateDynamicAnswer(hit.answer, userMsg).length > 0) return undefined;
   return { text: hit.answer, source: 'dynamic-recall', key: hit.key };
 }
 
@@ -113,6 +137,7 @@ export async function dynamicAnswer(
             'EXCEPTION — CONVERSATION EXIT: if the client is clearly saying goodbye or politely declining (чао/фала/пријатно/не сакам/не фала), answer with ONE short warm farewell sentence that ends with „Се најдобро!" — and NOTHING else. NO question at the end, NO offer of further help: she helped enough, the exit must be clean.\n\n' +
             'HARD RULES (answers violating them are discarded):\n' +
             '- NEVER state or invent: a price, an availability status, an address, an Евидентен број, a size, or any property fact. Prices and availability belong to owners and are verified by calling them — say you will check with the owner if asked.\n' +
+            '- If the client asks for a fact you do not have (year built, renovation year, floor, orientation, exposure…), say plainly that the detail is not in your record and that you will check with the owner. Do NOT answer a factual question with a general presentation or visit offer.\n' +
             '- Use ONLY the known context provided. Do not invent neighborhoods, buildings, or landmarks.\n' +
             '- No promises, no guarantees, no discounts, no concrete commitments.\n' +
             `- Maximum 420 characters.\n\n${factBlock}`,
@@ -125,7 +150,7 @@ export async function dynamicAnswer(
       topP: 0.95,
     });
     const answer = res.trim();
-    if (!answer || validateDynamicAnswer(answer).length > 0) return undefined;
+    if (!answer || validateDynamicAnswer(answer, userMsg).length > 0) return undefined;
     const key = dynamicSlug(session.state, userMsg);
     store.addDynamic(key, session.state, userMsg, answer);
     return { text: answer, source: 'dynamic', key };

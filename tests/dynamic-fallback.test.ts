@@ -138,3 +138,31 @@ test('retrieveExact: learned examples serve only the phrasing they literally saw
     assert.equal(bank.retrieveExact('kazi mi sto znaes za 59 ?'), undefined, 'one different token is not a literal match');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('relevance guard: a visit pitch cannot answer a factual question (the [00:33] year capture)', () => {
+  const pitch = 'Извлеков неколку предлози прилагодени на Вашиот вкус, па дали би сакале да договориме време кога би ги посетиле?';
+  const ask = 'od koja godina e zgradata?';
+  assert.ok(
+    validateDynamicAnswer(pitch, ask).some(v => v.includes('does not answer the question')),
+    'a generic pitch must be rejected for a factual ask',
+  );
+  // The same pitch is legitimate when the client asked for a viewing.
+  assert.deepEqual(validateDynamicAnswer(pitch, 'sakam da ja vidam stanot'), []);
+  // The honest miss (the line the info lane serves) passes — and must.
+  assert.deepEqual(
+    validateDynamicAnswer('Немам податок во базата од која година е зградата — ќе го прашам сопственикот и ќе Ви потврдам.', ask),
+    [],
+  );
+  // Without a message the old contract is unchanged (pure hygiene/facts).
+  assert.deepEqual(validateDynamicAnswer(pitch), []);
+});
+
+test('recall refuses a stored pitch for the factual question it was wrongly learned from', () => {
+  const { bank, dir } = fresh();
+  try {
+    const pitch = 'Извлеков неколку предлози прилагодени на Вашиот вкус, па дали би сакале да договориме време кога би ги посетиле?';
+    bank.addDynamic('dynamic:presentation:koja-godina-zgradata', 'presentation', 'od koja godina e zgradata?', pitch);
+    // The row exists, but recall re-validates with the question → no serve.
+    assert.equal(recallDynamic(bank, 'od koja godina e zgradata?'), undefined);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

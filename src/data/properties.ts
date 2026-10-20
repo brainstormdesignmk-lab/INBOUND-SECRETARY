@@ -43,6 +43,13 @@ export interface Property {
    *  fallback for rows whose ad text names the floor only. */
   floor?: number;          // kat — which floor the unit sits on (0 = приземје)
   totalFloors?: number;    // vkupno_katovi — storeys in the building
+  /** Година на изградба — the feed's `godina_na_gradba` (DB `year_built`).
+   *  Optional on purpose: the column is NULL for most rows, and a year answer
+   *  must never be invented (`buildInfoAnswer` says the datum is missing). */
+  yearBuilt?: number;
+  /** Реновиран — the feed's `renoviran` (DB `renovation_year`). The feed emits
+   *  the string „Не е наведено“ when empty, so it parses to undefined. */
+  renovationYear?: number;
   /** Двор (м²) from the feed's `dvor_m2` (the card's „Двор“ number). A value
    *  > 0 IS the yard and its size; the feed emits 0 for "no yard", so 0 is
    *  never a size. */
@@ -398,6 +405,12 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     // maps `floor` and `total_floors` to them). "Не е наведено" is a STRING in
     // that payload, so it must parse to undefined, not NaN/0.
     floor: parseStorey(r.kat) ?? parseStorey(r.floor),
+    // Construction/renovation years are REAL columns (year_built /
+    // renovation_year) that the feed already emits as godina_na_gradba /
+    // renoviran — the mapper ignored them, so a year question could only ever
+    // fall through to the LLM (and got a generic pitch).
+    yearBuilt: num(r.godina_na_gradba) ?? num(r.year_built),
+    renovationYear: num(r.renoviran) ?? num(r.renovation_year),
     // 0 storeys is not a building — the old card wrote 0 for an empty
     // "Кат на објект". Keep it unknown so the answer never says "0 ката".
     totalFloors: (parseStorey(r.vkupno_katovi) ?? parseStorey(r.total_floors)) || undefined,

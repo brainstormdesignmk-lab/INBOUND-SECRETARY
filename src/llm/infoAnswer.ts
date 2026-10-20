@@ -30,6 +30,10 @@ export interface InfoFacets {
   totalFloors?: boolean;
   /** "дали е на последен кат" — needs the unit floor AND the building height. */
   lastFloor?: boolean;
+  /** "од која година е зградата" — the BUILDING's construction year. */
+  yearBuilt?: boolean;
+  /** "кога е реновирана" — the renovation year. */
+  renovation?: boolean;
   features?: string[];  // canonical feature names asked about
 }
 
@@ -107,6 +111,24 @@ export const INFO_NO_DATA_LINE =
 export const INFO_NO_FLOORS_LINE =
   'Немам податок во базата колку ката има зградата — ќе го прашам сопственикот и ќе Ви потврдам.';
 
+/** The construction-year miss. Naming the exact missing fact (and the owner
+ *  relay) is the honest answer — before this the question fell through to the
+ *  dynamic lane and got a generic "would you like to schedule a visit?" pitch,
+ *  which answers nothing. The DB column is NULL on every current row, so this
+ *  is the line clients will actually see until the years are entered. */
+export const INFO_NO_YEAR_LINE =
+  'Немам податок во базата од која година е зградата — ќе го прашам сопственикот и ќе Ви потврдам.';
+
+/** The renovation-year miss (same contract as the construction year). */
+export const INFO_NO_RENOVATION_LINE =
+  'Немам податок кога е реновирана — ќе го прашам сопственикот и ќе Ви потврдам.';
+
+// CONSTRUCTION / RENOVATION YEAR — the [00:33] "od koja godina e zgradata?"
+// capture. `година` alone is NOT the facet ("колку години искуство" is other
+// traffic); every pattern names the building or the act of building.
+const YEAR_BUILT_RE = /(?:од\s+)?(?:која|којашто)\s+година\s+(?:е\s+)?(?:изград|градб|зград|станат|куќата|објектот)|кога\s+(?:е\s+)?(?:изградена|изграден|изградено|подигната|подигнат)|година\s+на\s+(?:изградба|градба)|колку\s+(?:е\s+)?стар(?:а|о)?\s+(?:зградата|зграда|куќата|куќа|станат|објектот)/iu;
+const RENOVATION_YEAR_RE = /(?:кога\s+(?:е\s+)?(?:реновиран|реновирана|реновирано))|(?:дали\s+(?:е\s+)?реновир)|(?:реновиран(?:а|о)?\s+(?:во|година))/iu;
+
 export interface InfoAskContext {
   /** The previous assistant line already named a floor ("Се наоѓа на 3 кат" /
    *  "Зградата има 5 ката") — what makes a bare "posleden?" a last-floor ask
@@ -133,6 +155,12 @@ export function detectInfoFacets(text: string, ctx: InfoAskContext = {}): InfoFa
     || /(?:^|\s)има\s+ли/iu.test(t);
 
   const f: InfoFacets = {};
+
+  // YEAR FAMILY — answered from the real columns (year_built /
+  // renovation_year). Self-contained probes: the question word is part of the
+  // pattern, so `isQuestion` is not required.
+  if (YEAR_BUILT_RE.test(t)) f.yearBuilt = true;
+  if (RENOVATION_YEAR_RE.test(t)) f.renovation = true;
 
   // SQM — "колку квадрат/м2", "колку (е) голем", or a површина/големина word
   // in a question. Computed BEFORE price so the bare-колку price branch can
@@ -180,6 +208,7 @@ export function detectInfoFacets(text: string, ctx: InfoAskContext = {}): InfoFa
     && !NON_PRICE_KOLKU_RE.test(t)) f.price = true;
 
   if (!f.price && !f.sqm && !f.rooms && !f.floor && !f.totalFloors && !f.lastFloor
+    && !f.yearBuilt && !f.renovation
     && !f.features?.length) return undefined;
   return f;
 }
@@ -331,6 +360,22 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
     }
     answered = true;
   }
+  // "од која година е зградата" — the stored year, or the honest owner-relay
+  // line. Never a fabricated year and never a generic pitch.
+  if (facets.yearBuilt) {
+    if (p.yearBuilt !== undefined && p.yearBuilt > 1800) {
+      sentences.push(`${p.house ? 'Куќата' : 'Зградата'} е изградена во ${p.yearBuilt} година.`);
+    } else {
+      sentences.push(INFO_NO_YEAR_LINE);
+    }
+    answered = true;
+  }
+  if (facets.renovation) {
+    sentences.push(p.renovationYear !== undefined
+      ? `Реновирана е во ${p.renovationYear} година.`
+      : INFO_NO_RENOVATION_LINE);
+    answered = true;
+  }
   if (facets.features?.length) {
     const yes: string[] = [];
     const absent: string[] = [];
@@ -351,7 +396,8 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
     }
     if (!answered && sentences.length === 0
       && !facets.price && !facets.sqm && !facets.rooms
-      && !facets.floor && !facets.totalFloors && !facets.lastFloor) {
+      && !facets.floor && !facets.totalFloors && !facets.lastFloor
+      && !facets.yearBuilt && !facets.renovation) {
       // Feature-ONLY ask about data the feed doesn't store — honest deferral,
       // never a fabricated feature. When another facet already answered
       // ("na koj kat e i ima lift?"), the stored fact must not be discarded.

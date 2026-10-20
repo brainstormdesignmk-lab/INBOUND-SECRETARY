@@ -27,7 +27,7 @@ import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
-import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LINE } from '../src/llm/infoAnswer';
+import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LINE, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE } from '../src/llm/infoAnswer';
 import { hasParkingWord } from '../src/llm/morphology';
 import { detectFeatureAsk, detectPriceAsk } from '../src/llm/deterministic';
 import { inferPropertyId } from '../src/llm/classify';
@@ -187,6 +187,38 @@ test('yard: the Двор (м²) number is quoted; 0 is no yard', () => {
   assert.equal(buildInfoAnswer(feedRow({ dvor: 'Да', dvor_m2: 300, garaza: 'Не' }), { features: ['двор'] }), 'Има двор од 300 м².');
 });
 
+// THE [00:33] YEAR ASK — "od koja godina e zgradata?" must answer from the
+// real column, or say the datum is missing. It must never fall through to the
+// dynamic lane and come back with a visit pitch (the stored wrong answer).
+test('year: construction/renovation years are mapped and answered, missing data stays honest', () => {
+  const feedRow = (over: Record<string, unknown>) => mapRow({
+    evidenten_broj: '90', naslov: 'Стан', naselba: 'Центар', cena_eur: 100000,
+    povrsina_m2: 60, tip_na_sobi: 'Две соби', servis: 'Продава', ...over,
+  })!;
+  const known = feedRow({ godina_na_gradba: 1987, renoviran: 2019 });
+  assert.equal(known.yearBuilt, 1987);
+  assert.equal(known.renovationYear, 2019);
+  // The feed's empty marker is a STRING — it must not become NaN/0.
+  const empty = feedRow({ godina_na_gradba: 'Не е наведено', renoviran: 'Не е наведено' });
+  assert.equal(empty.yearBuilt, undefined);
+  assert.equal(empty.renovationYear, undefined);
+
+  // Detection covers the phrasings clients actually use (Latin is folded).
+  for (const line of ['od koja godina e zgradata?', 'KOJA GODINA E IZGRADENA?', 'koga e izgradena zgradata?', 'kolku e stara zgradata?']) {
+    assert.equal(detectInfoFacets(line)?.yearBuilt, true, `must detect: ${line}`);
+  }
+  assert.equal(detectInfoFacets('koga e renovirana?')?.renovation, true);
+  // Not every "godina" is the facet.
+  assert.equal(detectInfoFacets('kolku godini iskustvo imate?')?.yearBuilt, undefined);
+
+  // Answer: the stored fact, or the honest owner-relay line — never invented.
+  assert.equal(buildInfoAnswer(known, { yearBuilt: true }), 'Зградата е изградена во 1987 година.');
+  assert.equal(buildInfoAnswer(empty, { yearBuilt: true }), INFO_NO_YEAR_LINE);
+  assert.equal(buildInfoAnswer(known, { renovation: true }), 'Реновирана е во 2019 година.');
+  assert.equal(buildInfoAnswer(empty, { renovation: true }), INFO_NO_RENOVATION_LINE);
+  assert.match(buildInfoAnswer({ ...known, house: true }, { yearBuilt: true })!, /^Куќата/);
+});
+
 // THE [00:00] COLD ASK — "ZDRAVO DALI KUKJATA 55 IMA DVORCE?" arrived with
 // no property on the table. The facet was found (yard), but the INFO gate
 // required a slot, so the turn became the discovery/service question. A
@@ -197,6 +229,17 @@ test('cold ask: a named EB binds the info answer with no session context', () =>
   assert.equal(inferPropertyId('ZDRAVO DALI KUKJATA 55 IMA DVORCE?'), 55);
   // A price is never read as an EB (the guard the gate relies on).
   assert.equal(inferPropertyId('BARAM KUKJA DO 80000'), undefined);
+});
+
+test('E2E: "od koja godina e zgradata?" answers from the info lane, never the dynamic pitch', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  seed(sessions, 'info-year', [EB69]);
+  // EB 69 has no year_built (the live feed has zero rows with one) — the
+  // honest owner-relay line is the answer. Before the facet existed this fell
+  // through to the dynamic lane and came back with a visit pitch.
+  await handler.handle('test', 'info-year', 'od koja godina e zgradata?');
+  assert.equal(sent.at(-1), INFO_NO_YEAR_LINE);
+  offlineMap.close();
 });
 
 test('handler: a cold ask naming its EB answers from the feed, not discovery', async () => {
