@@ -113,3 +113,28 @@ test('generate: LLM failure degrades silently', async () => {
     assert.equal(res, undefined);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('retrieveDynamicExact: exact/containment only, never trigram, state-scoped on top-of-funnel recall', () => {
+  const { bank, dir } = fresh();
+  try {
+    assert.equal(bank.addDynamic('dynamic:closing:foo', 'closing', 'kade ima reptil', 'Одговорот од банката.'), true);
+    // exact
+    assert.equal(bank.retrieveDynamicExact('kade ima reptil', 'closing')?.answer, 'Одговорот од банката.');
+    // containment (the stored phrase is inside the new sentence) — allowed
+    assert.ok(bank.retrieveDynamicExact('kade ima reptil tamu?', 'closing'));
+    // another FSM state must not serve it at the top of the funnel
+    assert.equal(bank.retrieveDynamicExact('kade ima reptil', 'presentation'), undefined);
+    // not a containment and under the trigram path's bar for this pair: no serve
+    assert.equal(bank.retrieveDynamicExact('kade ima reptilche', 'closing'), undefined);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('retrieveExact: learned examples serve only the phrasing they literally saw', () => {
+  const { bank, dir } = fresh();
+  try {
+    bank.addExample('learn.kazi-znaes', 'KAZI MI STO ZNAES ZA 58 ?');
+    assert.equal(bank.retrieveExact('kazi mi sto znaes za 58 ?')?.key, 'learn.kazi-znaes');
+    assert.equal(bank.retrieveExact('KAZI MI STO ZNAES ZA 58 ? i dali e sloboden')?.key, 'learn.kazi-znaes');
+    assert.equal(bank.retrieveExact('kazi mi sto znaes za 59 ?'), undefined, 'one different token is not a literal match');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

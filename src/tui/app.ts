@@ -501,6 +501,10 @@ export class TuiApp {
         if (bs) {
           lines.push(`банка: ${bs.totalVariants} научени варијанти / ${bs.keys} клуча · примери: ${bs.examples} · корекции: ${bs.corrections}`);
           lines.push(`free-rate: ${bs.hitRate === null ? 'сè уште нема мерења' : (bs.hitRate * 100).toFixed(1) + '%'} (без LLM)`);
+          // The loop's real scoreboard: how many bank serves came from the
+          // learned layer rather than the seed file. This is what "climbing"
+          // should mean — free-rate alone is 100% on a seed-only bank.
+          lines.push(`научено: ${bs.learnedServes} од ${bs.learnedServes + bs.seedServes} банка-одговори${bs.learnedRate === null ? '' : ' (' + (bs.learnedRate * 100).toFixed(1) + '% од банката)'}`);
         }
       } catch { /* bank stats are non-critical */ }
       // LEARNING LAYER reminder — captures waiting for review/mining.

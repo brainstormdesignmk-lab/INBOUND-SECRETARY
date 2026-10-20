@@ -63,16 +63,23 @@ export function pickVariant(key: string, opts: PickOpts = {}): string | undefine
   // the rule must not keep serving the old vocabulary until the next relearn
   // pass; the seed bank is rewritten and the generator vetoes it at write time.
   const learnedVars = (learned ? learned.variants(key) : []).filter(v => !IMOT_VOCAB_RE.test(v));
-  const variants = [...seed, ...learnedVars];
+  // Layer is tracked per variant, not per key: the point of the metric is
+  // "did the closed loop grow this answer?", and a key can serve BOTH layers.
+  const variants = [
+    ...seed.map(text => ({ text, layer: 'seed' as const })),
+    ...learnedVars.map(text => ({ text, layer: 'learned' as const })),
+  ];
   // P0 meters: every serve is a hit, every empty lookup a miss — this is the
   // single funnel all bank-backed replies pass through, so the per-key
-  // serve-rate here IS the production coverage signal.
+  // serve-rate here IS the production coverage signal. learned_serves says how
+  // much of that coverage the loop grew (see learnedRate).
   if (variants.length === 0) { learned?.metric(key, false); return undefined; }
   const recent = new Set((opts.recent ?? []).map(normalizeVariant));
-  const fresh = variants.filter(v => !recent.has(normalizeVariant(v)));
+  const fresh = variants.filter(v => !recent.has(normalizeVariant(v.text)));
   const pool = fresh.length > 0 ? fresh : variants;
-  learned?.metric(key, true);
-  return fillVars(pool[Math.floor(Math.random() * pool.length)], opts.vars);
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+  learned?.metric(key, true, chosen.layer);
+  return fillVars(chosen.text, opts.vars);
 }
 
 /**

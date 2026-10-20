@@ -100,6 +100,16 @@ export interface BankHit {
   text: string;
 }
 
+/** Word-bounded phrase match for the top-of-funnel recall. A stored phrase may
+ *  only claim a whole token sequence: „kade ima reptil“ must NOT match
+ *  „kade ima reptilche“, or a conservative exact recall turns into a loose one.
+ *  Both sides are space-padded so the boundary check needs no regex escaping. */
+function phraseMatch(low: string, stored: string): boolean {
+  if (stored === low) return true;
+  if (Math.min(low.length, stored.length) < 8) return false;
+  return (` ${low} `).includes(` ${stored} `) || (` ${stored} `).includes(` ${low} `);
+}
+
 export class BankStore {
   private db: Db;
 
@@ -283,6 +293,43 @@ export class BankStore {
     return best && best.score >= minScore ? { key: best.key, answer: best.answer } : undefined;
   }
 
+  /** EXACT-ONLY recall of a stored dynamic answer — used at the TOP of the
+   *  funnel, before the classifier. Deliberately stricter than
+   *  retrieveDynamic(): no trigram fuzz, so a stored answer can never hijack a
+   *  reworded question, and an optional state scope keeps a `closing` answer
+   *  out of `presentation`. Returns the row's state so the caller can audit. */
+  retrieveDynamicExact(userMsg: string, state?: string): { key: string; state: string; answer: string } | undefined {
+    const msg = userMsg.trim();
+    if (msg.length < 4) return undefined;
+    const rows = state
+      ? this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic WHERE state = ?`).all(state)
+      : this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic`).all();
+    const low = msg.toLowerCase().replace(/\s+/g, ' ').trim();
+    for (const r of rows as Array<{ key: string; state: string; msg: string; answer: string }>) {
+      const m = r.msg.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!m) continue;
+      if (phraseMatch(low, m)) return { key: r.key, state: r.state, answer: r.answer };
+    }
+    return undefined;
+  }
+
+  /** EXACT-ONLY example match (client phrasing → learned bank key). Same
+   *  contract as retrieveDynamicExact: no trigram, optionally state-free, so
+   *  the top-of-funnel recall serves only phrasings it has literally seen. */
+  retrieveExact(userMsg: string): { key: string; msg: string } | undefined {
+    const msg = userMsg.trim();
+    if (msg.length < 4) return undefined;
+    const rows = this.db.db.prepare(`SELECT key, msg FROM bank_examples`).all() as
+      Array<{ key: string; msg: string }>;
+    const low = msg.toLowerCase().replace(/\s+/g, ' ').trim();
+    for (const r of rows) {
+      const m = r.msg.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!m) continue;
+      if (phraseMatch(low, m)) return { key: r.key, msg: r.msg };
+    }
+    return undefined;
+  }
+
   /** Dynamic groups for the nightly digest: key, state, msgs, first answer. */
   dynamicGroups(): Array<{ key: string; state: string; msgs: string[]; answer: string }> {
     const rows = this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic ORDER BY id ASC`).all() as
@@ -430,14 +477,37 @@ export class BankStore {
   }
 
   /** Metrics: a bank-backed reply was served (hit) or a lookup failed (miss). */
-  metric(key: string, hit: boolean): void {
+  /** Serve accounting. `layer` is where the SERVED text came from: the seed
+   *  bank (responses.ts) or the learned SQLite layer. Without it a serve is
+   *  indistinguishable from a learned one, which is what made the old
+   *  free-rate always 100% — the enrichment's payoff was unmeasurable. */
+  metric(key: string, hit: boolean, layer?: 'seed' | 'learned'): void {
     this.db.db.prepare(`
-      INSERT INTO bank_metrics (key, hits, misses, updated_at) VALUES (?, ?, ?, ?)
+      INSERT INTO bank_metrics (key, hits, misses, seed_serves, learned_serves, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET
         hits = hits + excluded.hits,
         misses = misses + excluded.misses,
+        seed_serves = seed_serves + excluded.seed_serves,
+        learned_serves = learned_serves + excluded.learned_serves,
         updated_at = excluded.updated_at
-    `).run(key, hit ? 1 : 0, hit ? 0 : 1, Date.now());
+    `).run(
+      key, hit ? 1 : 0, hit ? 0 : 1,
+      layer === 'seed' ? 1 : 0,
+      layer === 'learned' ? 1 : 0,
+      Date.now(),
+    );
+  }
+
+  /** LEARNED-SERVE RATE — the closed loop's actual scoreboard: of every answer
+   *  the bank served, how many came from learned material rather than the seed
+   *  file. `rate` is null until something has served. */
+  learnedRate(): { learned: number; seed: number; rate: number | null } {
+    const r = this.db.db.prepare(
+      `SELECT COALESCE(SUM(learned_serves), 0) AS l, COALESCE(SUM(seed_serves), 0) AS s FROM bank_metrics`
+    ).get() as { l: number; s: number };
+    const total = r.l + r.s;
+    return { learned: r.l, seed: r.s, rate: total > 0 ? r.l / total : null };
   }
 
   /** Quarantine: quality gate rejected this learned pair — human review. */
@@ -484,16 +554,18 @@ export class BankStore {
   }
 
   /** Aggregate stats for the TUI dashboard / health check. */
-  stats(): { totalVariants: number; keys: number; examples: number; corrections: number; hitRate: number | null } {
+  stats(): { totalVariants: number; keys: number; examples: number; corrections: number; hitRate: number | null; learnedServes: number; seedServes: number; learnedRate: number | null } {
     const v = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_variants`).get() as { c: number };
     const k = this.db.db.prepare(`SELECT COUNT(DISTINCT key) AS c FROM bank_variants`).get() as { c: number };
     const e = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_examples`).get() as { c: number };
     const co = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_corrections`).get() as { c: number };
     const m = this.db.db.prepare(`SELECT SUM(hits) AS h, SUM(misses) AS ms FROM bank_metrics`).get() as { h: number | null; ms: number | null };
     const h = m.h ?? 0, ms = m.ms ?? 0;
+    const lr = this.learnedRate();
     return {
       totalVariants: v.c, keys: k.c, examples: e.c, corrections: co.c,
       hitRate: h + ms > 0 ? h / (h + ms) : null,
+      learnedServes: lr.learned, seedServes: lr.seed, learnedRate: lr.rate,
     };
   }
 

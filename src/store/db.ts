@@ -217,10 +217,12 @@ export class Db {
       );
       CREATE INDEX IF NOT EXISTS idx_bank_examples_key ON bank_examples(key);
       CREATE TABLE IF NOT EXISTS bank_metrics (
-        key        TEXT PRIMARY KEY,
-        hits       INTEGER NOT NULL DEFAULT 0,
-        misses     INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0
+        key            TEXT PRIMARY KEY,
+        hits           INTEGER NOT NULL DEFAULT 0,
+        misses         INTEGER NOT NULL DEFAULT 0,
+        seed_serves    INTEGER NOT NULL DEFAULT 0,
+        learned_serves INTEGER NOT NULL DEFAULT 0,
+        updated_at     INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS bank_corrections (
@@ -236,6 +238,17 @@ export class Db {
     const bmCols = this.db.prepare(`PRAGMA table_info(bank_metrics)`).all() as Array<{ name: string }>;
     if (!bmCols.some(c => c.name === 'updated_at')) {
       this.db.exec(`ALTER TABLE bank_metrics ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`);
+    }
+    // LEARNED-vs-SEED (2026-10-21): hits alone could not tell a seeded answer
+    // from one the closed loop grew, so the free-rate sat at 100% by
+    // construction (a miss is only recorded when a key has NO variants, and
+    // seed keys always have some). These two counters make the enrichment's
+    // payoff measurable: learned_serves / (seed_serves + learned_serves).
+    if (!bmCols.some(c => c.name === 'seed_serves')) {
+      this.db.exec(`ALTER TABLE bank_metrics ADD COLUMN seed_serves INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!bmCols.some(c => c.name === 'learned_serves')) {
+      this.db.exec(`ALTER TABLE bank_metrics ADD COLUMN learned_serves INTEGER NOT NULL DEFAULT 0`);
     }
     // v4 migration: nearby landmarks cache column — safe no-op if already present
     const lmCols = this.db.prepare(`PRAGMA table_info(landmarks)`).all() as Array<{ name: string }>;

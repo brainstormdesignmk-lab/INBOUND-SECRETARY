@@ -452,6 +452,7 @@ if (process.argv.includes('--status')) {
   const s = bank.stats();
   console.log(`[enrich] pending: ${enrichment.pendingCount()}`);
   console.log(`[enrich] bank: ${s.totalVariants} learned variants across ${s.keys} keys, ${s.examples} examples, ${s.corrections} corrections, hit-rate ${s.hitRate === null ? 'n/a' : (s.hitRate * 100).toFixed(1) + '%'}`);
+  console.log(`[enrich] learned-serve: ${s.learnedServes}/${s.learnedServes + s.seedServes} bank replies${s.learnedRate === null ? '' : ' (' + (s.learnedRate * 100).toFixed(1) + '% from the learned layer)'}`);
   db.close();
 } else {
   enrich().catch(e => {

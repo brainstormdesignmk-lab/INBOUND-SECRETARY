@@ -7,6 +7,7 @@ import {
 } from '../fsm/session';
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
 import { shouldLogForEnrichment } from '../llm/enrichPolicy';
+import { validateDynamicAnswer } from '../llm/dynamicFallback';
 import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
@@ -700,6 +701,72 @@ export class InboundHandler {
   }
 
   // ---------------- main message path ----------------
+
+  /**
+   * LEARNED RECALL — the closed loop's fast lane, at the TOP of the funnel.
+   *
+   * The runtime store (`bank_dynamic`) and the learned examples already
+   * existed, but they were only consulted inside escalate() — i.e. after every
+   * deterministic lane had a chance to answer, which is why a stored answer
+   * almost never served (four rows since September). This runs at the one seam
+   * where the turn is provably uncovered: the deterministic pre-classify
+   * returned nothing, the same seam that flags a fallthrough.
+   *
+   * Deliberately EXACT (+ containment) only, and dynamic rows only in the
+   * current FSM state: a stored answer may serve the phrasing it was taught,
+   * never a reworded funnel question. Validation runs again on recall, so a
+   * tightened contract retroactively retires stale rows.
+   */
+  private async tryLearnedRecall(session: ChatSession, text: string): Promise<boolean> {
+    const bank = this.deps.bank;
+    if (!bank || fsmRequired(text)) return false;
+    const before = session.state;
+    let reply: string | undefined;
+    let source: string | undefined;
+    let bankKey: string | undefined;
+    try {
+      const dyn = bank.retrieveDynamicExact(text, before);
+      if (dyn && validateDynamicAnswer(dyn.answer).length === 0) {
+        reply = dyn.answer; source = 'dynamic-recall'; bankKey = dyn.key;
+      } else {
+        const ex = bank.retrieveExact(text);
+        if (ex) {
+          const v = pickVariant(ex.key, { recent: assistantTexts(session) });
+          if (v) { reply = v; source = 'bank'; bankKey = ex.key; }
+        }
+      }
+    } catch { /* recall is advisory — fall through to the classifier */ }
+    if (!reply || !source) return false;
+
+    pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+    pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+
+    console.log(`[timing] learned-recall state=${before} src=${source} bank=${bankKey}`);
+
+    // The phrasing is still a DETECTOR gap (that is why we are here) — keep it
+    // in the capture corpus so hardening can own it later, exactly as the
+    // normal fallthrough path would.
+    if (this.deps.capture) {
+      try {
+        this.deps.capture.onTurn({
+          kind: 'fallthrough', text, state: before, at: new Date().toISOString(),
+          chatId: session.chatId, replySource: source, bankKey,
+        });
+      } catch { /* advisory */ }
+    }
+    if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), source !== 'bank', source)) {
+      try {
+        this.deps.enrichment.insert({
+          chatId: session.chatId, state: before, eventType: 'LEARNED_RECALL',
+          userMsg: text, replyText: reply, replySource: source, bankKey,
+        });
+      } catch { /* advisory */ }
+    }
+    this.detGaveUp = false;
+    await this.sendRaw(session, reply, source);
+    return true;
+  }
 
   private async processMessage(channel: string, chatId: string, text: string, opts: HandleOpts): Promise<void> {
     const pipelineStart = Date.now();
@@ -3418,6 +3485,9 @@ export class InboundHandler {
       // this into a hardening-corpus candidate (the phrasing stops being
       // novel once a detector owns it).
       this.detGaveUp = true;
+      // LEARNED RECALL before the classifier: the second time this exact
+      // phrasing is asked, the stored answer serves with no LLM at all.
+      if (await this.tryLearnedRecall(session, text)) return;
       classified = await this.deps.classifier.classify(session, text);
     }
 

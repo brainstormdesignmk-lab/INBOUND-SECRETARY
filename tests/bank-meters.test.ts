@@ -7,6 +7,7 @@ import { join } from 'path';
 import { Db } from '../src/store/db';
 import { BankStore } from '../src/store/bank';
 import { setLearnedBank, pickVariant, retrieveVariant } from '../src/data/responseBank';
+import { RESPONSE_BANK } from '../src/data/responses';
 
 test('P0 meters: pickVariant records per-key hit/miss with last-serve timestamp', () => {
   const dir = mkdtempSync(join(tmpdir(), 'p0-meters-'));
@@ -40,6 +41,37 @@ test('P0 meters: pickVariant records per-key hit/miss with last-serve timestamp'
   }
 });
 
+test('learned-serve meter: seed and learned layers are counted apart', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'learned-meter-'));
+  try {
+    const bank = new BankStore(new Db(join(dir, 't.db')));
+    setLearnedBank(bank);
+    // A key with NO seed variants: only the learned layer can answer it.
+    bank.addVariant('meter.only-learned', 'Научен одговор за мерење');
+    assert.ok(pickVariant('meter.only-learned', {}));
+    // A real seed key: this serve must be attributed to the seed layer.
+    const seedKey = 'greeting.open';
+    assert.ok((RESPONSE_BANK[seedKey] ?? []).length > 0, 'seed key must exist in responses.ts');
+    assert.ok(pickVariant(seedKey, {}));
+
+    const row = (k: string) => bank.db.db.prepare(
+      `SELECT hits, misses, seed_serves, learned_serves FROM bank_metrics WHERE key = ?`
+    ).get(k) as { hits: number; misses: number; seed_serves: number; learned_serves: number };
+    assert.deepEqual(row('meter.only-learned'), { hits: 1, misses: 0, seed_serves: 0, learned_serves: 1 });
+    assert.deepEqual(row(seedKey), { hits: 1, misses: 0, seed_serves: 1, learned_serves: 0 });
+
+    const lr = bank.learnedRate();
+    assert.equal(lr.learned, 1);
+    assert.equal(lr.seed, 1);
+    assert.equal(lr.rate, 0.5);
+    const st = bank.stats();
+    assert.equal(st.learnedRate, 0.5, 'stats carries the same rate for /status');
+  } finally {
+    setLearnedBank(undefined);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('P0 meters: ALTER migration backfills updated_at on pre-existing DBs', () => {
   const dir = mkdtempSync(join(tmpdir(), 'p0-mig-'));
   try {
@@ -52,10 +84,12 @@ test('P0 meters: ALTER migration backfills updated_at on pre-existing DBs', () =
     raw.close();
     // Boot the real store over it — migration must add the column without data loss.
     const bank = new BankStore(new Db(dbFile));
-    const row = bank.db.db.prepare(`SELECT hits, misses, updated_at FROM bank_metrics WHERE key='legacy.k'`).get() as { hits: number; misses: number; updated_at: number };
+    const row = bank.db.db.prepare(`SELECT hits, misses, updated_at, seed_serves, learned_serves FROM bank_metrics WHERE key='legacy.k'`).get() as { hits: number; misses: number; updated_at: number; seed_serves: number; learned_serves: number };
     assert.equal(row.hits, 7);
     assert.equal(row.misses, 3);
     assert.equal(row.updated_at, 0, 'legacy row backfilled with 0 until next serve');
+    assert.equal(row.seed_serves, 0, 'layer counters added without touching old data');
+    assert.equal(row.learned_serves, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
