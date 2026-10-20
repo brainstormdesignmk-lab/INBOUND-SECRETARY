@@ -24,6 +24,7 @@ import { Property } from '../src/data/properties';
 import { RESPONSE_BANK } from '../src/data/responses';
 import { setLearnedBank } from '../src/data/responseBank';
 import { detectAgreement } from '../src/llm/deterministic';
+import { buildOwnerAsk, ownerPropertyLabels } from '../src/llm/prompts';
 
 // Every availability.ack seed/learned variant must be owner-contact phrasing,
 // never client↔owner "connecting".
@@ -36,6 +37,42 @@ test('availability.ack variants never "connect" the client with the owner', () =
     assert.ok(!FORBIDDEN_CONNECT.test(v), `connect-phrasing in availability.ack: ${v}`);
     assert.ok(/(?:исконтактирам|контактирам|стапам|поврзам|разговор|слушам)/iu.test(v), `no owner-contact verb: ${v}`);
   }
+});
+
+// „Недвижност“ is FEMININE. The mass имот→недвижност replacement left
+// masculine agreement behind ("недвижноста е активен", "го имаме"), and the
+// [20:14] owner ping said "за Вашиот куќа … кој … е внесен" — a куќа is
+// feminine too (Вашата / која / внесена / достапна).
+test('availability.ack seeds agree with the feminine „недвижност“', () => {
+  const seeds: string[] = RESPONSE_BANK['availability.ack'] ?? [];
+  const MASC = /(?<![\p{L}])(?:слободен|активен|достапен|евидентиран|внесен|заведен|продаден|издаден)(?![\p{L}])/iu;
+  for (const v of seeds) {
+    assert.ok(!MASC.test(v), `masculine agreement on „недвижност“: ${v}`);
+    assert.ok(!/(?<![\p{L}])го\s+имаме(?![\p{L}])/iu.test(v), `„го имаме“ for a feminine property: ${v}`);
+  }
+});
+
+test('owner ask agrees with the property gender (куќа = feminine)', () => {
+  const house = { ...ROWS[0], eb: 55, id: 55, house: true } as Property;
+  const l = ownerPropertyLabels(house);
+  const ask = buildOwnerAsk(55, 'Четврток, 22.10.2026 во 17:30', {
+    eb: 55, proposedTime: 'Четврток, 22.10.2026 во 17:30',
+    propertyType: l.type, propertyTypeDef: l.def, possessive: l.possessive,
+    dostapen: l.dostapen, relative: l.relative, entered: l.entered,
+  });
+  assert.match(ask, /за Вашата куќа која во нашиот систем е внесена со број 55/);
+  assert.match(ask, /Дали куќата е сè уште достапна/);
+  assert.ok(!/Вашиот куќа|кој во нашиот систем|е внесен со број/.test(ask), ask);
+
+  // стан stays masculine.
+  const flat = { ...ROWS[0], house: false } as Property;
+  const fl = ownerPropertyLabels(flat);
+  const flatAsk = buildOwnerAsk(78, 'Петок, 23.10.2026 во 12:00', {
+    eb: 78, proposedTime: 'Петок, 23.10.2026 во 12:00',
+    propertyType: fl.type, propertyTypeDef: fl.def, possessive: fl.possessive,
+    dostapen: fl.dostapen, relative: fl.relative, entered: fl.entered,
+  });
+  assert.match(flatAsk, /за Вашиот трисобен стан кој во нашиот систем е внесен со број 78/);
 });
 
 class FailingLlm { async complete(): Promise<string> { throw new Error('429 quota exhausted'); } }

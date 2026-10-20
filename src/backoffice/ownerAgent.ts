@@ -140,11 +140,13 @@ export class DeferredOwnerAgent implements OwnerAgent {
         break;
       case 'sold':
         verdict = { status: 'gone', note: 'недвижноста е продадена' };
-        this.owners.setStatus(eb, 'sold', 'продаден');
+        // The note agrees with "недвижност" (feminine) — "продаден" leaked into
+        // the client reply as "недвижноста … е продаден" (the [12:08] capture).
+        this.owners.setStatus(eb, 'sold', 'продадена');
         break;
       case 'rented':
         verdict = { status: 'gone', note: 'недвижноста е издадена' };
-        this.owners.setStatus(eb, 'rented', 'издаден');
+        this.owners.setStatus(eb, 'rented', 'издадена');
         break;
       case 'price': {
         const n = Number((ownerTime ?? '').replace(/[^\d]/g, ''));

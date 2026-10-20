@@ -353,9 +353,10 @@ export class Responder {
       return { text: base, source: 'deterministic' };
     }
     // The contact ask is deterministic (like the fee and the visit time): it is
-    // phone-aware, always correct, and carries "Одлично, уште последниве
-    // информации и завршуваме." ONCE — retries (client gave a bad name) repeat
-    // the plain ask so the flourish is never overused.
+    // phone-aware, always correct, and opens with "Одлично." ONCE — never the
+    // old "уште последниве информации и завршуваме" (it announced an ending
+    // while the owner contact and the visit were still ahead). Retries (client
+    // gave a bad name) repeat the plain ask.
     if (session.state === 'contact_collection') {
       const n = session.slots.contactAsks ?? 0;
       session.slots.contactAsks = n + 1;

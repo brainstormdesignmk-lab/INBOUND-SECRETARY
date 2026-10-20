@@ -20,6 +20,7 @@
     "hermes:dry": "tsx src/scripts/hermes.ts --dry-run",
     "hermes:landmarks": "tsx src/scripts/hermesLandmarks.ts",
     "hermes:landmarks:feed": "tsx src/scripts/hermesLandmarks.ts --feed",
+    "audit:landmarks": "tsx scripts/audit-feed-landmarks.ts",
     "map:pull": "tsx src/scripts/skopjeMap.ts",
     "enrich:run": "tsx src/scripts/enrichBank.ts",
     "enrich:dry": "tsx src/scripts/enrichBank.ts --dry",

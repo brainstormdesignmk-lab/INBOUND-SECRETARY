@@ -76,7 +76,9 @@ const FEATURE_PROBES: Array<[RegExp, string]> = [
   [/(?:^|\s)гараж/iu, 'гаража'],
   [/(?:^|\s)(?:гре|парно)/iu, 'греење'],
   [/(?:^|\s)клим/iu, 'клима'],
-  [/(?:^|\s)(?:двор|градин)/iu, 'двор'],
+  // Двор — boundary-guarded and open to the derived family (дворче,
+  // двориште, градина/градинка), not just the literal noun after a space.
+  [/(?<![\p{L}\p{N}])(?:двор|градин)/iu, 'двор'],
   [/(?:^|\s)(?:терас|балкон)/iu, 'тераса'],
   [/(?:^|\s)(?:наместен|опремен)/iu, 'наместен'],
   [/(?:^|\s)реновиран/iu, 'реновиран'],
@@ -247,7 +249,13 @@ function findFeaturePhrase(p: Property, canon: string): string | undefined {
     case 'гаража': return feats.find(x => x.includes('гаража'));
     case 'греење': return feats.find(x => x.startsWith('греење') || x === 'парно');
     case 'клима': return feats.find(x => x.includes('клима'));
-    case 'двор': return feats.find(x => x.includes('двор') || x.includes('градина'));
+    case 'двор': {
+      const f = feats.find(x => x.includes('двор') || x.includes('градина'));
+      if (!f) return undefined;
+      // The card's «Двор (м²)» number answers the size in the same breath:
+      // "Дворче има ли?" → "Има двор од 300 м²."
+      return p.yardSqm ? `двор од ${p.yardSqm} м²` : f;
+    }
     case 'тераса': return feats.find(x => x.includes('тераса') || x.includes('балкон'));
     case 'наместен': return feats.find(x => x.includes('наместен'));
     case 'реновиран': {

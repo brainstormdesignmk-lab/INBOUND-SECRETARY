@@ -258,6 +258,13 @@ export class TuiApp {
       this.renderOwner();
       this.repaint();
     };
+    // Messages TO the owner (the sale congratulation) land in the same panel —
+    // the operator plays the owner here; production sends to his phone.
+    this.pipeline.onOwnerMessage = (chatId, _eb, text) => {
+      this.appendOwnerMsg(chatId, { role: 'assistant', text, at: Date.now() });
+      this.renderOwner();
+      this.repaint();
+    };
 
     this.box = buildLayout('METROPOLIS · ЛИНА · TUI');
     // The menu is the only box outside the layout; its content rides the frame

@@ -18,7 +18,7 @@ import { Db } from '../src/store/db';
 import { SessionStore, freshSession } from '../src/fsm/session';
 import { Classifier } from '../src/llm/classify';
 import { Responder } from '../src/llm/respond';
-import { PropertyService, Property } from '../src/data/properties';
+import { PropertyService, Property, mapRow } from '../src/data/properties';
 import { AppointmentStore } from '../src/store/appointments';
 import { EscalationStore } from '../src/store/escalations';
 import { MetaStore } from '../src/store/meta';
@@ -30,6 +30,7 @@ import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
 import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LINE } from '../src/llm/infoAnswer';
 import { hasParkingWord } from '../src/llm/morphology';
 import { detectFeatureAsk, detectPriceAsk } from '../src/llm/deterministic';
+import { inferPropertyId } from '../src/llm/classify';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429'); }
@@ -161,6 +162,47 @@ test('parking: a SEARCH criterion is intake, not an info ask about the bound fla
   assert.equal(detectInfoFacets('IMATE LI STAN SO PARKING?'), undefined);
   // …but asking ABOUT the discussed flat is still an info ask.
   assert.deepEqual(detectInfoFacets('BARAM DA ZNAM DALI IMA PARKING ?')?.features, ['паркинг']);
+});
+
+// ── ДВОР — the card's «Двор (м²)» number ───────────────────────────────────
+// The app writes yard_area from the operator's number: a value IS the yard (and
+// its size), 0 is the default and means no yard. The feed emits `dvor_m2` so the
+// ask can answer "Има двор од 300 м²" instead of a bare yes/no.
+test('yard: the Двор (м²) number is quoted; 0 is no yard', () => {
+  const withYard = { ...ROWS_INFO[0], features: ['двор'], yardSqm: 300 } as Property;
+  assert.equal(buildInfoAnswer(withYard, { features: ['двор'] }), 'Има двор од 300 м².');
+  // A legacy yard with no size still answers yes, without inventing м².
+  const noSize = { ...ROWS_INFO[0], features: ['двор'] } as Property;
+  assert.equal(buildInfoAnswer(noSize, { features: ['двор'] }), 'Има двор.');
+
+  const feedRow = (over: Record<string, unknown>) => mapRow({
+    evidenten_broj: '55', naslov: 'Куќа Повеќе соби', naselba: 'Влае', cena_eur: 40000,
+    povrsina_m2: 240, tip_na_sobi: 'Повеќе соби', servis: 'Продава',
+    tip_na_nedviznina: 'Куќа', ...over,
+  })!;
+  assert.equal(feedRow({ dvor: 'Да', dvor_m2: 300 }).yardSqm, 300);
+  assert.equal(feedRow({ dvor: 'Да', dvor_m2: 0 }).yardSqm, undefined, '0 is not a size');
+  assert.equal(feedRow({ dvor: 'Не' }).yardSqm, undefined);
+  // The answer path uses it end-to-end.
+  assert.equal(buildInfoAnswer(feedRow({ dvor: 'Да', dvor_m2: 300, garaza: 'Не' }), { features: ['двор'] }), 'Има двор од 300 м².');
+});
+
+// THE [00:00] COLD ASK — "ZDRAVO DALI KUKJATA 55 IMA DVORCE?" arrived with
+// no property on the table. The facet was found (yard), but the INFO gate
+// required a slot, so the turn became the discovery/service question. A
+// message that NAMES its EB is its own binding signal.
+test('cold ask: a named EB binds the info answer with no session context', () => {
+  assert.deepEqual(detectInfoFacets('ZDRAVO DALI KUKJATA 55 IMA DVORCE?')?.features, ['двор']);
+  assert.deepEqual(detectInfoFacets('DALI 55 IMA DVORISTE?')?.features, ['двор']);
+  assert.equal(inferPropertyId('ZDRAVO DALI KUKJATA 55 IMA DVORCE?'), 55);
+  // A price is never read as an EB (the guard the gate relies on).
+  assert.equal(inferPropertyId('BARAM KUKJA DO 80000'), undefined);
+});
+
+test('handler: a cold ask naming its EB answers from the feed, not discovery', async () => {
+  const { handler, sent } = makeHandler();
+  await handler.handle('test', 'cold', 'ZDRAVO DALI STANOT 63 IMA GREJNO?');
+  assert.equal(sent.at(-1), 'Има греење на струја.');
 });
 
 test('handler: a parking ask routes to INFO, never the presentation card', async () => {

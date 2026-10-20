@@ -43,6 +43,10 @@ export interface Property {
    *  fallback for rows whose ad text names the floor only. */
   floor?: number;          // kat — which floor the unit sits on (0 = приземје)
   totalFloors?: number;    // vkupno_katovi — storeys in the building
+  /** Двор (м²) from the feed's `dvor_m2` (the card's „Двор“ number). A value
+   *  > 0 IS the yard and its size; the feed emits 0 for "no yard", so 0 is
+   *  never a size. */
+  yardSqm?: number;
   size?: string;           // povrsina_m2
   business?: boolean;      // деловен простор/канцеларија/локал — feed marks them by having NO bedroom type
   house?: boolean;         // куќа — the feed marks houses only in the opis text ("Се продава куќа…")
@@ -394,6 +398,10 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     // 0 storeys is not a building — the old card wrote 0 for an empty
     // "Кат на објект". Keep it unknown so the answer never says "0 ката".
     totalFloors: (parseStorey(r.vkupno_katovi) ?? parseStorey(r.total_floors)) || undefined,
+    yardSqm: (() => {
+      const n = num(r.dvor_m2);
+      return n !== undefined && n > 0 ? n : undefined;
+    })(),
     business: isBusiness(r) && !isPlac(r),
     house: isHouse(r) && !isPlac(r),
     plac: isPlac(r),

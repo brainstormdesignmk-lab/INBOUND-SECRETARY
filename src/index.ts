@@ -104,6 +104,23 @@ async function main(): Promise<void> {
     landmarks, visits, enrichment, capture,
   });
 
+  // Messages TO the owner (not questions): the sale congratulation. Same
+  // routing as the visit protocol's owner line — the owner's own phone when
+  // known, the operator as the fallback — and always an operator log row so
+  // the exchange is auditable even when delivery fails.
+  pipeline.onOwnerMessage = (clientChatId, eb, text) => {
+    events.insert('operator_log', clientChatId, eb, { text: `OWNER: ${text}` });
+    void (async () => {
+      const phone = owners.get(eb)?.phone;
+      try {
+        if (phone) { await channels.send('viber', phone, text); return; }
+      } catch (e) {
+        console.error(`[owner] congrats to EB ${eb} failed: ${(e as Error).message}`);
+      }
+      if (cfg.viberOperatorId) await channels.send('viber', cfg.viberOperatorId, text);
+    })();
+  };
+
   const visitTimer = visits.start(60_000);
 
   // VIBER_OUTBOUND_MODE=relay: replies queue on the ATOM4 relay (client

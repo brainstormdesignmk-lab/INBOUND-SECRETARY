@@ -27,8 +27,9 @@ import '../compat/node16';
 
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
-import { sanitizeLandmarkAnswer, stripPoiAnnotation, FEED_LANDMARK_MAX_M, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
+import { sanitizeLandmarkAnswer, stripPoiAnnotation, FEED_LANDMARK_MAX_M, firstLandmarkProblem, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
 import { identityKey, LANDMARK_RANKING_POLICY_VERSION, type LocalPoi } from '../geo/offlineMap';
+import { typeRank } from '../geo/types';
 import { landmarkLink } from '../geo/precision';
 import { OfflineMapStore } from '../geo/offlineMap';
 import { EventStore } from '../store/events';
@@ -142,7 +143,14 @@ export function rankedLandmarks(
     : [] as LocalPoi[];
   if (pois.length === 0) return { list: [], poolSize: 0 };
   // Guard for the live fallback (osmPoisNear has its own 2km query).
-  const pool = pois.filter(p => typeof p.distance_m !== 'number' || p.distance_m <= FEED_LANDMARK_MAX_M);
+  // RECOGNIZABILITY FILTER: the FIRST entry is the one name a client hears, so
+  // an unranked/junk type may never take it. This is the EB 94 regression in
+  // code form — `dormitory` scored 0 and a 257 m mall outranked the 63 m dorm;
+  // with the filter, such a row falls to the next recognisable place instead
+  // of quietly serving something nobody navigates by.
+  const pool = pois
+    .filter(p => typeof p.distance_m !== 'number' || p.distance_m <= FEED_LANDMARK_MAX_M)
+    .filter(p => typeRank(p.type) > 0);
   if (process.env.DBG_GEO) {
     try {
       process.stderr.write(`[feed-dbg] geo=${geo.lat.toFixed(5)},${geo.lon.toFixed(5)} map=${offline?.available ? 'yes' : 'no'} pois(2km)=${pois.length} pool(500m)=${pool.length}\n`);
@@ -368,6 +376,16 @@ async function main(): Promise<void> {
       const shown = c.desired.length === 0
         ? '(clear — the map sees no public place inside the ring)'
         : c.desired.map(l => `„${l.landmark}“ (${l.distance_m ?? '?'}м)`).join(', ');
+      // THE FIRST-LANDMARK CONTRACT (audited per row, before any write): inside
+      // the 200 m claim ring and a recognisable public-place type. A violating
+      // list is not pushed — the row keeps its previous data and the run reports
+      // it, instead of silently serving "во близина на" for a boutique at 340 m.
+      const problem = firstLandmarkProblem(c.desired);
+      if (problem) {
+        console.log(`  ✗ ${label} — ${problem}`);
+        failed++;
+        continue;
+      }
       if (!pushUrl || dryRun) {
         console.log(`  would write: ${label} → ${shown}`);
         continue;

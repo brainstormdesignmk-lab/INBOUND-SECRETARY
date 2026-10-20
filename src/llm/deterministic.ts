@@ -2853,10 +2853,36 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
     for (const m of idiom) {
       const at = m.index ?? -1;
       if (at < 0) continue;
-      const lo = Math.max(0, at - 24);
-      const hi = at + m[0].length + 24;
+      // SAME CLAUSE ONLY (the [00:23] owner text): "NE MOZAM VO CETVRTOK .
+      // ZAFATEN SUM CEL DEN . PETOK 18/?" — the "cel den" of the REFUSAL
+      // REASON ("busy all day") sat within ±24 chars of the REFUSED
+      // "четврток", so the anchor handed that refused day back as the offer
+      // ("за Четврток му одговара било кој час"). A day belongs to this
+      // any-time idiom only inside the idiom's own clause; a later clause is
+      // the normal day+clock path's job.
+      let lo = at;
+      while (lo > 0 && !/[.!?;]/.test(text[lo - 1])) lo--;
+      let hi = at + m[0].length;
+      while (hi < text.length && !/[.!?;]/.test(text[hi])) hi++;
       const near = text.slice(lo, hi).match(new RegExp(OWNER_DAY_RE.source, 'i'));
       if (near) return { day: near[0], wholeDay: true };
+    }
+  }
+  // BARE HOUR AFTER A DAY ("PETOK 18", "petok 18h", "petok 18/"): owners
+  // drop both the preposition and the colon. The refused clause is already
+  // out of scope here, so the day is the offer. A following ".10" is a DATE,
+  // not a clock, and the hour must be a real one (1–23).
+  const bareRe = new RegExp(
+    `(${OWNER_DAY_RE.source})\\s*,?\\s*(\\d{1,2})(?:\\s*(?:h|ч|saat|часот))?(?=\\s*(?:[.?!,;/]|$))(?!\\s*[.:]\\d)`,
+    'iu');
+  const bare = scoped.match(bareRe);
+  if (bare) {
+    const hour = Number(bare[2]);
+    if (Number.isFinite(hour) && hour >= 1 && hour <= 23) {
+      // Latin "vo" so the phrase stays single-script: normalizeTimePhrase
+      // transliterates and canonicalizes the day ("PETOK 18" → "Петок во
+      // 18:00"). A Cyrillic "во" would freeze the Latin day as-is.
+      return `${bare[1]} vo ${String(hour).padStart(2, '0')}:00`;
     }
   }
   // matchAll needs global regexes; the originals are stateful (.test) so clone
@@ -3000,9 +3026,13 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
     && !OWNER_CLOCK_RE.test(timeStr) && !OWNER_DAY_PART_RE.test(timeStr)
     && !/\d/.test(timeStr);
   const isWholeDay = wholeDay || (bareDayNoClock && (anytime || refusalIdx >= 0));
-  const hasClock = scoped !== text && scoped.length > 0
-    ? new RegExp(OWNER_CLOCK_RE.source, OWNER_CLOCK_RE.flags.replace('g', '')).test(scoped)
-    : OWNER_CLOCK_RE.test(text);
+  // A parsed term that already carries an hour (including the bare "petok 18"
+  // form above) IS a clock — without this the fixed counter fell back to the
+  // bare refusal and the owner's alternative was dropped.
+  const hasClock = (typeof time === 'string' && /\d/.test(time))
+    || (scoped !== text && scoped.length > 0
+      ? new RegExp(OWNER_CLOCK_RE.source, OWNER_CLOCK_RE.flags.replace('g', '')).test(scoped)
+      : OWNER_CLOCK_RE.test(text));
   const agree = !cant && OWNER_AGREE_RE.test(t);
   const disagree = cant || matchesBoth(OWNER_DISAGREE_RE, t);
   // Same-time confirmation or plain agreement → ok (accept the client's time).
@@ -5180,6 +5210,40 @@ export function extractWhereLandmarkPlace(text: string): string | undefined {
   }
   place = words.join(' ');
   return place.length >= 3 ? place : undefined;
+}
+
+/** A BARE "that place means nothing to me" line — no place name repeated.
+ *  "NE ZNAM TOA", "не ми е јасно", "ne mi e poznato" after a landmark reply
+ *  still means the client cannot picture the location. */
+const LANDMARK_UNKNOWN_CUE_RE =
+  /(?:^|[^\p{L}])(?:ne\s+znam|не\s+знам|ne\s+go\s+znam|не\s+го\s+знам|ne\s+mi\s+e\s+jasno|не\s+ми\s+е\s+јасно|ne\s+mi\s+e\s+poznato|не\s+ми\s+е\s+познато)(?![\p{L}])/iu;
+
+/** The client does not recognise the landmark Lina just named, so the ladder
+ *  owes them the NEXT one: "kade ima reptil tamu?", "ne znam kade e reptil",
+ *  "sto e toa reptil". Mentioning a DIFFERENT place never qualifies — a
+ *  genuine "kade e skopjanka" keeps its own where-the-landmark lane. */
+export function detectUnknownLandmark(text: string, lastLandmark?: string): boolean {
+  if (!lastLandmark) return false;
+  // Same stand-downs as the where-the-landmark lane: fee/price/address asks are
+  // their own traffic, and rotating on them would bury the real answer.
+  if (isFeeTraffic(text) || detectPriceAsk(text) || detectExactAddressAsk(text)) return false;
+  const n = normalizeMc(text).toLowerCase();
+  // „DALI IMA STAN VO BLIZINA NA REPTIL?“ is a SEARCH around a known anchor,
+  // not a client who cannot picture it — a property noun after "има" keeps the
+  // request lane. Only a where/what ask about the anchor itself rotates.
+  if (/(?:има|ima)\s+(?:стан|куќ|kul|kukj|garso|гарсо|lokal|локал|plac|плац)/iu.test(n)) return false;
+  const name = normalizeMc(lastLandmark).toLowerCase();
+  const nameWords = name.split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 4);
+  const toks = n.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const mentioned = nameWords.some(w => toks.includes(w));
+  if (mentioned) {
+    // It names the last landmark — only a where/what/ignorance shape counts;
+    // a bare repeat ("reptil") is not an ask and must not burn a rung.
+    // normalizeMc transliterates letter-by-letter, so "sto" becomes "сто"
+    // (not "што") — both spellings must be accepted on the normalized text.
+    return /(?:каде|kade|кај|kaj|што|сто|sto|кое|koe|има|ima|не\s+знам|ne\s+znam|не\s+ми\s+е\s+јасно|ne\s+mi\s+e\s+jasno)/iu.test(n);
+  }
+  return LANDMARK_UNKNOWN_CUE_RE.test(n);
 }
 
 // ── DISTANCE TO A NAMED PLACE ─────────────────────────────────────────────────

@@ -12,7 +12,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, isDistanceQuestion, extractDistancePlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic } from '../llm/deterministic';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -39,7 +39,8 @@ import { VisitScheduler } from '../visits/scheduler';
 import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
-  buildOwnerAsk, ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime,
+  buildOwnerAsk, buildOwnerFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay,
+  ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
@@ -83,8 +84,6 @@ function poiNameFollowsClientWords(clientText: string, poiName: string): boolean
 // GREETING_ONLY_RE moved to deterministic.ts (shared with the pre-classify's
 // greeting ownership — the 15:12 TUI capture) and imported below.
 const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветна недвижност.';
-const OWNER_COUNTER_RELAY = (t: string) =>
-  `Сопственикот е достапен, но предложи поинаков термин: ${mkTimePhrase(t)}. Дали овој термин Ви одговара?`;
 // The owner CAN'T do the client's proposed time and gave NO alternative. Lina
 // must never fabricate a term ("по договор со сопственикот" was relayed as a
 // fake proposal the client was asked to accept — and an accept then fell back
@@ -92,8 +91,19 @@ const OWNER_COUNTER_RELAY = (t: string) =>
 // the new time re-asks the owner (the healthy ping-pong keeps looping).
 const OWNER_CANT_TIME_RELAY = (t: string) =>
   `Сопственикот не може во тој термин (${mkTimePhrase(t)}). ${VISIT_TIME_QUESTION}`;
-const OWNER_GONE_REPLY = (eb: number, note: string) =>
-  `За жал, недвижноста со Евидентен број ${eb} ${note}. Дозволете ми да проверам што друго имаме што одговара на Вашите критериуми.`;
+/** A GONE verdict's note → a predicate that agrees with „недвижност“ (feminine).
+ *  Owner notes arrive in every shape: `продаден` (the TUI /owner sold note),
+ *  `недвижноста е продадена` (the LocalOwnerAgent default), `издаден`, an
+ *  under-option explanation. Used after „недвижноста … е“, so a full sentence
+ *  would double the copula ("е недвижноста е продадена") and the masculine
+ *  form contradicts the noun ("недвижноста … е продаден"). */
+function gonePredicate(note?: string): string {
+  const n = (note ?? '').toLowerCase();
+  if (/продад/.test(n)) return 'е продадена';
+  if (/издад/.test(n)) return 'е издадена';
+  if (/под опција/.test(n)) return 'е под опција и моментално не е достапна за посета';
+  return 'веќе не е достапна';
+}
 
 /**
  * TYPED-CATEGORY EMPTY (the [09:29] business capture) — the answer for a
@@ -201,6 +211,11 @@ export class InboundHandler {
    *  TUI renders this in the owner panel; Hermes consumes the same question
    *  from the owner_check_requested event in phase 2. */
   onOwnerAsk?: (chatId: string, eb: number, question: string) => void;
+  /** Fired when Lina has something to TELL the owner (not ask): today the
+   *  congratulation on a reported sale. The TUI renders it in the owner panel;
+   *  production sends it to the owner's Viber phone. Best-effort — a missing
+   *  hook never breaks the client relay. */
+  onOwnerMessage?: (chatId: string, eb: number, text: string) => void;
   /** THE TEACHER/EXAM POLICY — current brain mode supplied by the runner
    *  (TUI). Teacher modes (hybrid/gemini/groq) log replies for the midnight
    *  cron; exam mode ('free') logs nothing so the deterministic+bank stack
@@ -315,8 +330,18 @@ export class InboundHandler {
     ]) {
       if (typeof eb === 'number') ebSet.add(eb);
     }
-    if (ebSet.size === 0) return undefined;
-    const all = await this.deps.properties.getAll();
+    // A COLD message can NAME the EB: "ZDRAVO DALI KUKJATA 55 IMA DVORCE?"
+    // arrives before anything was presented, so the slot set is empty and the
+    // ask used to fall through to discovery. The named EB is a binding signal
+    // of the same family as "kaj 69" — resolve it against the feed's own EBs
+    // (the price guard lives in collectMentionedEbs: "100.000" is never an EB).
+    let all: Property[] | undefined;
+    if (ebSet.size === 0) {
+      all = await this.deps.properties.getAll();
+      for (const eb of collectMentionedEbs([text], new Set(all.map(p => p.eb)))) ebSet.add(eb);
+      if (ebSet.size === 0) return undefined;
+    }
+    if (!all) all = await this.deps.properties.getAll();
     const discussed: Property[] = [];
     for (const p of all) if (ebSet.has(p.eb) && !discussed.some(x => x.eb === p.eb)) discussed.push(p);
     if (discussed.length === 0) return undefined;
@@ -443,6 +468,7 @@ export class InboundHandler {
       session.slots.nearbyLandmarkPlaceIds = undefined;
       session.slots.nearbyLandmarkEb = undefined;
       session.slots.landmarkIndex = 0;
+      session.slots.lastLandmark = undefined;
       session.slots.addressProtocolIndex = 0;
       session.slots.exactLocationTurns = 0;
     }
@@ -455,6 +481,7 @@ export class InboundHandler {
         session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
         session.slots.nearbyLandmarkEb = propRow.eb;
         session.slots.landmarkIndex = 0;
+        session.slots.lastLandmark = undefined;
       }
     }
 
@@ -491,6 +518,10 @@ export class InboundHandler {
       const slot = lmList.length > 0 ? Math.min(idx, lmList.length - 1) : 0;
       const landmark = lmList.length > 0 ? lmList[slot] : (p.landmark ?? '');
       session.slots.landmarkIndex = idx + 1;
+      // Remember WHICH anchor was just named: the next turn's "kade ima X? /
+      // ne znam toa" is the client telling us this anchor means nothing, and
+      // the ladder must answer with the NEXT landmark (never the fee pitch).
+      if (landmark) session.slots.lastLandmark = landmark;
       const coords = session.slots.nearbyLandmarkCoords?.[slot];
       if (landmark) {
         // Find the landmark's coords/place link: rotation slots carry coords;
@@ -913,6 +944,7 @@ export class InboundHandler {
           session.slots.nearbyLandmarkPlaceIds = undefined;
           session.slots.nearbyLandmarkEb = undefined;
           session.slots.landmarkIndex = 0;
+          session.slots.lastLandmark = undefined;
           session.slots.addressProtocolIndex = 0;
           session.slots.exactLocationTurns = 0;
         }
@@ -966,6 +998,126 @@ export class InboundHandler {
       this.deps.sessions.set(session);
       await this.sendRaw(session, answer);
       return;
+    }
+
+    // LANDMARK LADDER — "I DON'T KNOW THAT PLACE" (the 11:45 capture).
+    // After Lina names an anchor, the client may answer "kade ima reptil
+    // tamu?" / "ne znam toa" — they cannot picture it. The agency contract is
+    // three steps: the NEXT nearby landmark, then the third, and after that
+    // "the area is clear enough". Before this gate that message matched no
+    // lane (findPlace missed the "ima reptil tamu" capture and detectWhereIs
+    // was undefined), so it fell into the closing state and got the VISIT-FEE
+    // pitch — a non-sequitur on a location question. Never a fee line while
+    // the client is still asking WHERE.
+    if (session.slots.lastLandmark) {
+      const lmList = session.slots.nearbyLandmarks ?? [];
+      // The client may name the anchor just served OR any of the property's
+      // rotation anchors (the live 11:45 transcript asked about the FIRST one
+      // after an exact-address turn sat between them). A BARE "ne znam toa"
+      // only counts right after a landmark line, so ordinary chat is untouched.
+      const anchors = [...new Set([session.slots.lastLandmark, ...lmList])];
+      const lastLine = assistantTexts(session).slice(-1)[0] ?? '';
+      const named = anchors.some(n => detectUnknownLandmark(text, n));
+      const bareAfterLandmark = /во\s+бли[зж]ин/u.test(lastLine)
+        && detectUnknownLandmark(text, session.slots.lastLandmark);
+      const idx = session.slots.landmarkIndex ?? 0;
+      // The ladder's terminal state: once all three anchors are named, a
+      // nearby/area ask ("sto uste ima vo reonot?" — the [11:50] capture) is
+      // answered with the "clear enough" close. It used to fall through to the
+      // availability ack because no detector owns the word "reon".
+      const areaAsk = lmList.length > 0 && idx >= lmList.length
+        && /во\s+бли[зж]ин/u.test(lastLine)
+        && (mentionsMore(text) || /(?:реон|близин|близу|околу|reon|blizin|blizu|okolu)/iu.test(text));
+      if (named || bareAfterLandmark || areaAsk) {
+        const ladderEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+          ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+        const ladderProp = ladderEb != null
+          ? await this.deps.properties.getByEb(ladderEb).catch(() => undefined)
+          : undefined;
+        if (ladderProp) {
+          // L2 / L3, or — all three already named — the polite shut-down.
+          const answer = lmList.length > 0 && idx < lmList.length
+            ? this.whereIsReply(ladderProp, session, text)
+            : pickVariant('nearby.exhausted', { recent: assistantTexts(session) })
+              ?? 'Мислам дека Ви е доволно јасно за локацијата. Точната адреса ќе ја дознаете на ден на посетата.';
+          routeLog(chatId, text, 'LANDMARK_LADDER');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer);
+          return;
+        }
+      }
+    }
+
+    // GONE → SIMILAR ALTERNATIVES (the [12:08] capture). The sold-property
+    // notice asks „Дали би сакале да Ви понудам нешто друго со слични
+    // карактеристики?" — this turn answers it. YES serves the next PAIR on the
+    // GONE property's own profile (rooms, area, a price band around its price);
+    // the normal presentation ladder then carries the rest of the pairs until
+    // the client chooses or changes criteria/neighborhood. The offer is
+    // one-shot: ANY answer consumes it, so a stale "yes" can never fire later.
+    const goneEb = session.slots.goneAlternativesEb;
+    if (goneEb !== undefined) {
+      session.slots.goneAlternativesEb = undefined;
+      const goneYes = detectAgreement(text) || detectSuggestAlternatives(text)
+        || detectSeeOffers(text) || detectMoreOptions(text);
+      const goneNo = detectSoftRefusal(text) || detectBye(text) || detectNegatedAgreement(text);
+      if (goneYes && !goneNo) {
+        const goneProp = await this.deps.properties.getByEb(goneEb).catch(() => undefined);
+        if (goneProp) {
+          // LOCK TO THE GONE PROPERTY'S PROFILE. Rooms and area come from the
+          // row itself; the budget is a band around ITS price (+15 %) rather
+          // than the earlier search ceiling — a client who was looking at
+          // 92.000 is shown the 85–106k cohort, closest first (candidates()
+          // orders by distance to the budget).
+          session.slots.service = goneProp.service ?? session.slots.service;
+          session.slots.location = goneProp.location ?? session.slots.location;
+          session.slots.bedrooms = goneProp.bedrooms;
+          session.slots.bedroomsMin = undefined;
+          session.slots.bedroomsMax = undefined;
+          session.slots.bedroomsAlt = undefined;
+          session.slots.garsonjera = goneProp.studio ? true : undefined;
+          session.slots.business = goneProp.business ? true : undefined;
+          session.slots.house = goneProp.house ? true : undefined;
+          session.slots.plac = goneProp.plac ? true : undefined;
+          session.slots.yard = undefined;
+          session.slots.budget = goneProp.price === undefined
+            ? undefined
+            : `до ${Math.round(goneProp.price * 1.15)} евра`;
+          // Fresh pair ladder for these criteria (the old one belonged to the
+          // previous search and would serve unrelated rows).
+          session.slots.ladderKey = undefined;
+          session.slots.ladderQueue = [];
+          session.slots.alternativesExhausted = false;
+          session.slots.areaExhausted = false;
+          session.state = 'presentation';
+          const similar = await this.loadProps(session, false, false);
+          let answer: string;
+          if (similar.length > 0) {
+            // Cards without the bank opener/closer: this turn has its OWN intro
+            // and its OWN "more options?" closer. buildPropertyCards would add
+            // a second closer ("…дали да организираме посета?") and the client
+            // would read two different questions in one reply.
+            answer = 'Секако. Еве ги сличните недвижности што ги имам:\n\n'
+              + similar.map(p => buildPropertyCard(p)).join('\n\n')
+              + '\n\nДали некој од овие Ви одговара? Ако не, веднаш ќе Ви покажам уште опции.';
+          } else {
+            // Nothing in the band: offer the widen NOW (areaExhausted arms the
+            // existing pivot) instead of leaving the client without an answer.
+            session.slots.areaExhausted = true;
+            const loc = session.slots.location ? ` во ${session.slots.location}` : '';
+            answer = `За жал, во моментов немам друга слична недвижност${loc}. Дали да погледнеме во друга населба?`;
+          }
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer);
+          return;
+        }
+      }
+      // NO (or a new search / criteria change): fall through to the normal
+      // lanes — the funnel continues, the offer is already consumed.
     }
 
     // WHERE-THE-LANDMARK-IS — the [12:48] push-back ("KADE TI E TOA 26 JULI
@@ -1564,8 +1716,15 @@ export class InboundHandler {
         // 250 евра") instead of the published tier rule. Commission traffic
         // belongs to provision.ask / provision.who below.
         && !detectProvisionAsk(text) && !detectProvisionWho(text)
+        // A COLD ask that NAMES its EB is still an info ask: the [00:00]
+        // transcript "ZDRAVO DALI KUKJATA 55 IMA DVORCE?" was turned into the
+        // discovery/service question because no property was on the table yet,
+        // although the message itself carried the number. The mention layer
+        // binds the named EB (bindMention reads EBs out of the text), so the
+        // gate accepts that case too.
         && (session.slots.propertyId || session.slots.interestedPropertyId
-          || session.slots.presentedIds?.length)) {
+          || session.slots.presentedIds?.length
+          || inferPropertyId(text) !== undefined)) {
         const mbInfo = await this.bindMention(text, session, { historyFallback: true });
         if (await this.sendIfClarify(mbInfo, text, session)) return;
         // No binding signal in the message ("kolku e ?") → the legacy slot
@@ -1652,6 +1811,7 @@ export class InboundHandler {
           session.slots.nearbyLandmarkPlaceIds = undefined;
           session.slots.nearbyLandmarkEb = undefined;
           session.slots.landmarkIndex = 0;
+          session.slots.lastLandmark = undefined;
           session.slots.addressProtocolIndex = 0;
           session.slots.exactLocationTurns = 0;
         }
@@ -1775,12 +1935,22 @@ export class InboundHandler {
     // ask leaked into the property-options thread (the 21:00 transcript bug).
     // Genuine search/availability/price intents own their words regardless
     // of context and are excluded.
-    if (!skipInterceptors
+    const lastLineNearby = assistantTexts(session).slice(-1)[0] ?? '';
+    // A "more?" right after a reply that NAMED a landmark IS the rotation, even
+    // when it looks like a genuine question: "I STO DRUGO?" (the [13:31]
+    // capture) has the landmark just named as its referent, but isGenuineQuestion
+    // set skipInterceptors and the ask fell through to the classifier — which
+    // answered with the discovery greeting ("Добредојдовте… купување или
+    // изнајмување?") while L3 was still owed. After ANY other nearby reply
+    // (privacy protocol / exhausted line) the old rule stands, so a real
+    // availability/search question still reaches the classifier.
+    const lastNamedLandmark = /во\s+бли[зж]ин/iu.test(lastLineNearby);
+    if ((!skipInterceptors || lastNamedLandmark)
       && mentionsMore(text)
       && !hasProximityAnchor(text)
       && !detectWidenIntent(text) && !detectExplicitWiden(text)
       && !detectAvailabilityAsk(text) && !detectPriceAsk(text)
-      && lastReplyWasNearby(assistantTexts(session).slice(-1)[0] ?? '')) {
+      && lastReplyWasNearby(lastLineNearby)) {
       routeLog(chatId, text, 'NEARBY_THREAD');
       // EB-anchored asks resolve the NAMED property (same rule as NEARBY_ASK);
       // descriptor mentions bind too ("za garsonjerata kaj ambasadata") — the
@@ -1940,6 +2110,7 @@ export class InboundHandler {
           session.slots.nearbyLandmarkPlaceIds = undefined;
           session.slots.nearbyLandmarkEb = undefined;
           session.slots.landmarkIndex = 0;
+          session.slots.lastLandmark = undefined;
           session.slots.addressProtocolIndex = 0;
           session.slots.exactLocationTurns = 0;
         }
@@ -3725,6 +3896,7 @@ ${contactReminder}`;
         session.slots.nearbyLandmarkPlaceIds = undefined;
         session.slots.nearbyLandmarkEb = undefined;
         session.slots.landmarkIndex = 0;
+        session.slots.lastLandmark = undefined;
         session.slots.addressProtocolIndex = 0;
         session.slots.exactLocationTurns = 0;
         session.slots.feeRejections = undefined;
@@ -4232,6 +4404,7 @@ ${contactReminder}`;
             session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
             session.slots.nearbyLandmarkEb = props[0].eb;
             session.slots.landmarkIndex = 0;
+            session.slots.lastLandmark = undefined;
           }
         }
         reply = pickVariant('property.liked', { recent: assistantTexts(session) })
@@ -4250,6 +4423,7 @@ ${contactReminder}`;
           session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
           session.slots.nearbyLandmarkEb = props[0].eb;
           session.slots.landmarkIndex = 0;
+          session.slots.lastLandmark = undefined;
         }
       }
     } else if (next === 'property_query' && props.length === 0) {
@@ -4390,6 +4564,7 @@ ${contactReminder}`;
             session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
             session.slots.nearbyLandmarkEb = target.eb;
             session.slots.landmarkIndex = 0;
+            session.slots.lastLandmark = undefined;
           }
         }
         const ack = pickVariant('availability.ack', { recent: assistantTexts(session) })
@@ -4743,24 +4918,39 @@ ${contactReminder}`;
 
   private async runOwnerCheck(session: ChatSession, eb: number, proposedTime: string): Promise<void> {
     try {
+      // normalizeOwnerTime (the [14:22] transcript): the owner never reads
+      // client shorthand — the raw term ("VO PONEDELNIK MOZAM 6 SAAT") is
+      // resolved to the concrete date and rewritten canonically
+      // ("Понеделник, 28.09.2026 во 18:00") before the ask is composed.
+      const askTime = normalizeOwnerTime(proposedTime);
+      // SECOND OWNER TURN (the [00:23] capture): when the owner was already
+      // asked and the client now proposes a DIFFERENT term, repeating the
+      // first-time intro ("Здраво… Дали е сè уште достапна?") re-asks what is
+      // already known. The follow-up states which term the client cannot do
+      // and the new proposal, and asks only for the owner's verdict.
+      // Recorded BEFORE the first await: this method is fire-and-forget, so the
+      // caller persists the session as soon as its own turn ends — a flag set
+      // after an await would never reach the DB and the next inbound would
+      // load a session that "never asked the owner".
+      const priorAsk = session.slots.ownerAskTime;
+      const isFollowup = !!priorAsk && !!askTime && priorAsk !== askTime;
+      session.slots.ownerAskTime = askTime;
+      this.deps.sessions.set(session);
       // The ping-pong starts HERE: Lina asks the owner whether the property is
       // available right now and whether he accepts the client's proposed time.
       // The answer (ok/counter/gone) is relayed to the client; a counter loops
       // back until the visit date+time are arranged.
       const ownerProp = eb ? await this.deps.properties.getById(eb) : undefined;
       const ownerLabels = ownerProp ? ownerPropertyLabels(ownerProp) : undefined;
-      // normalizeOwnerTime (the [14:22] transcript): the owner never reads
-      // client shorthand — the raw term ("VO PONEDELNIK MOZAM 6 SAAT") is
-      // resolved to the concrete date and rewritten canonically
-      // ("Понеделник, 28.09.2026 во 18:00") before the ask is composed.
-      const askTime = normalizeOwnerTime(proposedTime);
       // Bank-served for the GENERIC form (no property-type agreement — the
       // typed form stays code-built for its gender agreement): the owner ask
       // now varies too, with the code-built line as the always-there fallback.
-      const ownerAskText = ownerLabels
-        ? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen })
-        : pickVariant('owner.ask', { recent: assistantTexts(session), vars: { eb: String(eb), time: askTime } })
-          ?? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime });
+      const ownerAskText = isFollowup
+        ? buildOwnerFollowupAsk(mkTimePhrase(priorAsk), mkTimePhrase(askTime))
+        : ownerLabels
+          ? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen, relative: ownerLabels.relative, entered: ownerLabels.entered })
+          : pickVariant('owner.ask', { recent: assistantTexts(session), vars: { eb: String(eb), time: askTime } })
+            ?? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime });
       // OWNER-ASK INTAKE (judge layer 1): the owner ask logs the CLIENT's raw
       // proposed term — a question forwarded as a term (20:26 "VO NEDELA
       // RABOTITE ?") is detectable only against the raw words, not the relay.
@@ -4853,9 +5043,13 @@ ${contactReminder}`;
       // re-asks the owner with the completed term.
       if (verdict.canAcceptWholeDay) {
         session.state = 'visit_scheduling';
-        this.logOwnerExchange(session, eb, verdict, pickVariant('owner.wholeDayRelay', { recent: assistantTexts(session), vars: { day: mkTimePhrase(verdict.ownerTime ?? '') } }) ?? '');
-        const dayRelay = pickVariant('owner.wholeDayRelay', { recent: assistantTexts(session), vars: { day: mkTimePhrase(verdict.ownerTime ?? '') } })
-          ?? `Сопственикот не може во предложениот термин, но го нуди ${mkTimePhrase(verdict.ownerTime ?? '')} во целост — било кое време му одговара. Во колку часот би сакале да дојдете?`;
+        // Same refused-term → proposal shape as every other counter relay
+        // (the [00:23] contract), with the clock still open on the owner's day.
+        const dayRelay = buildOwnerWholeDayRelay(
+          normalizeOwnerTime(session.slots.visitTime ?? ''),
+          mkTimePhrase(verdict.ownerTime ?? ''),
+        );
+        this.logOwnerExchange(session, eb, verdict, dayRelay);
         pushHistory(session, { role: 'assistant', text: dayRelay }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, dayRelay);
@@ -4874,9 +5068,11 @@ ${contactReminder}`;
       session.state = 'time_confirm';
       session.slots.ownerTime = verdict.ownerTime;
       const counterTime = mkTimePhrase(verdict.ownerTime ?? '');
-      // Bank-served counter relay ({time} = the owner's term, canonicalized —
-      // the judge's dropped-alternative assertion requires the term in text).
-      const reply = `${priceRelay ? `${priceRelay} ` : ''}${pickVariant('owner.relay:counter', { recent: assistantTexts(session), vars: { time: counterTime } }) ?? OWNER_COUNTER_RELAY(counterTime)}`;
+      // Fixed counter relay (the [00:23] contract): name the term the owner
+      // cannot do AND the proposed alternative in one sentence, then ask the
+      // client to accept it. Code-built so both terms are always present (a
+      // vague "предложи поинаков термин" dropped the refused term).
+      const reply = `${priceRelay ? `${priceRelay} ` : ''}${buildOwnerCounterRelay(normalizeOwnerTime(session.slots.visitTime ?? ''), counterTime)}`;
       this.logOwnerExchange(session, eb, verdict, reply);
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
@@ -4887,8 +5083,26 @@ ${contactReminder}`;
     // gone (sold / rented / under option)
     session.state = 'presentation';
     session.slots.soldEb = eb; // exclude from alternatives
-    const note = verdict.note ? `е ${verdict.note}` : 'веќе не е достапен';
-    const reply = pickVariant('owner.relay:gone', { recent: assistantTexts(session), vars: { eb: String(eb), note } }) ?? OWNER_GONE_REPLY(eb, note);
+    // The property is "недвижност" (feminine): the predicate must agree with
+    // it, whatever form the owner's note arrived in (the [12:08] capture said
+    // "недвижноста ... е продаден", and the full-sentence note produced
+    // "е недвижноста е продадена"). Canonicalise, never interpolate the raw
+    // note into an "е …" slot.
+    const note = gonePredicate(verdict.note);
+    // SOLD is good news for the OWNER: congratulate him BEFORE the client hears
+    // the bad news. Only a reported SALE earns this — a rental or an
+    // under-option status is not a milestone the owner announced, and inventing
+    // one would congratulate him for something he never said.
+    if (/продад/.test((verdict.note ?? '').toLowerCase())) {
+      this.onOwnerMessage?.(chatId, eb, 'Ви честитам на продажбата. Се најдобро.');
+    }
+    // The offer must be a QUESTION. The bank family (owner.relay:gone) is eight
+    // STATEMENT variants that end with "…што одговара на Вашите критериуми." —
+    // the client had no cue to answer and the funnel died on a sold property.
+    // Code-built (same precedent as the counter relays) so the ask is always
+    // there; the answer is consumed by the GONE-ALTERNATIVES lane in handle().
+    const reply = `За жал, недвижноста со Евидентен број ${eb} ${note}. Дали би сакале да Ви понудам нешто друго со слични карактеристики?`;
+    session.slots.goneAlternativesEb = eb;
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
     await this.sendRaw(session, reply);

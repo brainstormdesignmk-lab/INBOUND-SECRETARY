@@ -1011,7 +1011,11 @@ test('owner_checking: the client rejects the proposed time -> new time collected
   assert.equal(s.state, 'owner_checking');
   assert.equal(ownerAsks.length, 2);
   assert.ok(ownerAsks[1].includes('19:00'), ownerAsks[1]);
-  assert.ok(!ownerAsks[1].includes('18:00'), ownerAsks[1]);
+  // SECOND OWNER TURN (the [00:23] contract): the re-ask names BOTH the term
+  // the client cannot do and the new proposal — it is no longer a repeat of
+  // the first-time intro and no longer drops the refused term.
+  assert.match(ownerAsks[1], /^\d+: Клиентот не е во можност за посета во .*18:00.*Има друг предлог: .*19:00.*\?$/u, ownerAsks[1]);
+  assert.ok(!/Дали е сè уште достапна|Ве контактирам во врска/u.test(ownerAsks[1]), ownerAsks[1]);
 });
 
 test('visit time survives an LLM misread: "MOZAM UTRE POSLE 18:00" as DETAILS_PROVIDED still starts the owner ping-pong', async () => {
@@ -1220,7 +1224,11 @@ test('owner BARE refusal (no alternative time): no fabricated "по догово
   assert.equal(s.state, 'owner_checking');
   assert.equal(ownerAsks.length, 2);
   assert.ok(ownerAsks[1].includes('19:00'), ownerAsks[1]);
-  assert.ok(!ownerAsks[1].includes('18:00'), ownerAsks[1]);
+  // SECOND OWNER TURN (the [00:23] contract): the re-ask names BOTH the term
+  // the client cannot do and the new proposal — it is no longer a repeat of
+  // the first-time intro and no longer drops the refused term.
+  assert.match(ownerAsks[1], /^\d+: Клиентот не е во можност за посета во .*18:00.*Има друг предлог: .*19:00.*\?$/u, ownerAsks[1]);
+  assert.ok(!/Дали е сè уште достапна|Ве контактирам во врска/u.test(ownerAsks[1]), ownerAsks[1]);
 });
 
 test('TUI /owner counter WITHOUT a time = bare refusal: same honest path, never "по договор"', async () => {
@@ -1531,8 +1539,10 @@ test('discovery asks are ALWAYS plain (no recap, no flourish); the contact ask c
   await send('DALI E SEUSTE DOSTAPEN ?');
   await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
-  // the FIRST contact ask carries the last-info prefix ONCE
-  assert.ok(sent[7].includes('Одлично, уште последниве информации и завршуваме.'), sent[7]);
+  // the FIRST contact ask opens with a plain „Одлично.“ ONCE — never the old
+  // „уште последниве информации и завршуваме“ (the funnel is not ending there)
+  assert.ok(sent[7].startsWith('Одлично.'), sent[7]);
+  assert.ok(!sent[7].includes('последниве информации'), sent[7]);
   assert.ok(sent[7].includes('име и презиме'), sent[7]);
   assert.ok(/телефон/.test(sent[7]), sent[7]);
 
@@ -1540,7 +1550,8 @@ test('discovery asks are ALWAYS plain (no recap, no flourish); the contact ask c
   s = await send('NE ZNAM');
   assert.equal(s.state, 'contact_collection');
   assert.ok(sent[8].includes('име и презиме'), sent[8]);
-  assert.ok(!sent[8].includes('Одлично, уште последниве информации и завршуваме.'), sent[8]);
+  assert.ok(!sent[8].includes('Одлично.'), sent[8]);
+  assert.ok(!sent[8].includes('последниве информации'), sent[8]);
 });
 
 test('rent EB without declared intent: the fee is the RENT script (300 денари), never the buy 500 — the property service is pinned', async () => {

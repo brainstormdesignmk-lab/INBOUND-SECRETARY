@@ -8,14 +8,16 @@ import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasCl
 export const BUY_FEE_MKD = '500 MKD';
 export const RENT_FEE_MKD = '300 MKD';
 
-// The two question-prefix flourishes are CODE-BUILT at their single natural
-// spot each — "once per funnel", the way a person actually speaks. The LLM
-// used to repeat them on EVERY question in the collecting phase, which reads
-// robotic. FIRST_QUESTIONS_PREFIX opens the first criteria question;
-// LAST_INFO_PREFIX opens the first contact ask (name/phone). Retries and all
-// later questions stay plain.
+// The question-prefix flourishes are CODE-BUILT at their single natural spot
+// each — "once per funnel", the way a person actually speaks. The LLM used to
+// repeat them on EVERY question in the collecting phase, which reads robotic.
+// FIRST_QUESTIONS_PREFIX opens the first criteria question; the first contact
+// ask opens with a plain „Одлично.“ — the old „уште последниве информации и
+// завршуваме“ announced an END that was not there (the client still has the
+// owner contact + the visit ahead), and the team asked for it gone.
+// Retries and all later questions stay plain.
 export const FIRST_QUESTIONS_PREFIX = 'Супер. Уште неколку прашања.';
-export const LAST_INFO_PREFIX = 'Одлично, уште последниве информации и завршуваме.';
+export const LAST_INFO_PREFIX = 'Одлично.';
 
 // --- Visit sub-funnel: exact phrases (code-built, never LLM-invented) --------
 export const VISIT_TIME_QUESTION =
@@ -285,6 +287,10 @@ export interface OwnerAskProps {
   possessive?: string;
   /** Adjective form for 'достапен': 'достапен' (masc), 'достапна' (fem), 'достапно' (neut). */
   dostapen?: string;
+  /** Relative pronoun matching gender: 'кој' (masc), 'која' (fem), 'кое' (neut). */
+  relative?: string;
+  /** Participle for 'внесен во системот': 'внесен' (masc), 'внесена' (fem). */
+  entered?: string;
 }
 
 /**
@@ -309,10 +315,39 @@ export function buildOwnerAsk(eb: number, proposedTime: string, opts?: OwnerAskP
   const ptd = opts?.propertyTypeDef;
   const pos = opts?.possessive ?? 'Вашиот';
   const dost = opts?.dostapen ?? 'достапен';
+  const rel = opts?.relative ?? 'кој';
+  const entered = opts?.entered ?? 'внесен';
   if (pt && ptd) {
-    return `Здраво. Ве контактирам во врска со пројавен интерес од сериозен клиент за ${pos} ${pt} кој во нашиот систем е внесен со број ${eb}. Дали ${ptd} е сè уште ${dost} во моментов? Клиентот сака посета: ${proposedTime}. Дали се согласувате на овој термин, или имате друг предлог?`;
+    return `Здраво. Ве контактирам во врска со пројавен интерес од сериозен клиент за ${pos} ${pt} ${rel} во нашиот систем е ${entered} со број ${eb}. Дали ${ptd} е сè уште ${dost} во моментов? Клиентот сака посета: ${proposedTime}. Дали се согласувате на овој термин, или имате друг предлог?`;
   }
   return `Здраво. Ве контактирам во врска со пројавен интерес од сериозен клиент за недвижност која во нашиот систем е внесена со број ${eb}. Дали е сè уште достапна во моментов? Клиентот сака посета: ${proposedTime}. Дали се согласувате на овој термин, или имате друг предлог?`;
+}
+
+/**
+ * SECOND/THIRD owner turn (the [00:23] capture). Once the owner has already
+ * been asked about this visit, a new client proposal must NOT repeat the full
+ * first-time intro ("Здраво. Ве контактирам во врска со пројавен интерес…
+ * Дали е сè уште достапна?"). It is one fact and one question: which term the
+ * client cannot do, and the term the client now proposes.
+ */
+export function buildOwnerFollowupAsk(refusedTime: string, newTime: string): string {
+  return `Клиентот не е во можност за посета во ${refusedTime}. Има друг предлог: ${newTime}. Дали би Ви одговарал тој термин?`;
+}
+
+/**
+ * CLIENT-facing counter relay — the mirror of buildOwnerFollowupAsk. When the
+ * owner cannot do the client's term but proposes another, the relay names the
+ * refused term and the owner's proposal in one sentence and asks whether it
+ * suits the client.
+ */
+export function buildOwnerCounterRelay(refusedTime: string, newTime: string): string {
+  return `Сопственикот не е во можност за посета во ${refusedTime}. Има друг предлог: ${newTime}. Дали би Ви одговарал тој термин?`;
+}
+
+/** Whole-day counter relay: the owner offered a DAY with open hours — the
+ *  client still has to pick the clock, so the close asks for it. */
+export function buildOwnerWholeDayRelay(refusedTime: string, day: string): string {
+  return `Сопственикот не е во можност за посета во ${refusedTime}. Има друг предлог: ${day} — било кое време му одговара. Во колку часот би сакале да дојдете?`;
 }
 
 export function buildOwnerAskAgain(eb: number, opts?: OwnerAskProps): string {
@@ -1109,16 +1144,21 @@ function propertyType(p: Property): string {
   return 'стан';
 }
 
-/** Property type labels for owner messages (indefinite + definite article + gender). */
-export function ownerPropertyLabels(p: Property): { type: string; def: string; possessive: string; dostapen: string } {
-  if (p.plac) return { type: 'плац', def: 'плацот', possessive: 'Вашиот', dostapen: 'достапен' };
-  if (p.house) return { type: 'куќа', def: 'куќата', possessive: 'Вашиот', dostapen: 'достапна' };
-  if (p.business) return { type: 'деловен простор', def: 'деловниот простор', possessive: 'Вашиот', dostapen: 'достапен' };
+/** Property type labels for owner messages (indefinite + definite article + gender).
+ *  Every gendered slot travels together: a ЖЕНСКИ noun (куќа, гарсоњера) takes
+ *  Вашата / која / внесена / достапна — the [20:14] owner ping said "за Вашиот
+ *  куќа … кој … е внесен". */
+export function ownerPropertyLabels(p: Property): {
+  type: string; def: string; possessive: string; dostapen: string; relative: string; entered: string;
+} {
+  if (p.plac) return { type: 'плац', def: 'плацот', possessive: 'Вашиот', dostapen: 'достапен', relative: 'кој', entered: 'внесен' };
+  if (p.house) return { type: 'куќа', def: 'куќата', possessive: 'Вашата', dostapen: 'достапна', relative: 'која', entered: 'внесена' };
+  if (p.business) return { type: 'деловен простор', def: 'деловниот простор', possessive: 'Вашиот', dostapen: 'достапен', relative: 'кој', entered: 'внесен' };
   // (the feed's plac flag owns the category now — see isPlac in properties.ts)
   // Default: стан (apartment) with specific type
   const label = propertyType(p);
-  if (label.includes('гарсоњер')) return { type: label, def: 'гарсоњерата', possessive: 'Вашата', dostapen: 'достапна' };
-  return { type: label, def: 'станот', possessive: 'Вашиот', dostapen: 'достапен' };
+  if (label.includes('гарсоњер')) return { type: label, def: 'гарсоњерата', possessive: 'Вашата', dostapen: 'достапна', relative: 'која', entered: 'внесена' };
+  return { type: label, def: 'станот', possessive: 'Вашиот', dostapen: 'достапен', relative: 'кој', entered: 'внесен' };
 }
 
 /** Macedonian list join: "а, б и в" (no Oxford comma). */

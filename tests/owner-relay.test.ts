@@ -167,6 +167,50 @@ test('mkTimePhrase canonicalizes owner day misspellings in both scripts', () => 
   assert.equal(mkTimePhrase('Friday 18:00'), 'Петок 18:00'); // English-day path intact
 });
 
+// ── The [00:23] capture: the owner refused Thursday and proposed "PETOK 18/?"
+// (bare hour, no preposition, trailing "/?" typo). The old parser read the
+// refused day as a whole-day offer ("за Четврток му одговара било кој час"). ──
+test('[00:23] "NE MOZAM VO CETVRTOK . ZAFATEN SUM CEL DEN . PETOK 18/?" is Friday 18:00', () => {
+  for (const text of [
+    'NE MOZAM VO CETVRTOK . ZAFATEN SUM CEL DEN . PETOK 18/?',
+    'NE MOZAM VO CETVRTOK . ZAFATEN SUM CEL DEN . PETOK 18',
+  ]) {
+    const v = detectOwnerVerdict(text, 'Четврток, 22.10.2026 во 17:30')!;
+    assert.equal(v.status, 'counter', text);
+    assert.equal(v.canAcceptWholeDay, undefined, `the refused Thursday must not become a whole-day offer: ${JSON.stringify(v)}`);
+    assert.equal(mkTimePhrase(v.ownerTime ?? ''), 'Петок во 18:00', text);
+  }
+  // A real date ("petok 18.10") is not a clock.
+  const date = detectOwnerVerdict('ne mozam cetvrtok, petok 18.10', 'Четврток, 22.10.2026 во 17:30')!;
+  assert.ok(!/18:00/.test(date.ownerTime ?? ''), `date must not read as a clock: ${JSON.stringify(date)}`);
+});
+
+test('counter relay names the refused term AND the owner proposal', async () => {
+  const { handler, sessions, sent, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  handler.ownerAnswer('relay', 78, { status: 'counter', ownerTime: 'Петок во 18:00' });
+  await new Promise(r => setTimeout(r, 50));
+  assert.equal(sessions.get('relay')!.state, 'time_confirm');
+  const relay = sent[sent.length - 1];
+  assert.match(relay, /^Сопственикот не е во можност за посета во .+\. Има друг предлог: Петок во 18:00\. Дали би Ви одговарал тој термин\?$/u, relay);
+});
+
+test('second owner turn: a changed client term sends the one-line proposal, not the first-time intro', async () => {
+  const { handler, sessions, send } = await makeHandler();
+  const asks: string[] = [];
+  handler.onOwnerAsk = (_c, _eb, q) => asks.push(q);
+  await reachOwnerChecking(send);
+  assert.equal(asks.length, 1, `first owner ask expected: ${JSON.stringify(asks)}`);
+  assert.match(asks[0], /Дали .*сè уште достап/u, `first ask is the full availability intro: ${asks[0]}`);
+
+  // Client proposes a DIFFERENT term while the owner check is in flight.
+  const s = await send('VO SABOTA VO 12:00');
+  assert.equal(s.state, 'owner_checking');
+  assert.equal(asks.length, 2, `a second owner ask must go out: ${JSON.stringify(asks)}`);
+  assert.match(asks[1], /^Клиентот не е во можност за посета во .+\..*Има друг предлог: .*Сабота.*12:00.*Дали би Ви одговарал тој термин\?$/u, asks[1]);
+  assert.ok(!/Дали е сè уште достапна|Ве контактирам во врска/u.test(asks[1]), `the first-time intro must not repeat: ${asks[1]}`);
+});
+
 test('fixed counter with clock still relays a precise term (regression guard)', async () => {
   const { handler, sessions, sent, send } = await makeHandler();
   await reachOwnerChecking(send);

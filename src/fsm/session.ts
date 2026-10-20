@@ -44,6 +44,10 @@ export interface SlotData {
   // v2 — visit sub-funnel
   visitTime?: string;           // client's proposed time (free text)
   ownerTime?: string;           // owner's counter-proposal (from OwnerAgent)
+  /** The canonical term LAST sent to the owner. A later, different client
+   *  proposal is a SECOND owner turn — it relays "the client can't do X,
+   *  here is Y" instead of repeating the first-time availability intro. */
+  ownerAskTime?: string;
   feeRejections?: number;       // VISIT-FEE ladder: 1..3; 3 = graceful close + customer queued
   /** RENT-COMMISSION ladder (the second money topic, see provisionLadder): its
    *  own counter so resisting the commission never burns a visit-fee rung and
@@ -61,6 +65,11 @@ export interface SlotData {
   agentName?: string;           // assigned by AgentDispatcher (code, never LLM)
   agentPhone?: string;
   soldEb?: number;              // property known to be gone — excluded from alternatives
+  /** EB the client was just told is GONE, together with the offer "shall I
+   *  show you something else with similar characteristics?". The next inbound
+   *  consumes it: an agreement serves the next matching pair (rooms, area,
+   *  price band around the gone property), anything else clears it. */
+  goneAlternativesEb?: number;
   queueAfterContact?: boolean;  // exhausted-options flow: collect contact, then queue
   ownerContactPending?: boolean; // availability ack sent — waiting for client to confirm they WANT owner contact (fee comes AFTER this)
   byeServed?: boolean;           // a farewell was already sent this session — a SECOND goodbye gets the short bye.again parting, not a repeated thank-you
@@ -86,6 +95,11 @@ export interface SlotData {
    *  "small" — the normal lane serves it). */
   pomaloSize?: boolean;
   landmarkIndex?: number;         // how many landmarks have been revealed so far
+  /** The landmark NAME last served from the rotation. A client who answers
+   *  "kade ima reptil tamu?" / "ne znam toa" is saying that anchor means
+   *  nothing to them — the ladder serves the NEXT one instead of re-explaining
+   *  the same name (or, worse, pivoting to the fee pitch). */
+  lastLandmark?: string;
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
   addressProtocolEb?: number;     // WHICH property (Евидентен број) the protocol round count belongs to — the counter is PER PROPERTY: round 2 of EB 50 must never serve for EB 76
   lastPrice?: string;             // last price answered to the client (for "та цена" resolution)
