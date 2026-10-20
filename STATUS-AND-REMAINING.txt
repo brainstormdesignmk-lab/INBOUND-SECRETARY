@@ -1,0 +1,177 @@
+================================================================================
+SKOPJE POI MAP — STATUS LOG AND REMAINING WORK
+Generated 2026-10-03 (UTC) — all numbers below verified live this session
+================================================================================
+
+PURPOSE
+-------
+This file is the honest ledger: what was broken, what is fixed, what was
+WASTED, what guards now prevent a repeat, and the finite list of work left for
+a "complete" offline map. Read this before spending any API key.
+
+--------------------------------------------------------------------------------
+1. THE LIVE MAP, RIGHT NOW (data/skopje-pois.db)
+--------------------------------------------------------------------------------
+  Total POIs .................. 5,735   (1,145 Google + 4,590 OpenStreetMap)
+                                         (was 5,810 before the suspect-merge)
+  With review_count ...........   886
+  With rating .................   918
+  With price_level ............    77
+  With place_id (identity) .... 1,154
+  With Google types ........... 1,153
+  Rows outside bbox ...........     0   (verified clean)
+  Suspect duplicate pairs .....    27   (was 97 — see item [3] below: 75 rows
+                                         merged, 22 ambiguous pairs left for
+                                         review, 27 remain)
+  Deploy snapshot ............. data/skopje-pois.db.october
+  Rollback anchors ............ data/skopje-pois.db.pre-october,
+                                data/skopje-pois.db.pre-rerun-20261003
+
+  Test suite: 829 pass / 0 fail.  Typecheck (tsc --noEmit): clean.
+
+--------------------------------------------------------------------------------
+2. WHAT WAS BROKEN, AND WHEN IT WAS FIXED
+--------------------------------------------------------------------------------
+Two distinct bugs, both "we threw away a free field":
+
+(a) IDENTITY DROPPED — data_id / data_cid
+    SerpApi returns data_id ("0x…:0x…") + data_cid (decimal) on EVERY place,
+    in EVERY response. The ORIGINAL scraper ignored them entirely (678 rows
+    affected). This is the "embassy bug": two spellings of one place could not
+    be merged.
+    STATUS: FIXED IN AN EARLIER SESSION. Current capturePoi reads data_id and
+    falls back to data_cid -> hex pair. Verified by test. The claim "the
+    scraper ignores data_id/data_cid" is true of the OLD code, not today's.
+
+(b) PROMINENCE DROPPED — reviews / rating / price
+    The capture read the WRONG FIELD NAMES: it looked for review_count /
+    price_level, but SerpApi's local_results item carries `reviews` (number)
+    and `price` (string "$"/"$$"). Result: review_count and price_level were
+    null for EVERY place. "How well-known is this place" was captured as
+    nothing — the TC Kapištec vs Beverly Hills bug.
+    STATUS: FIXED THIS SESSION (2026-10-03) in src/geo/serpCapture.ts.
+    capturePoi now reads r.reviews ?? r.review_count and r.price ??
+    r.price_level. Pinned by 5 tests in tests/serp-capture.test.ts.
+
+(c) PHASE B2 CRASH — SQLITE_CONSTRAINT_UNIQUE: pois.place_id
+    Two OSM rows within 50m of ONE Google anchor both adopted the same unique
+    place_id -> the whole Phase B2 pass aborted. This is the crash that killed
+    the Oct-2 run half-finished.
+    STATUS: FIXED. First row adopts place_id + coords; later collisions adopt
+    coords only (coords-only counter). Verified this run: 0 healed by identity,
+    1,236 coords-only, no crash.
+
+(d) BLIND BUDGET GUARD
+    SerpApi NO LONGER sends the x-serpapi-searches-left response header. The
+    old live counter therefore never moved off its seed (250) and the budget
+    guard was blind — which is why a previous run silently drained 4 keys.
+    STATUS: FIXED. refreshBudget() reads GET https://serpapi.com/account (free,
+    authoritative) per key and sums total_searches_left; spendOne() decrements;
+    Phase B stops below 20. Verified: run logged "706 searches left" and
+    stopped correctly.
+
+(e) SPEND GUARD (NEW THIS SESSION) — the drained-keys lesson, made policy
+    Two full Phase B passes were fired WITHOUT knowing what was already
+    scanned; the second re-walked covered ground. NEW:
+      * src/geo/tileCoverage.ts — a (tile × category) scan ledger.
+      * scripts/refresh-monthly.ts --dry-run — prints the EXACT searches a
+        real run would spend, touches no key, exits.
+      * scripts/refresh-monthly.ts --limit=N — caps a real run at N searches.
+      * Phase B now seeds the ledger from existing Google POIs and scans ONLY
+        the unscanned pairs (gaps), never covered ground again.
+    Pinned by 11 tests in tests/tile-coverage.test.ts.
+
+--------------------------------------------------------------------------------
+3. THE WASTE (no spin)
+--------------------------------------------------------------------------------
+Two runs happened:
+
+  Oct 2 — the run you were waiting for. Burned ~750 searches (keys 1, 4, 5)
+          through Phase B, then CRASHED in Phase B2 on the duplicate-ID bug
+          (fixed above). It wrote 156 POIs and died. Half the run's work was
+          lost. THIS SPEND IS THE WASTE.
+
+  Oct 3 — the rerun. Started at 706 left, spent 687, got 199 new POIs, stopped
+          because budget ran dry. NOT waste: it is why review_count/rating/
+          price are now populated. But Phase B is still INCOMPLETE.
+
+ROOT CAUSE OF THE WASTE: a full pass was fired immediately after a code fix,
+without a dry run that estimates spend first. The guard above exists so this
+can never happen again.
+
+--------------------------------------------------------------------------------
+4. KEY LEDGER (probed live 2026-10-03)
+--------------------------------------------------------------------------------
+  key1  left=0    used=250  renews 2026-11-02
+  key2  left=0    used=250  renews 2026-11-02
+  key3  left=0    used=250  renews 2026-11-03
+  key4  left=0    used=250  renews 2026-10-06   <- resets to 250
+  key5  left=0    used=250  renews 2026-10-06   <- resets to 250
+  key6  left=0    used=250  renews 2026-10-06   <- resets to 250
+  key7  left=19   used=231  renews 2026-10-06   <- resets to 250
+  ------------------------------------------------------------------
+  TOTAL AVAILABLE NOW: 19 searches.  Every key is spent.
+
+  Free-plan quota does NOT roll over — unused searches are lost at renewal.
+
+--------------------------------------------------------------------------------
+5. THE COVERAGE DIFF (what Oct 6 must scan) — computed free, just now
+--------------------------------------------------------------------------------
+  Command: npx tsx scripts/refresh-monthly.ts --full --dry-run
+  Output:
+    Grid: 135 tiles × 15 categories = 2,025 pairs
+    Already scanned: 265 pairs (ledger seeded from existing Google POIs)
+    Unscanned pairs: 1,760
+    ESTIMATED SEARCHES to finish the pass: 1,760
+    Budget floor per run: 20
+
+  So the true remaining cost is 1,760 searches (not 2,025 — 265 pairs are
+  already covered by POIs we hold). That is still MORE than the ~1,000 the
+  Oct-6 reset gives. The full pass cannot finish in one day on free keys.
+
+--------------------------------------------------------------------------------
+6. WHAT IS LEFT FOR A COMPLETE MAP (finite list)
+--------------------------------------------------------------------------------
+  [1] FINISH THE OCTOBER FULL PASS — 1,760 unscanned pairs. Requires the
+      Oct-6 reset (1,000) + the Nov-2/3 reset (750). See OCT6-RUNBOOK.txt.
+  [2] TRIM THE GRID so a full pass fits one month's free budget. 135 tiles ×
+      15 cats is 3.75x the runbook's original 36-tile model. Recommended, not
+      done. Trimming is the difference between "complete in one day" and
+      "complete across two months."
+  [3] MERGE SUSPECT DUPLICATE PAIRS — DONE (2026-10-03).
+      scripts/dedupe-suspects.ts collapsed 75 genuine duplicates (5,810 ->
+      5,735 rows, 9 survivors backfilled). The rule is conservative and
+      unit-tested (tests/dedupe-suspects.test.ts): it merges same-name pairs
+      within 100m, bank-vs-its-ATM (descriptor-stripped core match), same
+      phone, and — THE MALL/COMPLEX RULE — a shop inside a mall collapses onto
+      the mall (the mall is the anchor; interior POIs are not served).
+      22 ambiguous pairs are LEFT FOR REVIEW (two same-named branches >100m
+      apart, or a name that does not derive from the container). 27 suspects
+      remain (the ambiguous set + a few of other kinds). Rollback:
+      data/skopje-pois.db.pre-suspect-merge-* .
+  [4] CAPTURE MORE FREE FIELDS (schema-first policy): place_id (ChIJ…, distinct
+      from data_id), reviews_link, photos_link, provider_id, type_ids, address,
+      open_state, hours/operating_hours, description, service_options,
+      thumbnail, extensions, images, user_reviews. All are returned in
+      responses we already pay for; none are stored yet. (plus_code IS already
+      captured — see POI_CAPTURE_COLUMNS.)
+  [5] DEPLOY data/skopje-pois.db.october TO THE T60 / atom01 (runbook Step 8):
+      stop bot, snapshot, scp, restart, verify EB 77 answers offline.
+
+  Note (design tension): Phase B2 OSM twins adopt coords but NOT place_id
+  (identity is unique), so twin rows rely on query-time name dedupe rather
+  than identity merge. Resolving this is part of item [3].
+
+--------------------------------------------------------------------------------
+7. IS THIS ENDLESS? (the honest answer)
+--------------------------------------------------------------------------------
+No — and the reason is structural. Before, every bug meant "go re-ask Google"
+because the data was discarded on arrival. Now every field the API returns is
+mapped in ONE function (capturePoi), unit-tested, and the spend is planned
+before it happens. The remaining list above is SHORT, NAMED, and mostly
+WAITING ON THE CALENDAR (key renewals), not on discovering another leak.
+
+The one real, non-code risk: 1,760 searches of remaining work does not fit a
+single month of free keys. That is a budget decision (trim the grid, or buy a
+plan), not a bug.
+================================================================================

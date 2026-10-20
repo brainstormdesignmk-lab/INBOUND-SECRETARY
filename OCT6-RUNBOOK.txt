@@ -1,0 +1,142 @@
+================================================================================
+OCT 6 RESUME RUNBOOK — finish the October Phase B pass without wasting a key
+================================================================================
+Written 2026-10-03. Run this on the workstation (NOT the T60). The T60 only
+ever receives the finished file (Step 6).
+
+DESIGN RULE FOR EVERY STEP: idempotent, and NEVER spend blind. Every real run
+is preceded by --dry-run. The tile ledger means a resumed run scans ONLY the
+gaps — covered ground is never paid for twice.
+
+--------------------------------------------------------------------------------
+STEP 0 — PRECONDITIONS (5 min, free). Abort if any fails.
+--------------------------------------------------------------------------------
+  # 0a. Confirm the keys actually reset. Expect key4..key7 back at 250 each.
+  #     (Probes SerpApi /account — free.)
+  for k in $(grep -oE '^[0-9a-f]{40,}$' GOOGLEMAPS_API_KEY.txt); do
+    curl -s "https://serpapi.com/account?api_key=$k" \
+      | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['total_searches_left'],d['plan_renewal_date'])"
+  done
+  # ABORT if the total across all keys is < 800. There is no point starting a
+  # pass you cannot finish meaningfully; wait for the Nov reset instead.
+
+  # 0b. Fresh rollback anchor (never resume without one):
+  cp data/skopje-pois.db data/skopje-pois.db.pre-oct6
+
+  # 0c. Confirm the map is clean (must print 0):
+  sqlite3 data/skopje-pois.db \
+    "SELECT COUNT(*) FROM pois WHERE lat<41.95 OR lat>42.05 OR lon<21.35 OR lon>21.5;"
+
+--------------------------------------------------------------------------------
+STEP 1 — READ THE SPEND FIRST (free). THIS STEP IS MANDATORY.
+--------------------------------------------------------------------------------
+  npx tsx scripts/refresh-monthly.ts --full --dry-run
+
+  Expected output (as of 2026-10-03):
+    Grid: 135 tiles × 15 categories = 2,025 pairs
+    Already scanned: 265 pairs
+    Unscanned pairs: 1,760
+    ESTIMATED SEARCHES to finish the pass: 1,760
+
+  DECISION GATE:
+    - If budget-on-hand >= estimated searches  -> run the WHOLE pass (Step 2a).
+    - If budget-on-hand <  estimated searches  -> run a SIZED pass (Step 2b)
+      with --limit set BELOW your budget minus the 20 floor. Never spend the
+      last key.
+
+--------------------------------------------------------------------------------
+STEP 2 — RUN PHASE B
+--------------------------------------------------------------------------------
+  # 2a. Budget covers the whole remaining pass:
+  npx tsx scripts/refresh-monthly.ts --full 2>&1 | tee data/logs/oct6-refresh.log
+
+  # 2b. Sized pass (example: 950 searches on hand -> cap at 900):
+  npx tsx scripts/refresh-monthly.ts --full --limit=900 2>&1 | tee data/logs/oct6-refresh.log
+
+  What happens, in order (all wired and verified):
+    - schema self-upgrade (adds any missing capture columns)
+    - Phase A: OSM top-up (free, Overpass) + self-prune of out-of-bbox rows
+    - Phase B: walks ONLY unscanned (tile × category) pairs, records each
+      completed search in the ledger (including zero-result searches), stops at
+      --limit or below 20 searches left
+    - Phase B2: identity propagation (coords-only fallback; cannot crash)
+    - Phase B3: teaches unresolved feed streets (no-ops if none)
+    - Phase C: queue drain   - Phase D: poison sweep
+  Pacing: 1100 ms/search. A 900-search pass is ~17-20 min.
+
+  MONITOR: tail -f data/logs/oct6-refresh.log
+  ABORT SIGNALS: a 429 storm, or repeated "SerpApi failed". Ctrl-C; the ledger
+  only records COMPLETED searches, so the next run resumes exactly where this
+  one stopped. Nothing is half-written.
+
+--------------------------------------------------------------------------------
+STEP 3 — RE-READ THE COVERAGE (free)
+--------------------------------------------------------------------------------
+  npx tsx scripts/refresh-monthly.ts --full --dry-run
+
+  The "Unscanned pairs" number must have DROPPED by roughly the number of
+  searches you just spent. If it did not drop, the ledger is not recording —
+  STOP and investigate before spending another key.
+
+--------------------------------------------------------------------------------
+STEP 4 — VERIFY (free)
+--------------------------------------------------------------------------------
+  npx tsx scripts/street-census.ts --verify     # expect 0 unknown streets
+  npx tsx scripts/suspect-pairs.ts              # expect ~97 suspect pairs
+  npm test                                      # expect 829 pass / 0 fail
+  npx tsc --noEmit                              # expect clean
+
+  Capture sanity:
+  sqlite3 data/skopje-pois.db \
+    "SELECT COUNT(*), SUM(review_count>0), SUM(rating IS NOT NULL), \
+            SUM(price_level IS NOT NULL), SUM(place_id IS NOT NULL) FROM pois;"
+  All four capture counts must be >= the pre-run values (906/939/77/1198).
+  They only ever go UP — if one went down, restore the Step 0b anchor.
+
+--------------------------------------------------------------------------------
+STEP 5 — SNAPSHOT THE RESULT
+--------------------------------------------------------------------------------
+  sqlite3 data/skopje-pois.db ".backup 'data/skopje-pois.db.oct6'"
+  # Keep the Oct-3 snapshot (skopje-pois.db.october) until the Oct-6 file is
+  # verified on the T60; then it can be retired.
+
+--------------------------------------------------------------------------------
+STEP 6 — DEPLOY TO THE T60 / atom01 (only after Steps 3-5 pass)
+--------------------------------------------------------------------------------
+  ssh -i ~/.ssh/id_ed25519_atom01 atom@192.168.1.11
+  #   appdir: /home/atom/Documents/PROJECTS/LINA
+  #   pid:    data/lina.pid      log: logs/lina-stdout.log
+
+  # On the T60 — stop the bot first (SQLite must not be copied hot):
+  kill "$(cat data/lina.pid)"
+  cp data/skopje-pois.db data/skopje-pois.db.backup-$(date +%Y%m%d)
+  # From the workstation:
+  scp data/skopje-pois.db.oct6 \
+      atom@192.168.1.11:/home/atom/Documents/PROJECTS/LINA/data/skopje-pois.db
+  # On the T60 — restart and verify OFFLINE:
+  nohup node dist/index.js >> logs/lina-stdout.log 2>&1 & echo $! > data/lina.pid
+  tail -f logs/lina-stdout.log     # confirm "map loaded"
+
+  Then ask the bot "kade tocno se naogja?" for EB 77. It must name a nearby
+  landmark from the new map with ZERO network calls.
+
+--------------------------------------------------------------------------------
+ROLLBACK
+--------------------------------------------------------------------------------
+  cp data/skopje-pois.db.pre-oct6 data/skopje-pois.db
+  On the T60: kill the bot, restore skopje-pois.db.backup-<date>, restart.
+
+--------------------------------------------------------------------------------
+BUDGET MATH FOR OCT 6
+--------------------------------------------------------------------------------
+  Available after Oct-6 reset:  key4..key7 = 4 × 250 = 1,000
+  Remaining pass cost:                          1,760
+  Shortfall:                                      760  -> needs the Nov 2/3
+                                                        reset (key1..key3 = 750).
+
+  RECOMMENDATION: on Oct 6, run a SIZED pass:
+      npx tsx scripts/refresh-monthly.ts --full --limit=900
+  That spends 900 of the 1,000, leaves 100 margin, and advances the pass.
+  Finish the remainder after the Nov reset — OR trim the grid first (see
+  STATUS-AND-REMAINING.txt item [2]) so the whole thing fits one day.
+================================================================================
