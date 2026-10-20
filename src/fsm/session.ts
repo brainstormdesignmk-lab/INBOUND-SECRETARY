@@ -110,7 +110,11 @@ export interface SlotData {
   lastLandmark?: string;
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
   addressProtocolEb?: number;     // WHICH property (Евидентен број) the protocol round count belongs to — the counter is PER PROPERTY: round 2 of EB 50 must never serve for EB 76
-  lastPrice?: string;             // last price answered to the client (for "та цена" resolution)
+  lastPrice?: string;            // last price answered to the client (for "та цена" resolution)
+  /** Generated (LLM) answers served in THIS session — the budget that stops a
+   *  chatty client buying one Gemini call per message. Cleared with the rest of
+   *  the slots on resetToIdle, so every new funnel gets a fresh allowance. */
+  generatedAnswers?: number;
 }
 
 export type HistoryMsg = { role: 'user' | 'assistant'; text: string };

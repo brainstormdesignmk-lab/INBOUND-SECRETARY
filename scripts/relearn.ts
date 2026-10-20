@@ -19,6 +19,17 @@
  *   npm run bank:relearn -- --list                              # staged candidates
  *   npm run bank:relearn -- --promote 34 35 36                  # approve staged rows
  *   npm run bank:relearn -- --reject 37                          # drop a staged row
+ *   npm run bank:relearn -- --pending                            # captures awaiting a key
+ *   npm run bank:relearn -- --bind 12 visit.interest             # verbatim, NO Gemini
+ *   npm run bank:relearn -- --digest-dynamic                     # stage answers for review
+ *
+ * --bind is the FREE half of the digest (step 3 of the loop). A dynamic row is
+ * a client phrase the deterministic layer could not name + a generated answer.
+ * The phrase→key binding is a routing fact, so a human supplies only the KEY and
+ * nothing is generated: the phrase is written into bank_examples verbatim, the
+ * dynamic row is deleted, and the next occurrence is served by the key's own
+ * seeded/learned variants. Phrases under 4 chars have no retrieval path at all
+ * (addExample's floor) — those are detector work, and --bind says so.
  */
 
 import '../src/compat/node16';
@@ -141,9 +152,48 @@ function digestDynamic(): void {
   console.log(`[digest] ${groups.length} dynamic group(s): +${examples} retrieval examples, ${staged} answer variant(s) staged for review, ${purged} purged, ${marked} serve row(s) marked`);
 }
 
+/** Captures awaiting a key: the operator's queue for --bind. */
+function listPending(): void {
+  const rows = bank.pendingDynamic();
+  if (rows.length === 0) { console.log('(no dynamic rows awaiting a binding)'); return; }
+  for (const r of rows) {
+    console.log(`  #${r.id}  [${r.state}]  "${r.msg.slice(0, 90)}${r.msg.length > 90 ? '…' : ''}"`);
+  }
+  console.log(`\nbind: npm run bank:relearn -- --bind <id> <key>   (verbatim, no model call)`);
+}
+
+/** VERBATIM promotion: id + key in, routing fact out. Never calls a model. */
+function bind(id: number, key: string): void {
+  // The key must already be servable, or the binding routes to a dead end and
+  // silently falls through — the exact failure this command exists to fix.
+  const servable = seedVariants(key).length;
+  if (servable === 0) {
+    console.error(`✗ ${key} has no seed or active variant — bind to a key that can actually answer.`);
+    console.error('  list keys with variants: npm run bank:meters');
+    process.exit(1);
+  }
+  const res = bank.bindDynamic(id, key);
+  if (!res.ok) { console.error(`✗ #${id} → ${key}: ${res.reason}`); process.exit(1); }
+  if (res.added) {
+    console.log(`✓ bound "${res.msg}" → ${key} (verbatim; dynamic row #${id} retired)`);
+  } else {
+    console.log(`• ${res.reason} — dynamic row #${id} retired anyway (the binding already exists)`);
+  }
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes('--digest-dynamic')) { digestDynamic(); return; }
   if (process.argv.includes('--list')) { list(); return; }
+  if (process.argv.includes('--pending')) { listPending(); return; }
+  if (process.argv.includes('--bind')) {
+    const rest = process.argv.slice(process.argv.indexOf('--bind') + 1).filter(a => !a.startsWith('--'));
+    if (rest.length < 2 || !/^\d+$/.test(rest[0])) {
+      console.error('usage: npm run bank:relearn -- --bind <dynamicId> <bankKey>');
+      process.exit(1);
+    }
+    bind(Number(rest[0]), rest[1]);
+    return;
+  }
   const promote = process.argv.includes('--promote');
   const reject = process.argv.includes('--reject');
   if (promote || reject) {

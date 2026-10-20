@@ -104,6 +104,13 @@ export function inProtocolState(session: ChatSession): boolean {
     || !!session.slots.viewingFeeAgreed || !!session.slots.ownerContactPending;
 }
 
+/** Per-session ceiling on GENERATED answers. The gate fires on any uncovered
+ *  question, so without a cap a client asking twenty novel questions buys
+ *  twenty Gemini calls. At the cap the turn keeps today's honest fallback
+ *  (owner-relay / classifier), which is the right answer once we have spent
+ *  the budget: the loop is a learning aid, not an infinite chat engine. */
+export const MAX_GENERATED_PER_SESSION = 3;
+
 /**
  * THE EXPLICIT MISS GATE — when may the handler try generate+store?
  *
@@ -117,6 +124,7 @@ export function inProtocolState(session: ChatSession): boolean {
 export function shouldTryDynamic(session: ChatSession, text: string): boolean {
   const t = text.trim();
   if (!t || !QUESTION_SHAPE_RE.test(t) || GREETING_ONLY.test(t)) return false;
+  if ((session.slots.generatedAnswers ?? 0) >= MAX_GENERATED_PER_SESSION) return false;
   if (inProtocolState(session) || fsmRequired(t)) return false;
   if (isFeeTraffic(t) || isFeeFrame(t) || detectProvisionAsk(t) || detectProvisionWho(t)) return false;
   if (detectPriceAsk(t) || detectAvailabilityAsk(t) || detectOwnerContact(t) || detectContactRequest(t)) return false;
@@ -188,6 +196,9 @@ export async function generateDynamic(
     if (!answer || validateDynamicAnswer(answer, userMsg).length > 0) return undefined;
     const key = dynamicSlug(session.state, userMsg);
     store.addDynamic(key, session.state, userMsg, answer);
+    // Count the call against the session budget only once it SUCCEEDED — a
+    // dirty answer or a quota error teaches us nothing and must not spend it.
+    session.slots.generatedAnswers = (session.slots.generatedAnswers ?? 0) + 1;
     return { text: answer, source: 'dynamic', key };
   } catch {
     // Quota, network, timeout — degrade to the pre-existing path silently.

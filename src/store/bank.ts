@@ -353,6 +353,49 @@ export class BankStore {
     return res.changes;
   }
 
+  /** Dynamic rows still awaiting a verbatim key binding (oldest first). */
+  pendingDynamic(limit = 50): Array<{ id: number; key: string; state: string; msg: string }> {
+    return this.db.db.prepare(
+      `SELECT id, key, state, msg FROM bank_dynamic ORDER BY id ASC LIMIT ?`
+    ).all(limit) as Array<{ id: number; key: string; state: string; msg: string }>;
+  }
+
+  /**
+   * VERBATIM PROMOTION — bind a stored client phrase to a REAL bank key.
+   *
+   * This is the free half of the loop: „this phrasing means that key" is a
+   * ROUTING fact, so it costs no model call and writes no prose. The key must
+   * come from a human (`bank:relearn --bind`) because nothing at the generation
+   * seam knows it — that the deterministic layer could not name the intent is
+   * precisely why the turn fell through in the first place.
+   *
+   * The dynamic row is DELETED on success. `retrieveDynamicExact` runs BEFORE
+   * the example match at the top of the funnel, so leaving the row would keep
+   * the generated prose winning and the binding would never take effect.
+   */
+  bindDynamic(id: number, key: string): { ok: boolean; added: boolean; reason?: string; msg?: string } {
+    const row = this.db.db.prepare(`SELECT id, msg FROM bank_dynamic WHERE id = ?`).get(id) as
+      { id: number; msg: string } | undefined;
+    if (!row) return { ok: false, added: false, reason: 'no such dynamic row' };
+    if (!key || key.startsWith('dynamic:')) {
+      return { ok: false, added: false, reason: 'target must be a deterministic bank key, not a dynamic group' };
+    }
+    if (isExcludedFromEnrichment(key)) {
+      return { ok: false, added: false, reason: 'frozen/data-driven key — its wording is seeded and its routing is detector-owned' };
+    }
+    const msg = row.msg.trim();
+    // Same floor as addExample()/retrieveExact(): a 3-letter phrase ("TWO") is
+    // a detector's job, not an example's — say so instead of silently no-op'ing.
+    if (msg.length < 4) {
+      return { ok: false, added: false, reason: `phrase is ${msg.length} chars — too short to retrieve (min 4); teach a detector instead` };
+    }
+    const added = this.addExample(key, msg);
+    this.db.db.prepare(`DELETE FROM bank_dynamic WHERE id = ?`).run(id);
+    return added
+      ? { ok: true, added: true, msg }
+      : { ok: true, added: false, reason: 'already bound to that key', msg };
+  }
+
   /** Every key that has at least one learned variant (learn.* audits, meters). */
   learnedKeys(): string[] {
     const rows = this.db.db.prepare(
