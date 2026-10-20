@@ -33,11 +33,15 @@ data/feed-corrections.md
 data/atoms/
 data/capture/
 
-# ── Per-atom secrets and logs ──
+# ── Per-atom secrets, pid files and logs ──
 .lina/
 logs/
 *.log
 nohup.out
+# The bot's pid file is RUNTIME state on the atom: without this line --delete
+# removes the running bot's pid (and the deploy plan reports a data/ change that
+# has nothing to do with code).
+data/*.pid
 
 # ── The atom's git object store is STATE, not code ──
 # Without this, the push mirrors the workstation's .git with --delete: the atom
@@ -96,6 +100,10 @@ GOOGLEMAPS_API_KEY.txt
 session-*.md
 tmp/
 node_modules/
+# Workstation TUI captures are STATE (in .gitignore, not in the atomic corpus):
+# without this the deploy pushed this workstation's conversation log onto every
+# atom, against the code-down/state-stays contract.
+data/tui-capture.jsonl
 # dist/ is BUILT on the workstation (deploy-atoms.sh runs `npm run build`
 # before the push) and MUST reach the atoms — excluding it here left every
 # atom running the image's Sep-15 dist while the workstation source moved on

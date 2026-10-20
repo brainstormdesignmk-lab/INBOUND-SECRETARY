@@ -19,7 +19,7 @@ import {
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
   detectDrugAlternative, detectInvestmentOpinion, detectWorkdaysQuestion,
-  detectFeeWhy, isDistanceQuestion,
+  detectFeeWhy, isDistanceQuestion, detectMarketPriceAsk,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -44,6 +44,8 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => !!detectWhereIs(t) },
   { intent: 'DISTANCE', note: '"KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?" ([22:25]) — how far the discussed property is from a place the client names. Sits after WHERE_IS (каде owns those), and BEFORE every funnel branch: the classifier read „STANOT“ as PROPERTY_ID_REQUESTED and answered a distance question with the property card',
     fires: t => isDistanceQuestion(t) },
+  { intent: 'MARKET_PRICE', note: '"KAKO SE DVIZAT CENIVE ZA STANOVI VO AERODROM?" ([16:57]) — the €/m² range for a CATEGORY in an AREA, answered from the feed\'s own rows. Sits after WHERE_IS/DISTANCE (which own their questions) and before every property-price branch, which would otherwise quote the single flat on the table',
+    fires: t => detectMarketPriceAsk(t) },
   { intent: 'SURROUNDINGS', note: 'which-side / relative-to-the-named-places ask ("od stranata na trgovskiot ili odkaj pazarceto") — a LOCATION question the classifier settled with the closing fee pitch ([01:29] capture). Sits after WHERE_IS, which owns the каде questions, and before every funnel branch',
     fires: t => !!detectSurroundingsAsk(t) },
   { intent: 'PROPERTY_DESCRIPTION', note: '"гарсоњерата кај амбасадата" — remembered-property flow before FSM discovery swallows it',

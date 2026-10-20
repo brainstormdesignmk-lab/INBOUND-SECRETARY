@@ -72,6 +72,12 @@ test('isDistanceQuestion: the [22:25] line and its spellings fire', () => {
     'КОЛКУ Е ДАЛЕКУ ДО БУЊАКОВЕЦ ТРГОВСКИ',
     'kolku minuti peske do centar',
     'dalecina do centar?',
+    // [16:11] — the client asks with the NOUN for distance and the landmark
+    // after „od“. Both spellings (his Latin typing, her Cyrillic register).
+    'NA KOLKAVO RASTOJANIE E STANOT OD LJUBEN LAPE ?',
+    'na kolkavo rastojanie e stanot od ljuben lape',
+    'КОЛКУ Е ДАЛЕКУ СТАНОТ ОД ЉУБЕН ЛАПЕ?',
+    'НА КОЛКАВО РАСТОЈАНИЕ Е СТАНОТ ОД ЉУБЕН ЛАПЕ?',
   ]) {
     assert.ok(isDistanceQuestion(text), `must fire: ${text}`);
   }
@@ -96,13 +102,44 @@ test('extractDistancePlace: the place after do/до, in the client\'s own script
   assert.equal(extractDistancePlace('kolku e daleku do centar li e'), 'centar');
 });
 
+test('extractDistancePlace: the FROM-form ([16:11]) reads the landmark after од', () => {
+  // The client asks about the property's distance FROM a place he can name.
+  assert.equal(extractDistancePlace('NA KOLKAVO RASTOJANIE E STANOT OD LJUBEN LAPE ?'), 'LJUBEN LAPE');
+  assert.equal(extractDistancePlace('КОЛКУ Е ДАЛЕКУ СТАНОТ ОД ЉУБЕН ЛАПЕ?'), 'ЉУБЕН ЛАПЕ');
+  assert.equal(extractDistancePlace('kolku e oddalecen od parkot?'), 'parkot');
+  // The destination still wins when both ends are named (returned as the
+  // client typed it — the geo layer bridges the script, not this extractor).
+  assert.equal(extractDistancePlace('kolku ima od stanot do bunjakovec trgovski'), 'bunjakovec trgovski');
+  // A property noun after „od“ is the SUBJECT, never a place: nothing to
+  // measure, so the lane must fall through instead of inventing one.
+  assert.equal(extractDistancePlace('KOLKU E DALEKU OD STANOT?'), undefined);
+  assert.equal(extractDistancePlace('kolku e daleku od kukjata'), undefined);
+  // A quantity is a cap, not a place.
+  assert.equal(extractDistancePlace('kolku e daleku od 250 evra'), undefined);
+});
+
+test('the router mirror predicts DISTANCE for the [16:11] line', () => {
+  assert.equal(resolveIntent('NA KOLKAVO RASTOJANIE E STANOT OD LJUBEN LAPE ?', 'property_locate'), 'DISTANCE');
+});
+
 test('the router mirror predicts DISTANCE for the capture line', () => {
   assert.equal(resolveIntent('KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?', 'idle'), 'DISTANCE');
 });
 
 // ── 2. THE ANSWER, THROUGH THE REAL HANDLER ─────────────────────────────────
 
-async function makeHandler(): Promise<{ handler: InboundHandler; sessions: SessionStore; sent: string[] }> {
+/** The REAL EB 61 feed row (public-properties, fetched 2026-10-20): Стан
+ *  4-собен, Издава 380 €, Аеродром, Јане Сандански 36 — the row behind the
+ *  [16:08–16:11] transcript. Its stored point is osm_low_confidence; the map
+ *  resolves the actual building (#36, 41.9860029/21.4614652, 3 m away). */
+const EB61: Property = {
+  eb: 61, id: 61, uuid: 'eb61-capture',
+  address: 'ЈАНЕ САНДАНСКИ 36', location: 'Аеродром',
+  lat: 41.986, lon: 21.4615, geo_source: 'osm_low_confidence',
+  service: 'rent', price: 380,
+} as Property;
+
+async function makeHandler(row: Property = ROW): Promise<{ handler: InboundHandler; sessions: SessionStore; sent: string[] }> {
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
   const sent: string[] = [];
@@ -110,9 +147,9 @@ async function makeHandler(): Promise<{ handler: InboundHandler; sessions: Sessi
   channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
   const handler = new InboundHandler({
     cfg, db, sessions,
-    classifier: new Classifier(new FailingLlm(), cfg, new OneProp(ROW)),
+    classifier: new Classifier(new FailingLlm(), cfg, new OneProp(row)),
     responder: new Responder(new FailingLlm(), cfg),
-    properties: new OneProp(ROW),
+    properties: new OneProp(row),
     appointments: new AppointmentStore(db),
     escalations: new EscalationStore(db),
     meta: new MetaStore(db),
@@ -138,9 +175,12 @@ test('[22:25] the distance question is answered with the measured distance to th
   // language bridged — no such string exists in the POI table).
   assert.match(answer, /Shopping Center Bunjakovec|Трговски Центар Буњаковец/,
     `the answer names the place the client asked about: ${answer}`);
-  // THE NUMBER: EB 70's own pin (41.9993,21.4213) to the mall — 133 m, so a
-  // three-digit metre figure. Measured, never invented.
-  assert.match(answer, /на 1[0-9]0 метри/, `the measured distance, rounded to 10 m: ${answer}`);
+  // THE NUMBER: measured from the property's REAL point, not the raw feed
+  // column. This fixture's google_cached pin (41.9993,21.4213) is 485 m from
+  // the mapped building on the street, so the lane resolves the building
+  // first (Владимир Полежиновски 23а, 41.99834/21.41558 — the pin the row is
+  // actually repaired to) and measures from there: 352 m to the mall.
+  assert.match(answer, /на 3[45]0 метри/, `the measured distance, rounded to 10 m: ${answer}`);
   assert.match(answer, /од недвижноста/, `it is stated as a distance FROM the property: ${answer}`);
   // The three wrong answers this capture produced are gone.
   assert.ok(!/купување или|изнајмување|Ве интересира/.test(answer),
@@ -152,6 +192,48 @@ test('[22:25] the distance question is answered with the measured distance to th
 
   // Context contract: the property stays under discussion.
   assert.equal(sessions.get(chatId)?.slots.location, 'Центар (населба)');
+});
+
+test('[16:11] “на колкаво растојание … од Љубен Лапе?” is answered with the measured distance', async () => {
+  const { handler, sessions, sent } = await makeHandler(EB61);
+  const chatId = 'capture-1611';
+  sessions.set(freshSession('test', chatId));
+
+  // The turns before it, verbatim: two where-is asks. The rotation answered
+  // Парк на светлината, then ОУГС Љубен Лапе — and the DISTANCE question on
+  // the third turn was answered with a THIRD landmark instead of a number.
+  await handler.handle('test', chatId, 'ZDRAVO KADE VI SE NAOGJA EV BR 61 ?');
+  sent.length = 0;
+  await handler.handle('test', chatId, 'NA KOLKAVO RASTOJANIE E STANOT OD LJUBEN LAPE ?');
+
+  const answer = sent[sent.length - 1] ?? '';
+  assert.ok(answer, 'the distance question must be answered');
+  // THE PLACE the client named, resolved from the map's own row („LJUBEN
+  // LAPE“ → „ОУГС Љубен Лапе“).
+  assert.match(answer, /ОУГС Љубен Лапе/, `the answer names the place asked about: ${answer}`);
+  // THE NUMBER: from EB 61's REAL building point (Јане Сандански 36,
+  // 41.9860029/21.4614652) to the school (41.98458/21.46030) — 185 m, so the
+  // rounded metre figure is 190. Measured, never invented.
+  assert.match(answer, /на 190 метри/, `the measured distance, rounded to 10 m: ${answer}`);
+  assert.match(answer, /од недвижноста/, `stated as a distance FROM the property: ${answer}`);
+  // The failure this capture produced is gone: no third landmark in place of
+  // the number.
+  assert.ok(!/Срнич|Парк на светлината/.test(answer),
+    `never the next landmark of the rotation: ${answer}`);
+  // Privacy contract unchanged: the street never appears.
+  assert.ok(!/ЈАНЕ|САНДАНСКИ/.test(answer), `the street never appears: ${answer}`);
+  assert.ok(!/Евидентен број|м²|Цената е/.test(answer), `never the property card: ${answer}`);
+});
+
+test('[16:11] a distance ask with no landmark in it never invents a place', async () => {
+  const { handler, sessions, sent } = await makeHandler(EB61);
+  const chatId = 'capture-1611-noplace';
+  sessions.set(freshSession('test', chatId));
+  await handler.handle('test', chatId, 'ZDRAVO KADE VI SE NAOGJA EV BR 61 ?');
+  sent.length = 0;
+  await handler.handle('test', chatId, 'KOLKU E DALEKU OD STANOT?');
+  const answer = sent[sent.length - 1] ?? '';
+  assert.ok(!/се наоѓа на \d+ метри/.test(answer), `no invented distance: ${answer}`);
 });
 
 test('[22:25] a place the map does not know is never given a fabricated distance', async () => {

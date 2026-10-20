@@ -2,7 +2,7 @@ import { State, Service } from '../fsm/machine';
 import { SlotData } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
-import { Property, locPrep, mkTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic } from '../data/properties';
+import { Property, locPrep, mkTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent } from '../data/properties';
 import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint } from '../visits/time';
 
 export const BUY_FEE_MKD = '500 MKD';
@@ -1376,7 +1376,10 @@ export function buildPropertyCard(p: Property): string {
       ? (p.house ? ' Куќата е целосно наместена.' : ' Станот е целосно наместен.')
       : (p.house ? ` Куќата е ${o.replace('наместен', 'наместена')}.` : ` Станот е ${o}.`);
   }
-  if (p.price !== undefined) s += ` Цената е ${p.price.toLocaleString('mk-MK')} евра.`;
+  // A RENTAL's price is MONTHLY — „Цената е 350 евра.“ reads like a sale price.
+  // The claim comes from the feed's own figures (monthlyRent): a per-day rent
+  // is quoted as the amount alone, never as a monthly price.
+  if (p.price !== undefined) s += ` Цената е ${p.price.toLocaleString('mk-MK')} евра${monthlyRent(p) !== undefined ? ' месечно' : ''}.`;
   // The rewritten facts are written out in words — the client reads the
   // property info IN THE CHAT, never on a webpage (no links anywhere).
   if (details) s += ` ${details}`;

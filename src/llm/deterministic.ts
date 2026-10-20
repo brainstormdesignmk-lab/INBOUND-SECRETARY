@@ -4466,12 +4466,43 @@ export function isFeeTraffic(text: string): boolean {
   const cyr = normalizeMc(flat);
   const money = NAG_FEE_OBJECT_RE.test(cyr);
   const visit = NAG_VISIT_RE.test(cyr);
+  // (isFeeFrame below is the PRICE lanes' structural test — deliberately
+  // separate: "покажи/показ" is a viewing noun to THIS predicate but the
+  // show-me verb to the price lanes.)
   // FEE VOCABULARY IS THE PRECONDITION. Without it the nag predicate's
   // hesitation family ("не знам") would hijack the location lanes —
   // "ne znam kade e stanot" is a WHERE-IS question, not fee traffic.
   if (!money && !visit) return false;
   if (money && visit) return true;
   return detectFeeNag(flat);
+}
+
+// ── THE FEE FRAME — the price lanes' structural exclusion ────────────────────
+// The price lanes must never read a FEE figure as a property price. Enumerating
+// the fee detectors was a blocklist: a wording none of them knew could still be
+// claimed by the value reader. This is the positive test instead:
+//   • a DENAR amount is fee money (this feed prices property in €);
+//   • a FEE NOUN (viewing/charge/provision/commission) beside a figure, a
+//     pay/charge verb, or one of the fee detectors.
+// The serve verb „покажи/показ“ is deliberately NOT a fee noun here — it is
+// also the show-me verb that opens half the price asks ([17:44] class).
+const FEE_VISIT_NOUN_RE =
+  /(?<![\p{L}\p{N}])(?:посет\p{L}*|poset\p{L}*|разглед\p{L}*|razgled\p{L}*|гледањ\p{L}*|gledanj\p{L}*|визит\p{L}*|vizit\p{L}*|влезниц\p{L}*|vleznic\p{L}*|влез(?![а-ш])|vlez(?![a-z]))/iu;
+const FEE_CHARGE_NOUN_RE =
+  /(?<![\p{L}\p{N}])(?:провизи\p{L}*|provizi\p{L}*|комиси\p{L}*|komisi\p{L}*|надомест\p{L}*|nadomest\p{L}*|такс\p{L}*|taks\p{L}*|пари\p{L}*|pari\p{L}*)/iu;
+
+/** True when the message is FEE traffic by STRUCTURE (fee noun + a figure or a
+ *  pay/charge verb, or a denar amount) — the price lanes' single gate. */
+export function isFeeFrame(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ');
+  const cyr = normalizeMc(flat);
+  // Denar money is never a property price in this feed.
+  if (/\d[\d\s.,]*\s*(?:den|ден|denar|денар|денари|denari|mkd|мкд)(?![\p{L}\p{N}])/iu.test(cyr)) return true;
+  const noun = FEE_VISIT_NOUN_RE.test(cyr) || FEE_CHARGE_NOUN_RE.test(cyr);
+  if (!noun) return false;
+  return /\d/.test(cyr)
+    || NAG_PAY_STEM_RE.test(cyr) || NAG_CHARGE_STEM_RE.test(cyr)
+    || detectFeeNag(flat) || detectFeeAmountAsk(flat) || detectFeeTotalCost(flat);
 }
 
 // AMOUNT-FIRST FEE QUESTION — "500DEN ZA POSETA ?", "za poseta 500 den ?":
@@ -5270,12 +5301,16 @@ export function isDistanceQuestion(text: string): boolean {
   // phrasing. BOTH prepositions must be present; a lone „од“ is a statement.
   if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}[^.?!\\n]{0,30}${W}(?:od|од)${E}[^.?!\\n]{0,40}${W}(?:do|до)${E}`, 'iu'), text)) return true;
   // Explicit distance words, with or without „kolku“.
-  if (matchesBoth(new RegExp(`${W}(?:daleku|далеку|oddalec\\p{L}*|оддалеч\\p{L}*|dalecina|далечина|distanc\\p{L}*|дистанц\\p{L}*)`, 'iu'), text)) {
+  // „RASTOJANIE“ ([16:11]: „NA KOLKAVO RASTOJANIE E STANOT OD LJUBEN LAPE?“)
+  // is the NOUN for distance — the most literal way a client asks, and it was
+  // missing from the cue list, so the question fell through to the where-is
+  // rotation and was answered with the NEXT landmark instead of a measurement.
+  if (matchesBoth(new RegExp(`${W}(?:daleku|далеку|oddalec\\p{L}*|оддалеч\\p{L}*|dalecina|далечина|rastojan\\p{L}*|растојан\\p{L}*|distanc\\p{L}*|дистанц\\p{L}*)`, 'iu'), text)) {
     // …but only as a QUESTION. A bare „da ne e daleku“ („it isn't far, is
     // it?“) is a statement and keeps its own lane — so the cue is a question
-    // mark, a „kolku“, or an explicit „dali/дали“, never a bare copula.
+    // mark, a „kolku/kolkavo“, or an explicit „dali/дали“, never a bare copula.
     return text.includes('?')
-      || matchesBoth(new RegExp(`${W}(?:kolku|колку|dali|дали)${E}`, 'iu'), text);
+      || matchesBoth(new RegExp(`${W}(?:kolku|колку|kolkavo|колкаво|dali|дали)${E}`, 'iu'), text);
   }
   // „kolku minuti / metri“ — the unit IS the distance ask.
   if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}(?:[^.?!\\n]{0,20})${W}(?:minuti|минути|metri|метри|km|км)${E}`, 'iu'), text)) return true;
@@ -5285,25 +5320,59 @@ export function isDistanceQuestion(text: string): boolean {
   return false;
 }
 
-/** The destination of a distance question: the tail after the last „do/до“
- *  („… DO BUNJAKOVEC TRGOVSKI?“ → „BUNJAKOVEC TRGOVSKI“). Undefined when the
- *  tail is a number/quantity („do 250 evra“, „do 60 m2“) — that „do“ is a
- *  CAP, not a place. */
+/** The place a distance question measures TO:
+ *    „… DO BUNJAKOVEC TRGOVSKI?“ → „BUNJAKOVEC TRGOVSKI“   (destination)
+ *    „… e stanot OD LJUBEN LAPE?“ → „LJUBEN LAPE“         (origin landmark)
+ *  The destination wins when both are present („od X do Y“). Undefined when
+ *  the tail is a number/quantity („do 250 evra“, „od 60 m2“) — that „do/od“ is
+ *  a CAP, not a place — and when the FROM-tail names the PROPERTY itself
+ *  („kolku e daleku OD STANOT?“ has no landmark in it at all). */
 export function extractDistancePlace(text: string): string | undefined {
   if (!isDistanceQuestion(text)) return undefined;
   // The last „do/до“ wins: „od stanot do …“ has one; „do 300 evra do centar“
   // (a cap followed by a place) must resolve the PLACE.
-  // RAW text first (the client's own script is what the geo layer prefers),
-  // the normalized Cyrillic form only as the fallback — so a Latin typing is
-  // never silently rewritten into Cyrillic before the map sees it.
-  const tails = [...text.matchAll(/(?:^|[\s,;])(?:do|до)\s+([\p{L}][\p{L}\p{N}'’\- ]{1,60})/giu)];
-  const cyrTails = tails.length > 0
-    ? []
-    : [...normalizeMc(text).matchAll(/(?:^|[\s,;])(?:do|до)\s+([\p{L}][\p{L}\p{N}'’\- ]{1,60})/giu)];
-  const all = tails.length > 0 ? tails : cyrTails;
-  if (all.length === 0) return undefined;
-  for (let i = all.length - 1; i >= 0; i--) {
-    let place = (all[i][1] ?? '').trim().replace(/[.?!,:;]+$/u, '').trim();
+  const dest = scanDistanceTail(text, PLACE_TO_RE, undefined);
+  if (dest !== undefined) return dest;
+  // FROM-form ([16:11]): the property is the SUBJECT, the landmark follows
+  // „од“. A property noun there („od stanot“) is the subject, not a place.
+  return scanDistanceTail(text, PLACE_FROM_RE, DISTANCE_SUBJECT_WORDS);
+}
+
+// The preposition slots. Both capture the place tail in the client's own
+// script; the matchAll clone keeps no lastIndex state between calls.
+const PLACE_TO_RE = /(?:^|[\s,;])(?:do|до)\s+([\p{L}][\p{L}\p{N}'’\- ]{1,60})/giu;
+const PLACE_FROM_RE = /(?:^|[\s,;])(?:od|од)\s+([\p{L}][\p{L}\p{N}'’\- ]{1,60})/giu;
+
+/** Words that name the PROPERTY under discussion, never a landmark. „kolku e
+ *  daleku od stanot?“ asks for a distance to NOTHING — it must fall through
+ *  instead of measuring to a place called „stanot“. */
+const DISTANCE_SUBJECT_WORDS = new Set([
+  'stan', 'stanot', 'stanovi', 'stanovite', 'стан', 'станот', 'станови', 'становите',
+  'kukja', 'kukjata', 'куќа', 'куќата',
+  'zgrada', 'zgradata', 'зграда', 'зградата',
+  'objekt', 'objektot', 'објект', 'објектот',
+  'imot', 'imotot', 'имотот',
+  'mesto', 'mestoto', 'место', 'местото',
+  'nego', 'nea', 'него', 'неа', 'mene', 'мене', 'tebe', 'тебе', 'nas', 'нас', 'vas', 'вас',
+]);
+
+/** Walk a preposition's tails from the LAST one backwards and return the first
+ *  acceptable place. RAW text first (the client's own script is what the geo
+ *  layer prefers), the normalized Cyrillic form only as the fallback — so a
+ *  Latin typing is never silently rewritten into Cyrillic before the map sees
+ *  it. */
+function scanDistanceTail(text: string, re: RegExp, stop: Set<string> | undefined): string | undefined {
+  const raw = [...text.matchAll(re)];
+  if (raw.length > 0) {
+    const hit = pickDistancePlace(raw, stop);
+    if (hit !== undefined) return hit;
+  }
+  return pickDistancePlace([...normalizeMc(text).matchAll(re)], stop);
+}
+
+function pickDistancePlace(tails: RegExpMatchArray[], stop: Set<string> | undefined): string | undefined {
+  for (let i = tails.length - 1; i >= 0; i--) {
+    let place = (tails[i][1] ?? '').trim().replace(/[.?!,:;]+$/u, '').trim();
     // Drop trailing scaffold words („do centar li e“ → „centar“)
     let words = place.split(/\s+/);
     while (words.length > 1
@@ -5314,6 +5383,8 @@ export function extractDistancePlace(text: string): string | undefined {
     if (place.length < 3) continue;
     // A quantity tail is a cap, not a place: money, area, metres, minutes.
     if (/(?:^|\s)(?:\d|evra|evro|евра|евро|eur|denari|денари|ден|m2|m²|м2|квадрат|metri|метри|minuti|минути)(?:\s|$)/iu.test(place)) continue;
+    // A FROM-tail naming the property itself is the SUBJECT of the question.
+    if (stop?.has((words[0] ?? '').toLowerCase())) continue;
     return place;
   }
   return undefined;
@@ -5406,6 +5477,272 @@ const AREA_HAVE_ASK_RE =
 /** True when the client asks "ima (li) nesto [vo X]?" — anything in an area. */
 export function detectAreaHaveAsk(text: string): boolean {
   return matchesBoth(AREA_HAVE_ASK_RE, text);
+}
+
+// ── MARKET PRICE LEVELS — „kako se dvizat cenive za stanovi vo AERODROM?“ ─────
+// The [16:57] capture: the client asked how FLAT PRICES MOVE in a neighborhood
+// and got the buy/rent intake question — no lane owned the ask, so it fell into
+// the funnel start. A MARKET question is not a property-price question: it asks
+// for the €/m² RANGE across the feed, never for the price of the flat on the
+// table (that stays detectPriceAsk's lane).
+//
+// GRAMMAR, not a phrase list (Macedonian):
+//   • PRICE stem „цен-“ × number/case endings → цена / цени / цените / цениве /
+//     цената / ценовна / цениме …, and the pricing VERB „цените/цениме“
+//     ("how do you price"). Latin typing folds onto the same forms through
+//     normalizeMc, so both scripts hit one rule.
+//   • the price word must ALSO land in a MARKET shape — one of:
+//       – the per-m² UNIT   („po kvadrat“, „za m2“, „по м²“, „за метар“)
+//       – a TYPE PLURAL     („stanovi/станови“, „kuќi/куќи“, „lokali/локали“)
+//       – a MOVEMENT verb   („se dvizat/се движат“, „odat“, „rastat“, „padat“)
+//       – a QUESTION scaffold over the definite plural („kakvi se cenite“,
+//         „kako cenite“) — the singular definite „kolku e cenata?“ is
+//         deliberately NOT here, it belongs to the property-price lane.
+//   • and the message must be an ASK („?“, a question word, or „kaži mi“), so a
+//     statement like „cenata za m2 e visoka“ never lands in this lane.
+const PRICE_WORD_FORMS = (() => {
+  // One ending table per SCRIPT (a Latin ending appended to a Cyrillic root
+  // would produce mixed strings like „ценa“ that match nothing).
+  const latin = ['a', 'i', 'e', 'ata', 'ite', 'ive', 'ov', 'ovna', 'ovno', 'ovni', 'ime', 'ete', 'is', 'am'];
+  const cyrillic = ['а', 'и', 'е', 'ата', 'ите', 'иве', 'ов', 'овна', 'овно', 'овни', 'име', 'ете', 'иш', 'ам'];
+  return [
+    ...latin.map(e => `cen${e}`),
+    ...cyrillic.map(e => `цен${e}`),
+  ];
+})();
+const MARKET_PRICE_WORD_RE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?:${PRICE_WORD_FORMS.join('|')})(?![\\p{L}\\p{N}])`, 'iu');
+// Per-m² unit: „po kvadrat“, „za m2“, „по м²“, „za kvm“, „за метар“ …
+const MARKET_SQM_UNIT_RE =
+  /(?<![\p{L}\p{N}])(?:po|za|na|vo|по|за|на|во)\s*(?:kvadrat\p{L}*|квадрат\p{L}*|m2|м2|m²|м²|kvm|квм|metar|метар)(?![\p{L}\p{N}])/iu;
+// Type PLURAL — the category the client asks about, in the plural/definite.
+const MARKET_TYPE_PLURAL_RE =
+  /(?<![\p{L}\p{N}])(?:stanovi|станови|stanovite|становите|kukji|куќи|kukjite|куќите|lokali|локали|lokalite|локалите|garazhi|гаражи|garsoњeri|гарсоњери|apartmani|апартмани)(?![\p{L}\p{N}])/iu;
+// Movement of prices — „se dvizat“, „odat“, „se menuvaat“, „rastat“, „padat“.
+// The KAKO scaffold is optional but FUSED-tolerant: Viber typing runs the
+// words together — „KAKOODAT“ / „какоодат“ ([17:34]) is „како одат“, and a
+// space-only rule would miss it.
+const MARKET_MOVE_RE =
+  /(?<![\p{L}\p{N}])(?:kako|како)?\s*(?:se|се)?\s*(?:dvi[zž]\p{L}*|дви[жз]\p{L}*|odat|одат|menuv\p{L}*|менув\p{L}*|krenuv\p{L}*|кренув\p{L}*|rast\p{L}*|раст\p{L}*|pad\p{L}*|пад\p{L}*)(?![\p{L}\p{N}])/iu;
+// Question scaffold over the definite plural: „kakvi se cenite“, „kako cenite“.
+const MARKET_PRICE_SCAFFOLD_RE =
+  /(?:kakvi|какви|kakva|каква|kakvo|какво|kako|како|koja|која|koi|кои|kolku|колку|dali|дали)\s+(?:se|се|e|е|gi|ги|ni|ни)?\s*(?:cenite|цените|cenive|цениве|cene|цене|ceni|цени)(?![\p{L}\p{N}])/iu;
+// PRICE REFERENCE, not a price level: „a drugi stanovi DO TAA CENA imate?“ /
+// „po ovaa cena?“ points at the number already discussed and asks for MORE
+// PROPERTIES — the search/more-options lanes own it. Without this guard the
+// plural „stanovi“ made it look like a market question ([22:2x] regression).
+const MARKET_PRICE_REFERENCE_RE =
+  /(?<![\p{L}\p{N}])(?:do|na|по|po|за|za|во|vo|со|so|од|od)\s+(?:taa|таа|ovaa|оваа|ova|ова|istata|истата|ista|иста|tolkava|толкава|tolku|толку)(?![\p{L}\p{N}])/iu;
+// The message must ASK. A statement about a price never enters this lane.
+const MARKET_ASK_SHAPE_RE =
+  /\?|(?:kako|како|kakvi|какви|kakva|каква|kakvo|какво|koja|која|koi|кои|kolku|колку|dali|дали|kazi|кажи|kazete|кажете|objasni|објасни|razjasni|разјасни)/iu;
+
+// A SERVICE word beside a bare price noun IS a market question:
+// „цените/цени за ИЗНАЈМУВАЊЕ во Аеродром?“, „цени за купување…“. Without this
+// arm those phrasings matched no scaffold (they carry no „колку/какo“ prefix)
+// and fell into the funnel, so the rent band was reachable only when the
+// session already held service='rent'.
+const MARKET_SERVICE_PHRASE_RE =
+  /(?<![\p{L}\p{N}])(?:iznajmuvanje|изнајмување|izdavanje|издавање|izdavaњe|kupuvanje|купување|prodazhba|продажба|prodazba|продавање|prodavanje|najam|наем|rent)(?![\p{L}\p{N}])/iu;
+// The RENT noun is itself the price word: „колку е киријата/rent-от во …?“ is
+// the rent LEVEL question (a market band), not a single property's price.
+const MARKET_RENT_WORD_RE =
+  /(?<![\p{L}\p{N}])(?:kirija\p{L}*|кириј\p{L}*|rent\p{L}*|renta\p{L}*)(?![\p{L}\p{N}])/iu;
+
+/** True when the client asks for the PRICE LEVELS (€/m²) of a category in an
+ *  area — „kako se dvizat cenive za stanovi vo Aerodrom?“, „koja e cenata po
+ *  kvadrat?“, „kakva cena za m2?“, „kako cenite?“, „kakvi se cenite?“, and the
+ *  bare service wording „цени за ИЗНАЈМУВАЊЕ во Аеродром?“. */
+export function detectMarketPriceAsk(text: string): boolean {
+  const priceWord = matchesBoth(MARKET_PRICE_WORD_RE, text);
+  const rentWord = matchesBoth(MARKET_RENT_WORD_RE, text);
+  if (!priceWord && !rentWord) return false;
+  if (!matchesBoth(MARKET_ASK_SHAPE_RE, text)) return false;
+  if (matchesBoth(MARKET_PRICE_REFERENCE_RE, text)) return false;
+  if (rentWord) return true;
+  return matchesBoth(MARKET_SQM_UNIT_RE, text)
+    || matchesBoth(MARKET_TYPE_PLURAL_RE, text)
+    || matchesBoth(MARKET_MOVE_RE, text)
+    || matchesBoth(MARKET_PRICE_SCAFFOLD_RE, text)
+    || (priceWord && matchesBoth(MARKET_SERVICE_PHRASE_RE, text));
+}
+
+/** True when the ONLY price word is the rent noun („кирија/renta“): „колку му
+ *  е киријата?“ asks about the flat on the table unless the message names an
+ *  area. Used by the market lane to keep those turns with the property-price
+ *  lane, while „колку е киријата ВО АЕРОДРОМ?“ still opens the rent band. */
+export function isMarketRentWordAsk(text: string): boolean {
+  return matchesBoth(MARKET_RENT_WORD_RE, text) && !matchesBoth(MARKET_PRICE_WORD_RE, text);
+}
+
+/** True when the message names the CATEGORY in the plural („stanovi“,
+ *  „kuќi“, „lokali“) — the handler's signal that the ask is about the market
+ *  segment rather than the single flat on the table. */
+export function hasMarketTypePlural(text: string): boolean {
+  return matchesBoth(MARKET_TYPE_PLURAL_RE, text);
+}
+
+// ── PRICE EXTREMES / BAND LOOKUP ─────────────────────────────────────────────
+// After a price BAND the client asks which property sits at an end of it, or
+// asks to start from the cheapest ([17:44]: „KOJ TI E TOJ STAN PO 1286E PO
+// M2“). Grammar: the superlative of евтин/скап („нај-“ + евтин/ефтин/скап,
+// Latin najevtin/najftin/najskap with any definite/plural ending) and the
+// demonstrative lookup „koj (ti) e toj/taa … PO <broj>“.
+export type PriceExtremeQuery = {
+  mode: 'cheapest' | 'expensive' | 'value' | 'cheaper' | 'dearer';
+  value?: number;
+  /** 'value' on a WHOLE price („станот од 90.000 евра“) — ranked on the price
+   *  column, not on €/m². */
+  total?: boolean;
+};
+
+const EXTREME_CHEAP_RE = /(?<![\p{L}\p{N}])naj(?:e|е)?(?:v|f)tin\p{L}*|(?<![\p{L}\p{N}])нај(?:е)?(?:в|ф)тин\p{L}*/iu;
+const EXTREME_EXPENSIVE_RE = /(?<![\p{L}\p{N}])najskap\p{L}*|(?<![\p{L}\p{N}])најскап\p{L}*/iu;
+// COMPARATIVES — „поевтини од 1.200 евра за м²“, „поскапи од 90.000 евра“.
+// Distinct from the superlative (нај-): a comparative needs a REFERENCE to be
+// answerable, so it is only claimed when the message spells one (see
+// valueReference). Without a reference the message stays with the cheaper-
+// search ladder, which needs no threshold.
+const EXTREME_CHEAPER_RE = /(?<![\p{L}\p{N}])(?:po(?:e|е)?(?:v|f)tin\p{L}*|по(?:е)?(?:в|ф)тин\p{L}*)/iu;
+const EXTREME_DEARER_RE = /(?<![\p{L}\p{N}])(?:po(?:s|ш)kap\p{L}*|по(?:с|ш)кап\p{L}*)/iu;
+// LOW/HIGH PRICE — the same ends said with „цена“ instead of the евтин/скап
+// adjective („која е најниската цена?“, „najvisoka cena“).
+const EXTREME_LOW_PRICE_RE =
+  /(?<![\p{L}\p{N}])(?:najnis\p{L}*|најнис\p{L}*)\s+(?:cena|цена)\p{L}*/iu;
+const EXTREME_HIGH_PRICE_RE =
+  /(?<![\p{L}\p{N}])(?:najvisok\p{L}*|највисок\p{L}*)\s+(?:cena|цена)\p{L}*/iu;
+// ORDERING asks that carry no reference of their own: „почни од поефтините“,
+// „кои се поефтини“. A bare „дај поевтино“ is NOT here — that is the cheaper-
+// SEARCH contract (price.shy intro + cheapest-first from the pool), which owns
+// the funnel; only these explicit ordering shapes belong to the price lane.
+const EXTREME_ORDER_RE = new RegExp(
+  // UNSAFE to end with \\b on a Cyrillic word: JS \\b is ASCII-only, so „од“
+  // (a non-word char to \\b) never has a boundary after it. Anchor with a
+  // Unicode letter/number lookahead instead.
+  '(?<![\\p{L}\\p{N}])(?:pocni|pochni|почни|pocnete|почнете)\\s+(?:od|од)(?![\\p{L}\\p{N}])'
+  + '|(?<![\\p{L}\\p{N}])(?:koi|кои|koj|кој)\\s+(?:se|се)\\s+(?:po(?:e|е)?(?:v|f)tin\\p{L}*|по(?:е)?(?:в|ф)тин\\p{L}*|po(?:s|ш)kap\\p{L}*|по(?:с|ш)кап\\p{L}*)',
+  'iu');
+// A DENAR figure belongs to the FEE lane („ZA SEKOJ STAN PO 300DEN“ is a fee
+// objection, not a property at 300 €) — the currency suffix disqualifies it.
+const EXTREME_VALUE_RE = /(?:koj|кој|sto|што)\b[^?\n]{0,40}?\bpo\s+(\d{2,7})(?!\d)(?!\s*(?:den|ден))/iu;
+// A price can be quoted WITHOUT „po“: the UNIT is what makes the figure a
+// price. „1286 evra za m2“ / „1.286 €/м²“ is a per-м² figure; „90.000 евра“
+// beside a property noun is a whole price for a buy row. Before this, only the
+// „po <broj>“ shape was recognized and the rest fell into the discovery funnel.
+const PRICE_NUM = String.raw`\d{1,3}(?:[.\s]\d{3})+|\d{2,7}`;
+const PER_SQM_VALUE_RE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?<sqm>${PRICE_NUM})\\s*(?:evra|евра|evro|евро|eur|€)\\s*(?:\\/\\s*)?(?:za|за|po|по)\\s*(?:m2|м2|m²|м²|kvadrat\\p{L}*|квадрат\\p{L}*)`
+  + `|(?<![\\p{L}\\p{N}])(?<sqm2>${PRICE_NUM})\\s*\\/\\s*(?:m2|м2|m²|м²)`,
+  'iu');
+const TOTAL_VALUE_RE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?<total>${PRICE_NUM})\\s*(?:evra|евра|евро|evro|eur|€)(?![\\p{L}\\p{N}])`, 'iu');
+// A BARE figure (no currency, no unit) still names a price when the message is
+// a price question: „од 1286“, „koj e stanot 1286“. Three digits minimum, and
+// never the shapes that are sizes/counts/denars (м², квадрат, соби, ден).
+const BARE_VALUE_RE = new RegExp(
+  `(?<![\\d.,])(?<bare>${PRICE_NUM})(?![\\d.,])\\s*(?!den|ден|denari|денари|m2|м2|m²|м²|kvadrat|квадрат|spalni|спални|sobi|соби|%)`, 'iu');
+const PRICE_CONTEXT_RE =
+  /(?:цена|цени|cen[ai]|evra|евра|евро|evro|eur|€|mese\p{L}*|месеч\p{L}*|kirija|кириј)/iu;
+// A who-ask over the figure: „koj/koi/koja/koe (e) …“.
+const EXTREME_WHO_RE =
+  /(?<![\p{L}\p{N}])(?:koj|кој|koja|која|koe|кое|koi|кои|sto|што)(?![\p{L}\p{N}])/iu;
+// A whole-price figure must sit beside a PROPERTY noun — a stray amount is a
+// budget/fee shape, and the fee lanes own those.
+const EXTREME_PROPERTY_NOUN_RE =
+  /(?<![\p{L}\p{N}])(?:stan\p{L}*|стан\p{L}*|kukj\p{L}*|куќ\p{L}*|ploc\p{L}*|плац\p{L}*|lokal\p{L}*|локал\p{L}*|imov\p{L}*|имот\p{L}*|ponud\p{L}*|понуд\p{L}*|opci\p{L}*|опци\p{L}*|apartman\p{L}*|апартман\p{L}*)/iu;
+// A LIST is asked for, not a single comparison echo („dali e poevtino?“ keeps
+// its own lane).
+const EXTREME_SERVE_RE =
+  /(?<![\p{L}\p{N}])(?:daj|дај|pokazi|покажи|pokazete|покажете|imash|имаш|imate|имате|baram|барам|sakam|сакам|site|сите|ponudi|понуди|opcii|опции|stanovi|станови|kukji|куќи)/iu;
+// A BARE LIST ask — „покажи ги сите“, „што има (станови)“. It needs a serve
+// verb or a plural noun: the area-have lane owns „што има во Карпош?“
+// (no noun), and its cards must not be replaced by a price list.
+const EXTREME_LIST_RE = /(?:^|[\s,.:;!?])(?:site|сите|sto\s+ima|што\s+има)(?![\p{L}\p{N}])/iu;
+const EXTREME_LIST_NOUN_RE =
+  /(?<![\p{L}\p{N}])(?:stanovi|станови|kukji|куќи|lokali|локали|garazhi|гаражи|apartmani|апартмани|opcii|опции|ponudi|понуди|ploc\p{L}*|плац\p{L}*)(?![\p{L}\p{N}])/iu;
+const EXTREME_LIST_ASK_RE = /(?<![\p{L}\p{N}])(?:pokazi|покажи|pokazete|покажете|daj|дај|pokazi\s+gi|покажи\s+ги)(?![\p{L}\p{N}])/iu;
+// The message must ASK — „najevtinata e 300“ is a statement, not a request.
+const EXTREME_ASK_RE = /\?|(?:koj|кој|koi|кои|sto|што|daj|дај|pokazi|покажи|kaz|каж|kolku|колку|sakam|сакам|pocni|pochni|почни)/iu;
+
+/** Strip the thousands separators the feed/client writes („1.286“ → 1286). */
+const parsePriceNumber = (raw: string): number | undefined => {
+  const n = Number(raw.replace(/[.\s]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+// A CAP/BUDGET word before the figure makes it a SEARCH limit („stan do
+// 90.000 evra“), never a lookup for the flat AT that price.
+const VALUE_CAP_PREFIX_RE =
+  /(?<![\p{L}\p{N}])(?:do|до|pod|под|okolu|околу|oko|најмногу|najmnogu|max|испод|ispid|до|под)\s*$/iu;
+
+/** The price a message uses as its REFERENCE (comparative threshold or the
+ *  figure to look up). A spelled per-м² unit wins; a whole price beside a
+ *  property noun is the `total` arm (the caller decides on the segment). */
+export function extractPriceReference(text: string): { value: number; total?: boolean } | undefined {
+  for (const src of [text, normalizeMc(text)]) {
+    const who = EXTREME_WHO_RE.test(src);
+    const m = PER_SQM_VALUE_RE.exec(src);
+    const n = m ? parsePriceNumber(m.groups?.sqm ?? m.groups?.sqm2 ?? '') : undefined;
+    if (n !== undefined && !VALUE_CAP_PREFIX_RE.test(src.slice(0, m!.index))) return { value: n };
+    const t = TOTAL_VALUE_RE.exec(src);
+    const tn = t ? parsePriceNumber(t.groups?.total ?? '') : undefined;
+    // A whole price needs a property noun beside it — or a WHO-ask over the
+    // figure („1286 evra — koj e?“), which is unambiguously a lookup.
+    if (tn !== undefined && (EXTREME_PROPERTY_NOUN_RE.test(src) || who)
+      && !VALUE_CAP_PREFIX_RE.test(src.slice(0, t!.index))) return { value: tn, total: true };
+    // BARE figure — „od 1286“, „koj e stanot 1286“. The price context or a
+    // 4+ digit figure is what separates it from an EB / a count.
+    const b = BARE_VALUE_RE.exec(src);
+    const bn = b ? parsePriceNumber(b.groups?.bare ?? '') : undefined;
+    if (bn !== undefined && (who || PRICE_CONTEXT_RE.test(src)) && bn >= 1000
+      && !VALUE_CAP_PREFIX_RE.test(src.slice(0, b!.index))) return { value: bn };
+  }
+  return undefined;
+}
+
+/** The extreme/band lookup a price question carries, or undefined. */
+export function extractPriceExtremeQuery(text: string): PriceExtremeQuery | undefined {
+  const raw = text.toLowerCase();
+  const norm = normalizeMc(text).toLowerCase();
+  const ref = extractPriceReference(text);
+  // Comparative first: „poevtini od 1.200 evra za m2“ quotes a REFERENCE, not
+  // the flat at 1.200 — the value arms below would answer the wrong question.
+  const cheaper = matchesBoth(EXTREME_CHEAPER_RE, text);
+  const dearer = matchesBoth(EXTREME_DEARER_RE, text);
+  if ((cheaper || dearer) && ref && matchesBoth(EXTREME_SERVE_RE, text)) {
+    return { mode: cheaper ? 'cheaper' : 'dearer', value: ref.value, total: ref.total };
+  }
+  // „почни од поефтините“ / „кои се поефтини“ name NO reference but still ask
+  // for an ORDER — the same ends as the superlatives, so they map onto them
+  // (a bare „дај поевтино“ stays with the cheaper-search ladder).
+  if ((cheaper || dearer) && matchesBoth(EXTREME_ORDER_RE, text)) {
+    return { mode: cheaper ? 'cheapest' : 'expensive' };
+  }
+  if (matchesBoth(EXTREME_LOW_PRICE_RE, text)) return { mode: 'cheapest' };
+  if (matchesBoth(EXTREME_HIGH_PRICE_RE, text)) return { mode: 'expensive' };
+  // „ПОКАЖИ ГИ СИТЕ / ШТО ИМА“ is a LIST ask with no superlative: the lane
+  // serves the batch cheapest-first (5 cards + a continuation queue) instead
+  // of the ordinary two-card options batch.
+  if (matchesBoth(EXTREME_LIST_RE, text)
+    && (matchesBoth(EXTREME_LIST_NOUN_RE, text) || matchesBoth(EXTREME_LIST_ASK_RE, text))) {
+    return { mode: 'cheapest' };
+  }
+  const v = raw.match(EXTREME_VALUE_RE) ?? norm.match(EXTREME_VALUE_RE);
+  if (v) {
+    const n = parseInt(v[1], 10);
+    if (Number.isFinite(n) && n > 0) return { mode: 'value', value: n };
+  }
+  if (ref) return { mode: 'value', value: ref.value, total: ref.total };
+  if (matchesBoth(EXTREME_CHEAP_RE, text)) return { mode: 'cheapest' };
+  if (matchesBoth(EXTREME_EXPENSIVE_RE, text)) return { mode: 'expensive' };
+  return undefined;
+}
+
+/** True when the client asks for the cheapest/most expensive property (or for
+ *  the one at a quoted figure). */
+export function detectPriceExtremeAsk(text: string): boolean {
+  if (!extractPriceExtremeQuery(text)) return false;
+  return matchesBoth(EXTREME_ASK_RE, text);
 }
 
 // Comparison help: the client asks to compare two properties.

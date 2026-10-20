@@ -380,7 +380,10 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     address: cleanMacedonian(titleCase(str(r.adresa) || str(r.naslov))) || `Имот ЕБ ${eb}`,
     price: num(r.cena_eur),
     priceLabel: str(r.cena_label) || undefined,
-    location: str(r.naselba) || undefined,
+    // The feed leaves a few rows area-less; their own address/ad text names
+    // the neighborhood, and an area-less row is invisible to every area-scoped
+    // band/extreme ask (feedArea below is the same rule for direct callers).
+    location: str(r.naselba) || deriveAreaFromText(`${str(r.adresa)} ${str(r.opis)}`),
     lat: lat !== undefined ? lat : undefined,
     lon: lon !== undefined ? lon : undefined,
     geo_source: lat !== undefined && lon !== undefined && GEO_SOURCES.has(geoRaw)
@@ -715,6 +718,192 @@ export function locMatches(query: string, feedLoc: string): boolean {
     }
   }
   return false;
+}
+
+// ── PRICE PER м² — computed automatically, never invented ───────────────────
+/**
+ * €/m² for a SALE row, or undefined when the figure cannot be trusted.
+ *
+ * THE GUARD: a row without м² has NO per-м² price. The old `price / (sqm || 1)`
+ * scored a 130.000 € flat with no surface as 130.000 €/m², so it permanently won
+ * every "most expensive" ask and poisoned the band. Non-positive prices/sizes
+ * and absurd results (a data-entry slip like 3 м² for 90.000 €) are refused the
+ * same way — callers EXCLUDE the row instead of ranking a number nobody can
+ * defend.
+ */
+export function pricePerM2(p: Property): number | undefined {
+  const price = p.price;
+  const sqm = p.sqm;
+  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return undefined;
+  if (typeof sqm !== 'number' || !Number.isFinite(sqm) || sqm <= 0) return undefined;
+  const v = Math.round(price / sqm);
+  if (!Number.isFinite(v) || v < 50 || v > 50000) return undefined;
+  return v;
+}
+
+// ── RENT UNIT: read from the feed, never assumed ─────────────────────────────
+/** The monthly-rent band the Skopje feed actually writes (€). A rent figure
+ *  outside it is a different unit (a per-day/per-week number) or a data slip,
+ *  and the reply must not swear it is monthly. */
+export const RENT_MONTHLY_MIN = 100;
+export const RENT_MONTHLY_MAX = 20000;
+/** The feed does not carry a period column, so the unit is INFERRED from the
+ *  rows themselves. This helper is that inference, in one place. */
+export function monthlyRent(p: Property): number | undefined {
+  const n = p.price;
+  if (p.service !== 'rent') return undefined;
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return undefined;
+  return n >= RENT_MONTHLY_MIN && n <= RENT_MONTHLY_MAX ? n : undefined;
+}
+
+/** The period word to append to a rent figure, or undefined when the feed's own
+ *  numbers cannot back it (`rentUnitWord(rows)`). A band claims „месечно“ only
+ *  when EVERY rent row in it is monthly-sized. */
+export function rentUnitWord(rows: Property[]): string | undefined {
+  const rent = rows.filter(p => p.service === 'rent');
+  if (rent.length === 0) return undefined;
+  return rent.every(p => monthlyRent(p) !== undefined) ? 'месечно' : undefined;
+}
+
+// ── AREA OF A ROW — the feed's naselba, or read from its own text ───────────
+/** Canonical areas with the spellings the ads use. Longest first, so
+ *  „Строг Центар“ wins over the bare „Центар“ inside it. */
+const AREA_TEXT_ALIASES: Array<[RegExp, string]> = [
+  [/(?<![\p{L}\p{N}])(?:строг\s+центар|strog\s+centar)(?![\p{L}\p{N}])/iu, 'Центар'],
+  [/(?<![\p{L}\p{N}])(?:палома\s+бјанка|paloma\s+bjanka)(?![\p{L}\p{N}])/iu, 'Центар'],
+  [/(?<![\p{L}\p{N}])(?:ново\s+лисиче|novo\s+lisice)(?![\p{L}\p{N}])/iu, 'Ново Лисиче'],
+  [/(?<![\p{L}\p{N}])(?:кисела\s+вода|kisela\s+voda)(?![\p{L}\p{N}])/iu, 'Кисела Вода'],
+  [/(?<![\p{L}\p{N}])(?:дебар\s+маало|debar\s+maalo)(?![\p{L}\p{N}])/iu, 'Дебар Маало'],
+  [/(?<![\p{L}\p{N}])(?:ѓорче\s+петров|gjorche\s+petrov|gorce\s+petrov)(?![\p{L}\p{N}])/iu, 'Ѓорче Петров'],
+  [/(?<![\p{L}\p{N}])(?:гази\s+баба|gazi\s+baba)(?![\p{L}\p{N}])/iu, 'Гази Баба'],
+  [/(?<![\p{L}\p{N}])(?:бутел|butel)(?![\p{L}\p{N}])/iu, 'Бутел'],
+  [/(?<![\p{L}\p{N}])(?:аеродром|aerodrom)(?![\p{L}\p{N}])/iu, 'Аеродром'],
+  [/(?<![\p{L}\p{N}])(?:карпош|karpos)(?![\p{L}\p{N}])/iu, 'Карпош'],
+  [/(?<![\p{L}\p{N}])(?:центар|centar)(?![\p{L}\p{N}])/iu, 'Центар'],
+  [/(?<![\p{L}\p{N}])(?:влае|vlae)(?![\p{L}\p{N}])/iu, 'Влае'],
+  [/(?<![\p{L}\p{N}])(?:тафталиџе|taftalidze)(?![\p{L}\p{N}])/iu, 'Тафталиџе'],
+  [/(?<![\p{L}\p{N}])(?:капиштец|kapistec)(?![\p{L}\p{N}])/iu, 'Капиштец'],
+  [/(?<![\p{L}\p{N}])(?:чаир|cair)(?![\p{L}\p{N}])/iu, 'Чаир'],
+  [/(?<![\p{L}\p{N}])(?:маџари|madjari)(?![\p{L}\p{N}])/iu, 'Маџари'],
+  [/(?<![\p{L}\p{N}])(?:лисиче|lisice)(?![\p{L}\p{N}])/iu, 'Лисиче'],
+  [/(?<![\p{L}\p{N}])(?:водно|vodno)(?![\p{L}\p{N}])/iu, 'Водно'],
+  [/(?<![\p{L}\p{N}])(?:козле|kozle)(?![\p{L}\p{N}])/iu, 'Козле'],
+  [/(?<![\p{L}\p{N}])(?:радишани|radishani)(?![\p{L}\p{N}])/iu, 'Радишани'],
+  [/(?<![\p{L}\p{N}])(?:илинден|ilinden)(?![\p{L}\p{N}])/iu, 'Илинден'],
+  [/(?<![\p{L}\p{N}])(?:сарај|saraj)(?![\p{L}\p{N}])/iu, 'Сарај'],
+  [/(?<![\p{L}\p{N}])(?:пржино|przhino|przino)(?![\p{L}\p{N}])/iu, 'Пржино'],
+];
+
+/** The area a row BELONGS to: the feed's `naselba` when present, else the first
+ *  area its own address/ad text names. Rows the feed leaves area-less (EB 57,
+ *  59, 87 in the October feed) were invisible to every area-scoped band and
+ *  extreme ask — their ads DO name the neighborhood („во Строг Центар“,
+ *  „во Палома Бјанка“, „во Ново Лисиче“), so the area is read from there.
+ *  Never guessed: no alias hit ⇒ undefined (city-wide only). */
+export function deriveAreaFromText(text: string): string | undefined {
+  for (const [re, area] of AREA_TEXT_ALIASES) if (re.test(text)) return area;
+  return undefined;
+}
+
+export function feedArea(p: Property): string | undefined {
+  const own = (p.location ?? '').trim();
+  if (own) return own;
+  return deriveAreaFromText(`${p.address ?? ''} ${p.details ?? ''}`);
+}
+
+// ── NUMBERED SUB-AREAS: Карпош I / II / III / IV ─────────────────────────────
+/**
+ * A numbered neighborhood is ITS OWN area with its own rows and its own price —
+ * never a member of the bare family. Clients type the number as a digit, a
+ * roman numeral or an ordinal word; the feed writes roman. All three normalize
+ * to one key, so „KARPOS 2“ finds „Карпош II“ and nothing else, and „KARPOS 1
+ * ILI KARPOS 3“ is two areas with two bands.
+ */
+const NUMERAL_LABEL: Record<string, string> = {
+  '1': 'I', '2': 'II', '3': 'III', '4': 'IV',
+  i: 'I', ii: 'II', iii: 'III', iv: 'IV',
+  прв: 'I', прва: 'I', првиот: 'I', првата: 'I',
+  втор: 'II', втора: 'II', вториот: 'II', втората: 'II',
+  трет: 'III', трета: 'III', третиот: 'III', третата: 'III',
+  четврт: 'IV', четврта: 'IV', четвртиот: 'IV', четвртата: 'IV',
+};
+
+const numeralOf = (tok: string): string | undefined => {
+  const t = tok.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  if (!t) return undefined;
+  if (NUMERAL_LABEL[t]) return NUMERAL_LABEL[t];
+  const m = t.match(/^(прв|втор|трет|четврт)[а-ш]*$/u);
+  return m ? NUMERAL_LABEL[m[1]] : undefined;
+};
+
+/** Canonical key of a location: parenthetical stripped, whitespace collapsed,
+ *  transliterated to the feed's Cyrillic („karpos“ ≡ „Карпош“) and the trailing
+ *  numeral normalized to roman („карпош 3“ → „карпош iii“). */
+export function areaKey(loc: string): string {
+  const bare = loc.replace(/\s*\([^)]*\)\s*/gu, ' ').replace(/\s+/gu, ' ').trim();
+  const m = bare.match(/^(.*?)\s+(\S+)$/u);
+  const num = m ? numeralOf(m[2]) : undefined;
+  if (!m || !num) return normalizeLocation(bare).toLowerCase();
+  return `${normalizeLocation(m[1]).toLowerCase()} ${num.toLowerCase()}`;
+}
+
+/** TRUE when the area names a NUMBERED sub-area („Карпош III“, „KARPOS 2“). */
+export function isNumberedArea(area: string): boolean {
+  const m = area.trim().match(/\s(\S+)$/u);
+  return !!m && numeralOf(m[1]) !== undefined;
+}
+
+/** The rows of ONE area. A numbered sub-area is matched EXACTLY (a numbered ask
+ *  must never fall back to the family matcher — that is what merged I–IV into
+ *  one band); everything else uses the fuzzy place matcher. */
+export function rowsInArea(rows: Property[], area: string): Property[] {
+  if (isNumberedArea(area)) {
+    const k = areaKey(area);
+    return rows.filter(p => areaKey(feedArea(p) ?? '') === k);
+  }
+  return rows.filter(p => locMatches(area, feedArea(p) ?? ''));
+}
+
+/** Numbered areas the client names, IN THE ORDER mentioned („KARPOS 1 ILI
+ *  KARPOS 3“ → [„Карпош I“, „Карпош III“]). The numeral binds to the place word
+ *  immediately before it, so „karpos i centar“ (the conjunction) is not I, and
+ *  a bare „KARPOS“ names the whole family and is not returned here. When the
+ *  feed holds the base name but not that number, the label is still returned
+ *  („Карпош I“) so the answer can say there is no data instead of widening to
+ *  the family band. */
+export function numberedAreasNamed(text: string, feedLocations: string[]): string[] {
+  const bases = new Map<string, string>();          // lowercased base → canonical base
+  const exact = new Map<string, string>();          // „base numeral“ → canonical feed name
+  for (const raw of feedLocations) {
+    const loc = raw.trim();
+    const m = loc.match(/^(.*?)\s+(\S+)$/u);
+    if (!m) continue;
+    const num = numeralOf(m[2]);
+    if (!num) continue;
+    bases.set(m[1].toLowerCase(), m[1]);
+    exact.set(`${m[1].toLowerCase()} ${num}`, loc);
+  }
+  if (bases.size === 0) return [];
+  const toks = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const num = numeralOf(toks[i]);
+    if (!num) continue;
+    // A bare latin 'i' after a place word is the conjunction („karpos i
+    // centar“), not the numeral — unless nothing place-like follows it.
+    if (toks[i] === 'i') {
+      const next = toks[i + 1];
+      if (next && (next === 'ili' || feedLocations.some(l => locMatches(next, l)))) continue;
+    }
+    const prev = toks[i - 1];
+    if (!prev) continue;
+    for (const base of bases.values()) {
+      if (!locMatches(prev, base)) continue;
+      const label = exact.get(`${base.toLowerCase()} ${num}`) ?? `${base} ${num}`;
+      if (!out.includes(label)) out.push(label);
+    }
+  }
+  return out;
 }
 
 /** Display form: Latin-typed locations are transliterated to canonical Cyrillic.

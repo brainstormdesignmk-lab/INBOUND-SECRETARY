@@ -5,6 +5,14 @@ import { Db } from '../store/db';
 export interface SlotData {
   service?: Service;
   location?: string;
+  /** Rows a price LIST answer did not fit yet, in the lane's own order. A
+   *  follow-up „уште?“ continues HERE — the discovery ladder never built a
+   *  queue from this entry point, so the extra rows used to be unreachable. */
+  extremeQueue?: number[];
+  /** The wording the continuation reuses („во Аеродром“, „во сите населби“). */
+  extremeWhere?: string;
+  extremePlural?: string;
+  extremeNoun?: string;
   bedrooms?: number;
   bedroomsMin?: number;         // bedroom RANGE (ROOMS): "edna ili dve" → 2…3
   bedroomsMax?: number;         // range high bound; set ⇒ the exact-category alternation ladder owns presentation

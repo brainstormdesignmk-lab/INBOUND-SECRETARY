@@ -127,6 +127,21 @@ test('Strikes: 3 warnings then terminate (ANA protocol)', () => {
   assert.equal(s.strikes, 3);
 });
 
+// THE [16:42] BURST — the client sent three abuses in a row and only the
+// FIRST one struck: the second („MA KAKVA POCIT KURVETINO EDNA“) and the
+// third („DA TI GO ZBIBERAM MEGJU NOZE“) were read as clean, so the counter
+// decayed and the funnel answered a repeat offender with the discovery
+// greeting. The sequence must escalate warn → warnFinal → terminate.
+test('[16:42] a three-message abuse burst escalates every turn', () => {
+  const s = freshSession('viber', 't-burst-1642');
+  assert.equal(applyStrike(s, classifyOffensive('PRETERAVTE SO CENIVE PICKA VI MATERINA VISE')), 'warn');
+  assert.equal(s.strikes, 1);
+  assert.equal(applyStrike(s, classifyOffensive('MA KAKVA POCIT KURVETINO EDNA')), 'warnFinal');
+  assert.equal(s.strikes, 2);
+  assert.equal(applyStrike(s, classifyOffensive('DA TI GO ZBIBERAM MEGJU NOZE')), 'terminate');
+  assert.equal(s.strikes, 3);
+});
+
 test('Strikes: severe abuse still escalates one strike at a time (no instant terminate)', () => {
   const s = freshSession('viber', 't2');
   // severity 3 (sexual/violence) is a strike like any other — ANA's rule: no

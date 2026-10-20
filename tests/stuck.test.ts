@@ -1625,6 +1625,40 @@ test('insult protocol: "DA SE EBETE VO GAZOT" is a strike — 3 strikes terminat
   assert.equal(sessions.get(chatId), null); // blocked at entry — session never re-created
 });
 
+// THE [16:42] BURST — three abuses in one minute. Only the FIRST was caught:
+// „MA KAKVA POCIT KURVETINO EDNA“ and „DA TI GO ZBIBERAM MEGJU NOZE“ were
+// read as clean, so strike 1 decayed to 0 and the funnel answered a repeat
+// offender with the discovery greeting („Добредојдовте… купување или
+// изнајмување?“). Every turn must escalate now: warning → final warning →
+// terminated + permanent blocklist, with no greeting anywhere in between.
+test('insult protocol: [16:42] every message of the abuse burst escalates', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = '070123999'; // viber: the sender id IS the caller's phone
+  const send = async (m: string) => { await handler.handle('viber', chatId, m); return sessions.get(chatId)!; };
+
+  let s = await send('PRETERAVTE SO CENIVE PICKA VI MATERINA VISE');
+  assert.equal(s.strikes, 1);
+  assert.ok(/професионалн|Господине|ве молам/i.test(sent[0]), sent[0]);
+
+  s = await send('MA KAKVA POCIT KURVETINO EDNA');
+  assert.equal(s.strikes, 2);
+  assert.ok(/последна опомена/i.test(sent[1]), sent[1]);
+  assert.ok(!/Добредојдовте/.test(sent[1]), sent[1]);
+
+  s = await send('DA TI GO ZBIBERAM MEGJU NOZE');
+  assert.equal(s.strikes, 3);
+  assert.equal(s.state, 'terminated');
+  assert.equal(sent[2], 'Разговорот е завршен.');
+
+  // Absolute silence afterwards — even with a fresh session the phone is
+  // blocked, so nothing can resurrect the chat.
+  await send('zdravo, izvinete');
+  assert.equal(sent.length, 3);
+  sessions.delete(chatId);
+  await send('zdravo');
+  assert.equal(sent.length, 3);
+});
+
 test('insult protocol: [14:01] "ZIMI KUROV" is a strike — never a funnel answer', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'viber-kurov';

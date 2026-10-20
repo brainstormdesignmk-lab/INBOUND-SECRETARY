@@ -96,8 +96,102 @@ export interface LexiconEntry {
   exclude?: string[];
   excludeAfter?: string[];
   requireRegex?: RegExp;
+  /** GRAMMAR-EXPANDED row: a precompiled whole-word regex, tested against the
+   *  canonical text beside (or instead of) the literal `stems`. Used by the
+   *  morphology rows below, where one ROOT × ENDING-SET stands for a whole
+   *  inflection family instead of hand-listing every surface form. */
+  pattern?: RegExp;
   reason: string;
 }
+
+// ── MACEDONIAN MORPHOLOGY (grammar-expanded roots) ──────────────────────────
+// A flat word list is always one inflection behind the client: курва has
+// курво/курви/курвата/курвите/курветина/курветино/курвиште, ебам has
+// по-ебам/на-ебам/е-ба-л/е-ба-на, and every noun takes a vocative and a
+// definite article. So the sexual and heavy-insult families are declared as
+// ROOT × ENDING-SET and compiled into ONE letter-bounded regex per family:
+//
+//   root 'kurv' × {a, o, i, ata, ite, etina, etino, …}
+//     → /(?:^|[^a-z])(?:kurv|kurva|kurvo|kurvi|…)(?:[^a-z]|$)/u
+//
+// Both properties that keep the lexicon honest are enforced by the enclosing
+// [^a-z] … [^a-z] boundary: the form must be a WHOLE word (so "konkreten",
+// "kultura", "skurat" stay clean) and the ROOT must open it (so "izgradi"
+// never reaches 'gradi'). Adding a family is one row; adding an ending is one
+// string. Detection stays deterministic — no scores, no LLM.
+function morph(
+  id: string,
+  root: string,
+  endings: readonly string[],
+  meta: { category: LexiconEntry['category']; severity: number; confidence: number; reason: string },
+): LexiconEntry {
+  const forms = endings.map(e => `${root}${e}`).join('|');
+  return {
+    id,
+    category: meta.category,
+    severity: meta.severity,
+    confidence: meta.confidence,
+    stems: [],
+    pattern: new RegExp(`(?:^|[^a-z])(?:${forms})(?:[^a-z]|$)`, 'u'),
+    reason: meta.reason,
+  };
+}
+
+/** Sexual families: noun stems take the full Macedonian case/number/vocative
+ *  ladder plus the -etina augmentative and the -ica diminutive. */
+const MORPH_SEXUAL: LexiconEntry[] = [
+  morph('S0d4', 'kurv', ['', 'a', 'o', 'i', 'e', 'ata', 'ite', 'eto',
+    'ica', 'ice', 'ici', 'icata', 'inja', 'inje', 'inji', 'inata',
+    'etina', 'etino', 'etini', 'etinata', 'etinite',
+    'iski', 'iska', 'isko', 'iste'], {
+    category: 'sexual', severity: 3, confidence: 0.97,
+    reason: 'kurva family, grammar-expanded (курва/курво/курви/курвата/курветино/курвиште…)' }),
+  morph('S0c2', 'pick', ['', 'a', 'i', 'e', 'ata', 'ite', 'eto',
+    'ice', 'ici', 'ica', 'icata', 'inja', 'inji'], {
+    category: 'sexual', severity: 3, confidence: 0.97,
+    reason: 'picka family, grammar-expanded (пичка/пички/пичке/пичката/пичките)' }),
+  morph('S0d5', 'kurc', ['', 'ac', 'u', 'ov', 'e', 'i', 'ina',
+    'inata', 'injata', 'inja', 'evi', 'evite'], {
+    category: 'sexual', severity: 3, confidence: 0.95,
+    reason: 'kurac family, grammar-expanded (курац/курцу/курцов/курци/курчина…)' }),
+  // The ebam VERB takes PREFIXES as well as person/tense endings
+  // (по-ебам, на-ебам, за-ебам, из-ебам, раз-ебам), so its root is mid-word and
+  // the prefix is spelled INSIDE the pattern (a `morph()` row would anchor on
+  // it and miss every prefixed form). The boundary still holds: "trebam",
+  // "nebesa" and "potrebno" carry a letter before 'eb' and never fire.
+  {
+    id: 'S0k3', category: 'sexual', severity: 3, confidence: 0.95,
+    stems: [],
+    // 'raz' is deliberately NOT a prefix here: razeban/razebana already has
+    // its own heavy_insult row (H16), and letting the sexual participle win
+    // re-graded an established severity-2 class.
+    pattern: /(?:^|[^a-z])(?:po|na|za|iz|pre)?eb(?:am|as|a|ame|ate|at|av|avme|avte|al|ala|ale|alo|ali|an|ana|ano|ani|anata|anite|es|ete|eme|em|i|ite)(?:[^a-z]|$)/u,
+    reason: 'ebam verb, grammar-expanded (prefix × person/tense endings: поебам/наебав/ебала…)' },
+];
+
+/** Heavy insults: person-noun roots with the vocative (-u/-e), plural and
+ *  definite-form endings. 'glup' deliberately omits the neuter -o ending
+ *  ("glupo e da se plati" is an opinion about a deal, not a person). */
+const MORPH_HEAVY: LexiconEntry[] = [
+  morph('H1b', 'debil', ['', 'u', 'e', 'i', 'ot', 'ite', 'ka', 'ki', 'sko', 'ska', 'ski', 'cinja'], {
+    category: 'heavy_insult', severity: 2, confidence: 0.9,
+    reason: 'debil family, grammar-expanded (дебил/дебилу/дебили/дебилот…)' }),
+  morph('H2b', 'idiot', ['', 'u', 'e', 'i', 'ot', 'ite', 'ka', 'ki', 'ski', 'ska'], {
+    category: 'heavy_insult', severity: 2, confidence: 0.9,
+    reason: 'idiot family, grammar-expanded (идиот/идиоту/идиоти/идиотка…)' }),
+  morph('H5b', 'kreten', ['', 'u', 'e', 'i', 'ot', 'ite', 'ka', 'ki', 'ski', 'ska'], {
+    category: 'heavy_insult', severity: 2, confidence: 0.9,
+    reason: 'kreten family, grammar-expanded (кретен/кретену/кретени/кретенот…)' }),
+  morph('H3b', 'glup', ['ak', 'aka', 'ako', 'aci', 'aku', 'acot', 'acite', 'a', 'i'], {
+    category: 'heavy_insult', severity: 2, confidence: 0.9,
+    reason: 'glupak family, grammar-expanded (глупак/глупаку/глупаци/глупава/глупави)' }),
+  morph('H15b', 'kuck', ['a', 'o', 'i', 'ata', 'ite', 'eto', 'inja', 'inji'], {
+    category: 'heavy_insult', severity: 2, confidence: 0.95,
+    reason: 'kucka family, grammar-expanded (кучка/кучко/кучки/кучката — куче/puppy stays clean)' }),
+  morph('H6b', 'magar', ['e', 'eto', 'inja', 'ci', 'cinja', 'ce', 'ceto', 'inji'], {
+    category: 'heavy_insult', severity: 2, confidence: 0.9,
+    reason: 'magare family, grammar-expanded (магаре/магарето/магарци…)' }),
+];
 
 const LEXICON: LexiconEntry[] = [
   // ---------- SEXUAL (severity 3) ----------
@@ -117,6 +211,11 @@ const LEXICON: LexiconEntry[] = [
       'kurvata', 'kurvite', 'kurcinjata',
       'penisot', 'penisite', 'kurvin', 'kurvina', 'kurvini',
       'kurvo', 'kurva', 'kurvi', 'kurcinja', 'penis',
+      // The VOCATIVE/augmentative family ([16:42] "MA KAKVA POCIT KURVETINO
+      // EDNA"): 'kurva'/'kurvo' cannot match inside "kurvetino" under the
+      // boundary guard, and the -etina form is the actual insult used, so the
+      // inflections are listed explicitly (the kurov lesson, again).
+      'kurvetina', 'kurvetino', 'kurvetini', 'kurvetinata', 'kurvetinite',
     ], boundary: true,
     reason: 'kur/penis (letter-bounded: "skurat", "kultura" stay clean; inflected kurov/kurot/kurvo/kurva and their definite forms listed explicitly). "kurov" (куров) is the possessive form in "zemi kurov" — the [14:01] miss; "kurovski" stays clean via the boundary. Bare "cura" deliberately NOT here — it also means "girl" ("sopstvenikot e cura") — the directed insult forms live in S0d2' },
   { id: 'S0d2', category: 'sexual', severity: 3, confidence: 0.9, stems: ['ti cura', 'ti si cura', 'ti edna cura'], reason: 'directed cura insult (multi-word: neutral "sopstvenikot e cura" stays clean)' },
@@ -225,6 +324,22 @@ const LEXICON: LexiconEntry[] = [
     exclude: ['cigar', 'dozvoleno', 'zabran', 'smee', 'balkon', 'ventilac', 'pusac'],
     reason: 'oral-sex (bare pusenje/pusi verb, letter-bounded + gated by sexual qualifier — smoking excluded)' },
 
+  // Explicit SEXUAL THREAT — the [16:42] burst: "DA TI GO ZBIBERAM MEGJU
+  // NOZE". No row covered it (the verb alone has no stem), so the message
+  // fell through to the funnel and — as the SECOND offense in a row — the
+  // LLM-free path answered it with the discovery greeting. The unambiguous
+  // part is the phrase, not the verb: „меѓу нозе“ (between the legs) has no
+  // innocent reading in a property chat, in either script or the Serbian
+  // „међу“ spelling.
+  { id: 'S0d3', category: 'sexual', severity: 3, confidence: 0.95, stems: [
+      'megju noze', 'medju noze', 'megju nozete', 'medju nozete',
+      'v megju noze', 'vo megju noze',
+      'da ti go zbiberam', 'zbiberam ti go', 'da ti ga zbiberam',
+      'ke ti go zbiberam', 'kje ti go zbiberam',
+    ],
+    reason: 'vulgar sexual threat (megju noze / zbiberam — the [16:42] burst)' },
+  ...MORPH_SEXUAL,
+
   // ---------- VIOLENCE (severity 3) ----------
   { id: 'V1', category: 'violence', severity: 3, confidence: 0.99, stems: ['ke te ubijam', 'kje te ubijam', 'ke te ubiam'], reason: 'death threat (ke te ubijam)' },
   { id: 'V2', category: 'violence', severity: 3, confidence: 0.99, stems: ['ke te pretapam', 'kje te pretapam', 'ke te pretepam', 'kje te pretepam'], reason: 'assault threat (ke te pretapam)' },
@@ -249,7 +364,11 @@ const LEXICON: LexiconEntry[] = [
 
   // ---------- HEAVY INSULTS (severity 2) ----------
   { id: 'H1', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['debil', 'dibil'], reason: 'debil' },
-  { id: 'H2', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['idiot', 'idioti'], reason: 'idiot' },
+  // boundary: "idiotizam" (идиотизам — "the idiocy of the market") is a
+  // client's opinion about a situation, not a jab at Lina. The inflected
+  // forms are covered by the H2b morphology row.
+  { id: 'H2', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['idiot', 'idioti'], boundary: true,
+    reason: 'idiot (letter-bounded so "idiotizam" stays clean)' },
   { id: 'H3', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['glupak', 'glupac', 'glupa'], reason: 'glupak/glupac' },
   { id: 'H4', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['retard', 'retardiran'], reason: 'retard' },
   // boundary on 'kreten' — the [00:29] field false positive: "NE ZNAM KONKRETEN
@@ -310,6 +429,8 @@ const LEXICON: LexiconEntry[] = [
       'si ti normalna', 'si ti normalen', 'dali si ti normalna', 'dali si normalen',
       'normalna li si', 'normalen li si'],
     reason: 'dali si ti normalna (are you normal — directed 2nd-person only)' },
+
+  ...MORPH_HEAVY,
 
   // ---------- MILD (severity 1) ----------
   { id: 'M1', category: 'mild', severity: 1, confidence: 0.8, stems: ['mlci', 'mlcis', 'utkni', 'zatkni'], reason: 'shut up (mlci/utkni/zatkni)' },
@@ -379,6 +500,8 @@ function matchEntry(norm: string, entry: LexiconEntry): boolean {
   if (entry.requireRegex && !entry.requireRegex.test(norm)) return false;
   // Optional anywhere-exclusion (e.g. smoking contexts for the pusenje family)
   if (entry.exclude && entry.exclude.some(e => norm.includes(e))) return false;
+  // Grammar-expanded rows: one whole-word regex per inflection family.
+  if (entry.pattern && entry.pattern.test(norm)) return true;
   for (const stem of entry.stems) {
     if (hasPhrase(norm, stem, entry)) return true;
   }

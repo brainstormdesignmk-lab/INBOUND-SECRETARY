@@ -232,6 +232,86 @@ test('прифаќам (to accept) is polite consent, never the fakj swear', () 
   }
 });
 
+// THE [16:42] BURST — three consecutive abuses, only the first one struck:
+//   "PRETERAVTE SO CENIVE PICKA VI MATERINA VISE" → strike 1 (S0c 'picka')
+//   "MA KAKVA POCIT KURVETINO EDNA"             → CLEAN (kurv-+etina unlisted)
+//   "DA TI GO ZBIBERAM MEGJU NOZE"              → CLEAN (whole threat unlisted)
+// The two misses decayed nothing but let the funnel answer a second and third
+// insult with the discovery greeting. Every line must now strike, in order.
+test('[16:42] the insult burst is caught turn by turn', () => {
+  const dirty = [
+    'PRETERAVTE SO CENIVE PICKA VI MATERINA VISE',
+    'MA KAKVA POCIT KURVETINO EDNA',
+    'DA TI GO ZBIBERAM MEGJU NOZE',
+    // Cyrillic typing of the same three
+    'ПРЕТЕРАВТЕ СО ЦЕНИВЕ ПИЧКА ВИ МАТЕРИНА ВИШЕ',
+    'МА КАКВА ПОЧИТ КУРВЕТИНО ЕДНА',
+    'ДА ТИ ГО ЗБИБЕРАМ МЕЃУ НОЗЕ',
+  ];
+  for (const t of dirty) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+    assert.equal(d.severity, 3, JSON.stringify(t));
+    assert.equal(d.category, 'sexual', JSON.stringify(t));
+  }
+});
+
+// GRAMMAR-BASED RECOGNITION — the lexicon now expands a ROOT over Macedonian
+// endings (vocative -o/-u, definite -ot/-ta/-to/-te, plural -i/-ite, the
+// augmentative -etina/-ina, and the verb's person/tense ladder) instead of
+// only matching hand-listed surface forms.
+test('grammar-expanded inflections of the sexual families are caught', () => {
+  const dirty = [
+    'kurva', 'kurvo', 'kurvi', 'kurvite', 'курвата', 'курви', 'курво',
+    'kurvetina', 'kurvetino', 'kurvetinite', 'курветино',
+    'picka', 'picki', 'picke', 'pickata', 'pickite', 'пичката', 'пички',
+    'kurac', 'kurcu', 'kurcov', 'kurci', 'kurcina', 'kurcinata', 'курци',
+    // ebam verb: prefix × person/tense
+    'poebam', 'наебав', 'zaebi', 'izjeban', 'ebala', 'ebete', 'ebano',
+  ];
+  for (const t of dirty) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+    assert.equal(d.category, 'sexual', JSON.stringify(t));
+    assert.equal(d.severity, 3, JSON.stringify(t));
+  }
+});
+
+test('grammar-expanded inflections of the heavy insults are caught', () => {
+  const dirty = [
+    'debil', 'debilu', 'debili', 'debilite', 'дебилу', 'дебили',
+    'idiot', 'idiotu', 'idioti', 'идиоту', 'идиоти',
+    'kreten', 'kretenu', 'kreteni', 'kretenot', 'кретени',
+    'glupak', 'glupaku', 'glupaci', 'glupacite', 'глупава', 'глупави',
+    'kucka', 'kucko', 'kucki', 'kuckite', 'кучки',
+    'magare', 'magareto', 'magarci', 'магарето', 'магарци',
+    // razeban/razebana keeps its own (severity-2) row — the sexual verb
+    // pattern must not re-grade it.
+    'razebana', 'kucko razebana',
+  ];
+  for (const t of dirty) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+    assert.equal(d.severity, 2, JSON.stringify(t));
+  }
+});
+
+// The SAME grammar must never widen onto property vocabulary — these are the
+// neighbours the whole-word boundary exists for.
+test('grammar-expanded roots never fire inside innocent real-estate words', () => {
+  const clean = [
+    'konkreten stan', 'КОНКРЕТЕН СТАН', 'kultura', 'kulturen dom', 'skurat do park',
+    'trebam stan', 'nebesa', 'potrebno e', 'izgradi se zgradata', 'dozvola za gradba',
+    'kucni ljubimci', 'kuce', 'magacin', 'idiotizam na pazarot',
+    'glupo e da se plati tolku', 'diskriminacija',
+    'prifakjam', 'ne prifakjam', 'fakt e deka cenata e dobra',
+  ];
+  for (const t of clean) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+  }
+});
+
 test('classify: normal real-estate talk is never offensive', () => {
   const clean = [
     'Здраво, сакам стан под кирија.',

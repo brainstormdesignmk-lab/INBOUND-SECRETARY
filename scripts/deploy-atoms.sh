@@ -100,10 +100,16 @@ while IFS='|' read -r id host user key rpath note; do
   # 1) push code (workstation tree minus excluded state) — --delete makes the
   #    atom's code an exact mirror; excluded paths are invisible to rsync.
   RSYNC_FLAGS=(-az --delete --exclude-from="$EXCLUDE_FROM" -e "$RSYNC_SSH" --timeout=120)
-  [ "$DRY_RUN" = "1" ] && RSYNC_FLAGS+=(-n)
+  # A dry run must SHOW the plan: -i itemizes the file list (a plain `rsync -n`
+  # prints nothing, so the summary always claimed „0 entries changed“ even
+  # when dist/ genuinely differed).
+  [ "$DRY_RUN" = "1" ] && RSYNC_FLAGS+=(-n -i)
   echo "  → rsync code+dist …"
   if rsync "${RSYNC_FLAGS[@]}" ./ "$user@$host:$rpath/" >/tmp/rsync-$id.log 2>&1; then
-    echo "    ✓ rsync ok ($(grep -c '^[<>ch.]' /tmp/rsync-$id.log 2>/dev/null || echo '?') entries changed)"
+    # grep -c always prints a count (and exits 1 on no match) — never let the
+    # exit status turn the number into a „?“. The dot covers itemized `.f…`.
+    changed=$(grep -c '^[<>ch.]' /tmp/rsync-$id.log 2>/dev/null || true)
+    echo "    ✓ rsync ok (${changed:-0} entries changed)"
   else
     echo "    ✗ rsync FAILED — tail of log:"; tail -5 /tmp/rsync-$id.log | sed 's/^/      /'
     RESULTS+=("$id|RSYNC-FAIL"); continue

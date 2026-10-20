@@ -11,8 +11,8 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic } from '../llm/deterministic';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea } from '../data/properties';
+import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
@@ -1009,7 +1009,11 @@ export class InboundHandler {
     // was undefined), so it fell into the closing state and got the VISIT-FEE
     // pitch — a non-sequitur on a location question. Never a fee line while
     // the client is still asking WHERE.
-    if (session.slots.lastLandmark) {
+    // A DISTANCE question is never an „I don't know that place“ answer, even
+    // when it names one of the rotation's anchors ([16:11]: „NA KOLKAVO
+    // RASTOJANIE E STANOT OD LJUBEN LAPE?“ named L2 and the ladder advanced to
+    // L3 instead of measuring). The measurement lane below owns these.
+    if (session.slots.lastLandmark && !isDistanceQuestion(text)) {
       const lmList = session.slots.nearbyLandmarks ?? [];
       // The client may name the anchor just served OR any of the property's
       // rotation anchors (the live 11:45 transcript asked about the FIRST one
@@ -1203,18 +1207,38 @@ export class InboundHandler {
       const anchorProp = anchorEb != null
         ? await this.deps.properties.getByEb(anchorEb).catch(() => undefined)
         : undefined;
-      if (placeName && anchorProp?.lat != null && anchorProp?.lon != null) {
-        const hit = this.landmarks.findPlace(placeName, { lat: anchorProp.lat, lon: anchorProp.lon });
+      // THE REAL LOCATION — resolveSearchCenter, never the raw feed column.
+      // A stored pin can disagree with the trusted building point by hundreds
+      // of metres (the EB 70 class), and a distance measured from a damaged
+      // pin is a fabricated number even when the arithmetic is right. The
+      // resolver also repairs that pin (map anchor wins over a mismatched
+      // stored point) and reports trust, which decides the wording below.
+      const center = anchorProp
+        ? resolveSearchCenter({
+          id: anchorProp.id, eb: anchorProp.eb, address: anchorProp.address,
+          lat: anchorProp.lat, lon: anchorProp.lon,
+          geo_source: anchorProp.geo_source ?? null,
+        } as PropertyRow)
+        : undefined;
+      const hasPoint = !!center && Number.isFinite(center.lat) && Number.isFinite(center.lon)
+        && !(center.lat === 0 && center.lon === 0);
+      if (placeName && anchorProp && center && hasPoint) {
+        const hit = this.landmarks.findPlace(placeName, { lat: center.lat, lon: center.lon });
         if (hit) {
-          const d = Math.round(distM(anchorProp.lat, anchorProp.lon, hit.lat, hit.lon));
+          const d = Math.round(distM(center.lat, center.lon, hit.lat, hit.lon));
           const distPhrase = d < 1000
             ? `${Math.max(10, Math.round(d / 10) * 10)} метри`
             : `${(d / 1000).toFixed(1).replace('.', ',')} километри`;
+          // „околу“ only when the point is not a trusted building: a
+          // street-centroid/geocode point is a estimate and must say so.
+          const approx = center.trusted ? '' : 'околу ';
           const prep = locPrep(anchorProp.location ?? '');
-          // Walking time only when it is honest (a real walk, not a 3-hour one).
+          // Walking time only when it is honest (a real walk, not a 3-hour
+          // one) AND the start point is trusted — never a minute figure built
+          // on an estimate.
           const mins = walkMinutes(d);
-          const walk = d >= 100 && d <= 2000 ? ` (околу ${mins} минути пешки)` : '';
-          const answer = `${hit.name} се наоѓа на ${distPhrase}${walk} од недвижноста што ја разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на недвижноста се открива на денот на посетата.`;
+          const walk = center.trusted && d >= 100 && d <= 2000 ? ` (околу ${mins} минути пешки)` : '';
+          const answer = `${hit.name} се наоѓа на ${approx}${distPhrase}${walk} од недвижноста што ја разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на недвижноста се открива на денот на посетата.`;
           session.slots.location = anchorProp.location ?? session.slots.location;
           routeLog(chatId, text, 'DISTANCE');
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -1225,6 +1249,535 @@ export class InboundHandler {
         }
       }
       // No place / no anchor / map miss → the chains below keep the turn.
+    }
+
+    // ── MARKET PRICE LEVELS (the [16:57] capture) ───────────────────────────
+    // „KAZI MI KAKO SE DVIZAT CENIVE ZA STANOVI VO AERODROM?“ — how do FLAT
+    // prices move in a neighborhood. No lane owned it, so it fell into the
+    // funnel start and the client was asked buy-or-rent. The answer is the
+    // MEASURED €/m² band of the feed's own rows for that category in that
+    // area — never a market statistic we cannot see, never a property card.
+    //
+    // Segment: a funnel that already declared buy/rent keeps its segment; a
+    // cold ask uses the segment the matching rows actually have (sale when
+    // both exist — a mixed band would compare a monthly rent to a sale price).
+    // Guards: a named property (EB) owns its lane; an anchored funnel asking
+    // about ITS flat without naming an area ("kako e cenata za m2?") keeps the
+    // property-price lane; "both services" (buy-or-rent) is a funnel answer,
+    // not a market ask.
+    // A SERVICE WORD is NOT a veto any more: „цените за ИЗНАЈМУВАЊЕ на станови
+    // во Аеродром“ IS the market question, and the declared service simply
+    // selects the segment (rent) for the measurement. Before this, the rent
+    // wording fell into the funnel and asked „на кој дел од градот?“.
+    if (detectMarketPriceAsk(text)
+      && !detectBothServices(text)
+      && inferPropertyId(text) === undefined) {
+      const feedLocs = await this.deps.properties.locations().catch(() => [] as string[]);
+      // CITY ASK — „kako odat cenite za stanovite VO SKOPJE“ is the WHOLE-city
+      // band: a client from another city asking about Skopje is not asking
+      // about whatever area this funnel happened to hold, so the session area
+      // must NOT be inherited here.
+      const cityAsk = /(?<![\p{L}\p{N}])(?:скопје|skopje|skopju|скопју)(?![\p{L}\p{N}])/iu.test(text);
+      // The area named IN THE MESSAGE wins; otherwise the funnel's own area
+      // carries over ("A KOJA E CENATA PO KVADRAT?" right after the Аеродром
+      // ask is still about Аеродром — the first turn stored it).
+      // NUMBERED SUB-AREAS ARE THEIR OWN AREA („KARPOS 2“): the client's numeral
+      // is bound to the place word and canonicalized against the feed, because
+      // detectLocation() returns only the bare family name („Карпош“) for
+      // „KARPOS 2“ — which would measure all of I–IV under one label.
+      const numbered = numberedAreasNamed(text, feedLocs);
+      const areaRaw = cityAsk ? undefined
+        : numbered.length > 0 ? numbered.join(', ')
+          : (detectLocation(text, feedLocs) ?? session.slots.location);
+      const pluralType = hasMarketTypePlural(text);
+      const anchoredEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      // A RENT noun alone („колку му е киријата?“, „kolku mu e renta?“) is a
+      // question about the flat on the table: it opens the band only when the
+      // message NAMES an area or the category in the plural. Without this the
+      // rent word sent the shown flat's price question into a city band.
+      const rentOnlyAsk = isMarketRentWordAsk(text);
+      const areaInMessage = cityAsk || numbered.length > 0 || detectLocation(text, feedLocs) !== undefined;
+      if (areaInMessage || pluralType || (anchoredEb === undefined && !rentOnlyAsk)) {
+        const slots = extractSlots(text);
+        const isLand = !!slots.plac;
+        const typeOk = (p: Property): boolean => isLand
+          ? !!p.plac
+          : slots.business ? !!p.business
+            : slots.house ? !!p.house
+              : !p.business && !p.house && !p.plac;
+        // TOPIC rows = every offer of the asked category with a price, whether
+        // or not it has a surface. A row WITHOUT м² is still an offer — the
+        // band cannot measure it, but the reply must say „немам доволно
+        // податоци“ rather than the false „немам понуди“.
+        const topicRows = (await this.deps.properties.getAll()).filter(p =>
+          typeOk(p) && typeof p.price === 'number' && p.price > 0);
+        const allRows = topicRows.filter(p => typeof p.sqm === 'number' && p.sqm > 0);
+        // rowsInArea(): a numbered sub-area is matched EXACTLY (digits, roman
+        // and ordinal words all normalize), so „Карпош II“ can never absorb
+        // „Карпош III“ rows; everything else keeps the fuzzy place matcher.
+        const inArea = (area: string): Property[] => rowsInArea(allRows, area);
+        /** Offers of the topic in the area — the honest answer to „има ли
+         *  воопшто понуди?“, independent of whether they carry м². */
+        const hasRowsIn = (area: string): boolean => rowsInArea(topicRows, area).length > 0;
+        const fmt = (n: number): string => n >= 1000
+          ? n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+          : String(n);
+        // TWO METRICS: SALE is quoted per m² (the unit a buyer negotiates in),
+        // RENT is quoted as the MONTHLY price — a „8 евра за м²“ rent band means
+        // nothing to a tenant ([17:34] follow-up: rents read as totals).
+        const typePlural = isLand ? 'плацови' : slots.business ? 'деловни простори' : slots.house ? 'куќи' : 'станови';
+        // A band carries HOW MANY rows back it: one row is a listing, not a
+        // price level, and the thin feed (45 active rows) makes that common
+        // (Аеродром rent = one row; Карпош = one row). The caller says so
+        // instead of dressing a single offer up as a market range.
+        type BandInfo = { text: string; n: number; lo: number; hi: number; unit: string };
+        const bandFor = (area: string | undefined): BandInfo | undefined => {
+          const rows = (area ? inArea(area) : allRows).filter(p => p.service === segment);
+          // €/m² is computed by pricePerM2() — a SALE row without м² contributes
+          // NO value (never price/1), so one bad row cannot stretch the band.
+          const values = (segment === 'rent'
+            ? rows.map(p => p.price as number)
+            : rows.map(p => pricePerM2(p)))
+            .filter((v): v is number => typeof v === 'number')
+            .sort((a, b) => a - b);
+          if (values.length === 0) return undefined;
+          const lo = values[0];
+          const hi = values[values.length - 1];
+          if (segment === 'rent') {
+            // The period word is READ OFF the feed's own figures (rentUnitWord):
+            // the feed has no period column, so a band may only say „месечно“
+            // when every rent figure in it is monthly-sized. A per-day number
+            // in the band makes the reply state the amount without the period.
+            const unit = rentUnitWord(rows) ? 'евра месечно' : 'евра';
+            const money = unit === 'евра' ? 'евра (единицата не е наведена во огласот)' : unit;
+            const text = lo === hi
+              ? (values.length === 1
+                ? `единствената активна понуда во моментов е ${fmt(lo)} ${money}`
+                : `цените за изнајмување на ${typePlural} се околу ${fmt(lo)} ${money}`)
+              : `цените за изнајмување на ${typePlural} варираат од ${fmt(lo)} до ${fmt(hi)} ${money}`;
+            return { text, n: values.length, lo, hi, unit };
+          }
+          const text = lo === hi
+            ? (values.length === 1
+              ? `единствената активна понуда во моментов е ${fmt(lo)} евра за м²`
+              : `цените се околу ${fmt(lo)} евра за м²`)
+            : `цените варираат од ${fmt(lo)} до ${fmt(hi)} евра за м²`;
+          return { text, n: values.length, lo, hi, unit: 'евра за м²' };
+        };
+        // The sentence a band becomes in an area (one row is stated AS one row).
+        const bandSentence = (label: string, b: BandInfo): string =>
+          b.n === 1
+            ? `Во ${label}, во моментов имаме една активна понуда: ${fmt(b.lo)} ${b.unit}`
+            : `Во ${label}, ${b.text}`;
+        const familySentence = (base: string, b: BandInfo): string =>
+          b.n === 1
+            ? `За целата населба ${base} во моментов имаме една активна понуда: ${fmt(b.lo)} ${b.unit}`
+            : `За целата населба ${base} ${b.text}`;
+        // ONE BAND PER AREA ([17:34]): „KARPOS ILI CENTAR“ is TWO answers — the
+        // merged sentence (1.286–2.889) described neither neighborhood. The
+        // area string detectLocation returns is comma-joined, so it splits back
+        // into the areas the client actually named (or the session's).
+        // „KARPOS“ means the whole family (I/II/III/IV): the feed's canonical
+        // „Карпош III“ is a SUB-AREA, so a bare ask groups it under „Карпош“.
+        // Only an explicitly numbered area („KARPOS 2“) stays narrow.
+        const family = (loc: string): string => {
+          const bare = loc.replace(/\s*\([^)]*\)\s*/gu, ' ').trim();
+          // The client NAMED a number → each is its own area with its own band.
+          // Otherwise a stored „Карпош III“ answers for the whole family (the
+          // [17:34] rule: a bare KARPOS ask covers I–IV).
+          if (numbered.length > 0) return bare;
+          return bare.replace(/\s+(?:I{1,3}V?|IV|[1-4])\s*$/u, '').trim();
+        };
+        const areaNames = [...new Set((areaRaw ?? '').split(/,\s*/u).map(s => s.trim()).filter(Boolean).map(family))];
+        // The FAMILY a numbered area belongs to („Карпош I“ → „Карпош“). Used
+        // for ONE widening: a numbered area with NO offers at all falls back to
+        // the family band, LABELLED as the family — never silently passed off
+        // as the numbered area's own price.
+        const familyBaseOf = (loc: string): string | undefined => {
+          const bare = loc.replace(/\s*\([^)]*\)\s*/gu, ' ').trim();
+          if (!isNumberedArea(bare)) return undefined;
+          return bare.replace(/\s+(?:I{1,3}V?|IV|[1-4])\s*$/u, '').trim() || undefined;
+        };
+        const familyBandFor = (loc: string): BandInfo | undefined => {
+          const base = familyBaseOf(loc);
+          return base && base !== loc ? bandFor(base) : undefined;
+        };
+        // Reply order follows the client's own sentence („KARPOS ILI CENTAR“).
+        const at = (s: string): number => {
+          const i = text.toLowerCase().indexOf(s.toLowerCase());
+          return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+        };
+        areaNames.sort((a, b) => at(a) - at(b));
+        // The SEGMENT is chosen once for the whole reply (a funnel that
+        // declared buy/rent keeps it; a cold ask uses what the asked scope
+        // actually holds — a mixed band would compare a monthly rent to a sale
+        // price). Areas are then measured inside that segment.
+        // A numbered area with no rows of its own still shares the FAMILY's
+        // segment (the band it will fall back to). Without this the empty
+        // sub-area left the segment to guess „rent“ and the family band the
+        // reply was about to quote came back empty.
+        const scopeRows = areaNames.length > 0
+          ? areaNames.flatMap(a => {
+            const own = inArea(a);
+            if (own.length > 0) return own;
+            const base = familyBaseOf(a);
+            return base ? inArea(base) : [];
+          })
+          : allRows;
+        // The service the MESSAGE declares wins („цените за изнајмување…“),
+        // then the funnel's own segment, then whatever the scope holds.
+        const segmentSource = scopeRows.length > 0 ? scopeRows : allRows;
+        const segment = slots.service ?? session.slots.service
+          ?? (segmentSource.some(p => p.service === 'buy') ? 'buy' : 'rent');
+
+        const tail = 'во зависност од местоположбата, квалитетот, годината на градба, опремата и условите што ги нуди самиот објект.';
+        const cap = (s: string): string => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+        let answer: string;
+        if (areaNames.length > 1) {
+          const lines = areaNames.map(name => {
+            const band = bandFor(name);
+            if (band) return `${bandSentence(name, band)}.`;
+            // „no offers“ and „offers but no measurable figure“ are DIFFERENT
+            // facts, and a multi-area reply must phrase them the same way the
+            // single-area one does (it used to call both „немам доволно
+            // податоци“, promising a band for an area that holds nothing).
+            if (hasRowsIn(name)) return `За ${name} во моментов немам доволно податоци за цена по м².`;
+            const base = familyBaseOf(name);
+            const wider = familyBandFor(name);
+            return wider && base
+              ? `За ${name} во моментов немам понуди — ${familySentence(base, wider)}.`
+              : `За ${name} во моментов немам понуди.`;
+          });
+          lines.push(cap(tail));
+          answer = lines.join('\n');
+        } else {
+          const label = areaNames[0] ?? (cityAsk ? 'Скопје' : undefined);
+          const band = bandFor(areaNames[0]);
+          if (!band) {
+            // Honest no-data: never invent a band, and never promise offers in
+            // an area that holds none (a numbered sub-area with no rows).
+            const hasRows = !!label && hasRowsIn(label);
+            const base = label ? familyBaseOf(label) : undefined;
+            const wider = label ? familyBandFor(label) : undefined;
+            if (label && !hasRows && wider && base) {
+              // A numbered sub-area with NO offers at all: say THAT first, then
+              // give the family band with the family named — widening is never
+              // silent, and a sibling's price is never presented as this one's.
+              answer = `За ${label} во моментов немам понуди. ${familySentence(base, wider)}. ${tail}`;
+            } else {
+              answer = label
+              ? hasRows
+                ? `За ${label} во моментов немам доволно податоци за цена по м². Можам да Ви ги покажам актуелните понуди во ${label} — дали сакате?`
+                : `За ${label} во моментов немам понуди. Можам да Ви покажам понуди во друга населба — дали сакате?`
+                : 'Во моментов немам доволно податоци за цена по м² за тој тип на недвижност. Можам да Ви ги покажам актуелните понуди — дали сакате?';
+            }
+          } else if (band.n === 1) {
+            // ONE row: a listing, not a market level. Say so, then the usual
+            // dependency line — never „цените се околу“ off a single offer.
+            const sentence = label
+              ? bandSentence(label, band)
+              : `Во моментов имаме една активна понуда на ${typePlural}: ${fmt(band.lo)} ${band.unit}`;
+            answer = `${sentence}. ${cap(tail)}`;
+          } else {
+            // With an area prefix the band continues the sentence (lowercase);
+            // without one it OPENS it, so it starts capitalized.
+            const opening = label ? `Во ${label}, ${band.text}` : cap(band.text);
+            answer = `${opening} ${tail}`;
+          }
+        }
+        // Persist the area ONLY when it has data: an honest „нема податоци за
+        // Карпош I“ must not strand the funnel in an empty area, which made
+        // every later ask (even „кој е најевтиниот?“, „по 1286?“) come back
+        // empty. A no-data answer leaves the previously working area in place.
+        const anyBand = areaNames.length > 0
+          ? areaNames.some(name => bandFor(name) !== undefined)
+          : bandFor(undefined) !== undefined;
+        if (areaRaw && anyBand) session.slots.location = areaRaw;
+        routeLog(chatId, text, 'MARKET_PRICE');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
+    }
+
+    // ── „УШТЕ?“ AFTER A PRICE LIST ──────────────────────────────────────────
+    // A list answer („покажи ги сите“) keeps the rows that did not fit. The
+    // ordinary options lane never built a queue from this entry point, so the
+    // follow-up used to bounce to the discovery ladder and the extra rows were
+    // unreachable. Continue the SAME ranked list here, three at a time.
+    if ((session.slots.extremeQueue?.length ?? 0) > 0
+      && /(?:^|[\s,.:;!?])(?:uste|уште|ushte|poveke|повеќе|povece|повече)(?![\p{L}\p{N}])/iu.test(text)) {
+      const ids = session.slots.extremeQueue!;
+      const byId = new Map((await this.deps.properties.getAll()).map(p => [p.id, p]));
+      const batch = ids.map(id => byId.get(id)).filter((p): p is Property => !!p).slice(0, 3);
+      session.slots.extremeQueue = ids.slice(batch.length);
+      if (batch.length > 0) {
+        await this.landmarks.enrich(batch);
+        const plural = session.slots.extremePlural ?? 'станови';
+        const noun = session.slots.extremeNoun ?? 'стан';
+        const where = session.slots.extremeWhere ?? '';
+        const intro = batch.length === 1
+          ? `Еве уште еден ${noun}${where}:`
+          : `Еве уште ${plural}${where}:`;
+        const answer = `${intro}\n\n${batch.map(p => buildPropertyCard(p)).join('\n\n')}`;
+        const p0 = batch[0];
+        session.slots.propertyId = p0.eb;
+        session.slots.interestedPropertyId = p0.eb;
+        const presented = session.slots.presentedIds ?? [];
+        session.slots.presentedIds = [...presented, ...batch.map(p => p.id).filter(id => !presented.includes(id))];
+        session.slots.currentBatch = batch.map(p => p.id);
+        session.state = 'presentation';
+        const nearLm = this.landmarks.nearbyLandmarks(p0);
+        if (nearLm.length > 0) {
+          session.slots.nearbyLandmarks = nearLm.map(n => n.landmark);
+          session.slots.nearbyLandmarkCoords = nearLm.map(n => ({ lat: n.lat, lon: n.lon }));
+          session.slots.nearbyLandmarkPlaceIds = nearLm.map(n => n.place_id ?? null);
+          session.slots.nearbyLandmarkEb = p0.eb;
+          session.slots.landmarkIndex = 0;
+          session.slots.lastLandmark = undefined;
+        }
+        routeLog(chatId, text, 'PRICE_EXTREME_MORE');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
+    }
+
+    // ── PRICE EXTREMES / BAND LOOKUP (the [17:44] capture) ──────────────────
+    // „KOJ TI E TOJ STAN PO 1286E PO M2“ — the client read the LOW END of the
+    // band and asks which flat it is; „POCNI OD NAJEVTINITE / POKAZI MI
+    // NAJSKAPITE“ — start from the cheapest or show the dearest. Served from
+    // the same scope as the band (areas + category + segment) and sorted on
+    // that segment's own metric: monthly price for RENT, €/m² for SALE.
+    // Before this lane the question fell into the funnel and asked for the
+    // bedroom count.
+    // FEE traffic is NEVER a property lookup: „ZA SEKOJ STAN PO 300DEN“ is a
+    // fee objection that must climb the ladder, and „KOLKU E ZA POSETA“ is the
+    // per-visit fee question. ONE structural gate (isFeeFrame) replaces the
+    // per-lane enumeration of fee detectors: it requires a fee NOUN beside a
+    // figure/pay verb (or denar money), so a wording none of the named
+    // detectors knows still cannot be read as a property price, while the
+    // serve-verb homograph („покажи“) no longer swallows price asks.
+    if (detectPriceExtremeAsk(text) && inferPropertyId(text) === undefined && !isFeeFrame(text)) {
+      const q = extractPriceExtremeQuery(text);
+      if (q) {
+        const feedLocs = await this.deps.properties.locations().catch(() => [] as string[]);
+        const cityAsk = /(?<![\p{L}\p{N}])(?:скопје|skopje|skopju|скопју)(?![\p{L}\p{N}])/iu.test(text);
+        // Same area resolution as the band: a NUMERAL in the message binds to its
+        // place word and is matched exactly, so „KARPOS 2“ never returns a
+        // „Карпош III“ flat through the shared family token.
+        const numbered = numberedAreasNamed(text, feedLocs);
+        // The message's own area is the ONLY scope: a bare price ask is
+        // CITY-WIDE („во сите населби“) — neither the discovery location nor
+        // the previous band's area may silently narrow it. The replay that
+        // answered „Најевтиниот стан во Центар и Карпош III“ for a bare
+        // „DAJ MI GO NAJEVTINIOT STAN“ is exactly what this prevents; an
+        // explicit area (or „Скопје“) is how the client narrows.
+        const namedArea = numbered.length > 0 ? numbered.join(', ') : detectLocation(text, feedLocs);
+        const areaRaw = cityAsk ? undefined : namedArea;
+        // A bare family word in the message („KARPOS“) must rank the WHOLE
+        // family, not whichever numbered row the feed happens to hold first —
+        // the same collapse the band lane makes. An explicit numeral (named in
+        // the message) or an inherited price scope stays exact.
+        const areaForScope = (a: string): string =>
+          namedArea !== undefined && numbered.length === 0 && isNumberedArea(a)
+            ? a.replace(/\s+(?:I{1,3}V?|IV|[1-4])\s*$/u, '').trim() || a
+            : a;
+        const areaNames = [...new Set((areaRaw ?? '').split(/,\s*/u).map(s => s.trim()).filter(Boolean).map(areaForScope))];
+        const slots = extractSlots(text);
+        const isLand = !!slots.plac;
+        const typeOk = (p: Property): boolean => isLand
+          ? !!p.plac
+          : slots.business ? !!p.business
+            : slots.house ? !!p.house
+              : !p.business && !p.house && !p.plac;
+        const allRows = (await this.deps.properties.getAll()).filter(p =>
+          typeOk(p) && typeof p.price === 'number' && p.price > 0);
+        const inScope = areaNames.length > 0
+          ? areaNames.flatMap(a => rowsInArea(allRows, a))
+          : allRows;
+        const segment = slots.service ?? session.slots.service
+          ?? (inScope.some(p => p.service === 'buy') ? 'buy' : 'rent');
+        const rows = inScope.filter(p => p.service === segment);
+        // A 'value' ask may name a WHOLE price („станот од 90.000 евра“) instead
+        // of a €/m² figure. For a buy row that is the price column; a rent metric
+        // is the monthly price either way. A small figure that matches a row's
+        // own price is read as that whole price too (the feed shows both).
+        const val = q.value;
+        const totalMode = q.total === true && val !== undefined
+          && (segment === 'rent' || val >= 10000
+            || rows.some(p => typeof p.price === 'number' && Math.abs(p.price - val) <= Math.max(1000, val * 0.05)));
+        // €/m² comes from pricePerM2(): a sale row with no м² has NO metric and
+        // is excluded from the ranking — never treated as price/1, which made a
+        // surface-less flat the permanent "most expensive".
+        const metric = (p: Property): number | undefined => totalMode
+          ? p.price
+          : segment === 'rent' ? p.price : pricePerM2(p);
+        const rankable = rows
+          .map(p => ({ p, m: metric(p) }))
+          .filter((x): x is { p: Property; m: number } => typeof x.m === 'number');
+        const fmtEur = (n: number): string => n >= 1000
+          ? n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+          : String(n);
+        const areaLabel = areaNames.map(a => a.replace(/\s*\([^)]*\)\s*$/u, '')).join(' и ');
+        // PLURAL ask = show a batch. The suffix must END the token — „najevtiniot“
+        // (singular, „the cheapest flat“) merely STARTS with „najevtini“ and
+        // must serve ONE property, not a two-card list.
+        const pluralAsk = /(?:naj(?:e|е)?(?:v|f)tin(?:i|ite)(?![\p{L}])|najskap(?:i|ite)(?![\p{L}])|нај(?:е)?(?:в|ф)тин(?:и|ите)(?![\p{L}])|најскап(?:и|ите)(?![\p{L}])|po(?:e|е)?(?:v|f)tin(?:ite|i)(?![\p{L}])|по(?:е)?(?:в|ф)тин(?:ите|и)(?![\p{L}])|(?:^|[\s,.:;!?])(?:site|сите|sto\s+ima|што\s+има)(?![\p{L}]))/iu.test(text);
+        // THE CAP FOLLOWS THE ASK: „site/site stanovi/што има“ is the whole list
+        // (5 cards), a plural superlative a small batch (3), a singular exactly
+        // one. The old hard cap of two cut the list the client asked for.
+        const allAsk = /(?:^|[\s,.:;!?])(?:site|сите|sto\s+ima|што\s+има)(?![\p{L}\p{N}])/iu.test(text);
+        const pluralListAsk = pluralAsk
+          || ((q.mode === 'cheaper' || q.mode === 'dearer') && /(?:stanovi|станови|opcii|опции|kukji|куќи)/iu.test(text));
+        const limit = allAsk ? 5 : pluralListAsk ? 3 : 1;
+        let chosen: Property[] = [];
+        // Rows beyond this answer's cap, in the lane's own order — the queue
+        // „уште?“ continues from.
+        let overflow: Property[] = [];
+        let approx = false;
+        if (q.mode === 'value' && val !== undefined) {
+          const near = [...rankable].sort((a, b) => Math.abs(a.m - val) - Math.abs(b.m - val));
+          if (near.length > 0) {
+            const diff = Math.abs(near[0].m - val);
+            approx = diff > Math.max(5, val * 0.02);
+            chosen = [near[0].p];
+          }
+        } else if (q.mode === 'cheaper' || q.mode === 'dearer') {
+          // STRICTLY one side of the reference the client named — the flat AT
+          // the reference is not „поевтини“ from their point of view.
+          const ref = val ?? 0;
+          const side = rankable
+            .filter(x => q.mode === 'cheaper' ? x.m < ref : x.m > ref)
+            .sort((a, b) => q.mode === 'cheaper' ? a.m - b.m : b.m - a.m);
+          chosen = side.slice(0, limit).map(x => x.p);
+          overflow = side.slice(limit).map(x => x.p);
+        } else if (rankable.length > 0) {
+          const sorted = [...rankable].sort((a, b) => a.m - b.m).map(x => x.p);
+          if (q.mode === 'expensive') {
+            chosen = sorted.slice(-limit).reverse();
+            overflow = sorted.slice(0, Math.max(0, sorted.length - limit)).reverse();
+          } else {
+            chosen = sorted.slice(0, limit);
+            overflow = sorted.slice(limit);
+          }
+        }
+        let answer: string;
+        if (chosen.length === 0) {
+          if (q.mode === 'cheaper' || q.mode === 'dearer') {
+            const dir = q.mode === 'cheaper' ? 'поевтини' : 'поскапи';
+            const unit = totalMode ? 'евра' : segment === 'rent' ? 'евра месечно' : 'евра за м²';
+            answer = `Во моментов немам ${dir} понуди${areaLabel ? ` во ${areaLabel}` : ' во сите населби'} од ${fmtEur(val as number)} ${unit}. Можам да Ви покажам понуди во друга населба — дали сакате?`;
+            routeLog(chatId, text, 'PRICE_EXTREME');
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, answer, 'deterministic');
+            return;
+          }
+          // OFFERS EXIST BUT NO м² → never rank them: say what is missing and
+          // offer the cards instead of inventing a per-м² order.
+          const noSize = segment === 'buy' && rows.length > 0;
+          answer = noSize
+            ? `За ${areaLabel || 'тој тип на недвижност'} има понуди, но без податок за квадратура не можам да ги споредам по цена за м². Можам да Ви ги покажам сите — дали сакате?`
+            : areaLabel
+              ? `Во ${areaLabel} во моментов немам активни понуди во таа категорија. Можам да Ви покажам нешто слично на друго место — дали сакате?`
+              : 'Во моментов немам активни понуди во таа категорија. Можам да Ви покажам нешто слично — дали сакате?';
+        } else {
+          const p0 = chosen[0];
+          // Base form for the superlative („најевтиниот стан“), definite form
+          // for the demonstrative („станот со 1.286 …“).
+          const nounBase = p0.plac ? 'плац' : p0.house ? 'куќа' : p0.business ? 'деловен простор' : 'стан';
+          const noun = p0.plac ? 'плацот' : p0.house ? 'куќата' : p0.business ? 'деловниот простор' : 'станот';
+          const pluralNoun = p0.plac ? 'плацови' : p0.house ? 'куќи' : p0.business ? 'деловни простори' : 'станови';
+          const priceLabel = (p: Property): string => {
+            if (segment === 'rent') {
+              // The monthly word is the FEED's claim, checked in monthlyRent():
+              // a per-day figure in the feed is never called monthly here.
+              return `${fmtEur(p.price as number)} евра${monthlyRent(p) !== undefined ? ' месечно' : ''}`;
+            }
+            const perM2 = pricePerM2(p);
+            return perM2 !== undefined
+              ? `${fmtEur(p.price as number)} евра (${fmtEur(perM2)} евра за м²)`
+              : `${fmtEur(p.price as number)} евра`;
+          };
+          // With no area in the message OR in the price scope the ranking is
+          // city-wide — say so, so the client never mistakes it for their area.
+          const where = areaLabel ? ` во ${areaLabel}` : ' во сите населби';
+          let intro: string;
+          if (q.mode === 'value') {
+            // A rent figure is monthly whether the ask named a total or a €/m²
+            // number — and only when the feed's rows can back the period word.
+            const valUnit = segment === 'rent'
+              ? (rentUnitWord(rows) ? ' месечно' : '')
+              : totalMode ? '' : ' за м²';
+            if (approx) {
+              // NO exact row: answer with the scope's REAL range plus the
+              // nearest row, instead of only „нема понуда точно“ (a 300 € rent
+              // ask against 250–400 rows deserves the range, not a refusal).
+              const vals = rankable.map(x => x.m).sort((a, b) => a - b);
+              const lo = vals[0];
+              const hi = vals[vals.length - 1];
+              const range = lo === hi
+                ? `${fmtEur(lo)} евра${valUnit}`
+                : `од ${fmtEur(lo)} до ${fmtEur(hi)} евра${valUnit}`;
+              intro = `За ${fmtEur(q.value as number)} евра${valUnit}${where} во моментов имаме понуди ${range} — најблиску е ${noun} со Евидентен број ${p0.eb}: ${priceLabel(p0)}.`;
+            } else {
+              intro = `${noun.charAt(0).toUpperCase()}${noun.slice(1)} за ${fmtEur(q.value as number)} евра${valUnit} е со Евидентен број ${p0.eb}: ${priceLabel(p0)}.`;
+            }
+          } else if (q.mode === 'cheaper' || q.mode === 'dearer') {
+            const plural = p0.plac ? 'плацови' : p0.house ? 'куќи' : p0.business ? 'деловни простори' : 'станови';
+            const dir = q.mode === 'cheaper' ? 'поевтини' : 'поскапи';
+            intro = chosen.length > 1
+              ? `Еве ${dir} ${plural}${where}:`
+              : `${(q.mode === 'cheaper' ? 'Поевтиниот' : 'Поскапиот')} ${nounBase}${where} е со Евидентен број ${p0.eb}: ${priceLabel(p0)}.`;
+          } else if (chosen.length > 1) {
+            // „СИТЕ“ is the whole list, not a ranked pair: say so instead of
+            // claiming a „најниска цена“ order the client did not ask for.
+            intro = allAsk
+              ? `Еве ги сите ${pluralNoun}${areaLabel ? where : ''}:`
+              : q.mode === 'expensive'
+                ? `Еве ги ${pluralNoun} со највисока цена${where}:`
+                : `Еве ги ${pluralNoun} со најниска цена${where}:`;
+          } else {
+            intro = q.mode === 'expensive'
+              ? `Најскапиот ${nounBase}${where} е со Евидентен број ${p0.eb}: ${priceLabel(p0)}.`
+              : `Најевтиниот ${nounBase}${where} е со Евидентен број ${p0.eb}: ${priceLabel(p0)}.`;
+          }
+          answer = `${intro}\n\n${chosen.map(p => buildPropertyCard(p)).join('\n\n')}`;
+          session.slots.propertyId = p0.eb;
+          session.slots.interestedPropertyId = p0.eb;
+          const presented = session.slots.presentedIds ?? [];
+          session.slots.presentedIds = [...presented, ...chosen.map(p => p.id).filter(id => !presented.includes(id))];
+          session.state = 'presentation';
+          // The list this answer opened: keep the rest, in the same order, for
+          // the follow-up „уште?“ (served by the continuation above).
+          session.slots.extremeQueue = overflow.map(p => p.id);
+          // City-wide reads as „сите станови“ — no redundant „во сите населби“.
+          session.slots.extremeWhere = areaLabel ? where : '';
+          session.slots.extremePlural = pluralNoun;
+          session.slots.extremeNoun = nounBase;
+          const nearLm = this.landmarks.nearbyLandmarks(p0);
+          if (nearLm.length > 0) {
+            session.slots.nearbyLandmarks = nearLm.map(n => n.landmark);
+            session.slots.nearbyLandmarkCoords = nearLm.map(n => ({ lat: n.lat, lon: n.lon }));
+            session.slots.nearbyLandmarkPlaceIds = nearLm.map(n => n.place_id ?? null);
+            session.slots.nearbyLandmarkEb = p0.eb;
+            session.slots.landmarkIndex = 0;
+            session.slots.lastLandmark = undefined;
+          }
+        }
+        routeLog(chatId, text, 'PRICE_EXTREME');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
     }
 
     // ── WHICH-SIDE / SURROUNDINGS (the [01:29] capture) ─────────────────────
