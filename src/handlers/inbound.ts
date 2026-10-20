@@ -7,7 +7,7 @@ import {
 } from '../fsm/session';
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
 import { shouldLogForEnrichment } from '../llm/enrichPolicy';
-import { validateDynamicAnswer } from '../llm/dynamicFallback';
+import { shouldTryDynamic, validateDynamicAnswer } from '../llm/dynamicFallback';
 import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
@@ -703,21 +703,25 @@ export class InboundHandler {
   // ---------------- main message path ----------------
 
   /**
-   * LEARNED RECALL — the closed loop's fast lane, at the TOP of the funnel.
+   * LEARNED SERVE — the closed loop at the TOP of the funnel: recall, else
+   * generate ONCE and store, else fall through to the classifier.
    *
-   * The runtime store (`bank_dynamic`) and the learned examples already
-   * existed, but they were only consulted inside escalate() — i.e. after every
-   * deterministic lane had a chance to answer, which is why a stored answer
-   * almost never served (four rows since September). This runs at the one seam
-   * where the turn is provably uncovered: the deterministic pre-classify
-   * returned nothing, the same seam that flags a fallthrough.
+   * The runtime store (`bank_dynamic`) and the learned examples existed, but
+   * they were only consulted inside escalate() — i.e. after every deterministic
+   * lane had a chance to answer, which is why a stored answer almost never
+   * served (four rows since September) and why a misroute never fed the loop.
+   * This runs at the one seam where the turn is provably uncovered: the
+   * deterministic pre-classify returned nothing (the fallthrough seam).
    *
-   * Deliberately EXACT (+ containment) only, and dynamic rows only in the
-   * current FSM state: a stored answer may serve the phrasing it was taught,
-   * never a reworded funnel question. Validation runs again on recall, so a
-   * tightened contract retroactively retires stale rows.
+   * RECALL is deliberately EXACT (+ word-bounded containment) and dynamic rows
+   * only in the current FSM state: a stored answer may serve the phrasing it
+   * was taught, never a reworded funnel question. GENERATE runs only behind
+   * `shouldTryDynamic` — a real question, out of the protocol sub-funnel, and
+   * never money/availability/contact traffic (those keys are frozen or
+   * data-driven). A clean answer serves AND is stored immediately, so the next
+   * occurrence is free; a dirty one stores nothing.
    */
-  private async tryLearnedRecall(session: ChatSession, text: string): Promise<boolean> {
+  private async tryLearnedServe(session: ChatSession, text: string): Promise<boolean> {
     const bank = this.deps.bank;
     if (!bank || fsmRequired(text)) return false;
     const before = session.state;
@@ -733,6 +737,14 @@ export class InboundHandler {
         if (ex) {
           const v = pickVariant(ex.key, { recent: assistantTexts(session) });
           if (v) { reply = v; source = 'bank'; bankKey = ex.key; }
+        }
+        // THE MISS → GENERATE + STORE half. Only for a genuine question the
+        // deterministic stack could not route and the protocol sub-funnel does
+        // not own; the answer has already passed the no-facts/hygiene gate and
+        // is stored by dynamicAnswer before we serve it.
+        if (!reply && shouldTryDynamic(session, text)) {
+          const generated = await this.deps.responder.tryDynamic(session, text, bank);
+          if (generated) { reply = generated.text; source = generated.source; bankKey = generated.key; }
         }
       }
     } catch { /* recall is advisory — fall through to the classifier */ }
@@ -3485,9 +3497,10 @@ export class InboundHandler {
       // this into a hardening-corpus candidate (the phrasing stops being
       // novel once a detector owns it).
       this.detGaveUp = true;
-      // LEARNED RECALL before the classifier: the second time this exact
-      // phrasing is asked, the stored answer serves with no LLM at all.
-      if (await this.tryLearnedRecall(session, text)) return;
+      // LEARNED SERVE before the classifier: a stored answer serves free, and
+      // a genuine uncovered question is generated ONCE (gated) and stored, so
+      // the next occurrence never reaches the classifier or Gemini again.
+      if (await this.tryLearnedServe(session, text)) return;
       classified = await this.deps.classifier.classify(session, text);
     }
 

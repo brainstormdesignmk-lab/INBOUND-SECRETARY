@@ -4,7 +4,8 @@ import { ChatSession, assistantTexts } from '../fsm/session';
 import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
 import { fallbackVariant, pickVariant, retrieveVariant, getLearnedBank } from '../data/responseBank';
-import { dynamicAnswer } from './dynamicFallback';
+import { dynamicAnswer, generateDynamic, type DynamicResult } from './dynamicFallback';
+import type { BankStore } from '../store/bank';
 import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feeLadder, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
 
@@ -209,6 +210,23 @@ export class Responder {
     // Escalation brain defaults to the boot brain; the TUI re-pins it so
     // /brain free never routes escalate() to NoLlm (knowledge-based dispatch).
     this.escalationLlm = llm;
+  }
+
+  /**
+   * TOP-OF-FUNNEL dynamic serve: recall a stored answer, or generate ONE
+   * constrained answer and store it immediately. Called by the handler at the
+   * classify seam — i.e. on an explicit bank miss, before a broad lane can
+   * answer the question with something else. The caller owns the gates
+   * (`shouldTryDynamic`): this method assumes the turn is uncovered and out of
+   * the protocol sub-funnel.
+   */
+  async tryDynamic(session: ChatSession, userText: string, bank?: BankStore): Promise<DynamicResult | undefined> {
+    const store = bank ?? getLearnedBank();
+    if (!store) return undefined;
+    // GENERATE only: the caller already ran the exact, state-scoped recall. The
+    // fuzzy recall inside dynamicAnswer is state-agnostic and would let a
+    // `closing` answer serve in `idle` through this door.
+    return generateDynamic(this.escalationLlm, session, userText, store);
   }
 
   /** Pin the brain that handles BANK/DETECTOR MISSES. Called once at boot
