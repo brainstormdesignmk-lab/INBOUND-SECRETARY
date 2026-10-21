@@ -28,6 +28,8 @@ import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
 import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LINE, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE } from '../src/llm/infoAnswer';
+import { detectGlossaryAsk, answerGlossary, isGlossaryAsk, SUTEREN_MEANING, SUTEREN_DUG_IN } from '../src/llm/glossary';
+import { isSuterenUnit } from '../src/llm/infoAnswer';
 import { hasParkingWord } from '../src/llm/morphology';
 import { detectFeatureAsk, detectPriceAsk } from '../src/llm/deterministic';
 import { inferPropertyId } from '../src/llm/classify';
@@ -355,6 +357,108 @@ test('E2E: feature ask about unstored data falls through honestly (no fabricated
   assert.ok(
     a?.includes('ќе го прашам сопственикот') || a?.includes('не е наведено'),
     `honest no-data line: ${a}`);
+
+  offlineMap.close();
+});
+
+// ── GLOSSARY — the [08:52] transcript ───────────────────────────────────────
+// "na koj kat e garsonjerata?" → "Се наоѓа во сутерен."
+// "sto znaci toa suteren ?"    → the SAME line again (the word "сутерен" was
+// read as a floor facet). A definition is not a fact about the property: it is
+// answered as vocabulary, and the floor ask keeps its own answer.
+
+test('glossary: the definition ask is recognized in both scripts', () => {
+  for (const m of [
+    'sto znaci toa suteren ?', 'шо значи сутерен?', 'што е сутерен',
+    'što znači toa suteren?', 'suteren sto znaci', 'објасни ми што е сутерен',
+    'не знам што е сутерен', 'a sto e suteren ?',
+  ]) {
+    assert.equal(detectGlossaryAsk(m), 'suteren-meaning', m);
+    assert.equal(answerGlossary(m), SUTEREN_MEANING, m);
+  }
+  assert.equal(SUTEREN_MEANING, 'Сутерен е кат −1 — позиција еден кат подолу од приземјето на објектот.');
+});
+
+test('glossary: the dug-in follow-ups answer Делумно вкопан', () => {
+  for (const m of [
+    'dali e vkopan ?', 'дали е вкопана ?', 'дали е под земја ?', 'e pod zemja ?',
+    'pod zemja?', 'dali e podrum', 'podrum li e ?', 'дали е подрум?',
+  ]) {
+    assert.equal(detectGlossaryAsk(m), 'suteren-dug-in', m);
+    assert.equal(answerGlossary(m, { suteren: true }), SUTEREN_DUG_IN, m);
+  }
+  assert.equal(SUTEREN_DUG_IN, 'Делумно вкопан.');
+});
+
+test('glossary: Делумно вкопан is RESERVED for suteren units', () => {
+  // No suteren on the table → the phrase is not produced at all.
+  assert.equal(answerGlossary('dali e vkopan ?'), undefined);
+  assert.equal(answerGlossary('dali e pod zemja ?', { suteren: false }), undefined);
+  assert.equal(answerGlossary('dali e podrum ?', { suteren: false }), undefined);
+  // The definition is not property-specific and always answers.
+  assert.equal(answerGlossary('sto znaci suteren ?'), SUTEREN_MEANING);
+  assert.equal(answerGlossary('sto znaci suteren ?', { suteren: false }), SUTEREN_MEANING);
+  // The unit test: EB 63 is in a suteren; a third-floor flat is not.
+  assert.equal(isSuterenUnit(ROWS_INFO[1]), true);
+  assert.equal(isSuterenUnit({ ...ROWS_INFO[0], floor: 3 }), false);
+});
+
+test('glossary: the property asks stay with the property lanes', () => {
+  // "сутерен ли е" is the storey, "има ли подрум" is a feature — neither is a
+  // definition and neither may be stolen by the glossary lane.
+  assert.equal(detectGlossaryAsk('сутерен ли е ?'), undefined);
+  assert.equal(isGlossaryAsk('suteren li e'), false);
+  assert.equal(detectGlossaryAsk('ima li podrum ?'), undefined);
+  assert.equal(detectGlossaryAsk('дали има подрум?'), undefined);
+  assert.equal(detectGlossaryAsk('na koj kat e ?'), undefined);
+  // …and the definition never becomes a floor facet again.
+  assert.equal(detectInfoFacets('sto znaci toa suteren ?'), undefined);
+  assert.equal(detectInfoFacets('објасни ми што е сутерен'), undefined);
+  // The dug-in ask is not a feature/facet either.
+  assert.equal(detectInfoFacets('dali e vkopan ?'), undefined);
+  // The genuine floor ask is untouched.
+  assert.equal(detectInfoFacets('na koj kat e ?')?.floor, true);
+  assert.equal(detectInfoFacets('сутерен ли е ?')?.floor, true);
+});
+
+test('E2E: floor → "what does suteren mean" → dug-in, each gets its own answer', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  seed(sessions, 'gloss', [EB63]);
+
+  await handler.handle('test', 'gloss', 'na koj kat e garsonjerata ?');
+  assert.equal(sent.at(-1), 'Се наоѓа во сутерен.');
+
+  // THE BUG: this used to repeat the line above.
+  await handler.handle('test', 'gloss', 'sto znaci toa suteren ?');
+  assert.equal(sent.at(-1), SUTEREN_MEANING);
+
+  await handler.handle('test', 'gloss', 'dali e vkopan ?');
+  assert.equal(sent.at(-1), SUTEREN_DUG_IN);
+
+  await handler.handle('test', 'gloss', 'dali e pod zemja ?');
+  assert.equal(sent.at(-1), SUTEREN_DUG_IN);
+
+  await handler.handle('test', 'gloss', 'dali e podrum ?');
+  assert.equal(sent.at(-1), SUTEREN_DUG_IN);
+
+  // The floor question still answers the storey afterwards.
+  await handler.handle('test', 'gloss', 'na koj kat e ?');
+  assert.equal(sent.at(-1), 'Се наоѓа во сутерен.');
+
+  offlineMap.close();
+});
+
+test('E2E: an upper-floor flat never gets the dug-in line', async () => {
+  const upper = { ...ROWS_INFO[0], floor: 3 } as Property;
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  seed(sessions, 'gloss-up', [upper.eb]);
+
+  for (const m of ['dali e vkopan ?', 'dali e pod zemja ?', 'dali e podrum ?']) {
+    await handler.handle('test', 'gloss-up', m);
+    const a = sent.at(-1);
+    assert.notEqual(a, SUTEREN_DUG_IN, `must never claim «Делумно вкопан» for a 3rd-floor flat: ${m} → ${a}`);
+    assert.ok(!a?.includes('вкопан'), `no dug-in wording for an upper floor: ${m} → ${a}`);
+  }
 
   offlineMap.close();
 });

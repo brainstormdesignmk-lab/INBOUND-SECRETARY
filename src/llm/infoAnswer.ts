@@ -19,6 +19,7 @@
 import { Property } from '../data/properties';
 import { normalizeMc } from './normalize';
 import { hasParkingWord } from './morphology';
+import { isGlossaryAsk } from './glossary';
 import { detectPriceAsk, detectBudget } from './deterministic';
 
 export interface InfoFacets {
@@ -142,6 +143,11 @@ export interface InfoAskContext {
  *  can never become an info answer. */
 export function detectInfoFacets(text: string, ctx: InfoAskContext = {}): InfoFacets | undefined {
   const t = normalizeMc(text); // Cyrillic-canonical — probes below are Cyrillic-only
+  // A DEFINITION is not a fact about the property (the [08:52] transcript:
+  // "sto znaci toa suteren?" after "Се наоѓа во сутерен." got the floor line
+  // again). The glossary lane owns the vocabulary; this family must not read
+  // the term inside it as a facet.
+  if (isGlossaryAsk(t)) return undefined;
   // "POSLEDEN ?" / "DALI E NA POSLEDNIOT?" — no noun. Only the conversation
   // can supply it, so the caller passes floorOnTable; an explicit "дали" is
   // a question on its own. A bare word with no floor on the table stays
@@ -260,6 +266,12 @@ function unitFloor(p: Property): number | undefined {
   if (/приземј/iu.test(d)) return 0;
   const kat = d.match(/(?:на\s*)?(\d{1,2})\s*(?:ти)?\s*[-\s]?\s*(?:кат|спрат)/iu);
   return kat ? Number(kat[1]) : undefined;
+}
+
+/** True only when the unit IS in a suteren (кат −1) — the single source of
+ *  truth for the dug-in line, which is reserved for those units. */
+export function isSuterenUnit(p: Property): boolean {
+  return unitFloor(p) === -1;
 }
 
 function floorPhrase(p: Property): string | undefined {

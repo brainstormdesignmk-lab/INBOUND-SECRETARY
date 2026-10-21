@@ -16,7 +16,8 @@ import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAd
 import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame } from '../llm/deterministic';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
-import { detectInfoFacets, buildInfoAnswer } from '../llm/infoAnswer';
+import { detectInfoFacets, buildInfoAnswer, isSuterenUnit } from '../llm/infoAnswer';
+import { answerGlossary, detectGlossaryAsk } from '../llm/glossary';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
@@ -2308,6 +2309,48 @@ export class InboundHandler {
       if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'NEGOTIATE_FAST', userMsg: text, replyText: negoReply, replySource: 'deterministic', bankKey: 'price.negotiate' }); } catch { /* ignore */ } }
       await this.sendRaw(session, negoReply, 'deterministic');
       return;
+    }
+
+    // GLOSSARY — the client asks what a term MEANS ("sto znaci toa suteren ?"),
+    // or follows up on how deep the unit sits ("dali e vkopan ?"). The [08:52]
+    // transcript showed the info-ask family answering the definition with the
+    // property's floor line, because both messages carry the word "сутерен".
+    // The vocabulary answer needs no binding and must not be re-rendered as a
+    // facet, so it is served here — before the info-ask block — and the block
+    // itself vetoes these messages.
+    {
+      const kind = detectGlossaryAsk(text);
+      if (kind === 'suteren-meaning') {
+        const meaning = answerGlossary(text);
+        routeLog(chatId, text, 'GLOSSARY');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: meaning! }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, meaning!, 'deterministic');
+        return;
+      }
+      // The DUG-IN line is reserved for a suteren unit: it is served only when
+      // the bound property really is кат −1. With an upper-floor flat (or no
+      // bound property at all) the phrase must never appear — the message
+      // falls through to the normal lanes instead.
+      if (kind === 'suteren-dug-in') {
+        const eb = inferPropertyId(text)
+          ?? session.slots.propertyId
+          ?? session.slots.interestedPropertyId
+          ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+        const bound = eb !== undefined && eb !== null
+          ? await this.deps.properties.getByEb(eb).catch(() => undefined)
+          : undefined;
+        const dugIn = bound && isSuterenUnit(bound) ? answerGlossary(text, { suteren: true }) : undefined;
+        if (dugIn) {
+          routeLog(chatId, text, 'GLOSSARY');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: dugIn }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, dugIn, 'deterministic');
+          return;
+        }
+      }
     }
 
     // INFO-ASK (scope C) — "kolku e garsonjerata?", "a 63 kolku kvadrati",
