@@ -4307,6 +4307,22 @@ const NAG_DOUBT_RE = /(?:не знам|незнам|не ми е јасно|не
 // (buildFeePracticeDislikeSlots), both scripts, both orders:
 //   не ми се допаѓа + принцип/работа/пристап/политика/услов/начин/пракса
 const NAG_PRACTICE_DISLIKE_RE = buildFeePracticeDislikeSlots();
+// DEMAND TO CHANGE THE RULES — "PA PROMENETE GI PRAVILATA ZOSTO OVA STVARNO
+// NE E NORMALNO" (the [10:25] transcript). The client is not asking WHAT the
+// rules are (that is fee.rule.hold, no rung) — he demands they be CHANGED
+// because he rejects them: the practice-disapproval family in its imperative
+// shape. Without this arm the message matched no fee lane at all, the
+// classifier read it as a criteria turn and the typed-search answer ("немам
+// куќа во Центар…") replied to a fee fight — the ladder stopped at rung 2 and
+// the binary decision question was never asked. Both word orders; the
+// rules/terms NOUN is what makes it policy traffic (a demanded price change
+// stays with the negotiation lanes). Normalised to Cyrillic by normalizeMc,
+// so the Latin typings arrive as променете/правилата and one alternation
+// covers both scripts.
+const NAG_RULES_CHANGE_RE = new RegExp(
+  '(?:промен|измен|смен|менува)\\p{L}*[^.!?\\n]{0,24}(?:правил|услов|тариф|ценовник|политик)\\p{L}*'
+  + '|(?:правил|услов|тариф|ценовник|политик)\\p{L}*[^.!?\\n]{0,24}(?:промен|измен|смен|менува)\\p{L}*',
+  'iu');
 
 // HESITATION family (family 5) — bare non-acceptance in the fee context.
 // Trailing \p{L}* so the stems take their inflections ("не го очекував", "незнам"):
@@ -4412,6 +4428,12 @@ export function detectFeeNag(text: string): boolean {
   if (FEE_SIZED_RE.test(cyr) && counterOfferFeeSized(cyr)
     && (/(?:која|каква|koja|kakva)\s+(?:е\s+|e\s+)?симболичн|симболичн\p{L}*\s+(?:цена|cena)/iu.test(cyr)
       || /(?:^|[^\p{L}])пари(?=$|[^\p{L}])/iu.test(cyr))) return true;
+
+  // 4e) DEMAND TO CHANGE THE RULES — "PROMENETE GI PRAVILATA" (the [10:25]
+  //     transcript). Resistance, not explanation: the client rejects the
+  //     policy and tells the agency to rewrite it, so the turn must climb the
+  //     ladder (at rung 3 it IS the binary decision the owner expects).
+  if (NAG_RULES_CHANGE_RE.test(cyr)) return true;
 
   // 5) FEE-CONTEXT HESITATION / NON-ACCEPTANCE — the client neither accepts nor
   //    refuses, he stalls ("NEZNAM", "OVA NE GO OCEKUVAV", "ne sum siguren",

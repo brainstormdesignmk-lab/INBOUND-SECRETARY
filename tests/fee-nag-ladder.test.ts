@@ -437,6 +437,62 @@ test('e2e [23:12]: the field burst climbs persuasion → rule → DECISION, neve
   assert.equal(r.s.slots.budget, undefined, 'the fee amount never lands as a budget');
 });
 
+test('[10:25] "PROMENETE GI PRAVILATA" is a nag — a rules/terms QUESTION is not', () => {
+  // The field burst: the client tells the agency to rewrite its rules. That is
+  // resistance (the practice-disapproval family in imperative shape), so the
+  // ladder must climb; asking WHAT the rules are stays explanation traffic.
+  assert.equal(detectFeeNag('PA PROMENETE GI PRAVILATA ZOSTO OVA STVARNO NE E NORMALNO'), true, 'the live burst');
+  assert.equal(detectFeeNag('PROMENETE GI PRAVILATA'), true, 'bare demand');
+  assert.equal(detectFeeNag('SMENETE GI USLOVITE'), true, 'terms demand');
+  assert.equal(detectFeeNag('PRAVILATA DA GI PROMENITE'), true, 'reversed word order');
+  assert.equal(detectFeeNag('KOI SE VASITE PRAVILA?'), false, 'asking what the rules are is the fee.rules lane');
+  assert.equal(detectFeeNag('KAKVI SE USLOVITE ZA IZNAJMUVANJE?'), false, 'a terms question is not a demand');
+  assert.equal(detectFeeNag('PROMENETE JA CENATA'), false, 'a price change stays with the negotiation lanes');
+  assert.equal(detectFeeNag('SAKAM DA PROMENAM STANOT'), false, 'a property change is never fee traffic');
+  assert.equal(detectFeeNag('DALI MOZE DA JA SMENIME CENATA?'), false, 'a price question is not a rules demand');
+});
+
+test('e2e [10:23–10:25]: the third nag reaches the BINARY DECISION, never a typed-search miss', async () => {
+  // The live transcript: persuade → agency rule → and then the client demands
+  // the rules be changed. Before this fix the third message matched no fee
+  // lane, the classifier read it as criteria traffic, and the answer was
+  // "Во моментов немам куќа во Центар што одговара на Вашите барања" — a
+  // property miss served in the middle of a fee fight, with the decision
+  // question the owner expects never asked.
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'field-1025';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return { s: sessions.get(chatId)!, reply: sent[sent.length - 1] ?? '' };
+  };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  let r = await send('SAKAM DA JA VIDAM');
+  assert.equal(r.s.state, 'closing');
+  assert.ok(inAskPool(r.reply), `the disclosure comes first: ${r.reply.slice(0, 90)}`);
+
+  r = await send('NE SAKAM DA PLAKJAM ZA POSETI');
+  assert.equal(r.s.slots.feeRejections, 1, 'rung 1 = the one persuasion');
+  assert.ok(inPersuadePool(r.reply), `rung 1 is the persuasion: ${r.reply.slice(0, 90)}`);
+
+  r = await send('KAKO MOZE DA ZEMATE PARI ZA POKAZUVANJE NA IMOTI?');
+  assert.equal(r.s.slots.feeRejections, 2, 'rung 2 = the agency rule');
+  assert.ok(inRulePool(r.reply), `rung 2 is the agency rule: ${r.reply.slice(0, 90)}`);
+
+  r = await send('PA PROMENETE GI PRAVILATA ZOSTO OVA STVARNO NE E NORMALNO');
+  assert.equal(r.s.slots.feeRejections, 3, 'the third nag is the decision rung');
+  assert.equal(r.s.state, 'closing', 'still at the fee question');
+  assert.ok(inDecidePool(r.reply), `rung 3 is the DECISION: ${r.reply.slice(0, 120)}`);
+  assert.ok(/Одлуката е Ваша/iu.test(r.reply), `the client owns the yes/no: ${r.reply.slice(0, 120)}`);
+  // The regression itself: no property-search answer in a fee fight.
+  assert.ok(!/немам (?:куќа|стан|деловен)|одговара на Вашите барања/iu.test(r.reply),
+    `never a typed-search miss: ${r.reply.slice(0, 160)}`);
+  assert.ok(!/Евидентен број \d+/u.test(r.reply), `never a property card: ${r.reply.slice(0, 160)}`);
+});
+
 test('e2e: the decision answered with NO runs the BYE PROTOCOL (graceful close, chat queued)', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'ladder-no';
