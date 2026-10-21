@@ -2419,6 +2419,12 @@ export class InboundHandler {
           const infoAnswer = buildInfoAnswer(infoProp, infoFacets);
           if (infoAnswer) {
             if (infoProp.eb !== session.slots.propertyId) {
+              // An ask that BOUND its property moves the conversation there:
+              // the next bare follow-up ("kolku kvadrati ima ?") must answer
+              // THAT unit, not the flat that sat in the slot before. The
+              // [08:58] bug: EB 84 was asked about by number, then the bare
+              // size ask answered the previously discussed 28 м² flat.
+              if (mbInfo?.prop) session.slots.propertyId = infoProp.eb;
               session.slots.interestedPropertyId = infoProp.eb;
             }
             session.slots.lastPrice = infoProp.price !== undefined ? String(infoProp.price) : session.slots.lastPrice;

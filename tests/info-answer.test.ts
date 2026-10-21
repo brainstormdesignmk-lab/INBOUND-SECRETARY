@@ -53,7 +53,7 @@ class FakeProps extends PropertyService {
 
 // The 12:33 chat, one family over: EB 69 (стан 51 м², 99.000 €) and EB 63
 // (гарсоњера 28 м², 36.000 €, сутерен, греење на струја).
-const EB69 = 69, EB63 = 63;
+const EB69 = 69, EB63 = 63, EB84 = 84;
 const ROWS_INFO: Property[] = [
   {
     eb: EB69, id: EB69, location: 'Центар', address: 'Ул. Димитар Миладинов 12',
@@ -67,6 +67,15 @@ const ROWS_INFO: Property[] = [
     lat: 41.99300, lon: 21.46800, geo_source: 'osm_building',
     features: ['греење на струја'],
     details: 'Гарсоњера во сутерен, комплетно реновирана.',
+  },
+  // The [08:58] chat: EB 84 was ASKED ABOUT by number while EB 63 sat in the
+  // "currently discussed" slot — the follow-up "kolku kvadrati ima ?" must
+  // answer 84's size, not 63's 28 м².
+  {
+    eb: EB84, id: EB84, location: 'Центар', address: 'Ул. Никола Вапцаров 7',
+    price: 117000, bedrooms: 2, sqm: 34, service: 'buy', floor: 3,
+    lat: 41.99000, lon: 21.47000, geo_source: 'osm_building',
+    details: 'Стан со две спални соби, на трети кат.',
   },
 ];
 
@@ -461,4 +470,65 @@ test('E2E: an upper-floor flat never gets the dug-in line', async () => {
   }
 
   offlineMap.close();
+});
+
+// ── PRICE PER M² + the follow-up stays on the asked property ────────────────
+// The [08:58] transcript: "kolku mu e cena po m2 na 84 ?" was answered with the
+// total price only, and the bare follow-up "kolku kvadrati ima ?" answered a
+// DIFFERENT property's 28 м² (the one sitting in the discussed slot).
+test('E2E: "cena po m2 na 84" quotes the per-m² price, and the bare follow-up stays on 84', async () => {
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  const s = freshSession('test', 'perm2');
+  s.slots.presentedIds = [EB63, EB84];
+  s.slots.propertyId = EB63; // the flat that was being discussed before EB 84 was named
+  sessions.set(s);
+
+  await handler.handle('test', 'perm2', 'kolku mu e cena po m2 na 84 ?');
+  const a = sent.at(-1) ?? '';
+  assert.ok(a.includes('84'), `must name EB 84: ${a}`);
+  assert.ok(a.includes('117.000') || a.includes('117,000'), `must quote the total: ${a}`);
+  assert.ok(/3\.441/.test(a), `must quote the per-m² price (117.000 / 34 = 3.441): ${a}`);
+
+  await handler.handle('test', 'perm2', 'kolku kvadrati ima ?');
+  const b = sent.at(-1) ?? '';
+  assert.ok(b.includes('34'), `the follow-up must answer EB 84's 34 м²: ${b}`);
+  assert.ok(!b.includes('28'), `never the previously discussed flat's 28 м²: ${b}`);
+
+  offlineMap.close();
+});
+
+// ── PRICE PER M² — the pure units ───────────────────────────────────────────
+test('facets: "cena po m2" is the RATE facet, not the total price', () => {
+  for (const m of [
+    'kolku mu e cena po m2 na 84 ?', 'цена по м2?', 'cena za kvadrat ?',
+    'kolku e evra na m² ?', 'цена по квадратен метар?',
+  ]) {
+    const f = detectInfoFacets(m);
+    assert.equal(f?.pricePerSqm, true, m);
+    assert.equal(f?.price, undefined, `the total must not double-answer: ${m}`);
+  }
+  // Plain price/size asks are untouched.
+  assert.equal(detectInfoFacets('kolku e garsonjerata ?')?.price, true);
+  assert.equal(detectInfoFacets('kolku e garsonjerata ?')?.pricePerSqm, undefined);
+  const sqm = detectInfoFacets('a 63 kolku kvadrati ?');
+  assert.equal(sqm?.sqm, true);
+  assert.equal(sqm?.pricePerSqm, undefined);
+  assert.equal(detectInfoFacets('58 m2')?.pricePerSqm, undefined);
+  assert.equal(detectInfoFacets('na 3 kat e ?')?.pricePerSqm, undefined);
+});
+
+test('builders: the rate is computed from the feed price and surface', () => {
+  const a = buildInfoAnswer(ROWS_INFO[2], { pricePerSqm: true })!;
+  assert.ok(a.includes('117.000') || a.includes('117,000'), a);
+  assert.ok(a.includes('3.441'), a);
+  assert.ok(a.includes('34 м²'), a);
+  // No stored surface → the total plus the honest deferral, never a fake rate.
+  const noSize: Property = { eb: 98, id: 98, address: 'Y', location: 'Центар', service: 'buy', price: 50000 };
+  const b = buildInfoAnswer(noSize, { pricePerSqm: true })!;
+  assert.ok(b.includes('50.000'), b);
+  assert.ok(b.includes('ќе го прашам сопственикот'), b);
+  assert.ok(!b.includes('за м²'), `no invented rate: ${b}`);
+  // No price at all → the facet falls through (the FSM price lane owns it).
+  const bare: Property = { eb: 97, id: 97, address: 'Z', location: 'Центар', service: 'buy', sqm: 40 };
+  assert.equal(buildInfoAnswer(bare, { pricePerSqm: true }), INFO_NO_DATA_LINE);
 });

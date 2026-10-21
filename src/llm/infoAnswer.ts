@@ -27,6 +27,8 @@ export interface InfoFacets {
   sqm?: boolean;
   rooms?: boolean;      // "колку спални/соби"
   floor?: boolean;      // "на кој кат", "сутерен ли е"
+  /** "колку му е цена по м2", "cena za kvadrat" — the RATE, not the total. */
+  pricePerSqm?: boolean;
   /** "колку ката има зградата" — the BUILDING height, not the unit's floor. */
   totalFloors?: boolean;
   /** "дали е на последен кат" — needs the unit floor AND the building height. */
@@ -127,6 +129,13 @@ export const INFO_NO_RENOVATION_LINE =
 // CONSTRUCTION / RENOVATION YEAR — the [00:33] "od koja godina e zgradata?"
 // capture. `година` alone is NOT the facet ("колку години искуство" is other
 // traffic); every pattern names the building or the act of building.
+// "cena po m2", "cena za kvadrat", "evra na m²", "цена по квадратен метар".
+// The preposition is mandatory: "58 m2" or "na 3 kat" are not rates.
+const PER_SQM_RE = new RegExp(
+  `(?:по|за|на|po|za|na)\\s*(?:м2|м²|m2|кв\\.?\s*м|квадрат${STEM}|квадратен\\s*метар|квадратни\\s*метри|метар|meter)`,
+  'iu',
+);
+
 const YEAR_BUILT_RE = /(?:од\s+)?(?:која|којашто)\s+година\s+(?:е\s+)?(?:изград|градб|зград|станат|куќата|објектот)|кога\s+(?:е\s+)?(?:изградена|изграден|изградено|подигната|подигнат)|година\s+на\s+(?:изградба|градба)|колку\s+(?:е\s+)?стар(?:а|о)?\s+(?:зградата|зграда|куќата|куќа|станат|објектот)/iu;
 const RENOVATION_YEAR_RE = /(?:кога\s+(?:е\s+)?(?:реновиран|реновирана|реновирано))|(?:дали\s+(?:е\s+)?реновир)|(?:реновиран(?:а|о)?\s+(?:во|година))/iu;
 
@@ -205,15 +214,22 @@ export function detectInfoFacets(text: string, ctx: InfoAskContext = {}): InfoFa
     if (asked.length) f.features = asked;
   }
 
+  // PRICE PER M² — "kolku mu e cena po m2 na 84 ?" asks the RATE. The old
+  // read took it as the price facet and answered the total only, which is not
+  // what was asked (the [08:58] transcript).
+  const perSqm = PER_SQM_RE.test(t)
+    && (isQuestion || /(?:цена|cena|чини|изнесува|евра|evra)/iu.test(t));
+  if (perSqm) f.pricePerSqm = true;
+
   // PRICE — the established detector (keyword-gated), minus the budget sense
   // ("до 500 евра" is a criterion, never a price ask); plus bare "колку е" —
   // but never when the колку-phrase is really about size/rooms/floor.
-  if (detectPriceAsk(text) && !detectBudget(text)) f.price = true;
-  else if (!f.sqm && !f.rooms && !f.floor
+  if (!perSqm && detectPriceAsk(text) && !detectBudget(text)) f.price = true;
+  else if (!perSqm && !f.sqm && !f.rooms && !f.floor
     && new RegExp(`(?:^|\\s)колку\\s*(?:е|чини|стои)${TAIL}`, 'iu').test(t)
     && !NON_PRICE_KOLKU_RE.test(t)) f.price = true;
 
-  if (!f.price && !f.sqm && !f.rooms && !f.floor && !f.totalFloors && !f.lastFloor
+  if (!f.price && !f.pricePerSqm && !f.sqm && !f.rooms && !f.floor && !f.totalFloors && !f.lastFloor
     && !f.yearBuilt && !f.renovation
     && !f.features?.length) return undefined;
   return f;
@@ -318,6 +334,24 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
   const sentences: string[] = [];
   let answered = false;
 
+  if (facets.pricePerSqm) {
+    // The RATE, computed from the feed's own two numbers. The total is quoted
+    // beside it because "cena po m²" is meaningless without the price, and the
+    // m² is named so the arithmetic is checkable.
+    if (p.price !== undefined && p.sqm !== undefined && p.sqm > 0) {
+      const rate = Math.round(p.price / p.sqm);
+      sentences.push(p.service === 'rent'
+        ? `${type} со Евидентен број ${p.eb} — киријата изнесува ${p.price.toLocaleString('mk-MK')} евра, односно ${rate.toLocaleString('mk-MK')} евра за м² (${p.sqm} м²).`
+        : `${type} со Евидентен број ${p.eb} чини ${p.price.toLocaleString('mk-MK')} евра, односно ${rate.toLocaleString('mk-MK')} евра за м² (${p.sqm} м²).`);
+    } else if (p.price !== undefined) {
+      // No stored surface → the rate cannot be computed. Say exactly that; the
+      // same owner-relay contract as every other missing fact.
+      sentences.push(`${type} со Евидентен број ${p.eb} чини ${p.price.toLocaleString('mk-MK')} евра, но немам податок за површината во базата — ќе го прашам сопственикот и ќе Ви потврдам.`);
+    } else {
+      sentences.push(INFO_NO_DATA_LINE);
+    }
+    answered = true;
+  }
   if (facets.price && p.price !== undefined) {
     // Rent-aware wording (the [22:53] contract): the client asked KOLKU MU E
     // KIRIJA — a rental's price is "киријата", not "чини".
@@ -407,7 +441,7 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
       answered = true;
     }
     if (!answered && sentences.length === 0
-      && !facets.price && !facets.sqm && !facets.rooms
+      && !facets.price && !facets.pricePerSqm && !facets.sqm && !facets.rooms
       && !facets.floor && !facets.totalFloors && !facets.lastFloor
       && !facets.yearBuilt && !facets.renovation) {
       // Feature-ONLY ask about data the feed doesn't store — honest deferral,
