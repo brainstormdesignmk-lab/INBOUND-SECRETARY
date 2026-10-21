@@ -818,7 +818,21 @@ export class InboundHandler {
       const funnelOpen = ['presentation', 'property_query', 'property_locate', 'closing',
         'contact_collection', 'visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state);
       const intakeOpen = session.state === 'discovery' || session.state === 'intent';
-      if (funnelOpen) {
+      // LOCATION IS NOT SMALL TALK (the [10:16] transcript): the client came
+      // back 77 minutes later with "KAJ SE NAOGJA?" and the bridge swallowed
+      // it — they asked where the flat is and were asked, again, whether to
+      // organise a visit. The bridge exists to re-anchor traffic that needs
+      // re-anchoring (an agreement, a visit command, a greeting); a where /
+      // proximity ask is a BUSINESS question and must be ANSWERED. State and
+      // slots are preserved either way, and a location ask never resets the
+      // funnel, so the WHERE_IS lane below resolves the property the session
+      // was already discussing.
+      // Includes a bare proximity anchor ("IMA LI MARKT BLIZU?"): the anchor
+      // also carries search traffic, and every one of those messages is the
+      // continuation the bridge must not overwrite.
+      const locationAsk = !!detectWhereIs(text) || detectExactAddressAsk(text)
+        || hasProximityAnchor(text);
+      if (funnelOpen && !locationAsk) {
         touchInbound(session);
         // The TTL gap restarted the conversation socially — a fresh farewell
         // should thank again, so the second-bye swap never fires here.
@@ -827,16 +841,20 @@ export class InboundHandler {
         // gets the last-chance question again exactly once.
         delete session.slots.exitCheckServed;
         const bridge = pickVariant('session.resume', { recent: assistantTexts(session) })
-          ?? 'Враќаме се на вашиот избор — сè уште важи. Организираме посета?';
+          ?? 'Се враќаме на вашиот избор. Дали организираме посета?';
         pushHistory(session, { role: 'assistant', text: bridge }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, bridge, 'deterministic:resume');
         return;
       }
-      if (intakeOpen) {
-        // The intake answer is the continuation — parse it below, funnel
-        // intact (state/slots/history all preserved).
+      if (funnelOpen || intakeOpen) {
+        // The message is the continuation — parse it below, funnel intact
+        // (state/slots/history all preserved).
         touchInbound(session); // re-anchor the TTL clock
+        if (funnelOpen) {
+          delete session.slots.byeServed;
+          delete session.slots.exitCheckServed;
+        }
         this.deps.sessions.set(session);
       } else {
         resetToIdle(session);

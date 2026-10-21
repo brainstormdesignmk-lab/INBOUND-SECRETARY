@@ -3161,6 +3161,52 @@ test('22:18 TTL resume: a mid-close session survives the 73-min gap — bridge, 
   assert.equal(s2.slots.viewingFeeAgreed, undefined, 'DA accepted the offer; the fee still needs its own yes');
 });
 
+test('[10:16] TTL gap + "KAJ SE NAOGJA?" — the nearby location is answered; the resume bridge never eats the ask', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'resume-location-1016';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // The transcript: a flat discussed, then a 77-minute silence (08:59 →
+  // 10:16) — and the first thing the client asks is where it is.
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
+  const before = sessions.get(chatId)!;
+  assert.equal(before.state, 'closing');
+  assert.equal(before.slots.interestedPropertyId, 78);
+  before.lastInboundAt = Date.now() - 77 * 60_000;
+  sessions.set(before);
+
+  await send('KAJ SE NAOGJA?');
+  const s = sessions.get(chatId)!;
+  const reply = sent[sent.length - 1];
+  // The business question is ANSWERED: a location line, never the visit offer
+  // the bridge would repeat ("Дали организираме посета?").
+  assert.ok(!/Враќаме се|организираме посета|закажуваме посета/i.test(reply),
+    `the resume bridge must not swallow a location ask: ${reply}`);
+  assert.ok(/населбата|близина/i.test(reply), `nearby location expected: ${reply}`);
+  // The gap message never resets the funnel or drops the discussed flat.
+  assert.equal(s.state, 'closing', 'context preserved across the gap');
+  assert.equal(s.slots.interestedPropertyId, 78, 'the discussed flat survives the gap');
+});
+
+test('[10:16b] the resume bridge itself carries the owner-approved line', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'resume-wording';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
+  const aged = sessions.get(chatId)!;
+  aged.lastInboundAt = Date.now() - 77 * 60_000;
+  sessions.set(aged);
+
+  // Non-question traffic still RESUME-bridges — and the wording is exactly
+  // the clean Macedonian line (no Bulgarian-flavoured variant can be served).
+  await send('DA');
+  const reply = sent[sent.length - 1];
+  assert.equal(reply, 'Се враќаме на вашиот избор. Дали организираме посета?', reply);
+});
+
 test('22:18b visit-command typo "ORGABIZIRAJ MI" registers as visit interest — fee first, no flow reset', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'typo-2218';
