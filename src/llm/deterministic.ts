@@ -369,6 +369,51 @@ export function detectPomaloAsk(text: string): boolean {
   return true;
 }
 
+// THE PER-M² METRIC PHRASE (the [00:12] Kisela Voda capture). Same shape as
+// infoAnswer's PER_SQM_RE: money word + mandatory preposition + unit —
+// "takva cena za kvadrat", "pomala cena po m2", "евра за м²". The preposition
+// is what separates a RATE from a bare size fact ("90 м²" is a measurement,
+// never a rate anchor).
+const PER_M2_RATE_RE =
+  /(?:цен\p{L}*|cen\p{L}*|евр\p{L}*|evr\p{L}*|кириј\p{L}*|kirij\p{L}*|чини|chini)\s*(?:за|za|по|po|na)\s*(?:квадрат\p{L}*|kvadrat\p{L}*|м²|м2|m2|кв\.?\s*м)/iu;
+
+/** SMALLER-BY-RATE: the client keeps the €/м² RATE he just heard and asks for
+ *  a SMALLER unit — "pomalo mi treba so takva cena za kvadrat", "rekov takva
+ *  cena za kvadrat ama pomal". This is a SEARCH intent, neither a comment on
+ *  the shown flat nor a cheaper-TOTAL ask: smallWordIsMoneyModifier rightly
+ *  vetoes adjacent money ("pomala cena" stays in the price lanes), but here
+ *  the money noun stands INSIDE the per-м² metric phrase — it is a rate
+ *  anchor, not a budget. Without this detector the INFO block's pricePerSqm
+ *  facet re-renders the same flat's rate forever and the pomalo bedrooms-ask
+ *  wrongly re-opens a question the client already priced. */
+export function detectSmallerPerM2Ask(text: string): boolean {
+  if (!PER_M2_RATE_RE.test(text)) return false;
+  if (SMALL_SIZE_RE.test(text)) return true;
+  return fuzzyHasToken(text, ['помало', 'помала', 'помали', 'помалечко', 'pomalo', 'pomala', 'pomali']);
+}
+
+/** TOO-BIG COMPLAINT about the flat on the table — the head of the [00:12]
+ *  burst: "GOLEM MI E NEKAKO". The INFO block reads it as a size QUESTION
+ *  and re-renders the measurements; the honest next thing is the size-down
+ *  ladder (smaller units under the anchored flat, closest м² first).
+ *  Morphology exclusions (every lookbehind char is a letter): po- / наj- /
+ *  з- turn "голем" into a WISH FOR BIGGER ("nesto pogolem") or a raise verb
+ *  ("зголемете го лимитот"), and -ина makes it a size QUESTION — each is
+ *  held out by the negated lookbehind / lookahead around the stem. A bare
+ *  "golem" never fires here — the LANE gates it to a bound property, a
+ *  non-question message and non-fee traffic. */
+const GOLEM_WORD_RE =
+  // The lookahead uses explicit Cyrillic+Latin letter code ranges (U+0400–
+  // U+04FF, A–Z a–z) — script property classes (\p{Latin}) are outside this
+  // project's tsc regex vocabulary (TS1529), binary \p{L} would read the
+  // lookbehind's own punctuation as a letter-tail.
+  /(?<![poPoзZzjJ])(?:големи?|голем[ао]|golemi?|golema|golemo)(?![A-Za-z\u0400-\u04FF])/iu;
+
+export function detectGolemComplaint(text: string): boolean {
+  if (!GOLEM_WORD_RE.test(text)) return false;
+  return true;
+}
+
 // Availability question about a KNOWN property: "дали е сеуште достапен?",
 // "dali e seuste dostapen?", "дали го имате уште?", "дали е продаден?",
 // "сеуште ли е на продажба?". The client saw the ad on the website and knows
@@ -933,6 +978,8 @@ const FEE_GRAMMAR_RE = new RegExp(
   'iu');
 export function detectFeeComplaint(text: string): boolean {
   const flat = text.replace(/\n/g, ' ');
+  // A cheap-price compliment is the opposite of a fee complaint (valence veto).
+  if (isCheapPriceEval(flat)) return false;
   // Multiplication TOTAL-COST complaint (the [09:0x] V16K11 transcript):
   // "ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje" — fee ×
   // visits arithmetic about the viewing fee, read as INTERESTED (the amount
@@ -1516,6 +1563,10 @@ export function detectPricePriority(text: string): boolean {
 // normalization) is covered too.
 /** True when the client asks for something cheaper (any spelling). */
 export function detectCheaperSearch(text: string): boolean {
+  // A cheap-price EVALUATION is not a request for cheaper options: the client
+  // says the quoted price is good. "многу ефтина" used to ride the "многу е"
+  // fragment of the alternatives list and dump unrelated cheaper properties.
+  if (isCheapPriceEval(text)) return false;
   return detectPricePriority(text) || detectSuggestAlternatives(text) || extFires('cheaper', text);
 }
 
@@ -1527,7 +1578,7 @@ export function detectCheaperSearch(text: string): boolean {
 // repeat the not-found line (the stuck loop: every "predlozi mi" re-rendered
 // "не можам да го најдам имотот со Евидентен број 250"). Latin + Cyrillic.
 const SUGGEST_ALTERNATIVES_RE =
-  /(предложи ми|предложете ми|предложи|предложете|sugeri|сугерирај|сугерирате|sugeriraj|predlozi mi|predlozete mi|predlozi|predlozete|други локации|друга локаци|drugi lokacii|drugi lokaciii|drugi lokacija|druga lokaci|други предлози|drugi predlozi|покажи други|pokazi drugi|покажете други|pokazete drugi|нешто друго|друго нешто|nesto drugo|неколку други|некои други|имаш ли други|имате ли други|imas li drugi|imate li drugi|дали имате други|dali imate drugi|на друго место|во друго место|на другa локаци|во другa локаци|na drugo mesto|vo drugo mesto|drugo mesto|druga lokacija|на друг реон|во друг реон|на друг дел|во друг дел|na drug reon|vo drug reon|drugi reon|drugi del|нешто на друго|nesto na drugo|kazi mi drugo|кажи ми друго|kazi mi vo drugo|кажи ми во друго|што имате на друго|shto imate na drugo|што имате во друго|shto imate vo drugo|da mi kazes za drugo|да ми кажеш за друго|isto e skapo|исто е скапо|пак е скапо|пак скапо|пак e skapo|isto e skapo|isto skapo|istata cena|истата цена|skapa e|скапо е|skapo e|сЀ уште е скапо|сè уште е скапо|previsoko e|превисоко е|mnogu e|многу е|preskapo|прескапо|ne mi odgovara cenata|не ми одговара цената|cenata ne mi odgovara|цената не ми одговара|ne odgovara cenata|не одговара цената|poeftino|poeftina|poektino|poektina|poftino|poftina|поевтино|поевтина|поефтино|поефтина|појефтино|појефтина|pojeftino|pojeftina)/iu;
+  /(предложи ми|предложете ми|предложи|предложете|sugeri|сугерирај|сугерирате|sugeriraj|predlozi mi|predlozete mi|predlozi|predlozete|други локации|друга локаци|drugi lokacii|drugi lokaciii|drugi lokacija|druga lokaci|други предлози|drugi predlozi|покажи други|pokazi drugi|покажете други|pokazete drugi|нешто друго|друго нешто|nesto drugo|неколку други|некои други|имаш ли други|имате ли други|imas li drugi|imate li drugi|дали имате други|dali imate drugi|на друго место|во друго место|на другa локаци|во другa локаци|na drugo mesto|vo drugo mesto|drugo mesto|druga lokacija|на друг реон|во друг реон|на друг дел|во друг дел|na drug reon|vo drug reon|drugi reon|drugi del|нешто на друго|nesto na drugo|kazi mi drugo|кажи ми друго|kazi mi vo drugo|кажи ми во друго|што имате на друго|shto imate na drugo|што имате во друго|shto imate vo drugo|da mi kazes za drugo|да ми кажеш за друго|isto e skapo|исто е скапо|пак е скапо|пак скапо|пак e skapo|isto e skapo|isto skapo|istata cena|истата цена|skapa e|скапо е|skapo e|сЀ уште е скапо|сè уште е скапо|previsoko e|превисоко е|mnogu e(?![\p{L}])|многу е(?![\p{L}])|preskapo|прескапо|ne mi odgovara cenata|не ми одговара цената|cenata ne mi odgovara|цената не ми одговара|ne odgovara cenata|не одговара цената|poeftino|poeftina|poektino|poektina|poftino|poftina|поевтино|поевтина|поефтино|поефтина|појефтино|појефтина|pojeftino|pojeftina)/iu;
 
 /** True when the client asks for alternative suggestions / other options. */
 export function detectSuggestAlternatives(text: string): boolean {
@@ -1705,6 +1756,66 @@ export function detectVisitInterest(text: string): boolean {
   // edit from "organiziraj") after Lina's visit offer sat unanswered past the
   // chat TTL; the resume path needs the command recognized to close the funnel.
   return fuzzyHasToken(text, ['разгледам', 'разгледање', 'посета', 'организирај', 'закажи']) || extFires('visit-interest', text);
+}
+
+/** The client asks whether an agency agent will accompany them to a viewing.
+ * This is a distinct informational question, not visit-interest/fee consent:
+ * answer it without disclosing or advancing the fee protocol. */
+export function detectAgentAttendanceAsk(text: string): boolean {
+  const folded = normalizeMc(text);
+  const asksAccompaniment = /(?:со\s+мене|ме\s+придруж\p{L}*|ќе\s+ме\s+придруж\p{L}*|ке\s+ме\s+придруж\p{L}*)/iu.test(folded);
+  const futurePresence = /(?:ке|ќе)\s+(?:дојд\p{L}*|присуствува\p{L}*|бид\p{L}*|придруж\p{L}*)/iu.test(folded);
+  const person = /(?:ти|вие|агент\p{L}*|агенц\p{L}*)/iu.test(folded);
+  const viewing = /(?:посет\p{L}*|разглед\p{L}*|стан\p{L}*|недвижност\p{L}*)/iu.test(folded);
+  const question = /\?|(?:^|\s)(?:дали|ке|ќе)(?=\s|$)/iu.test(folded);
+  return asksAccompaniment && futurePresence && person && viewing && question;
+}
+
+/** The approved agency policy used as the safe seed until learned variants are
+ * reviewed. Keep this distinct from the fee disclosure and funnel transitions. */
+export const AGENT_ATTENDS_VIEWING_ANSWER =
+  'Да, агент на Метрополис ќе Ве придружува при разгледувањето на избраната недвижност. Кога ќе одлучите, ќе продолжиме со организирање на посетата — дали Ви одговара?';
+
+export const AGENT_ATTENDS_VIEWING_KEY = 'learn.agent-accompanies-viewing';
+
+/** The bank key of the BUSINESS-SPACE budget ask. Commercial traffic must never
+ *  be answered with the residential budget wording ("…цената на станот"), and
+ *  it must never be answered with a fabricated number either — the honest answer
+ *  to "колку чини деловен простор?" is the funnel's own budget question. */
+export const BUSINESS_BUDGET_ASK_KEY = 'discovery.ask.budget.business';
+
+/** Code fallback for the business budget ask (the seed pool is optional). */
+export const BUSINESS_BUDGET_ASK_FALLBACK = 'До која цена го барате деловниот простор?';
+
+/** A commission/agency-fee question is not a property-budget ask: "колку е
+ *  провизијата за локал?" belongs to the provision lane. */
+const FEE_WORD_RE = /(?:провизиј|агенциск|надомест|commission)/iu;
+
+/** The missing-quantity ask for a commercial space. See detectBusinessBudgetAsk. */
+export function detectBusinessBudgetAsk(text: string): boolean {
+  const t = normalizeMc(text);
+  // A named commercial space is the precondition. detectBusiness already vetoes
+  // a message that names стан/куќа ("стан до ресторан" is residential traffic
+  // and its landmarks are not the property).
+  if (!detectBusiness(text)) return false;
+  // A CRITERION is not an ask: with the budget already stated ("деловен простор
+  // до 500 евра") the funnel has nothing to ask for.
+  if (detectBudget(text)) return false;
+  // Other money lanes own their questions.
+  if (FEE_WORD_RE.test(t) || isFeeTraffic(text) || isFeeFrame(text)) return false;
+  if (detectMarketPriceAsk(text)) return false;
+  // A RATE/SIZE question ("колку м² има локалот", "цена по квадрат") is not a
+  // budget ask — answering it with "до која цена…" avoids the question.
+  if (/(?:м2|м²|квадрат)/iu.test(t)) return false;
+  // The price question itself: "колку чини/цената/пари/кирија", "која е цената".
+  // normalizeMc maps a typed Latin c to ц ("cini" → "цини"), so the чини
+  // family must list both spellings.
+  const kolku = /колку[^.!?\n]{0,28}(?:цена|цени|цини|чини|коста|пари|кирија|изнесува|вредност)/iu.test(t);
+  const kojaCena = /(?:која|каква|по\s+која)[^.!?\n]{0,20}(?:цена|цени|цини)/iu.test(t);
+  // A bare "…, цена?" is an ask; the trailing "цената" of an OPINION
+  // ("не ми се допаѓа цената") is not, so the question mark is required.
+  const bareCena = /(?:цена|цени|цини|чини)\s*\?$/iu.test(t.trim());
+  return kolku || kojaCena || bareCena;
 }
 
 // Property interest: the client expresses positive sentiment about a shown
@@ -3997,6 +4108,12 @@ const OFFTOPIC_RE =
 
 /** True when the message is off-topic / small talk / self-intro question. */
 export function detectOfftopic(text: string): boolean {
+  // A question about the PROPERTY is never small talk. The self-intro arm
+  // "како (си|сте|е|викаш)" matched „KAKO E RESENO PARKIRANJETO?“ on “како е”
+  // and — because OFTOPIC is the first simple detector — served the off-topic
+  // redirect to a parking question (queue #161/#164). The feature family owns
+  // that text; the redirect must not claim it.
+  if (detectFeatureAsk(text)) return false;
   return matchesBoth(OFFTOPIC_RE, text) || extFires('offtopic', text);
 }
 
@@ -4351,8 +4468,159 @@ const NAG_FROM_RE = /(?:^|[^\p{L}])од\s+каде(?=$|[^\p{L}])/iu;
  * one rung. Genuine questions and consent are excluded (see the grammar block
  * above); callers gate on the fee context (closing, fee not yet agreed).
  */
+// --- CHEAP-PRICE VALENCE -----------------------------------------------------
+// The fee is never called CHEAP by a client who has not paid it: "многу ефтина
+// цена" is one-directional evidence about the PROPERTY price. Before this, the
+// shared money word (цена) made the turn fee traffic and the value class
+// (`многу`) made it a complaint, so a compliment climbed the fee ladder.
+// The predicate is deliberately lexical (it may not call the fee detectors that
+// call it) and only fires when no fee referent is present.
+const CHEAP_PRICE_RE = /(?:^|[^\p{L}])(?:ефтин\p{L}*|евтин\p{L}*)/iu;
+const CHEAP_PRICE_PHRASE_RE = /(?:поволн\p{L}*\s+(?:цена|cena)|добра\s+цена|dobra\s+cena|одлична\s+цена|odlicna\s+cena|ниска\s+цена|niska\s+cena|супер\s+цена|super\s+cena|(?:цена|cena)\p{L}*\s+(?:е\s+|e\s+)?(?:добра|dobra|одлична|одлицна|odlicna|поволна|povolna|ниска|niska|супер|super))/iu;
+const EXPENSIVE_PRICE_RE = /(?:^|[^\p{L}])(?:скап\p{L}*|скуп\p{L}*|прескап\p{L}*|превисок\p{L}*)/iu;
+const EXPENSIVE_PRICE_PHRASE_RE = /(?:висока\s+цена|visoka\s+cena|превисока\s+цена|previsoka\s+cena)/iu;
+// "поевтино / poeftino" asks for a CHEAPER search — a command, not an opinion.
+const COMPARATIVE_CHEAPER_RE = /(?:по(?:евтин|ефтин|ектин)|po(?:eftin|jeftin|ektin))/iu;
+const FEE_REFERENT_RE = /(?:посет\p{L}*|гледањ\p{L}*|разглед\p{L}*|провизи\p{L}*|такс\p{L}*|надомест\p{L}*|комиси\p{L}*)/iu;
+
+/** True when the message carries a FEE object (visit, commission, fee-sized
+ *  sum) rather than the property price. The amount arm requires an explicit
+ *  currency so a bare "44 м²" cannot read as a fee. */
+function hasFeeReferent(text: string): boolean {
+  const t = normalizeMc(text);
+  if (FEE_REFERENT_RE.test(t)) return true;
+  const m = FEE_SIZED_RE.exec(t);
+  return !!m && !!m[2] && counterOfferFeeSized(t);
+}
+
+export type PriceEval = 'cheap' | 'expensive';
+
+/** The client's VALENCE about the price on the table. Cheap is the safe, wired
+ *  half (see detectPriceEval callers); expensive stays detected but un-routed
+ *  until the fee/property ambiguity is resolved by the arbitration layer. */
+export function detectPriceEval(text: string): PriceEval | undefined {
+  const t = normalizeMc(text);
+  if (hasFeeReferent(t)) return undefined;
+  if (COMPARATIVE_CHEAPER_RE.test(t)) return undefined;
+  if (CHEAP_PRICE_RE.test(t) || CHEAP_PRICE_PHRASE_RE.test(t)) return 'cheap';
+  if (EXPENSIVE_PRICE_RE.test(t) || EXPENSIVE_PRICE_PHRASE_RE.test(t)) return 'expensive';
+  return undefined;
+}
+
+/** The CHEAP-price remark lane's bank key. Cheap is the safe half of the
+ *  valence axis: the fee is never called cheap, so this cannot collide with fee
+ *  protocol copy. The expensive key is reserved (detected, not wired). */
+export const PRICE_EVAL_CHEAP_KEY = 'remark.price.cheap';
+export const PRICE_EVAL_EXPENSIVE_KEY = 'remark.price.expensive';
+export const PRICE_EVAL_CHEAP_FALLBACK =
+  'Да, цената е навистина поволна за оваа локација и квадратура. Дали сакате да ја разгледате во живо?';
+/** WIRED in P5.2 (evidence arbitration): the negative half of the valence axis.
+ *  Gated by the arbiter to the narrowest boundary — an explicit price noun on a
+ *  property that is on the table, non-question, no negotiation shape, no other
+ *  claim. The copy acknowledges the objection, states the fact that the price
+ *  is owner-determined, and invites the live viewing; it NEVER negotiates, NEVER
+ *  re-discloses the fee and NEVER names an amount (the same policy class as the
+ *  cheap seeds above). Bare "скапо" without the price noun stays vetoed — the
+ *  negociate/fee lanes own that shape. */
+export const PRICE_EVAL_EXPENSIVE_FALLBACK =
+  'Разбирам — цената изгледа висока. Таа е одредена од самиот сопственик и за оваа локација е во рамките на пазарот. Сакате да ја видите во живо за сами да ја оцените?';
+
+/** True only for the POSITIVE price evaluation (the valence-veto predicate). */
+export function isCheapPriceEval(text: string): boolean {
+  return detectPriceEval(text) === 'cheap';
+}
+
+// ── NO MONEY REPLY WITHOUT A TARGET (hard invariant 3) ────────────────────
+// When the message is money traffic but the OBJECT of the money word is
+// unresolved — no fee noun, no fee-sized figure, no property noun in the text,
+// nothing bound in the session — the only safe serve is a CLARIFICATION.
+// Protocol copy (the fee ladder, the provision ladder, the investment excuse)
+// is the most expensive thing to mis-serve, so an ambiguous money wording must
+// never reach it. The caller (inbound.ts) additionally requires the protocol
+// states, no property on the table and no agreed fee, because a resolved
+// session IS a target.
+const MONEY_TOPIC_RE =
+  /(?:^|[^\p{L}])(?:цена\p{L}*|cena\p{L}*|пари|pari|плат\p{L}*|plat\p{L}*|евр\p{L}*|evr\p{L}*|денар\p{L}*|denar\p{L}*)/iu;
+const PROPERTY_NOUN_RE =
+  /(?:^|[^\p{L}])(?:стан\p{L}*|stan\p{L}*|куќ\p{L}*|кук\p{L}*|kuk\p{L}*|апартман\p{L}*|apartman\p{L}*|дуплекс\p{L}*|duplex\p{L}*|гараж\p{L}*|garaz\p{L}*|дуќан\p{L}*|dukan\p{L}*|плац\p{L}*|plac\p{L}*|вила\p{L}*|vila\p{L}*|котек\p{L}*|kotek\p{L}*|недвижнос\p{L}*|nedviznos\p{L}*|некретнин\p{L}*|nekretnin\p{L}*|деловен|deloven)/iu;
+// Money words that are CTRL vocabulary, not topics: a payment-method note
+// ("со картичка"), a math unit, a search-criteria sum. These never need a
+// clarification — they are either resolved elsewhere or are not traffic.
+const MONEY_NON_TOPIC_RE =
+  /(?:картичк|kartichk|банка|banka|префикс|преку)/iu;
+
+/** True when the message is money traffic whose object is genuinely
+ *  unresolved (no fee referent, no property noun, no budget/search shape).
+ *  Pure probe: no state, no slots — the caller adds those gates.
+ *  IMPORTANT: `NAG_FEE_OBJECT_RE`/`NAG_VISIT_RE` (money nouns like "пари")
+ *  count as RESOLVED here — broader than the fee-referent test — because the
+ *  fee ladder's object gates build on them; a probe must never strip an arm
+ *  the ladder legitimately owns ("немам пари" is funnel traffic). */
+export function isMoneyWithoutTarget(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ');
+  const cyr = normalizeMc(flat);
+  if (!MONEY_TOPIC_RE.test(cyr)) return false;
+  if (MONEY_NON_TOPIC_RE.test(cyr)) return false;
+  // An explicit object resolves the target into its own lane.
+  if (hasFeeReferent(cyr) || isFeeFrame(flat)) return false;
+  if (PROPERTY_NOUN_RE.test(cyr)) return false;
+  // Money nouns resolve the target — EXCEPT the shared word `цена`, whose
+  // sense this whole program exists to separate. When `цена` is the ONLY
+  // money noun (no пари/такса/надомест/комисија, no visit noun), the message
+  // is property talk with a missing object — exactly what this lane is for.
+  // "немам пари" and friends (bare money nouns, no fee referent) stay with
+  // the ladder: the probe strips `цена` before the money-noun test.
+  const strippedPriceNoun = cyr.replace(/(?:ценат?а?|cenat?a?)/giu, ' ');
+  if (NAG_FEE_OBJECT_RE.test(strippedPriceNoun) || NAG_VISIT_RE.test(cyr)) return false;
+  if (detectBudget(flat) || detectCheaperSearch(flat)) return false;
+  // An investment OPINION remark ("mnogu skapa cena ima") is informational
+  // serve with a target (the market) — the probe does not touch it. But the
+  // same detector fires on QUESTION wordings ("cenata ke e poskapa li?"),
+  // which are an unresolvable-money ask and exactly the clarify family:
+  // questions keep the probe.
+  if (detectInvestmentOpinion(flat) && !/\?/.test(flat)) return false;
+  // A negated payment verb with no object — "не сакам да платам" — is
+  // STATE-RESOLVED funnel traffic when the ladder can reach it: the fee
+  // funnel's only payable thing is the visit fee, so a bare refusal stays
+  // with the ladder (its state-gated arm) and is not "unresolved".
+  if (NAG_NEGATION_RE.test(cyr) && NAG_PAY_STEM_RE.test(cyr)) return false;
+  if (detectFeePaymentAgreement(flat)) return false;
+  return true;
+}
+
+export const MONEY_CLARIFY_KEY = 'ask.money.clarify';
+export const MONEY_CLARIFY_FALLBACK =
+  'За да Ви одговорам точно — дали се однесува на цената на конкретна недвижност или на надоместокот за разгледување?';
+
+/** PRE-VETO conflict probe for the collision log (hard invariant 4). Cheap and
+ *  the fee-claim grammar are incompatible BY CONSTRUCTION (the fee referent
+ *  check kills the cheap claim), but vocabulary drifts: if a new money word
+ *  ever enters both predicates, this probe fires BEFORE the veto eats it, and
+ *  the serve-time log records the collision as an alarm instead of silently
+ *  swallowing it. Returns the strongest conflicting claim, or undefined. */
+export function cheapLaneConflict(text: string): string | undefined {
+  const flat = text.replace(/\n/g, ' ');
+  const cyr = normalizeMc(flat);
+  const cheap = CHEAP_PRICE_RE.test(cyr) || CHEAP_PRICE_PHRASE_RE.test(cyr);
+  if (!cheap) return undefined;
+  // The pre-veto fee-claim grammar: exactly what detectFeeComplaint would
+  // have matched without the valence veto.
+  if (_feeTotalCostSlotsRe.test(flat)) return 'fee.total-cost';
+  if (FEE_COMPLAINT_RE.test(flat)
+    || matchesBoth(FEE_PRICE_COMPLAINT_RE, flat)
+    || FEE_AMOUNT_COUNTER_RE.test(flat)
+    || matchesBoth(FEE_GRAMMAR_RE, flat)) return 'fee.complaint';
+  if (NAG_VISIT_RE.test(cyr) && (NAG_FEE_OBJECT_RE.test(cyr) || detectFeeNag(flat))) {
+    return 'fee.traffic';
+  }
+  return undefined;
+}
+
 export function detectFeeNag(text: string): boolean {
   const flat = text.replace(/\n/g, ' ');
+  // VALENCE VETO: praising the price is not resisting the fee. The fee is never
+  // "cheap" — this is the one-directional signal that separates the two topics.
+  if (isCheapPriceEval(flat)) return false;
   // Positive consent is never resistance; negated pay is never consent (the
   // detector already refuses negations, so this only screens real agreement).
   if (detectFeePaymentAgreement(flat)) return false;
@@ -4365,6 +4633,12 @@ export function detectFeeNag(text: string): boolean {
   const negated = NAG_NEGATION_RE.test(cyr);
   const universal = NAG_UNIVERSAL_RE.test(cyr);
   const valueComplaint = NAG_VALUE_RE.test(cyr) || NAG_VALUE_RE.test(flat);
+  // FEE REFERENT for the VALUE arm: the shared noun "цена" alone is the
+  // PROPERTY's price ("PREVISOKA CENA" is a price objection, not a fee one).
+  // A visit noun or a fee-sized figure is required for the complaint to be
+  // about the fee — the anaphoric "цената" case is covered by the caller's
+  // fee-funnel state, and defaults DOWN here rather than serving fee copy.
+  const feeValueReferent = hasVisit || hasFeeReferent(cyr);
   const doubt = NAG_DOUBT_RE.test(cyr);
 
   // 1) NEGATED PAY/ACCEPT. The verb is required — a bare "не" is never
@@ -4394,7 +4668,7 @@ export function detectFeeNag(text: string): boolean {
   if (universal && (hasVisit || hasFeeObject)) return true;
 
   // 4) VALUE COMPLAINT about fee traffic; a bare amount is not a complaint.
-  if (valueComplaint && (hasVisit || hasFeeObject)) return true;
+  if (valueComplaint && feeValueReferent) return true;
   // 4b) THE FEE-SIZED VALUE COMPLAINT — "SKAPO E TOA . ZA SEKOJ STAN PO 300DEN"
   //     (the [23:12] burst). The client calls the PRINCIPLE expensive and names
   //     the amount; the message carries NO viewing noun and NO fee-object noun
@@ -4485,6 +4759,9 @@ export function detectFeeNag(text: string): boolean {
  */
 export function isFeeTraffic(text: string): boolean {
   const flat = text.replace(/\n/g, ' ');
+  // VALENCE VETO: a cheap-price remark is property traffic, never fee traffic.
+  // Without this the generate+store gate refuses a learnable turn as "money".
+  if (isCheapPriceEval(flat)) return false;
   const cyr = normalizeMc(flat);
   const money = NAG_FEE_OBJECT_RE.test(cyr);
   const visit = NAG_VISIT_RE.test(cyr);

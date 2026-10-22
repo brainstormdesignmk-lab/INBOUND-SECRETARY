@@ -8,15 +8,17 @@ import {
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
 import { shouldLogForEnrichment } from '../llm/enrichPolicy';
 import { shouldTryDynamic, validateDynamicAnswer } from '../llm/dynamicFallback';
+import { detectPersonalAsk, personalReply } from '../llm/personal';
 import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea } from '../data/properties';
-import { detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority,  detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame } from '../llm/deterministic';
+import { AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, detectAgentAttendanceAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired,  detectNearCenter, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk, detectBye, detectSoftRefusal, detectVisitTimingQuestion,  detectExitCheck, extractPoiWish, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame } from '../llm/deterministic';
+import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
-import { detectInfoFacets, buildInfoAnswer, isSuterenUnit } from '../llm/infoAnswer';
+import { detectInfoFacets, buildInfoAnswer, isSuterenUnit, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE, INFO_NO_YEAR_KEY, INFO_NO_RENOVATION_KEY } from '../llm/infoAnswer';
 import { answerGlossary, detectGlossaryAsk } from '../llm/glossary';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
 import { AppointmentStore } from '../store/appointments';
@@ -946,6 +948,89 @@ export class InboundHandler {
       await this.sendRaw(session, warning);
       return;
      }
+
+    // PERSONAL LANE — the client asking about LINA HERSELF: her name, her age,
+    // or paying her a compliment. Closed-class, deterministic, 0 ms. It runs
+    // BEFORE the question gate because a genuine question (the age ask) would
+    // otherwise reach the classifier and, on a miss, the dynamic
+    // generate+store door — which is exactly how „Јас сум дигитален
+    // асистент“ got written into bank_dynamic and served forever. The reply
+    // keeps the funnel untouched: no state change, no slots, no enrichment
+    // write, so the next business message continues where it left off.
+    const personalAsk = detectPersonalAsk(text);
+    if (personalAsk) {
+      routeLog(chatId, text, `PERSONAL:${personalAsk}`);
+      const reply = personalReply(personalAsk, assistantTexts(session));
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, reply, 'deterministic:personal');
+      return;
+    }
+
+    // Agent attendance is an informational question, distinct from the fee
+    // disclosure/visit-consent protocol. Handle before the broad visit detector
+    // so a question about who attends cannot be interpreted as a request to
+    // schedule and routed to frozen fee.ask.buy.
+    if (detectAgentAttendanceAsk(text)) {
+      const reply = pickVariant(AGENT_ATTENDS_VIEWING_KEY, { recent: assistantTexts(session) })
+        ?? AGENT_ATTENDS_VIEWING_ANSWER;
+      routeLog(chatId, text, 'AGENT_ATTENDANCE_ASK');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) {
+        try {
+          this.deps.enrichment.insert({
+            chatId, state: session.state, eventType: 'AGENT_ATTENDANCE_ASK',
+            userMsg: text, replyText: reply, replySource: 'deterministic', bankKey: AGENT_ATTENDS_VIEWING_KEY,
+          });
+        } catch { /* advisory log */ }
+      }
+      await this.sendRaw(session, reply, 'deterministic:attendance');
+      return;
+    }
+
+    // BUSINESS-SPACE BUDGET — the explicit deterministic route for a COMMERCIAL
+    // price question in the intake states ("kolku cini deloven prostor vo
+    // Centar?", "koja e cenata za lokal?"). Lina cannot quote a number she does
+    // not have, and the residential lanes answer this with "колку спални…" /
+    // "цената на станот" (wrong category). The route records the commercial
+    // type plus the details the message itself carries, then serves the BUSINESS
+    // budget question from its own key. State-gated: in property_query /
+    // presentation / closing the flat on the table owns its price and the fee
+    // protocol owns the money talk.
+    if (detectBusinessBudgetAsk(text) && ['idle', 'intent', 'discovery'].includes(session.state)) {
+      const carried = extractSlots(text);
+      session.slots.business = true;
+      if (carried.service) session.slots.service = carried.service;
+      if (carried.sqm) session.slots.sqm = carried.sqm;
+      // extractSlots does not resolve feed neighborhoods — ask the feed, or the
+      // area named in the question is lost and the funnel asks for it again.
+      if (!session.slots.location) {
+        try {
+          const loc = detectLocation(text, await this.deps.properties.locations());
+          if (loc) session.slots.location = loc;
+        } catch { /* feed unavailable — the ask still stands */ }
+      }
+      session.state = 'discovery';
+      const reply = pickVariant(BUSINESS_BUDGET_ASK_KEY, { recent: assistantTexts(session) })
+        ?? BUSINESS_BUDGET_ASK_FALLBACK;
+      routeLog(chatId, text, 'BUSINESS_BUDGET_ASK');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) {
+        try {
+          this.deps.enrichment.insert({
+            chatId, state: session.state, eventType: 'BUSINESS_BUDGET_ASK',
+            userMsg: text, replyText: reply, replySource: 'deterministic', bankKey: BUSINESS_BUDGET_ASK_KEY,
+          });
+        } catch { /* advisory log */ }
+      }
+      await this.sendRaw(session, reply, 'deterministic:business-budget');
+      return;
+    }
 
     // Question gate: when the client asks a genuine question (investment opinion,
     // price comparison, fee debate, neighborhood advice, etc.), skip ALL
@@ -2155,6 +2240,94 @@ export class InboundHandler {
       }
     }
 
+    // CHEAP-PRICE REMARK — the client says the quoted price is GOOD ("MNOGU
+    // EFTINA CENA E TOA", "cenata e dobra"). This is valence, not money talk:
+    // the fee is never called cheap, so a compliment can never be resistance —
+    // before this lane it climbed the fee ladder and served persuasion copy at a
+    // happy client, and the review bank then refused the turn as a frozen key.
+    // Gated to states where a price is ON THE TABLE (property_query /
+    // presentation / closing): in intake there is nothing to evaluate yet, and
+    // a "cheap" in discovery is search chatter. No state change, no slots, no
+    // fee; the wording is bank-backed and grows through review.
+    // INVARIANT 4 — the collision record. If the cheap-price vocabulary ever
+    // overlaps the fee-claim grammar again (predicate drift), this probe fires
+    // BEFORE the veto eats it and the drift log carries the alarm — a collision
+    // is an event, never a silent swallow. pure-regex, no state.
+    const laneConflict = cheapLaneConflict(text);
+    if (laneConflict) routeLog(chatId, text, `LANE_COLLISION:${laneConflict}`);
+    const priceEval = detectPriceEval(text);
+    // MONEY ARBITRATION (P5.2, option 1 — evidence, not array order): every
+    // money lane in this region becomes a CLAIM with its evidence chips, and
+    // the arbiter resolves by evidence strength; strength ties fall back to
+    // the legacy array order, so every serve the old chain made, this chain
+    // makes byte-identical (tests/route-corpus.test.ts). The arbiter is also
+    // the collision log (invariant 4): two surviving claims at the top is an
+    // event, and an unclaimed money turn gets its explicit
+    // `unknown.<topic>.<act>` address (option 2) instead of a silent fall-
+    // through into a family by accident.
+    const moneyArb = arbitrateMoney(text, {
+      state: session.state,
+      propertyOnTable: !!(session.slots.propertyId || session.slots.interestedPropertyId
+        || session.slots.lastPrice || session.slots.presentedIds?.length),
+      feeAgreed: !!session.slots.viewingFeeAgreed,
+      feeBlocked: !!this.deps.bank?.neverServes(text, 'fee.'),
+      provisionBlocked: !!this.deps.bank?.neverServes(text, 'provision.'),
+    });
+    if (moneyArb.conflict) routeLog(chatId, text, collisionTag(moneyArb.claims));
+    if (moneyArb.bucket) routeLog(chatId, text, `ROUTE_UNKNOWN:${moneyArb.bucket}`);
+    if (moneyArb.lane === 'cheap') {
+      const reply = pickVariant(PRICE_EVAL_CHEAP_KEY, { recent: assistantTexts(session) })
+        ?? PRICE_EVAL_CHEAP_FALLBACK;
+      routeLog(chatId, text, 'PRICE_EVAL_CHEAP');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) {
+        try {
+          this.deps.enrichment.insert({
+            chatId, state: session.state, eventType: 'PRICE_EVAL_CHEAP',
+            userMsg: text, replyText: reply, replySource: 'deterministic', bankKey: PRICE_EVAL_CHEAP_KEY,
+          });
+        } catch { /* advisory log */ }
+      }
+      await this.sendRaw(session, reply, 'deterministic:price-eval');
+      return;
+    }
+    if (priceEval === 'expensive'
+      && (session.state === 'closing' || session.state === 'presentation')
+      && !session.slots.viewingFeeAgreed
+      && moneyArb.lane !== 'expensive') {
+      // INVARIANT 4, second record, now RESIDUAL ONLY (P5.2): with the evidence
+      // boundary met the negative evaluation is SERVED below (the arbiter's
+      // narrowest lane); this log stays for the closing state and every
+      // boundary the serve does not cross — the data collector keeps counting.
+      routeLog(chatId, text, 'PRICE_EVAL_EXPENSIVE_UNWIRED');
+    }
+    // THE WIRED EXPENSIVE LANE (P5.2, the decision the evidence makes): a
+    // negative evaluation whose object is the EXPLICIT price noun, on a
+    // property that is on the table, non-question, no negotiation shape, no
+    // other money claim. The serve is the bank-backed remark — acknowledge,
+    // owner-set price, invite the live viewing. Bare "скапо" (no price noun),
+    // negotiation-shaped turns and closing-state turns keep their lanes.
+    if (moneyArb.lane === 'expensive' && priceEval === 'expensive') {
+      const reply = pickVariant(PRICE_EVAL_EXPENSIVE_KEY, { recent: assistantTexts(session) })
+        ?? PRICE_EVAL_EXPENSIVE_FALLBACK;
+      routeLog(chatId, text, 'PRICE_EVAL_EXPENSIVE');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) {
+        try {
+          this.deps.enrichment.insert({
+            chatId, state: session.state, eventType: 'PRICE_EVAL_EXPENSIVE',
+            userMsg: text, replyText: reply, replySource: 'deterministic', bankKey: PRICE_EVAL_EXPENSIVE_KEY,
+          });
+        } catch { /* advisory log */ }
+      }
+      await this.sendRaw(session, reply, 'deterministic:price-eval');
+      return;
+    }
+
     // FEE-AMOUNT ASK — the client asks what the VISIT costs: "KOLKU E ZA
     // POSETA?", "kolku ke me kosta 10 poseti?", "KOJA E CENATA NA
     // RAZGLEDUVANJETO?". The OBJECT of the question is the FEE, so every
@@ -2164,8 +2337,10 @@ export class InboundHandler {
     // DISCLOSURE (fee.ask; the AGNOSTIC copy when no market is declared) and
     // the funnel lands at the fee question. Runs FIRST in this region, before
     // freshness/negotiate/INFO/price can claim the message.
-    if (detectFeeAmountAsk(text)
-      && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle', 'property_locate', 'contact_collection'].includes(session.state)) {
+    // (The fee-amount ask is now the arbiter's feeAmount claim — same
+    // predicate, same state gate, same neverServes veto — moved into the
+    // evidence claim list above; the serve below is unchanged.)
+    if (moneyArb.lane === 'feeAmount') {
       if (!session.slots.service) session.slots.service = this.feeServiceHint;
       const askSvc = session.slots.service;
       const askKey = askSvc === undefined ? undefined : askSvc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
@@ -2204,8 +2379,9 @@ export class InboundHandler {
     // commission: resistance there is a misunderstanding, so provisionLadder
     // returns the 0%-clarification and no rung is counted. Runs FIRST in this
     // region — before freshness/negotiate/INFO/price can claim the message.
-    if (detectProvisionResistance(text)
-      && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle', 'property_locate', 'contact_collection'].includes(session.state)) {
+    // (Provision resistance is likewise the arbiter's provision claim — the
+    // serve below is unchanged.)
+    if (moneyArb.lane === 'provision') {
       const served = this.serveProvisionResistance(session, text);
       routeLog(chatId, text, 'PROVISION_PUSH:fast');
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -2214,6 +2390,37 @@ export class InboundHandler {
       if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PROVISION_PUSH_FAST', userMsg: text, replyText: served.reply, replySource: 'deterministic', bankKey: served.bankKey }); } catch { /* ignore */ } }
       console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-provision-ladder) state=${session.state} src=deterministic bank=${served.bankKey} rung=${served.rung}`);
       await this.sendRaw(session, served.reply, 'deterministic:fast');
+      return;
+    }
+
+    // NO MONEY REPLY WITHOUT A TARGET (hard invariant 3): a money wording
+    // whose object is unresolved — no fee referent, no property noun, nothing
+    // bound — gets the ONE safe script, the clarify question, and NEVER a
+    // protocol line. Deliberately placed LAST among the money lanes (after
+    // fee-amount-ask and provision, right before the ladder): every targeted
+    // lane still wins; this catches only the residue that would otherwise
+    // slip down into heavier scripts. Fires only in the money-script states
+    // when nothing is on the table: a bound property / an agreed fee / a
+    // money noun ("пари") IS a target, and the fee-funnel refusal arms stay
+    // with the ladder. No state change, no slots; logs MONEY_CLARIFY + key.
+    // (The clarify gate is now the arbiter's clarify claim — object unresolved
+    // + protocol states + nothing on the table + no agreed fee.)
+    if (moneyArb.lane === 'clarify') {
+      const clarify = pickVariant(MONEY_CLARIFY_KEY, { recent: assistantTexts(session) })
+        ?? MONEY_CLARIFY_FALLBACK;
+      routeLog(chatId, text, 'MONEY_CLARIFY');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: clarify }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) {
+        try {
+          this.deps.enrichment.insert({
+            chatId, state: session.state, eventType: 'MONEY_CLARIFY',
+            userMsg: text, replyText: clarify, replySource: 'deterministic', bankKey: MONEY_CLARIFY_KEY,
+          });
+        } catch { /* advisory log */ }
+      }
+      await this.sendRaw(session, clarify, 'deterministic:money-clarify');
       return;
     }
 
@@ -2229,18 +2436,14 @@ export class InboundHandler {
     // present path claimed the message first and answered a fee objection with
     // MORE PROPERTIES, and the bookkeeping grew by a batch nobody saw). The
     // commission counter is never touched (the isolation contract).
-    if ((session.state === 'closing' || session.state === 'presentation')
-      && !session.slots.viewingFeeAgreed
-      && detectFeeNag(text)
-      // OPTIONS ASK WINS (the [22:2x] joined burst): the relay joins a client's
-      // burst into one turn, so "pari za poseta / nesto novo" carries a fee jab
-      // AND a shopping ask. The client is asking for alternatives, and the fee
-      // was already disclosed — answering with another rung is the loop the
-      // field transcript shows. detectMoreOptions is deliberately narrow: the
-      // fee-sized amount complaint ("SKAPO E TOA . ZA SEKOJ STAN PO 300DEN")
-      // reads as suggest-alternatives, so THAT predicate must never gate this
-      // lane, or nag 3 of the ladder would be lost to the options engine.
-      && !detectMoreOptions(text)) {
+    if (moneyArb.lane === 'nag') {
+      // OPTIONS-ASK VETO stays INSIDE the arbiter's nag claim (the [22:2x]
+      // joined burst): "pari za poseta / nesto novo" carries a fee jab AND a
+      // shopping ask, and the fee already disclosed must not climb another
+      // rung. The fee-sized amount complaint ("SKAPO E TOA . ZA SEKOJ STAN PO
+      // 300DEN") reads as suggest-alternatives ONLY in the options engine, so
+      // that veto never gates the ladder's rung 3 — the claim keeps the veto
+      // scoped exactly where the field transcript demanded it.
       const served = this.serveFeeNagLadder(session);
       routeLog(chatId, text, 'FEE_PUSH:fast');
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -2371,6 +2574,36 @@ export class InboundHandler {
       }
     }
 
+    // ── [00:12] SMALLER-BY-RATE — the per-м² anchored size-down ask ──────
+    // The client keeps the €/м² RATE of the flat on the table and asks SMALLER
+    // ("pomalo mi treba so takva cena za kvadrat", "rekov takva cena za
+    // kvadrat ama pomal"). Two dead ends own this shape otherwise: the INFO
+    // block's pricePerSqm facet re-renders the SAME flat's rate forever, and
+    // the pomalo lane re-asks bedrooms the client already priced. The honest
+    // answer is a search: same service + same category, strictly smaller м²,
+    // €/м² at or BELOW the anchor's rate (smaller × same-or-cheaper rate = a
+    // cheaper TOTAL — the client's own spec), same-area rows first, already-
+    // shown rows excluded.
+    if (detectSmallerPerM2Ask(text)) {
+      const servedSmaller = await this.presentSmallerPerM2(session, text);
+      if (servedSmaller) return;
+    }
+
+    // [00:12] head — the bare TOO-BIG COMPLAINT ("GOLEM MI E NEKAKO"): the
+    // same size-down ladder, anchored on SIZE alone — the closest-smaller м²
+    // ranks first, any rate serves. Veto:
+    // a size QUESTION ("kolku e golem?", "golemina") belongs to the INFO sqm
+    // facet; fee-traffic money complaints ("golemo e" about the fee) belong
+    // to the fee lanes. With no anchor (no property on the table) the lane
+    // returns false and the existing lanes answer unchanged.
+    if (detectGolemComplaint(text) && !/\?/.test(text)
+      && !/колку\s*(?:е\s*)?(?:голем|gol)/iu.test(text)
+      && !/golemina|големина/iu.test(text)
+      && !detectFeeComplaint(text) && !detectFeeSurprise(text)) {
+      const servedGolem = await this.presentSmallerPerM2(session, text, 'golem');
+      if (servedGolem) return;
+    }
+
     // INFO-ASK (scope C) — "kolku e garsonjerata?", "a 63 kolku kvadrati",
     // "dali 76 ima lift?" — the public-add becomes quotable, same contract as
     // the where-is family: the property is bound by MENTION (EB, price, type,
@@ -2409,6 +2642,12 @@ export class InboundHandler {
         // 250 евра") instead of the published tier rule. Commission traffic
         // belongs to provision.ask / provision.who below.
         && !detectProvisionAsk(text) && !detectProvisionWho(text)
+        // SMALLER-BY-RATE veto (the [00:12] burst): "pomalo mi treba so takva
+        // cena za kvadrat" carries a cena+per-м² shape, but the client is
+        // SEARCHING for a smaller unit, not asking the shown flat's rate
+        // again — re-rendering it is exactly the loop the smaller-by-rate
+        // lane above owns.
+        && !detectSmallerPerM2Ask(text)
         // A COLD ask that NAMES its EB is still an info ask: the [00:00]
         // transcript "ZDRAVO DALI KUKJATA 55 IMA DVORCE?" was turned into the
         // discovery/service question because no property was on the table yet,
@@ -2417,7 +2656,13 @@ export class InboundHandler {
         // gate accepts that case too.
         && (session.slots.propertyId || session.slots.interestedPropertyId
           || session.slots.presentedIds?.length
-          || inferPropertyId(text) !== undefined)) {
+          || inferPropertyId(text) !== undefined
+          // The BUILDING-YEAR question is answerable with no unit on the table:
+          // the honest "немам податок — ќе го прашам сопственикот" line is a
+          // general answer about every property, not a property-specific fact.
+          // Without this the ask fell to the LLM and got a presentation pitch
+          // (queue #185: "od koja godina e zgradata?").
+          || infoFacets.yearBuilt || infoFacets.renovation)) {
         const mbInfo = await this.bindMention(text, session, { historyFallback: true });
         if (await this.sendIfClarify(mbInfo, text, session)) return;
         // No binding signal in the message ("kolku e ?") → the legacy slot
@@ -2433,6 +2678,35 @@ export class InboundHandler {
           ?? (session.slots.presentedIds?.length
             ? await this.deps.properties.getByEb(session.slots.presentedIds[session.slots.presentedIds.length - 1]).catch(() => undefined)
             : undefined);
+        if (!infoProp && (infoFacets.yearBuilt || infoFacets.renovation)) {
+          // No unit bound (a cold "from which year is the building?"): still
+          // answer the question — the missing-fact line is property-agnostic.
+          const miss = [
+            ...(infoFacets.yearBuilt ? [INFO_NO_YEAR_LINE] : []),
+            ...(infoFacets.renovation ? [INFO_NO_RENOVATION_LINE] : []),
+          ].join(' ');
+          routeLog(chatId, text, 'INFO_ASK_YEAR');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: miss }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          // This lane returns before the epilogue logger, so record it here:
+          // otherwise the year answer — the one the operator must be able to
+          // review and improve — never reaches ENRICHMENT (queue #185).
+          if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) {
+            try {
+              this.deps.enrichment.insert({
+                chatId: session.chatId, state: session.state, eventType: 'INFO_ASK_YEAR',
+                userMsg: text, replyText: miss, replySource: 'deterministic',
+                // The key is FOR RECOGNITION ONLY: it lets the review screen
+                // paint this row as code and name the constant that owns the
+                // wording. Nothing writes to it — the rule lives in code.
+                bankKey: infoFacets.yearBuilt ? INFO_NO_YEAR_KEY : INFO_NO_RENOVATION_KEY,
+              });
+            } catch { /* advisory */ }
+          }
+          await this.sendRaw(session, miss, 'deterministic');
+          return;
+        }
         if (infoProp) {
           const infoAnswer = buildInfoAnswer(infoProp, infoFacets);
           if (infoAnswer) {
@@ -5508,6 +5782,16 @@ ${contactReminder}`;
       }
     }
 
+    // The contact ask is deterministic but KEYLESS: the epilogue logger only
+    // records `bankKey || non-deterministic`, so the turn that asked for
+    // name/phone never showed up in ENRICHMENT (the 18:22 transcript). Name
+    // the key the responder just used so the serve is reviewable.
+    if (!bankKey && replySource === 'deterministic' && before === 'contact_collection') {
+      const needName = !session.slots.name;
+      const needPhone = !session.slots.phone;
+      bankKey = needName && needPhone ? 'contact.ask.name.phone' : needName ? 'contact.ask.name' : 'contact.ask.phone';
+    }
+
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
 
@@ -6007,6 +6291,123 @@ ${contactReminder}`;
    *  nothing (or is drained), offer OTHER NEIGHBORHOODS (price.shy.empty ask)
    *  and let the widen release happen on the client's “да” — options never
    *  spill silently. */
+  /** [00:12] SMALLER-BY-RATE — the size-down ladder. Anchor = the property
+   *  the chat put on the table (mention in the message itself, else current →
+   *  interested → last-presented — the chain the INFO block trusts). Pool =
+   *  same service + same category, strictly smaller м² (fewer спални when the
+   *  anchor has no м²), €/м² at or BELOW the anchor's rate, already-shown rows
+   *  excluded, same-area rows first. Serves up to 2 cards, each with its own
+   *  €/м² line; nothing left → the honest no-match line with the register
+   *  offer. Returns false only when the ask is unanchorable (no property, no
+   *  rate, no size basis) and the normal lanes must still get their chance. */
+  /** mode 'perM2': the rate ceiling is the client's own spec (≤ anchor's €/м²).
+   *  mode 'golem': no ceiling — "golem mi e" anchors on SIZE, so the closest
+   *  smaller м² ranks first (a bigger-rate row may honestly serve). */
+  private async presentSmallerPerM2(session: ChatSession, text: string, mode: 'perM2' | 'golem' = 'perM2'): Promise<boolean> {
+    const isGolem = mode === 'golem';
+    const mbAnchor = await this.bindMention(text, session, { historyFallback: true });
+    const anchor = mbAnchor?.prop
+      ?? (session.slots.propertyId
+        ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
+        : undefined)
+      ?? (session.slots.interestedPropertyId
+        ? await this.deps.properties.getByEb(session.slots.interestedPropertyId).catch(() => undefined)
+        : undefined)
+      ?? (session.slots.presentedIds?.length
+        ? await this.deps.properties.getByEb(session.slots.presentedIds[session.slots.presentedIds.length - 1]).catch(() => undefined)
+        : undefined);
+    if (!anchor) return false;
+    const anchorRate = pricePerM2(anchor);
+    if (anchorRate === undefined) return false;
+    // "Smaller" needs a size basis: the anchor's own м², else its bedroom
+    // grid. A garsonjera anchor (1 спална) has nothing smaller under it — the
+    // honest empty line is the correct answer, never a bigger row.
+    const smallerThan = (p: Property): boolean => {
+      if (anchor.sqm !== undefined) return p.sqm !== undefined && p.sqm < anchor.sqm;
+      if (anchor.bedrooms !== undefined) return p.bedrooms !== undefined && p.bedrooms < anchor.bedrooms;
+      return false;
+    };
+    const exclude = new Set<number>([anchor.eb, ...(session.slots.presentedIds ?? [])]);
+    const inAnchorArea = (p: Property): number =>
+      anchor.location && p.location && locMatches(anchor.location, p.location) ? 0 : 1;
+    const rate = (p: Property): number | undefined => pricePerM2(p);
+    const pool = (await this.deps.properties.getAll())
+      .filter(p => !exclude.has(p.eb))
+      .filter(p => !p.service || p.service === anchor.service)
+      .filter(p => (p.business ?? false) === (anchor.business ?? false)
+        && (p.house ?? false) === (anchor.house ?? false))
+      .filter(smallerThan)
+      .filter(p => rate(p) !== undefined) // a row with no м² has no rate line to show
+      .filter(p => isGolem || (rate(p) as number) <= anchorRate)
+      .sort((a, b) => inAnchorArea(a) - inAnchorArea(b)
+        // 'perM2': the CLOSEST rate under the anchor first. 'golem': the
+        // biggest smaller м² first — closest size under the anchor.
+        || (isGolem ? (b.sqm ?? 0) - (a.sqm ?? 0) : (rate(b) as number) - (rate(a) as number))
+        || a.eb - b.eb)
+      .slice(0, 2);
+    const fmt = (n: number): string => n.toLocaleString('mk-MK');
+    if (pool.length > 0) {
+      session.slots.presentedIds = [...(session.slots.presentedIds ?? []), ...pool.map(p => p.eb)];
+      session.slots.currentBatch = pool.map(p => p.eb);
+      session.slots.propertyId = pool[0].eb;
+      session.slots.interestedPropertyId = pool[0].eb;
+      session.slots.lastPrice = pool[0].price !== undefined ? String(pool[0].price) : session.slots.lastPrice;
+      session.state = 'presentation';
+      await this.landmarks.enrich(pool);
+      const cards = pool.map(p =>
+        `${buildPropertyCard(p)}\nЦена за м²: ${fmt(pricePerM2(p) as number)} евра за м² (${p.sqm} м²).`).join('\n\n');
+      const intro = isGolem
+        ? pickVariant('golem.smaller.intro', { recent: assistantTexts(session) })
+          ?? 'Помал стан — помала квадратура, помала вкупна сума:'
+        : pickVariant('smaller.perM2.intro', { recent: assistantTexts(session), vars: { rate: fmt(anchorRate) } })
+          ?? `Помал стан, идентична или пониска цена за м² (${fmt(anchorRate)} евра за м² е референцата):`;
+      const reply = `${intro}\n\n${cards}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
+      pushHistory(session, { role: 'user', text: this.lastUserText || text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      routeLog(session.chatId, text, isGolem ? 'GOLEM_SMALLER' : 'SMALLER_PER_M2');
+      if (this.deps.enrichment) {
+        try {
+          this.deps.enrichment.insert({
+            chatId: session.chatId, state: 'presentation',
+            eventType: isGolem ? 'GOLEM_SMALLER' : 'SMALLER_PER_M2',
+            userMsg: text, replyText: reply, replySource: 'deterministic',
+            bankKey: isGolem ? 'golem.smaller' : 'smaller.perM2',
+          });
+        } catch { /* advisory */ }
+      }
+      await this.sendRaw(session, reply, 'deterministic');
+      return true;
+    }
+    // Nothing smaller at or under the rate — anywhere. The honest line says
+    // so AND keeps the funnel alive with the register step (same contract as
+    // the typed-no-match ladder).
+    session.slots.currentBatch = [];
+    const anchorDesc = anchor.sqm !== undefined ? `${anchor.sqm} м²`
+      : anchor.bedrooms !== undefined ? `${anchor.bedrooms} спални` : '';
+    const areaDesc = anchor.location ? ` во ${displayAreaName(anchor.location)}` : '';
+    const reply = isGolem
+      ? pickVariant('golem.smaller.empty', { recent: assistantTexts(session), vars: { size: anchorDesc || 'таа квадратура', where: areaDesc } })
+        ?? `Помал стан${anchorDesc ? ` од ${anchorDesc}` : ''} немам во моментов${areaDesc}. Можам да ги запишам Вашите критериуми и да Ве известам штом се појави соодветна опција — дали да Ве запишам?`      : pickVariant('smaller.perM2.empty', { recent: assistantTexts(session), vars: { rate: fmt(anchorRate), size: anchorDesc || 'таа квадратура', where: areaDesc } })
+        ?? `Помал стан${anchorDesc ? ` од ${anchorDesc}` : ''} со цена за м² до ${fmt(anchorRate)} евра${areaDesc} немам во моментов — евидентниот број ${anchor.eb} е најдобрата ставка што ја имам во таа рамка. Можам да ги запишам Вашите критериуми и да Ве известам штом се појави соодветна опција — дали да Ве запишам?`;
+    pushHistory(session, { role: 'user', text: this.lastUserText || text }, this.cfg.maxHistory);
+    pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+    routeLog(session.chatId, text, isGolem ? 'GOLEM_SMALLER_EMPTY' : 'SMALLER_PER_M2_EMPTY');
+    if (this.deps.enrichment) {
+      try {
+        this.deps.enrichment.insert({
+          chatId: session.chatId, state: 'presentation',
+          eventType: isGolem ? 'GOLEM_SMALLER_EMPTY' : 'SMALLER_PER_M2_EMPTY',
+          userMsg: text, replyText: reply, replySource: 'deterministic',
+          bankKey: isGolem ? 'golem.smaller.empty' : 'smaller.perM2.empty',
+        });
+      } catch { /* advisory */ }
+    }
+    await this.sendRaw(session, reply, 'deterministic');
+    return true;
+  }
+
   private async presentCheaperBatch(session: ChatSession, intro: string): Promise<boolean> {
     // Area-locked pool, already-shown rows EXCLUDED (never re-serve a row the
     // client rejected — the anti-loop convention). Empty pool = nothing

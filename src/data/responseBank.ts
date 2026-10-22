@@ -52,12 +52,104 @@ export interface PickOpts {
   vars?: Record<string, string>;
 }
 
+/**
+ * HAND-WRITTEN SEEDS for keys whose wording is a policy, not a paraphrase.
+ *
+ * The generated bank (responseBank.ts's RESPONSE_BANK) is decorative copy —
+ * safe to vary. A persona answer is not: every variant must keep Lina in the
+ * first person, never expose a machine identity, and never state an age. A
+ * model must not author those, so the seeds live here and the learned layer
+ * still appends to them (the read path is identical).
+ */
+/** Seeds of the cheap-price remark lane — exported so tests can assert the
+ *  served text came from here (the learned layer may add variants later). */
+export const PRICE_EVAL_CHEAP_SEEDS: string[] = [
+  'Да, навистина е поволна цена за она што го нуди — ретко се среќава толку добра комбинација. Дали сакате да ја погледнете во живо?',
+  'Се согласувам, цената е одлична за оваа локација. Дали да Ви организирам посета?',
+  'Токму затоа и Ви ја предложив — односот цена и квалитет е многу добар. Дали продолжуваме со разгледување?',
+];
+
+/** Seeds of the EXPENSIVE-price remark lane — the negative half of the valence
+ *  axis, wired in P5.2 under the arbiter's evidence boundary. Policy seeds,
+ *  hand-written: acknowledge the objection, state that the price is
+ *  owner-determined and within the market, invite the live viewing. NEVER an
+ *  amount, NEVER a discount promise, NEVER fee disclosure (the same guard
+ *  class as the cheap seeds above). */
+export const PRICE_EVAL_EXPENSIVE_SEEDS: string[] = [
+  'Разбирам — цената изгледа висока. Таа е одредена од самиот сопственик и за оваа локација е во рамките на пазарот. Сакате да ја видите во живо за сами да ја оцените?',
+  'Знам дека цената не е мала — за оваа локација и квадратура е во рамки на пазарот. Да организирам посета, на лице место најлесно се проценува вредноста?',
+  'Цената ја става самиот сопственик — јас не преговарам во чат. Но ако Ви се допаѓа самата недвижност, да Ви закажам посета да ја оцените во живо?',
+];
+
+/** PUBLIC for tests/review: the hand-written policy seeds (the generated
+ *  bank RESPONSE_BANK is the decorative layer; these are the guarded ones). */
+export const FIXED_SEEDS: Record<string, string[]> = {
+  'personal.name': [
+    'Јас сум Лина, од агенцијата Метрополис. Како можам да Ви помогнам?',
+    'Лина — на Ваша услуга во Метрополис. Со што да почнеме?',
+    'Лина сум. Слободно кажете ми што Ве интересира.',
+  ],
+  'personal.age': [
+    'Годините не ги кажувам — но со задоволство ќе Ви помогнам да најдете добра недвижност.',
+    'Тоа е мала тајна! Поважно е она што можам да го сторам за Вас.',
+    'Не откривам години, но тука сум за сѐ што Ве интересира за недвижноста.',
+  ],
+  'personal.compliment': [
+    'Ви благодарам, тоа е многу љубезно! Со задоволство продолжувам да Ви помагам.',
+    'Мило ми е што Ви се допаѓа разговорот — Ви благодарам!',
+    'Ви благодарам! Кажете, како да продолжам да Ви помогнам.',
+  ],
+  // CHEAP-PRICE REMARK — a client saying the quoted price is good is a remark,
+  // not funnel traffic: acknowledge the value, never re-disclose the fee, never
+  // invent availability. Hand-written policy-ish seeds (no generator).
+  'remark.price.cheap': PRICE_EVAL_CHEAP_SEEDS,
+  // EXPENSIVE-PRICE REMARK (wired P5.2): the negative valence half — see the
+  // seeds above for the policy guard (no amounts, no discounts, no fee talk).
+  'remark.price.expensive': PRICE_EVAL_EXPENSIVE_SEEDS,
+  // MONEY WITHOUT A TARGET (hard invariant 3): money vocabulary whose object is
+  // unresolved (no fee referent, no property noun, nothing bound). The serve is
+  // the ONE safe script — a clarification — never a protocol/ladder line.
+  // Hand-written (no generator): the wording must stay question-shaped and
+  // amount-free, and name BOTH candidate objects so the client's answer
+  // resolves the target deterministically.
+  'ask.money.clarify': [
+    'За да Ви одговорам точно — дали го прашувате за цената на конкретна недвижност или за надоместокот за разгледување?',
+    'Сакам да Ви дадам точен одговор само еднаш: го прашувате за цената на недвижноста или за цената на посета?',
+    'Само да разјасниме едно — интерес Ви е цената на некоја недвижност или надоместокот за разгледување?',
+  ],
+  // Owner-confirmed policy: an agency agent accompanies the client at a viewing.
+  // Learned, reviewed variants may join this seed without touching the frozen
+  // fee disclosure key or its funnel behavior.
+  'learn.agent-accompanies-viewing': [
+    'Да, агент на Метрополис ќе Ве придружува при разгледувањето на избраната недвижност. Кога ќе одлучите, ќе продолжиме со организирање на посетата — дали Ви одговара?',
+  ],
+  // SMALLER-BY-RATE (the [00:12] Kisela Voda burst): the intro names the
+  // anchor's €/м² as the reference ({rate}); the empty line keeps the funnel
+  // alive with the register step. Learned variants may join both keys.
+  'smaller.perM2.intro': [
+    'Разбирам — помал стан при иста цена за м² значи и помала вкупна сума. Со {rate} евра за м² како референца, еве помал стан со таа или пониска ставка:',
+    'Станот од {rate} евра за м² е најблиска како ставка — еве помал стан со иста или пониска цена за м²:',
+  ],
+  'smaller.perM2.empty': [
+    'Помал стан од тој профил со цена за м² до {rate} евра немам во моментов. Можам да ги запишам Вашите критериуми и да Ве известам штом се појави соодветна опција — дали да Ве запишам?',
+  ],
+  // GOLEM complaint (no rate anchor): the intro owns the too-big confession,
+  // the empty line the register pivot.
+  'golem.smaller.intro': [
+    'Разбирам, станот Ви се чини голем. Помал стан носи и помала вкупна сума — еве најблиските помали:',
+    'Помал стан значи помала квадратура — еве ги помали станови што ги имам во понуда:',
+  ],
+  'golem.smaller.empty': [
+    'Помал стан од {size} немам во моментов{where}. Можам да ги запишам Вашите критериуми и да Ве известам штом се појави соодветна опција — дали да Ве запишам?',
+  ],
+};
+
 /** Pick a variant for a bank key, or undefined when the key has no variants yet.
  *  Layered: seed (responses.ts) + learned (SQLite bank_variants). Learned
  *  variants are LIVE without rebuild; the seed layer is the boot fallback if
  *  the DB is corrupted. Repeat avoidance spans BOTH layers. */
 export function pickVariant(key: string, opts: PickOpts = {}): string | undefined {
-  const seed = RESPONSE_BANK[key] ?? [];
+  const seed = RESPONSE_BANK[key] ?? FIXED_SEEDS[key] ?? [];
   // Owner rule (2026-10-19): "имот" means land/a plot in this agency's usage —
   // every general property answer says "недвижност". Learned rows that predate
   // the rule must not keep serving the old vocabulary until the next relearn
