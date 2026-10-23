@@ -5,6 +5,8 @@ import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
 import { fallbackVariant, pickVariant, retrieveVariant, getLearnedBank } from '../data/responseBank';
 import { dynamicAnswer, generateDynamic, type DynamicResult } from './dynamicFallback';
+import { arbitrateMoney } from './moneyArbitration';
+import { llmArbitrateKey } from './arbiterLlm';
 import type { BankStore } from '../store/bank';
 import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feeLadder, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
@@ -121,7 +123,11 @@ export function guardText(state: State, text: string, publicSiteUrl?: string, re
   // the whole fallback card (opener rotated onto the matching phrase →
   // pivotIdx landed inside line 1 → EB card and closer sliced off) — the
   // sources.test.ts flake.
-  const pivotIdx = out.search(/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти|недвижности)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu);
+  // CLAUSE-START REQUIRED for the "Со цел/За да Ви помогнам…" signature: a
+  // pivot OPENS a sentence, while the same words mid-sentence are ordinary
+  // prose (the operator-dictated persona line "Доволно години за да Ви помогнам
+  // околу недвижностите" was being cut in half). Same regex as replyIsClean.
+  const pivotIdx = out.search(/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?<=^|[.!?…\n])\s*(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти|недвижности)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu);
   if (pivotIdx >= 0) {
     const presentationState = state === 'presentation' || state === 'property_locate';
     const firstLineEnd = out.indexOf('\n');
@@ -254,6 +260,38 @@ export class Responder {
    * asks free). On LLM failure: code-built property cards / fallback line.
    */
   private async escalate(session: ChatSession, properties: Property[], userText: string): Promise<RespondResult> {
+    // P5.2 OPTION 3 — LLM AS LAST-RESORT ARBITER, money residue ONLY.
+    // When the deterministic money region left the turn unclaimed (the explicit
+    // unknown.<topic>.<act> bucket), one constrained attempt precedes free-form
+    // prose: the escalation LLM picks ONE money key from a CLOSED menu and the
+    // deterministic vetoes are re-run on the pick. The serve is bank seeds only
+    // (the LLM never authors money copy) and the answered pair is stored as a
+    // LABELED EXAMPLE for the operator. Any veto/parse failure falls through to
+    // the pre-existing escalation path below, unchanged.
+    const arbStore = getLearnedBank();
+    const arb = arbitrateMoney(userText, {
+      state: session.state,
+      propertyOnTable: !!(session.slots.propertyId || session.slots.interestedPropertyId
+        || session.slots.lastPrice || session.slots.presentedIds?.length),
+      feeAgreed: !!session.slots.viewingFeeAgreed,
+      feeBlocked: arbStore?.neverServes(userText, 'fee.') ?? false,
+      provisionBlocked: arbStore?.neverServes(userText, 'provision.') ?? false,
+    });
+    if (arb.lane === null && arb.bucket) {
+      const pick = await llmArbitrateKey(this.escalationLlm, userText, session.state, arb);
+      if (pick) {
+        const line = pickVariant(pick.key, { recent: assistantTexts(session) });
+        if (line) {
+          try { arbStore?.addExample(pick.key, userText); } catch { /* advisory */ }
+          console.log(`[timing] arbiter-llm → ${pick.key} (residue ${arb.bucket})`);
+          return {
+            text: guardText(session.state, line, this.cfg.publicSiteUrl, assistantTexts(session)),
+            source: `arbiter:${pick.key}`,
+            escalated: true,
+          };
+        }
+      }
+    }
     // P-runtime DYNAMIC FALLBACK — the closed-loop bank's runtime half.
     // 1) RECALL: bank_dynamic may already hold a validated answer for this
     //    question shape (0 ms, offline, free).

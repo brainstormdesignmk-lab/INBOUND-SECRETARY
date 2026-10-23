@@ -35,9 +35,11 @@ import { MetaStore } from '../src/store/meta';
 import { ChannelRegistry } from '../src/channels/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { Db } from '../src/store/db';
+import { EnrichmentStore } from '../src/store/enrichment';
 import { loadConfig } from '../src/config';
+import { AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, PRICE_EVAL_CHEAP_KEY } from '../src/llm/deterministic';
 import { RESPONSE_BANK } from '../src/data/responses';
-import { setLearnedBank } from '../src/data/responseBank';
+import { setLearnedBank, PRICE_EVAL_CHEAP_SEEDS } from '../src/data/responseBank';
 import {
   detectFeeWhy, detectFeeComplaint, detectProvisionAsk,
   detectFeePaymentAgreement,  detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectAgreement,
@@ -66,10 +68,11 @@ const ROWS: Property[] = [
   { eb: 78, id: 78, location: 'Капиштец', price: 185000, service: 'buy', bedrooms: 3, size: '82 м²', address: 'Народен Фронт' },
 ];
 
-function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent: string[] } {
+function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent: string[]; enrichment: EnrichmentStore } {
   const cfg = loadConfig();
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
+  const enrichment = new EnrichmentStore(db);
   const properties = new FakeProps(ROWS);
   const llm = new FailingLlm();
   const classifier = new Classifier(llm, cfg, properties);
@@ -79,13 +82,118 @@ function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent:
   channels.register({ name: 'test', send: async (_c: string, text: string) => { sent.push(text); } });
   const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
     appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
-    meta: new MetaStore(db), channels,
+    meta: new MetaStore(db), channels, enrichment,
     landmarks: new LandmarkService(db, { osm: false }),
   });
-  return { handler, sessions, sent };
+  return { handler, sessions, sent, enrichment };
 }
 
 // ── Detector-level pins ──────────────────────────────────────────────────────
+
+test('[#195] attendance is answered without entering the fee protocol', async () => {
+  const { handler, sessions, sent, enrichment } = makeHandler();
+  const chatId = 'agent-attendance-195';
+  const send = async (message: string) => {
+    await handler.handle('test', chatId, message);
+    return sessions.get(chatId)!;
+  };
+
+  await send('ZDRAVO');
+  const before = sessions.get(chatId)!;
+  before.state = 'closing';
+  before.slots.service = 'buy';
+  before.slots.propertyId = 51;
+  sessions.set(before);
+  const replyBeforeCount = sent.length;
+  const after = await send('TI KE DOJDES SO MENE NA POSETA AKO ODBERAM STAN?');
+  const reply = sent[replyBeforeCount] ?? '';
+
+  assert.equal(reply, AGENT_ATTENDS_VIEWING_ANSWER);
+  assert.match(reply, /агент на Метрополис.*придружува/iu);
+  assert.doesNotMatch(reply, /500\s*ден|0\s*%|провизи/iu, 'do not re-disclose the fee');
+  assert.equal(after.state, 'closing', 'an informational answer must not advance or reset the funnel');
+  assert.equal(after.slots.viewingFeeAgreed, undefined, 'attendance is not fee consent');
+  assert.equal(after.slots.feeRejections, undefined, 'attendance is not fee resistance');
+
+  const row = enrichment.listRecent(10).find(item => item.userMsg === 'TI KE DOJDES SO MENE NA POSETA AKO ODBERAM STAN?');
+  assert.ok(row, 'the routed answer remains reviewable in ENRICHMENT');
+  assert.equal(row?.eventType, 'AGENT_ATTENDANCE_ASK');
+  assert.equal(row?.bankKey, AGENT_ATTENDS_VIEWING_KEY, 'new turns route to the dedicated learn key, not fee.ask.buy');
+  assert.equal(row?.replyText, reply);
+});
+
+test('[price-eval] a cheap-price compliment is a remark, never the fee ladder', async () => {
+  const { handler, sessions, sent, enrichment } = makeHandler();
+  const chatId = 'price-eval-cheap';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 79');
+  const warm = sessions.get(chatId)!;
+  warm.state = 'closing';
+  warm.slots.propertyId = 79;
+  warm.slots.service = 'rent';
+  warm.slots.lastPrice = '250';
+  sessions.set(warm);
+
+  const before = sent.length;
+  const after = await send('MNOGU EFTINA CENA E TOA');
+  const reply = sent[before] ?? '';
+
+  assert.ok(PRICE_EVAL_CHEAP_SEEDS.includes(reply), `not the cheap-price remark: ${reply.slice(0, 140)}`);
+  assert.doesNotMatch(reply, /\d|провизи|денари|евра/iu, `fee/money copy reached a compliment: ${reply}`);
+  assert.equal(after.state, 'closing', 'a remark must not advance or reset the funnel');
+  assert.equal(after.slots.feeRejections, undefined, 'a compliment burns no fee rung');
+
+  const row = enrichment.listRecent(10).find(r => r.userMsg === 'MNOGU EFTINA CENA E TOA');
+  assert.equal(row?.eventType, 'PRICE_EVAL_CHEAP');
+  assert.equal(row?.bankKey, PRICE_EVAL_CHEAP_KEY, 'the remark is reviewable under its own key');
+  assert.equal(row?.replyText, reply);
+});
+
+test('[business-budget] a commercial price question serves the business budget ask, not the residential one', async () => {
+  const { handler, sessions, sent, enrichment } = makeHandler();
+  const pool = RESPONSE_BANK[BUSINESS_BUDGET_ASK_KEY] ?? [];
+  assert.ok(pool.length > 0, 'the business budget key must have a seed pool');
+
+  const chatId = 'business-budget-route';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+  await send('ZDRAVO');
+  const warm = sessions.get(chatId)!;
+  warm.state = 'discovery';
+  sessions.set(warm);
+
+  const before = sent.length;
+  const after = await send('Колку чини деловен простор во Центар?');
+  const reply = sent[before] ?? '';
+
+  assert.ok(pool.includes(reply) || reply === BUSINESS_BUDGET_ASK_FALLBACK, `not a business budget ask: ${reply.slice(0, 140)}`);
+  assert.match(reply, /деловен|деловниот/iu, reply);
+  assert.doesNotMatch(reply, /спални|станот|куќата/iu, `residential wording reached a commercial client: ${reply}`);
+  assert.equal(after.state, 'discovery', 'the intake funnel stays open for the answer');
+  assert.equal(after.slots.business, true, 'the commercial type is remembered for the next turn');
+
+  const row = enrichment.listRecent(10).find(r => r.userMsg === 'Колку чини деловен простор во Центар?');
+  assert.equal(row?.eventType, 'BUSINESS_BUDGET_ASK');
+  assert.equal(row?.bankKey, BUSINESS_BUDGET_ASK_KEY, 'the route is auditable in ENRICHMENT under its own key');
+  assert.equal(row?.replyText, reply);
+});
+
+test('[business-budget] a residential price question is never routed to the business key', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const pool = RESPONSE_BANK[BUSINESS_BUDGET_ASK_KEY] ?? [];
+  const chatId = 'business-budget-residential';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+  await send('ZDRAVO');
+  const warm = sessions.get(chatId)!;
+  warm.state = 'discovery';
+  sessions.set(warm);
+
+  const before = sent.length;
+  const after = await send('Колку чини стан во Центар?');
+  const reply = sent[before] ?? '';
+  assert.ok(!pool.includes(reply), `residential ask served from the business key: ${reply.slice(0, 140)}`);
+  assert.notEqual(after.slots.business, true);
+});
 
 test('why family: "nikoj ne zema pari za poseta" + "samo vie rabotite taka" (both orders, both scripts)', () => {
   assert.equal(detectFeeWhy('samo vie rabotite taka\nnikoj ne zema pari za poseta'), true, 'burst as relay-joined');

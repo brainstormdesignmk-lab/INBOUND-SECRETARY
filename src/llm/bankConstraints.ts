@@ -101,6 +101,13 @@ const CONTACT_REFUSAL_CONTRACT: KeyConstraint = {
  * Per-key contracts. Keys not listed here get BASELINE (see constraintsFor).
  */
 export const BANK_CONSTRAINTS: Record<string, KeyConstraint> = {
+  'learn.agent-accompanies-viewing': {
+    mustInclude: [/придруж\p{L}*/iu],
+    mustEndWithQuestion: true,
+    maxLength: BASELINE_MAX_LENGTH,
+    allowedAmounts: [],
+    note: 'confirms that a Metropolis agent accompanies the client at the viewing; do not alter the fee disclosure or promise property availability; end with a helpful next-step question',
+  },
   'fee.ask.buy': FEE_CONTRACT,
   'fee.ask.rent': FEE_CONTRACT,
   'fee.persuade.1.buy': FEE_CONTRACT,

@@ -47,3 +47,6 @@ tests/type-normalize.test.ts
 # Runtime pid of a restarted TUI — written by the deploy (maps-realestate's
 # scripts/deploy_map.sh) on the machine running it, never a source artifact.
 data/tui.pid
+
+# Local full-database snapshots created by bank:tui's backup/export workflow.
+data/master-snapshots/

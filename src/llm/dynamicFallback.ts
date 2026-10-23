@@ -26,6 +26,7 @@ import {
   detectAvailabilityAsk, detectContactRequest, detectOwnerContact, detectPriceAsk,
   detectProvisionAsk, detectProvisionWho, detectVisitInterest, fsmRequired, isFeeFrame, isFeeTraffic,
 } from './deterministic';
+import { isPersonalAsk, revealsMachineIdentity } from './personal';
 import type { LlmClient } from './types';
 import type { ChatSession } from '../fsm/session';
 
@@ -77,6 +78,11 @@ const UNCERTAINTY_RE = /(?:не е наведено|немам (?:податок
 export function validateDynamicAnswer(answer: string, userMsg?: string): string[] {
   const violations = violationsFor(answer, 'dynamic.fallback');
   if (!replyIsClean(answer)) violations.push('fails reply hygiene (replyIsClean)');
+  // PERSONA GUARD (the [08:38] capture): the stored age answer said „Јас сум
+  // дигитален асистент, па немам години“. A machine identity is a policy
+  // breach, not a wording choice — rejected at generation AND on recall, so
+  // tightening this rule retroactively neutralises rows stored before it.
+  if (revealsMachineIdentity(answer)) violations.push('exposes a machine identity or refuses an age');
   for (const re of FORBIDDEN_FACTS) if (re.test(answer)) { violations.push('names a concrete fact (EB/amount/address)'); break; }
   if (userMsg && FACTUAL_ASK_RE.test(userMsg) && GENERIC_PITCH_RE.test(answer)
     && !UNCERTAINTY_RE.test(answer)) {
@@ -124,6 +130,10 @@ export const MAX_GENERATED_PER_SESSION = 3;
 export function shouldTryDynamic(session: ChatSession, text: string): boolean {
   const t = text.trim();
   if (!t || !QUESTION_SHAPE_RE.test(t) || GREETING_ONLY.test(t)) return false;
+  // Personal small talk about Lina (name/age/compliment) has its own
+  // deterministic lane in the handler — it must never reach generate+store,
+  // or the bank learns an improvised persona.
+  if (isPersonalAsk(t)) return false;
   if ((session.slots.generatedAnswers ?? 0) >= MAX_GENERATED_PER_SESSION) return false;
   if (inProtocolState(session) || fsmRequired(t)) return false;
   if (isFeeTraffic(t) || isFeeFrame(t) || detectProvisionAsk(t) || detectProvisionWho(t)) return false;
@@ -176,19 +186,24 @@ export async function generateDynamic(
         {
           role: 'system',
           content:
-            'You are Лина, the Metropolis real-estate assistant. The question was not in your knowledge bank. Answer it helpfully, warmly, in natural Macedonian, 1–3 sentences, ending with a question that moves the conversation forward (usually offering to contact the owner or organize a visit).\n\n' +
-            'EXCEPTION — CONVERSATION EXIT: if the client is clearly saying goodbye or politely declining (чао/фала/пријатно/не сакам/не фала), answer with ONE short warm farewell sentence that ends with „Се најдобро!" — and NOTHING else. NO question at the end, NO offer of further help: she helped enough, the exit must be clean.\n\n' +
-            'HARD RULES (answers violating them are discarded):\n' +
-            '- NEVER state or invent: a price, an availability status, an address, an Евидентен број, a size, or any property fact. Prices and availability belong to owners and are verified by calling them — say you will check with the owner if asked.\n' +
-            '- If the client asks for a fact you do not have (year built, renovation year, floor, orientation, exposure…), say plainly that the detail is not in your record and that you will check with the owner. Do NOT answer a factual question with a general presentation or visit offer.\n' +
-            '- Use ONLY the known context provided. Do not invent neighborhoods, buildings, or landmarks.\n' +
-            '- No promises, no guarantees, no discounts, no concrete commitments.\n' +
-            `- Maximum 420 characters.\n\n${factBlock}`,
+            'Ти си Лина, агент за недвижности во агенцијата Метрополис. Прашањето не е во твојата банка со одговори. Одговори природно на македонски, топло и професионално, во 1–3 реченици, и заврши со прашање што го води разговорот напред (обично понуда да се контактира сопственикот или да се организира посета).\n\n' +
+            'ЛИЧНОСТ (важи за секој одговор): ти си Лина, жена агент од Метрополис. НИКОГАШ не кажувај дека си дигитален асистент, вештачка интелигенција, бот, робот, програма или јазичен модел. Никогаш не кажувај дека немаш години. Ако те прашаат за име, години или ти упатат комплимент, одговори кратко и топло како човек и врати се на недвижноста — без измислени лични податоци и без откривање на возраст.\n\n' +
+            'ИСКЛУЧОК — ЗАВРШУВАЊЕ: ако клиентот очигледно се збогува или учтиво одбива (чао/фала/пријатно/не сакам/не фала), одговори со ЕДНА кратка топла реченица што завршува со „Се најдобро!“ — и НИШТО друго. БЕЗ прашање на крајот, БЕЗ понуда за понатамошна помош: излезот мора да биде чист.\n\n' +
+            'ТВРДИ ПРАВИЛА (одговорите што ги кршат се отфрлаат):\n' +
+            '- НИКОГАШ не наведувај и не измислувај: цена, достапност, адреса, Евидентен број, квадратура или друг податок за имотот. Цените и достапноста се на сопственикот и се проверуваат со јавување — кажи дека ќе провериш кај сопственикот ако те прашаат.\n' +
+            '- Ако клиентот бара податок што го немаш (година на градба, година на реновирање, кат, ориентација…), кажи јасно дека податокот не е во твоите записи и дека ќе провериш кај сопственикот. НЕ одговарај на фактолошко прашање со општа презентација или понуда за посета.\n' +
+            '- Користи САМО дадениот познат контекст. Не измислувај населби, згради или знаменитости.\n' +
+            '- Без ветувања, гаранции, попусти или конкретни обврски.\n' +
+            `- Максимум 420 знаци. Само македонски — без англиски зборови освен имиња на места.\n\n${factBlock}`,
         },
         ...session.history.slice(-6).map(m => ({ role: m.role as 'user' | 'assistant', content: m.text })),
         { role: 'user', content: userMsg },
       ],
-      temperature: 0.7,
+      // LOW temperature: the persona + no-facts contract is a policy, not a
+      // creative brief. 0.7 produced the „дигитален асистент“ phrasing that
+      // then had to be purged from the bank; 0.3 keeps the voice but removes
+      // the stylistic detours that break the contract.
+      temperature: 0.3,
       maxTokens: 300,
       topP: 0.95,
     });

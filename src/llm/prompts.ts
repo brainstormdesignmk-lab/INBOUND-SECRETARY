@@ -38,6 +38,13 @@ export const PATIENCE_LINE =
 export const AVAILABILITY_ACK =
   'Би требало да е сеуште достапен. Дали сакате да го исконтактирам сопственикот за да ги потврдиме моменталната достапност и цената?';
 
+/** Feminine twin of AVAILABILITY_ACK — куќа/гарсоњера asks agree with
+ *  «достапна», the same gender slot ownerPropertyLabels hands the owner ask.
+ *  Serves as the code-built fallback beneath the feminine bank pool so a
+ *  feminine ask never falls onto the masculine line (and vice versa). */
+export const AVAILABILITY_ACK_FEM =
+  'Би требало да е сеуште достапна. Дали сакате да го исконтактирам сопственикот за да ги потврдиме моменталната достапност и цената?';
+
 /** The owner dictated a NEW price — relayed to the client (code-built, exact). */
 export function buildPriceRelay(eb: number, newPrice: number, oldPrice?: number): string {
   const np = newPrice.toLocaleString('mk-MK');

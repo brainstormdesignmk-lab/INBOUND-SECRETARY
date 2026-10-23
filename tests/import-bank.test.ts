@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import Database from 'better-sqlite3';
 import { Db } from '../src/store/db';
 import { BankStore } from '../src/store/bank';
 import { normalizedKey, trigramSimilarity } from '../src/llm/dedupe';
@@ -90,6 +91,31 @@ test('import-bank: dedupe levels, poison retirement, cap — full run + idempote
   assert.match(out3, /\+0 added/);
   assert.match(out3, /2 exact · 0 normalized · 1 near-dup/);
 
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('import-bank reads legacy source schemas without migrating or writing the source', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'impbank-legacy-'));
+  const srcPath = path.join(dir, 'appliance.db');
+  const dstPath = path.join(dir, 'review.db');
+  const legacy = new Database(srcPath);
+  legacy.exec(`CREATE TABLE bank_variants (id INTEGER PRIMARY KEY, key TEXT NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(key,text));`);
+  legacy.exec(`CREATE TABLE bank_examples (id INTEGER PRIMARY KEY, key TEXT NOT NULL, msg TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 0, UNIQUE(key,msg));`);
+  legacy.prepare('INSERT INTO bank_variants(key,text,source,created_at) VALUES(?,?,?,?)')
+    .run('learn.legacy', 'Ќе проверам со сопственикот и ќе Ви одговорам веднаш.', 'learned:atom01', 1);
+  legacy.close();
+
+  const out = execSync(`npx tsx scripts/import-bank.ts ${srcPath}`, {
+    env: { ...process.env, DB_PATH: dstPath }, encoding: 'utf8', stderr: 'pipe',
+  });
+  assert.ok(out.includes('variants: +1 added'), out);
+  const checkSource = new Database(srcPath, { readonly: true });
+  const sourceColumns = checkSource.prepare('PRAGMA table_info(bank_variants)').all() as Array<{name:string}>;
+  assert.equal(sourceColumns.some(column => column.name === 'lifecycle'), false, 'source schema is not migrated');
+  checkSource.close();
+  const destination = new Db(dstPath);
+  assert.equal((destination.db.prepare('SELECT lifecycle FROM bank_variants WHERE key=?').get('learn.legacy') as {lifecycle:string}).lifecycle, 'active');
+  destination.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

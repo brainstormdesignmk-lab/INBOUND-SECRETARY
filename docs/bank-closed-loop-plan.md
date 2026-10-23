@@ -164,7 +164,7 @@ census + P3's staging; P5 needs a week of P0 data.
 ## Loop A: trigger corrections (SHIPPED)
 
 ```
-[F9]/[F10] in TUI ──┐
+bank:teach / bank:tui ────┐
 quality-gate reject ─┤→ bank_corrections (status='new')
                      │        │ nightly: npm run loop:a
                      │        ▼
@@ -179,7 +179,7 @@ quality-gate reject ─┤→ bank_corrections (status='new')
 ```
 
 Tools: `scripts/loop-a.ts` (runner), `scripts/review.ts` (`npm run bank:review`),
-`BankStore.correctionsByStatus/resolve/stage/correctionManual`, TUI [F9]/[F10].
+`BankStore.correctionsByStatus/resolve/stage/correctionManual`, `bank:teach` (operator wording → staged variant), `bank:tui` (edit/push/approve).
 
 **Emitter law (learned the hard way):** vocabulary is mined only from rows the
 *ext itself* covers (base detector misses them). Mining from GAPs gutted covered

@@ -22,6 +22,7 @@ import { PropertyService, Property, mapRow } from '../src/data/properties';
 import { AppointmentStore } from '../src/store/appointments';
 import { EscalationStore } from '../src/store/escalations';
 import { MetaStore } from '../src/store/meta';
+import { EnrichmentStore } from '../src/store/enrichment';
 import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
@@ -31,8 +32,9 @@ import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LI
 import { detectGlossaryAsk, answerGlossary, isGlossaryAsk, SUTEREN_MEANING, SUTEREN_DUG_IN } from '../src/llm/glossary';
 import { isSuterenUnit } from '../src/llm/infoAnswer';
 import { hasParkingWord } from '../src/llm/morphology';
-import { detectFeatureAsk, detectPriceAsk } from '../src/llm/deterministic';
+import { detectFeatureAsk, detectOfftopic, detectPriceAsk } from '../src/llm/deterministic';
 import { inferPropertyId } from '../src/llm/classify';
+import { dispatchSimple } from '../src/handlers/router';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429'); }
@@ -105,8 +107,11 @@ function makeHandler() {
     appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
     meta: new MetaStore(db), channels,
     landmarks: new LandmarkService(db, { osm: false, offlineMap }),
+    // The learning log is part of the pipeline: sendRaw's backstop writes here
+    // so a deterministic early-return serve still lands in ENRICHMENT.
+    enrichment: new EnrichmentStore(db),
   });
-  return { handler, sessions, sent, offlineMap };
+  return { handler, sessions, sent, offlineMap, db };
 }
 
 function seed(sessions: SessionStore, chatId: string, ids: number[]) {
@@ -164,6 +169,16 @@ test('parking: the ask becomes a parking facet — and not a price facet', () =>
 
   const parked = { ...ROWS_INFO[0], features: ['јавен паркинг'] } as Property;
   assert.equal(buildInfoAnswer(parked, { features: ['паркинг'] }), 'Има јавен паркинг.');
+
+  // ROUTING, not just detection: OFTOPIC is the first simple detector and its
+  // “како е” self-intro arm used to swallow this parking question, so the client
+  // got the off-topic redirect (#161/#164 in the live queue). A feature ask must
+  // beat that arm; genuine small talk must not be affected.
+  assert.equal(detectOfftopic('KAKO E RESENO PARKIRANJETO ?'), false);
+  assert.equal(dispatchSimple('KAKO E RESENO PARKIRANJETO ?', 'property_query')?.intent, 'FEATURE_ASK');
+  assert.equal(detectOfftopic('HI HOW ARE YOU ?'), true);
+  assert.equal(detectOfftopic('KAKO SI ?'), true);
+  assert.equal(dispatchSimple('HI HOW ARE YOU ?', 'property_query')?.intent, 'OFFTOPIC');
 });
 
 test('parking: a SEARCH criterion is intake, not an info ask about the bound flat', () => {
@@ -250,6 +265,23 @@ test('E2E: "od koja godina e zgradata?" answers from the info lane, never the dy
   // through to the dynamic lane and came back with a visit pitch.
   await handler.handle('test', 'info-year', 'od koja godina e zgradata?');
   assert.equal(sent.at(-1), INFO_NO_YEAR_LINE);
+  offlineMap.close();
+});
+
+test('cold year ask (no property on the table): honest year line + logged for review', async () => {
+  const { handler, sent, offlineMap, db } = makeHandler();
+  const q = 'od koja godina e zgradata?';
+  await handler.handle('test', 'cold-year', q);
+  // The live gap (queue #185): no unit bound → the ask fell to the dynamic
+  // lane and got a presentation pitch. The missing-fact line is property-
+  // agnostic, so it must answer even with an empty session.
+  assert.equal(sent.at(-1), INFO_NO_YEAR_LINE);
+  // …and it must be reviewable: the early-return lane never logged before.
+  const rows = new EnrichmentStore(db).listLog(20);
+  assert.ok(
+    rows.some(r => r.userMsg === q && r.replyText === INFO_NO_YEAR_LINE),
+    'the year serve appears in ENRICHMENT',
+  );
   offlineMap.close();
 });
 

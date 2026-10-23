@@ -24,7 +24,7 @@ import { Property } from '../src/data/properties';
 import { RESPONSE_BANK } from '../src/data/responses';
 import { setLearnedBank } from '../src/data/responseBank';
 import { detectAgreement } from '../src/llm/deterministic';
-import { buildOwnerAsk, ownerPropertyLabels } from '../src/llm/prompts';
+import { buildOwnerAsk, ownerPropertyLabels, AVAILABILITY_ACK, AVAILABILITY_ACK_FEM } from '../src/llm/prompts';
 
 // Every availability.ack seed/learned variant must be owner-contact phrasing,
 // never client↔owner "connecting".
@@ -87,11 +87,11 @@ const ROWS: Property[] = [
   { eb: 78, id: 78, location: 'Капиштец', price: 185000, service: 'buy', bedrooms: 3, size: '82 м²', address: 'Народен Фронт' },
 ];
 
-function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent: string[] } {
+function makeHandler(rowsArg?: Property[]): { handler: InboundHandler; sessions: SessionStore; sent: string[] } {
   const cfg = loadConfig();
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
-  const properties = new FakeProps(ROWS);
+  const properties = new FakeProps(rowsArg ?? ROWS);
   const llm = new FailingLlm();
   const classifier = new Classifier(llm, cfg, properties);
   const responder = new Responder(llm, cfg);
@@ -130,6 +130,40 @@ test('21:23 flow: availability ack → "DA SAKAM" → VISIT FEE (not contact ask
     `visit fee expected after "DA SAKAM", got: ${after}`,
   );
   assert.equal(s.state, 'closing', 'fee stage keeps the funnel in closing');
+});
+
+// The [00:49] capture: the client asks „ЕВИДЕНТЕН БРОЈ 47“ — a masculine
+// frame. The availability.ack pool is written for the feminine noun
+// („недвижноста … достапна“); an ask backed by a masculine row (стан, плац,
+// деловен) must serve the code-built masculine line — never „достапна“.
+test('availability ack agrees with the ROW gender (an EB ask is a masculine frame)', async () => {
+  const masculineLine = AVAILABILITY_ACK;
+  assert.ok(/достапен(?![\p{L}])/iu.test(masculineLine), masculineLine);
+  const { handler, sent } = makeHandler();
+  const chatId = 'gender-masc';
+  await handler.handle('test', chatId, 'DALI USTE E NA PRODAZBA 78?');
+  const ack = sent[sent.length - 1] ?? '';
+  assert.ok(/достапен(?![\p{L}])/iu.test(ack), `masculine ack for a стан row, got: ${ack}`);
+  assert.ok(!/достапна(?![\p{L}])/iu.test(ack), ack);
+  assert.ok(!FORBIDDEN_CONNECT.test(ack), ack);
+});
+
+test('availability ack for a куќа row serves the feminine pool', async () => {
+  const femLine = AVAILABILITY_ACK_FEM;
+  assert.ok(/достапна(?![\p{L}])/iu.test(femLine), femLine);
+  const houseRows: Property[] = [
+    { eb: 55, id: 55, location: 'Капиштец', address: 'Тест', price: 120000, service: 'buy', house: true },
+  ];
+  const { handler, sent } = makeHandler(houseRows);
+  const chatId = 'gender-fem';
+  await handler.handle('test', chatId, 'DALI USTE E NA PRODAZBA 55?');
+  const ack = sent[sent.length - 1] ?? '';
+  // The bank pool rotates — the contract is feminine agreement (all its
+  // variants speak „недвижноста“), never a masculine-ending claim.
+  assert.ok(/(?:достап|активн|баз|евиденц|слободн|располага)/iu.test(ack), `availability ack expected, got: ${ack}`);
+  assert.ok(!/(?:достапен|слободен|активен|внесен)(?![\p{L}])/iu.test(ack), `masculine agreement leaked: ${ack}`);
+  assert.ok(!/достапен(?![\p{L}])/iu.test(ack), ack);
+  assert.ok(!FORBIDDEN_CONNECT.test(ack), ack);
 });
 
 test('detectAgreement: short confirmation vs purpose clauses', () => {

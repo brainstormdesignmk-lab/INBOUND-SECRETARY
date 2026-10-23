@@ -1205,7 +1205,10 @@ function readExistingBank(outPath: string): Record<string, string[]> {
   return bank;
 }
 
-function writeBank(bank: Record<string, string[]>): { outPath: string; kept: string[] } {
+function writeBank(
+  bank: Record<string, string[]>,
+  generationContext: Record<string, { reference: string[]; instruction: string }>,
+): { outPath: string; kept: string[] } {
   const outDir = path.join(__dirname, '..', 'data');
   const outPath = path.join(outDir, 'responses.ts');
   const existing = readExistingBank(outPath);
@@ -1233,6 +1236,10 @@ function writeBank(bank: Record<string, string[]>): { outPath: string; kept: str
     lines.push(`  ${JSON.stringify(key)}: [`);
     for (const v of arr) lines.push(`    ${JSON.stringify(v)},`);
     lines.push('  ],');
+  }
+  lines.push('};', '', 'export const RESPONSE_GENERATION_CONTEXT: Record<string, { reference: string[]; instruction: string }> = {');
+  for (const [key, context] of Object.entries(generationContext)) {
+    lines.push(`  ${JSON.stringify(key)}: ${JSON.stringify(context)},`);
   }
   lines.push('};', '');
   fs.writeFileSync(outPath, lines.join('\n'));
@@ -1308,7 +1315,11 @@ async function main(): Promise<void> {
     console.error('[generateResponses] Nothing generated — check the LLM keys and retry.');
     process.exit(1);
   }
-  const { outPath, kept } = writeBank(bank);
+  const generationContext = Object.fromEntries(SPEC.map(key => [key.key, {
+    reference: key.sources,
+    instruction: key.instructions,
+  }]));
+  const { outPath, kept } = writeBank(bank, generationContext);
   if (kept.length > 0) {
     console.warn(`\n[generateResponses] kept EXISTING variants for keys that yielded 0 this run (quota?): ${kept.join(', ')}`);
   }

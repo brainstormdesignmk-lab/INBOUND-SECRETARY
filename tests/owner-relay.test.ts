@@ -14,6 +14,7 @@ import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { mkTimePhrase } from '../src/data/properties';
 import { detectOwnerVerdict, detectWorkdaysQuestion, detectVisitTime } from '../src/llm/deterministic';
+import { hasClockHint } from '../src/visits/time';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
@@ -26,6 +27,7 @@ class FakeProps extends PropertyService {
 
 const ROWS: Property[] = [
   { eb: 78, id: 78, location: 'Центар', price: 36000, service: 'buy', sqm: 74, size: '74 м²', address: 'Партизерска 10', lat: 41.996, lon: 21.428, geo_source: 'stored' } as Property,
+  { eb: 47, id: 47, location: 'Центар', price: 40000, service: 'buy', sqm: 70, size: '70 м²', address: 'Партизерска 10', lat: 41.996, lon: 21.428, geo_source: 'stored' } as Property,
 ];
 
 async function makeHandler() {
@@ -281,4 +283,124 @@ test('the owner ask relays the NORMALIZED term, never the raw client shorthand',
   const out = normalizeOwnerTime('VO PONEDELNIK MOZAM 6 SAAT');
   assert.ok(!/SAAT|MOZAM/u.test(out), `raw shorthand must not survive: ${out}`);
   assert.match(out, /Понеделник/u, out);
+});
+
+// ── The [01:06] phase-2 capture: after the owner's whole-day counter
+// ("PONEDELNIK BILO KOE VREME"), the client completes the clock ("MOZAM VO
+// 5"). The whole-day relay used to leave the client's own REJECTED term in
+// slots.visitTime — a clock-carrying store vetoes the day-first merge, so
+// the completion landed as a day-less clock and the owner was re-asked for
+// TODAY ("Петок, 23.10.2026 во 17:00"). The whole-day branch must seed the
+// slot with the OWNER'S day so the completion merges day-first. ──
+test('whole-day counter seeds the slot with the owner day — the completing clock merges day-first', async () => {
+  const { handler, sessions, send } = await makeHandler();
+  const asks: string[] = [];
+  handler.onOwnerAsk = (_c, _eb, q) => asks.push(q);
+  await reachOwnerChecking(send);
+  assert.equal(asks.length, 1);
+
+  const verdict = detectOwnerVerdict('NE MOZAM VO 6 VO PETOK . PONEDELNIK BILO KOE VREME MI ODGOVARA', 'Утре попладне после 6');
+  assert.equal(verdict?.status, 'counter');
+  assert.equal(verdict?.canAcceptWholeDay, true);
+  handler.ownerAnswer('relay', 78, verdict!);
+  await new Promise(r => setTimeout(r, 50));
+  const s = sessions.get('relay')!;
+  assert.equal(s.state, 'visit_scheduling', `whole-day relay must return to visit_scheduling: ${s.state}`);
+  assert.match(s.slots.visitTime ?? '', /^Понеделник$/iu, `slot must be seeded with the owner MONO day only: ${JSON.stringify(s.slots.visitTime)}`);
+  assert.ok(!hasClockHint(s.slots.visitTime ?? ''), `the seed must be clock-free or the merge dies: ${s.slots.visitTime}`);
+
+  const s2 = await send('MOZAM VO 5');
+  assert.equal(s2.state, 'owner_checking', `the completion re-asks the owner: ${s2.state}`);
+  assert.equal(asks.length, 2, `the follow-up ask must go out: ${JSON.stringify(asks)}`);
+  assert.match(asks[1], /Има друг предлог: Понеделник, \d{2}\.\d{2}\.\d{4} во 17:00\. Дали би Ви одговарал тој термин\?$/u, `the owner day must survive into the follow-up ask: ${asks[1]}`);
+  assert.ok(!/Има друг предлог: Петок|Има друг предлог: Сабота|Има друг предлог: [^.]*во 05:00/u.test(asks[1]), `never today or a bare literal 05:00: ${asks[1]}`);
+});
+
+// ── APPLIANCE-GRADE REPLAY of the saved TUI chat (([00:49]→[01:07], EB 47):
+// the funnel is driven WITH the owner relay wired, so the merged intake is
+// asserted where it actually lands — the FSM's owner-ask text — and every
+// owner-facing line is checked against the transcript contract. The clock is
+// pinned to Friday 23.10.2026 00:57 for the whole test, so понеделник always
+// resolves to 26.10.2026 no matter when the suite runs. ──
+function pinClock(at: Date): () => void {
+  const RealDate = Date;
+  class PinnedDate extends RealDate {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(...args: any[]) { super(...(args.length ? args : [at.getTime()])); }
+    static now(): number { return at.getTime(); }
+  }
+  (globalThis as any).Date = PinnedDate;
+  return () => { (globalThis as any).Date = RealDate; };
+}
+
+test('[00:49→01:07] EB 47 transcript replay: the wrong-day owner asks are impossible end-to-end', async () => {
+  const unpin = pinClock(new Date(2026, 9, 23, 0, 57, 0));
+  try {
+    const { handler, sessions, sent, send } = await makeHandler();
+    const asks: string[] = [];
+    handler.onOwnerAsk = (_c, _e, q) => asks.push(q);
+
+    // [00:49] the masculine EB-number frame: the availability ack must agree
+    // with стан/деловен masculine, never the feminine bank pool (bug 1).
+    await send('EVIDENTEN BROJ 47 DALI USTE E NA PRODAZBA?');
+    const ack = sent[sent.length - 1];
+    assert.ok(/достапен|продаден| евиденти|внесен/u.test(ack), `masculine ack required: ${ack}`);
+    assert.ok(!/достапна|слободна|активна/u.test(ack), `feminine agreement must not leak: ${ack}`);
+    await send('DA');
+    await send('DA, SE SOGLASUVAM');
+    await send('MARKO 070111222');
+
+    // [00:52] day-only proposal → the exact-clock re-ask; [00:57] the
+    // completing clock merges DAY-FIRST (bug 2, phase 1).
+    const s1 = await send('VO PONEDENIK MOZAM POPLADNE');
+    assert.equal(s1.state, 'visit_scheduling', `day-only proposal waits for the clock: ${s1.state}`);
+    const s2 = await send('OKOLU 6');
+    assert.equal(s2.state, 'owner_checking', `merged intake must reach the owner check: ${s2.state}`);
+    assert.equal(s2.slots.visitTime, 'VO PONEDENIK MOZAM POPLADNE OKOLU 6', 'day-first merge order in the slot');
+    assert.equal(asks.length, 1, `the owner must be asked exactly once: ${JSON.stringify(asks)}`);
+    const MTERM = 'Понеделник, 26.10.2026 во 18:00';
+    assert.ok(asks[0].includes(`Клиентот сака посета: ${MTERM}.`), `the owner must read the merged DATED term: ${asks[0]}`);
+    assert.ok(asks[0].includes('Вашиот стан'), `typed ask for a стан: ${asks[0]}`);
+    assert.ok(!/06:00|23\.10\.2026/u.test(asks[0]), `never today or the literal 06:00: ${asks[0]}`);
+
+    // [01:04] the owner counters with the whole day (no clock) → the client
+    // relay names the refused term and the OWNER'S day, and the slot is
+    // re-seeded to that day-only token so the completion merges day-first.
+    const v = detectOwnerVerdict('NE MOZAM TOGAS . PONEDELNIK BILO KOE VREME MI ODGOVARA', MTERM);
+    assert.equal(v?.status, 'counter');
+    assert.equal(v?.canAcceptWholeDay, true);
+    handler.ownerAnswer('relay', 47, v!);
+    await new Promise(r => setTimeout(r, 50));
+    const s3 = sessions.get('relay')!;
+    assert.equal(s3.state, 'visit_scheduling', `whole-day relay hands the clock back to the client: ${s3.state}`);
+    assert.equal(s3.slots.visitTime, 'Понеделник', `slot must be the owner day only: ${JSON.stringify(s3.slots.visitTime)}`);
+    assert.ok(!/VO 6|18:00/.test(s3.slots.visitTime ?? ''), `the rejected clock must not ride along: ${s3.slots.visitTime}`);
+    assert.equal(
+      sent[sent.length - 1],
+      `Сопственикот не е во можност за посета во ${MTERM}. Има друг предлог: Понеделник — било кое време му одговара. Во колку часот би сакале да дојдете?`,
+    );
+
+    // [01:06] the client completes the clock on the owner's day — the follow-up
+    // owner ask must carry BOTH terms on Понеделник (bug 2, phase 2).
+    const s4 = await send('MOZAM VO 5');
+    assert.equal(s4.state, 'owner_checking', `the completion re-asks the owner: ${s4.state}`);
+    assert.equal(s4.slots.visitTime, 'Понеделник MOZAM VO 5', 'day-first completion in the slot');
+    assert.equal(asks.length, 2, `the follow-up owner ask must go out: ${JSON.stringify(asks)}`);
+    assert.equal(
+      asks[1],
+      `Клиентот не е во можност за посета во ${MTERM}. Има друг предлог: Понеделник, 26.10.2026 во 17:00. Дали би Ви одговарал тој термин?`,
+      `exact transcript contract: ${asks[1]}`,
+    );
+
+    // The owner accepts the completing term — the booking is Monday 17:00, the
+    // NEVER the resurrected 18:00 from the rejected term.
+    handler.ownerAnswer('relay', 47, { status: 'ok', ownerTime: MTERM.replace('18:00', '17:00') });
+    await new Promise(r => setTimeout(r, 50));
+    const s5 = sessions.get('relay')!;
+    assert.equal(s5.state, 'pending', `acceptance confirms the visit: ${s5.state}`);
+    const okRelay = sent[sent.length - 1];
+    assert.ok(okRelay.includes('Понеделник, 26.10.2026 во 17:00'), `the confirmation must name the completing term: ${okRelay}`);
+    assert.ok(!/Петок, 23\.10\.2026 во 05:00|во 06:00/u.test(okRelay + asks.join(' ')),
+      `the transcript's wrong-day lines must be impossible: ${okRelay}`);
+  } finally { unpin(); }
 });

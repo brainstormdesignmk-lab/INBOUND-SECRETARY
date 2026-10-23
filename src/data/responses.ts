@@ -1241,3 +1241,12 @@ export const RESPONSE_BANK: Record<string, string[]> = {
     "Тогаш да го затвориме ова прашање: дали да продолжиме по наведените услови или не? Одлуката е Ваша.",
   ],
 };
+
+// Generator context is not client-question provenance. The reference was the
+// generic phrase supplied to generation; the instruction adds business-space scope.
+export const RESPONSE_GENERATION_CONTEXT: Record<string, { reference: string[]; instruction: string }> = {
+  "discovery.ask.budget.business": {
+    reference: ["До која цена го барате?"],
+    instruction: "Прашај до која цена го бара ДЕЛОВНИОТ ПРОСТОР. НИКАКО не спомнувај стан или куќа.",
+  },
+};

@@ -3,13 +3,12 @@
  * import-bank — THE HUMAN-GATED MERGE POINT of the learning layer.
  *
  * Generalizes scripts/import-atom-queue.ts: accepts ANY source DB that owns a
- * learned bank (the TUI's data/tui.db, an atom snapshot from
- * data/atoms/<id>/lina.db.copy) and folds its ACTIVE variants + retrieval
- * examples into the WORKSTATION master bank (data/lina.db). From there the
- * existing flow ships them: `bash scripts/push-bank.sh <atomId>` →
- * `npm run atoms:deploy`. The workstation stays the only writer; nothing is
- * automatic — this tool runs when YOU decide, after reviewing what the source
- * learned.
+ * learned bank (an appliance export or atom snapshot) and folds its ACTIVE
+ * variants + retrieval examples into the WORKSTATION review master
+ * (data/tui.db). Use bank:tui's source selector for staging/review and its E
+ * action to export the approved shared bank to data/lina.db before deployment.
+ * Nothing is automatic — this tool runs when YOU decide, after reviewing the
+ * source data.
  *
  * THE DUPLICATE-WORDING CONTRACT (three levels, cheapest first):
  *   L1 exact       — UNIQUE(key,text) + explicit SELECT (the DB layer)
@@ -23,16 +22,19 @@
  * BankStore.addVariant uses — this importer never bypasses bank policy.
  *
  * Usage:
- *   npx tsx scripts/import-bank.ts data/tui.db [--dry]
+ *   npx tsx scripts/import-bank.ts data/lina.db [--dry]
  *   npx tsx scripts/import-bank.ts data/atoms/atom01/lina.db.copy [--dry]
+ *
+ * The source is opened read-only, including legacy appliance DBs without a
+ * lifecycle column; the review master is the only database this command writes.
  */
 import '../src/compat/node16';
 import * as fs from 'fs';
 import * as path from 'path';
+import Database from 'better-sqlite3';
 import { Db } from '../src/store/db';
-import { BankStore } from '../src/store/bank';
+import { BankStore, isExcludedFromEnrichment, MAX_VARIANTS_PER_KEY } from '../src/store/bank';
 import { replyIsClean } from '../src/llm/enrichQuality';
-import { isExcludedFromEnrichment, MAX_VARIANTS_PER_KEY } from '../src/store/bank';
 import { normalizedKey, trigramSimilarity, NEAR_DUP_THRESHOLD } from '../src/llm/dedupe';
 
 export { normalizedKey, trigramSimilarity }; // re-exported for tests/scripts
@@ -42,20 +44,38 @@ function main(): void {
   const dry = process.argv.includes('--dry');
   if (!srcPath || !fs.existsSync(srcPath)) {
     console.error('usage: npx tsx scripts/import-bank.ts <source-db> [--dry]');
-    console.error('  source: data/tui.db | data/atoms/<id>/lina.db.copy');
+    console.error('  source: data/lina.db | data/atoms/<id>/lina.db.copy');
     process.exit(1);
   }
-  const dstPath = process.env.DB_PATH || 'data/lina.db';
-  const src = new Db(srcPath);
-  const dst = new Db(dstPath);
-  // The lifecycle/note columns arrive with BankStore.migrate() in the app;
-  // a standalone script must ensure them itself (source snapshots can be old).
-  new BankStore(dst);
-  void src.db.prepare("SELECT 1 FROM bank_variants LIMIT 1").get(); // source must have a bank
+  const dstPath = process.env.DB_PATH || 'data/tui.db';
+  const samePath = path.resolve(srcPath) === path.resolve(dstPath)
+    || fs.realpathSync(srcPath) === (fs.existsSync(dstPath) ? fs.realpathSync(dstPath) : path.resolve(dstPath));
+  if (samePath) throw new Error('source and review master must be separate databases');
 
-  const label = srcPath.includes('atoms') ? `atom:${srcPath.split('/')[2] ?? 'x'}` : 'tui';
-  const srcVariants = src.db.prepare(
-    `SELECT key, text, source, note FROM bank_variants WHERE lifecycle='active'`
+  // Source snapshots are genuinely read-only: opening them must not migrate
+  // their schema, switch journal mode, or create missing tables.
+  const src = new Database(srcPath, { readonly: true, fileMustExist: true });
+  const dst = new Db(dstPath);
+  // The destination needs lifecycle/note columns. Older appliance snapshots
+  // predate lifecycle, so treat their rows as active without altering them.
+  new BankStore(dst);
+  const sourceTable = src.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bank_variants'").get();
+  if (!sourceTable) {
+    src.close(); dst.close();
+    throw new Error('source database has no bank_variants table');
+  }
+  const sourceColumns = src.prepare('PRAGMA table_info(bank_variants)').all() as Array<{ name: string }>;
+  const missingSourceColumns = ['key', 'text', 'source'].filter(name => !sourceColumns.some(column => column.name === name));
+  if (missingSourceColumns.length > 0) {
+    src.close(); dst.close();
+    throw new Error(`source bank_variants is missing columns: ${missingSourceColumns.join(', ')}`);
+  }
+  const hasSourceLifecycle = sourceColumns.some(column => column.name === 'lifecycle');
+  const hasSourceNote = sourceColumns.some(column => column.name === 'note');
+
+  const label = srcPath.includes('atoms') ? `atom:${srcPath.split('/')[2] ?? 'x'}` : 'lina-export';
+  const srcVariants = src.prepare(
+    `SELECT key, text, source, ${hasSourceNote ? 'note' : 'NULL AS note'} FROM bank_variants${hasSourceLifecycle ? " WHERE lifecycle='active'" : ''}`
   ).all() as Array<{ key: string; text: string; source: string; note?: string }>;
   const dstVariants = dst.db.prepare(
     `SELECT key, text FROM bank_variants WHERE lifecycle IN ('active','staged')`
@@ -140,7 +160,7 @@ function main(): void {
   console.log(`  variants: +${added} added, ${retired} retired-on-arrival (replyIsClean)`);
   console.log(`  skipped:  ${skippedExact} exact · ${skippedNorm} normalized · ${skippedNear} near-dup · ${skippedFrozen} frozen/data-driven · ${skippedCap} at per-key cap`);
   console.log(`  examples: +${pendingExamples.length} retrieval example(s)`);
-  if (!dry) console.log(`next: bash scripts/push-bank.sh atom01   # when YOU decide to ship`);
+  if (!dry) console.log('next: approve candidates in bank:tui, then press E in the source selector to export data/lina.db');
   src.close(); dst.close();
 }
 

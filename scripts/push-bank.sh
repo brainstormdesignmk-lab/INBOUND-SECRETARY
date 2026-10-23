@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# push-bank.sh — return the WORKSTATION's enriched learned bank to an atom
+# push-bank.sh — return the WORKSTATION's exported learned bank to an atom
 # (the 2026-09-26 workflow: enrichment runs on the workstation's 3 Gemini
 # keys; the atom's single key starves on 503s).
 #
 #   bash scripts/push-bank.sh [atomId]      # default: atom01
 #
-# Mechanics: the workstation lina.db's bank_* tables are exported to SQL and
-# replayed inside a transaction on the atom:
+# Mechanics: the workstation data/lina.db export's bank_* tables are replayed
+# inside a transaction on the atom; export it from the reviewed TUI master first:
 #   - bank_variants: INSERT OR IGNORE (UNIQUE key,text) — atom-side rows the
 #     workstation lacks survive; active workstation rows the atom lacks land.
 #   - lifecycle WINS over the atom's copy for the SAME (key,text): a variant

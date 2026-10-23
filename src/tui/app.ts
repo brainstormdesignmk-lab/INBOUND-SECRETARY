@@ -49,7 +49,7 @@ interface Lead {
 }
 type Mode = 'chat' | 'naming' | 'menu';
 
-const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/status] здравствена проверка (клучеви, мапа, фид, мозок) · [/routes N] последни рутирани намери · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [F9] последен одговор е погрешен · [F10] точен · [C-q] излез`;
+const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/status] здравствена проверка (клучеви, мапа, фид, мозок) · [/routes N] последни рутирани намери · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [C-q] излез`;
 
 // The brain chooser: 'hybrid' = Gemini pool -> Groq fallback (production),
 // 'gemini' = the 3 rotating keys only, 'groq' = Groq only, 'free' = always-throw
@@ -124,6 +124,10 @@ export class TuiApp {
   private classifier: Classifier;
   private responder: Responder;
   private visits?: VisitScheduler;
+  /** Serve path only: the learned bank the picker reads from. Enrichment
+   *  review lives in `npm run bank:tui` now — the chat screen carries no
+   *  queue pane, no meter and no correction editor. */
+  private bank!: BankStore;
 
   constructor(cfg: AppConfig) {
     this.cfg = cfg;
@@ -143,7 +147,8 @@ export class TuiApp {
     this.db = new Db('data/tui.db'); // separate DB — never pollutes production counters
     // TUI gets its own learned-bank store (its own DB), attached to the picker
     // so bank retrieval + learned variants work in every TUI brain mode.
-    setLearnedBank(new BankStore(this.db));
+    this.bank = new BankStore(this.db);
+    setLearnedBank(this.bank);
     this.sessions = new SessionStore(this.db);
     const appointments = new AppointmentStore(this.db);
     const escalations = new EscalationStore(this.db);
@@ -167,8 +172,6 @@ export class TuiApp {
     };
     this.channel.onMessage = (chatId, text, source) => {
       this.appendMsg(chatId, { role: 'assistant', text, source, at: Date.now() });
-      const ex = this.lastExchange.get(chatId);
-      if (ex) this.rememberExchange(chatId, ex.msg, text, ex.state);
     };
 
     const channels = new ChannelRegistry();
@@ -239,8 +242,10 @@ export class TuiApp {
       properties: this.propertyService,
       appointments, escalations, meta, channels,
       landmarks, visits: this.visits,
+      // The pipeline keeps LOGGING turns (that log is what bank:tui reviews);
+      // the chat TUI itself no longer holds an enrichment store.
       enrichment: new EnrichmentStore(this.db),
-      bank: new BankStore(this.db),
+      bank: this.bank,
       capture: this.capture,
       // THE TEACHER/EXAM POLICY: hybrid teaches the bank (replies logged for
       // the cron), free is the exam (nothing logged — the deterministic+bank
@@ -367,8 +372,6 @@ export class TuiApp {
       case 'down': this.move(1); return;
       case 'f1': this.startNewClient(); return;
       case 'f2': this.openMenu(); return;
-      case 'f9': this.markWrong(); return;
-      case 'f10': this.markRight(); return;
       case 'f3':
         this.ownerMode = !this.ownerMode;
         this.renderInput();
@@ -783,8 +786,6 @@ export class TuiApp {
     // half-context replies that fight each other (e.g. the first asks
     // buy/rent, the third misreads the budget as an Евидентен број).
     const combined = cw.queue.join('\n');
-    // Loop-A intake: remember this exchange so [F9]/[F10] can judge it.
-    this.lastExchange.set(cw.chatId, { msg: combined, reply: '', state: this.sessions.get(cw.chatId)?.state ?? '' });
     this.runChain(cw.chatId, () =>
       this.pipeline.handle('viber', cw.chatId, combined, { kind: 'text', senderName: lead?.name ?? 'Клиент' })
     );
@@ -957,39 +958,6 @@ export class TuiApp {
       lead.strikes = s.strikes;
       lead.outbound = s.outboundCount;
     }
-  }
-
-  // ---------------- Loop-A correction intake ([F9]/[F10]) ----------------
-  /** Remember the newest client msg + Lina's reply per chat for [F9]/[F10]. */
-  private lastExchange = new Map<string, { msg: string; reply: string; state: string }>();
-
-  private rememberExchange(chatId: string, msg: string, reply: string, state: string): void {
-    this.lastExchange.set(chatId, { msg, reply, state });
-  }
-
-  /** [F9] — the last Lina answer was WRONG: capture into bank_corrections. */
-  private markWrong(): void {
-    const lead = this.activeLead();
-    if (!lead) return;
-    const ex = this.lastExchange.get(lead.chatId);
-    if (!ex) { this.appendMsg(lead.chatId, { role: 'system', text: '[F9] нема снимена размена за овој клиент.', at: Date.now() }); this.renderAll(); return; }
-    try {
-      new BankStore(this.db).correctionManual(ex.msg, ex.reply, `F9 wrong (state=${ex.state})`, null);
-      this.appendMsg(lead.chatId, { role: 'system', text: '[F9] снимено како ПОГРЕШЕН одговор — ќе се обработи во loop-a.', at: Date.now() });
-    } catch (e) {
-      this.appendMsg(lead.chatId, { role: 'error', text: `[F9] грешка: ${(e as Error).message}`, at: Date.now() });
-    }
-    this.renderAll();
-  }
-
-  /** [F10] — the last Lina answer was RIGHT (positive signal, pruning later). */
-  private markRight(): void {
-    const lead = this.activeLead();
-    if (!lead) return;
-    const ex = this.lastExchange.get(lead.chatId);
-    if (!ex) return;
-    this.appendMsg(lead.chatId, { role: 'system', text: '[F10] снимено како ТОЧЕН одговор (сигнал за оценување).', at: Date.now() });
-    this.renderAll();
   }
 
   // ---------------- F2 menu ----------------
@@ -1199,7 +1167,7 @@ export class TuiApp {
     }
     s += 'antiban: 9/s бакет · 100/час по клиент';
     s += ` · мозок: ${this.brainMode}`;
-    s += ' · [Space] нов клиент · [↑/↓] префрли · [Enter] испрати/bypass · [F2] брз почеток · [F3] сопственик · [PgUp/PgDn] скрол · [/reset] · [/brain] · [/owner] · [F9]/[F10] оценка · [C-q] излез';
+    s += ' · [Space] нов клиент · [↑/↓] префрли · [Enter] испрати/bypass · [F2] брз почеток · [F3] сопственик · [PgUp/PgDn] скрол · [/reset] · [/brain] · [/owner] · [C-q] излез';
     statusBar.setContent(s);
   }
 

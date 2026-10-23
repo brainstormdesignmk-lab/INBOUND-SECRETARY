@@ -4,8 +4,13 @@ import * as path from 'path';
 
 export class Db {
   readonly db: Database.Database;
+  /** The file this handle opened (or ':memory:'). BankReview uses it to find
+   *  the OTHER local DBs' question logs — the review DB and the chat DB are
+   *  separate files on this box. */
+  readonly file: string;
 
   constructor(file: string) {
+    this.file = file;
     mkdirSync(path.dirname(file), { recursive: true });
     this.db = new Database(file);
     this.db.pragma('journal_mode = WAL');
@@ -191,7 +196,12 @@ export class Db {
         reply_source TEXT NOT NULL,             -- 'gemini:1', 'groq', etc.
         bank_key     TEXT,                      -- matched bank key (if any)
         created_at   INTEGER NOT NULL,
-        enriched     INTEGER NOT NULL DEFAULT 0 -- 0=pending, 1=enriched
+        enriched     INTEGER NOT NULL DEFAULT 0, -- 0=pending, 1=processed
+        source_id    TEXT NOT NULL DEFAULT 'local',
+        source_record_id INTEGER,
+        review_key   TEXT,
+        review_status TEXT NOT NULL DEFAULT 'pending',
+        review_reason TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_enrichment_pending
         ON enrichment_queue(enriched, created_at);

@@ -20,7 +20,7 @@ import { normalizeOwnerTime } from '../src/llm/prompts';
 import { LandmarkService, sanitizeLandmarkAnswer } from '../src/geo/landmarks';
 import { VisitScheduler } from '../src/visits/scheduler';
 import { LandmarkStore } from '../src/geo/landmarks';
-import { detectOwnerVerdict, detectOwnerAddressReply } from '../src/llm/deterministic';
+import { detectOwnerVerdict, detectOwnerAddressReply, hasDayWord, detectVagueTime } from '../src/llm/deterministic';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
@@ -552,4 +552,128 @@ test('e2e regression: refused-time ping-pong counters СРЕДА ВО 6, and the
   // 8) The seam is one-shot: after resolution nothing is pending.
   assert.equal(sched.pendingAddressConfirm(chatId), null, 'no pending confirm after resolution');
   db.close();
+});
+
+// --- the [00:49]/[00:57] capture: day-first split intake ---------------------
+// Friday 23.10 00:49: the client asks "ЕВИДЕНТЕН БРОЈ 47 ДАЛИ УШТЕ Е НА
+// ПРОДАЖБА?" (masculine frame), and at 00:57 proposes "ВО ПОНЕДЕЛНИК МОЖАМ
+// ПОПЛАДНЕ" then "ОКОЛУ 6". Three defects: the no-L day typo (PONEDENIK)
+// read day-less so every merge gate treated the stored Monday as day-less;
+// "попладне околу 6" shifted PM only for "после"; and the merged phrase was
+// re-asked for the clock it had just completed. Owner got "Петок, 23.10.2026
+// во 06:00" — must be Понеделник, 26.10.2026 во 18:00.
+const NOW_OCT = new Date(2026, 9, 23, 0, 49, 0); // Friday 2026-10-23 00:49
+
+test('[00:57] parse: „понеделник попладне околу 6“ = Понеделник 18:00 (PM shift not only за „после“)', () => {
+  const p = (t: string) => parseVisitDateTime(t, NOW_OCT)!;
+  assert.deepEqual(p('VO PONEDENIK MOZAM POPLADNE OKOLU 6'), new Date(2026, 9, 26, 18, 0));
+  assert.deepEqual(p('понеделник попладне околу 6'), new Date(2026, 9, 26, 18, 0));
+  // The day-less lone clock follows the afternoon-viewing convention too —
+  // bare „OKOLU 6“ must never read a literal 06:00.
+  assert.deepEqual(p('OKOLU 6'), new Date(2026, 9, 23, 18, 0));
+  // Minutes keep their literal hour (the documented veto).
+  assert.deepEqual(p('понеделник попладне во 6:30'), new Date(2026, 9, 26, 6, 30));
+  // Morning context stays morning.
+  assert.deepEqual(p('понеделник утрово во 9'), new Date(2026, 9, 26, 9, 0));
+});
+
+test('[00:57] hasDayWord: the no-L „PONEDENIK“ typo is a day word', () => {
+  assert.equal(hasDayWord('VO PONEDENIK MOZAM POPLADNE'), true);
+  assert.equal(hasDayWord('ponedenik'), true);
+  // The whole typo corpus (mkTimePhrase's MK_DAY_FIX), not just понедelnik:
+  // a misspelled day must read as day-anchored EVERYWHERE a gate calls
+  // hasDayWord — the merge classifiers and the owner-day seed.
+  for (const t of ['PONEDELOK VO 3', 'VTORIK VO 4', 'SRETA VO 5',
+    'во средта', 'ЦЕТВРТОК', 'NA PETK', 'SUBOTA VO 2', 'nedella']) {
+    assert.equal(hasDayWord(t), true, `typo day word required: ${t}`);
+  }
+});
+
+test('[00:57] detectVagueTime: day + clock is concrete; „после N“ stays vague', () => {
+  assert.equal(detectVagueTime('VO PONEDENIK MOZAM POPLADNE OKOLU 6'), false);
+  assert.equal(detectVagueTime('ПОНЕДЕЛНИК ВО 19'), false);
+  // Day only → the exact-clock ask still fires; relative wording stays vague.
+  assert.equal(detectVagueTime('VO PONEDENIK MOZAM POPLADNE'), true);
+  assert.equal(detectVagueTime('sabota posle 5'), true);
+});
+
+test('[00:57] normalizeOwnerTime: the merged pair reaches the owner canonically', () => {
+  assert.equal(normalizeOwnerTime('VO PONEDENIK MOZAM POPLADNE OKOLU 6', NOW_OCT), 'Понеделник, 26.10.2026 во 18:00');
+});
+
+test('[00:49]/[00:57] e2e: EB ask keeps masculine gender, day-first intake merges onto Monday 18:00', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const rows: Property[] = [
+    { eb: 47, id: 47, location: 'Кисела Вода', address: 'Тест', price: 65000, service: 'buy', bedrooms: 2 },
+  ];
+  const props = new FakeProps(rows);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, props);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const events = new EventStore(db);
+  const owners = new OwnerStore(db);
+  owners.upsert({ eb: 47, name: 'Стојан', phone: '070999888', status: 'available' });
+  const sched = new VisitScheduler({
+    db, events, owners, properties: props,
+    notifyClient: async () => {},
+    notifyOwner: async () => {},
+    notifyOperator: async () => {},
+    now: () => NOW_OCT,
+  });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties: props,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+    visits: sched,
+  });
+  const chatId = 'eb47-oct';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // 1) The EB availability ask serves the MASCULINE line — the bank pool is
+  //    written for „недвижноста“ (feminine) and may not cover an ask by number.
+  await send('EVIDENTEN BROJ 47 DALI USTE E NA PRODAZBA?');
+  const ack = sent[sent.length - 1] ?? '';
+  assert.ok(/достапен(?!\p{L})/iu.test(ack), `masculine ack expected, got: ${ack}`);
+  assert.ok(!/достапна(?!\p{L})/iu.test(ack), ack);
+
+  // 2) The fee gate → contact → scheduling, then the DAY first.
+  await send('DA');
+  await send('DA, SE SOGLASUVAM');
+  await send('MARKO 070111222');
+  const s1 = await send('VO PONEDENIK MOZAM POPLADNE');
+  assert.equal(s1.state, 'visit_scheduling', 'day-only intake must ask the exact clock, never start the owner ping-pong');
+  assert.equal(s1.slots.visitTime, 'VO PONEDENIK MOZAM POPLADNE');
+
+  // 3) The follow-up clock completes the SAME Monday — never today 06:00.
+  const s2 = await send('OKOLU 6');
+  assert.equal(s2.state, 'owner_checking', `merged intake must reach the owner check, got ${s2.state} (reply: ${sent[sent.length - 1]})`);
+  assert.equal(s2.slots.visitTime, 'VO PONEDENIK MOZAM POPLADNE OKOLU 6');
+  db.close();
+});
+
+// The mkTimePhrase owner-corpus typo sweep (MK_DAY_FIX) made the same forms
+// first-class DAY WORDS everywhere a day is read — DAY_WORDS (parse),
+// DAY_TRAILING_HOUR_RE (trailing-hour arm) and DAY_WORD_RE (hasDayWord). A
+// misspelled day read as day-less is exactly the [01:06] bug class: every
+// merge gate then treats the stored day as day-less and the new clock
+// replaces it with TODAY. NOW_OCT is Friday 23.10.2026 — the next occurrence
+// of each weekday is the same calendar week (Mon 26.10 … Sat 31.10).
+test('day typo corpus: misspelled weekdays parse and merge like their spelled-day', () => {
+  const daydow = (t: string) => parseVisitDateTime(t, NOW_OCT)!.getDay();
+  assert.equal(daydow('PONEDELOK VO 3'), 1, 'ponedelnik');
+  assert.equal(daydow('VO VTORIK VO 4'), 2, 'vtornik');
+  assert.equal(daydow('SRETA VO 5'), 3, 'sreda');
+  assert.equal(daydow('во средта по 5'), 3, 'sreda (Cyrillic)');
+  assert.equal(daydow('ЦЕТВРТОК ВО 6'), 4, 'четврток');
+  assert.equal(daydow('NA PETK'), 5, 'petok');
+  assert.equal(daydow('SUBOTA VO 2'), 6, 'sabota');
+  // The trailing-hour arm reads the typo'd day + bare digit as the clock
+  // (the [12:42] arm on a typo): 1–7 shifts to PM.
+  assert.equal(parseVisitDateTime('PONEDELOK 6', NOW_OCT)!.getDay(), 1);
+  assert.equal(parseVisitDateTime('SUBOTA 3', NOW_OCT)!.getDay(), 6);
 });

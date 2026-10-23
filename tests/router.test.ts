@@ -4,7 +4,7 @@
 // it ships a wrong answer to a client.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveIntent, ROUTING_ORDER, dispatchSimple } from '../src/handlers/router';
+import { resolveIntent, ROUTING_ORDER, dispatchSimple, routeLog } from '../src/handlers/router';
 import { inferPropertyId } from '../src/llm/classify';
 import { detectEyeCatch, detectAgreement } from '../src/llm/deterministic';
 
@@ -35,6 +35,40 @@ test('owner contact beats WHERE_IS ("kade ti e telefonot?")', () => {
   const r = ROUTING_ORDER.findIndex(x => x.intent === 'OWNER_CONTACT');
   const w = ROUTING_ORDER.findIndex(x => x.intent === 'WHERE_IS');
   assert.ok(r < w, 'OWNER_CONTACT must sit before WHERE_IS');
+});
+
+test('shadow router: prediction and actual are compared, drift is logged', () => {
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.join(' ')); };
+  try {
+    routeLog('drift-c1', 'MNOGU EFTINA CENA E TOA', 'FEE_PUSH', 'predict');
+    routeLog('drift-c1', 'MNOGU EFTINA CENA E TOA', 'PRICE_EVAL_CHEAP');
+    routeLog('drift-c2', 'MNOGU EFTINA CENA E TOA', 'PRICE_EVAL_CHEAP', 'predict');
+    routeLog('drift-c2', 'MNOGU EFTINA CENA E TOA', 'PRICE_EVAL_CHEAP');
+  } finally {
+    console.log = original;
+  }
+  assert.ok(logs.some(l => l.includes('[route-drift] drift-c1')), 'a divergence must be visible');
+  assert.ok(!logs.some(l => l.includes('[route-drift] drift-c2')), 'agreement stays quiet');
+});
+
+test('PRICE_EVAL_CHEAP beats the fee ladder for a compliment on the quoted price', () => {
+  assert.equal(resolveIntent('MNOGU EFTINA CENA E TOA', 'closing'), 'PRICE_EVAL_CHEAP');
+  assert.equal(resolveIntent('MNOGU EFTINA CENA E TOA', 'property_query'), 'PRICE_EVAL_CHEAP');
+  // a question or a search is not the remark lane
+  assert.notEqual(resolveIntent('DALI E DOBRA CENATA?', 'closing'), 'PRICE_EVAL_CHEAP');
+  assert.notEqual(resolveIntent('MNOGU EFTINA CENA E TOA', 'discovery'), 'PRICE_EVAL_CHEAP');
+});
+
+test('BUSINESS_BUDGET_ASK is an explicit intake-gated route', () => {
+  assert.equal(resolveIntent('Колку чини деловен простор во Центар?', 'idle'), 'BUSINESS_BUDGET_ASK');
+  assert.equal(resolveIntent('Колку чини деловен простор во Центар?', 'discovery'), 'BUSINESS_BUDGET_ASK');
+  // once a flat is on the table, its price and the fee protocol own the money talk
+  assert.notEqual(resolveIntent('Колку чини деловен простор во Центар?', 'closing'), 'BUSINESS_BUDGET_ASK');
+  assert.notEqual(resolveIntent('Колку чини деловен простор во Центар?', 'property_query'), 'BUSINESS_BUDGET_ASK');
+  // residential price questions are not commercial traffic
+  assert.notEqual(resolveIntent('Колку чини стан во Центар?', 'discovery'), 'BUSINESS_BUDGET_ASK');
 });
 
 test('PROPERTY_DESCRIPTION precedes state-gated intents', () => {

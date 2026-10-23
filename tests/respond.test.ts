@@ -15,6 +15,18 @@ test('guardText: property prices are quoted in euros, never denars', () => {
   assert.equal(guardText('presentation', 'Цената изнесува 46.000 евра'), 'Цената изнесува 46.000 евра');
 });
 
+test('guardText: a mid-sentence "за да Ви помогнам" is prose, not a listing pivot', () => {
+  // Operator-dictated persona line (personal.age). The pivot signature needs a
+  // CLAUSE START; mid-sentence it is ordinary Macedonian and must survive.
+  const age = 'Доволно години за да Ви помогнам околу недвижностите. Дали моментално барате стан за купување или за изнајмување?';
+  assert.equal(guardText('idle', age), age);
+  // The pivot itself, opening a sentence, is still cut.
+  assert.equal(
+    guardText('closing', 'Разбирам. За да Ви помогнам, еве ги следните предлози: **Евидентен број 53**'),
+    'Разбирам.',
+  );
+});
+
 test('guardText: junk property pivot is cut (Во меѓувреме…)', () => {
   const answer = guardText('presentation',
     'Тоа е стандардна политика на агенцијата за заштита на приватноста на сопствениците. ' +

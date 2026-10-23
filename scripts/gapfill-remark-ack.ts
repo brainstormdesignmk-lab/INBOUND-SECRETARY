@@ -73,7 +73,7 @@ async function fillDb(dbPath: string): Promise<void> {
     for (const v of unique) {
       if (total >= TARGET) break;
       if (dry) { console.log(`[dry] would add: ${v}`); added++; total++; continue; }
-      if (bank.addVariant(KEY, v, 'gapfill')) { added++; total++; console.log(`+ ${v}`); }
+      if (bank.addStagedVariant(KEY, v, 'gapfill (review gate)', 'gapfill')) { added++; total++; console.log(`+ ${v}`); }
     }
   }
   console.log(`done: +${added} (total ${total})`);

@@ -126,6 +126,13 @@ export const INFO_NO_YEAR_LINE =
 export const INFO_NO_RENOVATION_LINE =
   'Немам податок кога е реновирана — ќе го прашам сопственикот и ќе Ви потврдам.';
 
+/** THE BANK KEYS of the two miss lines. They are frozen policy (see
+ *  FROZEN_BANK_KEYS) — the queue row carries the key ONLY so the review screen
+ *  can name the code that produced the answer, never so it can be rewritten
+ *  from the TUI. */
+export const INFO_NO_YEAR_KEY = 'info.no.year';
+export const INFO_NO_RENOVATION_KEY = 'info.no.renovation';
+
 // CONSTRUCTION / RENOVATION YEAR — the [00:33] "od koja godina e zgradata?"
 // capture. `година` alone is NOT the facet ("колку години искуство" is other
 // traffic); every pattern names the building or the act of building.

@@ -14,7 +14,19 @@ import {
   detectResultSetQuestion, detectBedroomsRange, detectExplicitWiden,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
   detectDocumentsAsk, detectOwnerContactHold, extractPoiWish,
+  detectAgentAttendanceAsk, detectBusinessBudgetAsk,
+  BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK,
 } from '../src/llm/deterministic';
+
+test('[#195] agent attendance question is distinct from visit-interest/fee consent', () => {
+  const exact = 'TI KE DOJDES SO MENE NA POSETA AKO ODBERAM STAN?';
+  assert.equal(detectAgentAttendanceAsk(exact), true);
+  assert.equal(detectAgentAttendanceAsk('ТИ ЌЕ ДОЈДЕШ СО МЕНЕ НА ПОСЕТА АКО ОДБЕРАМ СТАН?'), true);
+  assert.equal(detectAgentAttendanceAsk('Dali vie ke dojdete so mene na razgleduvanje?'), true);
+  assert.equal(detectAgentAttendanceAsk('Sakam da ja vidam garsonjerata'), false, 'ordinary visit interest');
+  assert.equal(detectAgentAttendanceAsk('Koga moze da se poseti stanot?'), false, 'visit timing');
+  assert.equal(detectAgentAttendanceAsk('Ke dojdes utre?'), false, 'no viewing context');
+});
 
 const FEED_LOCS = ['Аеродром', 'Центар', 'Центар (населба)', 'Карпош', 'Кисела Вода', 'Капиштец', 'Дебар Маало'];
 
@@ -862,6 +874,42 @@ test('extractSlots + buildEvent: a house request stays a house end-to-end', () =
   const full = buildEvent('idle', { service: 'buy', house: true, location: 'Визбегово', bedrooms: 3, budget: '150000' });
   assert.equal(full.type, 'SEARCH_REQUESTED');
   assert.equal(full.house, true);
+});
+
+test('detectBusinessBudgetAsk: a commercial price question maps to the business budget ask', () => {
+  assert.equal(BUSINESS_BUDGET_ASK_KEY, 'discovery.ask.budget.business');
+  for (const t of [
+    'Колку чини деловен простор во Центар?',
+    'Колку е цената на локал во Карпош?',
+    'Која е цената за канцеларија во Центар?',
+    'ме интересира колку чини деловен простор',
+    'koja e cenata na lokal vo Centar?',
+    'kolku chini deloven prostor vo Centar?',
+    'kolku cini deloven prostor vo Centar?',
+    'kolku pari e kancelarija vo Centar?',
+    'по која цена е локалот?',
+    'каква е цената на дуќанот?',
+    'имате ли деловен простор и колку чини?',
+    'деловен простор во Центар, цена?',
+  ]) {
+    assert.equal(detectBusinessBudgetAsk(t), true, t);
+  }
+  // a type/availability request is not a budget ask, and neither is a stated budget
+  assert.equal(detectBusinessBudgetAsk('имате ли деловен простор?'), false);
+  assert.equal(detectBusinessBudgetAsk('барам деловен простор за изнајмување'), false);
+  assert.equal(detectBusinessBudgetAsk('деловен простор до 500 евра'), false);
+  // other money lanes own their questions
+  assert.equal(detectBusinessBudgetAsk('колку е провизијата за локал?'), false);
+  assert.equal(detectBusinessBudgetAsk('како се движат цените за локали во Центар?'), false);
+  // an OPINION about the price is not an ask
+  assert.equal(detectBusinessBudgetAsk('не ми се допаѓа цената на локалот'), false);
+  // size/rate and residential questions never fire
+  assert.equal(detectBusinessBudgetAsk('колку м² има локалот?'), false);
+  assert.equal(detectBusinessBudgetAsk('колку квадрати има локалот?'), false);
+  assert.equal(detectBusinessBudgetAsk('колку чини стан во Центар?'), false);
+  assert.equal(detectBusinessBudgetAsk('сакам стан до ресторан'), false);
+  // the code fallback names the COMMERCIAL category
+  assert.match(BUSINESS_BUDGET_ASK_FALLBACK, /деловниот простор/iu);
 });
 
 test('detectBusiness: an explicit стан/куќа makes business words landmarks, not the property', () => {

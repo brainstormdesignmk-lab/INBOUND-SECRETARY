@@ -4,8 +4,11 @@
  *
  * Runs daily (cron). Catches up automatically — the queue accumulates if the
  * machine was off. All learned content goes to the SQLITE BANK LAYER
- * (bank_variants / bank_examples via BankStore) — LIVE immediately, no
- * rebuild, no restart. responses.ts stays the untouched SEED layer; only
+ * (bank_variants / bank_examples via BankStore). Since the review gate landed
+ * (2026-10-21) generated VARIANTS are written as lifecycle='staged': they do
+ * NOT serve until a human promotes them in `npm run bank:tui`. Routing
+ * material (bank_examples) is still written immediately — it is a lookup, not
+ * client-facing prose. responses.ts stays the untouched SEED layer; only
  * `npm run responses:generate` (human-driven) regenerates the seed.
  *
  * Pipeline:
@@ -14,7 +17,8 @@
  *      re-ask of the same question within 10 min on the same chat).
  *      Failed answers → bank_corrections, never the bank.
  *   3. Group by bankKey (records carry it) or state+event (LLM replies).
- *   4. Known key + frequent group  → generate 5 variants → bank_variants.
+ *   4. Known key + frequent group  → generate 5 variants → STAGED variants
+ *      (human gate: bank:tui promotes them).
  *   5. UNKNOWN group (LLM answered a novel question) → NEW bank key
  *      `learn.<slug>` is created from the Q→A pair: the reply becomes the
  *      first variant, the user messages become retrieval examples. This is
@@ -228,7 +232,7 @@ async function enrich(): Promise<void> {
     const thin: Array<[string, number]> = [];
     for (const [key, vars] of Object.entries(RESPONSE_BANK)) {
       if (isExcludedFromEnrichment(key)) continue;
-      const existing = [...vars, ...bank.variants(key)];
+      const existing = [...vars, ...bank.variants(key), ...bank.stagedVariants(key).map(v => v.text)];
       if (existing.length < 5) thin.push([key, existing.length]);
     }
     console.log(`[enrich] ${thin.length} keys below 5 variants`);
@@ -255,7 +259,7 @@ async function enrich(): Promise<void> {
         const unique = deduplicate(candidates, RESPONSE_BANK[key]);
         let added = 0;
         for (const v of unique) {
-          if (bank.addVariant(key, v, 'gapfill')) added++;
+          if (bank.addStagedVariant(key, v, 'gapfill (review gate)', 'gapfill')) added++;
           if (RESPONSE_BANK[key].length + bank.variants(key).length - n >= 5) break;
         }
         log.generated += lines.length;
@@ -321,7 +325,11 @@ async function enrich(): Promise<void> {
         console.log(`[enrich] skipping ${knownKey} — DATA-DRIVEN (facts live in the property row, not prose)`);
         continue;
       }
-      const existing = [...RESPONSE_BANK[knownKey], ...bank.variants(knownKey)];
+      const existing = [
+        ...RESPONSE_BANK[knownKey],
+        ...bank.variants(knownKey),
+        ...bank.stagedVariants(knownKey).map(v => v.text),
+      ];
       if (existing.length >= MAX_VARIANTS_PER_KEY) {
         console.log(`[enrich] skipping ${knownKey} — ${existing.length} variants (max)`);
         continue;
@@ -331,7 +339,7 @@ async function enrich(): Promise<void> {
 
       const added = await generateVariants(llm, knownKey, group, existing, dryRun, log);
       if (!dryRun) {
-        for (const v of added) bank.addVariant(knownKey, v, 'learned');
+        for (const v of added) bank.addStagedVariant(knownKey, v, 'enrich queue (review gate)', 'enrich');
         for (const m of group.sampleMsgs) bank.addExample(knownKey, m);
       }
       if (added.length > 0) log.enrichedKeys.push(knownKey);
@@ -368,7 +376,7 @@ async function enrich(): Promise<void> {
       }
       let first = true;
       for (const r of group.sampleReplies.slice(0, 3)) {
-        if (bank.addVariant(newKey, r, first ? 'learned-origin' : 'learned')) first = false;
+        if (bank.addStagedVariant(newKey, r, first ? 'new key (review gate)' : 'enrich queue (review gate)', first ? 'learned-origin' : 'enrich')) first = false;
       }
       for (const m of group.sampleMsgs) bank.addExample(newKey, m);
       log.newKeys.push(newKey);

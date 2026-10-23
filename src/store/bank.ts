@@ -1,5 +1,11 @@
 import { Db } from './db';
 
+/** The one canonical phrase form for negative rules: case- and whitespace-
+ *  literal, so an F9 re-capture of the same wording normalizes to one row. */
+function normPhrase(s: string): string {
+  return (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 /**
  * BankStore — the learned layer of the response bank.
  *
@@ -65,6 +71,11 @@ export const FROZEN_BANK_KEYS = new Set([
   // The 22:18 fix: TTL-expiry resume bridge for mid-funnel sessions. Keeps
   // the funnel alive across long gaps instead of resetting to the greeting.
   'session.resume',
+  // The INFO-MISS lines (src/llm/infoAnswer.ts): "no such fact in the feed —
+  // I will ask the owner". Policy wording composed in code, so the learning
+  // loop must never grow them; listing them here is what makes the review
+  // screen paint those rows as CODE and name their source file.
+  'info.no.data', 'info.no.floors', 'info.no.year', 'info.no.renovation',
 ]);
 
 /** Data-driven keys: the answer's FACTS come from the property row, the owner
@@ -175,12 +186,41 @@ export class BankStore {
         msg        TEXT NOT NULL,
         answer     TEXT NOT NULL,
         created_at INTEGER NOT NULL,
+        processed  INTEGER NOT NULL DEFAULT 0,
         UNIQUE(key, msg)
       );
       CREATE INDEX IF NOT EXISTS idx_bank_dynamic_key ON bank_dynamic(key);
     `);
+    const dynamicCols = this.db.db.prepare(`PRAGMA table_info(bank_dynamic)`).all() as Array<{ name: string }>;
+    if (!dynamicCols.some(c => c.name === 'processed')) {
+      this.db.db.exec(`ALTER TABLE bank_dynamic ADD COLUMN processed INTEGER NOT NULL DEFAULT 0`);
+    }
     if (!cols.some(c => c.name === 'family')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN family TEXT`);
     if (!cols.some(c => c.name === 'resolved_at')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN resolved_at INTEGER`);
+    // OPERATOR CORRECTION (2026-10 transcript): the row used to hold only ONE
+    // text — whichever branch wrote it — so the wrong reply and the human's
+    // right wording were indistinguishable, and loop-a (which reads msg, not
+    // reply) discarded the correction. `reply` is now always the text that
+    // served; `corrected` is the operator's wording, the thing that must be
+    // staged into the bank.
+    if (!cols.some(c => c.name === 'corrected')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN corrected TEXT`);
+    // P5.1 NEGATIVE RULES (route corrections as first-class objects): when a
+    // route correction moves a question from family X to a learn.* key, the
+    // SAME utterance must never be claimable by family X again — XP served
+    // and was wrong. Exact-utterance, family-scoped: a phrase may be legal
+    // fee.* traffic for another client in another state; the rule only kills
+    // the exact phrasing that already burned a serve.
+    this.db.db.exec(`
+      CREATE TABLE IF NOT EXISTS bank_negative_rules (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        phrase       TEXT NOT NULL,
+        forbid_family TEXT NOT NULL,
+        note         TEXT,
+        created_at   INTEGER NOT NULL,
+        UNIQUE(phrase, forbid_family)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bank_negative_rules_phrase ON bank_negative_rules(phrase);
+    `);
   }
 
   // ---------- READ (request path) ----------
@@ -254,10 +294,45 @@ export class BankStore {
     if (!m || !a) return false;
     try {
       const res = this.db.db.prepare(
-        `INSERT OR IGNORE INTO bank_dynamic (key, state, msg, answer, created_at) VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO bank_dynamic (key, state, msg, answer, created_at, processed) VALUES (?, ?, ?, ?, ?, 0)
+         ON CONFLICT(key, msg) DO UPDATE SET state=excluded.state, answer=excluded.answer,
+           created_at=excluded.created_at, processed=0 WHERE bank_dynamic.processed=1`
       ).run(key, state, m, a, Date.now());
       return res.changes > 0;
     } catch { return false; }
+  }
+
+  /** F9 WRITE-BACK — the dynamic row that owns this exact question.
+   *
+   *  Match is exact after whitespace/case normalisation and scoped to the
+   *  state: a correction must rewrite THE row that served, never a similar
+   *  question in another state. The fuzzy recall is deliberately not used
+   *  here — it is good at serving, too loose for overwriting. */
+  findDynamicRow(state: string | undefined, msg: string): { id: number; key: string; msg: string; state: string } | undefined {
+    const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const want = norm(msg);
+    if (!want) return undefined;
+    // `undefined` = search every state. The TUI uses it as a fallback because
+    // the remembered state can be empty for a brand-new session (the exchange
+    // is recorded before the session exists) — the message itself is still an
+    // EXACT match, so this can never rewrite a different question.
+    const rows = (state
+      ? this.db.db.prepare(`SELECT id, key, state, msg FROM bank_dynamic WHERE state = ? AND processed = 0 ORDER BY id ASC`).all(state)
+      : this.db.db.prepare(`SELECT id, key, state, msg FROM bank_dynamic WHERE processed = 0 ORDER BY id ASC`).all()
+    ) as Array<{ id: number; key: string; state: string; msg: string }>;
+    return rows.find(r => norm(r.msg) === want);
+  }
+
+  /** F9 WRITE-BACK — replace the answer IN PLACE, so the next identical ask
+   *  recalls the corrected prose instead of the model's version. The caller
+   *  validates the text first (validateDynamicAnswer). */
+  rewriteDynamic(state: string | undefined, msg: string, answer: string): { ok: boolean; id?: number; key?: string; reason?: string } {
+    const a = answer.trim();
+    if (!a) return { ok: false, reason: 'empty answer' };
+    const row = this.findDynamicRow(state, msg);
+    if (!row) return { ok: false, reason: 'no matching dynamic row' };
+    const res = this.db.db.prepare(`UPDATE bank_dynamic SET answer = ? WHERE id = ?`).run(a, row.id);
+    return res.changes > 0 ? { ok: true, id: row.id, key: row.key } : { ok: false, reason: 'update failed' };
   }
 
   /** Recall: best-matching stored dynamic answer for a client message.
@@ -266,7 +341,7 @@ export class BankStore {
   retrieveDynamic(userMsg: string, minScore = 0.55): { key: string; answer: string } | undefined {
     const msg = userMsg.trim();
     if (msg.length < 4) return undefined;
-    const rows = this.db.db.prepare(`SELECT key, msg, answer FROM bank_dynamic`).all() as
+    const rows = this.db.db.prepare(`SELECT key, msg, answer FROM bank_dynamic WHERE processed = 0`).all() as
       Array<{ key: string; msg: string; answer: string }>;
     if (rows.length === 0) return undefined;
     const low = msg.toLowerCase();
@@ -302,8 +377,8 @@ export class BankStore {
     const msg = userMsg.trim();
     if (msg.length < 4) return undefined;
     const rows = state
-      ? this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic WHERE state = ?`).all(state)
-      : this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic`).all();
+      ? this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic WHERE state = ? AND processed = 0`).all(state)
+      : this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic WHERE processed = 0`).all();
     const low = msg.toLowerCase().replace(/\s+/g, ' ').trim();
     for (const r of rows as Array<{ key: string; state: string; msg: string; answer: string }>) {
       const m = r.msg.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -332,7 +407,7 @@ export class BankStore {
 
   /** Dynamic groups for the nightly digest: key, state, msgs, first answer. */
   dynamicGroups(): Array<{ key: string; state: string; msgs: string[]; answer: string }> {
-    const rows = this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic ORDER BY id ASC`).all() as
+    const rows = this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic WHERE processed = 0 ORDER BY id ASC`).all() as
       Array<{ key: string; state: string; msg: string; answer: string }>;
     const map = new Map<string, { key: string; state: string; msgs: string[]; answer: string }>();
     for (const r of rows) {
@@ -343,8 +418,79 @@ export class BankStore {
     return [...map.values()];
   }
 
+  /** ROW-LEVEL dynamic captures for the review UI (newest first). The digest
+   *  groups by key; editing needs the individual row. */
+  dynamicRows(limit = 200): Array<{ id: number; key: string; state: string; msg: string; answer: string; createdAt: number; processed: number }> {
+    return this.db.db.prepare(
+      `SELECT id, key, state, msg, answer, created_at AS createdAt, processed
+       FROM bank_dynamic ORDER BY processed ASC, id DESC LIMIT ?`
+    ).all(limit) as Array<{ id: number; key: string; state: string; msg: string; answer: string; createdAt: number; processed: number }>;
+  }
+
+  /** Captures awaiting review/promotion. Processed rows remain visible as gray audit history. */
+  dynamicRowCount(): number {
+    return (this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_dynamic WHERE processed = 0`).get() as { c: number }).c;
+  }
+
+  /** Retain a capture as processed only if it still matches the promoted answer. */
+  markDynamicProcessedIfMatches(id: number, msg: string, answer: string): boolean {
+    return this.db.db.prepare(
+      `UPDATE bank_dynamic SET processed = 1 WHERE id = ? AND msg = ? AND answer = ? AND processed = 0`
+    ).run(id, msg, answer).changes > 0;
+  }
+
+  /** Update one dynamic capture by row id (bank:tui edit; validated by the caller). */
+  updateDynamicAnswer(id: number, answer: string): boolean {
+    const a = answer.trim();
+    if (!a) return false;
+    return this.db.db.prepare(`UPDATE bank_dynamic SET answer = ? WHERE id = ?`).run(a, id).changes > 0;
+  }
+
+  /** Reject a dynamic capture: stop serving it (bank:tui X). */
+  deleteDynamic(id: number): boolean {
+    return this.db.db.prepare(`DELETE FROM bank_dynamic WHERE id = ?`).run(id).changes > 0;
+  }
+
+  /** Remove a promoted dynamic capture only if it still matches the staged
+   *  snapshot. A dynamic answer edited after staging remains intact. */
+  deleteDynamicIfMatches(id: number, msg: string, answer: string): boolean {
+    return this.db.db.prepare(
+      `DELETE FROM bank_dynamic WHERE id = ? AND msg = ? AND answer = ?`
+    ).run(id, msg, answer).changes > 0;
+  }
+
+  /** Learned ACTIVE variants, newest first — the bank:tui review list. Seeds
+   *  live in responses.ts, so every row here is learned/reviewed prose. */
+  activeVariants(limit = 200): Array<{ id: number; key: string; text: string; source: string; note: string | null; createdAt: number }> {
+    return this.db.db.prepare(
+      `SELECT id, key, text, source, note, created_at AS createdAt FROM bank_variants
+       WHERE lifecycle = 'active' ORDER BY id DESC LIMIT ?`
+    ).all(limit) as Array<{ id: number; key: string; text: string; source: string; note: string | null; createdAt: number }>;
+  }
+
+  activeVariantCount(): number {
+    return (this.db.db.prepare(
+      `SELECT COUNT(*) AS c FROM bank_variants WHERE lifecycle = 'active'`
+    ).get() as { c: number }).c;
+  }
+
+  /** STAGED-only text edit (bank:tui E). Active variants are read-only by
+   *  policy: changing live copy must go staged → reviewed → promoted. */
+  updateVariantText(id: number, text: string): boolean {
+    const t = text.trim();
+    if (!t) return false;
+    return this.db.db.prepare(
+      `UPDATE bank_variants SET text = ? WHERE id = ? AND lifecycle = 'staged'`
+    ).run(t, id).changes > 0;
+  }
+
   /** FIFO purge beyond the cap — the dynamic store stays a fresh signal. */
   purgeDynamic(keep = 400): number {
+    const processed = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_dynamic WHERE processed = 1`).get() as { c: number };
+    if (processed.c > 0) {
+      this.db.db.prepare(`DELETE FROM bank_dynamic WHERE processed = 1`).run();
+      return processed.c;
+    }
     const row = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_dynamic`).get() as { c: number };
     if (row.c <= keep) return 0;
     const res = this.db.db.prepare(
@@ -356,7 +502,7 @@ export class BankStore {
   /** Dynamic rows still awaiting a verbatim key binding (oldest first). */
   pendingDynamic(limit = 50): Array<{ id: number; key: string; state: string; msg: string }> {
     return this.db.db.prepare(
-      `SELECT id, key, state, msg FROM bank_dynamic ORDER BY id ASC LIMIT ?`
+      `SELECT id, key, state, msg FROM bank_dynamic WHERE processed = 0 ORDER BY id ASC LIMIT ?`
     ).all(limit) as Array<{ id: number; key: string; state: string; msg: string }>;
   }
 
@@ -374,7 +520,7 @@ export class BankStore {
    * the generated prose winning and the binding would never take effect.
    */
   bindDynamic(id: number, key: string): { ok: boolean; added: boolean; reason?: string; msg?: string } {
-    const row = this.db.db.prepare(`SELECT id, msg FROM bank_dynamic WHERE id = ?`).get(id) as
+    const row = this.db.db.prepare(`SELECT id, msg FROM bank_dynamic WHERE id = ? AND processed = 0`).get(id) as
       { id: number; msg: string } | undefined;
     if (!row) return { ok: false, added: false, reason: 'no such dynamic row' };
     if (!key || key.startsWith('dynamic:')) {
@@ -492,14 +638,14 @@ export class BankStore {
    * serves: it waits in lifecycle='staged' until bank:review promotes it.
    * Data-driven keys stay rejected — property facts never become prose.
    */
-  addStagedVariant(key: string, text: string, note?: string): boolean {
+  addStagedVariant(key: string, text: string, note?: string, source = 'relearn'): boolean {
     if (DATA_DRIVEN_KEYS.has(key)) return false;
     const t = text.trim();
     if (!t) return false;
     try {
       const res = this.db.db.prepare(
-        `INSERT OR IGNORE INTO bank_variants (key, text, source, created_at, lifecycle, note) VALUES (?, ?, 'relearn', ?, 'staged', ?)`
-      ).run(key, t, Date.now(), note ?? null);
+        `INSERT OR IGNORE INTO bank_variants (key, text, source, created_at, lifecycle, note) VALUES (?, ?, ?, ?, 'staged', ?)`
+      ).run(key, t, source, Date.now(), note ?? null);
       return res.changes > 0;
     } catch { return false; }
   }
@@ -517,6 +663,15 @@ export class BankStore {
       ).run(key, m, Date.now());
       return res.changes > 0;
     } catch { return false; }
+  }
+
+  /** Retrieval examples for a key — the CLIENT QUESTIONS that reach it. The
+   *  variant itself is wording only; this is the only place a question is
+   *  stored, which is why the review screen has to read it from here. */
+  examples(key: string): string[] {
+    return (this.db.db.prepare(
+      `SELECT msg FROM bank_examples WHERE key = ? ORDER BY id ASC`
+    ).all(key) as Array<{ msg: string }>).map(r => r.msg);
   }
 
   /** Metrics: a bank-backed reply was served (hit) or a lookup failed (miss). */
@@ -553,19 +708,55 @@ export class BankStore {
     return { learned: r.l, seed: r.s, rate: total > 0 ? r.l / total : null };
   }
 
-  /** Quarantine: quality gate rejected this learned pair — human review. */
-  correction(key: string | null, msg: string, reply: string, reason: string): void {
+  /** Quarantine: quality gate rejected this learned pair — human review.
+   *  `corrected` = the operator's right wording, when a human fixed the reply. */
+  correction(key: string | null, msg: string, reply: string, reason: string, corrected?: string | null): number {
+    const res = this.db.db.prepare(
+      `INSERT INTO bank_corrections (key, msg, reply, reason, corrected, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(key, msg, reply, reason, corrected?.trim() || null, Date.now());
+    return Number(res.lastInsertRowid);
+  }
+
+  // ---------- P5.1: NEGATIVE RULES (mistakes refuse their own repeat) --------
+
+  /** Record: this exact utterance must never serve this key family again.
+   *  Written automatically by a route correction, replayed at serve time. */
+  addNegativeRule(phrase: string, forbidFamily: string, note?: string): void {
+    const p = normPhrase(phrase);
+    if (!p || !forbidFamily.trim()) return;
     this.db.db.prepare(
-      `INSERT INTO bank_corrections (key, msg, reply, reason, created_at) VALUES (?, ?, ?, ?, ?)`
-    ).run(key, msg, reply, reason, Date.now());
+      `INSERT OR IGNORE INTO bank_negative_rules (phrase, forbid_family, note, created_at) VALUES (?, ?, ?, ?)`
+    ).run(p, forbidFamily.trim(), note?.trim() || null, Date.now());
+  }
+
+  /** The serve-time veto: TRUE when this utterance carries a negative rule
+   *  whose family covers `familyPrefix` ("fee." kills fee.ask.*, fee.persuade…
+   *  — the market suffix noise included). Whole-phrase match ONLY: rules are
+   *  hand-taught, one utterance each; substring matching would poison noise
+   *  into the funnel. Sub-second cost: one prepared statement on an indexed
+   *  phrase, called only from the money-lane guards. */
+  neverServes(phrase: string, familyPrefix: string): boolean {
+    const p = normPhrase(phrase);
+    if (!p || !familyPrefix.trim()) return false;
+    const rows = this.db.db.prepare(
+      `SELECT forbid_family FROM bank_negative_rules WHERE phrase = ?`
+    ).all(p) as Array<{ forbid_family: string }>;
+    return rows.some(r => familyPrefix.startsWith(r.forbid_family) || r.forbid_family.startsWith(familyPrefix));
+  }
+
+  /** Rules for review/introspection (tests, route:health). */
+  negativeRules(): Array<{ id: number; phrase: string; forbid_family: string; note: string | null }> {
+    return this.db.db.prepare(
+      `SELECT id, phrase, forbid_family, note FROM bank_negative_rules ORDER BY id DESC`
+    ).all() as any;
   }
 
   // ---------- Loop A: correction → trigger corpus (2026-09) ----------
 
   /** Newest-first corrections by status ('new' = unprocessed). */
-  correctionsByStatus(status: string): Array<{ id: number; key: string | null; msg: string; reply: string; reason: string; status: string; family: string | null; created_at: number }> {
+  correctionsByStatus(status: string): Array<{ id: number; key: string | null; msg: string; reply: string; reason: string; status: string; family: string | null; corrected: string | null; created_at: number }> {
     return this.db.db.prepare(
-      `SELECT id, key, msg, reply, reason, status, family, created_at FROM bank_corrections WHERE status = ? ORDER BY id DESC LIMIT 500`
+      `SELECT id, key, msg, reply, reason, status, family, corrected, created_at FROM bank_corrections WHERE status = ? ORDER BY id DESC LIMIT 500`
     ).all(status) as any;
   }
 
@@ -575,11 +766,37 @@ export class BankStore {
     return Object.fromEntries(rows.map(r => [r.status, r.n]));
   }
 
-  /** Manual [F9] intake: capture a wrong answer with its conversation context. */
-  correctionManual(msg: string, reply: string, reason: string, key: string | null): void {
-    this.db.db.prepare(
-      `INSERT INTO bank_corrections (key, msg, reply, reason, status, created_at) VALUES (?, ?, ?, ?, 'new', ?)`
-    ).run(key, msg, reply, reason, Date.now());
+  /** Manual [F9] intake: capture a wrong answer with its conversation context.
+   *  `reply` is the text that SERVED (the mistake), `corrected` is the human's
+   *  replacement — both are kept so the audit shows what changed. */
+  correctionManual(msg: string, reply: string, reason: string, key: string | null, corrected?: string | null): number {
+    const res = this.db.db.prepare(
+      `INSERT INTO bank_corrections (key, msg, reply, reason, corrected, status, created_at) VALUES (?, ?, ?, ?, ?, 'new', ?)`
+    ).run(key, msg, reply, reason, corrected?.trim() || null, Date.now());
+    return Number(res.lastInsertRowid);
+  }
+
+  /**
+   * OPERATOR-AUTHORED VARIANT — the human's exact wording, straight into
+   * STAGED. No LLM regeneration: the whole point of a correction is that the
+   * phrasing is the operator's, not a paraphrase of the broken line. The
+   * client message that triggered it becomes a retrieval example so the key
+   * can be reached by the same question again.
+   */
+  stageOperatorVariant(key: string, text: string, msg: string, note: string): boolean {
+    const added = this.addStagedVariant(key, text, note, 'operator');
+    if (msg.trim()) this.addExample(key, msg);
+    return added;
+  }
+
+  /** Existing audit row for the same (trigger, replacement). Re-running the
+   *  same correction (F9 twice, teach --serve after teach) must not pile
+   *  duplicate rows into the review tray. */
+  findCorrectionId(msg: string, corrected: string): number | null {
+    const row = this.db.db.prepare(
+      `SELECT id FROM bank_corrections WHERE msg = ? AND corrected = ? ORDER BY id DESC LIMIT 1`
+    ).get(msg, corrected.trim()) as { id: number } | undefined;
+    return row?.id ?? null;
   }
 
   /** Attach the resolved trigger family + mark processed (nightly runner). */
@@ -604,7 +821,7 @@ export class BankStore {
     const k = this.db.db.prepare(`SELECT COUNT(DISTINCT key) AS c FROM bank_variants`).get() as { c: number };
     const e = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_examples`).get() as { c: number };
     const co = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_corrections`).get() as { c: number };
-    const dp = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_dynamic`).get() as { c: number };
+    const dp = this.db.db.prepare(`SELECT COUNT(*) AS c FROM bank_dynamic WHERE processed = 0`).get() as { c: number };
     const m = this.db.db.prepare(`SELECT SUM(hits) AS h, SUM(misses) AS ms FROM bank_metrics`).get() as { h: number | null; ms: number | null };
     const h = m.h ?? 0, ms = m.ms ?? 0;
     const lr = this.learnedRate();

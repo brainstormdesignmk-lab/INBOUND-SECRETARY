@@ -14,12 +14,15 @@ const DAY_WORDS: Array<[RegExp, number]> = [
   // "понеделк/PONEDELIK/ponedenik" — the n→k / dropped-letter day typos (the
   // [12:42] transcript: "PONEDELIK 6" left the day unparsed and the owner ask
   // fell back to the raw phrase / a stale day). Parsed as понеделник.
-  [/(понеделни|понеделк|ponedelnik|ponedelk|ponedelik|ponedenik)/i, 1],
-  [/(вторни|vtornik)/i, 2],
-  [/(сред[аи]|sred[аa])/i, 3],
-  [/(четврто|четврток|cetvrtok)/i, 4],
-  [/(петочни|петок|petok)/i, 5],
-  [/(саботи|сабота|sabota)/i, 6],
+  // "понеделок" — theCaught distance-2 n→k slip ([00:57] family, pinned in the
+  // deterministic fuzzy sweep and mkTimePhrase's MK_DAY_FIX); a day word read
+  // day-less makes every merge gate treat the stored day as day-less.
+  [/(понеделни|понеделк|понеделок|ponedelnik|ponedelk|ponedelok|ponedelik|ponedenik)/i, 1],
+  [/(вторни|вторик|втрик|vtornik|vtorik|vtrik)/i, 2],
+  [/(сред[аи]|сретта|срета|средта|sred[аa]|sredta|sreta)/i, 3],
+  [/(четврто|четврток|цетврток|cetvrtok|četvrtok)/i, 4],
+  [/(петочни|петок|петк|petok|petk)/i, 5],
+  [/(саботи|сабота|сабта|субота|sabota|sabta|subota)/i, 6],
   [/(недели|недела|nedela)/i, 0],
 ];
 
@@ -106,8 +109,8 @@ const PART_RE =
 // the afternoon — 1–7 shift to PM, 8–11 stay morning.
 export const DAY_TRAILING_HOUR_RE =
   new RegExp(
-    '(?:понеделн|понеделк|вторн|сред[аи]|четврт|петочн|петок|сабот|недел|задутре|утре|денес|викенд'
-    +    '|ponedelnik|ponedelk|ponedelik|ponedenik|vtorn|sred|cetvrt|petocn|petok|sabot|nedel|zadutre|utre|denes|vikend)'
+    '(?:понеделн|понеделк|понеделок|вторн|вторик|втрик|сред[аи]|сретта|срета|средта|четврт|цетврт|петочн|петок|петк|сабот|сабта|субота|недел|задутре|утре|денес|викенд'
+    +    '|ponedelnik|ponedelk|ponedelok|ponedelik|ponedenik|vtorn|vtorik|vtrik|sred|sredta|sreta|cetvrt|četvrt|petocn|petok|petk|sabot|sabta|subota|nedel|zadutre|utre|denes|vikend)'
     + '[^\\d]{0,20}(\\d{1,2})(?![\\d:.])(?!\\s*(?:евр|eur|evr|ден|mkd|kv|кв|м2|m2))',
     'iu');
 
@@ -201,14 +204,30 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
     && dayOfWeekFrom(t) !== undefined && partHour(t) === undefined && BARE_CLOCK_RE.test(t)) {
     hour += 12 * 60;
   }
-  // PM context adjustment: "попладне после 6" = 18:00, not 06:00.
-  // When a bare "после N" (no HH:MM) is parsed and the text carries a PM
-  // context word (попладне/вечер/навечер), shift the hour to PM if it's < 12.
+  // PM context adjustment: "попладне после 6" = 18:00, not 06:00. An EXPLICIT
+  // PM part word (пладне/попладне/вечер/навечер) makes the clock PM across
+  // the whole 1–11 window — the [00:57] transcript ("VO PONEDENIK MOZAM
+  // POPLADNE" stored, follow-up "OKOLU 6") landed the owner ask at
+  // Понеделник 06:00 because only "после N" (later-than wording) shifted.
+  // Minutes keep their literal hour ("попладне околу 6:30").
   if (hour !== undefined && part !== undefined && part >= 12 && hour < 12 * 60) {
     const h = Math.floor(hour / 60);
-    if (h >= 1 && h <= 11 && /(?:после|posle)/i.test(t) && !/\d{1,2}[:.]\d{2}/.test(t)) {
+    if (h >= 1 && h <= 11 && !/\d{1,2}[:.]\d{2}/.test(t)) {
       hour = (h + 12) * 60;
     }
+  }
+  // A BARE prefixed clock with no part word ("во 6", "около 6", "na 5") is
+  // ALSO the afternoon-viewing convention — the day-adjacent arm above reads
+  // "вторник 5:30" = 17:30, but a day-less "OKOLU 6" (the same [00:57]
+  // capture when no day is stored) still happened in the literal small hour
+  // and asked the owner for 06:00. 8–11 stay literal ("во 8" is a morning
+  // answer), morning words veto, "после N" stays vague-guarded (its own
+  // semantics), and a date line never re-sides its hour.
+  if (hour !== undefined && hour < 8 * 60 && !hasDate && part === undefined
+    && !/\d{1,2}[:.]\d{2}/.test(t)
+    && !/(?:наутро|наутрото|утрово|утрина|nautro|utrovo|после|posle|pred|пред)/i.test(t)
+    && /(?:во|vo|на|na|околу|okolu|по|po|од|od)\s*\d{1,2}\b/i.test(t)) {
+    hour += 12 * 60;
   }
   if (hour === undefined && part !== undefined) hour = part * 60; // part is an HOUR
 

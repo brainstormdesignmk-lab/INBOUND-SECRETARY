@@ -3,7 +3,7 @@
  * bank:review — the human gate of the closed loop.
  *
  * Queues:
- *   new       unprocessed corrections ([F9] intake, quality-gate rejects)
+ *   new       unprocessed corrections (bank:teach / bank:tui intake, quality-gate rejects)
  *   staged    the runner couldn't resolve, or a gate failed
  *   processed resolved + gated (informational audit trail)
  *

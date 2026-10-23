@@ -19,7 +19,8 @@ import {
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
   detectDrugAlternative, detectInvestmentOpinion, detectWorkdaysQuestion,
-  detectFeeWhy, isDistanceQuestion, detectMarketPriceAsk,
+  detectFeeWhy, isDistanceQuestion, detectMarketPriceAsk, detectBusinessBudgetAsk,
+  detectPriceEval,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -36,6 +37,11 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => classifyOffensive(t).isOffensive },
   { intent: 'WORKDAYS_QUESTION', note: 'agency-hours question ("VO NEDELA RABOTITE?") — answered from the bank, never forwarded to the owner as a proposed term; must beat the visit-time capture (the day token inside it used to reach the owner)',
     fires: t => detectWorkdaysQuestion(t) },
+  { intent: 'PRICE_EVAL_CHEAP', note: 'a POSITIVE price remark about the flat on the table ("MNOGU EFTINA CENA E TOA") — valence, not money talk. The fee is never called cheap, so this lane must beat the fee ladder; gated to states where a price is on the table and to non-questions, so it cannot steal a price ask or a search',
+    fires: (t, s) => detectPriceEval(t) === 'cheap' && !/\?/.test(t)
+      && ['property_query', 'presentation', 'closing'].includes(s) },
+  { intent: 'BUSINESS_BUDGET_ASK', note: 'a commercial price question in the intake states ("kolku cini deloven prostor?", "koja e cenata za lokal?") gets the BUSINESS budget question from discovery.ask.budget.business — Lina has no number to quote, and the residential lanes would ask about спални/станот. State-gated: once a flat is on the table its price and the fee protocol own the money talk',
+    fires: (t, s) => detectBusinessBudgetAsk(t) && ['idle', 'intent', 'discovery'].includes(s) },
   { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT каде enters the deterministic privacy ladder. Must sit before WHERE_IS only via the !whereIs guard — каде-prefixed questions fall through',
     fires: (t) => detectExactAddressAsk(t) && !isKadeTocno(t) && !detectWhereIs(t) },
   { intent: 'OWNER_CONTACT', note: 'client leaves name/phone — captured before any other reply',
@@ -97,12 +103,28 @@ export interface RouteEntry { at: number; chatId: string; text: string; intent: 
 const ROUTE_LOG: RouteEntry[] = [];
 const ROUTE_LOG_MAX = 500;
 
+// SHADOW ROUTER — the mirror predicts, the handler serves, and the two are
+// compared per turn. A divergence is a mirror gap (the audited precedence list
+// drifted from the real chain) or a lane that served without a predict entry;
+// either way it must be visible without serving anything new.
+const PENDING_PREDICT = new Map<string, { intent: string; at: number }>();
+const DRIFT_WINDOW_MS = 60_000;
+
 export function routeLog(chatId: string, text: string, intent: string, kind: 'actual' | 'predict' = 'actual'): void {
   const entry: RouteEntry = { at: Date.now(), chatId, text: text.slice(0, 80), intent };
   ROUTE_LOG.push(entry);
   if (ROUTE_LOG.length > ROUTE_LOG_MAX) ROUTE_LOG.shift();
   const tag = kind === 'predict' ? '[route?]' : '[route]';
   console.log(`${tag} ${chatId} → ${intent} :: "${entry.text}"`);
+  if (kind === 'predict') {
+    PENDING_PREDICT.set(chatId, { intent, at: entry.at });
+    return;
+  }
+  const predicted = PENDING_PREDICT.get(chatId);
+  PENDING_PREDICT.delete(chatId);
+  if (predicted && entry.at - predicted.at <= DRIFT_WINDOW_MS && predicted.intent !== intent) {
+    console.log(`[route-drift] ${chatId} predicted=${predicted.intent} actual=${intent} :: "${entry.text}"`);
+  }
 }
 
 export function recentRoutes(n = 50): RouteEntry[] {

@@ -23,6 +23,7 @@
  *   npm run bank:relearn -- --bind 12 visit.interest             # verbatim, NO Gemini
  *   npm run bank:relearn -- --bind-file binds.txt                # many at once
  *   npm run bank:relearn -- --digest-dynamic                     # stage answers for review
+ *   npm run bank:relearn -- --from-corrections [--dry] [--limit N]  # LOOP B batch (also in bank:tui: P)
  *
  * The four no-model commands are implemented in src/scripts/relearnBank.ts and
  * also ship COMPILED as dist/scripts/relearnBank.js — the atoms have no tsx, and
@@ -42,12 +43,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { Db } from '../src/store/db';
-import { BankStore, DATA_DRIVEN_KEYS, FROZEN_BANK_KEYS, MAX_VARIANTS_PER_KEY } from '../src/store/bank';
+import { BankStore, FROZEN_BANK_KEYS } from '../src/store/bank';
 import { main as relearnBankMain } from '../src/scripts/relearnBank';
-import { createLlmStrict } from '../src/llm/factory';
 import { loadConfig } from '../src/config';
-import { RESPONSE_BANK } from '../src/data/responses';
-import { renderPromptBlock, validateBatch, constraintsFor } from '../src/llm/bankConstraints';
+import { constraintsFor } from '../src/llm/bankConstraints';
+import { relearnCore, relearnFromCorrections, RelearnCoreResult } from '../src/bank/loopB';
 
 const dbPath = process.argv.includes('--db') ? path.resolve(fs.realpathSync(process.argv[process.argv.indexOf('--db') + 1])) : loadConfig().dbPath;
 const db = new Db(dbPath);
@@ -58,64 +58,24 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-function seedVariants(key: string): string[] {
-  return [...((RESPONSE_BANK as Record<string, string[]>)[key] ?? []), ...bank.variants(key)];
+async function relearn(key: string, wrongReply: string, correction: string, correctionMsg: string): Promise<void> {
+  console.log(`[relearn] ${key} — frozen: ${FROZEN_BANK_KEYS.has(key) ? 'yes (unlocked by this correction, STAGED only)' : 'no'}`);
+  console.log(`[relearn] contract: ${constraintsFor(key).note}`);
+  console.log(`[relearn] wrong reply: "${wrongReply.slice(0, 80)}…"`);
+  const r: RelearnCoreResult = await relearnCore(bank, key, wrongReply, correction, correctionMsg);
+  if (!r.ok) { console.error(`✗ ${key}: ${r.error}`); process.exit(1); }
+  console.log(`[relearn] staged ${r.staged}/${r.kept} candidates for ${key} — review with: npm run bank:relearn -- --list, promote with --promote <id>`);
 }
 
-async function relearn(key: string, wrongReply: string, correction: string, correctionMsg: string): Promise<void> {
-  const c = constraintsFor(key);
-  if (DATA_DRIVEN_KEYS.has(key)) {
-    console.error(`✗ ${key} is DATA-DRIVEN — property facts live in the row, never in bank prose. Nothing to relearn.`);
-    process.exit(1);
-  }
-  const existing = seedVariants(key);
-  if (existing.length >= MAX_VARIANTS_PER_KEY) {
-    console.error(`✗ ${key} already has ${existing.length} variants (max ${MAX_VARIANTS_PER_KEY}). Retire weak ones first (bank:relearn --retire <id>).`);
-    process.exit(1);
-  }
-
-  console.log(`[relearn] ${key} — frozen: ${FROZEN_BANK_KEYS.has(key) ? 'yes (unlocked by this correction, STAGED only)' : 'no'}`);
-  console.log(`[relearn] contract: ${c.note}`);
-  console.log(`[relearn] wrong reply: "${wrongReply.slice(0, 80)}…"`);
-
-  const llm = createLlmStrict(loadConfig());
-  const res = await llm.complete({
-    role: 'generate',
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a Macedonian text generator for the Metropolis real-estate assistant. The assistant gave a WRONG or unhelpful reply; a human supervisor corrected it. Your job is to GENERALIZE the correction: produce 5 alternative phrasings of the CORRECT answer, each on a new line prefixed with "- ". Different sentence structures, same policy and facts. Natural, professional, warm Macedonian. No numbering, no markdown, only the "- " prefix.\n\n' +
-          renderPromptBlock(key),
-      },
-      {
-        role: 'user',
-        content:
-          `Bank key: ${key}\n` +
-          `Client message that triggered the wrong reply:\n${correctionMsg || '(not recorded)'}\n\n` +
-          `WRONG reply the assistant gave:\n${wrongReply}\n\n` +
-          `SUPERVISOR CORRECTION (the policy to express):\n${correction}\n\n` +
-          `Correct existing variants for tone reference (do not copy):\n${existing.slice(0, 3).map((s, i) => `Sample ${i + 1}: ${s}`).join('\n')}\n\n` +
-          `Generate 5 NEW correct variations:`,
-      },
-    ],
-    temperature: 0.9,
-    maxTokens: 900,
-    topP: 0.95,
+/** The CLI face of the LOOP-B batch — the implementation lives in
+ *  src/bank/loopB.ts so the bank:tui 'P' menu runs the very same code. */
+async function runBatch(): Promise<void> {
+  await relearnFromCorrections(bank, {
+    apply: !process.argv.includes('--dry'),
+    limit: Number(arg('--limit') ?? 10),
+    correctionText: arg('--text'),
+    log: line => console.log(line),
   });
-
-  const lines = res.split('\n').filter(l => l.startsWith('- '));
-  const candidates = lines.map(l => l.slice(2).trim()).filter(Boolean);
-  const { kept, rejected } = validateBatch(key, candidates);
-  for (const r of rejected) console.log(`[relearn] REJECTED — ${r.reasons.join('; ')}\n   "${r.text.slice(0, 90)}"`);
-
-  let staged = 0;
-  for (const v of kept) {
-    const dup = existing.some(e => e.toLowerCase() === v.toLowerCase());
-    if (dup) continue;
-    if (bank.addStagedVariant(key, v, `relearn from correction: ${correction.slice(0, 80)}`)) staged++;
-  }
-  console.log(`[relearn] staged ${staged}/${kept.length} candidates for ${key} — review with: npm run bank:relearn -- --list, promote with --promote <id>`);
 }
 
 function list(): void {
@@ -151,6 +111,7 @@ async function main(): Promise<void> {
     console.log(`${promote ? 'promoted' : 'rejected'} ${n}/${ids.length} staged variant(s)`);
     return;
   }
+  if (process.argv.includes('--from-corrections')) { await runBatch(); return; }
   const key = arg('--key');
   if (!key) {
     console.error('usage: npm run bank:relearn -- --key <key> (--correction <id> | --text "...") [--msg "..."]');

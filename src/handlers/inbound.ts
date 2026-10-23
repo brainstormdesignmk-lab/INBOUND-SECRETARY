@@ -49,7 +49,7 @@ import {
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, buildLocateMatches,
   buildLocateLandmarkIntro, buildLocateLandmarkFallback, LOCATE_LANDMARK_PRICE_PROBE,
-  AVAILABILITY_ACK, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
+  AVAILABILITY_ACK, AVAILABILITY_ACK_FEM, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   buildExactAddressAnswer, displayPlaceName, displayAreaName,
@@ -5544,8 +5544,17 @@ ${contactReminder}`;
             session.slots.lastLandmark = undefined;
           }
         }
-        const ack = pickVariant('availability.ack', { recent: assistantTexts(session) })
-          ?? AVAILABILITY_ACK;
+        // GENDER-AGREED ACK (the [00:49] "ЕВИДЕНТЕН БРОЈ 47" capture): the
+        // bank pool is written for the feminine noun ("недвижноста …
+        // достапна") and stays for куќа/гарсоњера asks. Every other type —
+        // стан, плац, деловен простор, and the EB-number frame itself (an
+        // ask BY number points at a masculine noun) — takes the code-built
+        // masculine line; serving "достапна" after "ЕВИДЕНТЕН БРОЈ 47" read
+        // wrong-gender.
+        const ackLabels = ownerPropertyLabels(target);
+        const ack = ackLabels.dostapen === 'достапна'
+          ? pickVariant('availability.ack', { recent: assistantTexts(session) }) ?? AVAILABILITY_ACK_FEM
+          : AVAILABILITY_ACK;
         bankKey = 'availability.ack';
         // NO landmark line here — location is revealed ONLY when the client
         // explicitly asks ("каде се наоѓа?"). The availability ack is just
@@ -6036,6 +6045,13 @@ ${contactReminder}`;
           normalizeOwnerTime(session.slots.visitTime ?? ''),
           mkTimePhrase(verdict.ownerTime ?? ''),
         );
+        // Seed the slot with the OWNER'S DAY (clock still on the client). The
+        // old slot held the client's own REJECTED clock — a clock-carrying
+        // store vetoes the day-first merge, so the client's completing answer
+        // ("MOZAM VO 5" after "Понеделник — било кое време") would land as a
+        // day-less clock and resolve to TODAY (the [01:06] transcript).
+        const seededDay = mkTimePhrase(verdict.ownerTime ?? '');
+        if (seededDay) session.slots.visitTime = seededDay;
         this.logOwnerExchange(session, eb, verdict, dayRelay);
         pushHistory(session, { role: 'assistant', text: dayRelay }, this.cfg.maxHistory);
         this.deps.sessions.set(session);

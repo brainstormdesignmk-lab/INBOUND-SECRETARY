@@ -110,7 +110,12 @@ export function replyIsClean(reply: string): boolean {
   // behavior, never bank prose — the runtime sanitizer cuts it from replies,
   // so the bank must not store it either. Same regex as the runtime pivot
   // signature in guardText (respond.ts) — keep them in sync.
-  if (/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти|недвижности)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu.test(out)) return false;
+  // CLAUSE-START REQUIRED (2026-10): a pivot OPENS a sentence ("…страни.\n\nСо
+  // цел да Ви помогнам…", "Разбирам. За да Ви помогнам, еве ги…"). Without
+  // the boundary this rejected the operator's dictated persona line "Доволно
+  // години за да Ви помогнам околу недвижностите" — mid-sentence it is ordinary
+  // prose, not a listing pivot.
+  if (/(?:Во\s+меѓувреме[^\n]{0,40}?(?:издво|претстав|подготв|пронајд)|ги\s+издвоив\s+следниве|(?<=^|[.!?…\n])\s*(?:Со\s+цел(?:\s+да)?|За\s+да)\s+В[иі]\s+помогнам[^\n]{0,60}?(?:опции|предлози|имоти|недвижности)|(?:еве|eve)\s+ги\s+(?:следните|следниве)[^\n]{0,30}?(?:опции|предлози))/iu.test(out)) return false;
   // COMPLETENESS GUARD: a line that ends mid-sentence (no terminal mark) is a
   // truncation artifact (token cap / stream cut). Banking it would serve
   // broken sentences to clients forever. Reject — only complete sentences

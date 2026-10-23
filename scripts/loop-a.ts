@@ -8,8 +8,8 @@
  * (if anything changed) runs the gates: propose-stems --emit → typecheck →
  * replay → full suite. Emit failure ⇒ revert detectorExt.ts, stage the note.
  *
- * Intake paths that feed it: TUI [F9] (manual), bank.correction() (quality
- * gate), enrichment bankKey=null fallback-literal census (later, P4).
+ * Intake paths that feed it: bank:teach / bank:tui (operator corrections),
+ * bank.correction() (quality gate), enrichment fallback-literal census (P4).
  *
  * Usage:
  *   npx tsx scripts/loop-a.ts              # process + gate
@@ -23,6 +23,7 @@ import { Db } from '../src/store/db';
 import { BankStore } from '../src/store/bank';
 import { EnrichmentStore } from '../src/store/enrichment';
 import { FAMILIES } from './sweep-keys';
+import { learnKeySlug } from '../src/bank/review';
 
 const run = (cmd: string) => execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
 
@@ -86,6 +87,24 @@ function main(): void {
   }
   const pending = bank.correctionsByStatus('new');
   console.log(`[loop-a] ${pending.length} correction(s) pending`);
+
+  // CORRECTED ANSWERS: a correction that carries the operator's replacement
+  // wording is BANK MATERIAL, not just a detector hint. This used to be the
+  // hole — the human's fix sat in the row and loop-a read only `msg`, so the
+  // right answer was never staged. Idempotent: an intake that already staged
+  // it (bank:teach / bank:tui) is a duplicate and adds nothing here.
+  let stagedAnswers = 0;
+  if (!dry) {
+    for (const c of pending) {
+      const fixed = (c.corrected ?? '').trim();
+      if (!fixed) continue;
+      // A key-less correction (older intake, before keys were bound) still has
+      // namespace derived from the client's own words.
+      const key = c.key && !c.key.startsWith('dynamic:') ? c.key : learnKeySlug(c.msg);
+      if (bank.stageOperatorVariant(key, fixed, c.msg, `loop-a staged correction #${c.id}`)) stagedAnswers++;
+    }
+    if (stagedAnswers > 0) console.log(`[loop-a] staged ${stagedAnswers} corrected answer(s) for approval`);
+  }
 
   let appended = 0;
   for (const c of pending) {

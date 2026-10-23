@@ -2030,9 +2030,16 @@ export function detectVisitTime(text: string): string | undefined {
 
 // Day-naming vocabulary (weekdays + relative days + weekend), both scripts.
 // Used by hasDayWord() to tell a day-anchored term ("во понеделник") from a
-// bare clock/period ("6 SAAT").
+// bare clock/period ("6 SAAT"). The Latin arm carries the no-L typo forms
+// ("PONEDENIK", "ponedenik" — the [00:57] transcript: a day word read
+// day-less made every merge gate treat the stored Monday as day-less and the
+// follow-up clock replaced it), mirroring DAY_WORDS in visits/time.ts.
+// The Cyrillic and diacritic typo forms mirror mkTimePhrase's MK_DAY_FIX —
+// понеделок, вторик/втрик, сретта/срета/средта, цетврток/četvrtok, петк,
+// сабта/субота: a misspelled day must not read as clock-only, or every merge
+// gate treats the stored day as day-less (the [01:06] bug class).
 const DAY_WORD_RE =
-  /(?:понеделн|понеделк|вторн|сред[аио]|четврт|петочн|петок|сабот|недел|задутре|утре|денес|викенд|ponedel|vtorn|sred[ai]|cetvrt|petocn|petok|sabot|nedel|zadutre|utre|denes|vikend)/iu;
+  /(?:понеделн|понеделк|понеделок|вторн|вторик|втрик|сред[аио]|сретта|срета|средта|четврт|цетврт|петочн|петок|петк|сабот|сабта|субота|недел|задутре|утре|денес|викенд|ponedel|ponedenik|vtorn|vtorik|vtrik|sred[ai]|sredta|sreta|cetvrt|četvrt|petocn|petok|petk|sabot|sabta|subota|nedel|zadutre|utre|denes|vikend)/iu;
 
 /** True when the phrase names an explicit DAY (weekday, relative day or the
  *  weekend). A bare clock ("6 SAAT") is NOT a day — the split [14:35] intake
@@ -2062,6 +2069,14 @@ const DAY_PLUS_PERIOD_RE = /(?:утре|задутре|denes|utre|zadutre|sreda|
  *  combo that gives enough context ("UTRE POPLADNE POSLE 6"). */
 export function detectVagueTime(text: string): boolean {
   if (SPECIFIC_CLOCK_RE.test(text)) return false;
+  // Day-anchored clock PROPOSAL ("понеделник попладне околу 6", "ВТОРНИК ВО
+  // 19") is already a concrete term — the day names the date and the clock
+  // names the hour. Only relative wording ("после/пред N") stays vague
+  // (which side of N does the client mean?). Without this the split
+  // day-first intake ([00:57] "VO PONEDENIK MOZAM POPLADNE" → "OKOLU 6")
+  // re-asked a clock it had just been handed.
+  if (hasDayWord(text) && hasClockHint(text)
+    && !/(?:после|posle|pred|пред)\s*\d{1,2}\b/i.test(text)) return false;
   // Day + time-of-day combo is specific enough ("утре попладне после 6")
   if (DAY_PLUS_PERIOD_RE.test(text)) return false;
   return matchesBoth(VAGUE_TIME_WORD_RE, text) || matchesBoth(VAGUE_RELATIVE_RE, text) || extFires('vague-time', text);
