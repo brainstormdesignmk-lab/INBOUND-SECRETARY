@@ -13,7 +13,7 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, normalizeTimePhrase, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, normalizeTimePhrase, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace } from '../data/properties';
 import { AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, detectAgentAttendanceAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm,  detectExitCheck, extractPoiWish, extractPoiWishCandidates, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -610,7 +610,25 @@ export class InboundHandler {
       const typedCands = !wantsStudio || !feedCands.some(c => isStudio(c))
         ? feedCands
         : feedCands.filter(c => isStudio(c));
-      const feedHit = resolveMention(text, typedCands, { poi });
+      // THE PLACE IS READ FROM THE PROPERTY ITSELF (the [10:36] capture):
+      // „близу Црногорска Амбасада“ may only offer flats that ARE there — a
+      // гapсоњера in Кисела Вода is not near the embassy because it is also
+      // for sale. The evidence is the property's OWN record, strongest first:
+      // coordinates inside the ring around the named place, or the ad's words
+      // naming it („во близина на Црногорска Амбасада“ — the customer page
+      // says it, so Lina knows it). Only when NEITHER source places any row
+      // may the wider pool stand: nothing to go on is not the same as nothing
+      // near.
+      const placeName = poi?.name ?? sig.descriptor;
+      const placed = !placeName ? typedCands : typedCands.filter(c => {
+        const coordsOk = !!poi && c.lat !== undefined && c.lon !== undefined
+          && distM(poi.lat, poi.lon, c.lat, c.lon) <= NEAR_ANCHOR_SCOPE_M;
+        const row = all.find(p => p.eb === c.eb);
+        const namedOk = !!row && textNamesPlace(adText(row), placeName);
+        return coordsOk || namedOk;
+      });
+      const placedCands = placed.length > 0 ? placed : typedCands;
+      const feedHit = resolveMention(text, placedCands, { poi });
       if (feedHit?.kind === 'unique' && feedHit.eb !== undefined) match = feedHit;
       if (feedHit?.kind === 'ambiguous' && (feedHit.candidates ?? []).length > 1) {
         // Several feed rows sit near the place the client named (two Центар

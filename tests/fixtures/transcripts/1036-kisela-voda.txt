@@ -1,0 +1,20 @@
+# THE [10:36] CAPTURE — «близу Црногорска Амбасада» served a flat from Кисела Вода.
+#
+#   [10:36] DOBAR DEN DALI USTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA ?
+#   [10:36] ЛИНА: Имам две недвижности близу Црногорска Амбасада:
+#                 • Евидентен број 63 · гарсоњера, 28 м² · 36.000 евра · Центар.
+#                 • Евидентен број 80 · гарсоњера, 24 м² · 46.000 евра · Кисела Вода.
+#
+# EB 80 is in Кисела Вода — nowhere near the embassy, and its own ad does not
+# claim otherwise. She has the property's record: coordinates, the address, the
+# ad text and the landmark list. „близу <место>“ may only offer the flats that
+# ARE there — the ones whose own record places them at the named landmark or
+# inside its ring. The far one is not an option; it is a different search.
+!feed embasada-far
+[10:36] КЛИЕНТ: DOBAR DEN DALI USTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA ?
+# EXPECT no-silence
+# EXPECT last-mentions Евидентен број 63
+# EXPECT last-not-mentions Евидентен број 80
+# EXPECT last-not-mentions Кисела Вода
+# EXPECT last-not-mentions имам две
+# EXPECT final-state closing

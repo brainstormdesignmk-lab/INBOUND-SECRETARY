@@ -385,6 +385,28 @@ const AMB_TABLE: Property[] = [
 ];
 const AMB_ASK = 'ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?';
 
+test('[10:36] «близу Црногорска Амбасада» never lists a flat from another municipality', async () => {
+  // The capture: EB 80 (Кисела Вода) was offered as «близу Црногорска
+  // Амбасада» because it was also a for-sale гapсоњера. The property's own
+  // record says where it is — coordinates, address, ad text, landmarks — and
+  // the place filters the offer: the flat AT the embassy is bound and
+  // answered, the far one is not an option.
+  const KISELA: Property[] = [
+    AMB_TABLE[0],  // EB 63 — at the embassy (coords + its ad names it)
+    { eb: 80, id: 80, location: 'Кисела Вода', price: 46000, service: 'buy', sqm: 24, size: '24 м²', studio: true, address: 'Кисела Вода', details: 'Се продава гарсоњера во Кисела Вода, реновирана, со тераса.', lat: 41.983900, lon: 21.441500, geo_source: 'stored', landmarks: [{ landmark: 'Кисела Вода' }] } as Property,
+    AMB_TABLE[5],  // EB 52 — Аеродром, for sale, also not there
+  ];
+  const { send, sent, offlineMap } = await makeHandler(KISELA);
+  const s = await send(AMB_ASK);
+  const reply = sent[sent.length - 1];
+  assert.ok(!/Евидентен број 80/u.test(reply), `the Кисела Вода flat is not an option: ${reply}`);
+  assert.ok(!/Кисела Вода/u.test(reply), `its area is never named as near: ${reply}`);
+  assert.match(reply, /Евидентен број 63/u, `the flat AT the place is the answer: ${reply}`);
+  assert.equal(s.slots.interestedPropertyId, 63);
+  assert.equal(s.state, 'closing', `the owner lane opens: ${s.state}`);
+  offlineMap.close();
+});
+
 test('[10:01] a bare «NE» while choosing continues the hunt — a rejection of the offer, never a farewell', async () => {
   // The capture: she offered the гapсоњери, the client said «NE» and the chat
   // ENDED («Ви благодарам за издвоеното време») with the hunt three offers
