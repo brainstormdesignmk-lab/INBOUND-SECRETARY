@@ -412,8 +412,18 @@ test('[11:07] a house for rent at Олимпико: the area is the house’s ow
   assert.equal(s3.state, 'closing', `the pick opens the closing lane: ${s3.state}`);
   assert.ok(/300 денари/.test(sent[sent.length - 1]), `the rent fee is the one disclosed: ${sent[sent.length - 1]}`);
   // …and availability is answered from the row, not from a guess.
+  // The ACK rotates through the bank's availability.ack variants, and they word
+  // the same fact in several ways («сè уште е достапна», «се води како активна»,
+  // «е сè уште во базата», «е на располагање», «во нашата понуда»). Asserting
+  // one family of words made this line a coin flip — a variant that said «во
+  // базата» failed a passing turn. The contract is: an availability answer, and
+  // never another card batch.
   const s4 = await send('ДАЛИ Е УШТЕ СЛОБОДНА?');
-  assert.ok(/достапн|активна/i.test(sent[sent.length - 1]), `availability is answered: ${sent[sent.length - 1]}`);
+  const ack = sent[sent.length - 1];
+  assert.ok(/достапн|активна|слободн|во базата|во нашата база|во понудата|на располагање|во нашата евиденција/i.test(ack),
+    `availability is answered: ${ack}`);
+  assert.ok(/сопственик/i.test(ack), `the ack offers the owner check: ${ack}`);
+  assert.doesNotMatch(ack, /Евидентен број/, `availability is not a fresh batch: ${ack}`);
   assert.equal(s4.slots.propertyId, 62);
 
   // A money question asked in the same breath as the fee gets BOTH answers:

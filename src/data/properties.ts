@@ -532,7 +532,15 @@ const LAT_ALIASES: Record<string, string> = {
   'taftalidzhe': 'тафталиџе', 'madjari': 'маџари', 'madzhari': 'маџари',
   'madzari': 'маџари', 'majiari': 'маџари', 'madari': 'маџари',
   'madiari': 'маџари', 'madjri': 'маџари', 'majari': 'маџари',
-  'madjarii': 'маџари', 'mdjari': 'маџари', 'vlae': 'влае',
+  'madjarii': 'маџари', 'mdjari': 'маџари',
+  // NOT Маџари (the [20:15] capture): "MADJAR MAALO" is the CENTRE
+  // neighbourhood the feed's own customer info names on EB 91 ("Стан во
+  // Маџар Маало", location=Центар). Mapping it to Маџари answered a
+  // Дебара-Маало/Маџари confusion instead of the EB 91 the client meant;
+  // the bare 'маало/maalo' token is a generic suffix, handled below.
+  'madjar maalo': 'центар', 'madjari maalo': 'центар',
+  'маџар маало': 'центар', 'маџари маало': 'центар',
+  'vlae': 'влае',
   'vlae skopje': 'влае', 'vlaje': 'влае', 'vlajе': 'влае',
   'vlaj': 'влае', 'vlaee': 'влае', 'novo lisice': 'ново лисиче',
   'novo lisitche': 'ново лисиче', 'novo-lisice': 'ново лисиче', 'novo lisiche': 'ново лисиче',
@@ -552,8 +560,15 @@ const LAT_ALIASES: Record<string, string> = {
   'buttel': 'бутел', 'ilinden': 'илинден', 'ilindenn': 'илинден',
   'ilindan': 'илинден', 'iliden': 'илинден', 'saraj': 'сарай',
   'saray': 'сарай', 'sarrai': 'сарай', 'saraaj': 'сарай',
-  'saraji': 'сарай', 'djorce petrov': 'ѓорче петров', 'gorce petrov': 'ѓорче петров',
-  'dorce petrov': 'ѓорче петров', 'djorce': 'ѓорче петров', 'gorce': 'ѓорче петров',
+  'saraji': 'сарай',  'djorce petrov': 'ѓорче петров', 'gorce petrov': 'ѓорче петров',
+  // "gjorce" (the [13:48] capture "NESTO VO GJORCE IMA?"): the most common
+  // informal latinization of ѓ (gj) was the ONE variant missing here — the
+  // ask never resolved the area and the funnel served a city-wide pool
+  // (a Влае house answered a Gjorce apartment conversation).
+  'gjorce': 'ѓорче петров', 'gjorce petrov': 'ѓорче петров', 'gjorcepetrov': 'ѓорче петров',
+  'gjorge': 'ѓорче петров', 'gjorge petrov': 'ѓорче петров', 'gjortse': 'ѓорче петров',
+  'gjorcee': 'ѓорче петров', 'gjorcee petrov': 'ѓорче петров', 'gjorce pertov': 'ѓорче петров',
+  'gjorce petrovv': 'ѓорче петров', 'gjorche petrov': 'ѓорче петров', 'gjordje petrov': 'ѓорче петров',
   'djorcepetrov': 'ѓорче петров', 'djorcee petrov': 'ѓорче петров', 'djorche petrov': 'ѓорче петров',
   'gorche petrov': 'ѓорче петров', 'djorce petrovv': 'ѓорче петров', 'dordje petrov': 'ѓорче петров',
   'dorce petrovv': 'ѓорче петров', 'djorce pertov': 'ѓорче петров', 'djorcee': 'ѓорче петров',
@@ -597,6 +612,25 @@ function locKeys(s: string): Set<string> {
   if (fromLat !== low) keys.add(fromLat);
   const fromLatLoose = latToCyr(low, MK_LAT2CYR_LOOSE); // "madjari" -> "маџари"
   if (fromLatLoose !== low && fromLatLoose !== fromLat) keys.add(fromLatLoose);
+  // ф↔в TYPO SWAP (the [10:56] TUI capture): a Cyrillic ф is routinely typed
+  // as в ("ТАВТАЛИЏЕ" for Тафталиџе). locMatches builds keys for BOTH sides
+  // through this function, so a symmetric per-token variant pair resolves it
+  // — the funnel re-asked the neighborhood the client had just answered
+  // because the keys never met. GRAMMAR/MODIFIER GUARD (properties.test.ts):
+  // the swap must only touch CONTENT tokens — a compound copy with a swapped
+  // modifier ('ново лисиче' → 'нофо лисиче') drops out of SETTLEMENT_MOD_WORDS
+  // and its bare base escapes the word-overlap guard against sibling
+  // settlements, while a swapped preposition ('во лисиче' → 'фо лисиче') does
+  // the same from the ask side. Skopje has no real area pair differing by
+  // exactly ф/в in a content word, and both sides swap identically, so every
+  // containment/word check stays consistent.
+  for (const tok of low.split(/[^а-џa-z0-9]+/iu)) {
+    if (tok.length < 4 || !/[\u0400-\u04ff]/u.test(tok) || /[a-z]/u.test(tok)) continue;
+    if (SETTLEMENT_MOD_WORDS.has(tok) || PREP_TOKENS.has(tok)
+      || CITY_TOKEN_RE.test(tok) || GENERIC_TOKEN_RE.test(tok)) continue;
+    if (tok.includes('в')) keys.add(low.replace(tok, tok.replace(/в/gu, 'ф')));
+    if (tok.includes('ф')) keys.add(low.replace(tok, tok.replace(/ф/gu, 'в')));
+  }
   // Explicit alias: "autokomanda" → "автокоманда" (u/v confusion)
   // Check both the full string AND individual words ("madjari ili autokomanda")
   const alias = LAT_ALIASES[low]
@@ -622,8 +656,25 @@ function locKeys(s: string): Set<string> {
     if (!at.some(i => !_modAdjacent(lowWords, i))) continue;
     keys.add(wAlias);
   }
+  // COMPOUND aliases ride inside FULL client sentences — the full-string
+  // lookup and the single-word loop can never reach "…vo madjar maalo so dve
+  // spalni" (the word is 'madjar maalo', two tokens). Test each adjacent
+  // word PAIR; the alias map only ever holds place names, so a random
+  // bigram colliding with one is not a realistic path.
+  for (let i = 0; i < lowWords.length - 1; i++) {
+    const pairAlias = LAT_ALIASES[`${lowWords[i]} ${lowWords[i + 1]}`];
+    if (pairAlias) keys.add(pairAlias);
+  }
   return keys;
 }
+
+// GENERIC AREA SUFFIX: 'маало/maalo' ("quarters") and 'населба/naselba'
+// ("neighbourhood") are CATEGORY words, not place names. 'MADJAR MAALO'
+// shared the ≥5-char token 'maalo' with 'Дебар Маало' and the word-overlap
+// stage read the client's Centre ask as Дебар Маало (the [20:15] capture).
+// Exact aliases ('debar maalo', 'madjar maalo') still resolve compounds;
+// only the fuzzy token level stops treating the suffix as geography.
+const GENERIC_TOKEN_RE = /^(?:маало|maalo|населба|naselba)$/iu;
 
 // CITY ≠ DISTRICT: a feed location that is a SUB-DISTRICT of the city
 // ("Скопје Север") must NOT be matched by a bare city mention ("skopje",
@@ -723,7 +774,8 @@ export function locMatches(query: string, feedLoc: string): boolean {
       // words themselves are excluded — the compound names a DIFFERENT
       // settlement than the bare token.
       const bare = (toks: string[]) => toks.map((w, i) => ({ w, mod: _modAdjacent(toks, i) }))
-        .filter(x => x.w.length >= 5 && !CITY_TOKEN_RE.test(x.w) && !x.mod && !SETTLEMENT_MOD_WORDS.has(x.w))
+        .filter(x => x.w.length >= 5 && !CITY_TOKEN_RE.test(x.w) && !x.mod && !SETTLEMENT_MOD_WORDS.has(x.w)
+          && !GENERIC_TOKEN_RE.test(x.w))
         .map(x => x.w);
       const aw = bare(aw0);
       const bw = bare(bw0);
@@ -822,6 +874,141 @@ export function feedArea(p: Property): string | undefined {
   const own = (p.location ?? '').trim();
   if (own) return own;
   return deriveAreaFromText(`${p.address ?? ''} ${p.details ?? ''}`);
+}
+
+// ── THE AD'S OWN WORDS — what the CLIENT sees on the card ────────────────────
+//
+// The feed's `naselba` is often the whole municipality: EB 91's is «Центар»
+// while its address and ad both say «Маџар Маало». So a client asking for the
+// house he saw «во Маџар Маало» named a place the funnel had never heard of:
+// the area slot stayed empty, the search ran city-wide and served him a
+// different neighborhood's pair. The words the client quotes back are the ad's
+// own, so the ad has to be searchable — not just the one-word naselba column.
+/** Everything the card says about WHERE it is: street address, ad text, the
+ *  feed's ranked landmark names. This is the text a client points at ("кај
+ *  СЈО", "тој во Маџар Маало"). */
+export function adText(p: Property): string {
+  return [
+    p.address, p.details, p.landmark,
+    ...(p.landmarks ?? []).map(l => l.landmark),
+  ].filter(Boolean).join(' · ');
+}
+
+/** The letter fold only — Latin → Cyrillic, no alias table. `normalizeLocation`
+ *  CANONICALIZES («маџар маало» → «Центар», its municipality), and that is the
+ *  wrong key here: the micro-area IS the question, so folding must not answer
+ *  it with the district it sits in. */
+function foldPlace(s: string): string {
+  const src = s.trim();
+  if (/[\u0400-\u04FF]/u.test(src)) return src;
+  // PER WORD: the letter table cannot recover џ/ѓ from «dj» (it gives «маѓар»
+  // for «madjar»), while the Latin alias table knows the place word
+  // («madjar» → «маџар»). Aliases are applied a WORD at a time so a two-word
+  // phrase is never collapsed into its municipality the way normalizeLocation
+  // collapses it.
+  return src.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).filter(Boolean)
+    .map(w => LAT_ALIASES[w.toLowerCase()] ?? latToCyr(w)).join(' ');
+}
+
+/** Word tokens of a place phrase, script-normalized so «madjar maalo» and
+ *  «Маџар Маало» are one key — and never alias-collapsed. */
+function placeTokens(s: string): string[] {
+  // Lowercase BEFORE the fold: the transliteration table is keyed on lower
+  // case, and clients type in caps («MADJAR MAALO» is the [01:17] capture).
+  // ѓ/џ share one key: the letter table reads «dj» as ѓ («маѓар»), the ad
+  // writes џ («Маџар»), and both sides fold the same way — so the client's
+  // spelling and the card's spelling meet. Ѓорче folds with them, on both
+  // sides, so no name gains or loses a match.
+  return foldPlace(s.toLowerCase())
+    .replace(/ѓ/gu, 'џ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).filter(Boolean);
+}
+
+/** Does `text` NAME `phrase` as a place? Contiguous token-run containment, both
+ *  scripts. A one-word phrase needs 5+ characters: «вода» must not match every
+ *  Кисела Вода ad, while «Водно» is a real ask. */
+export function textNamesPlace(text: string, phrase: string): boolean {
+  const p = placeTokens(phrase);
+  if (p.length === 0) return false;
+  if (p.length === 1 && p[0].length < 5) return false;
+  const t = placeTokens(text);
+  for (let i = 0; i + p.length <= t.length; i++) {
+    if (p.every((w, k) => t[i + k] === w)) return true;
+  }
+  return false;
+}
+
+/** Is this property IN the area the client named? The feed's naselba, the area
+ *  its ad derives, or the ad's own words. Reading the ad is what makes a
+ *  micro-area findable at all — and it needs no alias table, so a listing that
+ *  names a neighborhood nobody has heard of yet is still searchable by that
+ *  name the day it enters the feed. */
+export function inArea(p: Property, area: string): boolean {
+  if (textNamesPlace(adText(p), area)) return true;
+  if (locMatches(area, p.location ?? '')) return true;
+  const derived = feedArea(p);
+  return !!derived && locMatches(area, derived);
+}
+
+/**
+ * Is `area` a place the ADS define rather than the feed's naselba column?
+ *
+ * «Маџар Маало» IS a Центар micro-area — the alias table says so, and that is
+ * why the area fit was never the problem: filtering «Маџар Маало» by
+ * municipality returns the WHOLE district, which is how a client who named one
+ * street got a Центар pair. When the ads name the place, they also define it:
+ * the pool is the rows whose own text says it.
+ */
+export function isAdDefinedArea(rows: Property[], area: string): boolean {
+  const key = placeTokens(area);
+  if (key.length === 0) return false;
+  // A place the feed already files rows under is a naselba — its own filter.
+  const literal = (s: string) => placeTokens(s).join(' ');
+  if (rows.some(p => literal(p.location ?? '') === literal(area))) return false;
+  return rows.some(p => textNamesPlace(adText(p), area));
+}
+
+/**
+ * A TWO-WORD place is a NEIGHBOURHOOD only when it says so: маало / населба /
+ * реон / центар / четврт. An address also carries landmarks and businesses
+ * («Црногорска Амбасада», «Магацин Пелагонија», «Кипер Маркет») — reading those
+ * as the area filter would replace a whole neighbourhood with one building, and
+ * a landmark already has its own lane (the POI resolver) that answers WHERE.
+ */
+const MICRO_AREA_MARK_RE =
+  /(?<![\p{L}\p{N}])(?:маало|мало|населба|населби|реон|центар|центарот|четврт)(?![\p{L}\p{N}])/iu;
+
+/** The prepositions a client puts a place behind. */
+const PLACE_LEAD = new Set(['во', 'vo', 'на', 'na', 'кај', 'kaj', 'близу', 'blizu', 'спроти', 'sproti', 'до', 'do']);
+/** Words that END a place name in running speech ("во Маџар Маало СО две
+ *  спални", "кај СЈО ДАЛИ е достапен"), plus property-type words, which are
+ *  criteria and never part of a name. */
+const PLACE_STOP = new Set([
+  'со', 'so', 'и', 'i', 'или', 'ili', 'околу', 'okolu', 'за', 'za', 'од', 'od', 'до', 'do',
+  'на', 'na', 'во', 'vo', 'е', 'e', 'се', 'se', 'дали', 'dali', 'уште', 'uste', 'uste',
+  'близина', 'blizina', 'место', 'mesto', 'кат', 'kat', 'спални', 'spalni', 'соби', 'sobi',
+  'стан', 'stan', 'станови', 'stanovi', 'куќа', 'kuka', 'зграда', 'zgrada', 'цена', 'cena',
+  'цени', 'cena', 'евра', 'evra', 'илјади', 'iljadi', 'денари', 'denari', 'квадрати', 'kvadrati',
+]);
+
+/** The place phrases a client NAMES, longest first: the run of words after a
+ *  place preposition, cut at the first function/type word or digit. "во Маџар
+ *  Маало со две спални" → [„маџар маало“, „маџар“]; "кај СЈО дали е достапен" →
+ *  [„сјо“]. */
+export function extractPlacePhrases(text: string): string[] {
+  const toks = placeTokens(text);
+  const out: string[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    if (!PLACE_LEAD.has(toks[i]!)) continue;
+    const run: string[] = [];
+    for (let j = i + 1; j < toks.length && run.length < 4; j++) {
+      const w = toks[j]!;
+      if (PLACE_STOP.has(w) || /^\d/.test(w) || w.length < 2) break;
+      run.push(w);
+    }
+    for (let n = run.length; n >= 1; n--) out.push(run.slice(0, n).join(' '));
+  }
+  return [...new Set(out)];
 }
 
 // ── NUMBERED SUB-AREAS: Карпош I / II / III / IV ─────────────────────────────
@@ -1089,6 +1276,19 @@ export function publicPropertyUrl(url: string | undefined, base: string): string
 }
 
 /**
+ * Numeric м² for a row: the normalized `sqm` field when the feed carries it,
+ * else the number parsed out of the `size` string ("39 м²" → 39). The size
+ * string is what this feed writes; the sort comparators in candidates() and
+ * the interleave must never fall back to -1/-Infinity when only `size` is
+ * present (the [02:02] capture: the mixed-ask serve ignored м² entirely).
+ */
+export function sqmOfRow(p: Property): number | undefined {
+  if (typeof p.sqm === 'number' && p.sqm > 0) return p.sqm;
+  const m = p.size?.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : undefined;
+}
+
+/**
  * "Garsonjera" — the STUDIO category: a small residential unit (≤ 35 м²),
  * described as one in the ad text or simply small. The 19:34 bug mapped
  * "garsonjera mi treba" to bedrooms=1 and the no-match layer invented
@@ -1122,15 +1322,28 @@ export function isAddressUnknown(p: Property): boolean {
   return !p.address || p.address === `Имот ЕБ ${p.eb}` || /непозната|nepoznata/i.test(p.address);
 }
 
-/** Parse a budget string to its maximum euros: "до 80.000" -> 80000, "80-100" -> 100. */
+/** Parse a budget string to its maximum euros: "до 80.000" -> 80000, "80-100" -> 100.
+ *  The k-thousand suffix ("120k", "80 hiljadi") multiplies by 1000 — the k
+ *  NOT followed by another letter ("120 km" stays 120). The raw-slot case
+ *  mattered live: "do 120k" parsed as a 120 EUR budget and the hard filter
+ *  emptied every search (the empty pivot the [02:27] probe hit). */
 function parseBudgetMax(s: string): number | undefined {
   const nums: number[] = [];
   const re = /(\d[\d\s.]*)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(s)) !== null) {
     const cleaned = m[1].replace(/[\s.]/g, '');
-    const n = Number(cleaned);
-    if (Number.isFinite(n) && n > 0) nums.push(n);
+    let n = Number(cleaned);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    // "120k" / "120k evra" / "80 hiljadi" — the thousand marker right AFTER
+    // the digit run (at most one blank between). A letter glued to the k
+    // ("km") is a unit, not a multiplier. Both scripts written out: /iu does
+    // NOT fold Latin k into Cyrillic к.
+    const tail = s.slice((m.index ?? 0) + m[0].length);
+    if (/^[ \t]?(?:k|к|K|К|hiljadi|илјади|хилјади)(?![\p{L}])/iu.test(tail)) {
+      n *= 1000;
+    }
+    nums.push(n);
   }
   if (!nums.length) return undefined;
   return Math.max(...nums);
@@ -1231,6 +1444,35 @@ export class PropertyService {
     return [...set].sort((a, b) => b.length - a.length);
   }
 
+  /** Places this feed's ADS name that its naselba column does not: the phrase
+   *  comes from the client's own words, so nothing is invented — it is kept
+   *  only when some ad's text actually carries it. That is how a micro-area
+   *  («Маџар Маало», inside Центар) becomes a place the funnel can hear, with
+   *  no alias table to fall behind the listings. */
+  async placesNamedIn(text: string): Promise<string[]> {
+    const phrases = extractPlacePhrases(text);
+    if (phrases.length === 0) return [];
+    const all = await this.getAll();
+    const out: string[] = [];
+    const literal = (s: string) => placeTokens(s).join(' ');
+    for (const phrase of phrases) {
+      // A micro-area says it is one (see MICRO_AREA_MARK_RE); a landmark or a
+      // business in the address never becomes the area filter.
+      if (!MICRO_AREA_MARK_RE.test(phrase)) continue;
+      if (!all.some(p => textNamesPlace(adText(p), phrase))) continue;
+      // A place the feed already files some row under is a naselba, not a
+      // micro-area — it would only duplicate the vocabulary. Compared
+      // LITERALLY: locMatches would collapse «маџар маало» into its Центар
+      // alias and throw away the very name the client used.
+      if (all.some(p => literal(p.location ?? '') === literal(phrase))) continue;
+      // The phrase list runs longest first, so a shorter prefix of one already
+      // taken („маџар“ under „маџар маало“) adds nothing.
+      if (out.some(o => literal(o).startsWith(literal(phrase) + ' '))) continue;
+      out.push(titleCase(phrase));
+    }
+    return out;
+  }
+
   async search(opts: { location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean; service?: Service; budget?: string }): Promise<Property[]> {
     const all = await this.getAll();
     let out = all;
@@ -1240,10 +1482,10 @@ export class PropertyService {
     if (opts.house === true) out = out.filter(p => p.house === true);
     else if (opts.house === false) out = out.filter(p => !p.house); // a "стан" search never shows houses
     if (opts.location) {
-      out = out.filter(p => {
-        const loc = (p.location ?? '').trim();
-        return loc && locMatches(opts.location as string, loc);
-      });
+      const loc: string = opts.location;
+      out = isAdDefinedArea(all, loc)
+        ? out.filter(p => textNamesPlace(adText(p), loc))
+        : out.filter(p => inArea(p, loc));
     }
     if (opts.bedrooms) out = out.filter(p => !p.bedrooms || p.bedrooms >= (opts.bedrooms as number));
     if (opts.sqm) out = out.filter(p => !p.sqm || p.sqm >= (opts.sqm as number)); // commercial spaces: size instead of bedrooms
@@ -1269,14 +1511,21 @@ export class PropertyService {
     business?: boolean; house?: boolean; service?: Service; exclude?: number[];
     plac?: boolean; yard?: boolean;
     /** ROOM COUNT the client described ("троsoben" → 3). A seen-property search
-     *  matches the characteristics he remembers, so the room count narrows the
-     *  pool — the locate funnel relaxes it when the area has nothing. */
+     *  RANKS by how close the remembered count is — never an exact filter — so
+     *  EB "две спални" (parsed rooms=3: дневна + две спални) still leads when
+     *  the client says "dve spalni". One room-step of mismatch costs as much
+     *  as ~12000€ of price distance; count unknown costs nothing. */
     bedrooms?: number;
   }): Promise<Property[]> {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
-    const inLoc = (p: Property): boolean =>
-      opts.location ? locMatches(opts.location, p.location ?? '') : true;
+    // The area is read from the property's OWN words, not just the feed's
+    // naselba column (see isAdDefinedArea): a client naming a micro-area inside
+    // Центар must still find the flat whose ad names it — and only that one.
+    const adArea = !!opts.location && isAdDefinedArea(all, opts.location);
+    const inLoc = (p: Property): boolean => !opts.location
+      ? true
+      : adArea ? textNamesPlace(adText(p), opts.location) : inArea(p, opts.location);
     const priceDist = (p: Property): number =>
       opts.price !== undefined && p.price !== undefined ? Math.abs(p.price - opts.price) : 0;
     const sqmDist = (p: Property): number =>
@@ -1286,11 +1535,15 @@ export class PropertyService {
       .filter(p => !opts.service || !p.service || p.service === opts.service)
       .filter(p => opts.business === true ? p.business === true : opts.business === false ? !p.business : true)
       .filter(p => opts.house === true ? p.house === true : opts.house === false ? !p.house : true)
-      .filter(p => opts.plac ? p.plac === true : true)
-      .filter(p => opts.bedrooms === undefined ? true : p.bedrooms === opts.bedrooms)
+      // PLAC never leaks (the [20:15] rule): a not-plac ask keeps land-plot
+      // rows out — a ranked "closest" serve for a flat hunt must not surface
+      // a плац the client never named. Only an explicit plac ask sees them.
+      .filter(p => opts.plac === true ? p.plac === true : p.plac !== true)
       .map(p => ({
         p,
-        score: (inLoc(p) ? 0 : 1_000_000) + priceDist(p) + sqmDist(p) * 500, // м² → €-ish weight
+        score: (inLoc(p) ? 0 : 1_000_000) + priceDist(p) + sqmDist(p) * 500 // м² → €-ish weight
+          + (opts.bedrooms !== undefined && p.bedrooms !== undefined
+            ? Math.min(2, Math.abs(p.bedrooms - opts.bedrooms)) * 12_000 : 0),
       }))
       .sort((a, b) => a.score - b.score || a.p.eb - b.p.eb)
       .map(s => s.p);
@@ -1317,8 +1570,13 @@ export class PropertyService {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
     const max = opts.budget ? parseBudgetMax(opts.budget) : undefined;
-    const inLoc = (p: Property): boolean =>
-      opts.location ? locMatches(opts.location, p.location ?? '') : true;
+    // A place the ADS define («Маџар Маало», inside Центар) filters on the ad's
+    // own words; everything else keeps the naselba matcher. Reading the ad is
+    // what keeps a named micro-area from widening back to its municipality.
+    const adArea = !!opts.location && isAdDefinedArea(all, opts.location);
+    const inLoc = (p: Property): boolean => !opts.location
+      ? true
+      : adArea ? textNamesPlace(adText(p), opts.location) : inArea(p, opts.location);
     const base = all
       .filter(p => !exclude.has(p.eb))
       .filter(p => !opts.service || !p.service || p.service === opts.service)
@@ -1392,12 +1650,12 @@ export class PropertyService {
       // then the rest), within each neighborhood by price.
       .sort((a, b) => opts.sortBySqmDesc
         ? (Number(b.inLoc) - Number(a.inLoc))
-          || ((b.p.sqm ?? -1) - (a.p.sqm ?? -1))
+          || ((sqmOfRow(b.p) ?? -1) - (sqmOfRow(a.p) ?? -1))
           || (a.dist - b.dist)
           || (a.p.eb - b.p.eb)
         : opts.sortBySqm
         ? (Number(b.inLoc) - Number(a.inLoc))
-          || ((a.p.sqm ?? Infinity) - (b.p.sqm ?? Infinity))
+          || ((sqmOfRow(a.p) ?? Infinity) - (sqmOfRow(b.p) ?? Infinity))
           || (a.dist - b.dist)
           || (a.p.eb - b.p.eb)
         : (Number(b.inLoc) - Number(a.inLoc))
@@ -1406,4 +1664,70 @@ export class PropertyService {
           || (a.p.eb - b.p.eb))
       .map(s => s.p);
   }
+}
+
+/**
+ * MIXED-TYPES PAIRED SERVE (the [02:02] capture contract): when the criteria
+ * span BOTH the studio category and a rooms-range ask ("Edna ili dve, a mozhe
+ * i garsonjera ako e dobra"), the serve must PAIR the two types — never a
+ * monotone studio list — and the BIGGEST option that fits the budget LEADS.
+ *
+ * Each input pool arrives already in candidates() presentation order; the
+ * interleave alternates the pools starting from whichever head is the
+ * biggest м² unit, so the first rendered pair is always
+ * (biggest-fit, alternate type). Duplicates (a row can sit in both pools
+ * when a small two-room unit passes both filters) keep only their first slot.
+ */
+export function interleaveMixedPairs(regular: Property[], studios: Property[]): Property[] {
+  const dedup = (pool: Property[]) => {
+    const seen = new Set<number>();
+    return pool.filter(p => (seen.has(p.eb) ? false : (seen.add(p.eb), true)));
+  };
+  const [xs, ys] = (() => {
+    const a = sqmOfRow(dedup(regular)[0]) ?? -1;
+    const b = sqmOfRow(dedup(studios)[0]) ?? -1;
+    return a >= b ? [dedup(regular), dedup(studios)] : [dedup(studios), dedup(regular)];
+  })();
+  const out: Property[] = [];
+  const emitted = new Set<number>();
+  let i = 0, j = 0, big = true;
+  while (i < xs.length || j < ys.length) {
+    const take = big
+      ? (i < xs.length ? xs[i++] : ys[j++])
+      : (j < ys.length ? ys[j++] : xs[i++]);
+    if (!take) break;                                  // both pools drained
+    // Cross-pool dup: the row keeps its FIRST slot — skip it WITHOUT
+    // flipping the alternation pole, so the SAME pole keeps scanning its
+    // pool and the next pool's item still lands on the alternate slot
+    // ("91 (big) → 76 (alt) → 95 (big)", never 91 → 95 because a silent
+    // row stole the alternate pole).
+    if (emitted.has(take.eb)) continue;
+    emitted.add(take.eb);
+    out.push(take);
+    big = !big;
+  }
+  return out;
+}
+
+/**
+ * DUAL-SERVICE PAIRED SERVE (the [12:33] business capture contract): the
+ * client banked a budget PER SERVICE («za kirija do 1000 evra» + «za kupuvanje
+ * do 2000000») — every batch of 2 must be a PAIR, one RENT card + one BUY
+ * card — never a monotone (all-rent or all-buy) list, and never an apartment
+ * when the funnel is business-typed. Each input pool arrives already in its
+ * candidates() order (price-closest to its own budget leads); the interleave
+ * alternates rent → buy and tails the survivor when one segment drains.
+ */
+export function interleaveServicePairs(rent: Property[], buy: Property[]): Property[] {
+  const out: Property[] = [];
+  let i = 0, j = 0, rentTurn = true;
+  while (i < rent.length || j < buy.length) {
+    const take = rentTurn
+      ? (i < rent.length ? rent[i++] : buy[j++])
+      : (j < buy.length ? buy[j++] : rent[i++]);
+    if (!take) break;
+    out.push(take);
+    rentTurn = !rentTurn;
+  }
+  return out;
 }

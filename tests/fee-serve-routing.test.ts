@@ -1190,7 +1190,11 @@ test('[02:31] the mixed praise+visit message fee-asks even when it is the FIRST 
   const sPr = await send2('odlicen izbor, mi se svigja ovoj');
   const prReply = sent2[sent2.length - 1] ?? '';
   assert.doesNotMatch(prReply, /500\s*денари/iu, `bare praise must NOT fee-ask (the 21:02 rule): ${prReply.slice(0, 140)}`);
-  assert.ok(/закажам\s+термин|посет|разглед/iu.test(prReply), `bare praise serves the visit offer: ${prReply.slice(0, 140)}`);
+  // Every variant of the praise→visit offer counts: «закажам термин», «посета»,
+  // «разгледување», «организирам средба … да ја погледнете во живо». The old
+  // regex knew only the first three, so the bank's own средба variant failed a
+  // test that was asserting exactly what that variant says.
+  assert.ok(/закажам\s+термин|посет|разглед|средба|погледн/iu.test(prReply), `bare praise serves the visit offer: ${prReply.slice(0, 140)}`);
   assert.equal(sPr.state, 'closing');
   assert.equal(sPr.slots.ownerContactPending, true);
 });

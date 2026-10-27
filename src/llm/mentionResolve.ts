@@ -200,6 +200,35 @@ export function isStudio(c: MentionCandidate): boolean {
   return c.studio === true || (c.bedrooms === 1 && !c.business && !c.house);
 }
 
+/** Word-aligned PREFIXES of a descriptor, longest first: the fragment the
+ *  preposition captured is "the rest of the sentence" ("сјо дали е достапен
+ *  уште"), and the place name is its first word(s). Used for the map lookup,
+ *  which cannot resolve a whole sentence into a POI. */
+export function descriptorPhrases(descriptor: string): string[] {
+  const words = descriptor.trim().split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let n = words.length; n >= 1; n--) out.push(words.slice(0, n).join(' '));
+  return out;
+}
+
+/** How much TEXT evidence a descriptor gives for one candidate: the longest
+ *  word-aligned prefix of it the candidate's own words contain. The whole
+ *  phrase matching the haystack was the old test, and it never fired on real
+ *  speech — "овој кај СЈО ДАЛИ Е ДОСТАПЕН УШТЕ?" carries the landmark only as
+ *  its first word, so nothing scored, no bind happened and the answer went to
+ *  whichever flat was last on the table (the [01:20] capture). Scoring the
+ *  PREFIX is what lets the card's own landmark text bind the code that the
+ *  client actually typed. */
+function descriptorPrefixHit(descriptor: string, hay: string): number {
+  const words = normalizeMc(descriptor).split(/\s+/).filter(Boolean);
+  for (let n = words.length; n >= 1; n--) {
+    const frag = words.slice(0, n).join(' ');
+    if (frag.length < 3 || !hay.includes(frag)) continue;
+    return frag.length >= 4 ? 3 : 2; // an acronym („сјо“, „ујп“) is real but weaker evidence
+  }
+  return 0;
+}
+
 function scoreCandidate(sig: MentionSignals, c: MentionCandidate, poi: MentionPoi | undefined): number {
   let score = 0;
   if (sig.eb !== undefined && c.eb === sig.eb) score += 10; // decisive
@@ -212,9 +241,8 @@ function scoreCandidate(sig: MentionSignals, c: MentionCandidate, poi: MentionPo
     else score -= 1;
   }
   if (sig.descriptor) {
-    const d = normalizeMc(sig.descriptor);
-    if (d.length >= 4 && haystack(c).includes(d)) score += 3;            // text evidence (feed opis / landmark names)
-    else if (d.length === 3 && haystack(c).includes(d)) score += 2;      // acronym landmark ("kaj ujp") — real but weaker evidence
+    const text = descriptorPrefixHit(sig.descriptor, haystack(c));
+    if (text > 0) score += text;                                        // text evidence (the card's own words)
     else if (poi && c.lat !== undefined && c.lon !== undefined
       && haversineM(poi, { lat: c.lat, lon: c.lon }) <= DESCRIPTOR_MATCH_M) score += 3; // map evidence (name-language bridge)
   }

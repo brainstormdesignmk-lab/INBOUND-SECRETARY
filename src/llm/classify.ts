@@ -3,13 +3,43 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectFeeNag, detectFeeAmountAsk, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, DetectedSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectFeeNag, detectFeeAmountAsk, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
+
+import { extractDayWord } from '../visits/time';
+import { normalizeOwnerTime } from './prompts';
 
 export interface Classified {
   event: Event;
   offensive: boolean;
   offenseLevel: number;
+}
+
+/**
+ * The time-confirm fork (the [19:31] capture). The owner's counter is on the
+ * table; the client answers with a time. Two meanings:
+ *   (a) an ECHO of that same term ("SREDA VO 6 E OK", even without an agree
+ *       word below the LLM-down path) — acceptance;
+ *   (b) a NEW concrete term ("mozam vo cetvrtok ama porano malce vo 5") — the
+ *       FSM row (time_confirm → owner_checking) re-asks the owner and the
+ *       ping-pong continues until both parties are satisfied. Never a confirm-
+ *       ask detour, never a premature Договорена on a stale term.
+ * A bare clock with no day donates the OWNER'S counter day ("порано во 5"
+ * after «четврток во 19:30» → "четврток во 5") — never a TODAY collapse.
+ */
+function timeConfirmCounterEvent(t: string, session: ChatSession): Event {
+  const ownerTerm = session.slots.ownerTime ?? '';
+  const normDetect = normalizeOwnerTime(t);
+  if (normDetect && ownerTerm && normDetect === normalizeOwnerTime(ownerTerm)) {
+    return { type: 'TIME_ACCEPTED' }; // echo of the term on the table
+  }
+  let merged = t;
+  if (!hasDayWord(t) && hasClockHint(t)) {
+    const dayDonor = hasDayWord(ownerTerm) ? ownerTerm : (session.slots.visitTime ?? '');
+    const d = extractDayWord(dayDonor);
+    if (d) merged = `${d} ${t.trim()}`;
+  }
+  return { type: 'VISIT_TIME_PROVIDED', visitTime: merged };
 }
 
 // Cold brain: pure intent extraction, never persona prose.
@@ -95,12 +125,12 @@ export function parseClassified(raw: string): Classified {
   // value is dropped so the deterministic detector fills the real budget and a
   // nonsense phrase is never echoed ("до кукја пофтина евра"). Worded amounts
   // are canonicalized like detectBudget: "80 илјади" -> "80000", "до 80.000"
-  // -> "80000".
+  // -> "80000", "120k" -> "120000".
   const budget = String(obj.budget ?? '').trim();
   const budgetDigits = budget.replace(/[^\d]/g, '');
   if (budgetDigits) {
     let b = parseInt(budgetDigits, 10);
-    if (/(илјади|хилјади)/i.test(budget)) b *= 1000;
+    if (/(илјади|хилјади|iljadi|hiljadi)/i.test(budget) || /\d\s*[kкKК](?![а-шa-z])/i.test(budget)) b *= 1000;
     if (Number.isFinite(b) && b > 0) event.budget = String(b);
   }
   const pid = Number(obj.propertyId);
@@ -182,12 +212,54 @@ export function inferPropertyId(text: string): number | undefined {
   // name an EB — the cap word is what disambiguates.
   // EXCEPTION: the eye-catch idiom ("mi fati oko 94") contains "око" as part
   // of "caught my EYE", not "approximately" — there the number IS the EB.
+  // NOTE (regression audit): "za"/"за" was briefly added to this veto — it
+  // broke "ZAINTERESIRANA SUM ZA 78" and "ORGANIZIRAJ MI POSETA ZA 78" (the
+  // bare-EB guards, the 22:19 visit protocol and the persistence pin). The
+  // "A ZA 250?" price echo is resolved by resolveBarePid (budget/lastPrice
+  // veto) at the classifier level, NOT here — "za <digits>" is an EB frame.
   if (!detectEyeCatch(text)
     && /(спални|соби|евра|евро|evra|evro|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот|spalna|spalni|(?:до|околу|под|do|okolu|oko|pod)\s*\d{2,3}\b)/i.test(text)) return undefined;
   const m = text.match(/\b(\d{2,3})\b(?!\s*[.,]\d)/);
   if (!m) return undefined;
   const n = parseInt(m[1], 10);
   return n >= 10 && n <= 999 ? n : undefined;
+}
+
+/**
+ * BARE-MONEY RETYPE (the [20:33] capture): in presentation/discovery a
+ * money-only message ("350e kirija") is a CRITERIA STATEMENT, not a
+ * conversational answer — Lina must apply the budget and re-present, never
+ * explain what she serves and never re-ask the funnel question already
+ * answered. Merges the message's money over the session's standing criteria
+ * and retypes to SEARCH_REQUESTED. Declines when the message carries ANY
+ * other signal: a named area/type/size is a refinement (the normal
+ * DETAILS_PROVIDED re-present lane owns it) and a visit/fee phrase is not
+ * money traffic at all.
+ */
+export function retypeBareMoney(
+  state: ChatSession['state'],
+  ev: Classified['event'],
+  slots: DetectedSlots,
+  session: ChatSession,
+  location?: string,
+): Classified['event'] | undefined {
+  if (state !== 'discovery' && state !== 'presentation') return undefined;
+  if (!slots.budget) return undefined;
+  if (slots.location || location || slots.bedrooms !== undefined
+    || slots.bedroomsMin !== undefined || slots.bedroomsMax !== undefined
+    || slots.sqm || slots.garsonjera || slots.plac || slots.yard
+    || (slots.house !== undefined) || (slots.business !== undefined)
+    || slots.anywhere || slots.sizeWaived || slots.pricePriority
+    || slots.need || slots.rejected) return undefined;
+  if (ev.type !== 'STAY' && ev.type !== 'DETAILS_PROVIDED' && ev.type !== 'INTENT_DECLARED') return undefined;
+  // MONEY-ONLY event (carrying ONLY the budget). The standing criteria ride
+  // in the SESSION SLOTS, not on the event: the AREA-PIVOT SLOT CLEARING
+  // (the 21:16 rule) must see an ev with budget and nothing else so a pure
+  // money statement in presentation releases the stale area lock and
+  // re-presents popular-first ("A ZA 250?" — the [21:16] transcript).
+  // Echoing the standing fields back destroyed that contract (the guard
+  // requires !ev.location/!ev.bedrooms…).
+  return { type: 'SEARCH_REQUESTED', budget: slots.budget };
 }
 
 export class Classifier {
@@ -292,7 +364,7 @@ export class Classifier {
     // the recompute block does, against the live feed's area list.
     if (merged.location === undefined) {
       try {
-        const loc = detectLocation(text, this.properties ? await this.properties.locations() : []);
+        const loc = await this.areaNamed(text);
         if (loc) merged.location = loc;
       } catch { /* feed hiccup — location stays unset */ }
     }
@@ -300,6 +372,34 @@ export class Classifier {
     return merged;
   }
 
+
+  /**
+   * The location vocabulary for one message: the feed's naselba list PLUS any
+   * place its ads name that this message names (PropertyService
+   * .placesNamedIn). The feed files EB 91 under «Центар» while its address and
+   * ad say «Маџар Маало» — without the ad half, a client naming the micro-area
+   * he saw in the ad sets NO location slot and the search runs city-wide.
+   */
+  private async areaLocs(text: string): Promise<string[]> {
+    if (!this.properties) return [];
+    try {
+      const locs = await this.properties.locations();
+      const extra = await this.properties.placesNamedIn(text).catch(() => [] as string[]);
+      return extra.length > 0 ? [...extra, ...locs] : locs;
+    } catch { return []; }
+  }
+
+  /** The area the message names, with an ad-defined micro-area («Маџар Маало»,
+   *  inside Центар) OUTRANKING the municipality its alias collapses to — the
+   *  client means the street, not the whole district. */
+  private async areaNamed(text: string): Promise<string | undefined> {
+    if (!this.properties) return undefined;
+    try {
+      const extra = await this.properties.placesNamedIn(text).catch(() => [] as string[]);
+      if (extra.length > 0) return extra.join(', ');
+      return detectLocation(text, await this.properties.locations());
+    } catch { return undefined; }
+  }
 
   async deterministicClassify(session: ChatSession, text: string): Promise<Classified | undefined> {
     const t0 = Date.now();
@@ -347,8 +447,7 @@ export class Classifier {
       let location = slots.location;
       if (!location && this.properties) {
         try {
-          const locs = await this.properties.locations();
-          location = detectLocation(text, locs) ?? undefined;
+          location = (await this.areaNamed(text)) ?? undefined;
         } catch { /* ignore */ }
       }
       console.log(`[timing] det-classify ${Date.now() - t0}ms → SEEN_PROPERTY`);
@@ -358,6 +457,14 @@ export class Classifier {
           bedrooms: slots.bedrooms, sqm: slots.sqm, business: slots.business,
           house: slots.house, budget: slots.budget, anywhere: slots.anywhere,
           garsonjera: slots.garsonjera,
+          // CATEGORY STAMP (the [09:38] expansion): плац and двор are the
+          // same category family the deterministic default path passes into
+          // buildEvent below — this override was dropping them, so a fresh
+          // "ГЛЕДАВ ЕДЕН ПЛАЦ…" entered property_locate type-less and the
+          // category lock (the [20:15] rule) served STAN rows on a плац
+          // client. applySlots maps ev.plac → slots.plac and clears the
+          // flat/house slots it conflicts with.
+          plac: slots.plac, yard: slots.yard,
         }, offensive: false, offenseLevel: 0,
       };
     }
@@ -367,8 +474,7 @@ export class Classifier {
     let location = slots.location;
     if (!location && this.properties) {
       try {
-        const locs = await this.properties.locations();
-        const loc = detectLocation(text, locs);
+        const loc = await this.areaNamed(text);
         if (loc) location = loc;
       } catch { /* ignore */ }
     }
@@ -388,7 +494,20 @@ export class Classifier {
     // Bare-number: set propertyId on event BEFORE funnel overrides so
     // visit interest can read it ("ДОГОВОРИ MI ЗА ОВОЈ СО БРОЈ 89" →
     // INTERESTED with propertyId=89, not a bare INTERESTED).
-    if (barePid && ev.type === 'STAY') {
+    // UNCONDITIONAL (the [14:28] regression): the old `ev.type === 'STAY'`
+    // gate let an availability ask that ALSO carried a type word
+    // ("dali kukjata so ev br 62 e slobodna momentalno" — house=true →
+    // DETAILS_PROVIDED) skip the promotion, and the discovery funnel
+    // answered the property question with "купување куќа или
+    // изнајмување?" — the re-ask the availability ack exists to prevent.
+    // The LLM-path override (below) has no event-type gate: a number is a
+    // number. Budget-capped digits ("do 250") are already filtered inside
+    // inferPropertyId, so the promotion cannot steal a price here.
+    // GUARD ([17:14] regression, same-day): a "za+digits" BUDGET correction
+    // ("A ZA 250?" over a 300-cap presentation) rides za+N — the number is
+    // money (detectBudget's own za cap-word reads it), so the EB frame is
+    // operable again while the correction event keeps its budget untouched.
+    if (barePid && ev.budget === undefined) {
       ev = { type: 'PROPERTY_ID_REQUESTED', propertyId: barePid };
     }
 
@@ -419,6 +538,17 @@ export class Classifier {
       });
       if (merged.type === 'SEARCH_REQUESTED') ev = merged;
     }
+
+    // BARE-MONEY RETYPE (the [20:33] capture): in presentation/discovery a
+    // money-only message ("350e kirija") is a CRITERIA STATEMENT, not a
+    // conversational answer — Lina must apply the budget and re-present the
+    // type-locked pool, never explain what she serves and never re-ask the
+    // same funnel question. Merges the new money with the session's standing
+    // criteria and retypes to SEARCH_REQUESTED. Fires ONLY when the message
+    // carries nothing else: a named area/type/size rides the normal
+    // DETAILS_PROVIDED refinement lane instead (a refinement, not a retype).
+    const bareMoneyEv = retypeBareMoney(session.state, ev, slots, session, location);
+    if (bareMoneyEv) ev = bareMoneyEv;
 
     // --- Contact intake (contact_collection state) ---
     // Always fire in contact_collection — phone/name digits must not be
@@ -647,8 +777,13 @@ export class Classifier {
       }
     }
 
-    // Time confirm: rejection / agreement / new time
-    if (ev.type === 'STAY' && session.state === 'time_confirm') {
+    // Time confirm: rejection / agreement / new term (the [19:31] fork).
+    // Event-independent like the owner_checking override below: the fast
+    // buildEvent often mints DETAILS_PROVIDED for a counter-proposal
+    // ("mozam vo cetvrtok ama porano malce vo 5") — a type-guarded override
+    // would let the stale owner term freeze in time_confirm.
+    if (session.state === 'time_confirm'
+      && ev.type !== 'ESCALATE' && ev.type !== 'REJECTED') {
       const bareNo = /^(?:не|ne|no)\s*[.!?]*$/iu.test(text.trim());
       if (detectTimeRejection(text) || bareNo) {
         ev = { type: 'TIME_REJECTED' };
@@ -656,7 +791,7 @@ export class Classifier {
         ev = { type: 'TIME_ACCEPTED' };
       } else {
         const t = detectVisitTime(text);
-        if (t) ev = { type: 'VISIT_TIME_PROVIDED', visitTime: t };
+        if (t) ev = timeConfirmCounterEvent(t, session);
       }
     }
 
@@ -998,8 +1133,7 @@ export class Classifier {
       let location = slots.location;
       if (!location && this.properties) {
         try {
-          const locs = await this.properties.locations();
-          location = detectLocation(text, locs) ?? undefined;
+          location = (await this.areaNamed(text)) ?? undefined;
         } catch (e) {
           console.error('[classify] location lookup failed:', (e as Error).message);
         }
@@ -1014,6 +1148,11 @@ export class Classifier {
         house: slots.house,
         budget: slots.budget,
         anywhere: slots.anywhere,
+        garsonjera: slots.garsonjera,
+        // Same category stamp as the deterministic override above — this
+        // LLM-pinned construction lost plac/yard the same way.
+        plac: slots.plac,
+        yard: slots.yard,
       };
     }
     // Deterministic slot extraction + gap-fill: the discovery funnel must not
@@ -1142,10 +1281,14 @@ export class Classifier {
           plac: ev.plac || session.slots.plac || undefined,
           yard: ev.yard || session.slots.yard || undefined,
           need: slots.need, rejected: slots.rejected,
-        });
-        if (merged.type === 'SEARCH_REQUESTED') parsed.event = merged;
+        });        if (merged.type === 'SEARCH_REQUESTED') parsed.event = merged;
       }
     }
+    // BARE-MONEY RETYPE (the [20:33] capture) — the LLM-down path mirrors
+    // the deterministic one: a money-only message in presentation/discovery
+    // retypes to SEARCH_REQUESTED (criteria merged), never a funnel re-ask.
+    const bareMoneyEv = retypeBareMoney(session.state, parsed.event, extractSlots(text), session);
+    if (bareMoneyEv) parsed.event = bareMoneyEv;
     // --- funnel overrides (run AFTER recompute so nothing clobbers them) ---
     // Visit interest in property states -> INTERESTED: "кога може да се
     // погледне?", "дали е достапен?", "сакам да ја видам", "договори ми…" all
@@ -1306,7 +1449,10 @@ export class Classifier {
     // time ("okolu 18:00", "после 19") re-asks the owner with it — same as
     // the owner_checking override below. A bare clock merges onto the stored
     // day (the [12:42] lesson — never resolve a bare "6" to TODAY).
-    if ((llmDown || parsed.event.type === 'STAY') && session.state === 'time_confirm') {
+    // EVENT-INDEPENDENT (the [19:31] fork): the LLM path can mint any type for
+    // a counter-proposal — the fork is detection-driven, never type-guarded.
+    if (session.state === 'time_confirm'
+      && parsed.event.type !== 'ESCALATE' && parsed.event.type !== 'REJECTED') {
       const bareNo = /^(?:не|ne|no)\s*[.!?]*$/iu.test(text.trim());
       if (detectTimeRejection(text) || bareNo) {
         parsed.event = { type: 'TIME_REJECTED' };
@@ -1314,14 +1460,7 @@ export class Classifier {
         parsed.event = { type: 'TIME_ACCEPTED' };
       } else {
         const t = detectVisitTime(text);
-        if (t) {
-          const storedTc = session.slots.visitTime ?? '';
-          let mergedTc = t;
-          if (!hasDayWord(t) && hasDayWord(storedTc) && !hasClockHint(t) && hasClockHint(storedTc)) {
-            mergedTc = `${storedTc.trim()} ${t.trim()}`;
-          }
-          parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: mergedTc };
-        }
+        if (t) parsed.event = timeConfirmCounterEvent(t, session);
       }
     }
     // Owner check in flight, but the client changed their mind about the time —

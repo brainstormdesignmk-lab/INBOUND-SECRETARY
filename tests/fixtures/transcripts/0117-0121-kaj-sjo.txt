@@ -1,0 +1,25 @@
+# THE [01:17]–[01:21] CAPTURE — a card named by its place, not by its number.
+#
+# [01:17] the client asks for a new two-bedroom flat in Маџар Маало at about
+#         180 000. The feed's flat that answers that is EB 91 — its address says
+#         «Гјуро Гјоновиќ Маџар Маало» while the feed files it under «Центар»,
+#         so a location-slot search alone ran city-wide and found nothing.
+# [01:20] «ОВОЈ КАЈ СЈО ДАЛИ Е ДОСТАПЕН УШТЕ?» points at EB 66 — the card whose
+#         own ad says «наспроти СЈО». The old turn answered about EB 91 (the
+#         card in play), because the descriptor the resolver saw was the whole
+#         rest of the sentence, not the landmark.
+# [01:21] «КОЈА МУ Е ЦЕНАТА?» then quoted 178.000 — EB 91's price — for a flat
+#         the client had just pointed at as EB 66 (137.000).
+#
+# The rows below are the feed's own (fetched 2026-10-27), so the replay reads
+# exactly the text the client read.
+!feed sjo-pair
+!state presentation
+!eb 91
+[01:20] КЛИЕНТ: OVOJ KAJ SJO DALI E DOSTAPEN USHTE ?
+# EXPECT no-silence
+# EXPECT last-not-mentions 178
+[01:21] КЛИЕНТ: KOJA MU E CENATA ?
+# EXPECT no-silence
+# EXPECT last-mentions 137
+# EXPECT last-not-mentions 178

@@ -1,0 +1,19 @@
+# THE POST-CANCEL RETURN AFTER THE TTL — the other half of the release rule.
+#
+# The client cancelled Thursday's visit and wrote back ninety minutes later,
+# long past the chat TTL. Two things must both hold: the message is ANSWERED
+# (a released chat never sits mute), and the chat re-opens FRESH — the
+# cancelled visit is that stale that the funnel starts over instead of pushing
+# a re-book for a property from an hour and a half ago. The re-book path
+# belongs to the same-conversation return (post-cancel-return.txt).
+!state visit_scheduling
+!eb 62
+!owner 62 Петре 070111222
+!arranged 62 четврток во 18:00
+[22:06] КЛИЕНТ: NE MOZAM, OTKAZETE JA POSETATA
+!rewind 90
+[23:40] КЛИЕНТ: A MOZE DRUG DEN?
+# EXPECT cancel 62
+# EXPECT no-silence
+# EXPECT last-not-mentions термин
+# EXPECT final-state idle

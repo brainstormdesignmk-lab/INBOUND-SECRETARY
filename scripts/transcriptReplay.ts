@@ -8,6 +8,8 @@
  * actually received. Same code path as production, no live chat.
  */
 
+import { readFileSync } from 'fs';
+import * as path from 'path';
 import { loadConfig } from '../src/config';
 import { Db } from '../src/store/db';
 import { SessionStore, freshSession } from '../src/fsm/session';
@@ -55,6 +57,8 @@ export type TranscriptLine =
  *   !state visit_scheduling        · !eb 62
  *   !arranged 47 сабота во 12:00   · !owner [eb] <name> <phone>
  *   !clock 2026-10-23T21:56        · !rewind 90   (minutes — simulates TTL expiry)
+ *   !feed sjo-pair                 rows from tests/fixtures/feeds/<name>.json
+ *                                  (a capture that quotes a card needs the card)
  *
  * `# EXPECT` lines state the verdict a fixture promises (the list is in
  * checkExpectations below):
@@ -126,7 +130,10 @@ export async function runTranscript(lines: TranscriptLine[], opts: ReplayOptions
   const appointments = new AppointmentStore(db);
   const events = new EventStore(db);
   const owners = new OwnerStore(db);
-  const props = new ReplayProps(opts.properties ?? []);
+  // Mutable so a `!feed` directive can hand a later turn the cards the capture
+  // was looking at — the resolver reads rows, so a missing row is a missing bug.
+  const feed: Property[] = [...(opts.properties ?? [])];
+  const props = new ReplayProps(feed);
   const chatId = opts.chatId ?? 'replay';
 
   // Messages are buffered per turn: the scheduler AND the handler both reach the
@@ -207,6 +214,13 @@ export async function runTranscript(lines: TranscriptLine[], opts: ReplayOptions
           if (!m || eb === undefined) throw new Error('!owner needs "<name> <phone>", or "<eb> <name> <phone>"');
           owners.upsert({ eb, name: m[2], phone: m[3], status: 'available' });
           seeds.push(`owner ${m[2]} ${m[3]} for EB ${eb}`);
+          break;
+        }
+        case 'feed': {
+          const file = path.join(__dirname, '..', 'tests', 'fixtures', 'feeds', `${arg}.json`);
+          const rows = JSON.parse(readFileSync(file, 'utf8')) as Property[];
+          feed.push(...rows);
+          seeds.push(`feed ${arg}: ${rows.length} rows`);
           break;
         }
         case 'clock':
