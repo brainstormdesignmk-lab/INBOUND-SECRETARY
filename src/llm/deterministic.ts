@@ -5920,8 +5920,14 @@ export function isPoiConfirmQuestion(text: string): boolean {
   if (matchesBoth(/(?<![\p{L}\p{N}])(?:kade|каде)(?![\p{L}\p{N}])/iu, text)) return false;
   if (/\?\s*$/.test(text)) return true;
   if (matchesBoth(LOC_CONFIRM_MARKERS_RE, text)) return true;
-  // Leading "da" + copula/negation scaffold ("da ne e vo …", "da e kaj …")
-  if (matchesBoth(/^\s*(?:da|да)(?![\p{L}\p{N}])[^.?!\n]{0,40}(?:\be\b|\bne\b|е|не)/iu, text)) return true;
+  // Leading "da" + copula/negation scaffold ("da ne e vo …", "da e kaj …").
+  // The copula/negation must be its OWN TOKEN in both scripts: the bare
+  // Cyrillic «е» used to match inside a word — «DA SE SAKAM» folds to «ДА СЕ
+  // САКАМ» and the «е» inside «СЕ» read as the copula, so a plain «I want it»
+  // was classified as a location confirm, ran the POI-confirm lane and
+  // re-anchored the chat on the last-presented flat (the pick → fee follow-up
+  // capture).
+  if (matchesBoth(/^\s*(?:da|да)(?![\p{L}\p{N}])[^.?!\n]{0,40}(?:\be\b|\bne\b|(?<![\p{L}\p{N}])е(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])не(?![\p{L}\p{N}]))/iu, text)) return true;
   // "dali e/kaj/vo …", "ne e vo …", "… li e?"
   if (matchesBoth(/(?<![\p{L}\p{N}])(?:dali|дали)(?![\p{L}\p{N}])/iu, text)) return true;
   if (matchesBoth(/^\s*(?:ne\b|не)\s+(?:e\b|е)/iu, text)) return true;

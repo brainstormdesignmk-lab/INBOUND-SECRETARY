@@ -190,6 +190,8 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   PICK_DESCRIBED: P('a pick among the flats she just described → the availability answer'),
   LOCATE_CONTINUE: P('bare «не» while choosing among described flats — the hunt continues'),
   LOCATE_WIDEN: P('«да» to the other-neighbourhoods question — the area lock is released'),
+  LOCATE_REJECT_PLACE: P('«не е таа» after the only flat at a NAMED place — the place lock holds, other areas only after the ask'),
+  CONTACT_AFTER_FEE: P('the fee question answered with a name + phone — consent and the visit-time ask'),
   'NEGOTIATE:fast': M('NEGOTIATE', 'commercial-state price pushback'),
   PRICE_EVAL_CHEAP: M('PRICE_EVAL_CHEAP', 'positive price remark beats the fee ladder'),
   'PROVISION_PUSH:fast': M('PROVISION_ASK', 'fee pushback resolves through the provision lane'),

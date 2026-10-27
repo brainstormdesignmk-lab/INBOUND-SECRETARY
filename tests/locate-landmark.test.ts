@@ -788,3 +788,166 @@ test('[13:28] he does NOT know the number: price and neighborhood are asked', as
   assert.ok(reply.includes('цена'), `the price is asked: ${reply}`);
   offlineMap.close();
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SIX FOLLOW-UPS — richer option lines, pick-by-detail, the pick's full
+// flow, a place-only ask, the place lock on rejection, and the measured
+// «во близина» rotation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The embassy table with the feed's STRUCTURED columns present (features,
+// floor), which is what the real feed carries and what the client picks by.
+const SIX_TABLE: Property[] = [
+  { eb: 63, id: 63, location: 'Центар', price: 36000, service: 'buy', sqm: 28, size: '28 м²', studio: true,
+    address: 'Црногорска', details: 'Се Продава Гарсоњера во Сутерен на Зграда. Гарсоњерата е комплетно реновирана и е на Одлична Локација , во близина на Црногорска Амбасада.',
+    lat: 41.995985, lon: 21.418172, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  { eb: 80, id: 80, location: 'Центар', price: 46000, service: 'buy', sqm: 24, size: '24 м²', studio: true,
+    address: 'Строг Центар', features: ['тераса'], floor: 1,
+    details: 'Се продава гарсоњера во Строг Центар, со поглед кон парк.',
+    lat: 41.995800, lon: 21.417600, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  { eb: 70, id: 70, location: 'Центар', price: 39000, service: 'buy', sqm: 26, size: '26 м²', studio: true,
+    address: 'Строг Центар', details: 'Се продава гарсоњера, високо приземје, реновирана, со нови прозорци.',
+    lat: 41.995700, lon: 21.418500, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+];
+
+test('[09:59] the which-flat ask carries the ad’s OWN facts, and «таа со терасата» picks by them', async () => {
+  // «Дали некоја од нив е таа што ја баравте?» is only answerable when the
+  // option lines carry what the ads differ in. EB 80's feed row records the
+  // terrace and the storey, so the line NAMES them — and the client's own
+  // words («таа со терасата») then resolve to that flat.
+  const { send, sent, sessions, chatId, offlineMap } = await makeHandler(SIX_TABLE);
+  await send('ima li garsonjera kaj crnogorska ambasada ?');
+  const list = sent[sent.length - 1];
+
+  assert.match(list, /Евидентен број 80 · гарсоњера, 24 м² · 46\.000 евра/u, `described: ${list}`);
+  assert.match(list, /тераса/iu, `the row's own feature is named: ${list}`);
+  assert.match(list, /1 кат/u, `the row's own storey is named: ${list}`);
+  assert.match(list, /Евидентен број 63 · гарсоњера, 28 м²/u, `the first is still described: ${list}`);
+
+  const s = await send('TAA SO TERASATA');
+  assert.equal(s.slots.interestedPropertyId, 80, `the flat WITH the terrace is the pick: ${s.slots.interestedPropertyId}`);
+  assert.equal(s.slots.propertyId, 80);
+  assert.equal(s.state, 'closing', `the pick opens the owner lane: ${s.state}`);
+  const reply = sent[sent.length - 1];
+  assert.match(reply, /достапн|активн|слободн|база|евиденц|располагање/iu, `availability is answered: ${reply}`);
+  assert.ok(!/Евидентен број 70/u.test(reply), `no other flat is offered: ${reply}`);
+  void sessions; void chatId;
+  offlineMap.close();
+});
+
+test('[09:59] a QUESTION about a feature is never a pick among the described flats', async () => {
+  // «Дали има тераса?» mentions the very feature the pick matcher reads. It is
+  // an INFORMATION question about what is on the table, never a choice — the
+  // hunt must stay where it is and nothing may be bound.
+  const { send, sent, chatId, offlineMap } = await makeHandler(SIX_TABLE);
+  await send('ima li garsonjera kaj crnogorska ambasada ?');
+  const s = await send('DALI IMA TERASA VO STANOT ?');
+  // Answered as INFORMATION: the pick lane must not fire (no availability ack
+  // for a flat the client never chose) and the choice stays open.
+  assert.notEqual(s.state, 'closing', 'a feature question is not a pick');
+  assert.deepEqual(s.slots.describedEbs, [63, 80, 70], 'the described set stays on the table');
+  const reply = sent[sent.length - 1];
+  assert.ok(!/Дали би сакале да го контактирам|сè уште е достапна|во нашата база/u.test(reply),
+    `never the pick's availability answer: ${reply}`);
+  void chatId;
+  offlineMap.close();
+});
+
+test('[10:01] the pick runs the whole funnel: fee, then the contact, then the visit time', async () => {
+  // The capture ran the pick → «да, сакам» → fee → name+phone, and the
+  // name+phone turn re-presented a FRESH pair (and the fee turn had moved the
+  // bound flat to the last of the described list). From the pick on, one flat
+  // is in play: the fee is about IT, and the contact the client volunteers
+  // after the fee question is the consent that opens the visit.
+  const { send, sent, sessions, chatId, offlineMap } = await makeHandler(SIX_TABLE);
+  await send('ima li garsonjera kaj crnogorska ambasada ?');
+  const picked = await send('DA, 63 E TAA');
+  assert.equal(picked.slots.interestedPropertyId, 63);
+  assert.ok(picked.slots.ownerContactPending, 'the owner check is armed');
+
+  const agreed = await send('DA SE SAKAM');
+  assert.equal(agreed.slots.interestedPropertyId, 63, `the pick survives the agreement: ${agreed.slots.interestedPropertyId}`);
+  const fee = sent[sent.length - 1];
+  assert.match(fee, /денари/u, `the fee is disclosed: ${fee}`);
+
+  const contact = await send('PETAR 070123456');
+  assert.equal(contact.slots.name, 'Petar', 'the name is recorded');
+  assert.equal(contact.slots.phone, '070123456', 'the phone is recorded');
+  assert.equal(contact.slots.interestedPropertyId, 63, 'the visit is for the picked flat');
+  assert.equal(contact.state, 'visit_scheduling', `the visit protocol opens: ${contact.state}`);
+  const ask = sent[sent.length - 1];
+  assert.match(ask, /термин/u, `the visit time is asked: ${ask}`);
+  assert.ok(!/Евидентен број/u.test(ask), `never a fresh batch: ${ask}`);
+  void sessions; void chatId;
+  offlineMap.close();
+});
+
+test('[10:02] a place-only ask («имавте нешто кај …?») is read from the FEED there', async () => {
+  // No category word at all — and the discovery question («купување или
+  // изнајмување?») was the answer, about a place the bank can read. The flats
+  // standing at the named place are described instead.
+  const { send, sent, offlineMap } = await makeHandler(SIX_TABLE);
+  const s = await send('ZDRAVO IMAVTE NESTO KAJ CRNOGORSKA AMBASADA ?');
+  const reply = sent[sent.length - 1];
+
+  assert.ok(!/купување или|изнајмување/iu.test(reply), `never the discovery re-ask: ${reply}`);
+  assert.match(reply, /Евидентен број 63/u, `the flats at the place are named: ${reply}`);
+  assert.match(reply, /Евидентен број 80/u, reply);
+  assert.equal(s.state, 'property_locate', `the hunt is open: ${s.state}`);
+  void s;
+  offlineMap.close();
+});
+
+test('[10:36] rejecting the ONLY flat at the place asks about other areas before leaving it', async () => {
+  // The follow-up of the [10:36] fix: EB 80/52 stood in other municipalities,
+  // so after «не, не е таа» the standard presentation served them under the
+  // generic «совршено се вклопуваат» opener — a proximity claim by accident.
+  // The place is a lock: the drained hunt ASKS, and only the «да» widens.
+  const ONE_AT_PLACE: Property[] = [
+    SIX_TABLE[0],
+    { eb: 80, id: 80, location: 'Кисела Вода', price: 46000, service: 'buy', sqm: 24, size: '24 м²', studio: true,
+      address: 'Кисела Вода', details: 'Се продава гарсоњера во Кисела Вода, реновирана, со тераса.',
+      lat: 41.983900, lon: 21.441500, geo_source: 'stored', landmarks: [{ landmark: 'Кисела Вода' }] } as Property,
+    { eb: 52, id: 52, location: 'Аеродром', price: 44000, service: 'buy', sqm: 27, size: '27 м²', studio: true,
+      address: 'Аеродром', details: 'Се продава гарсоњера во Аеродром, реновирана.',
+      lat: 41.978000, lon: 21.460000, geo_source: 'stored', landmarks: [{ landmark: 'Аеродром' }] } as Property,
+  ];
+  const { send, sent, sessions, chatId, offlineMap } = await makeHandler(ONE_AT_PLACE);
+  const first = await send('DOBAR DEN DALI USTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA ?');
+  assert.equal(first.slots.interestedPropertyId, 63, 'the flat at the place is bound');
+
+  const s = await send('NE, NE E TAA');
+  const ask = sent[sent.length - 1];
+  assert.match(ask, /друга населба|друг дел од градот/iu, `other areas are asked about, not offered: ${ask}`);
+  assert.ok(!/Евидентен број 80|Евидентен број 52/u.test(ask), `nothing from another area before the yes: ${ask}`);
+  assert.equal(s.slots.interestedPropertyId, undefined, 'the rejected flat is no longer bound');
+  assert.ok(s.slots.areaExhausted === true, 'the place is marked drained');
+
+  const widened = await send('DA');
+  const options = sent[sent.length - 1];
+  assert.match(options, /Евидентен број 52/u, `the «да» widens: ${options}`);
+  assert.ok(widened.slots.areaExhausted !== true, 'the lock is released');
+  void sessions; void chatId;
+  offlineMap.close();
+});
+
+test('[10:29] a place 3 km away is never named as «во близина» of the flat', async () => {
+  // The feed's own `landmark` field is resolved at import under a 100…1000 m
+  // ring, so a Кисела Вода гapсоњера can carry the embassy 3 km away — in
+  // ANOTHER municipality. The claim is MEASURED against the row's own point
+  // before it is spoken; beyond the ring the honest area line is served.
+  const FAR_LANDMARK: Property[] = [
+    { eb: 80, id: 80, location: 'Кисела Вода', price: 46000, service: 'buy', sqm: 24, size: '24 м²', studio: true,
+      address: 'Кисела Вода', landmark: 'Црногорска Амбасада',
+      details: 'Се продава гарсоњера во Кисела Вода, реновирана, со тераса.',
+      lat: 41.983900, lon: 21.441500, geo_source: 'stored' } as Property,
+  ];
+  const { send, sent, offlineMap } = await makeHandler(FAR_LANDMARK);
+  await send('DOBAR DEN DALI GO IMATE STANOT SO BROJ 80 ?');
+  await send('KADE TOCNO SE NAOGJA ?');
+  const reply = sent[sent.length - 1];
+
+  assert.ok(!/Црногорска Амбасада/u.test(reply), `a 3 km place is not «во близина»: ${reply}`);
+  assert.match(reply, /Кисела Вода/u, `the honest area is served instead: ${reply}`);
+  offlineMap.close();
+});
