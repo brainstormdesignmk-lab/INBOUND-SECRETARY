@@ -1,0 +1,16 @@
+# THE OTHER POST-CANCEL RETURN — a NEW enquiry, not the cancelled visit.
+#
+# Same release, opposite half of the rule: the client cancelled the Олимпико
+# visit and comes back with new criteria («3 спални до 200 евра»). The chat
+# re-opens FRESH — the intake lane answers it. Resuming the visit lane here
+# would ask «Кој термин би Ви одговарал за посета?» and the owner would be
+# asked about EB 62, a property this message never mentions.
+!state visit_scheduling
+!eb 62
+!owner 62 Петре 070111222
+!arranged 62 четврток во 18:00
+[22:06] КЛИЕНТ: NE MOZAM, OTKAZETE JA POSETATA
+[22:31] КЛИЕНТ: ZDRAVO, BARAM STAN SO 3 SPALNI DO 200 EVRA
+# EXPECT cancel 62
+# EXPECT no-silence
+# EXPECT last-not-mentions термин

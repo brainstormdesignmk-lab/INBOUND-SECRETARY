@@ -1,0 +1,24 @@
+# THE POST-CANCEL RETURN (the [22:18] capture that followed the [21:57] one).
+#
+# The client cancelled Thursday's visit for the Олимпико house (EB 62) and the
+# farewell promised «Ќе бидеме во контакт». Twelve minutes later he wrote back
+# asking for another day — and the chat sat in `terminated`, where every word
+# after a cancellation was answered with absolute silence until the TTL. A
+# cancellation releases the chat: it does not mute the client.
+#
+# Their words decide what the chat re-opens as. «може друг ден?» is about
+# SEEING THAT VISIT — the scheduling lane re-asks for a term (the re-book). A
+# message that states NEW criteria is a new enquiry and re-opens fresh (see
+# post-cancel-new-enquiry.txt): resuming the visit lane for it would put the
+# OLD Евидентен број back in front of the owner — the [21:57] wrong-property
+# class.
+!state visit_scheduling
+!eb 62
+!owner 62 Петре 070111222
+!arranged 62 четврток во 18:00
+[22:06] КЛИЕНТ: NE MOZAM, OTKAZETE JA POSETATA
+[22:18] КЛИЕНТ: A MOZE DRUG DEN?
+# EXPECT cancel 62
+# EXPECT no-silence
+# EXPECT last-mentions термин
+# EXPECT final-state visit_scheduling

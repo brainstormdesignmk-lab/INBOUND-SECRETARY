@@ -121,6 +121,44 @@ function gonePredicate(note?: string): string {
  * Returns undefined for untyped (apartment) searches — they keep the normal
  * no-match → exhausted → register ladder.
  */
+/** «може друг ден?» / «пак?» — a reschedule ask built on a BARE day word. The
+ *  shared DAY_WORD_RE carries weekdays and relative days only: «1000 ден» is a
+ *  price there, so a bare «ден» may never join it. This arm lives here, where
+ *  the only thing it can decide is whether a released chat re-opens. */
+const DAYLESS_RETURN_RE =
+  /(?<![\p{L}\p{N}])(?:друг|drug|drugi)\s*(?:ден|den)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:пак|pak)(?![\p{L}\p{N}])/iu;
+
+/**
+ * POST-CANCEL RETURN — does a RELEASED chat's returning message continue the
+ * visit it cancelled?
+ *
+ * The client cancels, the farewell promises «Ќе бидеме во контакт», and the
+ * chat sits in `terminated` — where a TTL's worth of silence met every word
+ * they wrote next, including «може друг ден?». The returning message is the
+ * other half of that exchange: it is about WHEN to see THAT visit again, and
+ * the scheduling lane is the only place it can be answered (asking «купување
+ * или изнајмување?» of a client who cancelled EB 62 twelve minutes ago is how
+ * the re-book is lost — and a term like «во сабота во 12» read from a fresh
+ * idle funnel lands in the EB lookup, not the visit).
+ *
+ * A message that STATES NEW CRITERIA is not that: it is a new enquiry, and
+ * resuming the visit lane for it would re-ask the owner about the OLD
+ * Евидентен број — the [21:57] wrong-property class. Those re-open fresh
+ * instead, and either way the message is PARSED, never eaten.
+ */
+function continuesCancelledVisit(text: string): boolean {
+  // Any criterion the intake would have asked for (service, type, rooms,
+  // budget, area, a bare «ми треба стан») makes this a NEW enquiry.
+  if (Object.keys(extractSlots(text)).length > 0) return false;
+  return detectVisitTime(text) !== undefined
+    || detectVisitTimingQuestion(text)
+    || detectVisitInterest(text)
+    || detectSchedulingFlex(text)
+    || detectVagueTime(text)      // «може после 6?» — a term too vague for the owner
+    || hasDayWord(text)
+    || DAYLESS_RETURN_RE.test(text);
+}
+
 function typedNoMatchLine(slots: ChatSession['slots']): string | undefined {
   const kind = slots.business === true ? 'деловен простор'
     : slots.house === true ? 'куќа'
@@ -792,11 +830,32 @@ export class InboundHandler {
     session.channel = channel;
 
     if (session.state === 'terminated') {
-      if (isExpired(session, this.cfg.chatTtlMinutes)) {
-        resetToIdle(session);
-        this.deps.sessions.set(session);
+      // A STRIKE-3 BAN IS FOREVER; A CANCELLATION RELEASES THE CHAT. Only the
+      // ban paints `terminatedAt` (with the persistent blocklist behind it),
+      // and only the ban is answered with silence.
+      if (session.terminatedAt !== undefined) {
+        if (isExpired(session, this.cfg.chatTtlMinutes)) {
+          resetToIdle(session);
+          this.deps.sessions.set(session);
+        }
+        return; // absolute silence
       }
-      return; // absolute silence
+      // POST-CANCEL RETURN (the [22:18] capture): the cancelling farewell is
+      // not a farewell to the client. They came back — answer them. Their
+      // words decide what the chat re-opens AS: continuing the cancelled visit
+      // (re-book for the property whose visit was dropped) or a new enquiry
+      // from a clean funnel. Either way the turn is PARSED below, never eaten;
+      // a pure greeting gets the fresh greeting the reset arms.
+      const cancelledEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      if (cancelledEb !== undefined
+          && !isExpired(session, this.cfg.chatTtlMinutes)
+          && continuesCancelledVisit(text)) {
+        session.state = 'visit_scheduling';
+        session.resetGreeting = false; // the return is the turn, not a greeting
+      } else {
+        resetToIdle(session);
+      }
+      this.deps.sessions.set(session);
     }
 
     // Persistent blocklist (strike-3, ANA parity): checked BEFORE the TTL reset

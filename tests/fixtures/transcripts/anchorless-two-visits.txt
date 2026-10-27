@@ -1,0 +1,9 @@
+# Two arranged visits, nothing anchoring either one: the cancel must ASK which
+# instead of cancelling the newest.
+!state visit_scheduling
+!owner 47 Петре 070111222
+!arranged 47 сабота во 12:00
+!arranged 62 петок во 17:00
+[10:04] КЛИЕНТ: OTKAZETE JA POSETATA
+# EXPECT no-cancel
+# EXPECT ask-which

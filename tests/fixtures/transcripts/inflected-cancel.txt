@@ -1,0 +1,10 @@
+# «OTKAZETE JA POSETATA» — normalizeMc folds it to «отказете ја посетата».
+# The whole-word «отказ» arm missed the inflection, so a plainly worded
+# cancellation was not a cancellation at all.
+!state visit_scheduling
+!eb 62
+!owner 62 Петре 070111222
+!arranged 62 четврток во 18:00
+[10:02] КЛИЕНТ: OTKAZETE JA POSETATA
+# EXPECT cancel 62
+# EXPECT final-state terminated

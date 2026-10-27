@@ -1,0 +1,7 @@
+# A negation WITH a new term is a reschedule, never a cancellation.
+!state visit_scheduling
+!eb 62
+!arranged 62 четврток во 18:00
+[21:52] КЛИЕНТ: NE MOZAM VO CETVRTOK, MOZAM POPLADNE POSLE 6
+[21:53] КЛИЕНТ: не можам тогаш, задутре во 18:00
+# EXPECT no-cancel

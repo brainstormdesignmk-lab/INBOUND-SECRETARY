@@ -1,0 +1,13 @@
+# [21:57] — the capture: a leftover arranged visit for EB 47 while the
+# conversation is about the Олимпико house (EB 62), and the owner was told the
+# WRONG property was cancelled.
+!eb 62
+!owner 47 Петре 070111222
+!arranged 47 сабота во 12:00
+!state visit_scheduling
+[21:56] КЛИЕНТ: CETVRTOK POPLADNE MOZAM POSLE 6
+[21:57] NE MOZAM, OTKAZETE JA POSETATA
+[21:58] OTKAZETE JA POSETATA ZA 47
+# EXPECT ask-which
+# EXPECT cancel 47
+# EXPECT final-state terminated

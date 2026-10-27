@@ -1,0 +1,10 @@
+# [21:56] — the client OFFERS a term and the visit was CANCELLED on it.
+# Cancel token came from the unbounded «не мозам» matching inside «попладне
+# мозам»; a proposal must never cancel.
+!state visit_scheduling
+!eb 62
+!owner 62 Петре 070111222
+!arranged 62 четврток во 18:00
+[21:56] КЛИЕНТ: CETVRTOK POPLADNE MOZAM POSLE 6
+[21:57] УТРЕ ПОПЛАДНЕ МОЖАМ ПО 6
+# EXPECT no-cancel
