@@ -227,6 +227,11 @@ test('e2e [04:04]: a cold «гарсоњера кај Црногорска ам�
     `the FOR-SALE garsonjera at that embassy: ${reply}`);
   assert.equal(s.state, 'closing', `the availability ack opens the owner lane: ${s.state}`);
   assert.ok(!/Евидентен број 76/.test(reply), `never the rental: ${reply}`);
+  // …and the answer NAMES the flat it found: a client who never saw a card
+  // cannot act on «сè уште е достапна» alone (the [04:04] complaint was that
+  // she answers without reading anything about the property).
+  assert.match(reply, /Евидентен број 63 · гарсоњера, 28 м² · 36[.,]?000 евра/u,
+    `the flat is named — EB, type, м², price: ${reply}`);
   db.close();
 });
 

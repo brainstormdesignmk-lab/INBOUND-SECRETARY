@@ -428,6 +428,11 @@ test('availability first-ask: "DALI 78 SE IZDAVA USTE ?" hits the availability f
   assert.ok(/(?:достапен|достапн|постои|база|слободен|активен|евиденциј|располагање|понуда|систем)/i.test(sent[0]), sent[0]);
   assert.ok(!sent[0].includes('м²'), sent[0]); // no square-meters = no card
   assert.ok(!sent[0].includes('Цената е'), sent[0]); // no price = no card
+  // …and the EB he named himself is never read back as an identity line: the
+  // cold-read naming ("Евидентен број 63 · гарсоњера, 28 м² · 36.000 евра")
+  // exists for a flat the client described by PLACE, not for the number he
+  // just typed.
+  assert.ok(!/Евидентен број 78 ·/u.test(sent[0]), sent[0]);
 
   // and the follow-up "DA" proceeds to the fee disclosure (the funnel works)
   s = await send('DA');
@@ -2013,6 +2018,9 @@ test('availability ask: the client asks about a SHOWN property → ack (permissi
   assert.ok(sent[1].includes('?'), sent[1]); // must be a QUESTION (permission ask)
   assert.ok(!sent[1].includes('500 денари'), sent[1]); // fee NOT yet disclosed
   assert.ok(!sent[1].includes('Станот под Евидентен'), sent[1]);
+  // …and no identity line either: EB 78 was named one turn ago, so the short
+  // ack is the whole answer (naming it again is a re-description).
+  assert.ok(!/Евидентен број 78 ·/u.test(sent[1]), sent[1]);
   assert.ok(s.slots.ownerContactPending, 'ownerContactPending should be set');
 });
 

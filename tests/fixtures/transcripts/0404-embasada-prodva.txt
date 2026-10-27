@@ -1,0 +1,28 @@
+# THE [04:04] COLD ENTRY — the first message of a new chat, and Lina read none of it.
+#
+#   [04:03] — нов клиент: SDFSFD
+#   [04:04] ZDRAVO, IMAVTE EDNA GARXONJERA KAJ CRNOGORSKA AMBASADA. DALI SE PRODVA USTE ?
+#   [04:04] ЛИНА: Дали барате опција за купување стан или планирате да изнајмите?
+#
+# The message named the CATEGORY (гарсоњера), the LANDMARK (Црногорска
+# амбасада) and the SERVICE (се продава). The funnel asked for the service it
+# had just been told, and the client's «не чита информациите» is that answer.
+#
+# The feed holds the two twins of that embassy — a FOR-SALE garsonjera (EB 63,
+# 36.000 €) and a RENTED one (EB 76, 200 €/мес) — so the service word is the
+# only thing that tells them apart. «SE PRODVA» narrows to 63, and the answer
+# NAMES it (EB · гарсоњера · 28 м² · 36.000 €): a «сè уште е достапна» with no
+# flat in it is a claim about nothing.
+!feed embasada
+[04:04] КЛИЕНТ: ZDRAVO, IMAVTE EDNA GARXONJERA KAJ CRNOGORSKA AMBASADA. DALI SE PRODVA USTE ?
+# EXPECT no-silence
+# EXPECT last-mentions Евидентен број 63
+# EXPECT last-not-mentions купување или изнајмување
+# EXPECT last-not-mentions Евидентен број 76
+# EXPECT final-state closing
+
+# THE SAME CHAT, NEXT TURN — «која е цената?» must be answered about 63, not
+# about whatever row happens to be first in the feed.
+[04:05] КЛИЕНТ: KOJA E CENATA ?
+# EXPECT no-silence
+# EXPECT last-not-mentions Евидентен број 76

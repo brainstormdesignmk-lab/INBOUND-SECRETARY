@@ -21,7 +21,7 @@ import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera } f
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
 import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
-import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, descriptorPhrases, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
+import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, descriptorPhrases, isStudio, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer, isSuterenUnit, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE, INFO_NO_YEAR_KEY, INFO_NO_RENOVATION_KEY } from '../llm/infoAnswer';
 import { answerGlossary, detectGlossaryAsk } from '../llm/glossary';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
@@ -205,6 +205,23 @@ function typedNoMatchLine(slots: ChatSession['slots']): string | undefined {
   const where = slots.location ? ` во ${displayAreaName(slots.location)}` : '';
   const budget = slots.budget ? ` (буџет до ${slots.budget} евра)` : '';
   return `Во моментов немам ${kind}${where} што одговара на Вашите барања${budget}. Можам да ги забележам Вашите критериуми и да Ве известам штом се појави соодветна опција — дали да Ве запишам?`;
+}
+
+/** ONE-LINE IDENTITY of the flat an answer rests on (the [04:04] cold read).
+ *  The client points at an ad Lina has never shown, so «сè уште е достапна»
+ *  alone is a claim about NOTHING — the answer has to say which flat it means.
+ *  Евидентен број + type + м² + price + area: an identity line, never a card
+ *  (no ad text, no street — address privacy, no meeting request). */
+function boundFlatIdentity(p: Property): string {
+  const bits = [`Евидентен број ${p.eb}`];
+  const type = ownerPropertyLabels(p).type;
+  bits.push(p.sqm !== undefined ? `${type}, ${p.sqm} м²` : type);
+  if (p.price !== undefined) {
+    bits.push(`${p.price.toLocaleString('mk-MK')} евра${monthlyRent(p) !== undefined ? ' месечно' : ''}`);
+  }
+  const where = p.location ? displayAreaName(p.location) : '';
+  if (where) bits.push(where);
+  return bits.join(' · ');
 }
 
 export interface HandleOpts {
@@ -427,7 +444,7 @@ export class InboundHandler {
   // pointer and seen-property. One clear match binds it; several equal
   // matches produce ONE clarify naming the options; no match leaves
   // today's behavior untouched (undefined, never a guess).
-  private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean }): Promise<{ prop?: Property; clarify?: string; fromFeed?: boolean } | undefined> {
+  private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean; offerAtPlace?: boolean }): Promise<{ prop?: Property; clarify?: string; fromFeed?: boolean } | undefined> {
     const ebSet = new Set<number>();
     for (const eb of [
       ...(session.slots.presentedIds ?? []),
@@ -484,8 +501,16 @@ export class InboundHandler {
     // an availability ask or a demonstrative («овој/тој кај …») — reads the
     // feed. Searches keep going to the funnel.
     const POINTS_AT_ONE_RE = /(?<![\p{L}\p{N}])(?:овој|тој|оваа|таа|ова|тоа|ovoj|toj|ovaa|taa|ova|toa)(?![\p{L}\p{N}])/iu;
+    // THE OFFER ASK AT A PLACE (the [11:29] recall): „имавте гарсоњера кај
+    // Црногорска амбасада“ asks whether we HAVE one there — a question the
+    // feed can answer without asking for a number the client does not have.
+    // It is still ONE-place reading, not a search: the landmark must be
+    // introduced by кај/до/близу (or «во близина на») AND resolve on the map.
+    // „имате нешто во Центар?“ names an AREA, not a landmark — it keeps the
+    // funnel, exactly like a search.
+    const OFFER_ASK_RE = /(?<![\p{L}\p{N}])(?:imate|imavte|imase|ima\s+li|имате|имавте|имаше|има\s+ли)(?![\p{L}\p{N}])/iu;
+    const LANDMARK_PREP_RE = /(?<![\p{L}\p{N}])(?:kaj|do|blizu|кај|до|близу|во\s+близина\s+на)(?![\p{L}\p{N}])/iu;
     const pointsAtOne = POINTS_AT_ONE_RE.test(text) || detectAvailabilityAsk(text);
-    if (discussed.length === 0 && !(sig.descriptor && pointsAtOne)) return undefined;
     let poi: MentionPoi | undefined;
     if (sig.descriptor && sig.descriptor.trim().length >= MIN_POI_DESCRIPTOR) {
       // The map cannot resolve "сјо дали е достапен уште" — try the descriptor's
@@ -497,6 +522,9 @@ export class InboundHandler {
         .find(h => !!h);
       if (hit) poi = { name: hit.name, lat: hit.lat, lon: hit.lon };
     }
+    const offerAtPlace = opts?.offerAtPlace === true
+      && OFFER_ASK_RE.test(text) && LANDMARK_PREP_RE.test(text) && !!poi;
+    if (discussed.length === 0 && !(sig.descriptor && (pointsAtOne || offerAtPlace))) return undefined;
 
     const cands: MentionCandidate[] = discussed.map(p => {
       const c: MentionCandidate = {
@@ -532,6 +560,12 @@ export class InboundHandler {
       const svc = extractSlots(text).service ?? session.slots.service;
       const byService = svc ? all.filter(p => p.service === svc) : all;
       const pool = byService.length > 0 ? byService : all;
+      // THE CATEGORY NARROWS TOO (the [11:29] recall): „гарсоњера кај …“ is a
+      // kind of flat, not only a compass — a 3-room flat 100 m from the embassy
+      // is not an answer to it, and offering it as one of the options made the
+      // which-one ask look like the old ignorance. Only when the category has
+      // SOMETHING there (nothing → the near-by alternatives are still honest).
+      const wantsStudio = extractSlots(text).garsonjera === true;
       const feedSeen = new Set<number>();
       const feedCands: MentionCandidate[] = pool.filter(p => {
         if (feedSeen.has(p.eb)) return false;
@@ -543,7 +577,10 @@ export class InboundHandler {
         location: p.location, details: p.details, landmark: p.landmark,
         landmarks: p.landmarks, lat: p.lat, lon: p.lon,
       }));
-      const feedHit = resolveMention(text, feedCands, { poi });
+      const typedCands = !wantsStudio || !feedCands.some(c => isStudio(c))
+        ? feedCands
+        : feedCands.filter(c => isStudio(c));
+      const feedHit = resolveMention(text, typedCands, { poi });
       if (feedHit?.kind === 'unique' && feedHit.eb !== undefined) match = feedHit;
       if (feedHit?.kind === 'ambiguous' && (feedHit.candidates ?? []).length > 1) {
         // Several feed rows sit near the place the client named (two Центар
@@ -3835,6 +3872,58 @@ export class InboundHandler {
       routeLog(chatId, text, 'PROPERTY_DESCRIPTION');
       const slots = extractSlots(text);
       if (!slots.service) {
+        // OFFER-AT-A-PLACE SERVE (the [11:29] recall): „имавте една гарсоњера
+        // кај Црногорска амбасада“ asks whether we HAVE one there. The guided
+        // search answered it with „Дали го знаете Евидентен број?“ — a number
+        // the client almost never has. The feed can answer it: one row at that
+        // landmark → the availability answer about THAT flat (named once, see
+        // boundFlatIdentity); several → the which-one ask naming each of them.
+        // Nothing at the place → the locate funnel below, unchanged (an area
+        // like „во Центар“ never reaches here — bindMention needs кај/до/близу).
+        // Only the PURE recall engages („имавте гарсоњера кај …“). A message
+        // that also names the deal („куќа ЗА ИЗДАВАЊЕ кај Олимпико“) is a
+        // guided search the locate funnel already answers with the row AT that
+        // place — intercepting it here answered an availability question
+        // nobody asked and dropped the service/location slots on the floor.
+        const SERVICE_MARK_RE = /(?:izdava|izdavam|izdavanje|prodava|prodazba|prodavam|издава|издавам|издавање|продава|продажба|продавам|kirija|кирија)/iu;
+        const offerMb = SERVICE_MARK_RE.test(text)
+          ? undefined
+          : await this.bindMention(text, session, { offerAtPlace: true });
+        if (offerMb?.clarify) {
+          session.state = 'property_locate';
+          await this.sendIfClarify(offerMb, text, session);
+          return;
+        }
+        if (offerMb?.prop) {
+          const p = offerMb.prop;
+          session.state = 'closing';
+          session.slots.propertyId = p.eb;
+          session.slots.interestedPropertyId = p.eb;
+          session.slots.ownerContactPending = true;
+          if (!session.slots.service && p.service) session.slots.service = p.service;
+          // Same pre-resolve as the availability branch: the follow-up «каде
+          // се наоѓа?» must have its landmarks ready.
+          if (!session.slots.nearbyLandmarks?.length) {
+            const nearby = this.landmarks.nearbyLandmarks(p);
+            if (nearby.length > 0) {
+              session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+              session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+              session.slots.nearbyLandmarkEb = p.eb;
+              session.slots.landmarkIndex = 0;
+              session.slots.lastLandmark = undefined;
+            }
+          }
+          const labels = ownerPropertyLabels(p);
+          const ack = labels.dostapen === 'достапна'
+            ? pickVariant('availability.ack', { recent: assistantTexts(session) }) ?? AVAILABILITY_ACK_FEM
+            : AVAILABILITY_ACK;
+          const answer = `${boundFlatIdentity(p)}\n\n${ack}`;
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer);
+          return;
+        }
         // No service declared — route to property_locate for guided search
         // extractSlots doesn't resolve feed neighborhoods — use detectLocation
         let loc = slots.location;
@@ -6987,7 +7076,22 @@ ${contactReminder}`;
         // NO landmark line here — location is revealed ONLY when the client
         // explicitly asks ("каде се наоѓа?"). The availability ack is just
         // about contacting the owner.
-        reply = ack;
+        // COLD-READ IDENTITY (the [04:04] capture): the client pointed at an
+        // ad this chat has never described, so the ack alone answers about a
+        // flat nobody can see. Name it ONCE — and only when the number is NEW
+        // to the chat and the client did not give it themselves: an ask that
+        // carries the EB ("DALI 78 SE IZDAVA?" — he read it on the site), a
+        // card already presented, or an earlier turn that named the number
+        // keeps today's short ack. Re-describing a flat the client is looking
+        // at is the noise the 12:33 rule bans.
+        const namedInText = inferPropertyId(text) !== undefined;
+        const wasShown = (session.slots.presentedIds ?? []).includes(target.eb)
+          || (session.slots.currentBatch ?? []).includes(target.eb);
+        const alreadyNamed = assistantTexts(session)
+          .some(t => new RegExp(`Евидентен број ${target.eb}(?!\\d)`).test(t));
+        reply = !namedInText && !wasShown && !alreadyNamed
+          ? `${boundFlatIdentity(target)}\n\n${ack}`
+          : ack;
       }
     } else if ((next === 'closing' || before === 'closing')
         && session.slots.ownerContactPending

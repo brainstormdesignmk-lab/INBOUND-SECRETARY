@@ -327,6 +327,42 @@ test('[11:29] the same HAD-verb without the determiner stays a SEARCH ask', asyn
   offlineMap.close();
 });
 
+test('[11:29] a COLD «имавте гарсоњера кај Црногорска амбасада?» is answered from the FEED, never with the number question', async () => {
+  // Fresh chat, no service declared yet. The guided search answered this with
+  // «Дали го знаете Евидентен број?» — a number the client does not have, about
+  // a flat he just described. One гapсоњера at the place → the availability
+  // answer about THAT flat, named once (EB · type · м² · price · area).
+  const EMBASSY_ROWS: Property[] = [
+    { eb: 63, id: 63, location: 'Центар', price: 36000, service: 'buy', sqm: 28, size: '28 м²', studio: true, address: 'Црногорска Амбасада', lat: 41.995985, lon: 21.418172, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  ];
+  const { send, sent, offlineMap } = await makeHandler(EMBASSY_ROWS);
+  const s = await send('imavte edna garsonjera kaj crnogorska ambasada');
+  const reply = sent[sent.length - 1];
+  assert.ok(!/го знаете Евидентен|Кажете ми Евидентен/.test(reply), `never the number question: ${reply}`);
+  assert.ok(reply.includes('Евидентен број 63'), `the flat at that place is named: ${reply}`);
+  assert.ok(/достапн|активн|слободн|база|евиденц/iu.test(reply), `and its availability is answered: ${reply}`);
+  assert.equal(s.state, 'closing', `the owner lane opens: ${s.state}`);
+  assert.equal(s.slots.interestedPropertyId, 63);
+  offlineMap.close();
+});
+
+test('[11:29] two гapсоњери at the place → both are named, and the number is still never asked', async () => {
+  // Nothing on the table, two candidates near the named place: guessing one is
+  // the wrong-property class, so she ASKS — but with the Евидентен број, size
+  // and price of each, which is the only thing that lets the client answer.
+  const EMBASSY_ROWS: Property[] = [
+    { eb: 63, id: 63, location: 'Центар', price: 36000, service: 'buy', sqm: 28, size: '28 м²', studio: true, address: 'Црногорска Амбасада', lat: 41.995985, lon: 21.418172, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+    { eb: 76, id: 76, location: 'Центар', price: 41000, service: 'buy', sqm: 24, size: '24 м²', studio: true, address: 'Строг Центар', lat: 41.995800, lon: 21.417600, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  ];
+  const { send, sent, offlineMap } = await makeHandler(EMBASSY_ROWS);
+  const s = await send('ima li garsonjera kaj crnogorska ambasada?');
+  const reply = sent[sent.length - 1];
+  assert.ok(reply.includes('ЕБ 63') && reply.includes('ЕБ 76'), `both options are named: ${reply}`);
+  assert.ok(!/го знаете Евидентен|Кажете ми Евидентен/.test(reply), `never the number question: ${reply}`);
+  assert.equal(s.state, 'property_locate', `still choosing: ${s.state}`);
+  offlineMap.close();
+});
+
 test('[11:07] a house for rent at Олимпико: the area is the house’s own, and the number is never asked after the disclaim', async () => {
   // The [11:07]/[11:08] capture, deterministic path (no LLM):
   //   [11:07] ЗДРАВО , ИМАТЕ ОБЈАВЕНО ЕДНА КУЌА ЗА ИЗДАВАЊЕ КАЈ ОЛИМПИКО
