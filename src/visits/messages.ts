@@ -33,6 +33,15 @@ export function buildCancelledByClient(eb: number): string {
   return `Откажана посета по желба на клиент за Евидентен број ${eb}.\n\nМетрополис се извинува за непланираните околности.\nЌе бидеме во контакт.`;
 }
 
+/** The AMBIGUOUS-cancel ask — sent to the client when the chat has more than
+ *  one arranged visit and the message does not say which one. Cancelling the
+ *  wrong Евидентен број is worse than one extra question: the owner of an
+ *  untouched property gets told his visit is off (the [21:57] capture). */
+export function buildCancelWhichAsk(ebs: number[]): string {
+  const list = ebs.length > 0 ? ` Моментално имаме договорени посети за Евидентен број ${ebs.join(' и ')}.` : '';
+  return `За која посета се работи?${list} Кажете ми го Евидентниот број на недвижноста за да ја откажам вистинската посета.`;
+}
+
 /** Cancellation by OWNER — sent to both owner and client. */
 export function buildCancelledByOwner(eb: number): string {
   return `Откажана посета по желба на сопственикот за Евидентен број ${eb}.\n\nМетрополис се извинува за непланираните околности.\nЌе бидеме во контакт.`;

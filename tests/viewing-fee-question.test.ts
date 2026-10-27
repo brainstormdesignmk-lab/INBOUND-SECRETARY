@@ -82,6 +82,10 @@ test('[22:21] detector matrix: the viewing-noun family is fee-question territory
     'DA PLATAM ZA VLEZ ?', 'da platam za gledanje?', 'da platam za pokazhuvanje',
     'DA PLATAM ZA OTVARANJE ?', 'kolku e vleznica?', 'za vizita kolku?',
     'kolku za poseta?', 'ZEMATE PARI ZA POSETA?', 'naplatuvate za poseta?',
+    // [22:2x] amountless statement sibling — ke + clitic-si agreement style:
+    'vazi, ke si platam za gledanjeto',
+    'RESHENO, KE SI PLATEM ZA POSETATA',
+    'ke platam za poseta?',
   ];
   for (const t of feeQuestions) {
     assert.equal(detectProvisionAsk(t), true, `must be a fee question: ${t}`);
@@ -89,6 +93,12 @@ test('[22:21] detector matrix: the viewing-noun family is fee-question territory
   // Consent with an amount stays consent; availability/property traffic untouched.
   assert.equal(detectProvisionAsk('ke platam 500 den za poseta'), false);
   assert.equal(detectFeePaymentAgreement('ke platam 500 den za poseta'), true);
+  // [22:2x] the statement sibling is the fee QUESTION when amountless —
+  // never silent consent; with an amount the commitment is real (consent).
+  assert.equal(detectFeePaymentAgreement('vazi, ke si platam za gledanjeto'), false);
+  assert.equal(detectFeePaymentAgreement('resheno, ke si platem za posetata'), false);
+  assert.equal(detectFeePaymentAgreement('ke si platam 10 evra za posetata'), true);
+  assert.equal(detectProvisionAsk('ke si platam 10 evra za posetata'), false);
   assert.equal(detectProvisionAsk('dali e seuste dostapen?'), false);
   // The amount-first question never pollutes slots or reads as availability.
   assert.equal(detectAvailabilityAsk('500DEN ZA POSETA ?'), false);
@@ -109,4 +119,24 @@ test('[22:21] e2e: "500DEN ZA POSETA ?" → fee explanation, no contact ask, no 
   assert.ok(!/Одличен избор! Само Вашето име/.test(r), `never the contact ask: ${r}`);
   assert.equal(s.slots.budget, undefined, 'the fee amount must never land as a budget slot');
   assert.equal(s.state, 'closing', 'the funnel stays at the fee question');
+});
+
+// The [22:2x] SIBLING, replayed through the live closing-state funnel: the
+// agreement-styled amountless statement ("vazi, ke si platam za gledanjeto")
+// must reach the SAME provision.ask serve — never the consent contact ask
+// (opening the contact collection from an amountless surface is the
+// [22:21] bug in its statement costume).
+test('[22:2x] e2e: "vazi, ke si platam za gledanjeto" → provision.ask, never the consent ask', async () => {
+  const { send, sessions } = await makeHandler();
+  const chat = 'fee-amountless-statement';
+  await send(chat, 'ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 90');
+  const feeAsk = await send(chat, 'BI SAKAL DA GO VIDAV VO ZIVO AKO E NEPRODADEN');
+  assert.ok(feeAsk.includes('500'), `fee disclosed first: ${feeAsk}`);
+
+  const r = await send(chat, 'VAZI, KE SI PLATAM ZA GLEDANJETO.');
+  const s = sessions.get(chat)!;
+  assert.ok(/провизи|надомест/iu.test(r) && r.includes('500'), `the fee explanation serves: ${r}`);
+  assert.ok(!/Одличен избор! Само Вашето име/.test(r), `never the consent contact ask: ${r}`);
+  assert.equal(s.slots.budget, undefined, 'nothing to slot — stay slotless');
+  assert.equal(s.state, 'closing', 'the funnel stays at the fee surface');
 });

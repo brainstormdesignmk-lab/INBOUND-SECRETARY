@@ -23,7 +23,7 @@ import { loadConfig } from '../src/config';
 import { Property } from '../src/data/properties';
 import { RESPONSE_BANK } from '../src/data/responses';
 import { setLearnedBank } from '../src/data/responseBank';
-import { detectAgreement } from '../src/llm/deterministic';
+import { detectAgreement, detectSendToOwnerAsk } from '../src/llm/deterministic';
 import { buildOwnerAsk, ownerPropertyLabels, AVAILABILITY_ACK, AVAILABILITY_ACK_FEM } from '../src/llm/prompts';
 
 // Every availability.ack seed/learned variant must be owner-contact phrasing,
@@ -130,6 +130,50 @@ test('21:23 flow: availability ack → "DA SAKAM" → VISIT FEE (not contact ask
     `visit fee expected after "DA SAKAM", got: ${after}`,
   );
   assert.equal(s.state, 'closing', 'fee stage keeps the funnel in closing');
+});
+
+// The [18:59] field capture: the client's typing-window burst lands as ONE
+// combined turn ("prasaj\nako e slobodna i ako e dobra ke ja iznajmam"), and
+// the availability-ack arm read the availability half as a FRESH availability
+// question — re-animating the permission ask the same turn's arrow half just
+// answered. Three identical re-acks in a row before the client sent the bare
+// arrow. detectSendToOwnerAsk marks the arrow; with ownerContactPending armed
+// the serve is the agreement serve: the FEE, never another ack.
+test('bundled confirm-arrow ("prasaj\nako e slobodna…") after the ack → FEE, never a re-ack', async () => {
+  // Detector shape: the go-ahead arrow fires; offers-to-me stays out.
+  assert.equal(detectSendToOwnerAsk('prasaj'), true);
+  assert.equal(detectSendToOwnerAsk('pRAŠAJ GO SOPSTVENIKOT'), true);
+  assert.equal(detectSendToOwnerAsk('kontaktiraj go sopstvenikot'), true);
+  assert.equal(detectSendToOwnerAsk('прашај'), true);
+  assert.equal(detectSendToOwnerAsk('prati mi ponudi'), false, 'offer-send to ME is not the owner arrow');
+  assert.equal(detectSendToOwnerAsk('ne go kontaktiraj uste'), false, 'hold never reads as a go-ahead');
+  assert.equal(detectSendToOwnerAsk('kade se naoga 78?'), false);
+
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'bundle-arrow';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // 1) availability ask on a known EB → the ack, ownerContactPending armed
+  let s = await send('dali e seuste dostapen broj 78?');
+  assert.equal(s.slots.ownerContactPending, true, 'ack must arm the owner-contact gate');
+
+  // 2) the bundled turn → the FEE (the arrow step-up), NOT a re-ack
+  s = await send('prasaj\nako e slobodna i ako e dobra ke ja iznajmam');
+  const bundled = sent[sent.length - 1] ?? '';
+  assert.ok(
+    /(надомест|300|денари|симболичн|посета|политика)/iu.test(bundled),
+    `fee disclosure expected for the bundled arrow, got: ${bundled.slice(0, 160)}`,
+  );
+  assert.ok(
+    !/(?:сакале|сакате)\s+да\s+(?:го\s+)?(?:исконтактирам|контактирам)/iu.test(bundled),
+    `bundled turn re-asked the permission the arrow just gave: ${bundled.slice(0, 160)}`,
+  );
+  assert.equal(s.state, 'closing', 'fee stage keeps the funnel in closing');
+  assert.equal(s.slots.ownerContactPending, false, 'the arrow consumes the pending contact gate');
+
+  // 3) a plain yes continues the funnel → contact collection
+  s = await send('da');
+  assert.equal(s.state, 'contact_collection', 'funnel must continue after the fee');
 });
 
 // The [00:49] capture: the client asks „ЕВИДЕНТЕН БРОЈ 47“ — a masculine

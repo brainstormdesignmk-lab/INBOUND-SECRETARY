@@ -21,6 +21,15 @@ export interface SlotData {
   business?: boolean;           // commercial property intent
   house?: boolean;              // куќа — a residential request that is NOT a стан
   budget?: string;
+  // DUAL-SERVICE MONEY (the [12:33] business capture): the client splits his
+  // budget PER SERVICE in consecutive messages — «za kirija do 1000 evra»,
+  // «za kupuvanje do 2000000». Each lands in its OWN slot; when both exist
+  // the funnel is a dual-service search (rent AND buy), slots.budget is
+  // retired (a single budget would silently govern both services) and the
+  // serve pairs the two segments one-rent-one-buy.
+  rentBudget?: string;          // the client's cap for RENT money alone
+  buyBudget?: string;           // the client's cap for BUY money alone
+  dualService?: boolean;        // both budgets are on file — serve rent+buy pairs
   anywhere?: boolean;           // "било каде" — no location preference (satisfies location)
   sizeWaived?: boolean;        // "големината не ми е битна" — skip bedrooms question
   waiverAcked?: boolean;       // the banked discovery.waiver.ack intro was served for THIS waiver
@@ -48,6 +57,21 @@ export interface SlotData {
                                 // whether to widen — agreement releases the lock
   name?: string;
   phone?: string;
+  /** The cheaper-lane two-way choice (the [14:46] rule): nothing cheaper with
+   *  the SAME characteristics exists in the chosen naselba, so Lina asked —
+   *  smaller+cheaper HERE, or same characteristics in NEIGHBOURING naselbi?
+   *  Set only while that question is the client's open context; the answer
+   *  message routes on it. */
+  cheaperChoicePending?: boolean;
+  /** The [20:33] two-way choice: the criteria-fitting pool is exhausted and
+   *  Lina asked whether the client wants something MORE EXPENSIVE in the same
+   *  area or the SAME price in other neighborhoods — set while that question
+   *  is the client's open context; the answer message routes on it. */
+  moreChoicePending?: boolean;
+  /** The property the cheaper search anchors on — what he CHOSE. Filled from
+   *  the focused EB when the two-way choice is asked; the "elsewhere" answer
+   *  re-uses these characteristics verbatim in the other naselbi. */
+  cheaperAnchor?: { bedrooms?: number; sqm?: number; house?: boolean; business?: boolean; price?: number };
   viewingFeeAgreed?: boolean;
   // v2 — visit sub-funnel
   visitTime?: string;           // client's proposed time (free text)
@@ -56,6 +80,16 @@ export interface SlotData {
    *  proposal is a SECOND owner turn — it relays "the client can't do X,
    *  here is Y" instead of repeating the first-time availability intro. */
   ownerAskTime?: string;
+  /** The open WHOLE-DAY counter the owner just gave («ke mora vo ponedelnik,
+   *  bilo koe vreme» — seeded into visitTime so the client's exact-clock answer
+   *  completes the owner's own day). While it is set, the client's completed
+   *  term is an ACCEPTANCE of the owner's counter, never a refusal — the owner
+   *  follow-up must read acceptance («го прифати Вашиот предлог»), because a
+   *  «не е во можност» ping for a term the owner himself proposed erased the
+   *  coordination (the [01:07] capture: the client agreed to 17:00 and the
+   *  owner was asked about «не е во можност… 05:00»). Cleared on any owner
+   *  verdict (fixed counter / ok / goneclose the whole-day offer). */
+  ownerCounterWholeDay?: string;
   feeRejections?: number;       // VISIT-FEE ladder: 1..3; 3 = graceful close + customer queued
   /** RENT-COMMISSION ladder (the second money topic, see provisionLadder): its
    *  own counter so resisting the commission never burns a visit-fee rung and
@@ -80,6 +114,7 @@ export interface SlotData {
   goneAlternativesEb?: number;
   queueAfterContact?: boolean;  // exhausted-options flow: collect contact, then queue
   ownerContactPending?: boolean; // availability ack sent — waiting for client to confirm they WANT owner contact (fee comes AFTER this)
+  pendingVisitConfirm?: boolean; // a re-confirm ("Дали сè уште сте заинтересирани за посета?") is open — a bare "да" now OPENS the fee protocol (the [13:28] multi-question capture), never a card re-serve
   byeServed?: boolean;           // a farewell was already sent this session — a SECOND goodbye gets the short bye.again parting, not a repeated thank-you
   exitCheckServed?: boolean;      // the exit final-check („дали некоја понудена опција има шанса?“) was already asked this session — an exit-shaped repeat goes straight to the farewell lanes
   bothServices?: boolean;        // client wants BOTH buy and rent — ask property type first, then service

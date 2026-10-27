@@ -74,6 +74,40 @@ test('retrieval: trigram similarity matches paraphrase', () => {
   cleanup();
 });
 
+test('retrieval: the same question in the OTHER script matches (script fold)', () => {
+  const { store, cleanup } = freshBank();
+  // Stored exactly as the client typed it that day — uppercase Latin, the
+  // captured-enrichment shape (#239 class: "AMA ZOSTO MORAM…").
+  store.addExample('learn.ama-zosto-moram', 'AMA ZOSTO MORAM DA PLATAM ZA DA GO VIDAM STANOT?');
+  store.addVariant('learn.ama-zosto-moram', 'Надоместокот за разгледување е симболичен.');
+  setLearnedBank(store);
+  // A Cyrillic repeat — the shape that scored ~0 trigrams before the fold —
+  // hits through containment (identical strings after folding).
+  assert.equal(retrieveVariant('ама зосто морам да платам за да го видам станот'),
+    'Надоместокот за разгледување е симболичен.');
+  // The client spelling зошто (≠ зосто, one sound apart) is NOT a containment
+  // hit — it must still land through the trigram floor (≥ 0.55).
+  assert.equal(retrieveVariant('ама зошто морам да платам за да го видам станот'),
+    'Надоместокот за разгледување е симболичен.');
+  assert.equal(retrieveVariant('барам стан во центар со лифт'), undefined,
+    'an unrelated Cyrillic message still misses');
+  setLearnedBank(undefined);
+  cleanup();
+});
+
+test('retrievalExact: cross-script literal rephrasing serves the key', () => {
+  const { store, cleanup } = freshBank();
+  store.addExample('learn.kazi-znaes', 'kazi mi sto znaes za 58');
+  store.addVariant('learn.kazi-znaes', 'Еве што знам за тој стан.');
+  setLearnedBank(store);
+  // Same script-folded string in the other script + caps: a literal recall.
+  assert.equal(store.retrieveExact('КАЗИ МИ СТО ЗНАЕС ЗА 58')?.key, 'learn.kazi-znaes');
+  // retrieveExact stays literal: one different token is still not a match.
+  assert.equal(store.retrieveExact('kazi mi sto znaes za 59'), undefined);
+  setLearnedBank(undefined);
+  cleanup();
+});
+
 test('retrieval: unmatched message returns undefined (escalates)', () => {
   const { store, cleanup } = freshBank();
   store.addExample('a.k', 'kako e vremeto denes');

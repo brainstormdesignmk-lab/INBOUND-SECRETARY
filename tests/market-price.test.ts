@@ -650,6 +650,21 @@ test('ordering comparatives and low/high price asks are detected', () => {
   // A bare cheaper SEARCH keeps its own ladder — the price lane must not steal
   // the price.shy contract (cheapest-first from the pool, widen only on yes).
   assert.equal(extractPriceExtremeQuery('daj nesto poeftino vo toj reon'), undefined);
+  // ACCESS-SUPERLATIVE (the [02:56] capture): „najpristapni/najpovolni ceni“
+  // beside an AREA noun is the cheap end — the евтин/скап family never
+  // covered those words and the turn fell to the clarify ask.
+  for (const text of [
+    'koja naselba ima najpristapni ceni ?',
+    'KOJA NASELBA IMA NAJPRISTAPNI CENI?',
+    'која населба има најпристапни цени?',
+    'koj reon ima najpovolni ceni?',
+  ]) {
+    assert.equal(extractPriceExtremeQuery(text)?.mode, 'cheapest', `must be cheapest: ${text}`);
+    assert.ok(detectPriceExtremeAsk(text), `must fire: ${text}`);
+  }
+  // WITHOUT the area noun the accessible word stays with the cheap-search
+  // funnel, never the extremes lane.
+  assert.equal(extractPriceExtremeQuery('daj mi stan so najpristapni ceni'), undefined);
 });
 
 test('„почни од поефтините“ serves the cheap end of the named area', async () => {
@@ -676,6 +691,93 @@ test('a low/high price ask without an adjective ranks the same ends', async () =
   high.sessions.set(freshSession('test', c2));
   await high.handler.handle('test', c2, 'KOJA E NAJVISOKATA CENA VO AERODROM?');
   assert.match(high.sent[high.sent.length - 1] ?? '', /^Најскапиот стан во Аеродром е со Евидентен број 102/u);
+});
+
+// ── THE [13:47] CAPTURE — „VO KOJA NASELBA SE NAJEFTINI STANOVITE“ ───────────
+// The client compares NEIGHBOURHOODS, not rows. Lina computes the AVERAGE €/м²
+// per naselba (each row's own price-per-м² summed, divided by that naselba's
+// row count) and names the naselba with the LOWEST mean, in the operator's
+// exact wording. With ROWS: Аеродром (1113+1218+1100)/3 = 1.144 — the lowest
+// mean (Карпош II 1.200, Карпош III 1.300, Центар 1.467).
+test('„во која населба“ names the naselba with the lowest average €/м² — the operator wording', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'naselba-avg';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'VO KOJA NASELBA SE NAJEFTINI STANOVITE');
+  const answer = sent[sent.length - 1] ?? '';
+  // The [02:56] owner rule: the naselba line ALONE was half the answer — the
+  // mean must be followed by the flat whose €/м² is closest to it (Аеродром
+  // rows 1.113/1.218/1.100 → mean 1.144; eb 101 at 1.113 is nearest) and the
+  // visit followup.
+  assert.equal(answer,
+    'МОМЕНТАЛНО НАСЕЛБА СО НАЈЕФТИНА ЦЕНА НА СТАНОВИ ВО СКОПЈЕ Е АЕРОДРОМ СО ПРОСЕЧНА ЦЕНА ОД 1.144 ПО МЕТАР КВАДРАТЕН. '
+    + 'Стан со цена најблиску до просечната цена по квадрат во Аеродром е Евидентен број 101 — цената од 69.000 евра, односно 1.113 евра за м². '
+    + 'Дали би сакале да Ви организирам посета?',
+    answer);
+});
+
+test('the naselba comparison follows the type in the ask: куќи, деловни објекти, плацови', async () => {
+  const HOUSE_ROWS: Property[] = [
+    { eb: 210, id: 210, address: 'Влае 1', location: 'Влае', price: 126000, sqm: 100, service: 'buy', house: true, bedrooms: 4 },
+    { eb: 211, id: 211, address: 'Влае 3', location: 'Влае', price: 134000, sqm: 100, service: 'buy', house: true, bedrooms: 4 },
+    { eb: 212, id: 212, address: 'Кисела Вода 2', location: 'Кисела Вода', price: 100000, sqm: 100, service: 'buy', house: true, bedrooms: 4 },
+  ];
+  const { handler, sessions, sent } = makeHandler(HOUSE_ROWS);
+  const chatId = 'naselba-avg-house';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'VO KOJA NASELBA SE NAJEFTINI KUKJITE');
+  const answer = sent[sent.length - 1] ?? '';
+  // Кисела Вода: 100.000/100 = 1.000 €/м² — below Влае's mean (1.300); the
+  // closest-to-average flat inside THAT naselba follows (the same noun the
+  // ask used: куќа), and the visit followup closes the answer.
+  assert.equal(answer,
+    'МОМЕНТАЛНО НАСЕЛБА СО НАЈЕФТИНА ЦЕНА НА КУЌИ ВО СКОПЈЕ Е КИСЕЛА ВОДА СО ПРОСЕЧНА ЦЕНА ОД 1.000 ПО МЕТАР КВАДРАТЕН. '
+    + 'Куќа со цена најблиску до просечната цена по квадрат во Кисела Вода е Евидентен број 212 — цената од 100.000 евра, односно 1.000 евра за м². '
+    + 'Дали би сакале да Ви организирам посета?',
+    answer);
+});
+
+// ── THE [02:56] CAPTURE — „KOJA NASELBA IMA NAJPRISTAPNI CENI ?“ ────────────
+// The client asks WHERE the prices are most accessible ACROSS naselbi. The
+// евтин/скап superlative family covers neither word, so before this the turn
+// reached the property-price lane and answered „За кое конкретно станува
+// збор?“ — the clarify for a single flat ask, never the market ask. The
+// accessible family beside an AREA noun maps onto the same which-naselba
+// comparison: lowest mean €/м² wins, then the closest-to-average flat.
+test('„koja naselba ima najpristapni ceni ?“ fires the naselba comparison with the closest flat + followup', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'naselba-access';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'koja naselba ima najpristapni ceni ?');
+  const answer = sent[sent.length - 1] ?? '';
+  assert.match(answer, /НАСЕЛБА СО НАЈЕФТИНА ЦЕНА/u, answer);
+  assert.match(answer, /Евидентен број 101/u, answer);
+  assert.match(answer, /Дали би сакале да Ви организирам посета\?/u, answer);
+  // The clarify ask is the capture itself — it must never come back.
+  assert.doesNotMatch(answer, /За кое конкретно станува збор/u, answer);
+});
+
+// NO naselba WORD → the ordinary cheapest listing (a row answer, not the mean);
+// RENT → no €/м² fact exists, so the mean lane must stay silent there too.
+test('the mean answer only fires for a buy naselba comparison — other shapes keep the lane', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'naselba-avg-guards';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'KOJA E NAJNISKATA CENA VO AERODROM?');
+  assert.doesNotMatch(sent[sent.length - 1] ?? '', /ПРОСЕЧНА ЦЕНА/u);
+
+  const rent = makeHandler();
+  const chatId2 = 'naselba-avg-rent';
+  rent.sessions.set(freshSession('test', chatId2));
+  await rent.handler.handle('test', chatId2, 'VO KOJA NASELBA SE NAJEFTINI STANOVITE PO KIRIJA?');
+  const answer2 = rent.sent[rent.sent.length - 1] ?? '';
+  assert.doesNotMatch(answer2, /ПРОСЕЧНА ЦЕНА/u, answer2);
+  // The market-price band owns this rent question — either lane, no mean.
+  assert.match(answer2, /варираат од/u, answer2);
 });
 
 // A figure without any currency or unit still names a price when the message is

@@ -276,10 +276,14 @@ export class VisitScheduler {
     if (!row) return false;
     const eb = row.propertyId;
 
-    // Mark all pending turns as skipped
-    this.db.db.prepare(
+    // Mark all pending turns as skipped — the visit-day protocol must go quiet
+    // too (the morning confirmation and the exact-location turn are scheduled
+    // hours ahead; without this the client gets «ДОГОВОРЕНА ПОСЕТА» for a visit
+    // they cancelled). The count is reported to the operator below: it is the
+    // only record of which protocol messages were deliberately dropped.
+    const skipped = this.db.db.prepare(
       `UPDATE visit_turns SET status = 'skipped' WHERE appointment_id = ? AND status = 'pending'`
-    ).run(appointmentId);
+    ).run(appointmentId).changes;
 
     // Send cancellation message to BOTH parties
     const text = by === 'client'
@@ -299,8 +303,13 @@ export class VisitScheduler {
     const ownerParty: Party | undefined = owner && (owner.name || owner.phone)
       ? { name: owner.name || 'Сопственик', phone: owner.phone || '?' }
       : undefined;
+    // Which turns the cancellation silenced is part of the operator's picture:
+    // "3 pending turns skipped" means the morning confirm + location never sent,
+    // "0" means everything had already gone out and the client cancels on the
+    // day (the operator may want to call the owner).
+    const turnWord = skipped === 1 ? 'pending turn' : 'pending turns';
     await this.deps.notifyOperator(
-      `[ЛОГ ПОСЕТА ЕБ ${eb}] CANCELLED by ${by} — OWNER: ${ownerParty?.name ?? '?'} / CLIENT: ${row.clientName} (${row.clientPhone})`);
+      `[ЛОГ ПОСЕТА ЕБ ${eb}] CANCELLED by ${by} — ${skipped} ${turnWord} skipped — OWNER: ${ownerParty?.name ?? '?'} / CLIENT: ${row.clientName} (${row.clientPhone})`);
     return true;
   }
 

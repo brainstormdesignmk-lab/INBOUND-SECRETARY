@@ -327,6 +327,285 @@ test('[11:29] the same HAD-verb without the determiner stays a SEARCH ask', asyn
   offlineMap.close();
 });
 
+test('[11:07] a house for rent at Олимпико: the area is the house’s own, and the number is never asked after the disclaim', async () => {
+  // The [11:07]/[11:08] capture, deterministic path (no LLM):
+  //   [11:07] ЗДРАВО , ИМАТЕ ОБЈАВЕНО ЕДНА КУЌА ЗА ИЗДАВАЊЕ КАЈ ОЛИМПИКО
+  //   [11:07] ЛИНА: 1. колку спални соби?  2. до која цена?      ← the grill
+  //   [11:08] ЈА ВИДОВ ОВАА КУЌА НА ВАШАТА СТРАНИЦА . АМА БРОЈОТ НЕ ГО ЗАПИШАВ
+  //   [11:08] ЛИНА: Разбрав — Карпош III. … Евидентен број?    ← two bugs
+  // The area was WRONG: the vote over the 1.5 km ring counted two Карпош III
+  // rows, while the row standing AT the place (address "Тц Олимпико", 247 m)
+  // is tagged Тафталиџе — so she named a neighborhood the client never said and
+  // then served the Тафталиџе card in the same breath. And the number he had
+  // just disclaimed was invited again.
+  const OLIMPIKO_MAP = () => {
+    const dbPath = path.join(os.tmpdir(), `olimpiko-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    writeMap(dbPath, [
+      { name: 'Олимпико', type: 'mall', lat: 42.0005215, lon: 21.39187, source: 'google' },
+    ], []);
+    return new OfflineMapStore(dbPath);
+  };
+  const ROWS_OLIMPIKO: Property[] = [
+    // The house for rent standing at the place itself.
+    { eb: 62, id: 62, location: 'Тафталиџе', price: 450, service: 'rent', house: true, sqm: 100, size: '100 м²', address: 'Тц Олимпико', lat: 41.9983, lon: 21.3919, geo_source: 'stored' } as Property,
+    // Neighbours inside the 1.5 km ring, tagged Карпош III / Козле — without
+    // the address evidence their vote outnumbered the house's own area.
+    { eb: 48, id: 48, location: 'Карпош III', price: 600, service: 'rent', sqm: 80, size: '80 м²', address: 'Руските Згради', lat: 42.0037, lon: 21.3934, geo_source: 'stored' } as Property,
+    { eb: 54, id: 54, location: 'Карпош III', price: 550, service: 'rent', sqm: 70, size: '70 м²', address: 'Роберт Кох 3', lat: 42.0042, lon: 21.3920, geo_source: 'stored' } as Property,
+    { eb: 52, id: 52, location: 'Козле', price: 500, service: 'rent', sqm: 65, size: '65 м²', address: 'Козле', lat: 42.0055, lon: 21.3890, geo_source: 'stored' } as Property,
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS_OLIMPIKO);
+  const llm = new FailingLlm();
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, text: string) => { sent.push(text); } });
+  const offlineMap = OLIMPIKO_MAP();
+  const handler = new InboundHandler({
+    cfg, db, sessions,
+    classifier: new Classifier(llm, cfg, properties),
+    responder: new Responder(llm, cfg),
+    properties,
+    appointments: new AppointmentStore(db),
+    escalations: new EscalationStore(db),
+    meta: new MetaStore(db),
+    channels,
+    landmarks: new LandmarkService(db, { osm: false, google: false, offlineMap }),
+    enrichment: new EnrichmentStore(db),
+  });
+  const chatId = 'olimpiko';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  const s = await send('ЗДРАВО , ИМАТЕ ОБЈАВЕНО ЕДНА КУЌА ЗА ИЗДАВАЊЕ КАЈ ОЛИМПИКО');
+  const reply = sent[sent.length - 1];
+  // ОБЈАВЕНО … ЗА ИЗДАВАЊЕ is a RENT listing — never a buy search.
+  assert.equal(s.slots.service, 'rent', `издавање is the rent category: ${s.slots.service}`);
+  assert.equal(s.slots.house, true, 'a house was named');
+  assert.equal(s.slots.location, 'Тафталиџе', `the area is the house’s own: ${s.slots.location}`);
+  assert.ok(!/карпош/i.test(reply), `the neighbours’ Карпош III vote must not be spoken: ${reply}`);
+  assert.ok(reply.includes('Тафталиџе'), `the house’s area is connected to the place: ${reply}`);
+  // The place IS the search — the one house there is served, not a grill.
+  assert.ok(reply.includes('Евидентен број 62'), `the house at Олимпико is served: ${reply}`);
+  assert.ok(!/Колку спални соби/.test(reply), `no specs grill on a place the bank can answer: ${reply}`);
+  // One card, one question — never a choice between «првиот» and «вториот»
+  // when only one property is on screen.
+  assert.ok(reply.includes('Дали ова е куќата што ја видовте?'), `a lone card gets the singular question: ${reply}`);
+  assert.ok(!/вториот/.test(reply), `no second option to pick: ${reply}`);
+
+  // [11:08] he says he does not have the number: no invite may follow.
+  const s2 = await send('ЈА ВИДОВ ОВАА КУЌА НА ВАШАТА СТРАНИЦА . АМА БРОЈОТ НЕ ГО ЗАПИШАВ');
+  const reply2 = sent[sent.length - 1];
+  assert.ok(!/Евидентен број на недвижноста|го знаете Евидентен број/.test(reply2),
+    `the disclaimed number is never invited again: ${reply2}`);
+  assert.ok(reply2.includes('Тафталиџе'), `the same area is confirmed back: ${reply2}`);
+  assert.equal(s2.slots.location, 'Тафталиџе');
+  // …and the intro agrees in number with the single card it introduces.
+  assert.ok(reply2.includes('Еве ја најблиската недвижност'), `singular agreement: ${reply2}`);
+  assert.ok(!/Еве ги најблиските недвижности/.test(reply2), `never the plural opener over one card: ${reply2}`);
+
+  // The pick closes the locate funnel on the house itself: EB 62 is bound and
+  // the RENT fee protocol opens (300 ден = 5 евра, never the buy 500).
+  const s3 = await send('ПРВИОТ');
+  assert.equal(s3.slots.propertyId, 62, 'the pick binds the house that was served');
+  assert.equal(s3.state, 'closing', `the pick opens the closing lane: ${s3.state}`);
+  assert.ok(/300 денари/.test(sent[sent.length - 1]), `the rent fee is the one disclosed: ${sent[sent.length - 1]}`);
+  // …and availability is answered from the row, not from a guess.
+  const s4 = await send('ДАЛИ Е УШТЕ СЛОБОДНА?');
+  assert.ok(/достапн|активна/i.test(sent[sent.length - 1]), `availability is answered: ${sent[sent.length - 1]}`);
+  assert.equal(s4.slots.propertyId, 62);
+
+  // A money question asked in the same breath as the fee gets BOTH answers:
+  // the rent figure of the property on the table first, then the fee protocol.
+  // The fee lane owns the turn, so suppressing the figure read as evasion.
+  await send('КОЛКУ Е КИРИЈАТА И ШТО ПЛАЌАМ ЗА ПОСЕТА?');
+  const moneyReply = sent[sent.length - 1];
+  assert.ok(moneyReply.includes('450'), `the rent he asked about is quoted: ${moneyReply}`);
+  assert.ok(moneyReply.includes('300 денари'), `the fee is still disclosed: ${moneyReply}`);
+  assert.ok(moneyReply.indexOf('450') < moneyReply.indexOf('300'),
+    `the figure comes before the fee pitch: ${moneyReply}`);
+  offlineMap.close();
+});
+
+test('[20:56] "КАЈ ОЛИМПИКО ОКОЛУ 400 ЕВРА БЕШЕ": a LIVE listing is never called archived', async () => {
+  // The [20:56] capture:
+  //   [20:56] CLEDAV EDNA KUKJAA KAJ VAS NA SAJT ZA RENTANJE
+  //   [20:56] KAJ OLIMPIKO OKOLU 400 EVRA BESE
+  //   [20:56] ЛИНА: Таа куќа беше стара понуда од нашата архива и веќе не е активна…
+  // EB 62 was live the whole time (house, rent, 450 €, 247 m from ТЦ Олимпико).
+  // Two defects fed that lie: «ZA RENTANJE» was not read as rent (so the funnel
+  // re-asked buy-or-rent), and the MARKET_MEMORY lane declared the recall
+  // archived WITHOUT looking at the bank.
+  const dbPath = path.join(os.tmpdir(), `recall-2056-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+  writeMap(dbPath, [
+    { name: 'Олимпико', type: 'mall', lat: 42.0005215, lon: 21.39187, source: 'google' },
+    // A place with no property anywhere near it — the honest archive case.
+    { name: 'Курирска Станица Исток', type: 'post', lat: 42.0800, lon: 21.5200, source: 'google' },
+  ], []);
+  const offlineMap = new OfflineMapStore(dbPath);
+  const ROWS_RECALL: Property[] = [
+    { eb: 62, id: 62, location: 'Тафталиџе', price: 450, service: 'rent', house: true, sqm: 100, size: '100 м²', address: 'Тц Олимпико', lat: 41.9983, lon: 21.3919, geo_source: 'stored' } as Property,
+    { eb: 50, id: 50, location: 'Центар', price: 250, service: 'rent', house: true, sqm: 74, size: '74 м²', address: 'Христо Смирненски 41', lat: 41.9950, lon: 21.4180, geo_source: 'stored' } as Property,
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS_RECALL);
+  const llm = new FailingLlm();
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, text: string) => { sent.push(text); } });
+  const handler = new InboundHandler({
+    cfg, db, sessions,
+    classifier: new Classifier(llm, cfg, properties),
+    responder: new Responder(llm, cfg),
+    properties,
+    appointments: new AppointmentStore(db),
+    escalations: new EscalationStore(db),
+    meta: new MetaStore(db),
+    channels,
+    landmarks: new LandmarkService(db, { osm: false, google: false, offlineMap }),
+    enrichment: new EnrichmentStore(db),
+  });
+  const say = async (chat: string, m: string) => {
+    await handler.handle('test', chat, m);
+    return { reply: sent[sent.length - 1], session: sessions.get(chat)! };
+  };
+
+  // «ZA RENTANJE» is a RENT word — the funnel must not ask buy-or-rent again.
+  const t1 = await say('c2056a', 'CLEDAV EDNA KUKJAA KAJ VAS NA SAJT ZA RENTANJE');
+  assert.equal(t1.session.slots.service, 'rent', 'rentanje names the rent segment');
+  assert.ok(!/купување или|изнајмување\?/.test(t1.reply), `never the buy-or-rent re-ask: ${t1.reply}`);
+
+  // Place + remembered price: the live house is served.
+  const t2 = await say('c2056a', 'KAJ OLIMPIKO OKOLU 400 EVRA BESE');
+  assert.ok(t2.reply.includes('Евидентен број 62'), `the live house is served: ${t2.reply}`);
+  assert.ok(!/архива|не е активна/.test(t2.reply), `never called archived: ${t2.reply}`);
+
+  // The recall SHAPE that reached the archive lane: the bank is consulted first.
+  const t3 = await say('c2056b', 'IMASE EDNA KUKJA KAJ VAS KAJ OLIMPIKO OKOLU 400 EVRA KIRIJA');
+  assert.ok(!/архива|не е активна/.test(t3.reply), `a live listing is never an archive: ${t3.reply}`);
+  assert.ok(t3.reply.includes('Евидентен број 62'), `the live listing answers the recall: ${t3.reply}`);
+  assert.ok(t3.reply.includes('Олимпико'), `the place is confirmed back: ${t3.reply}`);
+
+  // …and a recall with NOTHING near the place keeps the honest admission.
+  const t4 = await say('c2056c', 'IMASE EDNA KUKJA KAJ VAS KAJ KURIRSKA STANICA ISTOK OKOLU 400 EVRA KIRIJA');
+  assert.ok(/архива/.test(t4.reply), `a genuinely old offer is still admitted: ${t4.reply}`);
+  offlineMap.close();
+});
+
+test('[21:27] after serving a house, "КОГА МОЖЕ ДА СЕ ВИДИ?" opens the owner check, never a search', async () => {
+  // The [21:27]/[21:28] capture:
+  //   [21:27] DALI E SLOBODNA I DALI JA IMATE USTE?      → the house is served
+  //   [21:28] MISLAM DEKA BESE TAA
+  //   [21:28] KOGA MOZE DA SE VIDI ?
+  //   [21:28] ЛИНА: Во моментов немам куќа во Тафталиџе … но имам куќа во Центар
+  // The property she had just confirmed was declared absent one message later,
+  // because the viewing question was routed as a fresh SEARCH: the presentation
+  // re-ran without the card it had already shown and spilled to another area.
+  // A timing question about a shown card belongs to the owner-check protocol.
+  const dbPath = path.join(os.tmpdir(), `visit-2127-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+  writeMap(dbPath, [
+    { name: 'Олимпико', type: 'mall', lat: 42.0005215, lon: 21.39187, source: 'google' },
+  ], []);
+  const offlineMap = new OfflineMapStore(dbPath);
+  const ROWS_VISIT: Property[] = [
+    { eb: 62, id: 62, location: 'Тафталиџе', price: 450, service: 'rent', house: true, sqm: 100, size: '100 м²', address: 'Тц Олимпико', lat: 41.9983, lon: 21.3919, geo_source: 'stored' } as Property,
+    { eb: 50, id: 50, location: 'Центар', price: 250, service: 'rent', house: true, sqm: 74, size: '74 м²', address: 'Христо Смирненски 41', lat: 41.9950, lon: 21.4180, geo_source: 'stored' } as Property,
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(ROWS_VISIT);
+  const llm = new FailingLlm();
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, text: string) => { sent.push(text); } });
+  const handler = new InboundHandler({
+    cfg, db, sessions,
+    classifier: new Classifier(llm, cfg, properties),
+    responder: new Responder(llm, cfg),
+    properties,
+    appointments: new AppointmentStore(db),
+    escalations: new EscalationStore(db),
+    meta: new MetaStore(db),
+    channels,
+    landmarks: new LandmarkService(db, { osm: false, google: false, offlineMap }),
+    enrichment: new EnrichmentStore(db),
+  });
+  const say = async (m: string) => {
+    await handler.handle('test', 'c2127', m);
+    return { reply: sent[sent.length - 1], session: sessions.get('c2127')! };
+  };
+
+  await say('CLEDAV EDNA KUKJAA KAJ VAS NA SAJT ZA RENTANJE');
+  await say('KAJ OLIMPIKO OKOLU 400 EVRA BESE');
+  const a = await say('DALI E SLOBODNA I DALI JA IMATE USTE?');
+  assert.ok(!/немам/.test(a.reply), `the availability answer never denies the house: ${a.reply}`);
+  assert.ok(/сопственик/.test(a.reply), `the owner check is offered: ${a.reply}`);
+
+  const b = await say('MISLAM DEKA BESE TAA');
+  assert.ok(b.reply.includes('62'), `the shown house is confirmed: ${b.reply}`);
+  assert.ok(!/Евидентен број 50/.test(b.reply), `never a different house: ${b.reply}`);
+
+  const c = await say('KOGA MOZE DA SE VIDI ?');
+  assert.ok(!/Во моментов немам/.test(c.reply), `never an absence claim after serving it: ${c.reply}`);
+  assert.ok(/сопственик/.test(c.reply), `the owner check protocol answers the timing question: ${c.reply}`);
+  assert.ok(!/Евидентен број 50/.test(c.reply), `no second house on a viewing question: ${c.reply}`);
+  assert.equal(c.session.slots.interestedPropertyId, 62, 'the viewing question binds the shown house');
+  offlineMap.close();
+});
+
+test('the area rule is DATA, not a fixture: any imported row whose address names the place wins', async () => {
+  // The Олимпико repair must hold for properties imported TOMORROW, not just
+  // the rows that exist today: nothing in it may know an EB, a place name or a
+  // neighborhood. This pins the rule itself — a made-up place, a made-up EB,
+  // three neighbours voting for another area, and one row whose ADDRESS names
+  // the place. The address-bearing row's area must win.
+  const dbPath = path.join(os.tmpdir(), `new-import-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+  writeMap(dbPath, [
+    { name: 'Магацин Пелагонија', type: 'shop', lat: 42.0100, lon: 21.4200, source: 'google' },
+  ], []);
+  const offlineMap = new OfflineMapStore(dbPath);
+  const NEW_ROWS: Property[] = [
+    // The freshly imported listing — its address names the place.
+    { eb: 9001, id: 9001, location: 'Влае', price: 700, service: 'rent', house: true, sqm: 120, size: '120 м²', address: 'Магацин Пелагонија', lat: 42.0091, lon: 21.4200, geo_source: 'stored' } as Property,
+    // Three older rows around it, all tagged another area.
+    { eb: 9002, id: 9002, location: 'Карпош', price: 400, service: 'rent', sqm: 60, size: '60 м²', address: 'Ул. А', lat: 42.0085, lon: 21.4205, geo_source: 'stored' } as Property,
+    { eb: 9003, id: 9003, location: 'Карпош', price: 420, service: 'rent', sqm: 62, size: '62 м²', address: 'Ул. Б', lat: 42.0080, lon: 21.4195, geo_source: 'stored' } as Property,
+    { eb: 9004, id: 9004, location: 'Карпош', price: 440, service: 'rent', sqm: 64, size: '64 м²', address: 'Ул. В', lat: 42.0078, lon: 21.4208, geo_source: 'stored' } as Property,
+  ];
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const properties = new FakeProps(NEW_ROWS);
+  const llm = new FailingLlm();
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, text: string) => { sent.push(text); } });
+  const handler = new InboundHandler({
+    cfg, db, sessions,
+    classifier: new Classifier(llm, cfg, properties),
+    responder: new Responder(llm, cfg),
+    properties,
+    appointments: new AppointmentStore(db),
+    escalations: new EscalationStore(db),
+    meta: new MetaStore(db),
+    channels,
+    landmarks: new LandmarkService(db, { osm: false, google: false, offlineMap }),
+    enrichment: new EnrichmentStore(db),
+  });
+  await handler.handle('test', 'new-import', 'имате куќа за издавање кај магацин пелагонија');
+  const s = sessions.get('new-import')!;
+  assert.equal(s.slots.location, 'Влае', `the address-bearing row's area wins: ${s.slots.location}`);
+  const reply = sent[sent.length - 1];
+  assert.ok(reply.includes('Влае'), `the area follows the row at the place: ${reply}`);
+  assert.ok(!/Карпош/.test(reply), `the neighbours' majority is not spoken: ${reply}`);
+  assert.ok(reply.includes('9001'), `the newly imported house is served: ${reply}`);
+  offlineMap.close();
+});
+
 test('[13:28] he does NOT know the number: price and neighborhood are asked', async () => {
   const { send, sent, offlineMap } = await makeHandler();
   await send('SAKAM DA KUPAM STAN TROSOBEN');

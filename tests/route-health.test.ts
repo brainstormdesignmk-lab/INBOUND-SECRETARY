@@ -2,7 +2,7 @@
 // fires on the FIELD case and stays quiet on legitimate fee traffic.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeRows, healthLine, healthRatesLine } from '../src/scripts/routeHealth';
+import { analyzeRows, healthLine, healthRatesLine, frameCounts, framesLine, emitCorpusRows } from '../src/scripts/routeHealth';
 
 const STAMP = { state: 'closing', eventType: 'FEE_PUSH_FAST' };
 
@@ -102,4 +102,31 @@ test('rates: an empty queue has no division by zero', () => {
   assert.deepEqual(rates.misrouteRate, {});
   assert.equal(rates.orphanRate, 0);
   assert.equal(rates.freezeRefusalRate, 0);
+});
+
+// FRAME WATCH — the two [22:2x]/[02:4x] frames the corpus was just closed on
+// stay under production surveillance: a drift row for either frame arrives
+// pre-labeled, and the CLI health line carries its tally. Other lanes are
+// invisible to the watch — it counts nothing it cannot name.
+test('frame watch: the new fee frames are tallied and pre-label the corpus feed', () => {
+  const fc = frameCounts([
+    { userMsg: 'vazi, ke si platam za gledanjeto' },        // amountless-pay-view
+    { userMsg: 'zoska 500 denari ?' },                      // why-fee-amount
+    { userMsg: 'zoshto 1.430.000 denari za stanot?' },      // property sized — no frame
+    { userMsg: 'ke platam 500 den za poseta' },             // consent (amount) — no frame
+    { userMsg: 'kolku e za poseta?' },                      // kolku ask — no frame
+  ]);
+  assert.equal(fc['amountless-pay-view'], 1);
+  assert.equal(fc['why-fee-amount'], 1);
+  assert.equal(framesLine(fc), 'frame-watch:amountless-pay-view=1 why-fee-amount=1');
+
+  const rows = emitCorpusRows([
+    { at: Date.now(), chatId: 'c', text: 'resheno, ke si platem za posetata', predicted: 'STAY', actual: 'CAPTURE' },
+    { at: Date.now(), chatId: 'c2', text: 'zoshto 500 denari ?', predicted: 'STAY', actual: 'OTHER' },
+  ]);
+  assert.equal(rows.length, 2);
+  const labeled = rows.filter(r => /note: 'frame /.test(r));
+  assert.equal(labeled.length, 2, `every watched frame must pre-label its corpus row:\n${rows.join('\n')}`);
+  assert.ok(rows.some(r => /frame amountless-pay-view/.test(r)), rows.join('\n'));
+  assert.ok(rows.some(r => /frame why-fee-amount/.test(r)), rows.join('\n'));
 });

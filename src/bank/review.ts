@@ -54,6 +54,18 @@ export interface ReviewItem {
    *  'fail' = refused by the text gates (hygiene/duplicate), 'key' = the
    *  turn's key is frozen/data-driven (nothing to bank here). */
   flag?: 'ok' | 'key' | 'fail';
+  /** A refusal whose EVERY cause is a duplicate/similarity hit: the bank
+   *  already owns this wording, so there is no content action left — the fix
+   *  lives in the serve path (lane composition), not in the bank. Paints
+   *  orange (= code) instead of the bankable-content red. */
+  bankOwned?: boolean;
+  /** A COMPOSED serve, not client-voice copy at all: property-card batches
+   *  (the text embeds served Евидентен број rows) and owner-relay protocol
+   *  pings (both directions). The gates misread its card prices/protocol
+   *  wording as dirty copy because the serve context is lost on capture —
+   *  the actionable fix is code/feed-side, so it paints orange like
+   *  bankOwned, never the bankable-content red. */
+  composed?: boolean;
   verdict?: string;
 }
 
@@ -170,6 +182,12 @@ export class BankReview {
           createdAt: r.createdAt,
           status: r.enriched ? 'logged' : 'pending',
         };
+        // COMPOSED-SERVE class (see the interface note). An Евидентен број
+        // card serve is code-composed from feed rows; owner-relay rows are
+        // protocol pings logged in both directions. Neither is client-voice
+        // learnable copy, so their gates' verdicts must not paint red.
+        item.composed = r.replySource === 'owner-relay'
+          || /Евидентен број \d+/.test(r.replyText ?? '');
         const key = this.suggestKey(item);
         const kerr = validateBankKey(key);
         if (kerr) {
@@ -180,6 +198,13 @@ export class BankReview {
           if (errs.length > 0) {
             item.flag = 'fail';
             item.verdict = errs.join('; ');
+            // CODE-CLASS REFUSAL: only duplicate/similarity causes — the exact
+            // (or near) wording already sits in the bank, so E/push can add
+            // nothing. The red “dirty text” class stays bankable: an E edit
+            // CAN clean it. A “bank-owned” refusal is a lane problem — #251/
+            // #252 (budget-up asks served the price.negotiate pitch the pool
+            // already held) were exactly this and painted red forever.
+            item.bankOwned = errs.every(e => /^(duplicate variant|too similar to an existing)/.test(e));
           } else {
             item.flag = 'ok';
           }
@@ -423,6 +448,14 @@ export class BankReview {
     if (item.category === 'dynamic' && item.status === 'processed') {
       return { ok: false, reason: 'dynamic capture is already processed (audit history only)' };
     }
+    // COMPOSED rows are not client-voice copy: a property-card batch embeds
+    // served EB rows and an owner-relay ping is protocol address (both
+    // directions client→owner and owner→client). Pushing one would stage
+    // machine-composed text as if a human had written it (#244 validated
+    // CLEAN and was one keystroke away from staging the owner template).
+    if (item.composed) {
+      return { ok: false, reason: 'composed serve (card batch / owner-relay ping) — nothing to bank; fix lives in code/data' };
+    }
     const kerr = validateBankKey(key);
     if (kerr) return { ok: false, reason: kerr };
     const errs = validateBankText(key, text, this.existingFor(key));
@@ -441,6 +474,34 @@ export class BankReview {
     return { ok: true, key, staged: true };
   }
 
+  /** Close dynamic evidence (the enqueuer rule, symmetrical): when a pair is
+   *  solved through the enrichment lane, all still-live captures of the same
+   *  question+answer go gray in the dynamic tab (✓ processed), and the
+   *  dynamic-recall turns they logged go gray in the enrichment bar. The
+   *  exact answer match preserves a capture that was edited after staging (it
+   *  still serves and stays pending), same as the dynamic-lane path. */
+  private closeDynamicEvidence(key: string | undefined, question: string, answer: string): void {
+    const q = norm(question);
+    if (!q || !answer.trim()) return;
+    const rawA = answer.trim();          // capture stores its own casing
+    const normA = norm(rawA);            // audit rows close case-insensitively
+    let any = false;
+    for (const r of this.bank.dynamicRows(2000).filter(r => r.processed === 0
+      && norm(r.msg) === q && r.answer.trim() === rawA)) {
+      if (this.bank.markDynamicProcessedIfMatches(r.id, r.msg, r.answer)) any = true;
+    }
+    // Rows whose bankKey was recorded close on the key; without one, an exact
+    // question+answer match identifies the recall serve (replySource 'dynamic'
+    // means the reply came FROM this pool — the served text is the capture's).
+    // The sweep runs even with no capture newly closed: an already-processed
+    // capture with pending audit turns still needs its gray paint-back.
+    const log = this.enrichment.listLog(5000).filter(row =>
+      row.replySource.startsWith('dynamic') && norm(row.userMsg ?? '') === q
+      && (row.bankKey === key || (row.bankKey == null && norm(row.replyText ?? '') === normA))
+    );
+    this.enrichment.markEnriched(log.map(row => row.id));
+  }
+
   /** APPROVE — promote a staged variant into the serve path. */
   approve(item: ReviewItem): ActionResult {
     if (item.category !== 'staged') {
@@ -457,14 +518,17 @@ export class BankReview {
       // Dynamic capture wins before example recall. Keep the unchanged capture
       // as gray audit history, but mark it processed so it cannot serve or
       // count as pending. Preserve a newer answer if it changed after staging.
-      const processed = this.bank.markDynamicProcessedIfMatches(pushed.id, pushed.question, item.text);
-      if (processed) {
-        // Dynamic serves are logged in enrichment_queue; close that audit turn too.
-        const rows = this.enrichment.listLog(5000).filter(row =>
-          row.replySource === 'dynamic-recall' && row.bankKey === (item.key ?? '') && row.userMsg === pushed.question
-        );
-        this.enrichment.markEnriched(rows.map(row => row.id));
-      }
+      this.bank.markDynamicProcessedIfMatches(pushed.id, pushed.question, item.text);
+      // Same closure below — one rule for both lanes, so an approval grays the
+      // audit turns identically no matter which lane staged the pair.
+      this.closeDynamicEvidence(item.key ?? undefined, pushed.question, item.text);
+    } else if (pushed?.question) {
+      // THE GRAY RULE (solved through the enrichment lane): the capture evidence
+      // is closed exactly as in the dynamic lane — the capture goes gray in the
+      // dynamic tab and its dynamic-recall turns go gray in the enrichment bar.
+      // Before this branch, an enrichment-solved pair left the still-serving
+      // capture pending (white, counted as work) while the answer was live.
+      this.closeDynamicEvidence(item.key ?? undefined, pushed.question, item.text);
     }
     // Imported retrieval examples are held with the candidate; rejecting a
     // candidate must not change master matching. They join retrieval only when

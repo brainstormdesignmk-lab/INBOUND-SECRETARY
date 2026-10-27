@@ -322,3 +322,107 @@ test('approve promotes only staged; reject removes the right way', () => {
   assert.equal(review.reject(active).ok, true);
   assert.equal(bank.variants(active.key ?? '').length, 0);
 });
+
+// THE GRAY RULE (solved through the enrichment lane): a pair solved via an
+// ENRICHMENT row closes the same dynamic evidence as a pair solved in the
+// dynamic lane — the capture goes gray in the dynamic tab and its
+// dynamic-recall audit turns go gray in the enrichment bar.
+test('solving through the enrichment lane grays the dynamic evidence too', () => {
+  const { review, bank, en } = setup();
+  // The capture SERVED at least once: that is the dynamic-recall row the bar shows.
+  en.insert({ chatId: 'c1', state: 'idle', eventType: 'LEARNED_RECALL',
+    userMsg: Q, replyText: GOOD, replySource: 'dynamic-recall', bankKey: 'learn.ima-reptil-tamu' });
+  en.insert({ chatId: 'c1', state: 'idle', eventType: 'LEARNED_RECALL',
+    userMsg: Q, replyText: GOOD, replySource: 'dynamic', bankKey: 'learn.ima-reptil-tamu' });
+
+  const item = review.list('enrichment')[0]; // the dynamic-recall turn, userMsg = Q
+  assert.equal(item.userMsg, Q);
+  const target = 'learn.ima-reptil-tamu';
+  const push = review.push(item, target, GOOD);
+  assert.equal(push.ok, true, push.reason);
+  const staged = review.list('staged').find(i => i.key === target)!;
+  assert.ok(staged, 'the enrichment push produced a STAGED row');
+
+  const approved = review.approve(staged);
+  assert.equal(approved.ok, true, approved.reason);
+  assert.equal(bank.dynamicRows(1)[0].processed, 1,
+    'the live capture grays in the dynamic tab, even though the pair entered through the bar');
+  for (const r of en.listLog(10)) {
+    assert.equal(r.enriched, 1, `audit turn left pending: #${r.id} ${r.replySource}`);
+  }
+});
+
+test('a bank-owned refusal (duplicate/similarity) is code-class; dirty text is bankable-red', () => {
+  const { review, bank, en } = setup();
+  const dupeKey = 'learn.dupe-class';
+  bank.addVariant(dupeKey, GOOD); // the pool already holds the exact wording
+  en.insert({ chatId: 'd1', state: 'presentation', eventType: 'LEARNED_RECALL',
+    userMsg: Q, replyText: GOOD, replySource: 'deterministic', bankKey: dupeKey });
+  const dirtyKey = 'learn.dirty-class';
+  en.insert({ chatId: 'd2', state: 'presentation', eventType: 'LEARNED_RECALL',
+    userMsg: 'kolku cinat', replyText: 'Станот чини 120.000 евра.', replySource: 'deterministic', bankKey: dirtyKey });
+
+  const items = review.list('enrichment');
+  const dupe = items.find(i => i.key === dupeKey)!;
+  assert.equal(dupe.flag, 'fail');
+  assert.match(dupe.verdict ?? '', /duplicate/);
+  assert.equal(dupe.bankOwned, true, 'duplicate causes = bank-owned → orange (code class)');
+  const dirty = items.find(i => i.key === dirtyKey)!;
+  assert.equal(dirty.flag, 'fail');
+  assert.equal(dirty.bankOwned, false, 'dirty prose stays red — an E edit can clean it');
+});
+
+test('composed serves (card batch / owner-relay) classify code-side, never bankable-red', () => {
+  const { review, en } = setup();
+  // A cheaper-lane card serve: text embeds served rows (#248 shape).
+  en.insert({ chatId: 'c8', state: 'presentation', eventType: 'CHEAPER_SEARCH',
+    userMsg: 'daj mi nesto poeftino vo toj reon',
+    replyText: 'Станот под Евидентен број 63 е гарсоњера во Центар. Цената е 36.000 евра.\n\nКуќата под Евидентен број 55 е во Влае. Цена 40.000 евра.',
+    replySource: 'deterministic', bankKey: 'price.shy' });
+  // Owner-relay artifact: the logged reply is the owner-bound ping (#242 shape).
+  en.insert({ chatId: 'c9', state: 'closing', eventType: 'OWNER_ASK',
+    userMsg: 'okolu 6', replyText: 'Здраво. Ве контактирам во врска со проявен интерес од сериозен клиент.',
+    replySource: 'owner-relay', bankKey: 'owner.ask' });
+  // The #244 shape: an owner-bound counter relay that PASSES the gates —
+  // clean protocol copy, must still not read as pending bankable work.
+  en.insert({ chatId: 'c11', state: 'closing', eventType: 'OWNER_ASK',
+    userMsg: 'mozam vo 5\nnakoe mesto bi se cekale ?',
+    replyText: 'Клиентот не е во можност за посета во Петок, 23.10.2026 во 06:00. Има друг предлог: Петок, 23.10.2026 во 05:00. Дали би Ви одговарал тој термин?',
+    replySource: 'owner-relay', bankKey: 'owner.ask' });
+  // A client-voice opponent: no cards, no relay — stays bankable-red on dirt.
+  en.insert({ chatId: 'c10', state: 'presentation', eventType: 'LEARNED_RECALL',
+    userMsg: 'kolku cinat', replyText: 'Станот чини 120.000 евра.',
+    replySource: 'deterministic', bankKey: 'learn.dirty-class' });
+  const items = review.list('enrichment');
+  for (const it of items) {
+    if (it.userMsg === 'daj mi nesto poeftino vo toj reon') {
+      assert.equal(it.composed, true, `card serve must classify composed: ${it.id}`);
+    } else if (it.userMsg === 'okolu 6') {
+      assert.equal(it.composed, true, `owner-relay ping must classify composed: ${it.id}`);
+      assert.equal(it.bankOwned ?? false, false, 'relay ping is composed, not bank-owned');
+    } else if (it.userMsg === 'kolku cinat') {
+      assert.equal(it.composed ?? false, false, 'plain client-voice copy is not composed');
+    } else if (it.userMsg?.startsWith('mozam vo 5')) {
+      assert.equal(it.flag, 'ok', 'the gates pass the relay protocol text');
+      assert.equal(it.composed, true, `and the composed class still claims it: ${it.id}`);
+      const refused = review.push(it, 'learn.counter-relay', it.text);
+      assert.equal(refused.ok, false, 'a clean-looking relay ping must not push to STAGED');
+      assert.match(refused.reason ?? '', /composed/i);
+    }
+  }
+});
+
+test('an enrichment-solved pair never grays a capture edited after staging', () => {
+  const { review, bank } = setup();
+  const dyn = review.list('dynamic')[0];
+  assert.equal(bank.updateDynamicAnswer(dyn.id, OTHER), true, 'capture now answers newer wording');
+
+  const item = review.list('enrichment')[0];
+  const push = review.push(item, 'learn.ima-reptil-tamu', GOOD);
+  assert.equal(push.ok, true, push.reason);
+  const staged = review.list('staged').find(i => i.key === 'learn.ima-reptil-tamu')!;
+  const approved = review.approve(staged);
+  assert.equal(approved.ok, true, approved.reason);
+  assert.equal(bank.dynamicRows(1)[0].processed, 0,
+    'a capture whose answer no longer matches keeps serving and stays pending');
+});

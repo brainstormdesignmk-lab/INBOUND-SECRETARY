@@ -41,7 +41,11 @@ test('real bank:tui PTY: dynamic K persists, A stages, then STAGED A activates t
     rows: 40,
   });
   try {
-    await pty.waitForScreen(t => t.text().includes('MASTER') && t.text().includes('DYNAMIC (1)'), { timeoutMs: 20_000, label: 'bank review booted' });
+    // The 45 s boot budgets are HARNESS patience, not product timing: tsx
+    // transpiles the whole graph live and the suite runs 8 workers — under
+    // that contention the boot legitimately passes 20 s while a lone run is
+    // done in ~4 s (the 20000 budget flaked every second full-suite run).
+    await pty.waitForScreen(t => t.text().includes('MASTER') && t.text().includes('DYNAMIC (1)'), { timeoutMs: 45_000, label: 'bank review booted' });
     await pty.key('2');
     await pty.waitForScreen(t => t.text().includes('learn.kakvi-dokumenti-potrebni'), {
       timeoutMs: 5_000, label: 'dynamic tab and its suggested target key',
@@ -112,7 +116,7 @@ test('real bank:tui PTY: #195 retargets a frozen fee answer, edits it, then stag
   });
   try {
     await pty.waitForScreen(t => t.text().includes('ENRICHMENT (1)') && t.text().includes('TI KE DOJDES SO MENE NA POSETA'), {
-      timeoutMs: 20_000, label: '#195 frozen fee queue row loaded',
+      timeoutMs: 45_000, label: '#195 frozen fee queue row loaded',
     });
 
     // K changes the candidate's target without changing the original routing evidence.
@@ -190,7 +194,7 @@ test('real bank:tui PTY: #66 labels the generator prompt separately from absent 
     rows: 40,
   });
   try {
-    await pty.waitForScreen(t => t.text().includes('MASTER'), { timeoutMs: 20_000, label: 'bank review booted for gapfill key' });
+    await pty.waitForScreen(t => t.text().includes('MASTER'), { timeoutMs: 45_000, label: 'bank review booted for gapfill key' });
     await pty.key('4');
     await pty.waitForScreen(t => t.text().includes('GENERATOR CONTEXT')
       && t.text().includes('До која цена го барате?')

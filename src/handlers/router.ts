@@ -12,6 +12,7 @@
 // ordering constraint fails a test instead of shipping silently.
 
 import { classifyOffensive } from '../antiabuse/offensive';
+import { recordRouteDrift } from '../store/routeDrift';
 import {
   detectExactAddressAsk, detectWhereIs, detectSurroundingsAsk, detectOwnerContact,
   isKadeTocno, detectPropertyDescription, detectService, detectBothServices,
@@ -19,7 +20,8 @@ import {
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
   detectDrugAlternative, detectInvestmentOpinion, detectWorkdaysQuestion,
-  detectFeeWhy, isDistanceQuestion, detectMarketPriceAsk, detectBusinessBudgetAsk,
+  detectFeeWhy, isDistanceQuestion, detectMarketPriceAsk, detectMarketMemoryAsk,
+  detectBusinessBudgetAsk,
   detectPriceEval,
 } from '../llm/deterministic';
 
@@ -50,6 +52,8 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => !!detectWhereIs(t) },
   { intent: 'DISTANCE', note: '"KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?" ([22:25]) — how far the discussed property is from a place the client names. Sits after WHERE_IS (каде owns those), and BEFORE every funnel branch: the classifier read „STANOT“ as PROPERTY_ID_REQUESTED and answered a distance question with the property card',
     fires: t => isDistanceQuestion(t) },
+  { intent: 'MARKET_MEMORY', note: '„ИМАШЕчЕ ЕДНА КУчА ПРЕД НЕКОЕ ВРЕМЕ КАЈ ВАС… ОКОЛУ 400 ЕВРА КИРИЈА” ([02:00]) — a recall of an OLD agency listing. Sits BEFORE MARKET_PRICE: the rent noun + the ask shape make the market mirror claim the row, while the market arm does not capture it (landmark ≠ feed area, singular noun, rent-only guard) — the turn then fell to the discovery funnel. The archive ack owns it: the old offer is not in the feed, so no figure is quoted as live, and the recollected type/segment/amount land in slots for the follow-up search',
+    fires: t => detectMarketMemoryAsk(t) },
   { intent: 'MARKET_PRICE', note: '"KAKO SE DVIZAT CENIVE ZA STANOVI VO AERODROM?" ([16:57]) — the €/m² range for a CATEGORY in an AREA, answered from the feed\'s own rows. Sits after WHERE_IS/DISTANCE (which own their questions) and before every property-price branch, which would otherwise quote the single flat on the table',
     fires: t => detectMarketPriceAsk(t) },
   { intent: 'SURROUNDINGS', note: 'which-side / relative-to-the-named-places ask ("od stranata na trgovskiot ili odkaj pazarceto") — a LOCATION question the classifier settled with the closing fee pitch ([01:29] capture). Sits after WHERE_IS, which owns the каде questions, and before every funnel branch',
@@ -68,6 +72,12 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'NEGOTIATE', note: 'price pushback — commercial states only',
     fires: (t, s) => detectNegotiate(t) &&
       ['closing', 'presentation', 'property_query'].includes(s) },
+  // R1: the fee WHY lane joined the mirror (from SIMPLE_DISPATCH). It owns the
+  // bare WHY claim BEFORE provision.ask reads the same charge-money wording (the
+  // [09:0x] V16K11 transcript —nikon ne zema pari za poseta belongs to the fee
+  // REASONS, never the rules-of-work script).
+  { intent: 'FEE_WHY', note: 'bare why-claim about the charge — must beat provision.ask',
+    fires: (t) => detectFeeWhy(t) && !detectProvisionAsk(t) },
   { intent: 'PROVISION_ASK', note: 'fee question — broad state gate',
     fires: (t, s) => detectProvisionAsk(t) &&
       ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(s) },
@@ -81,6 +91,14 @@ export const ROUTING_ORDER: RouteRule[] = [
       ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(s) },
   { intent: 'NEIGHBORHOOD_ASK', note: 'area advice — early-funnel states',
     fires: (t, s) => detectNeighborhoodAsk(t) && ['idle', 'intent', 'discovery'].includes(s) },
+  // R1: COMPARISON/FEATURE_ASK join the mirror from SIMPLE_DISPATCH (same
+  // detectors, same allowedStates). COMPARISON precedes FEATURE_ASK — the
+  // SIMPLE_DISPATCH order rule — because a “which one is better” wording can
+  // also carry a feature token (a parking/floor word) and must keep its diff lane.
+  { intent: 'COMPARISON', note: 'which one is better — same-class diff (from SIMPLE_DISPATCH)',
+    fires: (t, s) => detectComparison(t) && ['presentation', 'property_query'].includes(s) },
+  { intent: 'FEATURE_ASK', note: 'per-property feature (parking, floor…) (from SIMPLE_DISPATCH)',
+    fires: (t, s) => detectFeatureAsk(t) && ['property_query', 'presentation', 'closing'].includes(s) },
   { intent: 'SCHEDULING_FLEX', note: 'time-window preference — visit states only',
     fires: (t, s) => detectSchedulingFlex(t) &&
       ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(s) },
@@ -124,12 +142,113 @@ export function routeLog(chatId: string, text: string, intent: string, kind: 'ac
   PENDING_PREDICT.delete(chatId);
   if (predicted && entry.at - predicted.at <= DRIFT_WINDOW_MS && predicted.intent !== intent) {
     console.log(`[route-drift] ${chatId} predicted=${predicted.intent} actual=${intent} :: "${entry.text}"`);
+    // R3: console-only findings died with the process; every drift pair is
+    // persisted (day-rotated JSONL, loss-allowed, hourly-deduped) so
+    // route:health --emit-corpus can turn production misroutes into permanent
+    // corpus rows instead of transcribed-capture folklore.
+    recordRouteDrift({ at: entry.at, chatId, text: entry.text, predicted: predicted.intent, actual: intent });
   }
 }
 
 export function recentRoutes(n = 50): RouteEntry[] {
   return ROUTE_LOG.slice(-n);
 }
+
+// --- lane calibration registry (R1 coverage, docs/routing-audit-2026-10-23.md) ---
+// inbound.ts logs a lane tag at every gate (`routeLog(chatId, text, 'TAG')`).
+// The registry is the CALIBRATION SURFACE: every lane tag the executor logs
+// must have a row here — mirrored (the ROUTING_ORDER intent that mirrors its
+// precedence, and the mirror rows above carry its detector) or pending
+// (explicitly un-captured; won't stay silent). tests/route-coverage.test.ts
+// extracts the tags the executor actually logs and hard-fails any tag that is
+// neither mirrored nor pending, so a new lane can never land unlabeled.
+export interface LaneEntry {
+  /** The ROUTING_ORDER intent that mirrors this lane, or null while pending. */
+  intent: string | null;
+  note: string;
+}
+const M = (intent: string, note: string): LaneEntry => ({ intent, note });
+const P = (note: string): LaneEntry => ({ intent: null, note: `pending migration: ${note}` });
+
+/** The R1 calibration surface: ONE row per lane tag the executor logs.
+ *  Coverage test: tests/route-coverage.test.ts fails on a logged-but-unlisted
+ *  tag (a silent lane) or a mirrored intent name that ROUTING_ORDER lacks. */
+export const ROUTE_LANES: Record<string, LaneEntry> = {
+  // --- already mirrored by a ROUTING_ORDER row ---
+  OFFENSIVE: M('OFFENSIVE', 'zero-output policy beats everything (logged for drift)'),
+  WORKDAYS_QUESTION: M('WORKDAYS_QUESTION', 'agency hours, never an owner term'),
+  BUSINESS_BUDGET_ASK: M('BUSINESS_BUDGET_ASK', 'state-gated money/lane in intake states'),
+  EXACT_ADDRESS: M('EXACT_ADDRESS', 'privacy ladder, !kade-guarded above WHERE_IS'),
+  OWNER_CONTACT: M('OWNER_CONTACT', 'name/phone capture first'),
+  WHERE_IS: M('WHERE_IS', 'каде owns those questions'),
+  DISTANCE: M('DISTANCE', 'how far the discussed flat is from X'),
+  MARKET_MEMORY: M('MARKET_MEMORY', 'a recollected OLD agency listing (имаше/беше … кај вас + noun + amount) — honest archive ack, beats MARKET_PRICE'),
+  MARKET_PRICE: M('MARKET_PRICE', 'category+area fare range, beats PRICE_ASK'),
+  SURROUNDINGS: M('SURROUNDINGS', 'which-side / relative-to-named-place'),
+  PROPERTY_DESCRIPTION: M('PROPERTY_DESCRIPTION', 'remembered-property flow'),
+  'NEGOTIATE:fast': M('NEGOTIATE', 'commercial-state price pushback'),
+  PRICE_EVAL_CHEAP: M('PRICE_EVAL_CHEAP', 'positive price remark beats the fee ladder'),
+  'PROVISION_PUSH:fast': M('PROVISION_ASK', 'fee pushback resolves through the provision lane'),
+  PROVISION_WHO: P('who pays the provision split'),
+  'FEE_WHY:fast': M('FEE_WHY', 'the bare WHY claim (must beat provision.ask)'),
+  SCHEDULING_FLEX: M('SCHEDULING_FLEX', 'time-window preference in visit states'),
+  // --- mirrored by dispatchSimple (SIMPLE_DETECTORS), rows added in R1 ---
+  COMPARISON: M('COMPARISON', 'client wants a same-class diff'),
+  FEATURE_ASK: M('FEATURE_ASK', 'per-property feature (parking, floor…)'),
+  FEE_WHY: M('FEE_WHY', 'the bare WHY claim (before provision.ask)'),
+  OFFTOPIC: M('OFFTOPIC', 'small-talk redirect (not while owner handshake pending)'),
+  PROVISION_ASK: M('PROVISION_ASK', 'plain tag from the dispatchSimple sites'),
+  NEGOTIATE: M('NEGOTIATE', 'plain tag from the dispatchSimple sites'),
+  DEFER: M('DEFER', '“ќе размислам” in the late-funnel states'),
+  ESCALATION: M('ESCALATION', 'manager request, always honored'),
+  DOCUMENTS_ASK: M('DOCUMENTS_ASK', 'documents info'),
+  MORTGAGE_ASK: M('MORTGAGE_ASK', 'financing info'),
+  NEIGHBORHOOD_ASK: M('NEIGHBORHOOD_ASK', 'area advice in early states'),
+  // --- pending migration (explicit, not silent) ---
+  ADDRESS_WHY: P('privacy ladder — why the exact address stays private'),
+  FEE_RULES: P('agency fee rules ask (the rules-of-work script)'),
+  'FEE_COMPLAINT': P('fee resistance served inside the ladder'),
+  'AGENT_ATTENDANCE_ASK': P('does the agent attend the viewing — bank lane'),
+  BYE: P('goodbye / close chat'),
+  'ENTHUSIASM:fast': P('positive eye-catch reaction'),
+  'EXIT_CHECK': P('“да завршиме?” check-in'),
+  'EXIT_CHECK_REPEAT': P('exit check repeated'),
+  'FEE_AMOUNT_ASK:fast': P('exact fee amount asked'),
+  'FEE_COMPLAINT:fast': P('fee resistance in the ladder'),
+  'FEEDDOWN:fast': P('feed-down transparency lane'),
+  'FEE_FIRST_TIME:fast': P('first-time fee question'),
+  'FEE_PUSH:fast': P('fee charge pushback'),
+  'FEE_SURPRISE:fast': P('fee surprise reaction'),
+  'GHOST:fast': P('unknown EB one-off serve'),
+  GLOSSARY: P('glossary term ask'),
+  INFO_ASK: P('property info multi-facet ask'),
+  INFO_ASK_YEAR: P('year of construction ask'),
+  'INVESTMENT_OPINION:fast': P('investment-advice ask'),
+  LANDMARK_LADDER: P('location-nag ladder rung'),
+  LOCATION_NAG: P('location question refused again'),
+  MONEY_CLARIFY: P('money-without-target clarification'),
+  NEARBY_ASK: P('what is near the building'),
+  NEARBY_THREAD: P('what-else-is-near (rotation → protocol → lifecycle)'),
+  'OWNER_HOLD:fast': P('owner unreachable continuation'),
+  POI_CONFIRM: P('POI confirm question (landmark near?)'),
+  'PRICE_ASK:fast': P('direct price ask on the shown flat'),
+  PRICE_AVG_NASELBA: P('average price in the named naselba'),
+  'PRICE_EVAL_EXPENSIVE': P('negative price remark about the flat on the table'),
+  'PRICE_EVAL_EXPENSIVE_UNWIRED': P('expensive verdict while no lane is wired'),
+  'PRICE_EXTREME': P('extreme price search (“do 1000 evra kuca”)'),
+  'PRICE_EXTREME_MORE': P('extreme-price continuation'),
+  'PRICE_FRESHNESS:fast': P('is this price fresh? ask'),
+  PROXY_CONTACT: P('contact via proxy (third person)'),
+  RECOMMEND_ASK: P('“koj bi mi go preporacale?”'),
+  'REMARK:bank': P('bank-backed generic remark'),
+  'REMARK:fast': P('generic remark (deterministic)'),
+  'RENT_MATH:fast': P('total cost math (kirija × term)'),
+  SOFT_REFUSAL: P('soft refusal (“nedokazani parevsy…”)'),
+  WAITING: P('agent is reaching out, waiting ack'),
+  WHERE_LANDMARK: P('каде + named landmark place'),
+  'WHICH_PROPERTY:fast': P('which EB are you talking about'),
+  'VISIT_CANCEL:WHICH': P('a cancel that names no arranged visit — asks which Евидентен број instead of guessing'),
+};
 
 // --- simple deterministic dispatch table -------------------------------------
 //

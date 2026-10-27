@@ -338,6 +338,20 @@ const LEXICON: LexiconEntry[] = [
       'ke ti go zbiberam', 'kje ti go zbiberam',
     ],
     reason: 'vulgar sexual threat (megju noze / zbiberam — the [16:42] burst)' },
+  // CRUDE INNUENDO (severity 2) — the [17:18] live miss: "DALI STENKAS DOBRO
+  // KOGA TI VLAGA ?" ("is it good when it enters you"). The verb root is an
+  // ORDINARY word (влага = moisture; вложува = to invest), so a bare 'vlaga'
+  // row can never exist — only the CRUDE COLLOCATION pins the sense: a
+  // question frame (koga/kaj) + 2nd-person clitic (ti/te/vi/mu) immediately
+  // before the insert-verb. Neutral uses lack that frame ("ima vlaga vo
+  // podrumot", "sopstvenikot vlaga zaštitен premaz") and the investment
+  // reading is excluded (parite/invest/vloz).
+  {
+    id: 'S0x', category: 'sexual', severity: 2, confidence: 0.6,
+    stems: [],
+    pattern: /(?:^| )koga (?:ti|te|vi|mu) (?:go |ga |gi |ja )?(?:vlag(?:a|as|at|e)|vlez(?:e|ese|uva|uvas)|vliz(?:e|uva))(?: |$)/u,
+    exclude: ['parite', 'pari vo', 'invest', 'vloz'],
+    reason: 'crude innuendo (koga ti/te vlaga — "when it enters you"; the [17:18] miss)' },
   ...MORPH_SEXUAL,
 
   // ---------- VIOLENCE (severity 3) ----------

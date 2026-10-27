@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { RESPONSE_BANK } from '../src/data/responses';
 import { INITIAL_GREETINGS, randomGreeting } from '../src/data/greetings';
-import { pickVariant, fallbackVariant, noMatchLine, exhaustedLine, normalizeVariant, setLearnedBank } from '../src/data/responseBank';
+import { pickVariant, fallbackVariant, noMatchLine, exhaustedLine, normalizeVariant, setLearnedBank, POOL_CONTRACTS, matchesPoolContract, poolContractViolations } from '../src/data/responseBank';
 import type { BankStore } from '../src/store/bank';
 
 // "имот" means land/a plot in this agency's usage — the general property noun
@@ -16,7 +16,7 @@ test('response bank: every entry is non-empty and placeholders live only where e
       assert.ok(v.trim().length >= 10, `${key}: too short: "${v}"`);
       if (key === 'no.match.location' || key === 'exhausted.location') {
         assert.equal(v.match(/\{location\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
-      } else if (key === 'presentation.open.anywhere' || key === 'discovery.waiver.ack') {
+      } else if (key === 'presentation.open.anywhere') {
         assert.equal(v.match(/\{budget\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else if (key === 'both.ask.service') {
         assert.equal(v.match(/\{type\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
@@ -145,6 +145,24 @@ test('exhaustedLine: location form fills the placeholder, plain form has none', 
   assert.ok(!withLoc?.includes('{location}'), withLoc);
   const plain = exhaustedLine(undefined);
   assert.ok(plain && RESPONSE_BANK['exhausted.plain'].includes(plain), plain);
+});
+
+// ROTATING POOLS are documented in responseBank.ts (POOL_CONTRACTS): every
+// variant of a covered pool must carry the one meaning the contract pins.
+test('pool contracts: every seed variant of a documented pool satisfies its contract', () => {
+  const keys = Object.keys(POOL_CONTRACTS);
+  assert.ok(keys.length >= 3, `the documented pools exist: ${keys.join(', ')}`);
+  for (const key of keys) {
+    const bad = poolContractViolations(key);
+    assert.deepEqual(bad, [], `${key}: ${bad.length} variants violate the contract`);
+    // A served variant passes the served-text check; a foreign phrase does not.
+    const [v] = RESPONSE_BANK[key];
+    assert.equal(matchesPoolContract(key, v), true, v);
+    assert.equal(matchesPoolContract(key, 'Здраво'), false, `an off-contract reply must fail ${key}`);
+    // Unknown keys / empty text are nothing-to-assert, never false.
+    assert.equal(matchesPoolContract('no.such.key', 'Здраво'), true);
+    assert.equal(matchesPoolContract(key, undefined), true);
+  }
 });
 
 test('randomGreeting: avoids recently-used greetings and stays in the bank', () => {

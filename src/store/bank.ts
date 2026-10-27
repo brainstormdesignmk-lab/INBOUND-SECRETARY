@@ -1,9 +1,22 @@
 import { Db } from './db';
+import { normalizeMc } from '../llm/normalize';
 
 /** The one canonical phrase form for negative rules: case- and whitespace-
  *  literal, so an F9 re-capture of the same wording normalizes to one row. */
 function normPhrase(s: string): string {
   return (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** SCRIPT FOLD for retrieval (the cross-script miss, 2026-10): clients type
+ *  the same question in EITHER script, but bank_examples/bank_dynamic store
+ *  whatever the turn said that day — case-folded, never script-folded. A
+ *  Cyrillic phrasing therefore scored ~0 trigrams against a Latin-typed
+ *  example ("AMA ZOSTO MORAM…") and every cross-script repeat fell through to
+ *  the LLM. Folding BOTH sides through normalizeMc — the detector stack's own
+ *  canonical form (memoized, lowercase, Latin→Cyrillic) — makes the matcher
+ *  script-agnostic; each matcher's exactness rules stay untouched. */
+function foldScript(s: string): string {
+  return normalizeMc(s ?? '').replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -344,9 +357,9 @@ export class BankStore {
     const rows = this.db.db.prepare(`SELECT key, msg, answer FROM bank_dynamic WHERE processed = 0`).all() as
       Array<{ key: string; msg: string; answer: string }>;
     if (rows.length === 0) return undefined;
-    const low = msg.toLowerCase();
+    const low = foldScript(msg);
     for (const r of rows) {
-      const m = r.msg.toLowerCase().trim();
+      const m = foldScript(r.msg);
       if (m === low || (m.length >= 8 && (low.includes(m) || m.includes(low)))) return { key: r.key, answer: r.answer };
     }
     const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -355,11 +368,11 @@ export class BankStore {
       for (let i = 0; i <= t.length - 3; i++) set.add(t.slice(i, i + 3));
       return set;
     };
-    const a = tg(msg);
+    const a = tg(foldScript(msg));
     if (a.size === 0) return undefined;
     let best: { key: string; answer: string; score: number } | undefined;
     for (const r of rows) {
-      const b = tg(r.msg);
+      const b = tg(foldScript(r.msg));
       let inter = 0;
       for (const t of a) if (b.has(t)) inter++;
       const score = inter / (a.size + b.size - inter);
@@ -379,9 +392,9 @@ export class BankStore {
     const rows = state
       ? this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic WHERE state = ? AND processed = 0`).all(state)
       : this.db.db.prepare(`SELECT key, state, msg, answer FROM bank_dynamic WHERE processed = 0`).all();
-    const low = msg.toLowerCase().replace(/\s+/g, ' ').trim();
+    const low = foldScript(msg);
     for (const r of rows as Array<{ key: string; state: string; msg: string; answer: string }>) {
-      const m = r.msg.toLowerCase().replace(/\s+/g, ' ').trim();
+      const m = foldScript(r.msg);
       if (!m) continue;
       if (phraseMatch(low, m)) return { key: r.key, state: r.state, answer: r.answer };
     }
@@ -396,9 +409,9 @@ export class BankStore {
     if (msg.length < 4) return undefined;
     const rows = this.db.db.prepare(`SELECT key, msg FROM bank_examples`).all() as
       Array<{ key: string; msg: string }>;
-    const low = msg.toLowerCase().replace(/\s+/g, ' ').trim();
+    const low = foldScript(msg);
     for (const r of rows) {
-      const m = r.msg.toLowerCase().replace(/\s+/g, ' ').trim();
+      const m = foldScript(r.msg);
       if (!m) continue;
       if (phraseMatch(low, m)) return { key: r.key, msg: r.msg };
     }
@@ -563,26 +576,30 @@ export class BankStore {
     ).all() as Array<{ key: string; msg: string }>;
     if (rows.length === 0) return undefined;
 
-    // Exact / containment first — strongest signal, zero fuzz.
-    const low = msg.toLowerCase();
+    // Exact / containment first — strongest signal, zero fuzz. Both sides are
+    // script-folded, so the same question in either script compares as the
+    // same string.
+    const low = foldScript(msg);
     for (const r of rows) {
-      const m = r.msg.toLowerCase().trim();
+      const m = foldScript(r.msg);
       if (m === low || (m.length >= 8 && (low.includes(m) || m.includes(low)))) {
         return { key: r.key, text: '' };
       }
     }
-    // Trigram similarity, best example wins.
+    // Trigram similarity, best example wins. Scored on script-folded forms:
+    // Cyrillic/Latin spellings of the same words overlap after the fold, not
+    // before it.
     const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
     const tg = (s: string): Set<string> => {
       const t = norm(s); const set = new Set<string>();
       for (let i = 0; i <= t.length - 3; i++) set.add(t.slice(i, i + 3));
       return set;
     };
-    const a = tg(msg);
+    const a = tg(foldScript(msg));
     if (a.size === 0) return undefined;
     let best: { key: string; score: number } | undefined;
     for (const r of rows) {
-      const b = tg(r.msg);
+      const b = tg(foldScript(r.msg));
       let inter = 0;
       for (const t of a) if (b.has(t)) inter++;
       const score = inter / (a.size + b.size - inter);

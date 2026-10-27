@@ -142,7 +142,104 @@ export const FIXED_SEEDS: Record<string, string[]> = {
   'golem.smaller.empty': [
     'Помал стан од {size} немам во моментов{where}. Можам да ги запишам Вашите критериуми и да Ве известам штом се појави соодветна опција — дали да Ве запишам?',
   ],
+  // BARE BUDGET-UP (the [25:2x] queue): "DAJ NESTO POSKAPO TOGAS" — the
+  // upward mirror of the cheaper intros. Direction wording only: the batch
+  // itself is strictly pricier than the anchor, so no amount is named.
+  'pricier.search.intro': [
+    'Разбира се — еве нешто поскапо со истите карактеристики, почнувајќи од најскапите што ги имам:',
+    'Тогас еве повисок селекциони опсег — исти критериуми, поголем буџет:',
+  ],
+  // CHEAPER CHOICE (the [14:46] rule): pool A (cheaper + same characteristics
+  // + same naselba) is empty — Lina ASKS which fallback the client wants
+  // instead of serving mismatched types. The two serve intros and the apology
+  // prefix ride the same seed convention; learned variants may join later.
+  'price.shy.choice': [
+    'Во таа населба нема поевтини станови со истите карактеристики. Дали да Ви покажам помали станови во истата населба, или станови со истите карактеристики во соседните населби?',
+  ],
+  'cheaper.choice.area': [
+    'Разбирам — еве ги поевтините помали станови во таа населба:',
+  ],
+  'cheaper.choice.elsewhere': [
+    'Еве станови со истите карактеристики во соседните населби:',
+  ],
+  // CRITERIA-DONE CHOICE (the [20:33] capture): the criteria-fitting pool is
+  // exhausted and the client asks for more ("drugo") — Lina SAYS the matching
+  // options are done and offers the two standard pivots; nothing serves
+  // before the answer (never silently over-budget/off-type/off-area rows).
+  'batch.done.choice': [
+    'Ги разгледав Вашите критериуми — предлозите што Ви ги покажав се сè што имам соодветно во моментов. Дали да Ви покажам нешто поскапо во истиот реон, или станови со истата цена во други населби?',
+    'Понудените опции се сè што одговара на Вашите критериуми за сега. Дали да побарам нешто поскапо во истиот реон, или со истата цена во други населби?',
+  ],
+  // The "same price, different neighborhoods" answer of the criteria-done
+  // choice — the batch intro. One sentence, then the cards.
+  'batch.done.elsewhere': [
+    'Немам повеќе соодветни во овој реон — еве станови со Вашата цена во соседните населби:',
+    'Во истиот реон нема повеќе — еве што има со истата цена во соседните населби:',
+  ],
+  'correction.apology': [
+    'Извинете за недоразбирањето — карактеристиките на предлог-списокот не беа вашите. Еве станови со истите карактеристики, а поевтини:',
+    'Извинете за мешаницата — такви типови немаше да Ви покажувам тука. Еве станови со истите карактеристики, а поевтини:',
+  ],
 };
+
+/**
+ * ROTATING POOL CONTRACTS — the one MEANING every variant of a pool must
+ * carry, expressed as a regex root. The pools rotate (learned variants are
+ * added live, the seed layer is committed wholesale), so tests must assert
+ * the CONTRACT and not one variant's exact wording: a string assertion breaks
+ * whenever a different variant of the same meaning is served.
+ *
+ * Adding a variant to one of these pools? Its meaning must still satisfy the
+ * contract — `matchesPoolContract` checks a SERVED text, and a data-level
+ * test in tests/responseBank.test.ts checks every variant in the file.
+ *
+ * Documented pools:
+ *  - owner.relay:counter.bare — the owner CANNOT the proposed term and gave
+ *    NO alternative. Every variant relays the refusal honestly AND asks for
+ *    ANOTHER term («кое друго време», «коj друг термин», «во друг термин»):
+ *    never a fabricated term the client could accept, never a bare apology.
+ *    The {time} in the templates is the REFUSED term, display-normalized by
+ *    the caller (Cyrillic, e.g. "Утре во 4" — never the client's raw Latin).
+ *  - vague.time / vague.time.owner — a day or vague window was given but no
+ *    exact hour. Every variant re-asks the EXACT HOUR («во колку часот»):
+ *    client-facing and owner-facing wordings are separate keys with the same
+ *    contract.
+ *  - address.exact — the location-reveal protocol. Every variant names the
+ *    truthfulness window in one of its documented forms: «два часа пред»,
+ *    «денот на посетата», «денот на закажаното гледање», «на самиот ден» or
+ *    «непосредно пред» — a random roll that serves a phrase outside the
+ *    family must still answer the client's meeting-spot question honestly.
+ *  - discovery.waiver.ack — the client waived a size requirement
+ *    («небитно»). Every variant ACKNOWLEDGES the waived criterion by naming
+ *    it («големината …», «квадратура …») before the cards — a variant that
+ *    acks nothing acknowledges nothing (the [21:40] flake served «Одлично,
+ *    така има најмногу избор» in place of any size acknowledgement).
+ */
+export const POOL_CONTRACTS: Record<string, RegExp> = {
+  'discovery.waiver.ack': /големин[аата]|квадратур/iu,
+  'owner.relay:counter.bare': /друг/iu,
+  'vague.time': /колку/iu,
+  'vague.time.owner': /колку/iu,
+  'address.exact':
+    / два часа пред |(?<![A-Za-z\u0400-\u04FF])ден(?:о)?(?:т)?\s*на\s*(?:посет|закажаното\s*гледање)|(?<![A-Za-z\u0400-\u04FF])на\s*самиот\s*ден|(?<![A-Za-z\u0400-\u04FF])непосредно\s*пред/iu,
+};
+
+/** Does a SERVED text satisfy the contract of its pool key? Unknown keys
+ *  (or empty text) have nothing to assert — returns true. */
+export function matchesPoolContract(key: string, text: string | undefined): boolean {
+  const re = POOL_CONTRACTS[key];
+  if (!re || !text) return true;
+  return re.test(text);
+}
+
+/** Data-level check: which variants of a pool violate its contract? Empty for
+ *  a healthy pool (or keys with no contract). Seed layer only — learned
+ *  variants are runtime data, and the served-text check above covers them. */
+export function poolContractViolations(key: string): string[] {
+  const re = POOL_CONTRACTS[key];
+  if (!re) return [];
+  return (RESPONSE_BANK[key] ?? []).filter(v => !re.test(v));
+}
 
 /** Pick a variant for a bank key, or undefined when the key has no variants yet.
  *  Layered: seed (responses.ts) + learned (SQLite bank_variants). Learned

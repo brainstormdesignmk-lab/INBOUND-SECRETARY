@@ -18,7 +18,8 @@
  * is the CLI, `--strict` turns findings into a non-zero exit for CI/pre-deploy.
  */
 import { FROZEN_BANK_KEYS } from '../store/bank';
-import { detectPriceEval } from '../llm/deterministic';
+import { detectPriceEval, isAmountlessPayViewFrame, isFeeWhyAmountFrame } from '../llm/deterministic';
+import type { DriftPair } from '../store/routeDrift';
 
 export interface HealthRow {
   id: number;
@@ -159,4 +160,59 @@ export function analyzeRows(rows: HealthRow[]): {
 /** One-line summary for logs/status bars. */
 export function healthLine(counts: Record<FindingKind, number>): string {
   return `frozen-misroute=${counts['frozen-misroute']} collision=${counts.collision} orphan=${counts.orphan}`;
+}
+
+// FRAME WATCH — just-wired fee frames under production surveillance. The
+// queue rows and drift pairs are the only memory of what clients actually
+// sent; when one of the frames the corpus was just closed on appears there,
+// the operator sees WHICH family drifted before it re-becomes a misroute.
+// Pure text tagging: no lane behaviour changes, ever.
+export type RouteFrame = 'amountless-pay-view' | 'why-fee-amount';
+
+export function frameOf(text: string): RouteFrame | undefined {
+  if (isAmountlessPayViewFrame(text)) return 'amountless-pay-view';
+  if (isFeeWhyAmountFrame(text)) return 'why-fee-amount';
+  return undefined;
+}
+
+/** Per-frame tallies over queue rows (all rows, keyed or orphan). */
+export function frameCounts(rows: readonly { userMsg: string }[]): Record<RouteFrame, number> {
+  const frames: Record<RouteFrame, number> = { 'amountless-pay-view': 0, 'why-fee-amount': 0 };
+  for (const r of rows) {
+    const f = frameOf(r.userMsg);
+    if (f) frames[f] += 1;
+  }
+  return frames;
+}
+
+/** The frame-watch summary line (appended to the CLI health line). */
+export function framesLine(frames: Record<RouteFrame, number>): string {
+  return `frame-watch:amountless-pay-view=${frames['amountless-pay-view']} why-fee-amount=${frames['why-fee-amount']}`;
+}
+
+// R3 — CORPUS FEED. Route-drift pairs (persisted since the R3 hook in
+// router.ts) become ready-to-adapt route-corpus rows: the golden pattern
+// ("every production misroute becomes a row before it becomes a guard")
+// stops depending on somebody transcribing a capture. The output is a
+// SUGGESTION each operator eyeballs — mass auto-committing intent labels
+// would poison the corpus with the drift itself.
+const esc = (s: string): string => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+/** TS-ready suggestion rows, deduped by normalized phrase (newest wins). */
+export function emitCorpusRows(d: readonly DriftPair[]): string[] {
+  const seen = new Map<string, DriftPair>();
+  for (const p of d) {
+    const norm = normalize(p.text);
+    if (!norm) continue;
+    const have = seen.get(norm);
+    if (!have || p.at > have.at) seen.set(norm, p); // the newest drift wins
+  }
+  return [...seen.values()].map(p => {
+    // Frames ride the note: the corpus row arrives pre-labeled, so a keeper
+    // pasted into route-corpus.test.ts names its family at a glance.
+    const frame = frameOf(p.text);
+    const stamp = `drift ${new Date(p.at).toISOString().slice(0, 10)}: predicted=${p.predicted} actual=${p.actual}`;
+    const note = (frame ? `frame ${frame} · ` : '') + stamp;
+    return `{ userMsg: '${esc(p.text)}', note: '${note}' },`;
+  });
 }

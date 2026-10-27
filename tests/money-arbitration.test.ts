@@ -165,6 +165,33 @@ test('unknown bucket: no money vocabulary, no bucket — plain turns stay out of
   assert.equal(v.bucket, null);
 });
 
+// THE FEE-WHY CLAIM (the [01:23] transcript): the WHY/EXISTENCE question
+// ("IMATE NEKAKVA TAKSA ZA POSETA ?") is fee-explanation traffic — the fast
+// feeWhyFast intercept owns the serve — so the money region claims it as a
+// KNOWN lane instead of addressing it as residue (unknown.fee.ask). Same
+// evidence tier as nag and placed after it in the legacy order, so a why-word
+// riding a COMPLAINT keeps the legacy nag serve; the pure why/exists rows had
+// no claim at all before (they fell into the residue bucket), so this claim
+// only upgrades the address, it never shifts a serve.
+test('fee-why claim: the existence/why question is a KNOWN lane, never unknown.fee.ask', () => {
+  for (const t of ['IMATE NEKAKVA TAKSA ZA POSETA ?', 'dali ima taksa za poseta?',
+    'има ли надоместок за посета?', 'zoska 500 denari ?']) {
+    const v = arbitrateMoney(t, ctx({ state: 'closing', propertyOnTable: false }));
+    assert.equal(v.lane, 'feeWhy', `the why/exists row lost its claim: ${t} → ${v.lane}`);
+    assert.equal(v.bucket, null, `a claimed why row must not carry a residue address: ${t}`);
+    const why = v.claims.find(c => c.lane === 'feeWhy');
+    assert.ok(why, `feeWhy claim missing: ${t}`);
+    assert.ok(why.evidence.some(e => e.includes('act:ask-why')), `evidence chip lost: ${t}`);
+    // tuple stays fee-topic with the visit-fee target
+    assert.equal(v.tuple.topic, 'fee', `tuple topic drift: ${t}: ${v.tuple.topic}`);
+  }
+  // outside the fee/protocol states no lane runs the money serve machinery —
+  // the claim must not fire there, the residue address keeps telling the truth
+  const idleRow = arbitrateMoney('IMATE NEKAKVA TAKSA ZA POSETA ?', ctx({ state: 'quarantine', propertyOnTable: false }));
+  assert.equal(idleRow.lane, null, 'feeWhy claimed outside the fee states');
+  assert.equal(idleRow.bucket, 'unknown.fee.ask', `state gate drift: ${idleRow.bucket}`);
+});
+
 // ── THE EXPENSIVE SEEDS GUARD (same policy class as the cheap seeds) ───────
 test('the expensive lane has real bankable policy seeds', () => {
   const seeds = PRICE_EVAL_EXPENSIVE_SEEDS;

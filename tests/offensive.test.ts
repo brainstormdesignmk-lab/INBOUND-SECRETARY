@@ -342,3 +342,33 @@ test('classify: normal real-estate talk is never offensive', () => {
     assert.equal(d.isOffensive, false, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
   }
 });
+
+// The [17:18] live miss: "DALI STENKAS DOBRO KOGA TI VLAGA ?" — an explicit
+// "when it enters you" sexual jab that the lexicon read as clean because
+// 'vlaga' is an ordinary word (moisture / to invest). Only the CRUDE
+// COLLOCATION (koga/kaj + 2nd-person clitic + insert-verb) strikes; the
+// moisture and investment readings must stay clean.
+test('[17:18] crude innuendo koga ti/te vlaga is sexual severity 2', () => {
+  for (const t of [
+    'DALI STENKAS DOBRO KOGA TI VLAGA ?',  // the live miss
+    'доли штенкас добро кога ти влага ?',  // Cyrillic spelling
+    'koga te vlaga',
+    'КОГА ТИ ВЛЕЗЕ ?',
+    'koga ti go vlaga',
+    'dali e dobro koga ti vlaga',
+  ]) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+    assert.equal(d.category, 'sexual', JSON.stringify(t));
+    assert.equal(d.severity, 2, JSON.stringify(t));
+  }
+  for (const t of [
+    'ima vlaga vo podrumot',               // moisture noun, no crud frame
+    'sopstvenikot vlaga zaштiten premaz',  // 3rd person verb, no crude frame
+    'koga ti vlaga parite vo renoviranje', // investment reading excluded
+    'koga te vlaze vodata',                // different word form (влажува = moistens)
+  ]) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, false, JSON.stringify(t) + ' -> ' + (d.reason ?? 'clean'));
+  }
+});

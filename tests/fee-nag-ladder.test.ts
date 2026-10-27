@@ -99,6 +99,7 @@ const DECIDE_POOL: string[] = RESPONSE_BANK['fee.decide'] ?? [];
 const GRACEFUL_POOL: string[] = RESPONSE_BANK['fee.graceful.close'] ?? [];
 
 const PERSUADE_POOL_RENT: string[] = RESPONSE_BANK['fee.persuade.1.rent'] ?? [];
+const WHY_POOL: string[] = RESPONSE_BANK['fee.why'] ?? [];
 
 const inAskPool = (r: string) => ASK_POOL_BUY.includes(r.trim());
 const inPersuadePool = (r: string) => PERSUADE_POOL_BUY.includes(r.trim());
@@ -517,10 +518,15 @@ test('e2e: the decision answered with NO runs the BYE PROTOCOL (graceful close, 
   assert.ok(inDecidePool(sent[sent.length - 1]), sent[sent.length - 1].slice(0, 90));
 
   // The decision answered with NO → the bye protocol, never another persuasion.
+  const beforeClose = sent.length;
   s = await send('NE, NEMA DA PLATAM');
   assert.equal(s.state, 'queued', JSON.stringify({ state: s.state, rejects: s.slots.feeRejections }));
   assert.equal(s.slots.feeRejections, 4);
   const reply = sent[sent.length - 1];
+  // A terminal turn sends EXACTLY ONE message: queuing the chat ends the
+  // conversation, so a lane falling through behind the graceful close would
+  // put a fifth message on a closed chat (the [21:57] cancel branch did that).
+  assert.equal(sent.length, beforeClose + 1, `one message on the closing turn: ${sent.slice(beforeClose).join(' | ')}`);
   assert.ok(isGracefulClose(reply), `the graceful close: ${reply.slice(0, 120)}`);
   assert.ok(!/филтер|ценовник|Одлуката е Ваша/iu.test(reply), `no fifth rung after the decision: ${reply.slice(0, 120)}`);
   assert.ok(GRACEFUL_POOL.length >= 1, 'the graceful-close pool is seeded');
@@ -664,6 +670,50 @@ test('e2e [22:03]: the fee challenge under каде climbs rung 1 — the client
   assert.equal(s.slots.landmarkIndex ?? 0, 0, 'the landmark rotation must not advance');
 });
 
+test('e2e [22:26–22:27]: the bare "pa ne znam" after the consent ask climbs rung 1 — never a landmark pin; "nikoj ne naplakja" is the rationale', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'ladder-pa-ne-znam';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return sessions.get(chatId)!;
+  };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  const s0 = await send('SAKAM DA JA VIDAM');
+  assert.equal(s0.state, 'closing', `the disclosure state: ${s0.state}`);
+
+  // FIELD STATE of the capture: an EARLIER landmark turn had already armed the
+  // rotation ('ТЕМНИЦА' + its anchors) before the fee funnel began — the exact
+  // hazard that let a bare ignorance cue rotate into a map pin.
+  const live = sessions.get(chatId)!;
+  live.slots.propertyId = 78;
+  live.slots.nearbyLandmarks = ['Рептил маркет', 'Градска болница', 'Универзална сала'];
+  live.slots.lastLandmark = 'Рептил маркет';
+  live.slots.landmarkIndex = 1;
+  sessions.set(live);
+
+  // "pa ne znam" — bare, no anchor name — is fee hesitance, rung 1.
+  const s1 = await send('pa ne znam');
+  let reply = sent[sent.length - 1];
+  assert.ok(inPersuadePool(reply), `rung 1 is the ONE persuasion: ${reply.slice(0, 90)}`);
+  assert.equal(s1.slots.feeRejections, 1, 'the hesitance burns exactly one rung');
+  assert.ok(!/во близина на|maps\.google|https?:\/\//iu.test(reply), `never a landmark pin: ${reply.slice(0, 120)}`);
+  assert.equal(s1.slots.landmarkIndex ?? 0, 1, 'the anchor rotation must not advance');
+  assert.equal(s1.state, 'closing', `never a property pivot for the fee: ${s1.state}`);
+
+  // "nikoj ne naplakja" answers the consent ask — the WHY family: rationale,
+  // no rung, the funnel STAYS at the fee question.
+  const s2 = await send('nikoj ne naplakja');
+  reply = sent[sent.length - 1];
+  assert.equal(s2.slots.feeRejections, 1, 'an explanation never burns a rung');
+  assert.equal(s2.state, 'closing', `the funnel stays at the fee: ${s2.state}`);
+  assert.ok(WHY_POOL.includes(reply.trim()) || /филтер|селекц|симбол/iu.test(reply), `the fee rationale: ${reply.slice(0, 90)}`);
+  assert.ok(!/во близина на|maps\.google|https?:\/\//iu.test(reply), `never a landmark pin: ${reply.slice(0, 120)}`);
+});
+
 test('e2e: the decision answered with YES continues the workflow (contact collection)', async () => {
   const { handler, sessions, sent } = makeHandler();
   const chatId = 'ladder-yes';
@@ -687,4 +737,69 @@ test('e2e: the decision answered with YES continues the workflow (contact collec
   s = await send('DOBRO, ZAKAZI');
   assert.equal(s.state, 'contact_collection', JSON.stringify({ state: s.state, rejects: s.slots.feeRejections }));
   assert.ok(/име|презиме|телефон/iu.test(sent[sent.length - 1]), `the contact ask follows: ${sent[sent.length - 1].slice(0, 90)}`);
+});
+
+// ── THE ANAPHORIC REFUSAL (the [14:36] workstation capture) ─────────────────
+
+// The owner's protocol (brought back from the pre-regression funnel): the fee
+// refusal arrow answered to the fee stack — "не ми одговара", no noun, no
+// figure — climbs the SAME ladder as every other resistance shape. NO goodbye
+// on the first nag, NO property suggestions in the fee's place, and the
+// graceful close only on the LAST rung.
+import { detectFeeAnaphoricRefusal } from '../src/llm/deterministic';
+
+test('[14:36] anaphoric fee refusal: the objectless "не ми одговара" climbs the ladder, never the goodbye', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'ladder-anaphoric';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return sessions.get(chatId)!;
+  };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  let s = await send('SAKAM DA JA VIDAM');
+  assert.ok(inAskPool(sent[sent.length - 1]), `the disclosure comes first: ${sent[sent.length - 1].slice(0, 90)}`);
+
+  // The capture: fee ask → fee.why stack → nothing but the refusal arrow.
+  s = await send('ne mi odgovara');
+  let reply = sent[sent.length - 1];
+  assert.equal(s.slots.feeRejections, 1, 'one rung burned — never zero');
+  assert.ok(inPersuadePool(reply), `rung 1 is the ONE persuasion: ${reply.slice(0, 90)}`);
+  assert.ok(!isGracefulClose(reply), `NO goodbye on the first nag: ${reply.slice(0, 90)}`);
+  assert.equal(s.state, 'closing', `never a property pivot for the fee refusal: ${send}`);
+  assert.ok(!/Ги издвоив|предлози/iu.test(reply), `no suggestions in the fee's place: ${reply.slice(0, 90)}`);
+
+  s = await send('не ми одговара');
+  assert.equal(s.slots.feeRejections, 2, 'the Cyrillic form burns the same rung');
+  assert.ok(inRulePool(sent[sent.length - 1]), `rung 2 is the agency rule: ${sent[sent.length - 1].slice(0, 90)}`);
+
+  s = await send('ne mi odgovara');
+  assert.equal(s.slots.feeRejections, 3);
+  assert.ok(inDecidePool(sent[sent.length - 1]), `rung 3 is the decision: ${sent[sent.length - 1].slice(0, 90)}`);
+
+  // The 4th refusal closes — the graceful close is the farewell's ONLY owner.
+  const beforeQueue = sent.length;
+  s = await send('ne mi odgovara');
+  assert.equal(s.slots.feeRejections, 4);
+  assert.equal(s.state, 'queued', 'the customer is queued');
+  assert.ok(isGracefulClose(sent[sent.length - 1]), `rung 4 is the graceful close: ${sent[sent.length - 1].slice(0, 90)}`);
+  assert.equal(sent.length, beforeQueue + 1, `one message on the queuing turn: ${sent.slice(beforeQueue).join(' | ')}`);
+});
+
+test('[14:36] the arrow is anaphoric only: object-bearing forms keep their lanes', () => {  // Bare arrow, both scripts — INSIDE the fee funnel these are fee resistance.
+  for (const t of ['ne mi odgovara', 'НЕ МИ ОДГОВАРА', 'Ne Mi Odgovara']) {
+    assert.equal(detectFeeAnaphoricRefusal(t), true, `the arrow must fire: ${t}`);
+  }
+  // Literal objects keep their own lanes (the noun veto):
+  for (const t of ['cenata ne mi odgovara', 'Не ми одговара локацијата',
+    'taaNadomestot ne mi odgovara', 'kirijata ne mi odgovara']) {
+    assert.equal(detectFeeAnaphoricRefusal(t), false, `the object owns the turn: ${t}`);
+  }
+  // Questions and wider families are never the arrow.
+  for (const t of ['dali mi odgovara?', 'ne mi se dopaga', 'ne sakam da platam']) {
+    assert.equal(detectFeeAnaphoricRefusal(t), false, `not the arrow: ${t}`);
+  }
 });

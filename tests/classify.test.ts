@@ -65,6 +65,9 @@ test('parseClassified: budget is canonicalized — garbage without digits is dro
   assert.equal(formatted.event.budget, '80000');
   const words = parseClassified('{"event":"DETAILS_PROVIDED","budget":"80 илјади"}');
   assert.equal(words.event.budget, '80000');
+  // the k shorthand from the LLM payload canonically multiplies
+  const kShorthand = parseClassified('{"event":"DETAILS_PROVIDED","budget":"120k"}');
+  assert.equal(kShorthand.event.budget, '120000');
 });
 
 test('parseClassified: name/phone/visitTime garbage is dropped, real values survive', () => {

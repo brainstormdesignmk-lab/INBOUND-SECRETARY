@@ -156,6 +156,14 @@ const T: Record<State, Partial<Record<EventType, State>>> = {
   time_confirm: {
     TIME_ACCEPTED: 'pending',
     TIME_REJECTED: 'visit_scheduling', // loop, capped by pipeline (negotiationCap)
+    // [19:31] capture: the client counters the owner's relay with a NEW concrete
+    // term ("mozam vo cetvrtok ama porano malce vo 5"). The negotiation is OPEN —
+    // re-open owner_checking and re-ask the owner (the ping-pong continues
+    // until both parties are satisfied). Without this row the event left the
+    // state frozen and the reply fell to the LLM detour ("Дали да Ве известам
+    // штом ќе добијам потврда?"), after which a bare "да" confirmed the
+    // owner's STALE term as Договорена.
+    VISIT_TIME_PROVIDED: 'owner_checking',
     ESCALATE: 'escalated',
     STAY: 'time_confirm',
   },

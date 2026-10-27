@@ -1099,7 +1099,9 @@ test('owner ping-pong: Lina ASKS the owner, his plain-text answer is relayed —
   await tick();
   s = sessions.get(c2)!;
   assert.equal(s.state, 'time_confirm');
-  assert.ok(last().toLowerCase().includes('петок во 11'), last()); // relayed to the client
+  // Canonical counter display (the [19:29] capture): day + date + 24h clock —
+  // the lossy mkTimePhrase bare clock ('Петок во 11') is gone.
+  assert.ok(/Петок, \d{2}\.\d{2}\.\d{4} во 11:00/u.test(last()), last()); // relayed to the client
   s = await s2('VO RED, TOA VREME E DOBRO');
   assert.equal(s.state, 'pending');
   assert.ok(last().includes('Договорена посета'), last());
@@ -1144,7 +1146,7 @@ test('owner counter-offer: accept/reject the owner time works with every LLM dow
   await new Promise(r => setTimeout(r, 50)); // let the enqueued verdict land
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'time_confirm');
-  assert.ok(sent[6].includes('Петок во 17:00'), sent[6]); // mkTimePhrase capitalizes the day in relays
+  assert.ok(/Петок, \d{2}\.\d{2}\.\d{4} во 17:00/u.test(sent[6]), sent[6]); // canonical 24h counter relay
 
   // accept the counter-time -> pending (confirmed appointment), LLM down
   s = await send('VO RED, TOA VREME E DOBRO');
@@ -1986,7 +1988,11 @@ test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" 
   await send('DA, SE SOGLASUVAM');
   s = await send('LIDIJA 078/914 196');
   assert.equal(s.state, 'visit_scheduling');
-  s = await send('UTRE POPLADNE');
+  // [22:31] contract: a bare day+period re-asks the exact hour first — the
+  // owner never receives an unresolved afternoon.
+  await send('UTRE POPLADNE');
+  assert.equal(sessions.get(chatId)!.state, 'visit_scheduling');
+  s = await send('OKOLU 16');
   assert.equal(s.state, 'owner_checking');
   assert.equal(s.slots.interestedPropertyId, 53);
 });
@@ -2867,7 +2873,7 @@ test('near-center ladder: ask → hand-back → mixed pairs → elimination → 
   assert.ok(/Карпош|Аеродром|Кисела Вода/.test(sent[sent.length - 1]), sent[sent.length - 1]);
   assert.ok(/населб/iu.test(sent[sent.length - 1]), `must ask about a specific neighborhood: ${sent[sent.length - 1]}`);
   assert.equal(s.slots.nearCenter?.stage, 'ask');
-  assert.deepEqual(s.slots.nearCenter?.ring, ['Карпош', 'Аеродром', 'Кисела Вода']);
+  assert.deepEqual(s.slots.nearCenter?.ring, ['Карпош', 'Аеродром', 'Кисела Вода', 'Капиштец']);
 
   // Client hands the choice back → MIXED ring pair (ROWS ring buys ≤ 80k:
   // EB 46 Кисела Вода 72.3k, EB 54 Карпош III 69.5k, EB 53 Аеродром 55k,
@@ -3135,8 +3141,12 @@ test('22:18 TTL resume: a mid-close session survives the 73-min gap — bridge, 
   await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
   assert.ok(/сопствени/iu.test(sent[1]), sent[1]);
   assert.equal(sessions.get(chatId)!.state, 'closing');
+  // The [22:18] capture: Lina's last outbound went out at 21:05, just BEFORE
+  // the client's silence began — so BOTH session clocks age together. (Before
+  // sendRaw persisted lastOutboundAt only lastInboundAt could be aged here.)
   const aged = sessions.get(chatId)!;
   aged.lastInboundAt = Date.now() - 73 * 60_000;
+  aged.lastOutboundAt = Date.now() - 73 * 60_000;
   sessions.set(aged);
 
   // The client answers the pending offer — the funnel must RESUME, not reset.
@@ -3196,8 +3206,11 @@ test('[10:16b] the resume bridge itself carries the owner-approved line', async 
 
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   await send('KOGA BI MOZELO DA SE POGLEDNE STANOT ?');
+  // Same dual-clock aging as [22:18]: Lina's outbound was written just before
+  // the 77-min silence, so it is equally stale when "DA" arrives.
   const aged = sessions.get(chatId)!;
   aged.lastInboundAt = Date.now() - 77 * 60_000;
+  aged.lastOutboundAt = Date.now() - 77 * 60_000;
   sessions.set(aged);
 
   // Non-question traffic still RESUME-bridges — and the wording is exactly
@@ -4454,4 +4467,55 @@ test('[22:44] nearby ask with the BLIXINA typo reaches the landmark rotation, ne
   assert.ok(!/(достап|контактирам со сопственикот|потврдим)/iu.test(reply), `never the availability ack: ${reply}`);
   assert.ok(/близина на|населб|мин пеш|Аеродром/iu.test(reply), `a location answer instead: ${reply}`);
   assert.equal(s.state, 'property_query', `stays in the property funnel (got ${s.state})`);
+});
+
+test('[19:29→19:35] capture: the client counters inside time_confirm — the owner is re-asked, the visit never locks in on a stale term', async () => {
+  // THE FIELD: owner counters «Четврток во 7(пол)", the client answers
+  // "mozam vo cetvrtok ama porano malce vo 5". The negotiation is OPEN — the
+  // old FSM had no row for it: the state froze in time_confirm, the reply fell
+  // to the LLM detour ("Дали да Ве известам штом ќе добијам потврда од него?"),
+  // and the client's "да обавезно" confirmed the owner's STALE 19:30/19:00 as
+  // Договорена while the negotiated 17:00 never reached the owner.
+  const { handler, sessions, sent } = makeHandler();
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_chatId: string, _eb: number, q: string) => { ownerAsks.push(q); };
+  const chatId = 'repro1931';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA'); // confirm owner contact
+  await send('DA, SE SOGLASUVAM');
+  await send('ZORAN 078/914 196');
+  let s = await send('VTORNIK VO 18:00');
+  assert.equal(s.state, 'owner_checking');
+
+  // [19:29] the owner cannot do the proposed term and counters Thursday 7:30.
+  handler.ownerAnswer(chatId, 78, { status: 'counter', ownerTime: 'Cetvrtok vo 7ipol ?' });
+  await new Promise(r => setTimeout(r, 50)); // let the enqueued verdict land
+  s = sessions.get(chatId)!;
+  assert.equal(s.state, 'time_confirm');
+
+  // [19:31] THE CAPTURE: the client counters with a NEW concrete term —
+  // owner_checking, the owner re-asked with the canonical 24h term.
+  s = await send('mozam vo cetvrtok ama porano malce vo 5');
+  assert.equal(s.state, 'owner_checking', `the counter re-opens the negotiation: ${s.state}`);
+  assert.ok(!sent.some(m => m.includes('Договорена посета')), 'no premature arranged broadcast');
+  const ask = ownerAsks[ownerAsks.length - 1];
+  assert.match(ask, /Четврток, \d{2}\.\d{2}\.\d{4} во 17:00/u, `the owner re-asked with the new term: ${ask}`);
+
+  // [19:35] "да обавезно" while the owner check is still open: the visit must
+  // NOT lock in on the stale owner counter — Lina waits for the owner's word.
+  s = await send('da obavezno');
+  assert.equal(s.state, 'owner_checking', `a yes before the owner's answer waits: ${s.state}`);
+  assert.ok(!sent.some(m => m.includes('Договорена посета')), 'the stale term never got confirmed');
+
+  // The owner accepts the negotiated term → confirmed at 17:00, never 19:00.
+  handler.ownerAnswer(chatId, 78, { status: 'ok' });
+  await new Promise(r => setTimeout(r, 60));
+  s = sessions.get(chatId)!;
+  assert.equal(s.state, 'pending');
+  const confirmed = [...sent].reverse().find(m => m.includes('Договорена посета'))!;
+  assert.match(confirmed, /во 17:00/u, `confirmed at the negotiated term: ${confirmed}`);
+  assert.ok(!confirmed.includes('во 19:00'), `the stale counter never became the booking: ${confirmed}`);
 });

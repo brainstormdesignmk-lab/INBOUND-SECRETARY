@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { detectLocation } from '../src/llm/deterministic';
-import { titleCase, cleanMacedonian, featurePhrases, locMatches, normalizeLocation, PropertyService, Property } from '../src/data/properties';
+import { titleCase, cleanMacedonian, featurePhrases, locMatches, normalizeLocation, PropertyService, Property, interleaveMixedPairs } from '../src/data/properties';
 
 class FakeProps extends PropertyService {
   constructor(private rows: Property[]) { super('http://fake-feed'); }
@@ -18,6 +18,25 @@ const ROWS: Property[] = [
   { eb: 56, id: 56, location: undefined, price: 500, service: 'rent', business: true, sqm: 40 },
   { eb: 59, id: 59, location: 'Центар', price: 950, service: 'rent', business: true, sqm: 105 },
 ];
+
+test('interleaveMixedPairs: the biggest in-budget unit LEADS, then the alternate type, alternating on (the [02:02] contract)', () => {
+  const mk = (eb: number, sqm: number): Property => ({ eb, id: eb, sqm } as Property);
+  // Pools arrive already sorted biggest-first (candidates sortBySqmDesc).
+  const regular = [mk(91, 48), mk(95, 45), mk(96, 39)];
+  const studios = [mk(94, 30), mk(76, 24)];
+  const out = interleaveMixedPairs(regular, studios);
+  // Lead = regular head (48 м², the biggest fit); every following slot
+  // alternates pools; dedupe keeps both pools' survivors in order.
+  assert.deepEqual(out.map(p => p.eb), [91, 94, 95, 76, 96]);
+  // A studio-led budget: the bigger category head starts the serve.
+  const out2 = interleaveMixedPairs([mk(80, 28)], [mk(94, 30), mk(76, 24)]);
+  assert.deepEqual(out2.map(p => p.eb), [94, 80, 76]);
+  // Cross-pool duplicate (a row can sit in both passes) keeps only its first slot.
+  const dup = [mk(91, 48), mk(95, 45)];
+  const dupStudios = [mk(91, 48), mk(76, 24)];
+  const out3 = interleaveMixedPairs(dup, dupStudios);
+  assert.deepEqual(out3.map(p => p.eb), [91, 76, 95]);
+});
 
 test('candidates: house requests match only houses; стан requests exclude them', async () => {
   const ps = new FakeProps([

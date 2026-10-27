@@ -66,6 +66,11 @@ class FakeProps extends PropertyService {
 const ROWS: Property[] = [
   { eb: 79, id: 79, location: 'Капиштец', price: 250, service: 'rent', bedrooms: 2, size: '55 м²', address: 'Партенија' },
   { eb: 78, id: 78, location: 'Капиштец', price: 185000, service: 'buy', bedrooms: 3, size: '82 м²', address: 'Народен Фронт' },
+  // The [02:27] capture pair: a two-card Аеродром buy batch (the client's own
+  // search), so the visit-agreement lanes route with a REAL batch on the
+  // table instead of the no-match pivot.
+  { eb: 89, id: 89, location: 'Аеродром', price: 110000, service: 'buy', bedrooms: 2, size: '70 м²', details: 'Спрат со лифт, парно, јавен паркинг, целосно наместен.' },
+  { eb: 53, id: 53, location: 'Аеродром', price: 55000, service: 'buy', bedrooms: 2, size: '44 м²', details: 'Поткровје, мансарда, целосно наместен, посебна спална соба.' },
 ];
 
 function makeHandler(): { handler: InboundHandler; sessions: SessionStore; sent: string[]; enrichment: EnrichmentStore } {
@@ -1124,6 +1129,72 @@ test('e2e commission ask: the tier rule answers, never the bound flat\'s rent', 
   assert.equal(s.slots.feeRejections, undefined);
 });
 
+test('[02:31/02:33] a visit agreement names the fee BEFORE any second visit offer', async () => {
+  for (const chatId of ['capture-visit-fee-a', 'capture-visit-fee-b']) {
+    const { handler, sessions, sent } = makeHandler();
+    const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+    // The [02:27] batch is on the table (2 buy cards, Аеродром).
+    await send('ke kupam dvosoben stan aerodrom do 120000 evra');
+    const stateAfterBatch = sessions.get(chatId)!;
+    assert.equal(stateAfterBatch.state, 'presentation');
+    assert.equal((stateAfterBatch.slots.presentedIds ?? []).length, 2, 'the capture batch must actually serve');
+
+    // (a) The MIXED message — praise + in-person viewing noun — arrives BEFORE
+    // the fee was ever asked. The old flow served property.liked ("Дали би
+    // сакале да организирам посета?") and asked for the visit the client had
+    // just agreed to. The fee must be disclosed instead.
+    const mixedReplyPool = [];
+    mixedReplyPool.push(await send('ke go kupam ako e dobar vo zivo'));
+    const mixedReply = sent[sent.length - 1] ?? '';
+    assert.ok(/500\s*денари|10\s*евра/i.test(mixedReply),
+      `the visit agreement must disclose the fee, got: ${mixedReply.slice(0, 140)}`);
+    assert.ok(/0\s*%|провизи/iu.test(mixedReply), `the 0% fact rides the disclosure: ${mixedReply.slice(0, 140)}`);
+    assert.doesNotMatch(mixedReply, /одличен избор\s*!/iu, `no bare enthusiasm line instead of the fee: ${mixedReply.slice(0, 140)}`);
+    assert.equal(mixedReplyPool[0].state, 'closing');
+    assert.equal(mixedReplyPool[0].slots.interestedPropertyId, 89, 'the visit stays anchored on the current batch');
+
+    // (b) A repeat visit intent must stay in the fee protocol — never the
+    // exhausted queue pivot (the [02:33] answer).
+    await send('sakam da go vidam');
+    const vidamReply = sent[sent.length - 1] ?? '';
+    assert.doesNotMatch(vidamReply, /Веќе ги погледнавме|не располагам/iu,
+      `the exhausted pivot answered a visit agreement: ${vidamReply.slice(0, 140)}`);
+
+    // (c) "ako nema lift" after the fee ask is a FEATURE condition — the
+    // honest owner-check, not the no-more-properties pivot.
+    await send('ako nema lift');
+    const liftReply = sent[sent.length - 1] ?? '';
+    assert.doesNotMatch(liftReply, /Веќе ги погледнавме|не располагам/iu,
+      `the exhausted pivot answered a feature condition: ${liftReply.slice(0, 140)}`);
+    assert.ok(/сопственик/iu.test(liftReply), `the owner-check answer served: ${liftReply.slice(0, 140)}`);
+  }
+});
+
+test('[02:31] the mixed praise+visit message fee-asks even when it is the FIRST post-batch turn', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'capture-visit-fee-first-turn';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+  await send('ke kupam dvosoben stan aerodrom do 120000 evra');
+  const s = await send('ke go kupam ako e dobar vo zivo');
+  const reply = sent[sent.length - 1] ?? '';
+  assert.ok(/500\s*денари|10\s*евра/i.test(reply), `fee-first violated at presentation: ${reply.slice(0, 140)}`);
+  assert.equal(s.state, 'closing');
+  assert.equal(s.slots.interestedPropertyId, 89, 'the visit anchors on the current batch');
+
+  // Bare praise WITHOUT a visit noun still gets the enthusiasm + visit offer
+  // (the 21:02 rule) — the new guard must not over-broaden.
+  const { handler: h2, sessions: s2, sent: sent2 } = makeHandler();
+  const send2 = async (m: string) => { await h2.handle('test', 'capture-praise-bare', m); return s2.get('capture-praise-bare')!; };
+  await send2('ke kupam dvosoben stan aerodrom do 120000 evra');
+  const sPr = await send2('odlicen izbor, mi se svigja ovoj');
+  const prReply = sent2[sent2.length - 1] ?? '';
+  assert.doesNotMatch(prReply, /500\s*денари/iu, `bare praise must NOT fee-ask (the 21:02 rule): ${prReply.slice(0, 140)}`);
+  assert.ok(/закажам\s+термин|посет|разглед/iu.test(prReply), `bare praise serves the visit offer: ${prReply.slice(0, 140)}`);
+  assert.equal(sPr.state, 'closing');
+  assert.equal(sPr.slots.ownerContactPending, true);
+});
+
 test('bye.again: a SECOND goodbye in one session serves the short parting, not a repeated thank-you', async () => {
   for (const v of (RESPONSE_BANK['bye.again'] ?? [])) {
     assert.ok(!/\?\s*$/.test(v), `bye.again variant ends with a question: ${v}`);
@@ -1152,4 +1223,63 @@ test('bye.again: a SECOND goodbye in one session serves the short parting, not a
   assert.ok(!/благодарам/iu.test(reply), `second bye repeats the thank-you skeleton: ${reply}`);
   assert.ok(!reply.includes('?'), `second bye asks a question: ${reply}`);
   assert.equal(s.slots.byeServed, true, 'flag not persisted');
+});
+
+// THE [01:28] TUI CAPTURE — the fee acceptance swallowed by location.confirm.
+// Closing, fee on the table, client: "ШТОМ ТАКА МОРА , ЗАКАЖИ". The live
+// classifier said FEE_AGREED and the FSM moved the session to
+// contact_collection — then the location.confirm branch (no event guard)
+// swallowed the turn via its bare "така" marker: the funnel was yanked BACK to
+// closing and the client got "Точно, Станот со Евидентен број 82 се наоѓа во
+// Аеродром…" (enrichment row 316, bank key location.confirm) instead of the
+// name+phone ask. Pinned with a stub classifier because the field verdict came
+// from the live LLM; the detectors alone do not produce FEE_AGREED here.
+class FeeAgreedClassifier extends Classifier {
+  // The REAL Classifier needs its full surface (deterministicClassify, setLlm…);
+  // only the LLM classify() leg is pinned to the field verdict.
+  async classify(): Promise<any> { return { event: { type: 'FEE_AGREED' } }; }
+}
+
+test('[01:28] "ШТОМ ТАКА МОРА, ЗАКАЖИ" consented to the fee — the contact ask runs, never the Aеродром echo', async () => {
+  const { handler, sessions, sent } = (() => {
+    const cfg = loadConfig();
+    const db = new Db(':memory:');
+    const sessions = new SessionStore(db);
+    const properties = new FakeProps(ROWS);
+    const classifier = new FeeAgreedClassifier(new FailingLlm(), cfg, properties);
+    const responder = new Responder(new FailingLlm(), cfg);
+    const channels = new ChannelRegistry();
+    const sent: string[] = [];
+    channels.register({ name: 'test', send: async (_c: string, text: string) => { sent.push(text); } });
+    const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties,
+      appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+      meta: new MetaStore(db), channels, enrichment: new EnrichmentStore(db),
+      landmarks: new LandmarkService(db, { osm: false }),
+    } as never);
+    return { sent, sessions, handler };
+  })();
+  const chatId = 'capture-0128-consent';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  // The transcript's context: EB 82 (Аеродром, buy) on the table, the fee
+  // disclosed, the funnel standing at closing.
+  let s = await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 89');
+  s.state = 'closing';
+  s.slots.propertyId = 89;
+  s.slots.interestedPropertyId = 89;
+  s.slots.service = 'buy';
+  s.slots.location = 'Аеродром';
+  sessions.set(s);
+
+  await send('ШТОМ ТАКА МОРА , ЗАКАЖИ');
+  const reply = sent[sent.length - 1] ?? '';
+  s = sessions.get(chatId)!;
+
+  assert.equal(s.slots.viewingFeeAgreed, true, 'the consent must be recorded');
+  assert.equal(s.state, 'contact_collection', `the funnel must advance to contact collection, got: ${s.state}`);
+  assert.ok(/име|телефон/iu.test(reply), `the name+phone ask must run, got: ${reply.slice(0, 160)}`);
+  assert.doesNotMatch(reply, /Точно, Станот со Евидентен број/iu,
+    `the location.confirm echo swallowed the consent again: ${reply.slice(0, 160)}`);
+  assert.doesNotMatch(reply, /колку чини|киријата/iu,
+    `the acceptance was answered with a PRICE line: ${reply.slice(0, 160)}`);
 });

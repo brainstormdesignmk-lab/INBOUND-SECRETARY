@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { loadConfig } from '../src/config';
 import { Db } from '../src/store/db';
-import { SessionStore } from '../src/fsm/session';
+import { SessionStore, freshSession } from '../src/fsm/session';
 import { Classifier } from '../src/llm/classify';
 import { Responder } from '../src/llm/respond';
 import { PropertyService, Property } from '../src/data/properties';
@@ -21,6 +21,7 @@ import { LandmarkService, sanitizeLandmarkAnswer } from '../src/geo/landmarks';
 import { VisitScheduler } from '../src/visits/scheduler';
 import { LandmarkStore } from '../src/geo/landmarks';
 import { detectOwnerVerdict, detectOwnerAddressReply, hasDayWord, detectVagueTime } from '../src/llm/deterministic';
+import { matchesPoolContract } from '../src/data/responseBank';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
@@ -399,7 +400,13 @@ test('e2e: arranged visit fires ДОГОВОРЕНА ПОСЕТА to owner + cli
   await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('MARKO 078/914 196');
-  let s = await send('UTRE POPLADNE');
+  // [22:31] contract: a bare day+period re-asks for the exact hour — the owner
+  // never receives an undresolve afternoon.
+  const sVague = await send('UTRE POPLADNE');
+  assert.equal(sVague.state, 'visit_scheduling');
+  // the vague.time pool rotates variants — "точно во колку часот" / "точниот час. Во колку?"
+  assert.ok(/точн|колку/iu.test(sent[sent.length - 1] ?? ''), `the exact-clock ask fires: ${sent[sent.length - 1]?.slice(0, 90)}`);
+  let s = await send('OKOLU 16');
   assert.equal(s.state, 'owner_checking');
 
   handler.ownerAnswer(chatId, 53, detectOwnerVerdict('da, moze', s.slots.visitTime ?? '')!);
@@ -492,7 +499,11 @@ test('e2e regression: refused-time ping-pong counters СРЕДА ВО 6, and the
   await new Promise(r => setTimeout(r, 50));
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'time_confirm', `client must sit in time_confirm, got ${s.state}`);
-  assert.ok(sent.some(t => t.includes('Среда во 6')), `client relay must carry the counter, got: ${sent.join(' | ')}`);
+  // Canonical counter display (the [19:29] capture): the relay normalizes
+  // the owner's raw counter to day + date + 24h clock — "Среда во 6" becomes
+  // "Среда, <next-occurrence date> во 18:00". The raw form still stays in
+  // slots.ownerTime, which is what the acceptance step below matches.
+  assert.ok(/Среда, \d{2}\.\d{2}\.\d{4} во 18:00/u.test(sent.join(' | ')), `client relay must carry the counter, got: ${sent.join(' | ')}`);
 
   // 3) Client accepts the COUNTER → visit booked at Среда во 6.
   s = await send('SREDA VO 6 E OK');
@@ -554,6 +565,85 @@ test('e2e regression: refused-time ping-pong counters СРЕДА ВО 6, and the
   db.close();
 });
 
+// --- the [01:17]/[01:20] capture: the owner ping-pong survives the TTL -------
+// Lina relayed the owner's counter and asked for a NEW term at 01:17 — 2h46m
+// after the client's last inbound — and his "cetvrtok togas?" 3 minutes later
+// hit the 60-minute TTL measured from that stale inbound: the resume bridge
+// swallowed a legitimate answer to the pending ask ("Се враќаме на вашиот
+// избор" — totally out of context). HER outbound ask re-arms the exchange,
+// and the day-only answer must RE-ASK the exact hour, continuing the
+// ping-pong — never the bridge.
+test('[01:17]/[01:20] the client answering Lina\'s relay is parsed, never the resume bridge', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const props = new FakeProps(ROWS);
+  const llm = new FailingLlm();
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const handler = new InboundHandler({ cfg, db, sessions,
+    classifier: new Classifier(llm, cfg, props),
+    responder: new Responder(llm, cfg),
+    properties: props,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+  });
+  const chatId = 'ttl-pingpong';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA');
+  await send('DA, SE SOGLASUVAM');
+  await send('MARKO 078/914 196');
+  let s = await send('UTRE VO 4');
+  assert.equal(s.state, 'owner_checking');
+
+  // [01:17] The owner refuses the term; Lina relays and asks for a NEW one.
+  handler.ownerAnswer(chatId, 78, detectOwnerVerdict('nema da mozam vo sreda', 'Утре во 4')!);
+  await new Promise(r => setTimeout(r, 50));
+  s = sessions.get(chatId)!;
+  const funnelStates = ['visit_scheduling', 'owner_checking', 'time_confirm'];
+  assert.ok(funnelStates.includes(s.state), `the relay re-arms the funnel: ${s.state}`);
+  // The refusal relay is a ROTATING pool: the contract in responseBank.ts
+  // (POOL_CONTRACTS) pins the ask-for-another-term meaning, whatever variant
+  // is served this run.
+  assert.equal(matchesPoolContract('owner.relay:counter.bare', sent[sent.length - 1]),
+    true, `Lina asks the client for a new term: ${sent[sent.length - 1]?.slice(0, 90)}`);
+  // The refused term is DISPLAYED in Macedonian: the client typed "UTRE VO 4"
+  // Latin, and the relay echoed the raw Latin inside a Cyrillic sentence.
+  assert.ok(/Утре во 4/u.test(sent[sent.length - 1] ?? ''),
+    `the refused term is translit-Cyrillic: ${sent[sent.length - 1]}`);
+  assert.ok(!/UTRE/iu.test(sent[sent.length - 1] ?? ''),
+    `no raw Latin in the client-facing relay: ${sent[sent.length - 1]}`);
+
+  // The client had been silent for 2h46m ([22:31] → [01:17]); only the RELAY
+  // is fresh. Age the inbound clock to reproduce the 01:20 wall.
+  s.lastInboundAt = Date.now() - 166 * 60_000;
+  sessions.set(s);
+
+  // [01:20] "cetvrtok togas?" — a day-only counter-proposal, 3 min after the
+  // relay. THE FIX: no bridge — the day-only split intake asks for the hour.
+  s = await send('cetvrtok togas?');
+  assert.equal(matchesPoolContract('vague.time', sent[sent.length - 1]), true,
+    `the exact-clock ask continues the ping-pong, never the bridge: ${sent[sent.length - 1]?.slice(0, 120)}`);
+  assert.ok(!/Се враќаме|вашиот избор/iu.test(sent[sent.length - 1] ?? ''),
+    `no resume bridge on an answer to Lina's ask: ${sent[sent.length - 1]?.slice(0, 120)}`);
+  assert.ok(funnelStates.includes(s.state), `still in the visit funnel: ${s.state}`);
+  assert.ok(hasDayWord(s.slots.visitTime ?? ''), `the day is armed for the follow-up: ${s.slots.visitTime}`);
+
+  // The hour completes the pair and the owner ask fires with ЧЕТВРТОК.
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_c: string, _eb: number, q: string) => { ownerAsks.push(q); };
+  await send('OKOLU 16');
+  assert.equal(sessions.get(chatId)!.state, 'owner_checking', `the completed term goes to the owner: ${sessions.get(chatId)!.state}`);
+  assert.ok(ownerAsks.some(q => /четврток/iu.test(q) && /16/i.test(q)),
+    `the owner is asked for ЧЕТВРТОК with the hour, never the refused Среда: ${ownerAsks.join(' | ')}`);
+  db.close();
+});
+
 // --- the [00:49]/[00:57] capture: day-first split intake ---------------------
 // Friday 23.10 00:49: the client asks "ЕВИДЕНТЕН БРОЈ 47 ДАЛИ УШТЕ Е НА
 // ПРОДАЖБА?" (masculine frame), and at 00:57 proposes "ВО ПОНЕДЕЛНИК МОЖАМ
@@ -595,6 +685,16 @@ test('[00:57] detectVagueTime: day + clock is concrete; „после N“ stays
   // Day only → the exact-clock ask still fires; relative wording stays vague.
   assert.equal(detectVagueTime('VO PONEDENIK MOZAM POPLADNE'), true);
   assert.equal(detectVagueTime('sabota posle 5'), true);
+});
+
+test('[22:31] detectVagueTime: bare day + period has NO clock — the exact-clock ask fires', () => {
+  // The [22:31] capture: “sreda popladne” reached the owner as “Среда,
+  // 28.10.2026” with no hour — an afternoon is not a term, Lina must ask.
+  assert.equal(detectVagueTime('sreda popladne'), true);
+  assert.equal(detectVagueTime('SREDA POPLADNE'), true);
+  // …a period WITH an hour anchor (“после 6”, “около 6”, a clock) is a term.
+  assert.equal(detectVagueTime('utre popladne posle 6'), false);
+  assert.equal(detectVagueTime('sreda popladne okolu 6'), false);
 });
 
 test('[00:57] normalizeOwnerTime: the merged pair reaches the owner canonically', () => {
@@ -656,6 +756,142 @@ test('[00:49]/[00:57] e2e: EB ask keeps masculine gender, day-first intake merge
   db.close();
 });
 
+test('[21:56] "CETVRTOK POPLADNE MOZAM POSLE 6" is a TERM, never a cancellation — and a cancel touches only the property in play', async () => {
+  // The [21:56] capture: Lina asked for a term, the client OFFERED one (Thursday
+  // after 6), and the reply was «Откажана посета по желба на клиент за Евидентен
+  // број 47» — a different property's leftover visit cancelled on a proposal.
+  // Two causes, and they compound: the unbounded «не мозам» arm matched INSIDE
+  // «попладне мозам» (normalizeMc folds «mozam» to «мозам», so «…дне мозам» read
+  // as a negation), and the branch then cancelled whatever finalized appointment
+  // the chat had — the leftover EB 47, not the EB 62 house being discussed.
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const appointments = new AppointmentStore(db);
+  const events = new EventStore(db);
+  const owners = new OwnerStore(db);
+  const cfg = loadConfig();
+  const props = new FakeProps(ROWS);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, t: string) => { sent.push(t); } });
+  const ownerMsgs: string[] = [];
+  const sched = new VisitScheduler({
+    db, events, owners, properties: props,
+    notifyClient: async (chatId, text) => { sent.push(`[${chatId}] ${text}`); },
+    notifyOwner: async (_chatId, eb, text) => { ownerMsgs.push(`[EB ${eb}] ${text}`); },
+    notifyOperator: async () => {},
+    now: () => NOW,
+  });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier: new Classifier(new FailingLlm(), cfg, props),
+    responder: new Responder(new FailingLlm(), cfg), properties: props,
+    appointments, escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }), visits: sched,
+  });
+
+  const chatId = 'visit-2156';
+  // A leftover finalized visit for ANOTHER property (the 47 of the capture)…
+  const staleId = appointments.insert({ chatId, clientName: 'X', clientPhone: '070111222', propertyId: 47, service: 'rent', viewingFee: '300', time: 'сабота во 12:00', agentPhone: null });
+  appointments.markFinalized(staleId, 'сабота во 12:00');
+  // …and the arranged visit for the property in play.
+  const liveId = appointments.insert({ chatId, clientName: 'X', clientPhone: '070111222', propertyId: 78, service: 'buy', viewingFee: '500', time: 'четврток во 18:00', agentPhone: null });
+  appointments.markFinalized(liveId, 'четврток во 18:00');
+
+  const s = freshSession('test', chatId);
+  s.state = 'visit_scheduling';
+  s.slots.propertyId = 78;
+  s.slots.interestedPropertyId = 78;
+  s.slots.service = 'buy';
+  s.slots.viewingFeeAgreed = true;
+  sessions.set(s);
+
+  await handler.handle('test', chatId, 'CETVRTOK POPLADNE MOZAM POSLE 6');
+  const afterProposal = sessions.get(chatId)!;
+  assert.notEqual(afterProposal.state, 'terminated', 'a term proposal must not end the session');
+  assert.ok(!sent.some(m => /Откажана посета/.test(m)), `no cancellation on a proposal: ${sent.join(' | ')}`);
+  assert.equal(appointments.listByChat(chatId).filter(a => a.status === 'finalized').length, 2,
+    'both arranged visits survive the proposal');
+
+  // A COUNTER-OFFER («не можам четврток, ајде попладне после 6») carries a
+  // negation AND a proposed term — it is a reschedule, so no cancellation.
+  await handler.handle('test', chatId, 'NE MOZAM VO CETVRTOK, MOZAM POPLADNE POSLE 6');
+  assert.ok(!sent.some(m => /Откажана посета/.test(m)), `no cancellation on a counter-offer: ${sent.join(' | ')}`);
+  assert.equal(appointments.listByChat(chatId).filter(a => a.status === 'finalized').length, 2,
+    'both arranged visits survive the counter-offer');
+
+  // A GENUINE cancel now touches only the property in play (EB 78), never the
+  // leftover EB 47.
+  const beforeCancel = sent.length;
+  await handler.handle('test', chatId, 'NE MOZAM, OTKAZETE JA POSETATA');
+  assert.ok(ownerMsgs.some(m => m.includes('EB 78')), `the owner hears about the property in play: ${ownerMsgs.join(' | ')}`);
+  assert.ok(!ownerMsgs.some(m => m.includes('EB 47')), `never another property's visit: ${ownerMsgs.join(' | ')}`);
+  assert.ok(sent.some(m => /Откажана посета/.test(m)), `the client hears the cancellation: ${sent.join(' | ')}`);
+  // A terminated turn sends EXACTLY ONE message: falling through behind the
+  // cancellation put a second, EB-less «Откажана посета по желба на клиент.»
+  // and then a term offer on a chat that was already closed.
+  assert.equal(sent.slice(beforeCancel).length, 1,
+    `one message on the cancelling turn: ${sent.slice(beforeCancel).join(' | ')}`);
+  db.close();
+});
+
+test('[21:57] an ANCHORLESS cancel with two arranged visits ASKS which one — it never cancels the newest', async () => {
+  // The worst outcome of the [21:57] capture is cancelling a property nobody
+  // mentioned. With two arranged visits and nothing anchoring either one, the
+  // only honest move is the question — guessing the newest is what put a wrong
+  // Евидентен број in front of an owner.
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const appointments = new AppointmentStore(db);
+  const events = new EventStore(db);
+  const owners = new OwnerStore(db);
+  const cfg = loadConfig();
+  const props = new FakeProps(ROWS);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, t: string) => { sent.push(t); } });
+  const ownerMsgs: string[] = [];
+  const sched = new VisitScheduler({
+    db, events, owners, properties: props,
+    notifyClient: async (chatId, text) => { sent.push(`[${chatId}] ${text}`); },
+    notifyOwner: async (_chatId, eb, text) => { ownerMsgs.push(`[EB ${eb}] ${text}`); },
+    notifyOperator: async () => {},
+    now: () => NOW,
+  });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier: new Classifier(new FailingLlm(), cfg, props),
+    responder: new Responder(new FailingLlm(), cfg), properties: props,
+    appointments, escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }), visits: sched,
+  });
+
+  const chatId = 'visit-2157-ambiguous';
+  for (const [eb, time] of [[47, 'сабота во 12:00'], [62, 'петок во 17:00']] as [number, string][]) {
+    const id = appointments.insert({ chatId, clientName: 'X', clientPhone: '070111222', propertyId: eb, service: 'buy', viewingFee: '500', time, agentPhone: null });
+    appointments.markFinalized(id, time);
+  }
+
+  const s = freshSession('test', chatId);
+  s.state = 'visit_scheduling';
+  s.slots.service = 'buy';
+  s.slots.viewingFeeAgreed = true;
+  sessions.set(s);
+
+  await handler.handle('test', chatId, 'NE MOZAM, OTKAZETE JA POSETATA');
+  assert.equal(appointments.listByChat(chatId).filter(a => a.status === 'finalized').length, 2,
+    'no arranged visit is cancelled while the target is unknown');
+  assert.equal(ownerMsgs.length, 0, `the owner hears nothing yet: ${ownerMsgs.join(' | ')}`);
+  assert.notEqual(sessions.get(chatId)!.state, 'terminated', 'the chat is not ended on a question');
+  const ask = sent.find(m => /За која посета/.test(m)) ?? '';
+  assert.ok(ask, `the client is asked which visit: ${sent.join(' | ')}`);
+  assert.ok(ask.includes('47') && ask.includes('62'), `the ask names both Евидентен број: ${ask}`);
+
+  // The answer anchors one of them, and THAT one — and only that one — cancels.
+  await handler.handle('test', chatId, 'OTKAZETE JA POSETATA ZA 62');
+  assert.ok(ownerMsgs.some(m => m.includes('EB 62')), `only the named visit is cancelled: ${ownerMsgs.join(' | ')}`);
+  assert.ok(!ownerMsgs.some(m => m.includes('EB 47')), `the other visit stands: ${ownerMsgs.join(' | ')}`);
+  assert.equal(appointments.listByChat(chatId).filter(a => a.status === 'finalized').length, 2,
+    'cancelVisit is a notification, not a row edit');
+  db.close();
+});
+
 // The mkTimePhrase owner-corpus typo sweep (MK_DAY_FIX) made the same forms
 // first-class DAY WORDS everywhere a day is read — DAY_WORDS (parse),
 // DAY_TRAILING_HOUR_RE (trailing-hour arm) and DAY_WORD_RE (hasDayWord). A
@@ -676,4 +912,183 @@ test('day typo corpus: misspelled weekdays parse and merge like their spelled-da
   // (the [12:42] arm on a typo): 1–7 shifts to PM.
   assert.equal(parseVisitDateTime('PONEDELOK 6', NOW_OCT)!.getDay(), 1);
   assert.equal(parseVisitDateTime('SUBOTA 3', NOW_OCT)!.getDay(), 6);
+});
+
+// ---- Cancellation corpus ----------------------------------------------------
+//
+// One table, a fresh harness per case. Whether a phrasing is a cancellation is a
+// DETECTION question, and the [21:57] class of bug (a term proposal cancelled as
+// a visit) lives in exactly those phrasings clients actually type: Latin,
+// Cyrillic and misspelled inflections of «откажи». The verdict is asserted
+// through the whole pipeline (did an owner cancellation go out, for which
+// Евидентен број) — never on the detector alone.
+interface CancelProbeResult {
+  cancelled: boolean;
+  cancelledEb?: number;
+  askedWhich: boolean;
+  terminated: boolean;
+}
+
+async function cancelProbe(text: string, opts: { anchored?: number; ebs?: number[] } = {}): Promise<CancelProbeResult> {
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const appointments = new AppointmentStore(db);
+  const events = new EventStore(db);
+  const owners = new OwnerStore(db);
+  const cfg = loadConfig();
+  const props = new FakeProps(ROWS);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, t: string) => { sent.push(t); } });
+  const ownerMsgs: { eb: number; text: string }[] = [];
+  const sched = new VisitScheduler({
+    db, events, owners, properties: props,
+    notifyClient: async (chatId, t) => { sent.push(`[${chatId}] ${t}`); },
+    notifyOwner: async (_chatId, eb, t) => { ownerMsgs.push({ eb, text: t }); },
+    notifyOperator: async () => {},
+    now: () => NOW,
+  });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier: new Classifier(new FailingLlm(), cfg, props),
+    responder: new Responder(new FailingLlm(), cfg), properties: props,
+    appointments, escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }), visits: sched,
+  });
+
+  const chatId = 'cancel-corpus';
+  for (const eb of opts.ebs ?? [78]) {
+    const id = appointments.insert({ chatId, clientName: 'X', clientPhone: '070111222', propertyId: eb, service: 'buy', viewingFee: '500', time: 'четврток во 18:00', agentPhone: null });
+    appointments.markFinalized(id, 'четврток во 18:00');
+  }
+  const s = freshSession('test', chatId);
+  s.state = 'visit_scheduling';
+  s.slots.service = 'buy';
+  s.slots.viewingFeeAgreed = true;
+  if (opts.anchored !== undefined) s.slots.propertyId = opts.anchored;
+  sessions.set(s);
+
+  await handler.handle('test', chatId, text);
+  const out: CancelProbeResult = {
+    cancelled: ownerMsgs.length > 0,
+    cancelledEb: ownerMsgs[0]?.eb,
+    askedWhich: sent.some(m => /За која посета/.test(m)),
+    terminated: sessions.get(chatId)!.state === 'terminated',
+  };
+  db.close();
+  return out;
+}
+
+test('cancellation corpus: every inflection of «откажи» cancels, every proposed term does not', async () => {
+  // Cancellations — the property in play is cancelled, and only it.
+  const cancellations = [
+    'OTKAZETE JA POSETATA',              // Latin, -ete inflection (the [21:57] answer form)
+    'otkazuvam posetata',                // Latin, -uvam inflection
+    'ОТКАЖЕТЕ ЈА ПОСЕТАТА ЗА 78',         // Cyrillic, inflected, EB named
+    'NE MOZAM DA DOJDAM',                // bare negation
+    'SE IZVINUVAM, MORA DA OTKAZAM',     // apology + cancel
+    'БОЛЕН СУМ, ОТКАЖИ ЈА ПОСЕТАТА',      // illness + cancel
+  ];
+  for (const t of cancellations) {
+    const r = await cancelProbe(t);
+    assert.equal(r.cancelled, true, `«${t}» is a cancellation: ${JSON.stringify(r)}`);
+    assert.equal(r.cancelledEb, 78, `«${t}» cancels the property in play`);
+    assert.equal(r.terminated, true, `«${t}» ends the chat`);
+  }
+
+  // Term proposals and counter-offers — scheduling language, never a cancel.
+  const proposals = [
+    'CETVRTOK POPLADNE MOZAM POSLE 6',            // the [21:56] proposal itself
+    'cetvrtok popladne mozam posle 6',            // lower case
+    'утре попладне можам по 6',                    // Cyrillic, «по 6»
+    'NE MOZAM VO CETVRTOK, MOZAM POPLADNE POSLE 6', // counter-offer: negation + new term
+    'не можам тогаш, задутре во 18:00',            // counter-offer, Cyrillic
+    'NE MOZAM, MOZAM PONEDELNIK VO 17',           // counter-offer, Latin typo
+  ];
+  for (const t of proposals) {
+    const r = await cancelProbe(t);
+    assert.equal(r.cancelled, false, `«${t}» proposes a term — no cancellation: ${JSON.stringify(r)}`);
+    assert.equal(r.terminated, false, `«${t}» keeps the session alive`);
+  }
+
+  // The anchored-mismatch and ambiguous cases: never cancel what nobody named.
+  const anchoredElsewhere = await cancelProbe('OTKAZETE JA POSETATA', { anchored: 53, ebs: [78] });
+  assert.equal(anchoredElsewhere.cancelled, false, 'an anchor with no arranged visit never cancels another property');
+  assert.equal(anchoredElsewhere.askedWhich, true, 'the client is asked which visit');
+
+  const twoVisits = await cancelProbe('OTKAZETE JA POSETATA', { ebs: [47, 78] });
+  assert.equal(twoVisits.cancelled, false, 'two arranged visits and no anchor: nothing is cancelled');
+  assert.equal(twoVisits.askedWhich, true, 'the client is asked which visit');
+
+  // …and the ANSWER to that question wins over the stale slot — otherwise Lina
+  // asks «за која посета?» forever (the replay looped exactly there).
+  const namedAnswer = await cancelProbe('OTKAZETE JA POSETATA ZA 78', { anchored: 53, ebs: [47, 78] });
+  assert.equal(namedAnswer.cancelled, true, 'the Евидентен број in the message is acted on');
+  assert.equal(namedAnswer.cancelledEb, 78, 'and it beats the property the chat was discussing');
+  assert.equal(namedAnswer.askedWhich, false, 'no further which-visit question');
+});
+
+test('cancel cleanup: the silenced protocol is counted for the operator and never fires after the cancel', async () => {
+  // A cancellation has to STOP the visit-day protocol, not just answer the
+  // client: the morning confirmation and the exact-location turn are scheduled
+  // hours ahead, and the address-confirm bump repeats every 2h. cancelVisit
+  // marks them skipped, and the operator log must say how many were dropped —
+  // that count is the only record of which messages the client never received.
+  const db = new Db(':memory:');
+  const events = new EventStore(db);
+  const owners = new OwnerStore(db);
+  owners.upsert({ eb: 53, name: 'Петре', phone: '070111222', status: 'available' });
+  const props = new FakeProps(ROWS);
+  const clientMsgs: string[] = [];
+  const ownerMsgs: string[] = [];
+  const operatorLogs: string[] = [];
+  let clock = NOW;
+  const sched = new VisitScheduler({
+    db, events, owners, properties: props,
+    notifyClient: async (_chatId, text) => { clientMsgs.push(text); },
+    notifyOwner: async (_chatId, _eb, text) => { ownerMsgs.push(text); },
+    notifyOperator: async text => { operatorLogs.push(text); },
+    now: () => clock,
+  });
+  const appts = new AppointmentStore(db);
+  const apptId = appts.insert({
+    chatId: 'c-cancel', clientName: 'Марко', clientPhone: '070333444', propertyId: 53,
+    service: 'Купување', viewingFee: '500 MKD', time: 'утре попладне', agentPhone: '076247467',
+  });
+  appts.markFinalized(apptId, 'утре попладне');
+  await sched.arrange({
+    appointmentId: apptId, chatId: 'c-cancel', eb: 53, time: 'утре попладне',
+    agentPhone: '076247467', clientName: 'Марко', clientPhone: '070333444',
+    owner: { name: 'Петре', phone: '070111222' },
+  });
+
+  const pendingBefore = (db.db.prepare(
+    `SELECT COUNT(*) c FROM visit_turns WHERE appointment_id = ? AND status = 'pending'`).get(apptId) as { c: number }).c;
+  assert.ok(pendingBefore > 0, 'the protocol scheduled turns to silence');
+
+  // The client cancels on the morning of the visit, before any turn fired.
+  clock = new Date(2026, 7, 17, 9, 0);
+  await sched.cancelVisit(apptId, 'client');
+
+  const log = operatorLogs.find(l => l.includes('CANCELLED by client')) ?? '';
+  assert.ok(log, operatorLogs.join('\n'));
+  assert.ok(log.includes(`${pendingBefore} pending turn${pendingBefore === 1 ? '' : 's'} skipped`), log);
+  assert.ok(log.includes('ЕБ 53'), log);
+  // Both parties hear it, with the Евидентен број.
+  assert.ok(clientMsgs.some(m => m.includes('Откажана посета') && m.includes('53')), clientMsgs.join(' | '));
+  assert.ok(ownerMsgs.some(m => m.includes('Откажана посета') && m.includes('53')), ownerMsgs.join(' | '));
+
+  // The protocol hours pass: NOTHING may follow the cancellation — no morning
+  // confirmation, no location turn, no address-confirm bump. (The arrange-time
+  // address confirm and the cancellation itself are already in the arrays, so
+  // the comparison starts after them.)
+  const clientsBeforeTicks = clientMsgs.length;
+  const ownersBeforeTicks = ownerMsgs.length;
+  clock = new Date(2026, 7, 17, 10, 0);
+  await sched.tick();
+  clock = new Date(2026, 7, 17, 14, 0);
+  await sched.tick();
+  assert.deepEqual(clientMsgs.slice(clientsBeforeTicks), [], 'the client hears nothing more');
+  assert.deepEqual(ownerMsgs.slice(ownersBeforeTicks), [], 'the owner hears nothing more');
+  const turns = db.db.prepare(`SELECT status FROM visit_turns WHERE appointment_id = ?`).all(apptId) as { status: string }[];
+  assert.ok(turns.length > 0 && turns.every(t => t.status === 'skipped'), JSON.stringify(turns));
+  db.close();
 });

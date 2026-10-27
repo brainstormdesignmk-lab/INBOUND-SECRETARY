@@ -397,7 +397,31 @@ export class BankReviewTui {
       const padded = clip(line, width).padEnd(width, ' ');
       // WHOLE ROW COLOUR, not a tag: a refused turn is red end to end, a turn
       // whose answer is code-owned is orange end to end.
-      if (it.flag === 'fail') return `{red-fg}${safe(padded)}{/red-fg}`;
+      // PROCESSED FAILURES REST GRAY: the verdict is recomputed from the
+      // ORIGINAL reply text on every reload, so a refused row that has already
+      // been pushed to STAGED (markEnriched → status 'logged') kept painting
+      // red — the operator re-reviewed finished work and could not tell which
+      // reds were still pending. They rest gray like processed dynamic
+      // captures; the reason still shows in the detail pane.
+      // A BANK-OWNED refusal paints ORANGE, not red: the pool already holds
+      // the wording (duplicate/similarity refusal), so no E/push action can
+      // change the serve — the fix is in the code lane that composed it
+      // (#251/#252: budget-up asks served by the fixed price.negotiate lane).
+      // Red stays for genuinely DIRTY text the operator can clean in place.
+      if (it.composed && it.status !== 'logged') {
+        // A composed serve (property-card batch, owner-relay ping) is never
+        // client-voice learnable copy — even when it PASSES the text gates
+        // (#244: the owner-bound counter relay validates as clean text and
+        // still must not read as pending bankable work). Orange = code class.
+        return orange(safe(padded));
+      }
+      if (it.flag === 'fail') {
+        if (it.status === 'logged') return `{gray-fg}${safe(padded)}{/gray-fg}`;
+        // Composed serves (property-card batches, owner-relay pings) share
+        // the orange code class: their gate refusals name feed/protocol text,
+        // not learnable copy.
+        return (it.bankOwned || it.composed) ? orange(safe(padded)) : `{red-fg}${safe(padded)}{/red-fg}`;
+      }
       // ORANGE IS FOR CODE ONLY: a key whose text exists nowhere but a
       // constant/function. A frozen key WITH a seed pool is bank material and
       // stays blue as before — painting every frozen key orange turned most of
@@ -458,6 +482,15 @@ export class BankReviewTui {
       if (refused) lines.push(`{red-fg}ТЕКСТОТ СÈ УШТЕ НЕ ПОМИНУВА: ${safe(it.verdict ?? '')}{/red-fg}`);
     }
     else if (refused) lines.push(`{red-fg}REFUSED: ${safe(it.verdict ?? '')}{/red-fg}`);
+    if ((it.bankOwned || it.composed) && it.status !== 'logged') {
+      // The refusal's cause is not dirty learnable copy: bank-owned wording
+      // (duplicate/similarity) or a composed serve (card batch / owner-relay
+      // protocol). Name the actionable class up front — code side first).
+      lines.push(orange(it.bankOwned
+        ? 'ПОСТОЕЌКОВ ОТГОВОР — банката веќе ја има оваа формулација.'
+        : 'КОМПОНУВАНО СЕРВИРАЊЕ (картачка/релеј протокол) — не се учи од овде.'),
+        orange('Фиксот е во кодот (serve/податоци), не овде — или X за затворање.'));
+    }
     else if (codeOwned) {
       // NAME THE SOURCE, not a refusal. The operator's complaint (2026-10-21):
       // a frozen row said "cannot edit" and offered a retarget that changes

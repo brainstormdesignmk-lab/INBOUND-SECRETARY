@@ -104,19 +104,30 @@ function editDistanceAtMost1(a: string, b: string): boolean {
   if (Math.abs(a.length - b.length) > 1) return false;
   if (a.length === b.length) {
     // Damerau-style: an adjacent transposition ("посета"→"опсета") is ONE edit.
+    // The swap CONSUMES the one-edit budget: the rest of the string must still
+    // match ("одприлика" vs "документи" shares the од/до prefix swap but is a
+    // different word — the old early `return true` after the swap matched the
+    // first two letters and ignored the remaining eight, poisoning every
+    // fuzzy arm with words that merely open with a transposition).
     let diff = -1;
+    let swapped = false;
     for (let i = 0; i < a.length; i++) {
       if (a[i] !== b[i]) {
         if (diff >= 0) {
           // Second difference: only a swap of the two differs-from positions
-          // qualifies (a[i-1]…a[i] swapped); anything else is 2+ edits.
-          if (diff === i - 1 && a[diff] === b[i] && a[i] === b[diff]) return true;
+          // qualifies (a[i-1]…a[i] swapped), once, and the tail must match —
+          // any further difference is 2+ edits.
+          if (!swapped && diff === i - 1 && a[diff] === b[i] && a[i] === b[diff]) {
+            swapped = true;
+            diff = -1; // the swapped pair is consumed
+            continue;
+          }
           return false;
         }
         diff = i;
       }
     }
-    return true; // 0 or 1 substitution
+    return true; // 0 or 1 substitution, or one swap with a matching tail
   }
   // One insertion/deletion: walk both strings, skip at most one letter.
   const [s, l] = a.length < b.length ? [a, b] : [b, a];

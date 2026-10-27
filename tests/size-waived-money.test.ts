@@ -18,6 +18,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { loadConfig } from '../src/config';
 import { Db } from '../src/store/db';
+import { matchesPoolContract } from '../src/data/responseBank';
 import { SessionStore, freshSession } from '../src/fsm/session';
 import { Classifier } from '../src/llm/classify';
 import { Responder } from '../src/llm/respond';
@@ -108,7 +109,8 @@ test('[21:40] bare "NEBITNO" waives bedrooms and presents the biggest-in-budget 
   // The waiver ACK: Lina confirms the waiver (banked discovery.waiver.ack)
   // instead of jumping straight to cards — the biggest-for-the-money ordering
   // is NAMED before it is shown.
-  assert.ok(/големин[аата]|квадратур/i.test(a), `the waiver must be ACKNOWLEDGED first: ${a.slice(0, 160)}`);
+  assert.equal(matchesPoolContract('discovery.waiver.ack', a), true,
+    `the waiver must be ACKNOWLEDGED first: ${a.slice(0, 160)}`);
   assert.ok(a.includes('300'), `the ack must carry the budget: ${a.slice(0, 160)}`);
   assert.ok(a.includes('22'), `the BIGGEST in-budget unit (EB 22, 88 м²) must lead: ${a.slice(0, 160)}`);
 
@@ -124,7 +126,7 @@ test('the waiver ack serves ONCE — later batches stay plain cards', async () =
   await handler.handle('test', chat, 'AERODROM DO 300E');
   await handler.handle('test', chat, 'NEBITNO');
   const first = sent[sent.length - 1];
-  assert.ok(/големин[аата]|квадратур/i.test(first), 'first batch carries the ack');
+  assert.equal(matchesPoolContract('discovery.waiver.ack', first), true, 'first batch carries the ack');
   assert.equal(sessions.get(chat)?.slots.waiverAcked, true, 'the flag must be set after the ack');
 
   await handler.handle('test', chat, 'DRUGO');

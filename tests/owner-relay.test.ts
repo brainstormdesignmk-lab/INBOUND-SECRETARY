@@ -194,7 +194,10 @@ test('counter relay names the refused term AND the owner proposal', async () => 
   await new Promise(r => setTimeout(r, 50));
   assert.equal(sessions.get('relay')!.state, 'time_confirm');
   const relay = sent[sent.length - 1];
-  assert.match(relay, /^Сопственикот не е во можност за посета во .+\. Има друг предлог: Петок во 18:00\. Дали би Ви одговарал тој термин\?$/u, relay);
+  // The counter term is normalizedOwnerTime-canonical (the [19:29] capture —
+  // "vo 7ipol ?" must reach the client as 24h "19:30", not the lossy
+  // mkTimePhrase bare clock): day + next-occurrence date + 24h clock.
+  assert.match(relay, /^Сопственикот не е во можност за посета во .+\. Има друг предлог: Петок, \d{2}\.\d{2}\.\d{4} во 18:00\. Дали би Ви одговарал тој термин\?$/u, relay);
 });
 
 test('second owner turn: a changed client term sends the one-line proposal, not the first-time intro', async () => {
@@ -223,7 +226,7 @@ test('fixed counter with clock still relays a precise term (regression guard)', 
   await new Promise(r => setTimeout(r, 50));
   const s = sessions.get('relay')!;
   assert.equal(s.state, 'time_confirm');
-  assert.match(sent[sent.length - 1], /Петок во 11/u);
+  assert.match(sent[sent.length - 1], /Петок, \d{2}\.\d{2}\.\d{4} во 11:00/u);
 });
 
 test('fixed-clock family: exclusive openers, reversed clocks, lone day-parts — the clock never drops', () => {
@@ -312,7 +315,10 @@ test('whole-day counter seeds the slot with the owner day — the completing clo
   const s2 = await send('MOZAM VO 5');
   assert.equal(s2.state, 'owner_checking', `the completion re-asks the owner: ${s2.state}`);
   assert.equal(asks.length, 2, `the follow-up ask must go out: ${JSON.stringify(asks)}`);
-  assert.match(asks[1], /Има друг предлог: Понеделник, \d{2}\.\d{2}\.\d{4} во 17:00\. Дали би Ви одговарал тој термин\?$/u, `the owner day must survive into the follow-up ask: ${asks[1]}`);
+  // Acceptance contract (the [01:07] corrected semantics): the client completed
+  // the owner's OWN whole-day counter — the ask reads acceptance, and the
+  // owner's day survives into the completed DATED term.
+  assert.match(asks[1], /Предлог за посета: Понеделник, \d{2}\.\d{2}\.\d{4} во 17:00\. Дали го потврдувате тој термин\?$/u, `the owner day must survive into the follow-up ask: ${asks[1]}`);
   assert.ok(!/Има друг предлог: Петок|Има друг предлог: Сабота|Има друг предлог: [^.]*во 05:00/u.test(asks[1]), `never today or a bare literal 05:00: ${asks[1]}`);
 });
 
@@ -377,7 +383,7 @@ test('[00:49→01:07] EB 47 transcript replay: the wrong-day owner asks are impo
     assert.ok(!/VO 6|18:00/.test(s3.slots.visitTime ?? ''), `the rejected clock must not ride along: ${s3.slots.visitTime}`);
     assert.equal(
       sent[sent.length - 1],
-      `Сопственикот не е во можност за посета во ${MTERM}. Има друг предлог: Понеделник — било кое време му одговара. Во колку часот би сакале да дојдете?`,
+      `Сопственикот не е во можност за посета во ${MTERM}. Има друг предлог: Понеделник, 26.10.2026 — било кое време му одговара. Во колку часот би сакале да дојдете?`,
     );
 
     // [01:06] the client completes the clock on the owner's day — the follow-up
@@ -386,9 +392,13 @@ test('[00:49→01:07] EB 47 transcript replay: the wrong-day owner asks are impo
     assert.equal(s4.state, 'owner_checking', `the completion re-asks the owner: ${s4.state}`);
     assert.equal(s4.slots.visitTime, 'Понеделник MOZAM VO 5', 'day-first completion in the slot');
     assert.equal(asks.length, 2, `the follow-up owner ask must go out: ${JSON.stringify(asks)}`);
+    // [01:07] contract, corrected: the client COMPLETED THE OWNER'S WHOLE-DAY
+    // counter — an acceptance, never a refusal. The old wording asserted
+    // «Клиентот не е во можност…» for a term the OWNER proposed; coordination
+    // fact error (the [01:07] capture in data/tui.db, event 105).
     assert.equal(
       asks[1],
-      `Клиентот не е во можност за посета во ${MTERM}. Има друг предлог: Понеделник, 26.10.2026 во 17:00. Дали би Ви одговарал тој термин?`,
+      `Клиентот го прифати Вашиот предлог: Понеделник — било кое време. Предлог за посета: Понеделник, 26.10.2026 во 17:00. Дали го потврдувате тој термин?`,
       `exact transcript contract: ${asks[1]}`,
     );
 
@@ -403,4 +413,72 @@ test('[00:49→01:07] EB 47 transcript replay: the wrong-day owner asks are impo
     assert.ok(!/Петок, 23\.10\.2026 во 05:00|во 06:00/u.test(okRelay + asks.join(' ')),
       `the transcript's wrong-day lines must be impossible: ${okRelay}`);
   } finally { unpin(); }
+});
+
+// ── The [01:07] #244 shape verbatim: «MOZAM VO 5 \ NAKOE MESTO BI SE CEKALE ?»
+// rides BOTH an acceptance (the completed term) and the meeting-spot question.
+// The owner ask reads acceptance; the client is answered with the
+// location-reveal protocol (the spot is named on the visit day). ──
+test('[01:07] acceptance + riding spot ask: reveal protocol to the client, acceptance to the owner', async () => {
+  const { detectMeetingSpotAsk } = await import('../src/llm/deterministic');
+  // Detector: the capture text, its family — and the parking/size senses excluded.
+  assert.equal(detectMeetingSpotAsk('MOZAM VO 5\nNAKOE MESTO BI SE CEKALE ?'), true, 'capture text');
+  assert.equal(detectMeetingSpotAsk('кое место ќе се чекаме'), true, 'cyrillic');
+  assert.equal(detectMeetingSpotAsk('kade ke se cekame'), true, 'kade cekam');
+  assert.equal(detectMeetingSpotAsk('dali ima mesto za parkiranje'), false, 'parking veto');
+  assert.equal(detectMeetingSpotAsk('vo sreda vo 15:00'), false, 'a plain time is not a spot ask');
+
+  const { handler, sessions, sent } = await makeHandler();
+  const asks: string[] = [];
+  handler.onOwnerAsk = (_c, _e, q) => asks.push(q);
+  const send = async (m: string) => { await handler.handle('test', 'relay2', m); return sessions.get('relay2')!; };
+  await reachOwnerChecking(send);
+
+  // Owner counters with the whole day → open counter seeded on Понеделник.
+  handler.ownerAnswer('relay2', 78, { status: 'counter', ownerTime: 'Понеделник', canAcceptWholeDay: true });
+  await new Promise(r => setTimeout(r, 50));
+  const before = asks.length;
+
+  // The VERBATIM #244 message: acceptance + the spot question in one line.
+  const s = await send('MOZAM VO 5\nNAKOE MESTO BI SE CEKALE ?');
+  assert.equal(s.state, 'owner_checking');
+  // Client-facing: the ACK carries the reveal-protocol answer — never silence.
+  const reply = sent[sent.length - 1];
+  assert.ok(reply.includes('Во ред, ќе Ве известам штом потврдам'), reply);
+  // The reveal protocol is a VARIANT FAMILY (address.exact): the truthful-time
+  // phrases alternate between "два часа пред", "денот на посетата", "денот на
+  // закажаното гледање", "на самиот ден" and "непосредно пред" — any of them
+  // proves the question was answered by the protocol (never silence, never an
+  // invented spot).
+  // Cyrillic-safe boundaries (ASCII \b never binds a Cyrillic letter, so the
+  // old \bден/\bна/\bнепосредно forms could only match the single Latin-
+  // adjacent variant — a random pickVariant roll then failed the test).
+  assert.match(reply, / два часа пред |(?<![A-Za-z\u0400-\u04FF])ден(?:о)?(?:т)?\s*на\s*(?:посет|закажаното\s*гледање)|(?<![A-Za-z\u0400-\u04FF])на\s*самиот\s*ден|(?<![A-Za-z\u0400-\u04FF])непосредно\s*пред/u, `the spot question must be answered by the reveal protocol: ${reply}`);
+  assert.ok(!/улица|број \d+\/\d/u.test(reply), `never an invented spot: ${reply}`);
+  // Owner-facing: acceptance semantics, the owner reads his own day completed.
+  assert.equal(asks.length, before + 1, `the acceptance ask must go out: ${JSON.stringify(asks)}`);
+  const ask = asks[asks.length - 1];
+  assert.match(ask, /прифати Вашиот предлог/u, `acceptance wording required: ${ask}`);
+  assert.ok(!/не е во можност/u.test(ask), `never a fabricated refusal: ${ask}`);
+  assert.match(ask, /Понеделник, \d{2}\.\d{2}\.\d{4} во 17:00/u, `the completed term carries the owner's day: ${ask}`);
+});
+
+// The guard: a client who COUNTERS the whole day with a DIFFERENT day keeps the
+// refusal wording — an acceptance only when the completed term stays on the
+// owner's seed day.
+test('[01:07] guard: different-day completion after a whole-day counter is still a counter', async () => {
+  const { handler, sessions } = await makeHandler();
+  const asks: string[] = [];
+  handler.onOwnerAsk = (_c, _e, q) => asks.push(q);
+  const send = async (m: string) => { await handler.handle('test', 'relay3', m); return sessions.get('relay3')!; };
+  await reachOwnerChecking(send);
+  handler.ownerAnswer('relay3', 78, { status: 'counter', ownerTime: 'Понеделник', canAcceptWholeDay: true });
+  await new Promise(r => setTimeout(r, 50));
+  const before = asks.length;
+  const s = await send('Dobrovo, VO SREDA VO 15:30');
+  assert.equal(s.state, 'owner_checking', `the different-day answer still re-asks the owner: ${s.state}`);
+  assert.equal(asks.length, before + 1, `a follow-up ask must go out: ${JSON.stringify(asks)}`);
+  const ask = asks[asks.length - 1];
+  assert.match(ask, /не е во можност за посета во .*\. Има друг предлог: .*Среда.*15:30\./u, `refusal wording for a counter of the counter: ${ask}`);
+  assert.ok(!/прифати/u.test(ask), `the acceptance wording must not fire off-own-day: ${ask}`);
 });

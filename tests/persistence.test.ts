@@ -143,3 +143,43 @@ test('persistence pin: price-less rental + service backfill survive a restart on
 
   rmSync('tmp/integration-pin', { recursive: true, force: true });
 });
+
+// The [01:17]/[01:20] pin: sendRaw must PERSIST the outbound clock + the
+// per-chat budget counter, not just touch the in-memory session. Before the
+// fix the next store read saw lastOutboundAt = 0, so the resume bridge read
+// Lina's fresh relay as "no open ask" and swallowed the client's answer.
+test('outbound clock + budget counter survive a restart on real SQLite', async () => {
+  const OUT_FILE = 'tmp/integration-pin/outbound-clock.sqlite';
+  const OUT_CHAT = 'pin-outbound';
+  rmSync('tmp/integration-pin/outbound-clock.sqlite', { force: true });
+
+  // ---------- Phase 1: fresh process, two sends go out ----------
+  {
+    const sent: string[] = [];
+    const { handler, sessions } = boot(OUT_FILE, sent);
+    await handler.handle('test', OUT_CHAT, 'ZDRAVO');
+    await handler.handle('test', OUT_CHAT, 'KAJ SE NAOGJA EV 80 ?');
+    const live = sessions.get(OUT_CHAT)!;
+    assert.ok(live.lastOutboundAt > 0, 'in-memory clock touched by sendRaw');
+    // touchInbound resets the counter on every REPLY, so one turn = one count.
+    assert.ok(live.outboundCount >= 1, `budget counter in memory: ${live.outboundCount}`);
+  }
+
+  // ---------- Phase 2: RESTART — the clock is STILL on the wall ----------
+  {
+    const sent: string[] = [];
+    const { handler, sessions } = boot(OUT_FILE, sent);
+    const pre = sessions.get(OUT_CHAT)!;
+    // The CLOCK is what the [01:17]/[01:20] fix pinned: the bridge gate on the
+    // next read must see the previously-persisted outbound, not 0.
+    assert.ok(pre.lastOutboundAt > 0,
+      `lastOutboundAt survived the restart (the [01:17] ask window): ${pre.lastOutboundAt}`);
+    // The counter persists too (it rests to 0 on each new inbound — Viber
+    // semantics — so one count for the last turn out is exact).
+    assert.ok(pre.outboundCount >= 1,
+      `the per-chat budget counter survived: ${pre.outboundCount}`);
+    assert.ok(pre.history.length >= 2, `history survived: ${pre.history.length}`);
+  }
+
+  rmSync('tmp/integration-pin/outbound-clock.sqlite', { force: true });
+});

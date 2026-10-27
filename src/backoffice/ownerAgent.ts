@@ -95,8 +95,19 @@ export class DeferredOwnerAgent implements OwnerAgent {
         // ONLY events created AFTER this check was requested count — anything
         // older is a leftover from a previous visit (see the stale guard above;
         // belt-and-braces: double-checked at consumption time).
-        const hit = this.events.listPending('owner_check_result')
-          .find(r => r.chatId === chatId && r.eb === eb && (r.createdAt ?? 0) >= requestedAt);
+        // The bus can be GONE under a live poll (the DB was closed on shutdown,
+        // or a test harness moved on). A background poll must never throw an
+        // uncaught exception for that: stop polling and drop the check.
+        let hit;
+        try {
+          hit = this.events.listPending('owner_check_result')
+            .find(r => r.chatId === chatId && r.eb === eb && (r.createdAt ?? 0) >= requestedAt);
+        } catch (e) {
+          clearInterval(poll);
+          this.pending.delete(chatId);
+          console.error(`[owner] owner-check poll stopped for EB ${eb}: ${(e as Error).message}`);
+          return;
+        }
         if (!hit) return;
         clearInterval(poll);
         this.pending.delete(chatId);

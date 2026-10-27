@@ -34,7 +34,7 @@ import { loadConfig } from '../src/config';
 import { Property } from '../src/data/properties';
 import { RESPONSE_BANK } from '../src/data/responses';
 import { setLearnedBank } from '../src/data/responseBank';
-import { detectFeeSurprise } from '../src/llm/deterministic';
+import { detectFeeSurprise, detectFeeWhy } from '../src/llm/deterministic';
 
 setLearnedBank({
   variants: () => [],
@@ -118,5 +118,118 @@ test('08:32 flow: fee ask → "OVA E NESTO NOVO ?" → fee.why, never a second d
   // the same rationale, so селекц belongs in the guard.
   assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply), `no rationale in reply: ${reply}`);
   // Funnel keeps moving: still in closing, waiting for the fee agreement.
+  assert.equal(s.state, 'closing');
+});
+
+// The [02:34] transcript regression — the BARE noun-phrase form of the same
+// surprise: no "ova e", no "nesto" — only "nova praksa nekoja [?]". With the
+// old FEE_SURPRISE_RE nothing fired, the closing stall served the provision
+// BUY pitch ("немателитe трошоци за провизија 0%… Дали се согласувате") — a
+// re-ask of the very condition the client was questioning, the opposite turn.
+test('02:34 flow: fee ask → "nova praksa nekoja" → fee.why, never the closing re-ask', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'nova-praksa';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  let s = await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  s = await send('DALI E SEUSTE DOSTAPEN ?');
+  s = await send('KONTAKTIRAJTE GO I KAZETE MI');
+  assert.equal(s.state, 'closing', 'contact order must land in closing');
+  const feeAsk = sent[sent.length - 1] ?? '';
+  assert.ok(feeAsk.includes('500 денари'), `expected fee disclosure, got: ${feeAsk}`);
+
+  // The verbatim [02:34] row + scripts/spellings/typos of the same reaction
+  // (the sweep found no other bare-family misses in 14k routed turns; the
+  // pravka/praktika rows are the colloquial spellings clients type).
+  for (const t of [
+    'nova praksa nekoja', 'NOVA PRAKSA?!', 'нова пракса', 'ova e nova praksa',
+    'nova pravka', 'nova praktika', 'нова правка',
+  ]) {
+    assert.equal(detectFeeSurprise(t), true, `surprise lost on: ${t}`);
+  }
+  // contract exists — "imate nesto novo vo karpos?" is a search, not a fee).
+  for (const t of ['imate nesto novo vo karpos?', 'dajte mi nesto novo']) {
+    assert.equal(detectFeeSurprise(t), false, `surprise claimed a property ask: ${t}`);
+  }
+
+  s = await send('nova praksa nekoja');
+  const reply = sent[sent.length - 1] ?? '';
+  assert.ok(!reply.includes('500 денари') && !reply.includes('10 евра'),
+    `nova-praksa served a second fee disclosure: ${reply}`);
+  assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply),
+    `no filter rationale in reply: ${reply}`);
+  assert.equal(s.state, 'closing');
+});
+
+// The [02:4x] ZOSKA row, replayed through the live closing-state funnel:
+// "zoska 500 denari ?" — the why-word + a fee-sized money figure, no visit
+// noun, no charge verb — must be the RATIONALE serve (feeWhyFast → fee.why),
+// never a second disclosure, never a re-ask of consent.
+test('02:4x flow: fee ask → "zoska 500 denari ?" → fee.why, never a re-disclosure', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'zoska-fee-amount';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  let s = await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  s = await send('DALI E SEUSTE DOSTAPEN ?');
+  s = await send('KONTAKTIRAJTE GO I KAZETE MI');
+  assert.equal(s.state, 'closing', 'contact order must land in closing');
+  const feeAsk = sent[sent.length - 1] ?? '';
+  assert.ok(feeAsk.includes('500 денари'), `expected fee disclosure, got: ${feeAsk}`);
+
+  assert.equal(detectFeeWhy('zoska 500 denari ?'), true);
+  s = await send('zoska 500 denari ?');
+  const reply = sent[sent.length - 1] ?? '';
+  assert.ok(!reply.includes('500 денари') && !reply.includes('10 евра'),
+    `zoska row re-disclosed the fee: ${reply}`);
+  assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply),
+    `no filter rationale in reply: ${reply}`);
+  assert.equal(s.state, 'closing');
+});
+
+// The [01:23] transcript regression — the FEE-EXISTENCE question served the
+// fee.ask pool a SECOND time ("Прекрасен избор! Сакам да Ве информирам дека…
+// 500 денари (10 евра)… Дали се согласувате…"), repeating the intro verbatim.
+//   client: KONTAKTIRAJTE GO I KAZETE MI   → fee disclosure
+//           (property_locate → closing)
+//   client: IMATE NEKAKVA TAKSA ZA POSETA ? → MUST be the rationale, never a
+//           second disclosure / consent re-ask. The client has not parsed the
+//           intro as a fee — the HAVE-word + fee-noun frame is explanation
+//           traffic (detectFeeWhy → isFeeWhyExistFrame), same family as the
+//           08:32 / 02:34 / 02:4x why-questions.
+test('01:23 flow: fee ask → "IMATE NEKAKVA TAKSA ZA POSETA ?" → fee.why, never a second intro', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'imate-taksa';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  let s = await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  s = await send('DALI E SEUSTE DOSTAPEN ?');
+  s = await send('KONTAKTIRAJTE GO I KAZETE MI');
+  assert.equal(s.state, 'closing', 'contact order must land in closing');
+  const feeAsk = sent[sent.length - 1] ?? '';
+  assert.ok(feeAsk.includes('500 денари'), `expected fee disclosure, got: ${feeAsk}`);
+
+  // Verbatim [01:23] row + the existence-question family.
+  for (const t of [
+    'IMATE NEKAKVA TAKSA ZA POSETA ?',
+    'dali ima taksa za poseta?', 'има ли надоместок за посета?',
+    'imate li taksa uste?', 'treba nekakva taksa?',
+  ]) {
+    assert.equal(detectFeeWhy(t), true, `existence question lost: ${t}`);
+  }
+  // Amount asks (what IS the fee) and refusals keep their own lanes.
+  assert.equal(detectFeeWhy('kolku e taksa za poseta?'), false,
+    'the kolku amount ask belongs to the fee-amount lane');
+  assert.equal(detectFeeWhy('ne treba taksa'), false,
+    '"ne treba" is refusal traffic (fee-nag ladder), not fee.why');
+
+  s = await send('IMATE NEKAKVA TAKSA ZA POSETA ?');
+  const reply = sent[sent.length - 1] ?? '';
+  // The re-disclosure regression: the fee.ask pool served the SAME intro a
+  // second time (the [01:23] verbatim repeat).
+  assert.ok(!reply.includes('500 денари') && !reply.includes('10 евра'),
+    `existence question re-disclosed the fee: ${reply}`);
+  assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply),
+    `no filter rationale in reply: ${reply}`);
   assert.equal(s.state, 'closing');
 });

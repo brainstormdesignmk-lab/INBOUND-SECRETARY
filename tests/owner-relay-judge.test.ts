@@ -124,9 +124,12 @@ test('e2e: fixed-clock counter logs the full term; the day and clock both reach 
   await new Promise(r => setTimeout(r, 60));
 
   const last = h.sent[h.sent.length - 1];
-  assert.match(last, /Петок во 11/u);
+  // Canonical counter display (the [19:29] capture): day + date + 24h clock —
+  // the lossy mkTimePhrase bare clock is gone from both the client relay and
+  // its operator-log mirror.
+  assert.match(last, /Петок, \d{2}\.\d{2}\.\d{4} во 11:00/u);
   const relayRow = h.ownerLogRows().filter(r => r.eventType === 'OWNER_RELAY').at(-1)!;
-  assert.match(relayRow.userMsg, /@ Петок во 11/u);
+  assert.match(relayRow.userMsg, /@ Петок, \d{2}\.\d{2}\.\d{4} во 11:00/u);
   assert.match(relayRow.bankKey!, /owner\.relay:counter$/);
 });
 

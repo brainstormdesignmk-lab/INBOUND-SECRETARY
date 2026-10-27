@@ -166,7 +166,9 @@ test('hermes API: owner answer via the events BUS resolves the pending check (cr
     await send('DA'); // confirm owner contact
     await send('DA, SE SOGLASUVAM');
     await send('ZORAN 078/914 196');
-    let s = await send('UTRE POPLADNE');
+    // [22:31] contract: bare day+period re-asks the hour first, then proceeds.
+    await send('UTRE POPLADNE');
+    let s = await send('OKOLU 16');
     assert.equal(s.state, 'owner_checking');
 
     // The same-process fast path through the API endpoint.
@@ -188,7 +190,9 @@ test('hermes API: owner answer via the events BUS resolves the pending check (cr
     await send2('DA'); // confirm owner contact
     await send2('DA, SE SOGLASUVAM');
     await send2('ZORAN 078/914 196');
-    let s2 = await send2('UTRE POPLADNE');
+    // [22:31] contract: bare day+period re-asks the hour first, then proceeds.
+    await send2('UTRE POPLADNE');
+    let s2 = await send2('OKOLU 16');
     assert.equal(s2.state, 'owner_checking');
     env.handler.events.insert('owner_check_result', chatId2, 53, { status: 'ok', ownerTime: 'утре попладне', source: 'api' });
     await new Promise(r => setTimeout(r, 150)); // poll every 25ms
@@ -209,7 +213,9 @@ test('hermes API: the API endpoint matches the deterministic owner verdict flow'
     await send('DA'); // confirm owner contact
     await send('DA, SE SOGLASUVAM');
     await send('ZORAN 078/914 196');
-    let s = await send('UTRE POPLADNE');
+    // [22:31] contract: bare day+period re-asks the hour first, then proceeds.
+    await send('UTRE POPLADNE');
+    let s = await send('OKOLU 16');
     assert.equal(s.state, 'owner_checking');
 
     // counter -> time_confirm

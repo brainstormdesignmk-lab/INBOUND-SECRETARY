@@ -28,10 +28,10 @@
  * replayable from a corpus row.
  */
 import {
-  detectFeeAmountAsk, detectFeeNag, detectMoreOptions,
+  detectFeeAmountAsk, detectFeeNag, detectFeeAnaphoricRefusal, detectMoreOptions,
   detectPriceEval, detectBudget, detectProvisionResistance,
   detectService, detectBothServices, detectHouse, detectBusiness, detectPlac,
-  detectNegotiate, isMoneyWithoutTarget, isFeeFrame,
+  detectNegotiate, isMoneyWithoutTarget, isFeeFrame, detectFeeWhy,
 } from './deterministic';
 
 export type RouteTuple = {
@@ -41,7 +41,7 @@ export type RouteTuple = {
   target: 'property' | 'visit-fee' | 'commission' | 'agent' | 'none';
 };
 
-export type MoneyLane = 'cheap' | 'feeAmount' | 'provision' | 'clarify' | 'nag' | 'expensive';
+export type MoneyLane = 'cheap' | 'feeAmount' | 'provision' | 'clarify' | 'nag' | 'feeWhy' | 'expensive';
 
 export interface MoneyClaim {
   lane: MoneyLane;
@@ -93,7 +93,7 @@ const PRICE_NOUN_RE = /(?:^|[^\p{L}])(?:ценат?а?|cenat?a?)(?=$|[^\p{L}])/i
 const FEE_STATES = ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle', 'property_locate', 'contact_collection'];
 const CHEAP_STATES = ['property_query', 'presentation', 'closing'];
 
-const LEGACY_ORDER: MoneyLane[] = ['cheap', 'feeAmount', 'provision', 'clarify', 'nag', 'expensive'];
+const LEGACY_ORDER: MoneyLane[] = ['cheap', 'feeAmount', 'provision', 'clarify', 'nag', 'feeWhy', 'expensive'];
 
 // ── THE TUPLE EXTRACTOR (Option 2) ──────────────────────────────────────────
 const VISIT_NOUN_RE = /(?:посет\p{L}*|poset\p{L}*|разглед\p{L}*|razgled\p{L}*|гледањ\p{L}*|gledanj\p{L}*|pogledn\p{L}*)/iu;
@@ -215,6 +215,31 @@ export function arbitrateMoney(text: string, ctx: MoneyArbiterCtx): MoneyVerdict
     && !ctx.feeAgreed && !ctx.feeBlocked
     && detectFeeNag(text) && !detectMoreOptions(text)) {
     claims.push({ lane: 'nag', strength: 6, evidence: ['referent:visit-fee', 'act:complain', `state:${ctx.state}`] });
+  }
+  // THE FEE-WHY EXPLANATION CLAIM (the [01:23] transcript): the WHY/EXISTENCE
+  // question ("IMATE NEKAKVA TAKSA ZA POSETA ?", "zoska 500 denari ?",
+  // "nova praksa nekoja") is fee-explanation traffic — the fast intercept above
+  // the funnel (inbound.ts feeWhyFast) answers it with the filter rationale,
+  // so the money region must CLAIM it, not address it as residue
+  // (unknown.fee.ask). Same evidence tier as nag (6) and placed after it in
+  // the legacy order so a why-word riding a COMPLAINT keeps the legacy nag
+  // serve byte-identical; the pure existence/why rows have no competing claim
+  // (they fell to the residue bucket before), so this claim never shifts a
+  // legacy serve — it only upgrades their address.
+  if (detectFeeWhy(text) && feeStates && !ctx.feeBlocked) {
+    claims.push({ lane: 'feeWhy', strength: 6, evidence: ['referent:visit-fee', 'act:ask-why', `state:${ctx.state}`] });
+  }
+
+  // THE ANAPHORIC REFUSAL (the [14:36] transcript): the object-less "не ми
+  // одговара" answered to the fee stack — the fee is the only open question in
+  // this state, so a bare refusal IS fee resistance. Same claim shape as the
+  // legacy arm: one rung, ladder copies, graceful close on the LAST rung —
+  // never the goodbye on the first nag, never property suggestions.
+  if ((ctx.state === 'closing' || ctx.state === 'presentation')
+    && !ctx.feeAgreed && !ctx.feeBlocked
+    && nonQuestion && noSteal
+    && detectFeeAnaphoricRefusal(text) && !detectMoreOptions(text)) {
+    claims.push({ lane: 'nag', strength: 6, evidence: ['referent:visit-fee(anaphoric)', 'act:refuse', `state:${ctx.state}`] });
   }
 
   // THE NEW LANE, under the evidence boundary (option 1 makes the wiring a

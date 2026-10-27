@@ -214,6 +214,43 @@ test('buildPropertyCards: code-built PROSE card quotes euros and real data (LLM-
   assert.ok(q.includes('Дали би сакале да организираме посета'), 'respond.test assertion (line 171)');
 });
 
+// The [02:27] capture: a batch of two was served with no public location on
+// EITHER card, so the client's first reaction was "na koi lokacii se
+// stanovite ?" — the pair must land with its nearby landmark ON THE FIRST
+// TURN (both cards), then the conversation just flows.
+test('buildPropertyCards: BOTH served properties name their public location on the first turn', () => {
+  const withFeed: Property = {
+    eb: 89, id: 89, address: 'x', location: 'Аеродром', price: 110000, bedrooms: 2,
+    // The feed's own ranked list — the same source the where-is rotation
+    // starts from, already contract-checked upstream (type ≤ ranked, ≤ 200 m).
+    landmarks: [
+      { landmark: 'Споменик на Мерцедес', type: 'memorial', distance_m: 95, source: 'feed' },
+      { landmark: 'Трговски Центар', type: 'marketplace', distance_m: 140, source: 'feed' },
+    ] as any,
+  };
+  const card = buildPropertyCard(withFeed);
+  assert.ok(card.includes('Се наоѓа во близина на Споменик на Мерцедес.'), card);
+  // The rotation's L2 is saved for the WHERE_IS ladder, never printed up front.
+  assert.ok(!card.includes('Трговски Центар'), card);
+
+  // The batch shape: BOTH cards in ONE reply carry their own nearby line.
+  const second: Property = { eb: 53, id: 53, address: 'y', location: 'Аеродром', price: 55000, bedrooms: 2,
+    landmarks: [{ landmark: 'Поликлиника', type: 'clinic', distance_m: 120, source: 'feed' }] as any };
+  const batch = buildPropertyCards([withFeed, second], 'presentation', 0);
+  assert.ok(batch.includes('Споменик на Мерцедес') && batch.includes('Поликлиника'), batch);
+
+  // No feed landmarks -> NO line: the honest no-address protocol holds, and
+  // a contract-violating list (unranked type first) is never echoed either.
+  const bare = buildPropertyCard({ ...withFeed, landmarks: undefined });
+  assert.ok(!bare.includes('во близина'), bare);
+  const junkFirst = buildPropertyCard({ ...withFeed,
+    landmarks: [{ landmark: 'Бутик Галион', type: 'clothes', distance_m: 35, source: 'feed' }] as any });
+  assert.ok(!junkFirst.includes('во близина'), junkFirst);
+  // Dedupe: the ad text already naming the same place doesn't get an echo.
+  const echoed = buildPropertyCard({ ...withFeed, details: 'Одлична локација, во близина на Споменик на Мерцедес.' });
+  assert.equal((echoed.match(/Споменик на Мерцедес/g) ?? []).length, 1, echoed);
+});
+
 test('buildPropertyCard: гарсоњера inferred from size when bedrooms are missing', () => {
   const prop: Property = {
     eb: 80, id: 80, address: 'Ефтим Спространов', location: 'Кисела Вода',

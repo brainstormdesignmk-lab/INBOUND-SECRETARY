@@ -16,6 +16,8 @@ import {
   detectDocumentsAsk, detectOwnerContactHold, extractPoiWish,
   detectAgentAttendanceAsk, detectBusinessBudgetAsk,
   BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK,
+  detectEbPriceAssertion, extractEbPriceAssertion, detectBudgetUpAsk,
+  detectPriceAsk,
 } from '../src/llm/deterministic';
 
 test('[#195] agent attendance question is distinct from visit-interest/fee consent', () => {
@@ -493,6 +495,15 @@ test('detectBudget: currencies, илјади, and no false positives', () => {
   assert.equal(detectBudget('80 илјади евра'), '80000');
   assert.equal(detectBudget('do 2500 евра'), '2500');
   assert.equal(detectBudget('40 KVADRATI, DO 500 EVRA'), '500'); // Latin currency + sqm side by side
+  // The k shorthand (LLM-down path): "do 120k" was slotted as a 120 EUR
+  // budget and the hard filter emptied every search — the multiplier arms.
+  assert.equal(detectBudget('ke kupam dvosoben stan aerodrom do 120k'), '120000');
+  assert.equal(detectBudget('do 120k evra'), '120000');
+  assert.equal(detectBudget('do 120 k evra'), '120000');
+  assert.equal(detectBudget('baram garsonjera do 100k'), '100000');
+  assert.equal(detectBudget('stan do 80 hiljadi'), '80000');
+  // the k glued to a unit word is a UNIT, not a multiplier
+  assert.equal(detectBudget('do 120 km'), '120'); // cap word + no currency: pre-k behavior preserved
   assert.equal(detectBudget('2 spalni vo Centar'), undefined);
   assert.equal(detectBudget('petok vo 18:30'), undefined);
   assert.equal(detectBudget('078/914 196'), undefined);
@@ -634,8 +645,9 @@ test('detectNearCenter: the "vo blizina na centar" family (23:08 transcript)', (
   assert.equal(detectNearCenter('sakam stan vo centar'), false);
   assert.equal(detectNearCenter('drugo nesto vo centar'), false);
   assert.equal(detectNearCenter('zdravo'), false);
-  // Ring list sanity: the center border, in ladder order
-  assert.deepEqual(CENTER_RING, ['Карпош', 'Аеродром', 'Кисела Вода']);
+  // Ring list sanity: the center border, in ladder order. Kapistec rides the
+  // ring too (the [02:01] contract: near-center covers all four).
+  assert.deepEqual(CENTER_RING, ['Карпош', 'Аеродром', 'Кисела Вода', 'Капиштец']);
 });
 
 test('detectRingElimination: "ne sakam kisela voda" shrinks the ring', () => {
@@ -1600,4 +1612,44 @@ test('[10:28] extractPoiWish: the GRAMMAR bridge is trimmed, never the place', (
   assert.equal(extractPoiWish('bese kaj vas vo broz kafe'), 'броз кафе');
   assert.equal(extractPoiWish('PISUVASE DO BROZ KAFE', { withCriteria: true }), 'BROZ KAFE');
   assert.equal(extractPoiWish('PISUVASE DO TRGOVSKI LISICE', { withCriteria: true }), 'TRGOVSKI LISICE');
+});
+
+// ── [22:3x] EB-PRICE ASSERTION CAPTURE (pinned regression) ────────────
+// The three field faults: (1) a money figure naming the PROPERTY's price was
+// slotted as the client's budget; (2) the funnel then answered the
+// criteria-miss for a house whose own price IS that figure; (3) the client
+// repeated the fact and the shape regex missed the bare copula. These pins
+// guard the whole chain at detector level.
+test('[22:33] EB price assertion: the BARE copula form is recognized', () => {
+  // The exact capture wording — no «му е», no «цената е», just "44 e …":
+  assert.equal(detectEbPriceAssertion('44 e 130000 evra kaj vas na stranicata'), true);
+  const hit = extractEbPriceAssertion('44 e 130000 evra kaj vas na stranicata');
+  assert.equal(hit?.eb, 44);
+  assert.equal(hit?.amount, 130000);
+  // The «му е» /Latin «mu e» variants the older family covered stay true —
+  // note the EB digit is REQUIRED: an assertion without a named property
+  // ("mu e 130000 evra na stranicata") is out of scale by design.
+  assert.equal(detectEbPriceAssertion('44 mu e 130000 evra na stranicata'), true);
+  assert.equal(detectEbPriceAssertion('44 му е 130.000 evra, gledav na sajtot'), true);
+  // No named EB → no assertion (the EB digit is a required subject).
+  assert.equal(detectEbPriceAssertion('mu e 130000 evra na stranicata'), false);
+  // The (?<![\p{L}\p{N}]) guard: digits GLUED to a word ("eb4400") never
+  // become the asserted EB — the lookbehind refuses a letter/digit neighbor.
+  assert.equal(detectEbPriceAssertion('eb4400 e 130000 evra na sajtot'), false);
+});
+
+test('[22:32] EB price assertion: the asserted money is NEVER a budget', () => {
+  // The money figure names the EB's price — the budget read must veto it
+  // (the standing 170000 budget is untouched by the funnel, handler side).
+  assert.equal(detectBudget('44 e 130000 evra kaj vas na stranicata'), undefined);
+  // A REAL budget in the same breath still flows (the veto is assertion-scoped):
+  assert.notEqual(detectBudget('baram kukja do 170000 evra'), undefined);
+});
+
+test('[22:32] digit-EB price ask reaches the price lane ("cenata za 44 ?")', () => {
+  // The noun-tail arm requires a WORD after за/na — a bare digit fell through
+  // to the search machinery, which then answered a price question with the
+  // typed criteria-miss line although the named house fit the standing budget.
+  assert.equal(detectPriceAsk('cenata za 44 ?'), true);
+  assert.equal(detectPriceAsk('cena za 44'), true);
 });

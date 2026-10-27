@@ -85,6 +85,20 @@ export function halfClockHour(t: string): number | undefined {
   for (const [re, h] of HOUR_WORDS) if (re.test(word)) return h;
   return undefined;
 }
+
+// DIGIT half-hour — "7ipol" / "7 и пол" / "velmi 7 i pol" (the [19:29]
+// owner counter: "Cetvrtok vo 7ipol ?"). HALF_CLOCK_RE only knows hour WORDS
+// ("седум и пол"), so the digit form fell through to DAY_TRAILING_HOUR_RE,
+// which read the bare "7" as 7:00 — the :30 vanished and the counter relay
+// told the client "Четврток во 7". Same room-noun veto as the word form
+// ("две и пол спални" is a bedroom count, never a clock).
+export const DIGIT_HALF_RE =
+  /(?<![\p{L}\p{N}])(\d{1,2})\s*(?:и|i)?\s*(?:пол|pol)(?:а|a|овина)?(?![\p{L}\p{N}])(?!\s*(?:спалн|spaln|соби|sobi|лежа|krev))/iu;
+
+function digitHalfClock(t: string): { 1: string; length: number } | null {
+  const m = t.match(DIGIT_HALF_RE);
+  return m ? { 1: m[1], length: 2 } : null;
+}
 // A BARE clock "17:30" — legal only when the message carries no date (a bare
 // HH:MM next to a date is ambiguous and the date wins).
 const BARE_CLOCK_RE = /\b(\d{1,2})[:.](\d{2})\b/;
@@ -137,6 +151,32 @@ function dayOfWeekFrom(t: string): number | undefined {
   return undefined;
 }
 
+// The list-order day scan walked the TABLE, not the text: in the owner's
+// counter "ne mozam bas vtornik . Cetvrtok vo 7ipol ?" (the [19:29] capture)
+// вторник's regex was checked first and won, so the counter resolved to the
+// REFUSED day — the relay said "Вторник" where the owner proposed Четврток.
+const DAY_SCAN_RE = new RegExp(DAY_WORDS.map(([re]) => re.source).join('|'), 'giu');
+
+/** The OFFERED day, not the first day word the table happens to match. With
+ *  two day words in the text (refusal frame + counter offer) and a clock
+ *  clause, the day whose END sits nearest the clock digits is the offered
+ *  one ("cetvrtok vo 7ipol" → четврток); a distance tie goes to the LATER
+ *  match (an offer always reads after the refusal it counters). No clock or
+ *  a single day word keeps the legacy first-match behavior. */
+function offeredDow(t: string, digitIndex?: number): number | undefined {
+  if (digitIndex === undefined) return dayOfWeekFrom(t);
+  let best: { dow: number; index: number; dist: number } | undefined;
+  for (const m of t.matchAll(DAY_SCAN_RE)) {
+    const dow = dayOfWeekFrom(m[0]);
+    if (dow === undefined || m.index === undefined) continue;
+    const dist = Math.abs(digitIndex - (m.index + m[0].length));
+    if (!best || dist < best.dist || (dist === best.dist && m.index > best.index)) {
+      best = { dow, index: m.index, dist };
+    }
+  }
+  return best?.dow ?? dayOfWeekFrom(t);
+}
+
 function relOffset(t: string): number | undefined {
   if (/(задутре|zadutre)/i.test(t)) return 2;
   if (/(утре|utre)/i.test(t)) return 1;
@@ -172,9 +212,13 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   const hc = halfClockHour(t);
   const th = t.match(DAY_TRAILING_HOUR_RE);
   const hw = hourWordClock(t);
+  const dhm = t.match(DIGIT_HALF_RE); // "7ipol" — :30 wins over the bare digit
   const clock = hw ?? th ?? t.match(CLOCK_RE);
   if (hc !== undefined) {
     hour = hc * 60 + 30; // "пет и пол" = 5:30
+  } else if (dhm) {
+    const h = Number(dhm[1]); // "7ipol" / "7 и пол" = 7:30 (see DIGIT_HALF_RE)
+    if (h >= 0 && h <= 23) hour = h * 60 + 30;
   } else if (clock) {
     const h = Number(clock[1]);
     const m = clock[2] ? Number(clock[2]) : 0;
@@ -198,9 +242,9 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   // Same shift for the SPOKEN HALF-HOUR ("пет и пол" = 17:30) and the
   // day-adjacent BARE clock ("вторник 5:30" — a day word makes the hour an
   // afternoon viewing, never 05:30; a period word like "наутро" opts out).
-  if ((hc !== undefined || hw || th) && hour !== undefined && hour < 8 * 60) {
+  if ((hc !== undefined || hw || th || dhm) && hour !== undefined && hour < 8 * 60) {
     hour += 12 * 60;
-  } else if (hw === null && th === null && hc === undefined && hour !== undefined && hour < 8 * 60
+  } else if (hw === null && th === null && dhm === null && hc === undefined && hour !== undefined && hour < 8 * 60
     && dayOfWeekFrom(t) !== undefined && partHour(t) === undefined && BARE_CLOCK_RE.test(t)) {
     hour += 12 * 60;
   }
@@ -231,7 +275,18 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   }
   if (hour === undefined && part !== undefined) hour = part * 60; // part is an HOUR
 
-  const dow = dayOfWeekFrom(t);
+  // Day pick: with several day words, the day that RIDES the clock clause is
+  // the offered one — the digits' absolute position is the anchor (the
+  // [19:29] owner counter: "ne mozam bas vtornik . Cetvrtok vo 7ipol ?" must
+  // resolve to Четврток, not the Вторник the refusal frame names).
+  const digitMatch = dhm ?? th ?? (clock && 'index' in (clock as RegExpMatchArray) ? clock : null);
+  let digitIndex: number | undefined;
+  if (digitMatch && digitMatch[1] && typeof (digitMatch as RegExpMatchArray).index === 'number') {
+    const mm = digitMatch as RegExpMatchArray;
+    const at = mm.index! + mm[0].indexOf(mm[1]);
+    if (Number.isFinite(at)) digitIndex = at;
+  }
+  const dow = offeredDow(t, digitIndex);
   const rel = relOffset(t);
 
   let base: Date | undefined;

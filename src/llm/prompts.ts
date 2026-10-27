@@ -3,6 +3,7 @@ import { SlotData } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
 import { Property, locPrep, mkTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent } from '../data/properties';
+import { firstLandmarkProblem } from '../geo/landmarks';
 import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint } from '../visits/time';
 
 export const BUY_FEE_MKD = '500 MKD';
@@ -96,6 +97,57 @@ export const LOCATE_NUMBER_PROMPT =
 export const LOCATE_REFINE_ASK =
   'Не најдов недвижност што одговара точно на тие податоци. Кажете ми уште некој детал — населба, квадратура, цена или нешто друго што го памтите?';
 
+// ── CATEGORY NOUN ─────────────────────────────────────────────────────────
+// The locate asks used to say «стан» unconditionally (the [09:38] capture:
+// a client describing a HOUSE he saw got "Дали го знаете Евидентен број на
+// ТОЈ СТАН?" — the category he named never reached the wording). Once the
+// slots hold the described category, the asks follow it: a house client
+// hears «таа куќа», a commercial client «тој деловен простор». Slotted,
+// grammar-correct per gender (definite forms and clitics included).
+export function locateNoun(slots: { house?: boolean; business?: boolean; garsonjera?: boolean; plac?: boolean }): string {
+  if (slots.plac === true) return 'плац';
+  if (slots.business === true) return 'деловен простор';
+  if (slots.house === true) return 'куќа';
+  if (slots.garsonjera === true) return 'гарсоњера';
+  return 'стан';
+}
+
+const LOCATE_NOUN_FORMS: Record<string, { indef: string; def: string; defCap: string; clitic: string }> = {
+  'стан': { indef: 'тој стан', def: 'станот', defCap: 'Станот', clitic: 'го' },
+  'куќа': { indef: 'таа куќа', def: 'куќата', defCap: 'Куќата', clitic: 'ја' },
+  'деловен простор': { indef: 'тој деловен простор', def: 'деловниот простор', defCap: 'Деловниот простор', clitic: 'го' },
+  'гарсоњера': { indef: 'таа гарсоњера', def: 'гарсоњерата', defCap: 'Гарсоњерата', clitic: 'ја' },
+  'плац': { indef: 'тој плац', def: 'плацот', defCap: 'Плацот', clitic: 'го' },
+};
+
+/** The category-noun replacement for the frozen «тој стан» ask, and the
+ *  definite form for the «колку квадрати има станот» families. */
+function nounForms(slots: Parameters<typeof locateNoun>[0]): {
+  indef: string; def: string; defCap: string; clitic: string } {
+  return LOCATE_NOUN_FORMS[locateNoun(slots)] ?? LOCATE_NOUN_FORMS['стан'];
+}
+
+export function buildLocateFirstAsk(slots: Parameters<typeof locateNoun>[0]): string {
+  const f = nounForms(slots);
+  return `Дали го знаете Евидентен број на ${f.indef}? Ако да, само кажете ми го — веднаш ќе го проверам. Ако не, кажете ми во која населба е, колку квадрати има и по која цена беше, па јас ќе се обидам да го најдам.`;
+}
+
+export function buildLocateServiceAsk(
+  slots: Parameters<typeof locateNoun>[0], withNumberInvite = true,
+): string {
+  const f = nounForms(slots);
+  return `${f.defCap} што ${f.clitic} видовте беше за продажба или за изнајмување?${withNumberInvite ? ' Ако го знаете Евидентен број на недвижноста, само кажете ми го — веднаш ќе го проверам.' : ''}`;
+}
+
+export function buildLocateMoreSpecsAsk(
+  location: string,
+  slots: Parameters<typeof locateNoun>[0],
+  withNumberInvite = true,
+): string {
+  const f = nounForms(slots);
+  return `Разбрав — ${location}. За да го стесниме изборот, кажете ми — колку квадрати има ${f.def} и по која цена беше?${withNumberInvite ? ' А ако го знаете Евидентен број на недвижноста, само кажете ми го — веднаш ќе го проверам.' : ''}`;
+}
+
 // Location is known but m² / price / bedrooms are missing — ask for the
 // remaining specs before showing matches.  Keeps the collect-first rhythm
 // so the bot doesn't dump all Водно properties when the client only said
@@ -106,6 +158,13 @@ export const LOCATE_REFINE_ASK =
 // only replaces the "во која населба" question, it never drops the number.
 export const LOCATE_MORE_SPECS_ASK =
   'Разбрав — {location}. За да го стесниме изборот, кажете ми — колку квадрати има станот и по која цена беше? А ако го знаете Евидентен број на недвижноста, само кажете ми го — веднаш ќе го проверам.';
+
+// The [20:15] rule, executed: he gave the details (населба + спални) but
+// the PRICE is unwritten and the INTENT (купување/изнајмување) untold — the
+// ONE question she may ask is the sale-or-rent of THE property he saw, never
+// a re-ask of what he already said.
+export const LOCATE_SERVICE_ASK =
+  'Станот што го видовте беше за продажба или за изнајмување? Ако го знаете Евидентен број на недвижноста, само кажете ми го — веднаш ќе го проверам.';
 
 /** The area label as the client hears it. The feed disambiguates settlement
  *  rows with a parenthetical type ("Центар (населба)", "Аеродром (општина)") —
@@ -121,6 +180,13 @@ export function displayAreaName(area: string): string {
 
 export const LOCATE_PICK_CLOSER =
   'Дали некој од овие е тој што го видовте? Ако е, кажете ми „првиот“ или „вториот“, или Евидентен број на недвижноста.';
+
+/** The pick-closer with the number invitation DROPPED — the client just said
+ *  he does not have the Евидентен број ("АМА БРОЈОТ НЕ ГО ЗАПИШАВ", the [11:08]
+ *  capture): the sentence may offer the positions only. Inviting the number he
+ *  has already disclaimed is the dead loop the operator kept flagging. */
+export const LOCATE_PICK_CLOSER_NO_NUMBER =
+  'Дали некој од овие е тој што го видовте? Ако е, кажете ми „првиот“ или „вториот“.';
 
 // --- Landmark-anchored locate (the [13:28] capture) ---------------------------
 // The client anchors the property he saw to a MAP PLACE instead of a
@@ -242,8 +308,35 @@ function placeWithArea(place: string, area?: string): string {
   return `${shown}${bare && !same ? ` (${bare})` : ''}`;
 }
 
-export function buildLocateLandmarkIntro(place: string, area?: string): string {
-  return `Разбрав — значи баравте стан во близина на ${placeWithArea(place, area)}. Еве ги најблиските недвижности што одговараат на она што го опишавте:`;
+export function buildLocateLandmarkIntro(
+  place: string, area?: string, slots?: Parameters<typeof locateNoun>[0], count = 2): string {
+  // Category noun (the [09:38] rule): a house client hears «баравте куќа…»,
+  // a commercial client «деловен простор…» — never a forced «стан». Calls
+  // without slots keep the original «стан» wording (the [13:28] pins).
+  // NUMBER AGREEMENT (the [11:07] replay): one match is «најблиската
+  // недвижност што одговара», not the plural opener over a single card.
+  const lead = count === 1
+    ? 'Еве ја најблиската недвижност што одговара на она што го опишавте:'
+    : 'Еве ги најблиските недвижности што одговараат на она што го опишавте:';
+  return `Разбрав — значи баравте ${locateNoun(slots ?? {})} во близина на ${placeWithArea(place, area)}. ${lead}`;
+}
+
+/** The ENTRY half of the landmark serve (the [11:07] capture): the client
+ *  OPENED with a category + a service + a place ("имате објавено една куќа за
+ *  издавање кај Олимпико") — he is asking whether we hold that listing, not
+ *  describing one he half-remembers, so the intro CONFIRMS rather than echoes
+ *  ("Разбрав — значи баравте…" told him what he had just said, and the «значи»
+ *  read as an inference about him). The place keeps the area the bank's own
+ *  rows put it in, and the category noun matches his words. */
+export function buildLocateLandmarkEntry(
+  place: string,
+  area: string | undefined,
+  slots: Parameters<typeof locateNoun>[0] & { service?: 'buy' | 'rent' },
+  count = 1,
+): string {
+  const noun = locateNoun(slots);
+  const purpose = slots.service === 'rent' ? ' за издавање' : slots.service === 'buy' ? ' за продажба' : '';
+  return `Да, имаме ${noun}${purpose} кај ${placeWithArea(place, area)}. Еве ${count > 1 ? 'ги' : nounForms(slots).clitic}:`;
 }
 
 // Nothing in the bank matched the criteria AT that landmark — the honest human
@@ -259,6 +352,12 @@ export function buildLocateLandmarkFallback(place: string, area?: string): strin
 export const LOCATE_LANDMARK_PRICE_PROBE =
   'Ако се сеќавате и по која цена беше станот, кажете ми — веднаш ќе го најдеме.';
 
+/** Category-noun twin of the price probe — a house client hears «куќата»,
+ *  a commercial client «просторот», never a forced «стан» ([09:38]). */
+export function buildLocateLandmarkPriceProbe(slots: Parameters<typeof locateNoun>[0]): string {
+  return `Ако се сеќавате и по која цена беше ${nounForms(slots).def}, кажете ми — веднаш ќе го најдеме.`;
+}
+
 /** A compact "is this the one you saw?" line — EB, type, area, size, price. */
 export function buildLocateMatchLine(p: Property): string {
   const what = p.plac ? 'плац' : p.house ? 'куќа' : p.business ? 'деловен простор' : propertyType(p);
@@ -272,9 +371,22 @@ export function buildLocateMatchLine(p: Property): string {
   return `Евидентен број ${p.eb} — ${what}${bits.length ? `, ${bits.join(', ')}` : ''}.`;
 }
 
-export function buildLocateMatches(properties: Property[], closerIndex = 0): string {
+export function buildLocateMatches(properties: Property[], closerIndex = 0, withNumberInvite = true): string {
   const lines = properties.slice(0, 2).map(p => buildLocateMatchLine(p)).join('\n');
-  const closer = pickCloser([LOCATE_PICK_CLOSER], closerIndex);
+  // ONE CARD, ONE QUESTION (the [11:07] replay): the plural closer asked him to
+  // choose «првиот» or «вториот» when a single property was on screen — a
+  // question with no second answer. A lone match gets the singular form, its
+  // noun and clitic following the card (куќата … ја видовте, станот … го).
+  const only = properties.length === 1 ? properties[0] : undefined;
+  const closerSingular = only
+    ? (() => {
+        const f = nounForms({ house: only.house, business: only.business, plac: only.plac });
+        return `Дали ова е ${f.def} што ${f.clitic} видовте?`
+          + (withNumberInvite ? ' Ако го знаете Евидентен број на недвижноста, кажете ми го.' : '');
+      })()
+    : undefined;
+  const closer = closerSingular
+    ?? pickCloser([withNumberInvite ? LOCATE_PICK_CLOSER : LOCATE_PICK_CLOSER_NO_NUMBER], closerIndex);
   return `${lines}\n\n${closer}`;
 }
 
@@ -339,6 +451,19 @@ export function buildOwnerAsk(eb: number, proposedTime: string, opts?: OwnerAskP
  */
 export function buildOwnerFollowupAsk(refusedTime: string, newTime: string): string {
   return `Клиентот не е во можност за посета во ${refusedTime}. Има друг предлог: ${newTime}. Дали би Ви одговарал тој термин?`;
+}
+
+/**
+ * ACCEPTANCE follow-up (the [01:07] capture). When the owner countered with a
+ * WHOLE DAY ("ke mora vo ponedelnik, bilo koe vreme") and the client completed
+ * it with an exact clock, the owner must be asked to CONFIRM the completed term
+ * — the client accepted the owner's own proposal, so the refusal-shaped
+ * "Клиентот не е во можност за посета во …" is a fabricated fact: the client
+ * never refused anything the owner didn't propose first. Same one-fact-one-
+ * question shape as buildOwnerFollowupAsk, acceptance semantics.
+ */
+export function buildOwnerAcceptFollowupAsk(counterDay: string, exactTerm: string): string {
+  return `Клиентот го прифати Вашиот предлог: ${counterDay} — било кое време. Предлог за посета: ${exactTerm}. Дали го потврдувате тој термин?`;
 }
 
 /**
@@ -578,15 +703,20 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // the property type, so she must never assume an apartment. Bank key
   // greeting.open (generated variants, validated to never mention a type)
   // with the user's sample line as the code-built fallback.
-  if (!business && !house && !knownAny) {
+  // ПЛАЦ/yard are NAMED CATEGORIES (the [09:38] expansion) — a плац opener
+  // must get the плац intro, never the type-neutral greeting and never the
+  // house intro (the [20:15] ask class, the discovery sibling).
+  if (!business && !house && !plac && !yard && !knownAny) {
     return pickVariant('greeting.open', { recent })
       ?? 'Повелете. Дали Ве интересира купување или изнајмување на недвижност?';
   }
   const missing: string[] = [];
   if (!slots.service) {
     missing.push(askQuestion(
-      business ? 'discovery.ask.service.business' : house ? 'discovery.ask.service.house' : 'discovery.ask.service.stan',
-      business ? 'Дали го барате за купување или за изнајмување?'
+      plac ? 'discovery.ask.service.plac'
+        : business ? 'discovery.ask.service.business' : house ? 'discovery.ask.service.house' : 'discovery.ask.service.stan',
+      plac ? 'Дали го барате плацот за купување или за изнајмување?'
+        : business ? 'Дали го барате за купување или за изнајмување?'
         : house ? 'Дали куќата ја барате за купување или за изнајмување?'
         : 'Дали станот го барате за купување или за изнајмување?',
       recent));
@@ -599,8 +729,10 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // city-wide presentation; bedrooms refine later via rejections, never block).
   if (slots.service && (!slots.location || CITY_LEVEL_LOCATIONS.test(slots.location)) && !anywhere) {
     missing.push(askQuestion(
-      business ? 'discovery.ask.location.business' : house ? 'discovery.ask.location.house' : 'discovery.ask.location.stan',
-      business ? 'Во кој дел од градот го барате?'
+      plac ? 'discovery.ask.location.plac'
+        : business ? 'discovery.ask.location.business' : house ? 'discovery.ask.location.house' : 'discovery.ask.location.stan',
+      plac ? 'Во кој дел од градот го барате плацот?'
+        : business ? 'Во кој дел од градот го барате?'
         : house ? 'Во кој дел од градот ја барате куќата?'
         : 'Во кој дел од градот го барате станот?',
       recent));
@@ -654,10 +786,15 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // as if the conversation had restarted. The greeting prefix is kept only on
   // the first outbound message (recent is empty); afterwards it is dropped.
   const introRaw = !knownAny
-    ? pickVariant(business ? 'discovery.intro.business' : 'discovery.intro.house', { recent })
+    ? pickVariant(
+        business ? 'discovery.intro.business'
+          : plac ? 'discovery.intro.plac'
+          : 'discovery.intro.house', { recent })
       ?? (business
         ? 'Здраво! За да Ви најдам најсоодветен деловен простор, ве молам кажете ми неколку детали.'
-        : 'Здраво! За да Ви најдам најсоодветна куќа, ве молам кажете ми неколку детали.')
+        : plac
+          ? 'Здраво! За да Ви најдам најсоодветен плац, ве молам кажете ми неколку детали.'
+          : 'Здраво! За да Ви најдам најсоодветна куќа, ве молам кажете ми неколку детали.')
     : undefined;
   const intro = introRaw && recent.length > 0 ? dropLeadingGreeting(introRaw) : introRaw;
   if (missing.length === 0) return intro ?? 'Во ред, ги забележав Вашите критериуми.';
@@ -689,17 +826,20 @@ export function buildVisitConfirmation(eb: number, time: string, agentPhone: str
 
 /**
  * The waiver ack — the client said size doesn't matter ("nebitno"), so Lina
- * CONFIRMS the waiver and names the biggest-for-the-money ordering before the
- * cards. Bank-backed (discovery.waiver.ack) with a {budget} var; the code
- * fallback keeps the invariant that every serve has a text. Served ONCE per
- * waiver (the caller owns the waiverAcked flag) — later presentations stay
- * plain cards.
+ * CONFIRMS the waiver in one short line. The biggest-for-the-money exposure
+ * is NAMED with the client's REAL budget (the [21:40] contract: "the ack
+ * must carry the budget"), interpolated from the live slot — never streamed
+ * tokens ({budget}/{open}budget}, the verbatim leak of the [20:33] TUI
+ * capture). A missing budget keeps the plain line. Served ONCE per waiver
+ * (the caller owns the waiverAcked flag) — later presentations stay plain
+ * cards.
  */
 export function waiverAck(budget: string | undefined, recent: string[] = []): string {
-  return pickVariant('discovery.waiver.ack', { recent, vars: budget ? { budget } : undefined })
-    ?? (budget
-      ? 'Во ред, големината не е проблем — за буџетот од ' + budget + ' почнувам од најголемите станови во понуда.'
-      : 'Во ред, големината не е проблем — почнувам од најголемите станови што ги има во понуда.');
+  const base = pickVariant('discovery.waiver.ack', { recent })
+    ?? 'Во ред, големината не е проблем.';
+  return budget
+    ? `${base} За ${budget} евра Ви покажувај од најголемите прво.`
+    : base;
 }
 
 /**
@@ -1352,20 +1492,24 @@ export function buildPropertyCard(p: Property): string {
   // The ad text rewritten conversationally — facts only, no "Се Продава" / agency
   // boilerplate, no street. undefined = nothing usable -> the card omits it.
   const details = conversationalDetails(p);
-  // Address PRIVACY: the exact street is a bypass risk (a client who knows the
-  // street goes straight to the owner and cuts the agency out). The location
-  // line names a nearby PUBLIC LANDMARK when one was resolved ("Се наоѓа во
-  // близина на Градежен Факултет"), else just the neighborhood the opening
-  // Include the resolved landmark unless the ad text already names the
-  // SAME place. The old guard suppressed on any "во близина на…" phrase,
-  // which is wrong when the ad says something vague ("во близина на
-  // главниот влез") but the resolver found a real named place ("Клинички
-  // Центар"). We now compare the landmark name itself: if the details
-  // text already mentions it after a proximity phrase, skip; otherwise
-  // always include.
-  // Landmark line REMOVED: geocoded nearest POI can be wrong ("Јане Сандански"
-  // instead of "МК Доналд"). The client can ask "каде е?" to get the
-  // landmark rotation from the WHERE_IS handler, which is always accurate.
+  // NEARBY ON THE FIRST TURN: first feed-ranked landmark, contract-checked.
+  const firstLm = firstLandmarkProblem(p.landmarks) === undefined
+    ? (p.landmarks?.[0]?.landmark ?? undefined)
+    : undefined;
+  if (firstLm && !details?.includes(firstLm)) s += ` Се наоѓа во близина на ${firstLm}.`;
+  // Landmark line restORED — but from the FEED's own ranked list, not a live
+  // geocode. The [02:27] capture: a batch of two was served with NEITHER
+  // card naming its public location, so the client's very first reaction was
+  // "na koi lokacii se stanovite ?" — the batch presented facts nobody could
+  // act on without asking again. The card now names the first feed-ranked
+  // landmark (contract-checked: ≤ 200 m, a recognized public type — the
+  // same source the where-is rotation starts from), so the pair lands with
+  // approximate locations FIRST; only unclear geography asks again.
+  // The old live-geocode line was removed for good reason ("Јане Сандански"
+  // instead of "МК Доналд") — that risk does not apply here: feed rows list
+  // places the writer verified rank/distance for. No feed landmarks -> no
+  // line (the [58] no-address protocol stays honest); the ad text already
+  // naming the same place also skips the echo.
   if (p.size) {
     s += p.plac
       ? ` Има површина од ${p.size}.`
