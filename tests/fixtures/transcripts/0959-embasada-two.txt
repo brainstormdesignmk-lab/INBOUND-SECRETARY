@@ -1,0 +1,32 @@
+# THE [09:59] TWO-CANDIDATE ASK — and the «не» that must not drop the search.
+#
+#   [09:59] ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?
+#   [09:59] ЛИНА: Имам повеќе недвижности близу тоа место — ЕБ 63 (28 м²,
+#           36.000 €) или ЕБ 80 (24 м², 46.000 €). Која од нив ја мислите?
+#
+# Two numbers and a price are not a description: the client remembers a FLAT,
+# not an Евидентен број, so each candidate is described (type, м², price, area
+# + the ad's own distinguishing fact) and the question is answerable — is one
+# of these the one you asked about? If not, the search goes on.
+#
+# «DALI SE PRODAVA» IS A SALE FRAME: only for-sale rows may be shown here. The
+# rental at the same embassy (EB 76) is not an option to buy — rent is offered
+# only when the client asks to rent.
+!feed embasada-pair
+[09:59] КЛИЕНТ: ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?
+# EXPECT first-mentions Имам три недвижности близу Црногорска Амбасада
+# EXPECT first-mentions Евидентен број 63 · гарсоњера, 28 м² · 36.000 евра
+# EXPECT first-mentions Евидентен број 80 · гарсоњера, 24 м² · 46.000 евра
+# EXPECT first-mentions Дали некоја од нив е таа што ја баравте? Ако не, продолжувам да барам
+# EXPECT first-not-mentions Евидентен број 76
+# EXPECT first-not-mentions ЕБ 63
+
+# …and «NE, NE E TAA» continues the hunt in the SAME frame (for sale, a
+# гарсоњера) — never back to «куќа, деловен простор или нешто друго?», and
+# never a rental.
+[10:01] КЛИЕНТ: NE, NE E TAA
+# EXPECT last-mentions гарсоњера
+# EXPECT last-not-mentions Евидентен број 76
+# EXPECT last-not-mentions куќа, деловен простор
+# EXPECT last-not-mentions трисобен
+# EXPECT final-state property_locate

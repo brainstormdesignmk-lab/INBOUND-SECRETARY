@@ -65,6 +65,8 @@ export type TranscriptLine =
  *   # EXPECT no-silence                every client turn got an answer
  *   # EXPECT last-mentions термин      the last reply says this
  *   # EXPECT last-not-mentions термин  the last reply must not say this
+ *   # EXPECT first-mentions термин     the FIRST reply says this (a capture
+ *   # EXPECT first-not-mentions …      whose opening turn is the bug)
  *   # EXPECT cancel <eb>               cancelled exactly that Евидентен број
  *   # EXPECT no-cancel                 nothing was cancelled
  *   # EXPECT ask-which                 the which-visit question was asked
@@ -277,6 +279,7 @@ export function checkExpectations(result: ReplayResult, expectations: string[]):
   const lastClient = result.turns.length > 0
     ? result.turns[result.turns.length - 1]!.clientMsgs.join('\n')
     : '';
+  const firstClient = result.turns.length > 0 ? result.turns[0]!.clientMsgs.join('\n') : '';
   for (const exp of expectations) {
     const noCancel = exp.match(/^no-cancel$/i);
     const cancel = exp.match(/^cancel\s+(\d+)$/i);
@@ -287,6 +290,8 @@ export function checkExpectations(result: ReplayResult, expectations: string[]):
     const noSilence = exp.match(/^no-silence$/i);
     const mentions = exp.match(/^last-mentions\s+(.+)$/i);
     const notMentions = exp.match(/^last-not-mentions\s+(.+)$/i);
+    const firstMentions = exp.match(/^first-mentions\s+(.+)$/i);
+    const firstNotMentions = exp.match(/^first-not-mentions\s+(.+)$/i);
     if (noCancel) {
       if (cancelledTurns.length > 0) failures.push('no-cancel: a cancellation went out');
     } else if (cancel) {
@@ -306,6 +311,10 @@ export function checkExpectations(result: ReplayResult, expectations: string[]):
       if (!lastClient.includes(mentions[1]!)) failures.push(`last-mentions «${mentions[1]}»: last reply was «${lastClient}»`);
     } else if (notMentions) {
       if (lastClient.includes(notMentions[1]!)) failures.push(`last-not-mentions «${notMentions[1]}»: last reply was «${lastClient}»`);
+    } else if (firstMentions) {
+      if (!firstClient.includes(firstMentions[1]!)) failures.push(`first-mentions «${firstMentions[1]}»: first reply was «${firstClient}»`);
+    } else if (firstNotMentions) {
+      if (firstClient.includes(firstNotMentions[1]!)) failures.push(`first-not-mentions «${firstNotMentions[1]}»: first reply was «${firstClient}»`);
     } else {
       failures.push(`unknown expectation «${exp}»`);
     }

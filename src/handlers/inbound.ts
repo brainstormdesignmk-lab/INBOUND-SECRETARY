@@ -57,7 +57,7 @@ import {
   buildLocateLandmarkPriceProbe,
   AVAILABILITY_ACK, AVAILABILITY_ACK_FEM, buildPriceRelay, buildFeeAsk, buildFeeWhy, buildFeeRules, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
-  buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
+  buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL, conversationalDetails,
   buildExactAddressAnswer, displayPlaceName, displayAreaName,
   buildSideAnswer,
   buildRecommendClose,
@@ -444,7 +444,7 @@ export class InboundHandler {
   // pointer and seen-property. One clear match binds it; several equal
   // matches produce ONE clarify naming the options; no match leaves
   // today's behavior untouched (undefined, never a guess).
-  private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean; offerAtPlace?: boolean }): Promise<{ prop?: Property; clarify?: string; fromFeed?: boolean } | undefined> {
+  private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean; offerAtPlace?: boolean }): Promise<{ prop?: Property; clarify?: string; fromFeed?: boolean; clarifyEbs?: number[] } | undefined> {
     const ebSet = new Set<number>();
     for (const eb of [
       ...(session.slots.presentedIds ?? []),
@@ -584,19 +584,42 @@ export class InboundHandler {
       if (feedHit?.kind === 'unique' && feedHit.eb !== undefined) match = feedHit;
       if (feedHit?.kind === 'ambiguous' && (feedHit.candidates ?? []).length > 1) {
         // Several feed rows sit near the place the client named (two Центар
-        // flats within 200 m of СЈО is normal). Guessing one of them is the
-        // wrong-property class; ASK — with the Евидентен број, size and price,
-        // because both cards carry the same landmark name and the landmark
-        // alone cannot tell them apart.
-        const label = (c: MentionCandidate) => {
-          const bits = [c.sqm ? `${c.sqm} м²` : undefined, c.price ? `${c.price.toLocaleString('de-DE')} €` : undefined]
-            .filter(Boolean).join(', ');
-          return bits ? `ЕБ ${c.eb} (${bits})` : `ЕБ ${c.eb}`;
+        // flats within 200 m of СЈО is normal; the [09:59] capture had two
+        // гapсоњери at one embassy). Guessing one is the wrong-property class,
+        // so she ASKS — but a bare «ЕБ 63 (28 м², 36.000 €) или ЕБ 80 (…)?»
+        // asks the client to choose between two numbers he has never seen. He
+        // asked about a FLAT HE REMEMBERS, so each option is DESCRIBED (type,
+        // м², price, area + the ad's own first fact) and the question is the
+        // one he can actually answer: is one of these the one you meant — and
+        // if not, the search goes on (the caller keeps the frame and the
+        // REJECTED lane pulls fresh options).
+        const shown = (feedHit.candidates ?? []).slice(0, 3);
+        const rows = shown
+          .map(c => all.find(p => p.eb === c.eb))
+          .filter((p): p is Property => !!p);
+        const countWord = ['', 'една', 'две', 'три'][rows.length] ?? String(rows.length);
+        // The place is the one the client named: the map's resolved POI when it
+        // exists, else the feed row's OWN landmark (a replay or a map-less run
+        // must not lose the name the ad already carries).
+        const placeName = poi?.name ?? rows[0]?.landmarks?.[0]?.landmark ?? rows[0]?.landmark;
+        const place = placeName ? ` близу ${placeName}` : ' во тој дел од градот';
+        const lines = rows.map(p => {
+          const facts = conversationalDetails(p);
+          // The ad's FIRST remaining fact distinguishes the twins (сутерен vs
+          // прв кат со тераса) — the rest would be a card. Stripped of the
+          // punctuation the ad's own list items leave behind («, , високо
+          // приземје»), because the line has to read like a person wrote it.
+          const cleaned = (facts ?? '').split(/(?<=\.)\s/)[0]
+            .replace(/^[\s,.;:—-]+/, '').replace(/\s*,\s*(?=,)/g, '').replace(/\s+/g, ' ').trim();
+          const first = cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : '';
+          return `• ${boundFlatIdentity(p)}${first && first !== '.' ? `.\n  ${first}` : '.'}`;
+        }).join('\n');
+        return {
+          clarify: `Имам ${countWord} недвижности${place}:\n\n${lines}\n\n`
+            + 'Дали некоја од нив е таа што ја баравте? Ако не, продолжувам да барам.',
+          fromFeed: true,
+          clarifyEbs: rows.map(p => p.eb),
         };
-        const all2 = feedHit.candidates ?? [];
-        const labels = all2.slice(0, 3).map(label).join(' или ')
-          + (all2.length > 3 ? ` и уште ${all2.length - 3}` : '');
-        return { clarify: `Имам повеќе недвижности близу тоа место — ${labels}. Која од нив ја мислите?`, fromFeed: true };
       }
     }
     if (!match && opts?.historyFallback) {
@@ -664,8 +687,21 @@ export class InboundHandler {
   }
 
   /** Sends the clarify line for an ambiguous mention; reports that it did. */
-  private async sendIfClarify(mb: { prop?: Property; clarify?: string; fromFeed?: boolean } | undefined, text: string, session: ChatSession): Promise<boolean> {
+  private async sendIfClarify(mb: { prop?: Property; clarify?: string; fromFeed?: boolean; clarifyEbs?: number[] } | undefined, text: string, session: ChatSession): Promise<boolean> {
     if (!mb?.clarify) return false;
+    // A FEED clarify («these two are at that place — is either yours?») leaves
+    // the chat in the CHOOSING lane, not back at idle: the offered numbers are
+    // recorded so a «не» pulls the NEXT options (never the same two again),
+    // and the deal the client asked about is kept — «дали уште се продава» is
+    // a SALE question, so the continuation stays on for-sale rows and never
+    // drifts to rentals (rent is offered only when the client asks to rent).
+    if (mb.fromFeed && mb.clarifyEbs?.length) {
+      session.state = 'property_locate';
+      session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...mb.clarifyEbs])];
+      const fromText = extractSlots(text);
+      if (!session.slots.service && fromText.service) session.slots.service = fromText.service;
+      if (fromText.garsonjera) session.slots.garsonjera = true;
+    }
     pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
     pushHistory(session, { role: 'assistant', text: mb.clarify }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
@@ -5965,9 +6001,18 @@ export class InboundHandler {
       } else if (ev.type === 'REJECTED') {
         // "не е тој" — pull the NEXT closest batch (never re-show what was
         // just rejected); ask for more details when the DB is exhausted.
-        const nextBatch = (await this.deps.properties.closestMatches({
+        const pool = await this.deps.properties.closestMatches({
           ...locateOpts, exclude: session.slots.presentedIds ?? [],
-        })).slice(0, 2);
+        });
+        // THE CATEGORY SURVIVES THE «НЕ» TOO (the [09:59] capture): after two
+        // гapсоњери were offered, the next closest by price was a трисобен — a
+        // flat hunt that answers «гарсоњерата?» with a three-room read as not
+        // listening. Keep the studio pool when it has anything; a category
+        // with nothing left falls back to the wider family honestly.
+        const studioPool = session.slots.garsonjera === true
+          ? pool.filter(p => p.studio === true || p.bedrooms === 1)
+          : [];
+        const nextBatch = (studioPool.length > 0 ? studioPool : pool).slice(0, 2);
         reply = nextBatch.length > 0 ? present(nextBatch) : LOCATE_REFINE_ASK;
       } else if (anchor && (before === 'property_locate' || (ebDisclaimed && !reply))) {
         // THE LANDMARK ANSWER (the [10:56]/[11:07]-ruled transcript): "пишуваше

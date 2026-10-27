@@ -346,7 +346,7 @@ test('[11:29] a COLD «имавте гарсоњера кај Црногорск
   offlineMap.close();
 });
 
-test('[11:29] two гapсоњери at the place → both are named, and the number is still never asked', async () => {
+test('[09:59]/[11:29] two гapсоњери at the place → both are DESCRIBED, and the number is still never asked', async () => {
   // Nothing on the table, two candidates near the named place: guessing one is
   // the wrong-property class, so she ASKS — but with the Евидентен број, size
   // and price of each, which is the only thing that lets the client answer.
@@ -357,9 +357,18 @@ test('[11:29] two гapсоњери at the place → both are named, and the numb
   const { send, sent, offlineMap } = await makeHandler(EMBASSY_ROWS);
   const s = await send('ima li garsonjera kaj crnogorska ambasada?');
   const reply = sent[sent.length - 1];
-  assert.ok(reply.includes('ЕБ 63') && reply.includes('ЕБ 76'), `both options are named: ${reply}`);
+  // Each option is a DESCRIPTION, not a number in brackets: the client asked
+  // about a flat he remembers, so EB + type + м² + price are all named, and the
+  // question is one he can answer («is one of these the one you meant?»).
+  assert.match(reply, /Евидентен број 63 · гарсоњера, 28 м²/u, `the first is described: ${reply}`);
+  assert.match(reply, /Евидентен број 76 · гарсоњера, 24 м²/u, `the second is described: ${reply}`);
+  assert.ok(reply.includes('Дали некоја од нив е таа што ја баравте? Ако не, продолжувам да барам'),
+    `the question invites the no: ${reply}`);
   assert.ok(!/го знаете Евидентен|Кажете ми Евидентен/.test(reply), `never the number question: ${reply}`);
   assert.equal(s.state, 'property_locate', `still choosing: ${s.state}`);
+  // The offered numbers are recorded, so a «не» pulls the NEXT options instead
+  // of re-offering the same two.
+  assert.deepEqual([...(s.slots.presentedIds ?? [])].sort((a, b) => a - b), [63, 76]);
   offlineMap.close();
 });
 

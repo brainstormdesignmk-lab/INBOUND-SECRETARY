@@ -274,9 +274,9 @@ test('e2e: TWO feed rows near the named place — she asks which one, never pick
 
   await handler.handle('test', chatId, 'OVOJ KAJ SJO DALI E DOSTAPEN USHTE ?');
   const reply = sent.join(' | ');
-  assert.match(reply, /Која од нив/u, `the ambiguity must be asked: ${reply}`);
-  assert.match(reply, /ЕБ 66/u, `the options carry their numbers: ${reply}`);
-  assert.match(reply, /ЕБ 95/u, `the options carry their numbers: ${reply}`);
+  assert.match(reply, /Ако не, продолжувам да барам/u, `the ambiguity must be asked: ${reply}`);
+  assert.match(reply, /Евидентен број 66 · трисобен стан, 79 м²/u, `each option is described: ${reply}`);
+  assert.match(reply, /Евидентен број 95 · трисобен стан, 74 м²/u, `each option is described: ${reply}`);
   assert.equal(sessions.get(chatId)!.slots.interestedPropertyId, 91,
     'no silent swap to one of the two guesses');
   db.close();
