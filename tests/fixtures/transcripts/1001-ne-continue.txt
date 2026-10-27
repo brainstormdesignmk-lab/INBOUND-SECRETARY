@@ -1,0 +1,17 @@
+# THE [10:01] «NE» — a rejection of the offer, never a farewell.
+#
+# After the three гapсоњери were described, a one-word «NE» ended the whole chat
+# («Ви благодарам за издвоеното време денес…») with the hunt three offers from
+# done. While the client is choosing among the flats she described, «не» means
+# «not that one»: the next options follow — in the SAME frame (for sale, a
+# гapсоњера, that place), never back to the discovery grill.
+!feed embasada-pair
+[09:59] КЛИЕНТ: ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?
+[10:01] КЛИЕНТ: NE, NE E TAA
+[10:02] КЛИЕНТ: NE
+# EXPECT no-silence
+# EXPECT last-mentions Евидентен број 84
+# EXPECT last-not-mentions Ви благодарам
+# EXPECT last-not-mentions куќа, деловен простор
+# EXPECT last-not-mentions Евидентен број 76
+# EXPECT final-state property_locate

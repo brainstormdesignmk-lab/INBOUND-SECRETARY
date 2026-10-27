@@ -67,6 +67,8 @@ export type TranscriptLine =
  *   # EXPECT last-not-mentions термин  the last reply must not say this
  *   # EXPECT first-mentions термин     the FIRST reply says this (a capture
  *   # EXPECT first-not-mentions …      whose opening turn is the bug)
+ *   # EXPECT last-any-mentions а|б     the last reply says ANY of these (the
+ *                                     bank rotates variants of one line)
  *   # EXPECT cancel <eb>               cancelled exactly that Евидентен број
  *   # EXPECT no-cancel                 nothing was cancelled
  *   # EXPECT ask-which                 the which-visit question was asked
@@ -292,6 +294,7 @@ export function checkExpectations(result: ReplayResult, expectations: string[]):
     const notMentions = exp.match(/^last-not-mentions\s+(.+)$/i);
     const firstMentions = exp.match(/^first-mentions\s+(.+)$/i);
     const firstNotMentions = exp.match(/^first-not-mentions\s+(.+)$/i);
+    const anyMentions = exp.match(/^last-any-mentions\s+(.+)$/i);
     if (noCancel) {
       if (cancelledTurns.length > 0) failures.push('no-cancel: a cancellation went out');
     } else if (cancel) {
@@ -311,6 +314,11 @@ export function checkExpectations(result: ReplayResult, expectations: string[]):
       if (!lastClient.includes(mentions[1]!)) failures.push(`last-mentions «${mentions[1]}»: last reply was «${lastClient}»`);
     } else if (notMentions) {
       if (lastClient.includes(notMentions[1]!)) failures.push(`last-not-mentions «${notMentions[1]}»: last reply was «${lastClient}»`);
+    } else if (anyMentions) {
+      const alts = anyMentions[1]!.split('|').map(s => s.trim()).filter(Boolean);
+      if (!alts.some(a => lastClient.includes(a))) {
+        failures.push(`last-any-mentions «${anyMentions[1]}»: last reply was «${lastClient}»`);
+      }
     } else if (firstMentions) {
       if (!firstClient.includes(firstMentions[1]!)) failures.push(`first-mentions «${firstMentions[1]}»: first reply was «${firstClient}»`);
     } else if (firstNotMentions) {

@@ -1,0 +1,16 @@
+# THE [10:02] DRAINED PLACE — the question that must come before the widening.
+#
+# Аеродром was never the client's question: he asked about a гapсоњера at the
+# Montenegrin embassy. Serving a flat from another municipality under «кај
+# амбасадата» without asking is a place-locked hunt silently changing places, so
+# the drained place asks FIRST — and nothing from elsewhere is offered yet.
+!feed embasada-pair
+[09:59] КЛИЕНТ: ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?
+[10:01] КЛИЕНТ: NE, NE E TAA
+[10:02] КЛИЕНТ: NE
+[10:03] КЛИЕНТ: NE
+# EXPECT no-silence
+# EXPECT last-any-mentions друга населба | друг дел од градот
+# EXPECT last-not-mentions Евидентен број 52
+# EXPECT last-not-mentions Ви благодарам
+# EXPECT final-state property_locate

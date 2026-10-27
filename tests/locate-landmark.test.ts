@@ -372,6 +372,99 @@ test('[09:59]/[11:29] two гapсоњери at the place → both are DESCRIBED, 
   offlineMap.close();
 });
 
+// The four [09:59]–[10:01] turns, on one feed: four for-sale гapсоњери at the
+// embassy, a трисобен neighbour, and one гapсоњера in Аеродром (a place the
+// client never asked about).
+const AMB_TABLE: Property[] = [
+  { eb: 63, id: 63, location: 'Центар', price: 36000, service: 'buy', sqm: 28, size: '28 м²', studio: true, address: 'Црногорска', details: 'Се Продава Гарсоњера во Сутерен на Зграда. Гарсоњерата е комплетно реновирана и е на Одлична Локација , во близина на Црногорска Амбасада.', lat: 41.995985, lon: 21.418172, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  { eb: 80, id: 80, location: 'Центар', price: 46000, service: 'buy', sqm: 24, size: '24 м²', studio: true, address: 'Строг Центар', details: 'Се продава гарсоњера во Строг Центар, на прв кат, со тераса и поглед кон парк.', lat: 41.995800, lon: 21.417600, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  { eb: 70, id: 70, location: 'Центар', price: 39000, service: 'buy', sqm: 26, size: '26 м²', studio: true, address: 'Строг Центар', details: 'Се продава гарсоњера, високо приземје, реновирана, со нови прозорци.', lat: 41.995700, lon: 21.418500, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  { eb: 66, id: 66, location: 'Центар', price: 42000, service: 'buy', sqm: 30, size: '30 м²', studio: true, address: 'Дебар маало', details: 'Се продава гарсоњера во Дебар маало, реновирана, со балкон.', lat: 41.993500, lon: 21.416000, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  { eb: 84, id: 84, location: 'Центар', price: 117000, service: 'buy', bedrooms: 3, sqm: 48, size: '48 м²', address: 'Роза Луксембург', details: 'Се продава трособен стан во Центар, близу Црногорска Амбасада.', lat: 41.994100, lon: 21.418200, geo_source: 'stored', landmarks: [{ landmark: 'Црногорска Амбасада' }] } as Property,
+  { eb: 52, id: 52, location: 'Аеродром', price: 44000, service: 'buy', sqm: 27, size: '27 м²', studio: true, address: 'Аеродром', details: 'Се продава гарсоњера во Аеродром, реновирана.', lat: 41.978000, lon: 21.460000, geo_source: 'stored', landmarks: [{ landmark: 'Аеродром' }] } as Property,
+];
+const AMB_ASK = 'ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?';
+
+test('[10:01] a bare «NE» while choosing continues the hunt — a rejection of the offer, never a farewell', async () => {
+  // The capture: she offered the гapсоњери, the client said «NE» and the chat
+  // ENDED («Ви благодарам за издвоеното време») with the hunt three offers
+  // from done. While the choice is open, a one-word refusal is «not that
+  // one» — the next options follow.
+  const { send, sent, offlineMap } = await makeHandler(AMB_TABLE);
+  await send(AMB_ASK);
+  const s = await send('NE');
+  const reply = sent[sent.length - 1];
+  assert.ok(!/Ви благодарам|издвоеното време|Се најдобро/iu.test(reply), `never a farewell mid-choice: ${reply}`);
+  assert.match(reply, /Евидентен број 66/u, `the next гapсоњера follows: ${reply}`);
+  assert.equal(s.state, 'property_locate', `still hunting: ${s.state}`);
+  offlineMap.close();
+});
+
+test('[10:00] «OPISI MI GI?» is answered with the details she HAS for the flats she offered', async () => {
+  // The capture: asked to describe the two flats she had just described, the
+  // reply was «деталниот опис … не ги имам во моите записи». Her records ARE
+  // the feed she was reading from — the details are served, in full.
+  const { send, sent, offlineMap } = await makeHandler(AMB_TABLE);
+  await send(AMB_ASK);
+  await send('OPISI MI GI ?');
+  const reply = sent[sent.length - 1];
+  assert.ok(!/немам|не ги имам|во моите записи/iu.test(reply), `never «no details»: ${reply}`);
+  assert.match(reply, /Евидентен број 63/u, `the first flat is described: ${reply}`);
+  assert.match(reply, /Евидентен број 80/u, `the second is described: ${reply}`);
+  assert.match(reply, /реновирана/u, `with the ad's own facts: ${reply}`);
+  assert.match(reply, /36[.,]?000 евра/u, `and its price: ${reply}`);
+  offlineMap.close();
+});
+
+test('[10:01] picking one of the described flats opens the availability answer, not the card again', async () => {
+  // He read the identity line one turn ago; naming one of them is the
+  // availability question («дали уште се продава»), so the answer is the ack +
+  // the owner check — not the whole card he has just been shown.
+  const { send, sent, sessions, offlineMap } = await makeHandler(AMB_TABLE);
+  await send(AMB_ASK);
+  const s = await send('DA, 63 E TAA');
+  const reply = sent[sent.length - 1];
+  assert.equal(s.slots.interestedPropertyId, 63, `the named flat is bound: ${reply}`);
+  assert.equal(s.state, 'closing', `the owner lane opens: ${s.state}`);
+  assert.ok(s.slots.ownerContactPending, 'the owner check is armed');
+  assert.match(reply, /достапн|активн|слободн|база|евиденц/iu, `availability is answered: ${reply}`);
+  assert.ok(!/Има 28 м² станбена површина/u.test(reply), `no card re-description: ${reply}`);
+  void sessions;
+  offlineMap.close();
+});
+
+test('[10:01] «ПРВАТА» picks the FIRST of the described flats — an ordinal is a pick too', async () => {
+  const { send, sent, offlineMap } = await makeHandler(AMB_TABLE);
+  await send(AMB_ASK);
+  const s = await send('PRVATA E TAA');
+  const reply = sent[sent.length - 1];
+  assert.equal(s.slots.interestedPropertyId, 63, `the first of the three is the pick: ${reply}`);
+  assert.equal(s.state, 'closing', `the owner lane opens: ${s.state}`);
+  assert.ok(s.slots.ownerContactPending, 'the owner check is armed');
+  offlineMap.close();
+});
+
+test('[10:02] the place is drained → she asks about OTHER neighbourhoods, and «да» releases the lock', async () => {
+  // Аеродром was never the client's question: serving it under «кај амбасадата»
+  // without asking is a place-locked hunt silently changing places. First the
+  // question, and only the «да» widens the search.
+  const { send, sent, offlineMap } = await makeHandler(AMB_TABLE);
+  await send(AMB_ASK);
+  await send('NE, NE E TAA');
+  await send('NE');
+  const drained = await send('NE');
+  const question = sent[sent.length - 1];
+  assert.match(question, /друга населба|друг дел од градот/iu, `she asks about other areas: ${question}`);
+  assert.ok(!/Евидентен број 52/u.test(question), `nothing is offered before the yes: ${question}`);
+  assert.ok(drained.slots.areaExhausted, 'the area lock is marked drained');
+
+  const widened = await send('DA');
+  const options = sent[sent.length - 1];
+  assert.match(options, /Евидентен број 52/u, `the «да» widens to the other area: ${options}`);
+  assert.ok(!widened.slots.areaExhausted, 'the lock is released');
+  offlineMap.close();
+});
+
 test('[11:07] a house for rent at Олимпико: the area is the house’s own, and the number is never asked after the disclaim', async () => {
   // The [11:07]/[11:08] capture, deterministic path (no LLM):
   //   [11:07] ЗДРАВО , ИМАТЕ ОБЈАВЕНО ЕДНА КУЌА ЗА ИЗДАВАЊЕ КАЈ ОЛИМПИКО

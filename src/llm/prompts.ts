@@ -358,6 +358,17 @@ export function buildLocateLandmarkPriceProbe(slots: Parameters<typeof locateNou
   return `Ако се сеќавате и по која цена беше ${nounForms(slots).def}, кажете ми — веднаш ќе го најдеме.`;
 }
 
+/** The client asked to DESCRIBE the flat(s) she just offered («опиши ми ги?»,
+ *  the [10:00] capture). The records she reads from ARE the bank's own rows, so
+ *  «деталите не ги имам во записите» is never a true answer — this intro leads
+ *  straight into the cards. Gendered by the category on the table (неа/него). */
+export function buildDescribeIntro(count: number, slots: Parameters<typeof locateNoun>[0]): string {
+  const f = nounForms(slots);
+  return count === 1
+    ? `Се разбира. Еве ги деталите што ги имам за ${f.clitic === 'ја' ? 'неа' : 'него'}:`
+    : 'Се разбира. Еве ги деталите што ги имам за нив:';
+}
+
 /** A compact "is this the one you saw?" line — EB, type, area, size, price. */
 export function buildLocateMatchLine(p: Property): string {
   const what = p.plac ? 'плац' : p.house ? 'куќа' : p.business ? 'деловен простор' : propertyType(p);
@@ -380,7 +391,10 @@ export function buildLocateMatches(properties: Property[], closerIndex = 0, with
   const only = properties.length === 1 ? properties[0] : undefined;
   const closerSingular = only
     ? (() => {
-        const f = nounForms({ house: only.house, business: only.business, plac: only.plac });
+        // The category the ROW itself carries (a гapсоњера is not «станот»:
+        // the [09:59] capture closed a гарсоњера offer with «Дали ова е
+        // станот што го видовте?»).
+        const f = nounForms({ house: only.house, business: only.business, plac: only.plac, garsonjera: only.studio === true });
         return `Дали ова е ${f.def} што ${f.clitic} видовте?`
           + (withNumberInvite ? ' Ако го знаете Евидентен број на недвижноста, кажете ми го.' : '');
       })()

@@ -45,6 +45,16 @@ export interface SlotData {
                                  // never used to arm the funnel
    presentedIds?: number[];      // ALL EBs shown so far (excluded from later batches)
   currentBatch?: number[];      // EBs in the CURRENT presentation batch
+  /** The EBs she just DESCRIBED in the which-one ask (the [09:59] capture).
+   *  Two things read it: «опиши ми ги?» serves the bank's own data for THESE
+   *  flats (the records she has — never «немам детали»), and a pick of one of
+   *  them opens the availability answer instead of a card re-description. */
+  describedEbs?: number[];
+  /** The place the described flats sit near (the landmark the client named).
+   *  It scopes the continuation of that hunt — the next options come from
+   *  THERE, and only the client's «да» to the other-neighbourhoods question
+   *  releases it (a place-locked hunt must not silently change places). */
+  clarifyAnchor?: { name: string; lat: number; lon: number };
   alternativesExhausted?: boolean;
   ladderKey?: string;           // presentation ladder: the search key (loc|service|budget) the queue was built for
   ladderQueue?: number[];       // presentation ladder: remaining EB ids in ladder order (top → cheapest → middle → rest)

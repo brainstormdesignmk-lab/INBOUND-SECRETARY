@@ -11,7 +11,14 @@
     "service": "buy",
     "studio": true,
     "landmark": "Црногорска Амбасада",
-    "landmarks": [{ "landmark": "Црногорска Амбасада" }]
+    "landmarks": [
+      {
+        "landmark": "Црногорска Амбасада"
+      }
+    ],
+    "lat": 41.995985,
+    "lon": 21.418172,
+    "geo_source": "stored"
   },
   {
     "eb": 80,
@@ -25,7 +32,14 @@
     "service": "buy",
     "studio": true,
     "landmark": "Црногорска Амбасада",
-    "landmarks": [{ "landmark": "Црногорска Амбасада" }]
+    "landmarks": [
+      {
+        "landmark": "Црногорска Амбасада"
+      }
+    ],
+    "lat": 41.9958,
+    "lon": 21.4176,
+    "geo_source": "stored"
   },
   {
     "eb": 70,
@@ -39,7 +53,14 @@
     "service": "buy",
     "studio": true,
     "landmark": "Црногорска Амбасада",
-    "landmarks": [{ "landmark": "Црногорска Амбасада" }]
+    "landmarks": [
+      {
+        "landmark": "Црногорска Амбасада"
+      }
+    ],
+    "lat": 41.9957,
+    "lon": 21.4185,
+    "geo_source": "stored"
   },
   {
     "eb": 66,
@@ -53,7 +74,14 @@
     "service": "buy",
     "studio": true,
     "landmark": "Црногорска Амбасада",
-    "landmarks": [{ "landmark": "Црногорска Амбасада" }]
+    "landmarks": [
+      {
+        "landmark": "Црногорска Амбасада"
+      }
+    ],
+    "lat": 41.9935,
+    "lon": 21.416,
+    "geo_source": "stored"
   },
   {
     "eb": 84,
@@ -67,7 +95,35 @@
     "size": "48 м²",
     "service": "buy",
     "landmark": "Црногорска Амбасада",
-    "landmarks": [{ "landmark": "Црногорска Амбасада" }]
+    "landmarks": [
+      {
+        "landmark": "Црногорска Амбасада"
+      }
+    ],
+    "lat": 41.9941,
+    "lon": 21.4182,
+    "geo_source": "stored"
+  },
+  {
+    "eb": 52,
+    "id": 52,
+    "location": "Аеродром",
+    "address": "Аеродром",
+    "details": "Се продава гарсоњера во Аеродром, реновирана, со лифт.",
+    "price": 44000,
+    "sqm": 27,
+    "size": "27 м²",
+    "service": "buy",
+    "studio": true,
+    "landmark": "Аеродром",
+    "landmarks": [
+      {
+        "landmark": "Аеродром"
+      }
+    ],
+    "lat": 41.978,
+    "lon": 21.46,
+    "geo_source": "stored"
   },
   {
     "eb": 76,
@@ -81,6 +137,13 @@
     "service": "rent",
     "studio": true,
     "landmark": "Црногорска Амбасада",
-    "landmarks": [{ "landmark": "Црногорска Амбасада" }]
+    "landmarks": [
+      {
+        "landmark": "Црногорска Амбасада"
+      }
+    ],
+    "lat": 41.9958,
+    "lon": 21.4176,
+    "geo_source": "stored"
   }
 ]

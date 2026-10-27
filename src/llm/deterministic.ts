@@ -4143,6 +4143,29 @@ export function detectNearbyAsk(text: string): boolean {
     || (exempt && NEARBY_RE2_TEST.test(n0));
 }
 
+// ── DESCRIBE-THE-FLAT ASK ─────────────────────────────────────────────────
+// The client asks Lina to DESCRIBE the property (or the flats) already on the
+// table — «опиши ми ги?», «кажи ми повеќе за неа», «со какви детали е?», «што
+// има во ЕБ 63?». It is never a search (it carries no criteria), so the lane
+// answers with the bank's OWN rows for the EBs in play. The [10:00] capture:
+// after she had just described two гapсоњери, «OPISI MI GI?» got «деталниот
+// опис … не ги имам во моите записи» — from the very records she was reading.
+const DESCRIBE_ASK_RE = new RegExp(
+  '(?:'
+  + '(?:опиш|опис|детал|спецификаци|objsni|opish|opisi|opis|detali|specifikacii)\\p{L}*'
+  + '|(?:каж|каз|kazi|kazhi)(?:\\s+ми|\\s+mi)?\\s+(?:повеќе|повече|poveke|povekje|povishe|povishe)'
+  + '|(?:повеќе|повече|poveke|povekje)\\s+(?:за|za)(?!\\p{L})'
+  + '|(?:што|sto)\\s+има\\s+(?:во|vo)(?!\\p{L})'
+  + ')', 'iu');
+
+/** True when the client asks for the DESCRIPTION of the flat(s) in play. The
+ *  surroundings grammar keeps its own lane: «што има во близина?» is never a
+ *  describe-ask about a property. */
+export function detectDescribeAsk(text: string): boolean {
+  if (detectNearbyAsk(text)) return false;
+  return DESCRIBE_ASK_RE.test(normalizeMc(text));
+}
+
 // ── CONTEXT DISAMBIGUATION for the ambiguous "more/other" family ───────────
 // Bare "sto drugo ima?" / "sto uste ima?" cannot decide between two questions:
 //   (a) "what else is NEAR THE BUILDING?"  → landmark rotation (where-is path)

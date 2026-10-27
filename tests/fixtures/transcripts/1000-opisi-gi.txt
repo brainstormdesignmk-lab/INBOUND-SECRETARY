@@ -1,0 +1,21 @@
+# THE [10:00] DESCRIBE ASK — «OPISI MI GI?» about the flats she JUST described.
+#
+#   [09:59] ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?
+#   [09:59] ЛИНА: Имам три недвижности близу Црногорска Амбасада: … (each one)
+#   [10:00] OPISI MI GI?
+#   [10:01] ЛИНА [dynamic]: Деталниот опис и распоредот за двете гарсониери
+#           моментално ги немам во моите записи…
+#
+# The records she said she did not have ARE the feed she was reading from: the
+# ad's own facts, the size, the price — for the flats SHE offered, in full.
+!feed embasada-pair
+[09:59] КЛИЕНТ: ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?
+[10:00] КЛИЕНТ: OPISI MI GI ?
+# EXPECT no-silence
+# EXPECT last-mentions Евидентен број 63
+# EXPECT last-mentions Евидентен број 80
+# EXPECT last-mentions реновирана
+# EXPECT last-mentions 36.000 евра
+# EXPECT last-not-mentions не ги имам
+# EXPECT last-not-mentions во моите записи
+# EXPECT final-state property_locate

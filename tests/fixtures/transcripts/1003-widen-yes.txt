@@ -1,0 +1,16 @@
+# THE [10:03] WIDEN — «да» to the other-neighbourhoods question.
+#
+# The «да» releases the area lock and the SAME hunt continues in the rest of the
+# city (for sale, a гapсоњера — service and category unchanged). It is never the
+# fee: the client agreed to LOOK ELSEWHERE, not to take the flat he rejected.
+!feed embasada-pair
+[09:59] КЛИЕНТ: ZDRAVO DALIUSTE SE PRODAVA GARSONJERATA KAJ CRNOGORSKA AMBASADA?
+[10:01] КЛИЕНТ: NE, NE E TAA
+[10:02] КЛИЕНТ: NE
+[10:03] КЛИЕНТ: NE
+[10:04] КЛИЕНТ: DA
+# EXPECT no-silence
+# EXPECT last-mentions Евидентен број 52
+# EXPECT last-not-mentions денари
+# EXPECT last-not-mentions Ви благодарам
+# EXPECT final-state property_locate
