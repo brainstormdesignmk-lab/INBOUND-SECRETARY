@@ -219,7 +219,11 @@ export interface DetectedSlots {
 // The noun forms („купување“/„изнајмување“) are included too — they are the
 // exact answers to the intent question („за купување или за изнајмување?“),
 // in both scripts (clients type "ZA KUPUVANJE" as often as Cyrillic).
-const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|\bbuy\b|kupuvam|kupam|kupan|kupi|kupn|kupuvanje|kupuvanjе|kupuvane|prodazba|prodava)/i;
+// «PRODVA» IS THE PASSIVE OF «PRODAVA» (the [04:04] cold entry): „DALI SE
+// PRODVA USTE?“ dropped its final vowel the way clients type it, so detecting
+// nothing made the funnel ask „купување или изнајмување?“ over a flat the
+// client had just called the one FOR SALE.
+const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|продав|\bbuy\b|kupuvam|kupam|kupan|kupi|kupn|kupuvanje|kupuvanjе|kupuvane|prodazba|prodava|prodv)/i;
 // «RENTANJE» IS A RENT WORD (the [20:56] capture): „ZA RENTANJE“ only matched
 // the bounded `\brent\b` before, so detectService returned nothing and the
 // funnel re-asked „купување или изнајмување?“ about a house the client had
@@ -576,6 +580,11 @@ export function detectAvailabilityAsk(text: string): boolean {
   // is about the SURROUNDINGS — never an availability question, even though
   // the Q?TIME+HAVE slot grammar reads "што усте има" as "го имате уште".
   if (detectNearbyAsk(text)) return false;
+  // PASSIVE SALE FRAME (the [04:04] cold entry): „DALI SE PRODVA USTE?“ asks
+  // whether THE FLAT is still on offer. Reflexive «se» is what makes it about a
+  // property — „(дали) продавате станови?“ (you sell, no «se») stays a service
+  // question — and it matches both spellings, «prodava» and the typed «prodva».
+  if (/(?:^|\s)(?:se|се)\s+(?:продав|prodav|prodv)\p{L}*(?![\p{L}\p{N}])/iu.test(text)) return true;
   if (AVAILABILITY_ASK_RE.test(text)) return true;
   // Sweep availability 24:09 companion classes (taken/gone/standing/raspolaganje)
   if (matchesBoth(AVAILABILITY_RE2, text)) return true;

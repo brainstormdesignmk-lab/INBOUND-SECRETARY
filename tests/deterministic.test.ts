@@ -204,8 +204,24 @@ test('detectAvailabilityAsk: "дали е сеуште достапен?" — th
   assert.equal(detectAvailabilityAsk('се изнајмува ли'), true);
   assert.equal(detectAvailabilityAsk('se iznajmuva li'), true);
   assert.equal(detectAvailabilityAsk('се продава ли 62?'), true);
+  // The passive SALE frame (the [04:04] cold entry): „DALI SE PRODVA USTE?“ —
+  // «se» makes it about the property; the dropped final vowel is how it is
+  // typed. Without this the first message of a chat was answered with
+  // „купување или изнајмување?“ about a flat the client had just named.
+  assert.equal(detectAvailabilityAsk('DALI SE PRODVA USTE ?'), true);
+  assert.equal(detectAvailabilityAsk('дали се продава уште?'), true);
+  assert.equal(detectAvailabilityAsk('se prodava uste ?'), true);
+  assert.equal(detectAvailabilityAsk('se prodva li 63'), true);
+  assert.equal(detectAvailabilityAsk('se prodva stanot'), true); // same, no «уште»
   // A declarative listing statement is NOT an availability question
   assert.equal(detectAvailabilityAsk('сопственикот го издава станот'), false);
+});
+
+test('detectService: the passive «SE PRODVA» is a SALE, typo included', () => {
+  assert.equal(detectService('DALI SE PRODVA USTE ?'), 'buy');
+  assert.equal(detectService('дали се продава уште'), 'buy');
+  assert.equal(detectService('se prodva uste'), 'buy');
+  assert.equal(detectService('се издава уште?'), 'rent');
 });
 
 test('detectWhereIs: "каде е X?" is a place question, never a search', () => {

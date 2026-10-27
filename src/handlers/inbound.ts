@@ -459,17 +459,33 @@ export class InboundHandler {
       for (const eb of ebSet) merged.add(eb);
       ebSet.clear();
       for (const eb of merged) ebSet.add(eb);
-      if (ebSet.size === 0) return undefined;
+      // NOTHING NAMED AS AN EB is not "nothing named": the descriptor pass
+      // below reads a place name against the feed (the [04:04] capture). The
+      // empty-set verdict belongs there, where the descriptor is known.
     }
     if (!all) all = await this.deps.properties.getAll();
     const discussed: Property[] = [];
     for (const p of all) if (ebSet.has(p.eb) && !discussed.some(x => x.eb === p.eb)) discussed.push(p);
-    if (discussed.length === 0) return undefined;
 
     // Map evidence for descriptor signals: "Црногорска амбасада" (client)
     // vs "Embassy of Montenegro" (map row) — the offline map is the name
     // bridge, same role as the Latin→Cyrillic script bridge.
     const sig = extractMentionSignals(text);
+    // A COLD message names a place and nothing else (the [04:04] capture):
+    // „IMAVTE EDNA GARXONJERA KAJ CRNOGORSKA AMBASADA“ arrives with no slot EB
+    // and no card on the table, so the discussed set is empty — but a
+    // descriptor is a hint for the FEED, not for the table. Returning here was
+    // why the whole feed-reading pass below never ran on a first message.
+    //
+    // COLD READING IS FOR ONE NAMED PROPERTY, NEVER FOR A SEARCH: „имате нешто
+    // во Центар?“ also has a descriptor, and binding the first Центар row to it
+    // would answer a search with a single wrong ad (and ask „која од нив?“
+    // about rows the client never saw). Only a message that POINTS at one ad —
+    // an availability ask or a demonstrative («овој/тој кај …») — reads the
+    // feed. Searches keep going to the funnel.
+    const POINTS_AT_ONE_RE = /(?<![\p{L}\p{N}])(?:овој|тој|оваа|таа|ова|тоа|ovoj|toj|ovaa|taa|ova|toa)(?![\p{L}\p{N}])/iu;
+    const pointsAtOne = POINTS_AT_ONE_RE.test(text) || detectAvailabilityAsk(text);
+    if (discussed.length === 0 && !(sig.descriptor && pointsAtOne)) return undefined;
     let poi: MentionPoi | undefined;
     if (sig.descriptor && sig.descriptor.trim().length >= MIN_POI_DESCRIPTOR) {
       // The map cannot resolve "сјо дали е достапен уште" — try the descriptor's
@@ -498,7 +514,7 @@ export class InboundHandler {
       }
       return c;
     });
-    let match = resolveMention(text, cands, { poi });
+    let match = discussed.length > 0 ? resolveMention(text, cands, { poi }) : undefined;
     if (!match && sig.descriptor) {
       // THE HINT NAMES SOMETHING SHE HAS NOT SHOWN (the [01:20] capture): the
       // client points at «овој кај СЈО» while the cards on the table are two
@@ -509,8 +525,15 @@ export class InboundHandler {
       // can never bind a property here.
       // One row per Евидентен број: a feed that repeats a row (a mirrored feed,
       // an injected fixture) must not present the same flat twice as two options.
+      // SERVICE NARROWS THE FEED (the [04:04] capture): „DALI SE PRODVA
+      // USTE?“ rules out every rental, and near one embassy the feed holds a
+      // FOR-SALE garsonjera and a RENTED one side by side — without the
+      // service the resolver can only ask which, with it the answer binds.
+      const svc = extractSlots(text).service ?? session.slots.service;
+      const byService = svc ? all.filter(p => p.service === svc) : all;
+      const pool = byService.length > 0 ? byService : all;
       const feedSeen = new Set<number>();
-      const feedCands: MentionCandidate[] = all.filter(p => {
+      const feedCands: MentionCandidate[] = pool.filter(p => {
         if (feedSeen.has(p.eb)) return false;
         feedSeen.add(p.eb);
         return true;

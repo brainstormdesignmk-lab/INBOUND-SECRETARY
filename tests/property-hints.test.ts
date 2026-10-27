@@ -193,6 +193,59 @@ test('e2e: a hint for a flat she never showed binds it from the FEED, not the ta
   db.close();
 });
 
+test('e2e [04:04]: a cold «гарсоњера кај Црногорска амбасада, дали се продава уште?» is READ and answered', async () => {
+  // The live capture: the first message of a new chat named the category, the
+  // landmark AND the service («DALI SE PRODVA USTE?»), and the reply was
+  // „Дали барате купување или изнајмување?“ — none of it was read. The feed
+  // holds BOTH a sold and a rented garsonjera at that embassy, so the service
+  // word is what tells them apart: 63 is for sale, 76 is a rental.
+  const embassy = [
+    {
+      eb: 63, id: 63, location: 'Центар (населба)', address: 'Црногорска',
+      details: 'Се Продава Гарсоњера во Сутерен на Зграда. Гарсоњерата е комплетно реновирана и е на Одлична Локација , во близина на Црногорска Амбасада. Поседува Посебна Спална Соба која не е во имотен лист.',
+      price: 36000, sqm: 28, size: '28 м²', service: 'buy', studio: true,
+      landmarks: [{ landmark: 'Амбасада на Црна Гора' }],
+    },
+    {
+      eb: 76, id: 76, location: 'Центар', address: 'Строг Центар',
+      details: 'Се Издава Реновирана Ефтина Гарсоњера во Строг Центар. Во потегот меѓу Универзална Сала и Католичка Црква, на 100м од Црногорска Амбасада.',
+      price: 200, sqm: 24, size: '24 м²', service: 'rent', studio: true,
+      landmarks: [{ landmark: 'Амбасада на Црна Гора' }],
+    },
+  ] as Property[];
+  const { db, sessions, sent, handler } = await makeHandler(embassy);
+  const chatId = 'cold-embassy';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'ZDRAVO, IMAVTE EDNA GARXONJERA KAJ CRNOGORSKA AMBASADA. DALI SE PRODVA USTE ?');
+  const reply = sent.join(' | ');
+  assert.doesNotMatch(reply, /купување или изнајмување|купите стан или/iu,
+    `the named service is read, not asked back: ${reply}`);
+  const s = sessions.get(chatId)!;
+  assert.equal(s.slots.service, 'buy', '«SE PRODVA» is the sale');
+  assert.equal(s.slots.interestedPropertyId, 63,
+    `the FOR-SALE garsonjera at that embassy: ${reply}`);
+  assert.equal(s.state, 'closing', `the availability ack opens the owner lane: ${s.state}`);
+  assert.ok(!/Евидентен број 76/.test(reply), `never the rental: ${reply}`);
+  db.close();
+});
+
+test('e2e: a cold SEARCH with an area is not mistaken for one named ad', async () => {
+  // The other half of the cold feed read: „имате нешто во Центар?“ also carries
+  // a place word, and binding the first Центар row to it would answer a search
+  // with one wrong ad. Searches keep going to the funnel.
+  const { db, sessions, sent, handler } = await makeHandler(ROWS);
+  const chatId = 'cold-search';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'ZDRAVO IMAVTE NESTO VO CENTAR ?');
+  const reply = sent.join(' | ');
+  assert.doesNotMatch(reply, /Која од нив/u, `a search is not a which-one ask: ${reply}`);
+  assert.doesNotMatch(reply, /Евидентен број/u, `no single card bound to a search: ${reply}`);
+  assert.equal(sessions.get(chatId)!.slots.interestedPropertyId, undefined);
+  db.close();
+});
+
 test('e2e: TWO feed rows near the named place — she asks which one, never picks', async () => {
   // The feed's own geometry puts a second Центар flat within 200 m of СЈО.
   // Neither was presented, so nothing on the table matches the hint: the old
