@@ -139,6 +139,22 @@ export interface SlotData {
    *  keep ranking from that landmark; a NEW neighborhood in the message means
    *  a different search and the landmark stops steering it. */
   poiArea?: string;
+  /** EVERY place the client named in ONE message, in the order he said them
+   *  («SAKAM STANCE OKOLU UNIVERZALNA , BUNJAKOVEC» — the [18:48] capture). The
+   *  pair then SPANS the places: one card near each, cycling two at a time
+   *  (1/2, 3/1, 2/3 for three places). Absent or a single entry keeps the
+   *  single-anchor serve (the two nearest to that place). */
+  poiPlaces?: Array<{ name: string; lat: number; lon: number }>;
+  /** id → the place THIS card was drawn for, so each card of a cross-place
+   *  pair states its own distance ("на 220 m од Универзална Сала"). */
+  pairAnchorOf?: Record<string, { name: string; lat: number; lon: number }>;
+  /** Places in the current search with NOTHING that matches the criteria —
+   *  said plainly once each instead of silently dropping them from the pair. */
+  pairEmpty?: string[];
+  pairEmptySaid?: string[];
+  /** A place the client named as a DIFFERENT search location («a neshto kaj
+   *  X?»): the criteria were confirmed, the next agreement applies this place. */
+  pendingPivot?: { name: string; lat: number; lon: number };
   /** The [17:14] size-intent flag: "POMALO NESTO / нешто помало" means
    *  SMALLER-than-what-was-shown — could be a garsonjera OR a small 1-bedroom
    *  flat. The bedrooms slot alone must not decide the answer, so the pomalo

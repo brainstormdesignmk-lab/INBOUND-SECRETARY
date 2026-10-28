@@ -84,6 +84,34 @@ test('ad text is the card a client quotes back: address, ad body and landmark na
   assert.ok(inArea(ROWS[2]!, 'Маџари'));
 });
 
+// A NEAR-CLAIM AND A MALL'S NAME ARE NOT A DISTRICT (the live feed's own words):
+// EB 75 (Аеродром) says «во близина на Центар» and answered every «во Центар»
+// search; EB 46 (Кисела Вода) carries «Трговски Центар Бутел» as a LANDMARK —
+// the mall 150 m away — and matched «Центар» through it. A Центар pool full of
+// Аеродром flats is how an anchored pair reached 1,4 km for its second card.
+test('«во близина на Центар» and «Трговски центар» do not put a row IN Центар', () => {
+  const mall: Property = {
+    eb: 401, id: 401, location: 'Кисела Вода', address: 'Шампионче Как Кипер Маркет',
+    price: 72000, bedrooms: 2, service: 'buy',
+    landmarks: [{ landmark: 'Трговски Центар Бутел' }, { landmark: 'Општина Бутел' }],
+  };
+  const nearClaim: Property = {
+    eb: 402, id: 402, location: 'Аеродром', address: 'Кузман Јосифовски Питу 19/5',
+    details: 'Скопјанка Аеродром. Прекрасна локација во близина на Центар и маркети градинки училишта.',
+    price: 154000, bedrooms: 3, service: 'buy',
+  };
+  const atCentre: Property = {
+    eb: 403, id: 403, location: 'Центар (населба)', address: 'Спроти Браќа Рибар',
+    details: 'Се продава стан во Центар. Стан со една спална соба.',
+    price: 99000, bedrooms: 2, service: 'buy',
+  };
+  assert.ok(!inArea(mall, 'Центар'), 'the mall\'s name is not a district');
+  assert.ok(inArea(mall, 'Бутел'), 'its landmarks still place it in Бутел');
+  assert.ok(!inArea(nearClaim, 'Центар'), 'a near-claim says where the flat is NOT');
+  assert.ok(inArea(nearClaim, 'Аеродром'));
+  assert.ok(inArea(atCentre, 'Центар'), 'a real «во Центар» claim still counts');
+});
+
 test('textNamesPlace is token-aligned and script-neutral, and never matches a short fragment', () => {
   assert.ok(textNamesPlace('Гјуро Гјоновиќ Маџар Маало', 'madjar maalo'));
   assert.ok(textNamesPlace('Гјуро Гјоновиќ Маџар Маало', 'MADJAR MAALO'), 'caps are the [01:17] capture');

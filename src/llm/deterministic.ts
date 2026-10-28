@@ -91,7 +91,7 @@ const FILLER_BRIDGE = new Set([
 ]);
 
 export const POI_WISH_RE =
-  /(?:во\s+бли[зж]ин(?:а|ата|у)|бли[зж]у|околу|околин(?:а|ата)|спроти|наспроти|кај|во\s+реон\s+на|до|do)\s+([\p{L}.][\p{L}. '-]{3,47})/giu;
+  /(?:во\s+бли[зж]ин(?:а|ата|у)|бли[зж]у|околу|околин(?:а|ата)|спроти|наспроти|кај|во\s+реон(?:от|а|ови|иве)?\s+на|до|do)\s+([\p{L}.][\p{L}. '-]{3,47})/giu;
 
 /** The POI-wish tail of a search phrase ("околу Капитол Бисер" → "Капитол
  *  Бисер"), or undefined. Raw text first, then the normalizeMc fold (Latin
@@ -193,6 +193,42 @@ export function extractPoiWishCandidates(text: string, opts: { withCriteria?: bo
 
 export function extractPoiWish(text: string, opts: { withCriteria?: boolean } = {}): string | undefined {
   return extractPoiWishCandidates(text, opts)[0];
+}
+
+/** EVERY place a single message names, in the order the client said them.
+ *
+ *  «SAKAM STANCE OKOLU UNIVERZALNA , BUNJAKOVEC» (the [18:48] capture) carried
+ *  TWO places, but only the first sits behind a proximity preposition — the
+ *  comma-list tail («, BUNJAKOVEC») has no «околу» of its own, so
+ *  extractPoiWishCandidates never saw it and the pair could only come from
+ *  Универзална. A LIST that continues a place clause is read as more places:
+ *  commas, semicolons, slashes, and the conjunctions «i/и», «ili/или», «and».
+ *  A piece with its own preposition is extracted normally; a piece without one
+ *  only counts when it DIRECTLY follows a place piece and looks like a name
+ *  (1–4 words, no digits) — the caller still verifies every candidate against
+ *  the offline map, so grammar never becomes a place.
+ */
+export function extractPoiListCandidates(text: string): string[] {
+  const pieces = text.split(/[,;\/&]|\s+(?:i|и|ili|или|and)\s+/iu).map(p => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  let afterPlace = false;
+  for (const piece of pieces) {
+    const own = extractPoiWishCandidates(piece, { withCriteria: true });
+    if (own.length > 0) {
+      out.push(own[0]);
+      afterPlace = true;
+      continue;
+    }
+    const bare = piece.replace(/[^\p{L}\p{N} .'\-]/gu, '').replace(/\s+/g, ' ').trim();
+    const words = bare.split(' ').filter(Boolean);
+    if (afterPlace && words.length >= 1 && words.length <= 4
+      && bare.length >= 4 && !/\d/.test(bare)) {
+      out.push(bare);
+      continue;
+    }
+    afterPlace = false;
+  }
+  return out;
 }
 
 export interface DetectedSlots {
@@ -2521,6 +2557,13 @@ const DA_PURPOSE_CLAUSE_RE = /(?:да|да)\s+се\s+[а-яa-z]{3,}|(?:да|да
 // е паметно" = "I don't know if it's smart" — the да is part of
 // дали (whether), not a standalone yes.
 const DA_LI_RE = /(?:^|[^а-яa-z])(?:да|да)\s+ли|дали/iu;
+// "да ми кажеш / да ни објасниш" — да + DATIVE + a telling verb is a PURPOSE
+// clause after a modal («можеш да ми кажеш …», «сакаш да ни покажеш …»), never
+// the yes-token. The [13:09] capture: «STO MOZES DA MI KAZES ZA STANOV ?» read
+// as FEE_AGREED in closing and the funnel jumped to contact collection. The
+// comma form («да, ми кажеш») keeps its consent reading — the regex requires
+// whitespace right after да.
+const DA_DATIVE_VERB_RE = /(?:да|да)\s+(?:ми|ни|ти|ви|му|и|ј)\s+(?:каж|каз|објасн|покаж|раскаж|дад|најд|помогн|провер)[а-я]*/iu;
 
 // NEGATED FUTURE of paying/accepting — the 300-ден rent-ladder gap: "НЕМА ДА
 // ПЛАТАМ" / "NEMA DA PLATAM" (I won't pay). The negated auxiliary is NOT the
@@ -2617,7 +2660,8 @@ export function detectAgreement(text: string): boolean {
   const daIsVerbPhrase = matchesBoth(DA_NOT_AGREEMENT_RE, low);
   // "Да ти кажам искрено...", "да се инвестиира" — "да" as a discourse
   // marker or purpose clause, NOT agreement.
-  const daIsPurpose = matchesBoth(DA_PURPOSE_RE, low) || matchesBoth(DA_PURPOSE_CLAUSE_RE, low);
+  const daIsPurpose = matchesBoth(DA_PURPOSE_RE, low) || matchesBoth(DA_PURPOSE_CLAUSE_RE, low)
+    || matchesBoth(DA_DATIVE_VERB_RE, low);
   // "да ли" / "дали" — question particle (whether), NOT agreement.
   const daIsQuestion = matchesBoth(DA_LI_RE, low);
   // "да е" / "да e" — subordinate clause ("that is"), NOT agreement.
@@ -4153,17 +4197,31 @@ export function detectNearbyAsk(text: string): boolean {
 const DESCRIBE_ASK_RE = new RegExp(
   '(?:'
   + '(?:опиш|опис|детал|спецификаци|objsni|opish|opisi|opis|detali|specifikacii)\\p{L}*'
-  + '|(?:каж|каз|kazi|kazhi)(?:\\s+ми|\\s+mi)?\\s+(?:повеќе|повече|poveke|povekje|povishe|povishe)'
-  + '|(?:повеќе|повече|poveke|povekje)\\s+(?:за|za)(?!\\p{L})'
+  // Inflected stems (кажи/кажете/кази/казете) — «KAZI MI POVEKE ZA STANOT»
+  // is the same family as «кажи ми повеќе за …».
+  // The MORE noun reaches here already folded by normalizeMc («POVEKE» →
+  // «повеке»), so the к spelling is listed beside the ќ/ч ones.
+  + '|(?:каж|каз|kazi|kazhi)\\p{L}*(?:\\s+ми|\\s+mi)?\\s+(?:повеќе|повече|повеке|поке|поќе|poveke|povekje|povishe|povishe)'
+  + '|(?:повеќе|повече|повеке|поке|поќе|poveke|povekje)\\s+(?:за|za)(?!\\p{L})'
   + '|(?:што|sto)\\s+има\\s+(?:во|vo)(?!\\p{L})'
   + ')', 'iu');
+
+// THE TELL-ME SCAFFOLD (the [13:09] capture): «STO MOZES DA MI KAZES ZA
+// STANOV ?» — the client asks for the flat AS A WHOLE (what it is, where it
+// roughly sits, size, features, price), not for one facet. It matched nothing
+// here, so the turn fell to the classifier, whose bare да-token read it as
+// FEE_AGREED and jumped the closing funnel to contact collection: the card
+// never came. The verb spans a modal + да + dative («можеш да ми кажеш»), and
+// normalizeMc folds Latin letter-by-letter («STO» → «сто», «KAZES» → «казес»),
+// so both scripts are spelled out and the RAW text is tested as well.
+const TELL_ME_SCAFFOLD_RE = /(?:што|сто|sto|shto|sho)(?:\s|$)[^!?\n]{0,40}?(?:кажеш|кажете|раскажеш|раскажете|kazes|kazesh|kazete|raskazes|raskazesh)(?![\p{L}\p{N}])/iu;
 
 /** True when the client asks for the DESCRIPTION of the flat(s) in play. The
  *  surroundings grammar keeps its own lane: «што има во близина?» is never a
  *  describe-ask about a property. */
 export function detectDescribeAsk(text: string): boolean {
   if (detectNearbyAsk(text)) return false;
-  return DESCRIBE_ASK_RE.test(normalizeMc(text));
+  return DESCRIBE_ASK_RE.test(normalizeMc(text)) || TELL_ME_SCAFFOLD_RE.test(text);
 }
 
 // ── CONTEXT DISAMBIGUATION for the ambiguous "more/other" family ───────────
@@ -5909,7 +5967,60 @@ const POI_CONFIRM_TAIL_WORDS = new Set(['li', 'ли', 'e', 'е', 'toj', 'тој'
 
 /** True when the message is a yes/no question about WHERE the discussed
  *  property is — the POI-confirm class ("da ne e vo skopjanka ?"). */
+/** A place named as a NEW SEARCH LOCATION — «a neshto kaj X?», «sto ima kaj
+ *  X», «a kaj X?». The shape is the confirm's (a place after vo/na/kaj), but the
+ *  frame is a SEARCH request: the client wants the SAME kind of flat at another
+ *  place, not an answer about the property on the table.
+ *
+ *  The [18:51] capture: «A NESTO KAJ DIMITAR MILADINOV SKOLOTO ?» arrived right
+ *  after a serve, matched isPoiConfirmQuestion on the trailing «?» alone, and the
+ *  confirm lane answered «Не, тоа е на 2,1 километри од … на ООУ „Димитар
+ *  Миладинов“» — the distance of an unrelated landmark from the flat, when the
+ *  client had asked to search around the school.
+ *
+ *  A copula frame («da ne e vo X», «dali e kaj X») is a confirm and stays one;
+ *  the search frames below carry a quantity/verb word and never do.
+ */
+const PLACE_SEARCH_FRAME_RE = new RegExp(
+  // «(a) neshto (drugo) kaj|vo|okolu|blizina na|do X»
+  '(?:^|[\\s,;.!])(?:a\\s+)?(?:nesto|neshto|нешто|ne[sš]to)(?:\\s+(?:drugo|друго))?'
+  + '[^.?!\\n]{0,12}(?:kaj|кај|vo|во|okolu|околу|blizina|близина|do|до)(?![\\p{L}\\p{N}])'
+  // …but «vo TOJ del na gradot» is a deictic, not a place («STO IMATE VO TOJ
+  // DEL NA GRADOT?» is an availability probe, not a pivot).
+  + '(?!\\s*(?:toj|тој|taa|таа|toa|тоа|ovoj|овој|ovaa|оваа|ova|ова|del|дел|grad|град)(?![\\p{L}\\p{N}]))'
+  // «sto ima(te)/imas kaj|vo|okolu X»
+  + '|(?:^|[\\s,;.!])(?:a\\s+)?(?:sto|што)\\s+(?:ima|има|imate|имате|imas|имаш)\\s+'
+  + '(?:kaj|кај|vo|во|okolu|околу|blizina|близина)(?![\\p{L}\\p{N}])'
+  + '(?!\\s*(?:toj|тој|taa|таа|toa|тоа|ovoj|овој|ovaa|оваа|ova|ова|del|дел|grad|град)(?![\\p{L}\\p{N}]))'
+  // bare «(a) kaj X» — no copula, no pronoun tail («kaj vas» stays grammar)
+  + '|(?:^|[\\s,;.!])(?:a\\s+)?(?:kaj|кај)\\s+'
+  + '(?!(?:e|е|se|се|vas|вас|mene|мене|nas|нас|imas|имаш|ima|има|gi|ги|go|го)(?![\\p{L}\\p{N}]))[\\p{L}]',
+  'iu',
+);
+
+/** True when the message asks for the same search at a DIFFERENT place (see
+ *  PLACE_SEARCH_FRAME_RE). The place itself is verified by the caller. */
+export function isPlaceSearchPivot(text: string): boolean {
+  // A каде-question is a where-is about a place, never a search pivot.
+  if (matchesBoth(/(?:каде|кде|kade|gde)/iu, text)) return false;
+  // A COPULA FRAME is a confirm, even when it opens with «kaj»: «dali e kaj
+  // Skopjanka?» / «da ne e vo Karpos?» ask ABOUT the flat, they do not move the
+  // search. Only the frame-word check is needed — the place stays the caller's.
+  if (matchesBoth(/^\s*(?:dali|дали)(?![\p{L}\p{N}])/iu, text)) return false;
+  if (matchesBoth(/^\s*(?:da|да)(?![\p{L}\p{N}])[^.?!\n]{0,40}(?:\bne\b|(?<![\p{L}\p{N}])не(?![\p{L}\p{N}]))[^.?!\n]{0,10}(?:\be\b|(?<![\p{L}\p{N}])е(?![\p{L}\p{N}]))/iu, text)) return false;
+  if (matchesBoth(/(?<![\p{L}\p{N}])(?:li|ли)\s*(?:e|е)?\s*\?/iu, text)) return false;
+  // The bare «kaj X» arm must not claim a CONFIRM that merely uses «kaj»:
+  // «znaci e kaj skopjanka», «e kaj skopjanka?» — a copula right before the
+  // preposition makes it a statement about the flat, not a new search.
+  if (matchesBoth(/(?:^|[\s,;.!])(?:e|е|se|се|li|ли|znaci|значи|dali|дали)\s+(?:kaj|кај)\s/iu, text)) return false;
+  return matchesBoth(PLACE_SEARCH_FRAME_RE, text)
+    || PLACE_SEARCH_FRAME_RE.test(normalizeMc(text));
+}
+
 export function isPoiConfirmQuestion(text: string): boolean {
+  // A PLACE NAMED AS A NEW SEARCH LOCATION is not a confirm — the trailing «?»
+  // alone used to claim it (see isPlaceSearchPivot).
+  if (isPlaceSearchPivot(text)) return false;
   // Wh-openers are a DIFFERENT family ("kade e skopjanka?", "koga moze da se
   // vidi?") — their own detectors own them, the trailing '?' alone must not
   // claim them. The opener guard is start-anchored; a каде-verb ANYWHERE in
@@ -6010,6 +6121,49 @@ export function extractWhereLandmarkPlace(text: string): string | undefined {
   }
   place = words.join(' ');
   return place.length >= 3 ? place : undefined;
+}
+
+/** „ВО КОЈА НАСЕЛБА Е <place>?“ — the client asks for the NEIGHBOURHOOD of a
+ *  place (not its distance, not a property). The [17:26] capture asked exactly
+ *  this about ТЦ Лептокарија and no lane owned the shape, so the funnel answered
+ *  with the PROPERTY's landmark: «се наоѓа во близина на Општина Бутел» — a
+ *  different district, 2 km away. The question is about the PLACE, so it needs
+ *  its own recogniser. */
+export function isAreaOfPlaceQuestion(text: string): boolean {
+  if (isFeeTraffic(text)) return false;
+  // MARKET COMPARISON, not geography: «во која населба се најевтини становите»
+  // asks about PRICES per neighbourhood and is owned by the aggregate lane.
+  // Reading it as a place question made the map answer «го немам тоа место».
+  if (/најевтин|најефтин|најскап|просечн|просек|средн[ао]\s+цена|цени?\s+на|najevtin|najeftin|najskap|prosecn|prosek|average|cena\s+na|ceni\s+na/iu.test(text)) return false;
+  return AREA_OF_PLACE_RE.test(text);
+}
+
+const AREA_OF_PLACE_RE =
+  /(?:во|vo)\s+(?:која|koja)\s+(?:населба|naselba)\s*(?:(?:е|e)\s*)?(?:(?:се|se)\s+(?:наоѓа|naogja|наога|naoga))?\s*([\p{L}\p{N}][\p{L}\p{N}'\- ]{1,60})/iu;
+
+/** The place whose neighbourhood is asked for: the tail after «во која населба
+ *  е/се наоѓа». Pronouns and property nouns are NOT a place — the client is
+ *  pointing at the flat on the table there, which the where-is lane owns. */
+export function extractAreaOfPlaceQuestion(text: string): string | undefined {
+  if (!isAreaOfPlaceQuestion(text)) return undefined;
+  const m = matchesBothCapture(AREA_OF_PLACE_RE, text);
+  let place = m?.trim().replace(/[.?!,:;]+$/u, '').replace(/^(?:se|се)\s+/iu, '').trim();
+  if (!place) return undefined;
+  const words = place.split(/\s+/);
+  while (words.length > 1
+    && POI_CONFIRM_TAIL_WORDS.has((words[words.length - 1] ?? '').toLowerCase())) {
+    words.pop();
+  }
+  const tail = words.join(' ');
+  // The PROPERTY on the table is not a place: «во која населба е станот (што
+  // го гледавме)», «…е тоа», or an Евидентен број belongs to the where-is /
+  // property lanes, which know the discussed flat. Only a real place name
+  // reaches the map.
+  if (/^(?:тоа|toa|тој|toj|таа|taa|тоа\s+место|toa\s+mesto|станот|stanot|станот\s+што|stanot\s+sto|куќата|kukjata|имотот|imotot|недвижноста|nedviznosta)\b/iu.test(tail)) {
+    return undefined;
+  }
+  if (/^(?:ev|eb|ев|еб)\s*(?:br|бр|broj|број)?\.?\s*\d{1,3}\b/iu.test(tail)) return undefined;
+  return tail.length >= 3 ? tail : undefined;
 }
 
 /** A BARE "that place means nothing to me" line — no place name repeated.
@@ -6747,6 +6901,18 @@ export function fsmRequired(text: string): boolean {
   // The result-set question rides the FSM lane in presentation — the count
   // answer needs the candidate pool, not a canned fast-path line.
   if (detectResultSetQuestion(text)) return true;
+  // INTAKE WITH A LANDMARK ANCHOR (the [13:29] capture): «ZDRAVO, MI TREBA
+  // STANCE VO BLIZINA NA BUNJAKOVEC» carries the flat NEED and a PLACE, but no
+  // service and no criterion — every detector below went quiet, the
+  // learned-recall bank served a stored apology, the anchor never reached the
+  // session, and the next turn asked «во која населба?» about the
+  // neighborhood the client had already pointed at. A need + a named place is
+  // funnel traffic: the discovery block resolves the landmark to the feed's
+  // own area (Bunjakovec → Центар) and the funnel asks bedrooms + budget.
+  {
+    const intake = extractSlots(text);
+    if (intake.need && extractPoiWish(text, { withCriteria: true })) return true;
+  }
   return detectService(text) !== undefined
     || detectBothServices(text)
     || detectVisitInterest(text)

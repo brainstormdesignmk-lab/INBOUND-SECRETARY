@@ -2,7 +2,7 @@ import { AppConfig } from '../config';
 import { Db } from '../store/db';
 import { decideCapture } from '../store/capture';
 import {
-  ChatSession, SessionStore, freshSession, isExpired, resetToIdle,
+  ChatSession, SessionStore, freshSession, isExpired, resetToIdle, SlotData,
   touchInbound, touchOutbound, canSend, pushHistory, buildGreeting, assistantTexts,
 } from '../fsm/session';
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
@@ -14,8 +14,8 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, normalizeTimePhrase, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace } from '../data/properties';
-import { AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, detectAgentAttendanceAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm,  detectExitCheck, extractPoiWish, extractPoiWishCandidates, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone } from '../llm/deterministic';
+import { AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, detectAgentAttendanceAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion, detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment,
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm,  detectExitCheck, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -51,7 +51,7 @@ import {
   ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
-  LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, LOCATE_SERVICE_ASK, buildLocateMatches,
+  LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, LOCATE_SERVICE_ASK, buildLocateMatches, pairBatchMeta,
   buildLocateLandmarkIntro, buildLocateLandmarkEntry, buildLocateLandmarkFallback, LOCATE_LANDMARK_PRICE_PROBE,
   locateNoun,  buildLocateFirstAsk, buildLocateServiceAsk, buildLocateMoreSpecsAsk,
   buildLocateLandmarkPriceProbe, buildDescribeIntro,
@@ -76,6 +76,10 @@ const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуа�
 // anchor uses).
 const AREA_DERIVE_M = 1500;
 const LANDMARK_NEAR_M = 1500;
+// PLACE_PAIR_BAND_M: the distance band inside which two listings are still
+// "the same place" for a pair — a room-category rotation never reaches across
+// it (see the range ladder in nextBatch).
+const PLACE_PAIR_BAND_M = 250;
 
 // EB-DISCLAIM (the [11:08] TUI capture): "БРОЈОТ НЕ ГО ЗАПИШАВ" — the client
 // already said he does NOT have the Евидентен број; every later locate ask
@@ -830,6 +834,17 @@ export class InboundHandler {
     } catch { return undefined; }
   }
 
+  /** Does the FEED itself file rows under this area? The known-neighborhood
+   *  list answers for areas the bank is thin in («Бутел» has no rows today),
+   *  and those are exactly the names that can be an ECHO of a place name
+   *  («Општина Бутел») rather than a district the client asked for. */
+  private async areaInFeed(area: string): Promise<boolean> {
+    try {
+      const locs = await this.deps.properties.locations();
+      return locs.some(l => locMatches(area, l) || locMatches(l, area));
+    } catch { return false; }
+  }
+
   /** THE NEXT FRESH OPTIONS of a locate hunt — same frame (service, area,
    *  category), never one already shown. Shared by the FSM's «не е тој» lane
    *  and the bare-negation lane that fires while the client is choosing among
@@ -1169,6 +1184,119 @@ export class InboundHandler {
 
   // ---------------- landmark (map place) reading ----------------
 
+  /** The cross-place pair queue: each chunk of TWO places contributes one card
+   *  nearest each, so a pair answers both places the client named instead of
+   *  doubling down on the first.
+   *
+   *  Rotation ([18:48] contract): places are taken two at a time in a CYCLE —
+   *  two places give 1/2, 1/2, …; three give 1/2, then 3/1, then 2/3; four give
+   *  1/2, then 3/4, then back to 1/2. The card for a place is the nearest row
+   *  to it that is NOT already in the queue, so one flat never fills both slots.
+   *  A place with nothing within the honest walk radius is NOT skipped silently:
+   *  it is recorded in pairEmpty and the serve says so in one line (and it keeps
+   *  its turn in the rotation, so a later widen can pick it up). Rows beyond the
+   *  honest radius of the place they were drawn for rank last, after every
+   *  genuine cross-place pair, and keep the pool's order.
+   */
+  private placePairQueue(
+    pool: Property[],
+    places: Array<{ name: string; lat: number; lon: number }>,
+    slots: SlotData,
+  ): number[] {
+    const distTo = (p: Property, a: { lat: number; lon: number }): number => (
+      typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0
+        ? distM(a.lat, a.lon, p.lat, p.lon) : Number.POSITIVE_INFINITY);
+    const remaining = new Map(pool.map(p => [p.id, p] as const));
+    const queue: number[] = [];
+    const anchorOf: Record<string, { name: string; lat: number; lon: number }> = {};
+    const take = (place: { name: string; lat: number; lon: number }): boolean => {
+      let best: { p: Property; d: number } | undefined;
+      for (const p of remaining.values()) {
+        const d = distTo(p, place);
+        if (d > LANDMARK_NEAR_M) continue;
+        if (!best || d < best.d || (d === best.d && p.eb < best.p.eb)) best = { p, d };
+      }
+      if (!best) return false;
+      queue.push(best.p.id);
+      remaining.delete(best.p.id);
+      anchorOf[String(best.p.id)] = { name: place.name, lat: place.lat, lon: place.lon };
+      return true;
+    };
+    // A place with NO row at all in the radius is genuinely empty for this
+    // search — that is the honest line, not a place merely drained by earlier
+    // turns (the used-up case just yields one card for that chunk).
+    const empty = places
+      .filter(pl => !pool.some(p => distTo(p, pl) <= LANDMARK_NEAR_M))
+      .map(pl => pl.name);
+    const turns = Math.max(1, places.length * 6);
+    for (let turn = 0; turn < turns && remaining.size > 0; turn++) {
+      const chunk = [places[(2 * turn) % places.length], places[(2 * turn + 1) % places.length]];
+      // An EMPTY place does not cost the client half the pair (the [18:48]
+      // decision): the stocked place of the chunk fills both slots, and the
+      // serve says in one line which place had nothing. An already-drained
+      // place (not genuinely empty) is simply skipped — no repeats.
+      const stocked = chunk.filter(pl => !empty.includes(pl.name));
+      if (stocked.length === 0) continue;
+      const picks = stocked.length === 1 ? [stocked[0], stocked[0]] : stocked;
+      let added = 0;
+      for (const place of picks) if (take(place)) added++;
+      if (added === 0 && stocked.length === 1) {
+        // The stocked place ran dry: stop instead of spinning the rotation.
+        break;
+      }
+    }
+    // Leftovers (outside every place's honest radius, or past the rotation) rank
+    // last, each still anchored on the NEAREST place named so the card states
+    // how far it really is — never a distance that belongs to another card.
+    for (const p of pool) {
+      if (!remaining.has(p.id)) continue;
+      let nearest = places[0];
+      let bestD = Number.POSITIVE_INFINITY;
+      for (const pl of places) {
+        const d = distTo(p, pl);
+        if (d < bestD) { bestD = d; nearest = pl; }
+      }
+      queue.push(p.id);
+      remaining.delete(p.id);
+      anchorOf[String(p.id)] = { name: nearest.name, lat: nearest.lat, lon: nearest.lon };
+    }
+    slots.pairAnchorOf = anchorOf;
+    slots.pairEmpty = empty;
+    return queue;
+  }
+
+  /** The criteria the client ALREADY gave, as one short phrase («една или две
+   *  спални и до 150.000 евра») — used when a later message moves the search to
+   *  another place: the ask is «истите критериуми?», never the bedrooms/budget
+   *  grill he has already answered (the [18:51] capture). Undefined when no
+   *  size and no budget is stored. */
+  private criteriaPhrase(session: ChatSession): string | undefined {
+    const bedsOfRooms = (rooms: number): string => {
+      const beds = rooms - 1;
+      return beds === 1 ? 'една спална' : beds === 2 ? 'две спални' : `${beds} спални`;
+    };
+    let beds: string | undefined;
+    if (session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined) {
+      const lo = session.slots.bedroomsMin - 1;
+      const hi = session.slots.bedroomsMax - 1;
+      beds = lo === 1 && hi === 2 ? 'една или две спални' : `${lo} или ${hi} спални`;
+    } else if (session.slots.bedrooms !== undefined) {
+      beds = bedsOfRooms(session.slots.bedrooms);
+    } else if (session.slots.garsonjera) {
+      beds = 'гарсоњера';
+    }
+    // A bare digit string reads as a serial number — group it the way a person
+    // writes money («до 169.999 евра»).
+    const money = session.slots.budget
+      ? (/^\d+$/.test(session.slots.budget.trim())
+        ? Number(session.slots.budget.trim()).toLocaleString('mk-MK')
+        : session.slots.budget)
+      : undefined;
+    const parts = [beds, money ? `до ${money} евра` : undefined]
+      .filter((x): x is string => !!x);
+    return parts.length > 0 ? parts.join(' и ') : undefined;
+  }
+
   /** Resolve a place the CLIENT named to the map's own POI. This is how a
    *  human reads a landmark the customer drops in passing (the [13:28]
    *  "PISUVASE DO BROZ KAFE"): not as a word to match exactly, but as a place
@@ -1221,6 +1349,50 @@ export class InboundHandler {
     return undefined;
   }
 
+  /** The first POI-wish candidate of a message the map can actually PLACE —
+   *  the candidate arbitration ([09:38]/[10:28]) shared by every landmark seam
+   *  (discovery intake, the late-anchor narrowing, the locate funnel): each tail
+   *  the extractor found is verified against the offline map and the FIRST REAL
+   *  PLACE wins, because text order is the speaker's own priority and a tail
+   *  that is only grammar dies in the check. Undefined when the message names no
+   *  place the map knows. */
+  private placeWish(text: string): { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined {
+    for (const cand of extractPoiWishCandidates(text, { withCriteria: true })) {
+      const a = this.resolvePlace(cand);
+      if (a) return a;
+    }
+    return undefined;
+  }
+
+  /** EVERY place a message names, in text order, deduped by the map's own name.
+   *
+   *  A message can name more than one place («… OKOLU UNIVERZALNA , BUNJAKOVEC»
+   *  — the [18:48] capture). The pair then answers BOTH, one card near each,
+   *  instead of two cards crowded around whichever place the extractor happened
+   *  to see first. The candidate list is the proximity tails plus the LIST
+   *  members after them (extractPoiListCandidates), and each candidate must
+   *  resolve to a REAL map place — a comma word that is only grammar dies here.
+   *  A list that resolves to nothing returns [] (the single-anchor lanes keep
+   *  their own guards). */
+  private placesWish(text: string): Array<{ name: string; lat: number; lon: number }> {
+    const out: Array<{ name: string; lat: number; lon: number }> = [];
+    const seen = new Set<string>();
+    const candidates = [
+      ...extractPoiWishCandidates(text, { withCriteria: true }),
+      ...extractPoiListCandidates(text),
+    ];
+    for (const cand of candidates) {
+      const a = this.resolvePlace(cand);
+      if (!a) continue;
+      const key = a.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name: a.name, lat: a.lat, lon: a.lon });
+      if (out.length >= 4) break;
+    }
+    return out;
+  }
+
   /** The AREA a map place sits in, read from the feed's OWN rows — the bank is
    *  the agency's street knowledge here (the map carries no neighborhood
    *  polygons): Broz Cafe's neighbours are Центар rows, so a property
@@ -1232,6 +1404,7 @@ export class InboundHandler {
   private async areaAtPlace(point: { lat: number; lon: number; name?: string }): Promise<string | undefined> {
     try {
       const rows = await this.deps.properties.getAll();
+      const located = rows;
       const near = rows
         .filter(p => typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0 && !!p.location)
         .map(p => ({ loc: p.location as string, addr: (p.address ?? '').trim(), d: distM(point.lat, point.lon, p.lat as number, p.lon as number) }))
@@ -1248,6 +1421,17 @@ export class InboundHandler {
         const self = near.find(x => placeLooseKey(normalizeLocation(displayAreaName(x.loc))).trim() === wanted);
         if (self) return self.loc;
       }
+      // THE MAP'S OWN QUARTER (the [17:26] ЛЕПТОКАРИЈА capture): the vote below
+      // is a popularity contest over feed tags — around ТЦ Лептокарија the
+      // Центар rows outvoted the Карпош III ones and the anchored search was
+      // locked to the WRONG district, so EB 54 (303 m, Карпош III) could never
+      // be served. OSM tags the city's quarters as `suburb` rows; that label is
+      // geography, not a vote. It is used only when the FEED itself uses the
+      // area (the client's cards must speak the bank's vocabulary, and a
+      // quarter the bank never tags — «Пајко Маало» for a church in Центар —
+      // must not replace the feed's own district).
+      const mapTag = this.mapAreaInFeed(point, located);
+      if (mapTag) return mapTag;
       // THE ADDRESS EVIDENCE (the [11:07] capture): a row whose OWN ADDRESS names
       // the place IS the property at that place — the agency recorded it there —
       // so its area tag outranks the neighbours' vote. ТЦ Олимпико: EB 62 sits
@@ -1278,6 +1462,87 @@ export class InboundHandler {
     } catch { return undefined; }
   }
 
+  /** The feed's own spelling of the map's quarter for a point, when the bank
+   *  has a row tagged with it within the honest radius of the place. Returns
+   *  the COLUMN value ("Карпош III"), never the map's ("Карпош 3"): the cards,
+   *  locPrep and the location display all read the feed's wording. */
+  private mapAreaInFeed(
+    point: { lat: number; lon: number },
+    rows: Array<{ location?: string; lat?: number | null; lon?: number | null }>,
+  ): string | undefined {
+    const label = this.landmarks?.areaAt(point.lat, point.lon)?.name;
+    if (!label) return undefined;
+    const hit = rows.find(p => !!p.location
+      && locMatches(label, p.location)
+      && typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0
+      && distM(point.lat, point.lon, p.lat, p.lon) <= AREA_DERIVE_M);
+    return hit?.location;
+  }
+
+  /** Answer WHERE a map place is, in geography: its OSM quarter, plus the
+   *  distance from the property on the table when one has a real pin. Used by
+   *  both the „kade e X“ and the „во која населба е X“ lanes, so the two can
+   *  never contradict each other. Facts only — a missing label stays missing. */
+  private async placeWhereAnswer(
+    hit: { name: string; lat: number; lon: number },
+    session: ChatSession,
+    askArea: boolean,
+    anchorProp?: Property,
+  ): Promise<string> {
+    const area = this.landmarks?.areaAt(hit.lat, hit.lon);
+    const hasPoint = (p?: Property): boolean => !!p
+      && typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0;
+    // Which property is "the one we are looking at"? For a where-is follow-up
+    // it is the anchor/property last served; for a NEIGHBOURHOOD question it is
+    // the CLOSEST card of the batch on the table — a pair has two pins, and the
+    // distance to the farther one would read as if the pair were far away.
+    // 1) an explicit property the conversation is about (property_query /
+    //    visit flows) wins; 2) else the CLOSEST card of the batch on the table
+    //    (a pair has two pins — the farther one would read as the pair's);
+    //    3) else the last presented.
+    let prop = anchorProp;
+    if (!prop) {
+      const eb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      prop = eb != null ? await this.deps.properties.getByEb(eb).catch(() => undefined) : undefined;
+    }
+    if (!prop && session.slots.currentBatch?.length) {
+      const rows = (await Promise.all(session.slots.currentBatch
+        .map(id => this.deps.properties.getById(id).catch(() => undefined))))
+        .filter((p): p is Property => !!p && hasPoint(p));
+      prop = rows.sort((a, b) => distM(a.lat as number, a.lon as number, hit.lat, hit.lon)
+        - distM(b.lat as number, b.lon as number, hit.lat, hit.lon))[0];
+    }
+    if (!prop) {
+      const eb = session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+      prop = eb != null ? await this.deps.properties.getByEb(eb).catch(() => undefined) : undefined;
+    }
+    const parts: string[] = [];
+    if (area) {
+      parts.push(`${hit.name} се наоѓа во ${displayAreaName(area.name)}.`);
+    } else if (askArea) {
+      parts.push(`${hit.name} го имам на картата, но немам означено во која населба е.`);
+    }
+    if (prop && hasPoint(prop)) {
+      const d = Math.round(distM(prop.lat as number, prop.lon as number, hit.lat, hit.lon));
+      const distPhrase = d < 1000
+        ? `${Math.max(10, Math.round(d / 10) * 10)} метри`
+        : `${(d / 1000).toFixed(1).replace('.', ',')} километри`;
+      const subject = !anchorProp
+        ? ` од станот со Евидентен број ${prop.eb} што го покажав`
+        : ` од недвижноста што ја разгледуваме`;
+      parts.push(`На ${distPhrase} е${subject}${
+        prop.location ? ` (${locPrep(prop.location)} ${displayAreaName(prop.location)})` : ''}.`);
+      // The privacy caveat only makes sense while a property is being
+      // discussed — a bare «kade e ТЦ Лептокарија» has no address to withhold.
+      if (!askArea) parts.push('Точната адреса на недвижноста се открива на денот на посетата.');
+    }
+    // Nothing measured at all (no quarter tagged, no property pin): an honest
+    // one-liner beats an empty reply.
+    if (parts.length === 0) {
+      parts.push(`${hit.name} го имам на картата, но немам означено во која населба е.`);
+    }
+    return parts.join(' ');
+  }
 
   handle(channel: string, chatId: string, text: string, opts: HandleOpts = {}): Promise<void> {
     return new Promise(resolve => {
@@ -1924,6 +2189,41 @@ export class InboundHandler {
       // lanes — the funnel continues, the offer is already consumed.
     }
 
+    // WHICH-NEIGHBOURHOOD-IS-THE-PLACE (the [17:26] ЛЕПТОКАРИЈА capture):
+    // „TE PRASUVAM VO KOJA NASELBA E TC LEPTOKARIJA“ was answered with the
+    // PROPERTY's landmark («Општина Бутел», 2 km away) because no lane owned
+    // the shape — it fell through to the rotation/brain. The place's own
+    // district is a MAP fact (OSM suburb rows), so it is answered from the map
+    // and NEVER from whatever landmark the current card carries. A map miss is
+    // stated honestly instead of pretending some district was meant.
+    if (isAreaOfPlaceQuestion(text)
+      && !detectAreaHaveAsk(text)
+      && !detectPriceAsk(text) && !detectBudget(text)
+      && !detectService(text) && !detectBothServices(text)) {
+      const placeName = extractAreaOfPlaceQuestion(text);
+      if (placeName) {
+        const hit = this.landmarks?.findPlace(placeName);
+        if (hit) {
+          const answer = await this.placeWhereAnswer(hit, session, true);
+          routeLog(chatId, text, 'AREA_OF_PLACE');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
+          return;
+        }
+        // The map does not know the place: say so. Answering with a property's
+        // landmark here is what produced the wrong district in the first place.
+        const answer = `Тоа место го немам во мојата евиденција и не можам со сигурност да Ви кажам во која населба е. Можам да Ви помогнам со населбите и местата што ги имам внесено.`;
+        routeLog(chatId, text, 'AREA_OF_PLACE');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
+    }
+
     // WHERE-THE-LANDMARK-IS — the [12:48] push-back ("KADE TI E TOA 26 JULI
     // TC ?"): the client asks where a PLACE Lina herself named is located.
     // The number inside the place name ("ТЦ 26 Јули") must never read as an
@@ -1941,19 +2241,23 @@ export class InboundHandler {
       const anchorProp = anchorEb != null
         ? await this.deps.properties.getByEb(anchorEb).catch(() => undefined)
         : undefined;
-      if (placeName && this.landmarks && anchorProp?.lat != null && anchorProp?.lon != null) {
-        const hit = this.landmarks.findPlace(placeName, { lat: anchorProp.lat, lon: anchorProp.lon });
+      // A session with NO property pin still gets the place's own district —
+      // «KADE E TC LEPTOKARIJA?» before any card was served must not fall
+      // through to the rotation and answer with some other property's landmark.
+      if (placeName && this.landmarks) {
+        const center = anchorProp?.lat != null && anchorProp?.lon != null
+          ? { lat: anchorProp.lat as number, lon: anchorProp.lon as number } : undefined;
+        const hit = this.landmarks.findPlace(placeName, center);
         if (hit) {
-          let answer: string;
-          if (anchorProp.lat != null && anchorProp.lon != null) {
-            const d = Math.round(distM(anchorProp.lat, anchorProp.lon, hit.lat, hit.lon));
-            const distPhrase = d < 1000 ? `${Math.max(10, Math.round(d / 10) * 10)} метри` : `${(d / 1000).toFixed(1).replace('.', ',')} километри`;
-            const prep = locPrep(anchorProp.location ?? '');
-            answer = `${hit.name} се наоѓа на ${distPhrase} од недвижноста што ја разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на недвижноста се открива на денот на посетата.`;
-          } else {
-            answer = `Тоа е ориентир во градот — недвижноста што ја разгледуваме е ${locPrep(anchorProp.location ?? '')} ${anchorProp.location}.`;
-          }
-          session.slots.location = anchorProp.location ?? session.slots.location;
+          // The place's own district rides along: a distance with no geography
+          // still leaves the client guessing WHICH part of town (the [17:26]
+          // complaint). Both facts come from the map, not from the card.
+          const answer = await this.placeWhereAnswer(hit, session, false);
+          // Never re-home an ANCHORED search by answering a question about a
+          // place: the client's criterion is the place, and the batch was
+          // ranked from it. Only a non-anchored session takes the property's
+          // area as the new context.
+          if (!session.slots.poiAnchor && anchorProp?.location) session.slots.location = anchorProp.location;
           routeLog(chatId, text, 'WHERE_LANDMARK');
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
@@ -2930,6 +3234,41 @@ export class InboundHandler {
             return;
           }
         }
+      }
+    }
+
+    // PLACE PIVOT — «A NESTO KAJ DIMITAR MILADINOV SKOLOTO ?» (the [18:51]
+    // capture). A search-frame message that names a place asks for the SAME
+    // kind of flat at a DIFFERENT place. It is NOT the location confirm about
+    // the flat on the table: that lane answered «Не, тоа е на 2,1 километри од
+    // … на ООУ „Димитар Миладинов“» — the distance of an unrelated landmark
+    // from the property — to a client who had asked to search around the
+    // school. It is not a fresh discovery either: the criteria he just gave
+    // stand, so re-asking bedrooms and budget contradicts him.
+    // The contract: criteria stand, ONE short question confirms them, and the
+    // agreement serves the pair nearest the new place (see the pendingPivot
+    // seam in the funnel, which promotes the confirmed turn to the serve).
+    if (isPlaceSearchPivot(text) && !detectAgreement(text)) {
+      // A FIRST ASK is not a pivot: «SAKAM DA KUPAM KUKJA KAJ OLIMPICO» carries
+      // its own service/type/budget, so it belongs to the funnel's intake (the
+      // place is the geography of a NEW search, and the anchored entry serve
+      // answers it). Only a message that adds NOTHING but the place — «a neshto
+      // kaj X?» — is the same search moved, and only once the criteria are in.
+      const pv = extractSlots(text);
+      const pivotIsIntake = !!pv.service || pv.bedrooms !== undefined || !!pv.budget
+        || pv.house !== undefined || !!pv.business || !!pv.plac || !!pv.garsonjera
+        || /(?:sakam|сакам|baram|барам)\s+da\s+(?:kup|куп|iznajm|изнајм)/iu.test(text);
+      const pivotPlace = !pivotIsIntake ? this.placesWish(text)[0] : undefined;
+      const criteria = pivotPlace ? this.criteriaPhrase(session) : undefined;
+      if (pivotPlace && criteria && this.slotsComplete(session)) {
+        session.slots.pendingPivot = pivotPlace;
+        const reply = `Секако. Да барам истите критериуми (${criteria}) околу ${displayPlaceName(pivotPlace.name)}?`;
+        routeLog(chatId, text, 'PLACE_PIVOT');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, reply, 'deterministic');
+        return;
       }
     }
 
@@ -5140,6 +5479,11 @@ export class InboundHandler {
     if (!resultSetQuestion) {
       dualEngaged = this.captureDualBudgets(session, text, ev);
     }
+    // The anchor the search was steering by BEFORE this message (the late-anchor
+    // seam below must tell a NEWLY named place from an echo of the one already
+    // in the slot — applySlots resolves this message's own wish into the slot
+    // a few lines down, so the two cannot be compared after it).
+    const anchorBeforeTurn = session.slots.poiAnchor;
     if (!dualEngaged) {
       this.applySlots(session, resultSetQuestion
         ? { ...ev, bedroomsMin: undefined, bedroomsMax: undefined } as Event
@@ -5235,8 +5579,12 @@ export class InboundHandler {
      *  names a place with a category the bank is thin in is a search that can
      *  be answered now, not a reason to grill (see the serve below). */
     let landmarkEntry = false;
+    /** A place THIS message named that the map can locate, while the search was
+     *  already armed — see the promotion below (the [16:11] follow-on). */
+    let lateAnchor = false;
     try {
-      areaRequested = !!(await this.areaNamed(text));
+      const namedArea = await this.areaNamed(text);
+      areaRequested = !!namedArea;
       // POI WISH IN DISCOVERY (the [10:56] TUI capture) — the candidate
       // arbitration ran only in property_locate; the discovery funnel left
       // "КУЌА ЗА ИЗДАВАЊЕ КАЈ ОЛИМПИКО" with an empty location and asked
@@ -5249,29 +5597,148 @@ export class InboundHandler {
       // extractor's ev.location already set areaRequested above); the
       // landmark fills only the void. Search-signal guard keeps random
       // landmark chatter ("КАЈ ОЛИМПИКО ИМА ПОСТАВА") from locking an area.
-      if (!areaRequested && !session.slots.location
-        && (before === 'discovery' || before === 'intent' || before === 'idle')
-        && (ev.service || session.slots.service || ev.house !== undefined
-          || ev.business !== undefined || ev.plac || ev.yard
-          || session.slots.house !== undefined || session.slots.business
-          || session.slots.plac || session.slots.yard
-          || session.slots.garsonjera)) {
-        for (const cand of extractPoiWishCandidates(text, { withCriteria: true })) {
-          const a = this.resolvePlace(cand);
-          if (!a) continue;
-          session.slots.poiAnchor = a.name;
-          const area = await this.areaAtPlace({ lat: a.lat, lon: a.lon, name: a.name });
+      //
+      // A PLACE NAMED ONCE THE SEARCH IS ARMED (the [16:11] follow-on capture):
+      // «VO BLIZINA NA KATOLICKA» arriving after «… VO CENTAR DO 150000» is not
+      // chatter — it is the geography the pair must be ranked by. The VOID-only
+      // guard this seam used to carry let the place land in the anchor slot and
+      // the turn end as a STAY: discovery answered «Во ред, ги забележав Вашите
+      // критериуми», presentation the exhausted line «веќе ги погледнавме сите
+      // недвижности…» — and the flats nearest the church were never ranked. The
+      // arbitration therefore also runs when a location is already pinned: the
+      // place REPLACES the assumed area with the one it actually sits in, and the
+      // turn is promoted to the search it is (lateAnchor below). The
+      // search-signal guard is the SAME one — a session whose service is already
+      // declared satisfies it.
+      const wishScope = before === 'discovery' || before === 'intent' || before === 'idle'
+        || before === 'presentation';
+      const searchSignals = ev.service || session.slots.service || ev.house !== undefined
+        || ev.business !== undefined || ev.plac || ev.yard
+        || session.slots.house !== undefined || session.slots.business
+        || session.slots.plac || session.slots.yard
+        || session.slots.garsonjera;
+      // A PLACE CONFIRMED AS A NEW SEARCH («a neshto kaj X?» → «da») — the
+      // pivot lane asked whether the criteria stand; this turn is the answer.
+      // The anchor moves onto the turn (lateAnchor below promotes it to the
+      // serve), and the criteria already in the slots are untouched.
+      if (session.slots.pendingPivot) {
+        const pivot = session.slots.pendingPivot;
+        session.slots.pendingPivot = undefined;
+        if (detectAgreement(text)) {
+          session.slots.poiAnchor = pivot.name;
+          const area = await this.areaAtPlace({ lat: pivot.lat, lon: pivot.lon, name: pivot.name });
           if (area) {
             session.slots.location = area;
             session.slots.poiArea = area;
           }
+          session.slots.poiPlaces = undefined;
+          session.slots.pairAnchorOf = undefined;
+          session.slots.pairEmpty = undefined;
+          session.slots.pairEmptySaid = undefined;
+          session.slots.ladderQueue = undefined;
+          session.slots.ladderKey = undefined;
+          // A confirmed place is the same promotion a place named outright
+          // gets: the next serve is the pair nearest THAT point.
+          if (ev.type === 'STAY' && this.slotsComplete(session)) {
+            ev = { ...ev, type: 'SEARCH_REQUESTED' };
+          }
+        }
+      }
+      // A PLACE WHOSE OWN NAME READS AS AN AREA (the «Општина Бутел»
+      // capture): the map carries the municipality building as a real POI,
+      // while the feed's area dialect matches the «Бутел» inside the name and
+      // the feed files NO rows under it. `areaRequested` then vetoed the place
+      // outright — «ОКОЛУ УНИВЕРЗАЛНА , ОПШТИНА БУТЕЛ» became one area search
+      // for a district with no stock, and neither place reached the pair
+      // rotation. One of the place's own words is an ECHO of the name, not a
+      // district the client asked for: the place is read as a place, and the
+      // artifact lock is dropped (the area then follows the place, as for
+      // every other place mention). Only an area the FEED does not file rows
+      // under can be an echo — «Ново Лисице» is a real naselba and keeps its
+      // own reading.
+      const placeAreaEcho = async (place: { name: string }): Promise<boolean> => {
+        if (!namedArea) return false;
+        if (await this.areaInFeed(namedArea)) return false;
+        const words = (s: string): string[] => placeLooseKey(normalizeLocation(s))
+          .split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+        const areaWords = words(namedArea);
+        if (areaWords.length === 0) return false;
+        const placeWords = new Set(words(place.name));
+        return areaWords.every(w => placeWords.has(w));
+      };
+      const wishPlaces = wishScope && searchSignals ? this.placesWish(text) : [];
+      // The echo can be any place of the message, not only the first: «ОКОЛУ
+      // УНИВЕРЗАЛНА , ОПШТИНА БУТЕЛ» names the municipality building SECOND.
+      const areaIsEcho = areaRequested
+        ? (await Promise.all(wishPlaces.map(pl => placeAreaEcho(pl)))).some(Boolean)
+        : false;
+      // A place named ALONGSIDE an area the feed really files rows under keeps
+      // the old reading: there the area is the ask and the words behind «kaj»
+      // are the neighborhood itself («kaj vas vo Novo Lisice»). Only the ECHO
+      // case above survives the area veto.
+      const wishPlace = areaRequested && !areaIsEcho ? undefined : wishPlaces[0];
+      if (wishPlace) {
+        if (areaIsEcho) {
+          // The district never existed: let the place's own geography decide.
+          session.slots.location = undefined;
+          session.slots.poiArea = undefined;
+          areaRequested = false;
+        }
+        const placeVoid = !session.slots.location;
+        // A place is a DIFFERENT one than the anchor the search was steering by
+        // before this message (compare the PRE-TURN slot: applySlots has already
+        // resolved this message's own wish into it).
+        const anchorChanged = wishPlace.name !== anchorBeforeTurn;
+        // MULTI-PLACE ASK (the [18:48] capture): every place the message named
+        // is kept, in order — the pair must answer all of them, not only the
+        // first. A single place clears the list (that serve is two cards near
+        // it), and so does any new place set (its pair anchors are stale).
+        session.slots.poiPlaces = wishPlaces.length > 1 ? wishPlaces : undefined;
+        session.slots.pairAnchorOf = undefined;
+        session.slots.pairEmpty = undefined;
+        session.slots.pairEmptySaid = undefined;
+        session.slots.poiAnchor = wishPlace.name;
+        // The area FOLLOWS the place: a location void is filled, and a place
+        // that is a different one than the anchor already steering the search
+        // replaces the assumed area (a new place is a new geography). An echo of
+        // the same place leaves the current lock — and the ladder — alone.
+        if (placeVoid || anchorChanged) {
+          const area = await this.areaAtPlace({ lat: wishPlace.lat, lon: wishPlace.lon, name: wishPlace.name });
+          if (area) {
+            session.slots.location = area;
+            session.slots.poiArea = area;
+          }
+        }
+        // The VOID case keeps the ENTRY semantics the discovery / locate lanes
+        // read (the anchored-entry serve, and the no-match wording that a client
+        // who has just named an area expects). A place named into an ARMED
+        // search is not an entry: it promotes the turn (below) and leaves the
+        // message's own area words — and the "everything matching was shown"
+        // wording — untouched.
+        if (placeVoid) {
           areaRequested = true;
           landmarkEntry = true;
-          break;
         }
+        // A place named while the search is already armed is a SEARCH — see the
+        // promotion below. An echo costs nothing: the ladder key carries the
+        // anchor, so a repeated place continues the pair queue instead of
+        // restarting it.
+        lateAnchor = before === 'presentation' || before === 'discovery';
       }
     } catch {
       areaRequested = false;
+    }
+    // A BARE PLACE LINE IS THE SEARCH (the [16:11] follow-on capture): the
+    // client named a place while service, size and budget were already in, and
+    // the message carried nothing else the classifier could recognise — a STAY.
+    // Staying put is what stranded the turn (see above), so the event becomes
+    // the search it is: the dispatcher then re-loads the pool, ranks it
+    // NEAREST-FIRST from the anchor's coordinates and serves the nearest pair —
+    // exactly the serve the same words get at intake. Only a complete search is
+    // promoted: with a criterion still missing the funnel keeps asking for it,
+    // and the place simply waits in the slot.
+    if (lateAnchor && ev.type === 'STAY' && this.slotsComplete(session)) {
+      ev = { ...ev, type: 'SEARCH_REQUESTED' };
     }
     let next = transition(before, ev);
     /** True when the FSM-leg nag branch already served (and counted) this
@@ -6405,11 +6872,9 @@ export class InboundHandler {
         // extraction stopped at the grammar tail, so the real place was never
         // offered to the map and the entry fell into the area-less ask. Every
         // candidate is verified against the map; the FIRST REAL PLACE wins
-        // (text order = the speaker's own priority).
-        for (const cand of extractPoiWishCandidates(text, { withCriteria: true })) {
-          const a = this.resolvePlace(cand);
-          if (a) { placeAnchor = a; break; }
-        }
+        // (text order = the speaker's own priority) — the same shared
+        // arbitration every landmark seam runs (placeWish).
+        placeAnchor = this.placeWish(text);
         if (placeAnchor) {
           session.slots.poiAnchor = placeAnchor.name;
           if (!session.slots.location) {
@@ -7452,8 +7917,18 @@ ${contactReminder}`;
             prefix = `Во моментов нема стан со ${requestedLabel} во ${session.slots.location ?? 'оваа населба'} во Вашата цена, но има слични опции кои би можеле да Ви се допаднат. `;
           }
         }
+        // A WIDEN continues the same hunt, so the cross-place pair metadata
+        // (each card's own place + distance, the empty-place line) applies here
+        // too — this branch is where the second pair of a two-place search was
+        // served without either name.
+        const pair = pairBatchMeta(session, props);
+        if (!prefix && pair.opener) prefix = pair.opener;
+        if (pair.emptyLine) prefix = prefix ? `${prefix.trimEnd()} ${pair.emptyLine}` : pair.emptyLine;
         const cards = buildPropertyCards(props, 'presentation', session.history.length,
-          assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix });
+          assistantTexts(session), {
+          anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix,
+          perCardAnchor: pair.perCardAnchor,
+        });
         reply = prefix ? `${prefix.trimEnd()}\n\n${cards}` : cards;
       } else {
         // FEED-DOWN GUARD: healthy=false means a failed fetch with NO cache —
@@ -7747,18 +8222,50 @@ ${contactReminder}`;
           prefix = waiverAck(session.slots.budget, assistantTexts(session));
           session.slots.waiverAcked = true;
         }
+        // The anchor this batch was ranked from (a place the client named).
+        // Distance is the ONLY thing that makes such a pair judgeable, so the
+        // cards carry it ("на 303 m од ТЦ Лептокарија") — the [17:26] rule.
+        const anchorPlace = session.slots.poiAnchor
+          ? this.landmarks?.findPlace(session.slots.poiAnchor) : undefined;
+        // CROSS-PLACE PAIR (the [18:48] capture): the batch answers the places
+        // the client named, one card each. Each card carries the distance to
+        // ITS OWN place (perCardAnchor) and the opener names both, so the pair
+        // reads as "one here, one there" instead of two offers near the first
+        // place. A place with nothing in the criteria is said plainly, once.
+        const pair = pairBatchMeta(session, props);
+        // ANCHORED SEARCH intro: the pair is ranked from the place, so the
+        // opener names it — never a district the search did not use (the
+        // vote-derived «Центар» was the wrong answer for ТЦ Лептокарија).
+        // A client who named BOTH a district and a place keeps the district.
+        const anchoredSearch = !!anchorPlace && !!session.slots.poiArea
+          && session.slots.location === session.slots.poiArea;
+        if (!prefix && pair.opener) {
+          prefix = pair.opener;
+          session.slots.areaExhausted = false;
+        } else if (!prefix && anchoredSearch && !session.slots.poiAnchorTooFar) {
+          prefix = `Еве ги најблиските опции до ${displayPlaceName(session.slots.poiAnchor as string)}:`;
+          session.slots.areaExhausted = false;
+        }
+        // The honest line rides whatever opener was used — a place with no
+        // stock must be named even when a relaxed/typed intro introduced the
+        // cards instead of the pair opener.
+        if (pair.emptyLine) prefix = prefix ? `${prefix.trimEnd()} ${pair.emptyLine}` : pair.emptyLine;
         // POI-ANCHOR honesty (the [22:41] contract): when nothing in the pool
         // is within the honest 1.5 km walk radius of the client's named place,
         // SAY SO — never present a far apartment as if it answered the wish.
         if (!prefix && session.slots.poiAnchorTooFar && session.slots.poiAnchor) {
-          const anchorPlace = displayPlaceName(session.slots.poiAnchor);
-          prefix = pickVariant('poi.tooFar', { recent: assistantTexts(session), vars: { place: anchorPlace } })
-            ?? `Во моментов немам недвижност во непосредна близина на ${anchorPlace}. Еве ги најблиските опции во ${session.slots.location ?? 'реонот'}:`;
+          const anchorName = displayPlaceName(session.slots.poiAnchor);
+          prefix = pickVariant('poi.tooFar', { recent: assistantTexts(session), vars: { place: anchorName } })
+            ?? `Во моментов немам недвижност во непосредна близина на ${anchorName}. Еве ги најблиските опции${anchoredSearch ? '' : ` во ${session.slots.location ?? 'реонот'}`}:`;
           bankKey = 'poi.tooFar';
           session.slots.poiAnchorTooFar = undefined; // once per search
         }
         const cards = buildPropertyCards(props, 'presentation', session.history.length,
-          assistantTexts(session), { anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix });
+          assistantTexts(session), {
+          anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix,
+          anchor: anchorPlace ? { name: displayPlaceName(session.slots.poiAnchor as string), lat: anchorPlace.lat, lon: anchorPlace.lon } : undefined,
+          perCardAnchor: pair.perCardAnchor,
+        });
         reply = prefix ? `${prefix.trimEnd()}\n\n${cards}` : cards;
       }
     } else if (detectBothServices(text)
@@ -8585,7 +9092,15 @@ ${contactReminder}`;
     // pivot turn; a blanket re-point squashed the pivot's own
     // `propertyId = undefined` and served the dead anchor instead.
     await this.landmarks.enrich(batch);
-    const reply = `${intro}\n\n${batch.map(p => buildPropertyCard(p)).join('\n\n')}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
+    // CROSS-PLACE PAIR on a WIDEN: this choke serves every "друго/уште" batch,
+    // and a two-place hunt must keep answering BOTH places there too — one
+    // card near each with its own distance, and the honest line for a place
+    // with no stock. Without it the second pair of such a search read like an
+    // ordinary area batch with no geography at all.
+    const pair = pairBatchMeta(session, batch);
+    const introText = pair.opener ? `${intro.trimEnd()} ${pair.opener}` : intro;
+    const withEmpty = pair.emptyLine ? `${introText.trimEnd()} ${pair.emptyLine}` : introText;
+    const reply = `${withEmpty}\n\n${batch.map((p, i) => buildPropertyCard(p, { anchor: pair.perCardAnchor?.[i] })).join('\n\n')}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
     pushHistory(session, { role: 'user', text: this.lastUserText ?? '' }, this.cfg.maxHistory);
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
@@ -8948,7 +9463,26 @@ ${contactReminder}`;
     // candidates by distance TO THE ANCHOR, not just the neighborhood (the
     // [22:41] transcript presented an apartment nowhere near Бисер/Капитол).
     // A new anchor replaces a stale one; a message with no anchor keeps the old.
-    if ((ev as { poiAnchor?: string }).poiAnchor) session.slots.poiAnchor = (ev as { poiAnchor?: string }).poiAnchor;
+    //
+    // RESOLVED ONLY (the [16:11] «VO BLIZINA NA KATOLICKA» capture): the slot
+    // means "a MAP PLACE the funnel has located", so the wish has to verify
+    // against the offline map before it lands. Both readers of the slot treat
+    // it as the LOCATION ANSWER — buildDiscoveryAsk stops asking which
+    // neighborhood, and slotsComplete() counts the criterion settled — so an
+    // unplaceable wish would silence the neighborhood question AND leave the
+    // search with no geography at all: the client named «KATOLICKA», heard the
+    // budget question, answered «DO 150000», and got «Во ред, ги забележав
+    // Вашите критериуми» with no property ever served. A wish the map cannot
+    // place is left on the event only; the discovery / locate blocks resolve
+    // their OWN candidates (extractPoiWishCandidates) before serving, so the
+    // landmark lanes are unaffected.
+    {
+      const wish = (ev as { poiAnchor?: string }).poiAnchor;
+      if (wish) {
+        const placed = this.resolvePlace(wish);
+        if (placed) session.slots.poiAnchor = placed.name;
+      }
+    }
     if (ev.bedrooms) {
       session.slots.bedrooms = ev.bedrooms;
       // An EXACT count supersedes a bedroom RANGE ([09:17] contract: "a new
@@ -9056,7 +9590,16 @@ ${contactReminder}`;
     // location/bedrooms loop they explicitly didn't care about.
     // Same for sizeWaived ("nebitni se spalnite" — the 13:53 loop: bedrooms
     // question kept repeating although the client had waived it).
-    const loc = !!s.slots.location || !!s.slots.anywhere;
+    // A RESOLVED LANDMARK ANCHOR IS A LOCATION ANSWER too (the [16:11]
+    // «VO BLIZINA NA KATOLICKA» capture): the client pointed at a map place
+    // instead of naming a neighborhood, and presentation already knows how to
+    // honour that — it ranks the pool NEAREST-FIRST from the anchor's own
+    // coordinates and says so when nothing sits within the honest 1.5 km walk
+    // radius. slotsComplete() used to disagree with buildDiscoveryAsk() here
+    // (the ask counted the anchor, this did not), which stranded the turn in
+    // discovery with nothing left to ask: the criteria were all in, and the
+    // answer was «ги забележав Вашите критериуми» — spec sheet, no property.
+    const loc = !!s.slots.location || !!s.slots.anywhere || !!s.slots.poiAnchor;
     if (s.slots.business) {
       // Dual-service funnel (the [12:33] capture): the service and budget
       // criteria are satisfied by the PAIRED budgets — slots.service/'
@@ -9103,9 +9646,29 @@ ${contactReminder}`;
       const mixedTypes = !!session.slots.garsonjera
         && (session.slots.bedrooms !== undefined || session.slots.bedroomsMin !== undefined);
       const sqmDesc = (!seeOffers && (!!session.slots.sizeWaived || mixedTypes)) === true;
+      // ANCHORED SEARCH (the [17:26] ЛЕПТОКАРИЈА contract): when the area was
+      // only ASSUMED from a place the client named (poiArea), the lock must be
+      // the place's OWN quarter — areaAtPlace() now reads that quarter from the
+      // map's OSM suburb rows (Карпош 3 for ТЦ Лептокарија), so the pool holds
+      // EB 54 (Карпош III, 303 m) instead of the Центар vote winners. The lock
+      // stays a lock: a district the client named himself is never dropped.
+      // When the anchored pool is EMPTY, the criteria are retried city-wide
+      // below — an honest nearby alternative beats an empty pair.
+      const anchorFromPlace = !!session.slots.poiAnchor && !!session.slots.poiArea
+        && session.slots.location === session.slots.poiArea;
+      // A CROSS-PLACE PAIR IS ITS OWN GEOGRAPHY (the «Општина Бутел»
+      // capture): when the client named TWO places, both of them must be
+      // reachable — the area derived from whichever place came first would cut
+      // the other one's stock out of the pool (Универзална Сала is Центар,
+      // Општина Бутел is not), and the pair queue would report the second
+      // place as empty when it simply never saw its rows. The places ARE the
+      // lock: placePairQueue draws each card within LANDMARK_NEAR_M of its own
+      // place. The area word stays for the wording, not for the filter.
+      const searchLocation = (session.slots.poiPlaces?.length ?? 0) >= 2
+        ? undefined : session.slots.location;
       // `let` — the mixed-types pair union below can replace the pool.
       let candidates = await this.deps.properties.candidates({
-        location: session.slots.location,
+        location: searchLocation,
         bedrooms: session.slots.bedrooms,
         // Bedroom RANGE ([09:17]): exact 2…3-rooms pool, both ends required.
         bedroomsMin: session.slots.bedroomsMin,
@@ -9155,9 +9718,32 @@ ${contactReminder}`;
       // alternate type, alternating on. A later pure-size ask retires the
       // flag upstream (applySlots), so this never re-fires after the client
       // has moved off the category.
+      // The place's own quarter had nothing matching the criteria: retry the
+      // SAME criteria city-wide once and rank them from the place — the nearest
+      // real alternative is the answer, not an empty search.
+      if (candidates.length === 0 && anchorFromPlace && session.slots.location) {
+        candidates = await this.deps.properties.candidates({
+          location: undefined,
+          bedrooms: session.slots.bedrooms,
+          bedroomsMin: session.slots.bedroomsMin,
+          bedroomsMax: session.slots.bedroomsMax,
+          sqm: session.slots.sqm,
+          business: session.slots.business,
+          house: session.slots.house,
+          garsonjera: session.slots.garsonjera,
+          plac: session.slots.plac,
+          yard: session.slots.yard,
+          service: session.slots.service,
+          budget: session.slots.budget,
+          exclude: shown,
+          sortBySqm: seeOffers,
+          sortBySqmDesc: sqmDesc,
+          sortByPopularity: !!session.slots.anywhere && !session.slots.location,
+        });
+      }
       if (mixedTypes) {
         const regular = await this.deps.properties.candidates({
-          location: session.slots.location,
+          location: searchLocation,
           bedrooms: session.slots.bedrooms,
           bedroomsMin: session.slots.bedroomsMin,
           bedroomsMax: session.slots.bedroomsMax,
@@ -9184,7 +9770,7 @@ ${contactReminder}`;
       if (session.slots.dualService) {
         const dualPass = (service: Service | undefined, budget: string | undefined) =>
           this.deps.properties.candidates({
-            location: session.slots.location,
+            location: searchLocation,
             bedrooms: session.slots.bedrooms,
             bedroomsMin: session.slots.bedroomsMin,
             bedroomsMax: session.slots.bedroomsMax,
@@ -9399,11 +9985,23 @@ ${contactReminder}`;
       //   4th+: the rest
       // …until the specs run out → alternativesExhausted → the "another
       // neighborhood?" offer. The ladder key is (location|anywhere, service,
-      // budget): a NEW search rebuilds the queue from the top.
-      const ladderKey = `${session.slots.anywhere ? '*' : session.slots.location ?? '-'}|${session.slots.service ?? '-'}|${session.slots.dualService ? `dual${session.slots.rentBudget}-${session.slots.buyBudget}` : session.slots.budget ?? '-'}|${session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined ? `alt${session.slots.bedroomsMin}-${session.slots.bedroomsMax}` : `b${session.slots.bedrooms ?? '-'}`}`;
+      // budget, anchor): a NEW search rebuilds the queue from the top — and a
+      // PLACE named later is a new search in exactly that sense (the [16:11]
+      // follow-on): without the anchor here, «VO BLIZINA NA KATOLICKA» re-ranked
+      // the pool nearest-first but the stale queue kept serving the OLD order.
+      const ladderKey = `${session.slots.anywhere ? '*' : session.slots.location ?? '-'}|${session.slots.service ?? '-'}|${session.slots.dualService ? `dual${session.slots.rentBudget}-${session.slots.buyBudget}` : session.slots.budget ?? '-'}|${session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined ? `alt${session.slots.bedroomsMin}-${session.slots.bedroomsMax}` : `b${session.slots.bedrooms ?? '-'}`}|${session.slots.poiAnchor ?? '-'}|${(session.slots.poiPlaces ?? []).map(p => p.name).join('+') || '-'}`;
       let queue = session.slots.ladderQueue ?? [];
       if (session.slots.ladderKey !== ladderKey || queue.length === 0) {
-        if (session.slots.dualService) {
+        const multiPlaces = session.slots.poiPlaces ?? [];
+        if (multiPlaces.length >= 2) {
+          // CROSS-PLACE PAIR QUEUE (the [18:48] capture): the client named TWO
+          // places in one ask, so the pair must SPAN them — one card near each,
+          // not two cards crowded around whichever place the extractor saw
+          // first. Places are walked two at a time in a CYCLE (1/2, then 3/1,
+          // then 2/3 for three places; 1/2, 3/4, 1/2 for four), so every turn
+          // widens the coverage instead of re-serving the same place.
+          queue = this.placePairQueue(pool, multiPlaces, session.slots);
+        } else if (session.slots.dualService) {
           // DUAL-SERVICE LADDER (the [12:33] contract): the interleaved pool
           // is walked IN ORDER so every batch of 2 stays a PAIR — one rent
           // card + one buy card. The price ladder's cheapest/middle re-carve
@@ -9428,25 +10026,63 @@ ${contactReminder}`;
           // candidates() order stands (price-closest to budget leads). Rows
           // without a bedrooms tag ride at the tail (wildcards, never
           // duplicated across buckets).
-          const cats: number[] = [];
-          const buckets = new Map<number, Property[]>();
-          for (let rooms = session.slots.bedroomsMin; rooms <= session.slots.bedroomsMax; rooms++) {
-            const bucket = pool.filter(p => p.bedrooms === rooms);
-            if (bucket.length > 0) { buckets.set(rooms, bucket); cats.push(rooms); }
-          }
+          const rangeQueue = (rows: Property[]): number[] => {
+            const cats: number[] = [];
+            const buckets = new Map<number, Property[]>();
+            for (let rooms = session.slots.bedroomsMin!; rooms <= session.slots.bedroomsMax!; rooms++) {
+              const bucket = rows.filter(p => p.bedrooms === rooms);
+              if (bucket.length > 0) { buckets.set(rooms, bucket); cats.push(rooms); }
+            }
+            const interleaved: Property[] = [];
+            let takeFirst = true;
+            for (;;) {
+              if (cats.length === 0) break;
+              const idx = takeFirst ? 0 : cats.length - 1;
+              const bucket = buckets.get(cats[idx])!;
+              const next = bucket.shift();
+              if (next) interleaved.push(next);
+              if (bucket.length === 0) { buckets.delete(cats[idx]); cats.splice(idx, 1); }
+              takeFirst = !takeFirst;
+            }
+            return interleaved.map(p => p.id);
+          };
           const wildcards = pool.filter(p => !p.bedrooms).map(p => p.id);
-          const interleaved: Property[] = [];
-          let takeFirst = true;
-          for (;;) {
-            if (cats.length === 0) break;
-            const idx = takeFirst ? 0 : cats.length - 1;
-            const bucket = buckets.get(cats[idx])!;
-            const next = bucket.shift();
-            if (next) interleaved.push(next);
-            if (bucket.length === 0) { buckets.delete(cats[idx]); cats.splice(idx, 1); }
-            takeFirst = !takeFirst;
+          // PLACE-FIRST BANDS (the [18:51] school capture): with a place
+          // anchor the pair has to STAY near the place the client named. The
+          // round-robin above alternates categories ACROSS the whole pool, so
+          // «една или две спални» around ОУ „Димитар Миладинов“ paired EB 69
+          // (70 m) with a 3-room EB 75 at 1,4 km while EB 47 sat at 324 m in
+          // the OTHER 2-room bucket — one card per category, bought with a
+          // 2 km drive. Category rotation therefore survives only WITHIN a
+          // distance band (250 m): the nearest band is served first, its own
+          // round-robin decides the order inside it, and a far card never
+          // shares a pair with a near one just to alternate room counts.
+          const anchorPoint = session.slots.poiAnchor && this.landmarks
+            ? this.landmarks.findPlace(session.slots.poiAnchor) : undefined;
+          const mToAnchor = (p: Property): number => (anchorPoint
+            && typeof p.lat === 'number' && typeof p.lon === 'number'
+            && p.lat !== 0 && p.lon !== 0
+            ? distM(anchorPoint.lat, anchorPoint.lon, p.lat, p.lon)
+            : Number.POSITIVE_INFINITY);
+          if (anchorPoint) {
+            const bands = new Map<number, Property[]>();
+            const unlocated: Property[] = [];
+            for (const p of pool) {
+              const d = mToAnchor(p);
+              if (!Number.isFinite(d)) { unlocated.push(p); continue; }
+              const band = Math.floor(d / PLACE_PAIR_BAND_M);
+              if (!bands.has(band)) bands.set(band, []);
+              bands.get(band)!.push(p);
+            }
+            queue = [
+              ...[...bands.keys()].sort((a, b) => a - b)
+                .flatMap(band => rangeQueue(bands.get(band)!)),
+              ...rangeQueue(unlocated),
+              ...wildcards,
+            ];
+          } else {
+            queue = [...rangeQueue(pool), ...wildcards];
           }
-          queue = [...interleaved.map(p => p.id), ...wildcards];
         } else {
         const firstTwo = pool.slice(0, 2).map(p => p.id);
         const remaining = pool.slice(2);

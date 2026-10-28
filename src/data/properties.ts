@@ -859,6 +859,27 @@ const AREA_TEXT_ALIASES: Array<[RegExp, string]> = [
   [/(?<![\p{L}\p{N}])(?:пржино|przhino|przino)(?![\p{L}\p{N}])/iu, 'Пржино'],
 ];
 
+// ── THE CLAIM, NOT THE PLACE NEXT DOOR ──────────────────────────────────────
+// An ad's words say where a flat IS only when they are not saying where it is
+// NEAR or what it stands NEXT TO. Two shapes were handing rows to districts
+// they are not in:
+//   • «во близина на Центар» — an Аеродром (Скопјанка) ad that name-drops the
+//     centre 1,4 km away answered every «во Центар» search through it;
+//   • «Трговски центар» — the MALL. «Трговски Центар Бутел» is one of EB 46's
+//     ranked LANDMARKS (a place next to the flat), so a Кисела Вода row
+//     matched «Центар»; a Ѓорче Петров row matched it through «Трговски
+//     центар К». A shopping centre's name is not a district.
+// The phrase is cut BEFORE the area words are read; a real claim («во Центар»,
+// «во Строг Центар») is untouched.
+const NEAR_CLAIM_RE = /(?:во\s+бли[зж]ин(?:а|ата|у)\s+на|бли[зж]у|наспроти|спроти)\s+[^·.;,!?]*/giu;
+const MALL_NAME_RE = /(?:трговски(?:от)?|shopping)\s+(?:центар|центарот|cent(?:er|re))/giu;
+
+/** The part of a row's text that CLAIMS its area — the near-claims and mall
+ *  names removed. */
+export function areaClaim(text: string): string {
+  return text.replace(NEAR_CLAIM_RE, ' ').replace(MALL_NAME_RE, ' ');
+}
+
 /** The area a row BELONGS to: the feed's `naselba` when present, else the first
  *  area its own address/ad text names. Rows the feed leaves area-less (EB 57,
  *  59, 87 in the October feed) were invisible to every area-scoped band and
@@ -866,7 +887,8 @@ const AREA_TEXT_ALIASES: Array<[RegExp, string]> = [
  *  „во Палома Бјанка“, „во Ново Лисиче“), so the area is read from there.
  *  Never guessed: no alias hit ⇒ undefined (city-wide only). */
 export function deriveAreaFromText(text: string): string | undefined {
-  for (const [re, area] of AREA_TEXT_ALIASES) if (re.test(text)) return area;
+  const claim = areaClaim(text);
+  for (const [re, area] of AREA_TEXT_ALIASES) if (re.test(claim)) return area;
   return undefined;
 }
 
@@ -944,7 +966,7 @@ export function textNamesPlace(text: string, phrase: string): boolean {
  *  names a neighborhood nobody has heard of yet is still searchable by that
  *  name the day it enters the feed. */
 export function inArea(p: Property, area: string): boolean {
-  if (textNamesPlace(adText(p), area)) return true;
+  if (textNamesPlace(areaClaim(adText(p)), area)) return true;
   if (locMatches(area, p.location ?? '')) return true;
   const derived = feedArea(p);
   return !!derived && locMatches(area, derived);

@@ -29,7 +29,25 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SRC = path.join(__dirname, '..', 'src', 'handlers', 'inbound.ts');
+/** The file the sweep reads. It must be the SAME `src/handlers/inbound.ts` the
+ *  app is built from, wherever this module is loaded from: run directly under
+ *  tsx (scripts/), imported by the tsx suite (tests/), or bundled by
+ *  scripts/run-tests-compiled.sh (dist-test/tests/). A fixed `..` path only
+ *  works from the first two, so the repo root is found by walking up until
+ *  `src/handlers/inbound.ts` appears — and a miss is a loud error, never a
+ *  silent read of the wrong file. */
+function findSource(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 8; i++) {
+    const hit = path.join(dir, 'src', 'handlers', 'inbound.ts');
+    if (fs.existsSync(hit)) return hit;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`lost-reply-sweep: src/handlers/inbound.ts not found above ${__dirname}`);
+}
+export const SRC = findSource();
 const count = (s: string, ch: string): number => s.split(ch).length - 1;
 
 export interface Branch { chain: number; idx: number; start: number; end: number }
@@ -235,4 +253,6 @@ function main(): void {
   console.log('\nUse --lane <n> to print the block of any hit.');
 }
 
-main();
+// Only when run as a CLI — importing this module (the pinning test does) must
+// not sweep, print, or need a live file at load time.
+if (require.main === module) main();

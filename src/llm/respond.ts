@@ -8,7 +8,7 @@ import { dynamicAnswer, generateDynamic, type DynamicResult } from './dynamicFal
 import { arbitrateMoney } from './moneyArbitration';
 import { llmArbitrateKey } from './arbiterLlm';
 import type { BankStore } from '../store/bank';
-import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feeLadder, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX } from './prompts';
+import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feeLadder, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX, pairBatchMeta } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
 
 // Anchored so a property price like "68.300 евра" never trips it — only a
@@ -355,14 +355,21 @@ export class Responder {
         // is SET here; the caller saves the session after this returns).
         const showWaiverAck = !!session.slots.sizeWaived && !session.slots.waiverAcked;
         if (showWaiverAck) session.slots.waiverAcked = true;
+        // CROSS-PLACE PAIR: an LLM-less serve of a two-place hunt still answers
+        // BOTH places — the opener names them and each card carries its own
+        // distance, exactly like the deterministic lanes.
+        const pair = pairBatchMeta(session, properties);
         return { text: guardText(session.state,
           (showWaiverAck
             ? `${waiverAck(session.slots.budget, assistantTexts(session))}\n\n`
             : '')
+          + (pair.opener ? `${pair.opener}\n\n` : '')
+          + (pair.emptyLine ? `${pair.emptyLine}\n\n` : '')
           + buildPropertyCards(properties, session.state, session.history.length, assistantTexts(session), {
             anywhere: session.slots.anywhere,
             budget: session.slots.budget,
-            noOpener: showWaiverAck,
+            noOpener: showWaiverAck || !!pair.opener,
+            perCardAnchor: pair.perCardAnchor,
           }),
           this.cfg.publicSiteUrl, assistantTexts(session)), source: 'fallback' };
       }

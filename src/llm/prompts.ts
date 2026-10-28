@@ -1,9 +1,10 @@
 import { State, Service } from '../fsm/machine';
-import { SlotData } from '../fsm/session';
+import { SlotData, ChatSession } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
 import { Property, locPrep, mkTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent } from '../data/properties';
 import { firstLandmarkProblem } from '../geo/landmarks';
+import { distM } from '../geo/precision';
 import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint } from '../visits/time';
 
 export const BUY_FEE_MKD = '500 MKD';
@@ -712,7 +713,17 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   const plac = !!slots.plac;    // "плац за градење" — land plot (the 22:53 sweep)
   const yard = !!slots.yard;    // "со двор/дворче" — outdoor-space need (implies house)
   const anywhere = !!slots.anywhere; // "било каде" — location waived, city-wide search
-  const knownAny = !!(slots.service || slots.location || slots.bedrooms || (slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined) || slots.sqm || slots.budget || anywhere);
+  // A LANDMARK ANCHOR IS A LOCATION ANSWER (the [13:29] capture): the client
+  // said «во близина на Буњаковец» — he pointed at the part of town, and the
+  // discovery block resolved the place to the feed's own area (Bunjakovec →
+  // Центар). Asking «во која населба?» after that re-asks what he just said,
+  // and the funnel stalls instead of asking bedrooms + budget.
+  // A CITY-LEVEL value ("Скопје", typically inferred, never said) is NOT a
+  // location answer — unless the anchor already named the area.
+  const anchored = !!(slots.poiAnchor || slots.poiArea);
+  const locationKnown = (!!slots.location && !CITY_LEVEL_LOCATIONS.test(slots.location))
+    || anywhere || anchored;
+  const knownAny = !!(slots.service || locationKnown || slots.bedrooms || (slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined) || slots.sqm || slots.budget || anywhere);
   // The client opened with NO criteria at all ("zdravo") — Lina does NOT know
   // the property type, so she must never assume an apartment. Bank key
   // greeting.open (generated variants, validated to never mention a type)
@@ -741,7 +752,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // "Било каде" answers the location question — the question is skipped, and
   // the bedrooms question too (a flexible client gets the budget-driven
   // city-wide presentation; bedrooms refine later via rejections, never block).
-  if (slots.service && (!slots.location || CITY_LEVEL_LOCATIONS.test(slots.location)) && !anywhere) {
+  if (slots.service && !locationKnown) {
     missing.push(askQuestion(
       plac ? 'discovery.ask.location.plac'
         : business ? 'discovery.ask.location.business' : house ? 'discovery.ask.location.house' : 'discovery.ask.location.stan',
@@ -751,7 +762,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
         : 'Во кој дел од градот го барате станот?',
       recent));
   }
-  if (slots.service && (slots.location || anywhere) && business && !slots.sqm) {
+  if (slots.service && locationKnown && business && !slots.sqm) {
     missing.push(askQuestion('discovery.ask.sqm.business', 'Која површина (во м²) ја барате?', recent));
   }
   // "garsonjera" IS the size answer — a studio has no separate спална, so the
@@ -760,7 +771,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // A bedroom RANGE ("edna ili dve", [09:17]) IS the size answer — the
   // alternation ladder owns presentation; asking again re-asks an answered
   // question (the transcript loop).
-  if (slots.service && (slots.location || anywhere) && !business && !slots.bedrooms
+  if (slots.service && locationKnown && !business && !slots.bedrooms
     && !(slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined)
     && !anywhere && !slots.sizeWaived && !slots.garsonjera && !sizeWaivedCategory) {
     missing.push(askQuestion(
@@ -768,7 +779,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
       house ? 'Колку спални соби би сакале да има куќата?' : 'Колку спални соби би сакале да има станот?',
       recent));
   }
-  if (slots.service && (slots.location || anywhere) && !slots.budget && !slots.pricePriority) {
+  if (slots.service && locationKnown && !slots.budget && !slots.pricePriority) {
     // RENT asks about the MONTHLY rent (месечна кирија), not a purchase price —
     // "колку е киријата?" is the client's question, and the budget slot is the
     // monthly amount the presentation filters rent listings by.
@@ -1488,7 +1499,7 @@ export function conversationalDetails(p: Property): string | undefined {
  * path reads professional instead of robotic. Grammar is hand-written, so it
  * is always correct.
  */
-export function buildPropertyCard(p: Property): string {
+export function buildPropertyCard(p: Property, opts: { anchor?: { name: string; lat: number; lon: number } } = {}): string {
   // Strip internal feed disambiguator: "Центар (населба)" → "Центар"
   const loc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
   // NA/VO agreement: Водно is a mountain — "на Водно"; everywhere else "во"
@@ -1511,6 +1522,17 @@ export function buildPropertyCard(p: Property): string {
     ? (p.landmarks?.[0]?.landmark ?? undefined)
     : undefined;
   if (firstLm && !details?.includes(firstLm)) s += ` Се наоѓа во близина на ${firstLm}.`;
+  // ANCHORED SEARCH: the client named the place he wants to live around, so
+  // every card states its OWN distance from it — a pair of offers without
+  // distances cannot be judged against «околу Лептокарија» ([17:26]). Measured
+  // from the real pin; rows without coordinates simply omit the line.
+  if (opts.anchor && typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0) {
+    const d = distM(opts.anchor.lat, opts.anchor.lon, p.lat, p.lon);
+    const distText = d < 1000
+      ? `${Math.max(10, Math.round(d / 10) * 10)} m`
+      : `${(d / 1000).toFixed(1).replace('.', ',')} km`;
+    s += ` Се наоѓа на ${distText} од ${opts.anchor.name}.`;
+  }
   // Landmark line restORED — but from the FEED's own ranked list, not a live
   // geocode. The [02:27] capture: a batch of two was served with NEITHER
   // card naming its public location, so the client's very first reaction was
@@ -1551,9 +1573,13 @@ export function buildPropertyCard(p: Property): string {
   return s;
 }
 
-export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0, recent: string[] = [], opts: { anywhere?: boolean; budget?: string; noOpener?: boolean } = {}): string {
+export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0, recent: string[] = [], opts: { anywhere?: boolean; budget?: string; noOpener?: boolean; anchor?: { name: string; lat: number; lon: number }; perCardAnchor?: Array<{ name: string; lat: number; lon: number } | undefined> } = {}): string {
+  // A CROSS-PLACE PAIR states each card's OWN distance: the first offer stands
+  // near one place the client named, the second near the other («1,2 km од
+  // ТЦ Буњаковец»), so one anchor for the whole batch would be a lie for half
+  // of it. perCardAnchor wins over the shared anchor, card by card.
   const cards = properties.slice(0, 2)
-    .map(p => buildPropertyCard(p)).join('\n\n');
+    .map((p, i) => buildPropertyCard(p, { anchor: opts.perCardAnchor?.[i] ?? opts.anchor })).join('\n\n');
   const closer = state === 'presentation'
     ? pickCloser(PRESENTATION_CLOSERS_ALL, closerIndex)
     : pickCloser(PROPERTY_QUERY_CLOSERS_ALL, closerIndex);
@@ -1575,6 +1601,43 @@ export function buildPropertyCards(properties: Property[], state: State, closerI
         ?? 'За Вас ги издвоив следните опции што би можеле да Ви одговараат:')
     : undefined;
   return `${opener ? `${opener}\n\n` : ''}${cards}\n\n${closer}`;
+}
+
+/** CROSS-PLACE PAIR metadata for a batch: the opener naming the places the
+ *  client asked about, each card's OWN anchor (so every card states the
+ *  distance to the place IT stands near) and the once-only honest line for a
+ *  place with nothing in the criteria.
+ *
+ *  It lives here, next to the card builders, because every batch builder needs
+ *  it — the presentation ladder, the widen serve and the LLM-less fallback.
+ *  Absent/one place returns nothing: that serve is the two-nearest-to-one-place
+ *  one, which already knows its anchor.
+ */
+export function pairBatchMeta(session: ChatSession, properties: Property[]): {
+  opener?: string;
+  emptyLine?: string;
+  perCardAnchor?: Array<{ name: string; lat: number; lon: number } | undefined>;
+} {
+  const places = (session.slots.poiPlaces?.length ?? 0) >= 2 ? session.slots.poiPlaces : undefined;
+  if (!places) return {};
+  const anchors = properties.map(p => session.slots.pairAnchorOf?.[String(p.id)]);
+  const names = [...new Set(anchors
+    .filter((a): a is { name: string; lat: number; lon: number } => !!a)
+    .map(a => a.name))];
+  const said = new Set(session.slots.pairEmptySaid ?? []);
+  const empty = (session.slots.pairEmpty ?? []).filter(n => !said.has(n));
+  if (empty.length > 0) session.slots.pairEmptySaid = [...said, ...empty];
+  return {
+    opener: names.length >= 2
+      ? `Еве по една опција до ${names.map(n => displayPlaceName(n)).join(' и до ')}:`
+      : names.length === 1 ? `Еве ја најблиската опција до ${displayPlaceName(names[0])}:`
+      : undefined,
+    emptyLine: empty
+      .map(n => `Околу ${displayPlaceName(n)} во моментов немам ништо што одговара на овие критериуми.`)
+      .join(' ') || undefined,
+    perCardAnchor: anchors.map(a => a
+      ? { name: displayPlaceName(a.name), lat: a.lat, lon: a.lon } : undefined),
+  };
 }
 
 export function buildPropertyContext(properties: Property[]): string {

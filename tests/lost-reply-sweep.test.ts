@@ -22,10 +22,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'fs';
-import * as path from 'path';
-import { candidates } from '../scripts/lost-reply-sweep';
+// The sweep resolves `src/handlers/inbound.ts` itself, from wherever it is
+// loaded (tsx or the esbuild bundle in dist-test/) — a `__dirname`-relative
+// path here broke the compiled suite, which is exactly what this pins.
+import { candidates, SRC } from '../scripts/lost-reply-sweep';
 
-const SRC = path.join(__dirname, '..', 'src', 'handlers', 'inbound.ts');
 const realLines = readFileSync(SRC, 'utf8').split('\n');
 
 test('lost-reply sweep: it catches the [21:57] shape (a standalone lane a later one overwrites)', () => {
