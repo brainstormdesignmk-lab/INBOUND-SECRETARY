@@ -47,8 +47,9 @@ class FailingLlm implements LlmClient {
 }
 
 // Real map pins — the resolver is the production one, so the test must speak
-// the map's own places: Универзална Сала, Буњаковец, Католичка црква кон
-// Центар, Собрание and the school in Димитар Миладинов.
+// the map's own places: Универзална Сала, Буњаковец, the Catholic cathedral
+// (Google: «Sacred Heart Catholic Church», what a bare «KATOLICKA» means),
+// Собрание and the school in Димитар Миладинов.
 const ROWS: Property[] = [
   // Универзална Сала (41.99922, 21.41648)
   { eb: 301, id: 301, location: 'Центар', price: 120000, bedrooms: 2, sqm: 50, size: '50 м²', service: 'buy', lat: 41.9993, lon: 21.4165 },
@@ -56,9 +57,10 @@ const ROWS: Property[] = [
   // Буњаковец (41.99746, 21.41864)
   { eb: 311, id: 311, location: 'Центар', price: 122000, bedrooms: 2, sqm: 52, size: '52 м²', service: 'buy', lat: 41.9975, lon: 21.4187 },
   { eb: 312, id: 312, location: 'Центар', price: 123000, bedrooms: 2, sqm: 53, size: '53 м²', service: 'buy', lat: 41.9974, lon: 21.4185 },
-  // Католичка црква кон Центар
-  { eb: 321, id: 321, location: 'Центар', price: 124000, bedrooms: 2, sqm: 54, size: '54 м²', service: 'buy', lat: 41.9948, lon: 21.4165 },
-  { eb: 322, id: 322, location: 'Центар', price: 125000, bedrooms: 2, sqm: 55, size: '55 м²', service: 'buy', lat: 41.9946, lon: 21.4163 },
+  // Римокатоличка Катедрала Пресвето Срце Исусово (41.9950, 21.4178): 322 is
+  // the nearer of the two (~35 m), 321 the farther (~150 m).
+  { eb: 321, id: 321, location: 'Центар', price: 124000, bedrooms: 2, sqm: 54, size: '54 м²', service: 'buy', lat: 41.9944, lon: 21.4162 },
+  { eb: 322, id: 322, location: 'Центар', price: 125000, bedrooms: 2, sqm: 55, size: '55 м²', service: 'buy', lat: 41.9952, lon: 21.4175 },
   // ОУ „Димитар Миладинов“ (41.98922, 21.43478) — the [18:51] pivot target.
   { eb: 331, id: 331, location: 'Центар', price: 118000, bedrooms: 2, sqm: 56, size: '56 м²', service: 'buy', lat: 41.9893, lon: 21.4348 },
   { eb: 332, id: 332, location: 'Центар', price: 119000, bedrooms: 2, sqm: 57, size: '57 м²', service: 'buy', lat: 41.9891, lon: 21.4346 },
@@ -129,7 +131,7 @@ test('three places rotate 1/2, 3/1, 2/3; four rotate 1/2, 3/4, 1/2', async () =>
   assert.deepEqual(three.sessions.get(three.chatId)!.slots.currentBatch, [301, 311], '1/2');
   const second = await three.say('DRUGI OPCII');
   assert.deepEqual(three.sessions.get(three.chatId)!.slots.currentBatch, [322, 302], '3/1');
-  assert.match(second, /Еве по една опција до Католичка црква кон Центар и до Универзална Сала:/);
+  assert.match(second, /Еве по една опција до Римокатоличка Катедрала Пресвето Срце Исусово и до Универзална Сала:/);
   await three.say('DRUGI OPCII');
   assert.deepEqual(three.sessions.get(three.chatId)!.slots.currentBatch, [312, 321], '2/3');
 

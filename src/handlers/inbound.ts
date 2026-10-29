@@ -15,7 +15,7 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, normalizeTimePhrase, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace } from '../data/properties';
 import { AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, detectAgentAttendanceAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion, detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm,  detectExitCheck, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm,  detectExitCheck, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -118,6 +118,13 @@ const PLACE_REFERENCE_TAIL = new Set([
   // the map's own «Олимпико» and the funnel asked for a neighborhood the
   // client had just named.
   'okolu', 'околу', 'blizu', 'близу', 'near', 'nearby',
+  // A VAGUE TAIL («КАЈ КАТОЛИЧКА НЕГДЕ», the [10:07] capture): «негде» says
+  // the place is somewhere around there, it does not name a second place.
+  // The coverage guard read it as one of the client's words, found no window
+  // for it in «Католичка црква кон Центар», and refused the only landmark the
+  // client had named — after which discovery asked him for a neighbourhood he
+  // had just pointed at. Same family as «околу»/«близу».
+  'negde', 'негде', 'nekade', 'некаде', 'neshto', 'нешто',
 ]);
 
 /** WHAT KIND OF VENUE a place is — never WHICH one it is. «ТЦ Џевахир» says the
@@ -141,6 +148,46 @@ const PLACE_VENUE_WORDS = new Set([
   'center', 'centre', 'centar', 'центар', 'mol', 'мол', 'mall', 'малл',
 ]);
 const PLACE_VENUE_DROP = new Set(['tc', 'тц', 'trgovski', 'трговски', 'shopping']);
+
+/** THE CATHOLIC CHURCH OF SKOPJE — the map's row for what Google lists as
+ *  «Sacred Heart Catholic Church» (41.9950, 21.4178, Центар). */
+const CATHEDRAL_POI = 'Римокатоличка Катедрала Пресвето Срце Исусово';
+
+/** A GENERIC NAME MEANS THE PLACE EVERYONE KNOWS (the [10:07] capture). The map
+ *  holds several rows whose name starts with the same words: the CATHEDRAL
+ *  «Римокатоличка Катедрала Пресвето Срце Исусово» (Google: «Sacred Heart
+ *  Catholic Church»), the parish «Католичка црква Свети Јосиф» two kilometres
+ *  east, and «Католичка црква кон Центар» — which is not a church at all but a
+ *  BUS STOP named after the cathedral. The nearest-branch lookup has no center
+ *  on the intake turn and kept returning one of those, so the rent search was
+ *  anchored on the wrong side of town. When the client's phrase is ONLY a
+ *  generic word for the church, the row below is what he means; a client who
+ *  names the qualifier himself («Свети Јосиф», «кон Центар») never reaches
+ *  this table. */
+const GENERIC_PLACE_CANON: Array<[RegExp, string]> = [
+  // «католичка» and its ч/ц fold («католицка», the extractor's own spelling) are
+  // the same word here, so both are written into the class rather than left to
+  // a loose comparison that a one-word phrase never reaches.
+  [/^(?:католи[чц]ка|katolic[ck]a)(?:\s+(?:црква|crkva|црквата|crkvata|катедрала|katedrala))?$/, CATHEDRAL_POI],
+  // …and the church by its OWN name, which is how Google (and a tenant who
+  // looked it up) writes it: «Свето Срце», «Пресвето Срце Исусово», «Sacred
+  // Heart». None of those words appears in the map's Cyrillic row, so the
+  // name-coverage guard would refuse a client who said them. The extractor
+  // folds English letter by letter, so a client's «SACRED HEART CATHOLIC
+  // CHURCH» reaches this table as «сацред хеарт цатхолиц чурч» — that spelling
+  // is in the class too. The tail is VENUE WORDS only: anything carrying
+  // identity («… кај плоштад») never reaches this table.
+  [/^(?:(?:пре)?свето\s+срце(?:\s+исусово)?|(?:pre)?sveto\s+srce(?:\s+isusovo)?|sacred\s+heart|са[кцч]ред\s+х[еиа]?арт)(?:\s+(?:католи[чц]ка|цатхоли[чц]|католик|catholic|црква|crkva|катедрала|katedrala|church|чурч|цурч))*$/, CATHEDRAL_POI],
+];
+
+/** The client's phrase with the vague/proximity fillers removed, lowercased —
+ *  what remains is the NAME, which is what GENERIC_PLACE_CANON matches on. */
+function genericPlaceKey(phrase: string): string {
+  return phrase
+    .replace(/[.!?,;:]+/gu, ' ')
+    .replace(/(?<![\p{L}\p{N}])(?:негде|negde|некаде|nekade|нешто|neshto|околу|okolu|близу|blizu|near|nearby)(?![\p{L}\p{N}])/gu, ' ')
+    .replace(/\s+/gu, ' ').trim().toLowerCase();
+}
 
 /** Does the MAP's place name COVER what the CLIENT said? A hard contract, not a
  *  similarity score: a name the client typed may never bind to a place whose
@@ -1674,6 +1721,15 @@ export class InboundHandler {
       // A known-other name has no honest reading here: the funnel asks for the
       // area instead of inventing one.
       return undefined;
+    }
+    // THE WELL-KNOWN PLACE, before any similarity pass (see
+    // GENERIC_PLACE_CANON): a generic «католичка» is the cathedral, not the
+    // near-namesake the nearest-branch lookup would otherwise return.
+    const genericKey = genericPlaceKey(clean);
+    for (const [re, canonical] of GENERIC_PLACE_CANON) {
+      if (!re.test(genericKey)) continue;
+      const canon = this.landmarks.findPlace(canonical);
+      if (canon) return canon;
     }
     const variants = (s: string): string[] => [s, translitToLatin(s), toCyrillic(s)];
     // CLAUSE PREFIXES: the extractor's capture is greedy, so a landmark typed
@@ -4409,10 +4465,23 @@ export class InboundHandler {
           || infoFacets.yearBuilt || infoFacets.renovation)) {
         const mbInfo = await this.bindMention(text, session, { historyFallback: true });
         if (await this.sendIfClarify(mbInfo, text, session)) return;
+        // AN ORDINAL PICK NAMES THE CARD (the [10:00] Кисела Вода capture):
+        // «PRVIOT MI ODGOVARA POVEKJE … KOLKU DOAGJA KVADRAT» asks the RATE of
+        // the FIRST of the two flats just served. The legacy chain below reads
+        // presented[last], so the rate of the SECOND flat was quoted for a
+        // question about the first. The ordinal is the strongest signal in the
+        // message — it outranks the tail of the batch.
+        const ordinalPick = detectLocatePick(text);
+        const ordinalEb = ordinalPick !== undefined
+          ? [...(session.slots.currentBatch ?? []), ...(session.slots.presentedIds ?? [])][ordinalPick]
+          : undefined;
         // No binding signal in the message ("kolku e ?") → the legacy slot
         // chain (current → interested → presented[last]) — the mention layer
         // must never STARVE the ask that the FSM price path already served.
         const infoProp = mbInfo?.prop
+          ?? (ordinalEb !== undefined
+            ? await this.deps.properties.getByEb(ordinalEb).catch(() => undefined)
+            : undefined)
           ?? (session.slots.propertyId
             ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
             : undefined)
@@ -7178,7 +7247,16 @@ export class InboundHandler {
         // picks a flat from the batch on screen; treating it as exhausted-
         // options consent jumped to contact collection with the FEE NEVER
         // DISCLOSED. The choice lane above owns it.
-        && !detectPropertyChoice(text)) {
+        && !detectPropertyChoice(text)
+        // SOMETHING WAS ACTUALLY SHOWN FIRST (the [09:24] Дебар Маало
+        // capture): «EDNA ILI DVE SPALNI MOZE . DO 120000…» answered the
+        // discovery funnel and was read as exhausted-options consent because
+        // the area had no row — the client had seen NO card at all and was
+        // asked for his name and phone as the first reply to his criteria.
+        // The escape belongs to a DRAINED pool (a batch already served), not
+        // to the very first search; an empty first search must go to the
+        // no-match/other-area lane.
+        && ((session.slots.presentedIds?.length ?? 0) > 0 || before === 'presentation')) {
       next = 'contact_collection';
       session.state = next;
       session.slots.queueAfterContact = true;

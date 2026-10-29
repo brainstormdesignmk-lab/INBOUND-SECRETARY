@@ -84,12 +84,14 @@ class FakeProps extends PropertyService {
  *           resolve in the map, so the landmark had no coordinates to rank
  *           from, and slotsComplete() did not count the anchor as the location
  *           answer the discovery ask had already treated it as.
- * The map of Skopje puts the church at 41.9947, 21.4164 (Центар).
+ * The map of Skopje puts THE CATHEDRAL — «Римокатоличка Катедрала Пресвето
+ * Срце Исусово», Google's «Sacred Heart Catholic Church» — at 41.9950,
+ * 21.4178 (Центар).
  */
 const MSG_KATOLICKA_INTAKE = 'ZDRAVO SAKAM DA KUPAM DVOSOBNO STANCE VO REONOT NA KATOLICKA';
 const KATOLICKA_ROWS: Property[] = [
-  { eb: 202, id: 202, location: 'Центар', address: 'Ул. Никола Вапцаров 5', price: 139000, bedrooms: 2, sqm: 58, size: '58 м²', service: 'buy', lat: 41.9940, lon: 21.4160 },
-  { eb: 201, id: 201, location: 'Центар', address: 'Ул. Македонија 3', price: 148000, bedrooms: 2, sqm: 62, size: '62 м²', service: 'buy', lat: 41.9952, lon: 21.4171 },
+  { eb: 202, id: 202, location: 'Центар', address: 'Ул. Никола Вапцаров 5', price: 139000, bedrooms: 2, sqm: 58, size: '58 м²', service: 'buy', lat: 41.9954, lon: 21.4174 },
+  { eb: 201, id: 201, location: 'Центар', address: 'Ул. Македонија 3', price: 148000, bedrooms: 2, sqm: 62, size: '62 м²', service: 'buy', lat: 41.9944, lon: 21.4164 },
   // Центар, but on the far side of the area (~1.2 km from the church): it is
   // what a THIRD serve near the anchor may hold, never part of the nearest pair.
   { eb: 205, id: 205, location: 'Центар', address: 'Ул. Партизански Одреди 60', price: 149000, bedrooms: 2, sqm: 70, size: '70 м²', service: 'buy', lat: 42.0000, lon: 21.4030 },
@@ -207,7 +209,7 @@ test('the [16:11] capture: KATOLICKA resolves, and the budget turn serves the ne
   assert.ok(!/Евидентен број 203/u.test(answer),
     `the cheaper Карпош flat is 1.6 km from Католичка — the anchor outranks price: ${answer}`);
   assert.ok(answer.indexOf('202') < answer.indexOf('201'),
-    `nearest-first: 202 (≈80 m) before 201 (≈90 m): ${answer}`);
+    `nearest-first: 202 (≈50 m) before 201 (≈140 m): ${answer}`);
 });
 
 test('the landmark named AFTER the criteria are complete serves the nearest matches', async () => {

@@ -64,7 +64,16 @@ export function collectMentionedEbs(
     // Lookahead guards: a number followed by a thousands separator ("100.000",
     // "110 000") is a PRICE, never an EB — the tail group gets filtered by
     // validEbs anyway, but the head group must not fire.
-    const re = /(?:\b(?:stanot|stan|kuca|куќата|куќа|станот|стан|eb|е|евидентен\s+број|evi[dđ]enten)\s*)?\b(\d{2,3})\b(?!\s*[.,]\d)(?!\s+\d{3})/gi;
+    //
+    // A CRITERION NUMBER IS NOT AN EB (the [09:24] Дебар Маало capture):
+    // «NAD 50 M2» bound EB 50 — a rental house across town — because a bare
+    // «50» that happens to collide with a feed EB was read as a mention. The
+    // funnel then carried propertyId 50 into the next turn and answered a
+    // completed search with the contact ask. A number carrying a size, money,
+    // time or floor UNIT belongs to the criteria ("50 m²", "120 000 evra",
+    // "6 saat", "3 kat"), and a number behind a comparison word ("nad 50",
+    // "do 120", "preku 60") is a limit, not a reference to a listing.
+    const re = /(?:\b(?:stanot|stan|kuca|куќата|куќа|станот|стан|eb|е|евидентен\s+број|evi[dđ]enten)\s*)?(?<![\p{L}\p{N}])(?<!(?:nad|над|do|до|pod|под|okolu|околу|preku|преку|poveke|повеќе|pomalo|помалку)\s*)\b(\d{2,3})\b(?!\s*[.,]\d)(?!\s+\d{3})(?!\s*(?:м2|м²|m2|m²|кв\.?\s*м|kvadrat|квадрат|спалн|соби|sob|евра|евро|evra|evro|€|денар|денари|den|%|кат|саат|час))/giu;
     let m: RegExpExecArray | null;
     while ((m = re.exec(raw))) {
       const n = parseInt(m[1], 10);

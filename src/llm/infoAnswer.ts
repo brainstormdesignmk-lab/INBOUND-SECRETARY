@@ -143,6 +143,20 @@ const PER_SQM_RE = new RegExp(
   'iu',
 );
 
+// THE RATE WITHOUT A MONEY NOUN (the [10:00] Кисела Вода capture):
+// «KOLKU DOAGJA KVADRAT» asks what the square metre WORKS OUT TO — no «цена»,
+// no preposition, so the money+preposition shape above missed it and the
+// question fell to the LLM, which answered «цена по квадрат немам забележано»
+// about a flat whose price and м² are both in the feed. The RATE VERB is what
+// makes it a rate: «колку доаѓа/дава/изнесува/чини/е квадрат(от)». A verbless
+// «kolku kvadrati» is a SIZE question and stays with the sqm facet; the plural
+// «квадрати» is never a rate either.
+const RATE_VERB_SQM_RE = new RegExp(
+  `(?:колку|kolku)\\s*(?:е|e|чини|chini|доаѓа|doagja|дава|dava|изнесува|iznesuva|носи|nosi)\\s*`
+    + `(?:(?:за|za|по|po|на|na)\\s*)?(?:квадратот|kvadratot|квадрат|kvadrat|м²|м2|m2|кв\\.?\\s*м)`,
+  'iu',
+);
+
 const YEAR_BUILT_RE = /(?:од\s+)?(?:која|којашто)\s+година\s+(?:е\s+)?(?:изград|градб|зград|станат|куќата|објектот)|кога\s+(?:е\s+)?(?:изградена|изграден|изградено|подигната|подигнат)|година\s+на\s+(?:изградба|градба)|колку\s+(?:е\s+)?стар(?:а|о)?\s+(?:зградата|зграда|куќата|куќа|станат|објектот)/iu;
 const RENOVATION_YEAR_RE = /(?:кога\s+(?:е\s+)?(?:реновиран|реновирана|реновирано))|(?:дали\s+(?:е\s+)?реновир)|(?:реновиран(?:а|о)?\s+(?:во|година))/iu;
 
@@ -224,8 +238,11 @@ export function detectInfoFacets(text: string, ctx: InfoAskContext = {}): InfoFa
   // PRICE PER M² — "kolku mu e cena po m2 na 84 ?" asks the RATE. The old
   // read took it as the price facet and answered the total only, which is not
   // what was asked (the [08:58] transcript).
-  const perSqm = PER_SQM_RE.test(t)
-    && (isQuestion || /(?:цена|cena|чини|изнесува|евра|evra)/iu.test(t));
+  const perSqm = (PER_SQM_RE.test(t)
+    && (isQuestion || /(?:цена|cena|чини|изнесува|евра|evra)/iu.test(t)))
+    // …or the rate verb itself («kolku doagja kvadrat» names no money noun but
+    // asks the rate as plainly as «cena po m²» does).
+    || (RATE_VERB_SQM_RE.test(t) && !SEARCH_CRITERION_RE.test(t));
   if (perSqm) f.pricePerSqm = true;
 
   // PRICE — the established detector (keyword-gated), minus the budget sense
