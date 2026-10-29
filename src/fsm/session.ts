@@ -100,6 +100,12 @@ export interface SlotData {
    *  owner was asked about «не е во можност… 05:00»). Cleared on any owner
    *  verdict (fixed counter / ok / goneclose the whole-day offer). */
   ownerCounterWholeDay?: string;
+  /** The FIXED term the owner last countered with (a time he proposed, not the
+   *  client's). The next client proposal refuses THAT term, so the owner ping
+   *  must name it — the [17:45] capture asked the owner about «18:30» after the
+   *  owner himself had offered 16:00, so the follow-up accused the client of a
+   *  refusal he never made. Consumed by the next owner ask. */
+  ownerCounterTime?: string;
   feeRejections?: number;       // VISIT-FEE ladder: 1..3; 3 = graceful close + customer queued
   /** RENT-COMMISSION ladder (the second money topic, see provisionLadder): its
    *  own counter so resisting the commission never burns a visit-fee rung and

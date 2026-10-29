@@ -19,7 +19,7 @@ import { AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, detectAgentAtt
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
-import { hasClockHint, hasPeriodHint, extractDayWord } from '../visits/time';
+import { hasClockHint, hasPeriodHint, extractDayWord, outsideVisitWindow } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, descriptorPhrases, isStudio, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer, isSuterenUnit, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE, INFO_NO_YEAR_KEY, INFO_NO_RENOVATION_KEY } from '../llm/infoAnswer';
@@ -9210,7 +9210,12 @@ ${contactReminder}`;
       // caller persists the session as soon as its own turn ends — a flag set
       // after an await would never reach the DB and the next inbound would
       // load a session that "never asked the owner".
-      const priorAsk = session.slots.ownerAskTime;
+      // THE TERM THE CLIENT IS REFUSING is the owner's own last counter when
+      // he made one: after the owner offered 16:00 and the client answered
+      // «покасно 19:30», the follow-up must say «не е во можност во 16:00» —
+      // naming the client's earlier 18:30 accused him of refusing a term the
+      // owner had already refused himself (the [17:45] capture).
+      const priorAsk = session.slots.ownerCounterTime ?? session.slots.ownerAskTime;
       const isFollowup = !!priorAsk && !!askTime && priorAsk !== askTime;
       // ACCEPTANCE follow-up (the [01:07] capture): an OPEN whole-day counter
       // means the client's completed term accepts the owner's own proposal —
@@ -9223,6 +9228,7 @@ ${contactReminder}`;
       // The flag is consumed the moment the ping is composed — whatever the
       // client offered afterwards no longer binds a future loop.
       session.slots.ownerCounterWholeDay = undefined;
+      session.slots.ownerCounterTime = undefined; // consumed by the refused term above
       session.slots.ownerAskTime = askTime;
       this.deps.sessions.set(session);
       // The ping-pong starts HERE: Lina asks the owner whether the property is
@@ -9305,6 +9311,7 @@ ${contactReminder}`;
 
     if (verdict.status === 'ok') {
       session.state = 'pending';
+      session.slots.ownerCounterTime = undefined; // agreed — nothing left to refuse
       session.slots.ownerTime = verdict.ownerTime ?? session.slots.visitTime;
       // The price relay goes FIRST (if any), then the confirmation — the client
       // must hear the new price before the visit is locked in.
@@ -9378,6 +9385,19 @@ ${contactReminder}`;
         await this.sendRaw(session, dayRelay);
         return;
       }
+      // THE VISIT WINDOW APPLIES TO THE OWNER'S PROPOSAL TOO: viewings are made
+      // 09:00–21:00, so a counter outside it («во 8 наутро», «во 22:00») is not
+      // a term the client could ever take. Ask the owner for a time INSIDE the
+      // window instead of relaying a visit that cannot happen.
+      if (outsideVisitWindow(verdict.ownerTime)) {
+        session.state = 'owner_checking'; // stay, re-ask the owner
+        const windowReply = 'Посетите ги правиме од 09:00 до 21:00 часот. Кој термин во тој период Ви одговара?';
+        const fullReply = `${priceRelay ? `${priceRelay} ` : ''}${windowReply}`;
+        pushHistory(session, { role: 'assistant', text: fullReply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, fullReply);
+        return;
+      }
       if (detectVagueTime(verdict.ownerTime)) {
         session.state = 'owner_checking'; // stay in owner_checking, re-ask
         const vagueReply = pickVariant('vague.time.owner', { recent: assistantTexts(session) })
@@ -9390,6 +9410,11 @@ ${contactReminder}`;
       }
       session.state = 'time_confirm';
       session.slots.ownerTime = verdict.ownerTime;
+      // The owner's FIXED counter is the term the client is about to accept or
+      // refuse — remember it so a refusal names THIS term, not the client's
+      // earlier one (the [17:45] capture pinged the owner about «18:30» after
+      // the owner had offered 16:00). Consumed by runOwnerCheck.
+      session.slots.ownerCounterTime = verdict.ownerTime;
       // The CLIENT-facing relay shows the owner's counter in the canonical
       // 24h display (normalizeOwnerTime → "Четврток, 29.10.2026 во 19:30"),
       // exactly like the refused term next to it. mkTimePhrase is the LOSSY

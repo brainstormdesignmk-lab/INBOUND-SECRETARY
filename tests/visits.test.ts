@@ -15,7 +15,7 @@ import { OwnerStore } from '../src/store/owners';
 import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
-import { parseVisitDateTime, formatVisitDate, hasClockHint } from '../src/visits/time';
+import { parseVisitDateTime, formatVisitDate, hasClockHint, outsideVisitWindow } from '../src/visits/time';
 import { normalizeOwnerTime } from '../src/llm/prompts';
 import { LandmarkService, sanitizeLandmarkAnswer } from '../src/geo/landmarks';
 import { VisitScheduler } from '../src/visits/scheduler';
@@ -85,6 +85,34 @@ test('parseVisitDateTime: day + trailing bare hour + day typos — the [12:42] t
   assert.equal(normalizeOwnerTime('PONEDELIK 6', NOW), 'Понеделник, 17.08.2026 во 18:00');
 });
 
+test('the VISIT WINDOW decides AM/PM: a bare 1–8 is PM, and 09:00–21:00 is the whole day', () => {
+  const p = (t: string) => parseVisitDateTime(t, NOW);
+  // THE OWNER'S RULE ([17:45]): no visit before 09:00 or after 21:00, so the
+  // hour frame a bare number can mean is 9…20 — 1–8 are the afternoon/evening
+  // side of it.
+  assert.deepEqual(p('во 8'), new Date(2026, 7, 16, 20, 0), '«во 8» is 20:00');
+  assert.deepEqual(p('7:30'), new Date(2026, 7, 16, 19, 30), '«7:30» is 19:30, never 07:30');
+  assert.deepEqual(p('6IPOL'), new Date(2026, 7, 16, 18, 30), '«6IPOL» is 18:30');
+  assert.deepEqual(p('петок 4'), new Date(2026, 7, 21, 16, 0), '«петок 4» is 16:00');
+  assert.deepEqual(p('POKASNO 7:30'), new Date(2026, 7, 16, 19, 30), 'a bare clock after «покасно»');
+  // 9–12 are morning/midday as said; 13–20 are already 24-hour.
+  assert.deepEqual(p('петок во 9'), new Date(2026, 7, 21, 9, 0));
+  assert.deepEqual(p('петок во 12'), new Date(2026, 7, 21, 12, 0));
+  assert.deepEqual(p('петок во 20'), new Date(2026, 7, 21, 20, 0));
+  // OUTSIDE THE WINDOW IS NOT A VISIT — the caller asks for another term.
+  assert.equal(p('во 8 наутро'), undefined, 'no visit at 08:00');
+  assert.equal(p('петок во 22:00'), undefined, 'no visit after 21:00');
+  assert.deepEqual(p('петок во 21:00'), new Date(2026, 7, 21, 21, 0));
+  // A MORNING WORD keeps the hour literal.
+  assert.deepEqual(p('петок наутро во 9'), new Date(2026, 7, 21, 9, 0));
+  // The OWNER'S counter is checked against the same window before it is
+  // relayed (a visit the window forbids is never offered to the client).
+  assert.equal(outsideVisitWindow('петок во 22:00', NOW), true);
+  assert.equal(outsideVisitWindow('петок наутро во 8', NOW), true);
+  assert.equal(outsideVisitWindow('петок во 16:00', NOW), false);
+  assert.equal(outsideVisitWindow('петок', NOW), false, 'no clock → the vague-time lane, not this');
+});
+
 test('parseVisitDateTime: spoken half-hour "pet i pol" = 17:30, day-aware — the [22:50] transcript', () => {
   const p = (t: string) => parseVisitDateTime(t, NOW)!;
   // "PA NEKA BIDE PET I POL" (the client refining "VO VTORNIK POSLE 5"): the
@@ -102,6 +130,22 @@ test('parseVisitDateTime: spoken half-hour "pet i pol" = 17:30, day-aware — th
   assert.equal(normalizeOwnerTime('VTORNIK PET I POL', NOW), 'Вторник, 18.08.2026 во 17:30');
   // the bedroom fraction ("edna i pol spalni") is NOT a clock
   assert.equal(parseVisitDateTime('edna i pol spalni', NOW), undefined);
+});
+
+test('the owner\'s bare hour after «MOZAM» is a counter — «NAKAJ 4» is 16:00, not 04:00', () => {
+  // The [17:45] capture: «PETOK NEMA DA MOZAM VO 6 IPOL . MOZAM PORANO ,
+  // NAKAJ 4». The proposal clause has no preposition and no colon, so the
+  // counter was dropped and the client was asked for another term without
+  // ever hearing the owner's offer.
+  const v = detectOwnerVerdict('PETOK NEMA DA MOZAM VO 6 IPOL . MOZAM PORANO , NAKAJ 4', 'Петок во 18:30');
+  assert.equal(v?.status, 'counter', JSON.stringify(v));
+  assert.equal(normalizeOwnerTime(v?.ownerTime ?? '', NOW), 'Петок, 21.08.2026 во 16:00');
+  // The same offer written with «do»/«до» instead of the typo.
+  const v2 = detectOwnerVerdict('petok ne mozam vo 18:30, mozam porano do 4', 'Петок во 18:30');
+  assert.equal(normalizeOwnerTime(v2?.ownerTime ?? '', NOW), 'Петок, 21.08.2026 во 16:00');
+  // Money is never a clock: the bare number must not be a price.
+  const v3 = detectOwnerVerdict('ne mozam vo 18:30. mozam 400 evra', 'Петок во 18:30');
+  assert.equal(v3?.ownerTime, undefined, JSON.stringify(v3));
 });
 
 test('parseVisitDateTime: unresolvable phrases return undefined (degrade gracefully)', () => {
@@ -661,8 +705,9 @@ test('[00:57] parse: „понеделник попладне околу 6“ = 
   // The day-less lone clock follows the afternoon-viewing convention too —
   // bare „OKOLU 6“ must never read a literal 06:00.
   assert.deepEqual(p('OKOLU 6'), new Date(2026, 9, 23, 18, 0));
-  // Minutes keep their literal hour (the documented veto).
-  assert.deepEqual(p('понеделник попладне во 6:30'), new Date(2026, 9, 26, 6, 30));
+  // Minutes keep their MINUTES, the hour follows the visit window: «6:30» is
+  // 18:30 (a visit is never made at 06:30 — the window starts at 09:00).
+  assert.deepEqual(p('понеделник попладне во 6:30'), new Date(2026, 9, 26, 18, 30));
   // Morning context stays morning.
   assert.deepEqual(p('понеделник утрово во 9'), new Date(2026, 9, 26, 9, 0));
 });
@@ -1090,5 +1135,88 @@ test('cancel cleanup: the silenced protocol is counted for the operator and neve
   assert.deepEqual(ownerMsgs.slice(ownersBeforeTicks), [], 'the owner hears nothing more');
   const turns = db.db.prepare(`SELECT status FROM visit_turns WHERE appointment_id = ?`).all(apptId) as { status: string }[];
   assert.ok(turns.length > 0 && turns.every(t => t.status === 'skipped'), JSON.stringify(turns));
+  db.close();
+});
+
+// ── THE [17:43] PING-PONG ───────────────────────────────────────────────────
+// Field transcript: the client proposed Friday after 6 → asked for an exact
+// hour → «NEKA BIDE 6IPOL» (18:30). The owner refused 18:30 and offered an
+// EARLIER term, latest 4: «PETOK NEMA DA MOZAM VO 6 IPOL . MOZAM PORANO ,
+// NAKAJ 4». Two things broke:
+//   1. the client was told only that 18:30 did not suit and asked for another
+//      term — the owner's 16:00 never reached her, so she could not accept it;
+//   2. her answer «POKASNO 7:30» reached the owner as 07:30 (a visit at 7 in
+//      the morning) and the follow-up named 18:30, a term the owner himself
+//      had already refused.
+// The window rule (visits/time): a bare 1–8 is PM, and no visit is made before
+// 09:00 or after 21:00.
+test('[17:43] the owner\'s counter reaches the client, and «POKASNO 7:30» is 19:30 — never 07:30', async () => {
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const props = new FakeProps(ROWS);
+  const llm = new FailingLlm();
+  const classifier = new Classifier(llm, cfg, props);
+  const responder = new Responder(llm, cfg);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const events = new EventStore(db);
+  const owners = new OwnerStore(db);
+  owners.upsert({ eb: 78, name: 'Стојан', phone: '070999888', status: 'available' });
+  const sched = new VisitScheduler({
+    db, events, owners, properties: props,
+    notifyClient: async () => {}, notifyOwner: async () => {}, notifyOperator: async () => {},
+    now: () => NOW,
+  });
+  const handler = new InboundHandler({ cfg, db, sessions, classifier, responder, properties: props,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }),
+    visits: sched,
+  });
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_c: string, _eb: number, q: string) => { ownerAsks.push(q); };
+
+  const chatId = 'petok-pingpong';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('DALI E SEUSTE DOSTAPEN ?');
+  await send('DA');
+  await send('DA, SE SOGLASUVAM');
+  await send('MARKO 078/914 196');
+  let s = await send('MOZAM VO PETOK POSLE 6');
+  // «после 6» is a window, not a term — Lina asks for the exact hour first
+  // (exactly as in the field transcript).
+  assert.equal(s.state, 'visit_scheduling', `the exact-hour ask comes first: ${s.state}`);
+  s = await send('NEKA BIDE 6IPOL');
+  assert.equal(s.state, 'owner_checking', `the exact hour re-asks the owner: ${s.state}`);
+  assert.ok(ownerAsks.some(q => /18:30/u.test(q)), `the owner is asked about 18:30: ${ownerAsks.join(' | ')}`);
+
+  // THE OWNER'S COUNTER: can't do 18:30, can do earlier — latest 4 (=16:00).
+  const verdict = detectOwnerVerdict('PETOK NEMA DA MOZAM VO 6 IPOL . MOZAM PORANO , NAKAJ 4', s.slots.visitTime ?? '');
+  assert.ok(verdict, 'the owner reply must parse');
+  assert.equal(verdict!.status, 'counter', JSON.stringify(verdict));
+  assert.equal(normalizeOwnerTime(verdict!.ownerTime ?? '', NOW), 'Петок, 21.08.2026 во 16:00',
+    `the owner's «NAKAJ 4» is 16:00, not 04:00: ${JSON.stringify(verdict)}`);
+
+  handler.ownerAnswer(chatId, 78, verdict!);
+  await new Promise(r => setTimeout(r, 50));
+  s = sessions.get(chatId)!;
+  assert.equal(s.state, 'time_confirm', `the client is asked to accept the counter: ${s.state}`);
+  const relay = sent[sent.length - 1] ?? '';
+  // THE CLIENT MUST HEAR THE OWNER'S TERM — 16:00 — not only the refusal.
+  assert.ok(/16:00/u.test(relay), `the client relay carries the owner's 16:00: ${relay}`);
+
+  // THE CLIENT ANSWERS «POKASNO 7:30» — later than 16:00, so 19:30.
+  const asksBefore = ownerAsks.length;
+  s = await send('POKASNO 7:30');
+  assert.equal(s.state, 'owner_checking', `the new term re-asks the owner: ${s.state}`);
+  const followup = ownerAsks[asksBefore] ?? ownerAsks[ownerAsks.length - 1] ?? '';
+  assert.ok(/19:30/u.test(followup), `the client's «7:30» is 19:30, never 07:30: ${followup}`);
+  assert.ok(!/07:30/u.test(followup), `no 07:30 visit asked of the owner: ${followup}`);
+  // …and the refused term is the OWNER'S 16:00, not the client's earlier 18:30.
+  assert.ok(/16:00/u.test(followup), `the follow-up names the owner's own 16:00: ${followup}`);
+  assert.ok(!/18:30/u.test(followup), `never accuses the client of refusing 18:30 again: ${followup}`);
   db.close();
 });

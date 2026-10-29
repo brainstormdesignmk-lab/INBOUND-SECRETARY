@@ -118,7 +118,7 @@ test('an area with nothing matching ASKS about other parts, never serves them', 
   // The bank rotates the wording — the promise, not the phrasing, is pinned:
   // it says Водно has nothing AND asks before offering anything elsewhere.
   assert.match(reply, /Водно/);
-  assert.match(reply, /(алтернативи|друга[^.?]*локациј|други\s+(?:делови|населби|локации|блиски)|прошириме|пошироко)/u,
+  assert.match(reply, /(алтернативи|друга[^.?]*локациј|друг[аоу][^.?]*населб|други\s+(?:делови|населби|локации|блиски)|прошириме|пошироко)/u,
     `the widen is a QUESTION, not a substitution: ${reply}`);
   assert.doesNotMatch(reply, /Евидентен број (?:95|96)/, `no card before the widen: ${reply}`);
 });

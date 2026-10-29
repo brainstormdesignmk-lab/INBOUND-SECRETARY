@@ -10,6 +10,43 @@
 
 export const MK_WEEKDAYS = ['недела', 'понеделник', 'вторник', 'среда', 'четврток', 'петок', 'сабота'];
 
+/** THE VISIT WINDOW. Viewings are made 09:00–21:00 and never outside it, and
+ *  that window is what decides AM/PM for a BARE hour — the owner's rule, stated
+ *  from the [17:45] capture: «no visits until 9:00 in the morning, and none
+ *  after 21:00, so the hour frame is 9…20».
+ *
+ *  A bare hour 1–8 is therefore an AFTERNOON/EVENING clock: 1 → 13:00, 4 →
+ *  16:00, 6 → 18:00, 7 → 19:00, 8 → 20:00 — and with minutes kept, 7:30 →
+ *  19:30. Hours 9–12 stay as said („во 11“ = 11:00, „на пладне“ = 12:00) and
+ *  13–20 are already 24-hour. Anything that resolves outside 09:00–21:00 is
+ *  not a visit and must never be relayed as one. */
+export const VISIT_FIRST_HOUR = 9;
+export const VISIT_LAST_HOUR = 21; // a visit may start up to 21:00
+
+/** 1–8 are PM (the visit window starts at 9), everything else is as said. */
+export function visitClockHour(hour: number): number {
+  return hour >= 1 && hour <= 8 ? hour + 12 : hour;
+}
+
+/** Does this clock (minutes since midnight) fall inside the visit window? */
+export function isVisitClock(minutes: number): boolean {
+  return minutes >= VISIT_FIRST_HOUR * 60 && minutes <= VISIT_LAST_HOUR * 60;
+}
+
+/** A phrase that NAMES a clock but cannot be a visit because that clock sits
+ *  outside 09:00–21:00 («во 8 наутро», «во 22:00»). The owner's counters are
+ *  checked with it before they are relayed — a visit the window forbids must
+ *  not be offered to the client as a term. A phrase with no clock at all is
+ *  not "outside": that is the vague-time lane's business. */
+export function outsideVisitWindow(phrase: string, now: Date = new Date()): boolean {
+  if (!hasClockHint(phrase)) return false;
+  return parseVisitDateTime(phrase, now) === undefined;
+}
+
+// A MORNING word fixes the hour as AM ("понеделник утрово во 9" stays 09:00);
+// without one, the visit-window rule above decides.
+const MORNING_WORD_RE = /(наутро|наутрото|утрово|утрина|сабајле|sabajle|nautro|utrovo|претпладне|pretpladne)/i;
+
 const DAY_WORDS: Array<[RegExp, number]> = [
   // "понеделк/PONEDELIK/ponedenik" — the n→k / dropped-letter day typos (the
   // [12:42] transcript: "PONEDELIK 6" left the day unparsed and the owner ask
@@ -56,8 +93,8 @@ function hourWordClock(t: string): { 1: string; 2?: string; length: number } | n
 // with "PA NEKA BIDE PET I POL", which the classifier could only read as a
 // bare clock "5:30", dropping the day AND the afternoon context — the owner
 // was asked about НЕДЕЛА 05:30 instead of ВТОРНИК (the intended 17:30).
-// Word-number hour + "и пол": the hour table mirrors the PM shift rule
-// (viewings happen in the afternoon — 1–7 shift to PM: "пет и пол" = 17:30).
+// Word-number hour + "и пол": the hour table follows the VISIT WINDOW rule
+// (see visitClockHour — 1–8 are PM: "пет и пол" = 17:30).
 // The trailing-room-noun veto keeps the bedroom fraction ("една и пол
 // спални") out.
 const HOUR_WORDS: Array<[RegExp, number]> = [
@@ -119,8 +156,8 @@ const PART_RE =
 // completed against a stale day. Guards: up to 20 non-digit chars between
 // ("VO PONEDELNIK MOZAM 6"), the hour must not run into a longer number or a
 // clock/date ("петок 11.06" stays a date), and no money tail ("sabota 350
-// evra" is a budget). Same PM shift as the hour-word form: viewings happen in
-// the afternoon — 1–7 shift to PM, 8–11 stay morning.
+// evra" is a budget). Same visit-window rule as the hour-word form: 1–8 are PM,
+// 9–12 stay as said (see visitClockHour).
 export const DAY_TRAILING_HOUR_RE =
   new RegExp(
     '(?:понеделн|понеделк|понеделок|вторн|вторик|втрик|сред[аи]|сретта|срета|средта|четврт|цетврт|петочн|петок|петк|сабот|сабта|субота|недел|задутре|утре|денес|викенд'
@@ -232,48 +269,25 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
     }
   }
   const part = partHour(t);
-  // Hour-word PM shift: "6 saat" / "6 саати" means 18:00, never 06:00 —
-  // viewings happen in the afternoon/evening, and the Latin transcripts
-  // write the hour as digits + the hour noun (the [14:22] transcript:
-  // "VO PONEDELNIK MOZAM 6 SAAT" resolved to 06:00 and the owner ask read
-  // nonsense). Hours 1–7 shift to PM; 8–11 stay morning ("9 saat" = 09:00).
-  // An explicit clock with minutes ("во 6:30") keeps its literal hour.
-  // Same shift for the DAY+TRAILING-HOUR form: "PONEDELIK 6" = 18:00.
-  // Same shift for the SPOKEN HALF-HOUR ("пет и пол" = 17:30) and the
-  // day-adjacent BARE clock ("вторник 5:30" — a day word makes the hour an
-  // afternoon viewing, never 05:30; a period word like "наутро" opts out).
-  if ((hc !== undefined || hw || th || dhm) && hour !== undefined && hour < 8 * 60) {
-    hour += 12 * 60;
-  } else if (hw === null && th === null && dhm === null && hc === undefined && hour !== undefined && hour < 8 * 60
-    && dayOfWeekFrom(t) !== undefined && partHour(t) === undefined && BARE_CLOCK_RE.test(t)) {
-    hour += 12 * 60;
-  }
-  // PM context adjustment: "попладне после 6" = 18:00, not 06:00. An EXPLICIT
-  // PM part word (пладне/попладне/вечер/навечер) makes the clock PM across
-  // the whole 1–11 window — the [00:57] transcript ("VO PONEDENIK MOZAM
-  // POPLADNE" stored, follow-up "OKOLU 6") landed the owner ask at
-  // Понеделник 06:00 because only "после N" (later-than wording) shifted.
-  // Minutes keep their literal hour ("попладне околу 6:30").
-  if (hour !== undefined && part !== undefined && part >= 12 && hour < 12 * 60) {
-    const h = Math.floor(hour / 60);
-    if (h >= 1 && h <= 11 && !/\d{1,2}[:.]\d{2}/.test(t)) {
-      hour = (h + 12) * 60;
-    }
-  }
-  // A BARE prefixed clock with no part word ("во 6", "около 6", "na 5") is
-  // ALSO the afternoon-viewing convention — the day-adjacent arm above reads
-  // "вторник 5:30" = 17:30, but a day-less "OKOLU 6" (the same [00:57]
-  // capture when no day is stored) still happened in the literal small hour
-  // and asked the owner for 06:00. 8–11 stay literal ("во 8" is a morning
-  // answer), morning words veto, "после N" stays vague-guarded (its own
-  // semantics), and a date line never re-sides its hour.
-  if (hour !== undefined && hour < 8 * 60 && !hasDate && part === undefined
-    && !/\d{1,2}[:.]\d{2}/.test(t)
-    && !/(?:наутро|наутрото|утрово|утрина|nautro|utrovo|после|posle|pred|пред)/i.test(t)
-    && /(?:во|vo|на|na|околу|okolu|по|po|од|od)\s*\d{1,2}\b/i.test(t)) {
-    hour += 12 * 60;
-  }
   if (hour === undefined && part !== undefined) hour = part * 60; // part is an HOUR
+  // THE VISIT WINDOW DECIDES AM/PM (see visitClockHour): a bare 1–8 is an
+  // afternoon/evening clock, so "во 8" is 20:00, "7:30" is 19:30 and "6 IPOL"
+  // is 18:30 — the [17:45] capture had "POKASNO 7:30" relayed to the owner as
+  // 07:30. The rule replaced four separate ad-hoc shifts (hour-word, day-adjacent,
+  // part-word and prefixed-clock) that each covered a different spelling and
+  // none of them covered a bare clock after «покасно». A MORNING word is the
+  // only opt-out: "понеделник утрово во 9" stays 09:00, and "во 8 наутро" is
+  // 08:00 — which the window then refuses below.
+  if (hour !== undefined && !MORNING_WORD_RE.test(t)) {
+    const h = Math.floor(hour / 60);
+    const m = hour % 60;
+    hour = visitClockHour(h) * 60 + m;
+  }
+  // OUTSIDE THE VISIT WINDOW IS NOT A VISIT: no viewings before 09:00 or after
+  // 21:00 (the owner's rule). Checked HERE, before any date is built, so the
+  // bare-clock branch (which returns early) obeys it too — "во 8 наутро" was
+  // accepted as 08:00 and "во 22:00" as 22:00.
+  if (hour !== undefined && !isVisitClock(hour)) return undefined;
 
   // Day pick: with several day words, the day that RIDES the clock clause is
   // the offered one — the digits' absolute position is the anchor (the
@@ -329,7 +343,6 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
 
   // A day alone ("задутре", "петок") defaults to midday.
   if (hour === undefined) hour = 12 * 60;
-
   base.setMinutes(hour, 0, 0);
   // A phrase that resolved into the past pushes forward: a weekday already
   // past this week -> next week; a relative day always lands ahead already.
@@ -364,6 +377,7 @@ export function hasClockHint(s: string): boolean {
   if (/\d{1,2}[:.]\d{2}\b/.test(s)) return true;
   if (HOUR_WORD_RE.test(s)) return true;
   if (HALF_CLOCK_RE.test(s)) return true;
+  if (DIGIT_HALF_RE.test(s)) return true; // «6IPOL» / «7 и пол»
   if (DAY_TRAILING_HOUR_RE.test(s)) return true;
   return /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od)\s*\d{1,2}\b/i.test(s);
 }

@@ -1,6 +1,6 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase, placeLooseKey } from '../data/properties';
-import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE } from '../visits/time';
+import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, visitClockHour } from '../visits/time';
 
 // Re-export: the handler's split-intake gates (day-only vs clock-completion)
 // live on this module's surface; the canonical implementation is visits/time.
@@ -2311,6 +2311,13 @@ export function detectVisitTime(text: string): string | undefined {
   // classifier alone read it as bare 5:30, dropping the day. Deterministic so
   // the day-donation merge can keep ВТОРНИК.
   if (HALF_CLOCK_RE.test(text)) return text.trim().slice(0, 80);
+  // DIGIT HALF-HOUR («6IPOL», «7 и пол») — the SAME half-hour said with a
+  // digit, which is how the [17:43] client answered the exact-hour ask
+  // («NEKA BIDE 6IPOL» = 18:30). The owner's counter form («Cetvrtok vo
+  // 7ipol») was already read by parseVisitDateTime, but the CLIENT-side slot
+  // builder only knew the spoken «пет и пол», so without an LLM the answer was
+  // not recognized as a time at all and the funnel re-asked the term.
+  if (DIGIT_HALF_RE.test(text)) return text.trim().slice(0, 80);
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.
@@ -3422,6 +3429,36 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
     // the relay asks the client to precise the clock instead of dropping it.
     if (refusalIdx < 0) return first[0];
     return { day: first[0], wholeDay: true };
+  }
+  // A BARE HOUR AFTER AN ABILITY VERB IS STILL A COUNTER — the [17:45] capture:
+  // «PETOK NEMA DA MOZAM VO 6 IPOL . MOZAM PORANO , NAKAJ 4» (Friday, can't do
+  // 6:30, can earlier, latest 4). The owner dropped both the preposition and
+  // the colon, so the proposal clause carried no clock by OWNER_CLOCK_RE; the
+  // counter was dropped entirely, the client was told only that 18:30 did not
+  // suit and asked for another term WITHOUT the owner's 16:00, and the next
+  // owner ping named a refusal that never happened. The hour must END its
+  // clause and share it with an ability verb („MOZAM … 4“, „MOZAM DO 4“), and
+  // the owner's day — named in the refused clause — rides along so «porano»
+  // stays on the same day. Money and years are vetoed explicitly.
+  if (clocks.length === 0) {
+    const clause = scoped.trim().replace(/[.,;!?\s]+$/u, '');
+    const ability = /(?<![\p{L}])(?:mozam|mozeme|mozat|можам|можеме|можат)(?![\p{L}])/iu.test(clause);
+    const bareHour = /(?<![\p{L}\p{N}])(\d{1,2})(?:\s*(?:h|ч|saat|часот))?$/iu.exec(clause);
+    const money = /(?:евр|evr|eur|илјад|iljad|ден|mkd)/iu.test(clause);
+    if (ability && bareHour && !money) {
+      const h = Number(bareHour[1]);
+      if (Number.isFinite(h) && h >= 1 && h <= 20) {
+        const dayWord = text.match(new RegExp(OWNER_DAY_RE.source, 'i'))?.[0];
+        // THE VISIT WINDOW resolves the bare hour here, once: the owner's 4 is
+        // 16:00 (visits/time.visitClockHour), so BOTH later readers — the client
+        // relay and the mkTimePhrase form of the refused term — already carry
+        // the PM hour instead of a literal 04:00. Latin "vo" keeps the phrase
+        // single-script for normalizeTimePhrase.
+        const pm = visitClockHour(h);
+        const clock = `${String(pm).padStart(2, '0')}:00`;
+        return dayWord ? `${dayWord} vo ${clock}` : `vo ${clock}`;
+      }
+    }
   }
   // Day-part WITHOUT a day word and WITHOUT a clock ("samo popladne mozam"):
   // the part IS the offered window — a fixed-carrier counter ("Попладне") the

@@ -785,13 +785,22 @@ export class Classifier {
     if (session.state === 'time_confirm'
       && ev.type !== 'ESCALATE' && ev.type !== 'REJECTED') {
       const bareNo = /^(?:не|ne|no)\s*[.!?]*$/iu.test(text.trim());
-      if (detectTimeRejection(text) || bareNo) {
+      // A REJECTION THAT CARRIES A NEW TERM IS A COUNTER-PROPOSAL. «ПОКАСНО»
+      // is a rejection word AND how a client proposes a later visit — the
+      // [17:45] capture «POKASNO 7:30 ?» was read as a bare rejection, so the
+      // funnel asked «кој термин?» and the owner never heard 19:30. The time is
+      // tried FIRST; an echo of the term on the table is still a rejection
+      // («ne mi odgovara vo 18:00»), a different term re-asks the owner.
+      const newTerm = detectVisitTime(text);
+      const counter = newTerm ? timeConfirmCounterEvent(newTerm, session) : undefined;
+      if (counter?.type === 'VISIT_TIME_PROVIDED') {
+        ev = counter;
+      } else if (detectTimeRejection(text) || bareNo) {
         ev = { type: 'TIME_REJECTED' };
       } else if (detectAgreement(text)) {
         ev = { type: 'TIME_ACCEPTED' };
-      } else {
-        const t = detectVisitTime(text);
-        if (t) ev = timeConfirmCounterEvent(t, session);
+      } else if (counter) {
+        ev = counter;
       }
     }
 
@@ -1454,13 +1463,19 @@ export class Classifier {
     if (session.state === 'time_confirm'
       && parsed.event.type !== 'ESCALATE' && parsed.event.type !== 'REJECTED') {
       const bareNo = /^(?:не|ne|no)\s*[.!?]*$/iu.test(text.trim());
-      if (detectTimeRejection(text) || bareNo) {
+      // Same precedence as the deterministic path above: a rejection that
+      // carries a DIFFERENT concrete time is a counter-proposal (an echo of
+      // the term on the table stays a rejection).
+      const newTerm = detectVisitTime(text);
+      const counter = newTerm ? timeConfirmCounterEvent(newTerm, session) : undefined;
+      if (counter?.type === 'VISIT_TIME_PROVIDED') {
+        parsed.event = counter;
+      } else if (detectTimeRejection(text) || bareNo) {
         parsed.event = { type: 'TIME_REJECTED' };
       } else if (detectAgreement(text)) {
         parsed.event = { type: 'TIME_ACCEPTED' };
-      } else {
-        const t = detectVisitTime(text);
-        if (t) parsed.event = timeConfirmCounterEvent(t, session);
+      } else if (counter) {
+        parsed.event = counter;
       }
     }
     // Owner check in flight, but the client changed their mind about the time —
