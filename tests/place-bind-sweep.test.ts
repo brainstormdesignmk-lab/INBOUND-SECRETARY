@@ -139,3 +139,38 @@ test('the coverage guard tolerates typos, venue words and connector heads — an
   // A different KIND of institution is never that place.
   assert.equal(poiNameCoversClientWords('Воена болница', 'Воена академија Генерал Михаило Апостолски'), false);
 });
+
+// THE TYPE-FIRST SCHOOLS.
+//
+// The map files most schools behind their type — «ООУ „Димитар Македонски“»,
+// «Средно уметничко училиште „Лазар Личеновски“», «Гимназија Орце Николов кон
+// Влае» — so the map name's head is «ООУ»/«средно»/«гимназија», a word the
+// client never said, and the coverage guard refused the school he named. The
+// type is class, not identity (the same contract as «ТЦ»), so it is stripped
+// from the map's leading run AND the client's — but only while an identity word
+// survives, and never for a name that merely starts with the adjective.
+test('a school filed behind its TYPE binds by its own name — and only that name', () => {
+  // Every shape the live map carries: abbreviations, type phrases, a Latin row.
+  assert.equal(poiNameCoversClientWords('Стив Наумов', 'ООУ Стив Наумов'), true);
+  assert.equal(poiNameCoversClientWords('Димитар Македонски', 'ООУ „Димитар Македонски“'), true);
+  assert.equal(poiNameCoversClientWords('Лазар Личеновски', 'Средно уметничко училиште „Лазар Личеновски“'), true);
+  assert.equal(poiNameCoversClientWords('Битолски Конгрес', 'ОУГС Битолски Конгрес'), true);
+  assert.equal(poiNameCoversClientWords('Орце Николов кон Влае', 'Гимназија Орце Николов кон Влае'), true);
+  assert.equal(poiNameCoversClientWords('Lazo Trpovski', 'Elementary School "Lazo Trpovski"'), true);
+  assert.equal(poiNameCoversClientWords('Лазар Танев', 'Catering High School „Lazar Tanev“'), true);
+  // The school's own FULL name — type words included — still binds to itself.
+  assert.equal(poiNameCoversClientWords('ООУ Стив Наумов', 'ООУ Стив Наумов'), true);
+  // …and from the other script, which is how the extractor hands it over.
+  assert.equal(poiNameCoversClientWords('OOU Stiv Naumov', 'ООУ Стив Наумов'), true);
+
+  // A TYPE ALONE NAMES NO SCHOOL. «Угостителско училиште» is a description,
+  // not the one catering school in town, and a bare «училиште» is not a place.
+  assert.equal(poiNameCoversClientWords('Угостителско училиште', 'Средно угостителско училиште „Лазар Танев“'), false);
+  assert.equal(poiNameCoversClientWords('училиште', 'ООУ Стив Наумов'), false);
+  // A DIFFERENT SCHOOL is still a different school.
+  assert.equal(poiNameCoversClientWords('Стив Наумов', 'ООУ Круме Кепески'), false);
+  // «Средно Нерези»/«Средно Водно» are SETTLEMENTS whose name merely starts
+  // with the adjective — no marker word, so the type strip never fires.
+  assert.equal(poiNameCoversClientWords('Нерези', 'Средно Нерези'), false);
+  assert.equal(poiNameCoversClientWords('Водно', 'Средно Водно'), false);
+});

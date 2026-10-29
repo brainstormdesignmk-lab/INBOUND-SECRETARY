@@ -149,6 +149,46 @@ const PLACE_VENUE_WORDS = new Set([
 ]);
 const PLACE_VENUE_DROP = new Set(['tc', 'тц', 'trgovski', 'трговски', 'shopping']);
 
+/** A SCHOOL'S TYPE — what KIND of school a row is, never WHICH one. The map files
+ *  most schools behind their type («ООУ „Димитар Македонски“», «Средно уметничко
+ *  училиште „Лазар Личеновски“», «СУГС Гимназија „Јосип Броз-Тито”», «Гимназија
+ *  Орце Николов кон Центар»), so a client who names the school by its own name
+ *  («Димитар Македонски») met a map name whose head is «ООУ»/«средно»/
+ *  «гимназија» — a word he never said — and the coverage guard refused it. Same
+ *  contract as «ТЦ» (PLACE_VENUE_WORDS): the type is class, not identity.
+ *
+ *  TWO SETS again: the markers make a run a SCHOOL TYPE at all (so «Средно
+ *  Нерези» and «Средно Водно» — settlements that merely start with the adjective
+ *  — are NOT stripped); the qualifiers are the extra words a school's type may
+ *  carry («средно уметничко училиште»). Only the LEADING run is stripped, and
+ *  only while an identity word survives on both sides. */
+// The comparison folds both sides through toLatin(), so the vocabulary is
+// folded the same way once here («ооу» → «oou», «училиште» → «uciliste»).
+const schoolKeys = (words: string[]): Set<string> => new Set(words.map(w => toLatin(w)));
+const SCHOOL_TYPE_MARKER_WORDS = [
+  'ооу', 'поу', 'оу', 'оугс', 'сугс', 'училиште', 'гимназија', 'школо',
+  'school', 'schools', 'elementary', 'primary', 'high', 'secondary', 'gymnasium',
+];
+const PLACE_SCHOOL_TYPE_MARKERS = schoolKeys(SCHOOL_TYPE_MARKER_WORDS);
+const PLACE_SCHOOL_TYPE_WORDS = schoolKeys([
+  ...SCHOOL_TYPE_MARKER_WORDS,
+  'основно', 'средно', 'државно', 'приватно', 'општинско', 'уметничко', 'угостителско',
+  'музичко', 'балетско', 'музичко-балетско', 'спортско', 'меѓународно', 'меѓународни',
+  'international', 'catering',
+]);
+/** How many LEADING words of a map name are its school TYPE — 0 when the run
+ *  carries no marker word, so a name that merely starts with an adjective
+ *  («Средно Нерези») is left exactly as it was. */
+function leadingSchoolTypeRun(raw: string[]): number {
+  let i = 0;
+  let marker = false;
+  while (i < raw.length && PLACE_SCHOOL_TYPE_WORDS.has(raw[i]!)) {
+    if (PLACE_SCHOOL_TYPE_MARKERS.has(raw[i]!)) marker = true;
+    i++;
+  }
+  return marker ? i : 0;
+}
+
 /** THE CATHOLIC CHURCH OF SKOPJE — the map's row for what Google lists as
  *  «Sacred Heart Catholic Church» (41.9950, 21.4178, Центар). */
 const CATHEDRAL_POI = 'Римокатоличка Катедрала Пресвето Срце Исусово';
@@ -276,6 +316,35 @@ export function poiNameCoversClientWords(clientText: string, poiName: string): b
     .filter(i => !PLACE_VENUE_DROP.has(rawAll[i]));
   const said = saidIdx.map(i => all[i]);
   if (said.length === 0) return true;
+  // A TYPE-FIRST SCHOOL IS STILL THE SCHOOL THE CLIENT NAMED (see
+  // PLACE_SCHOOL_TYPE_WORDS): «ООУ „Димитар Македонски“» must bind to «Димитар
+  // Македонски», «Средно уметничко училиште „Лазар Личеновски“» to «Лазар
+  // Личеновски», «СУГС Гимназија „Орце Николов“» to «Орце Николов». The type
+  // run is dropped from BOTH sides — the map's leading run, and the client's
+  // own when he led with it — and only while an identity word survives on the
+  // client's side, so a bare «училиште»/«средно» names no school and keeps the
+  // old rules. The settlements «Средно Нерези»/«Средно Водно» are untouched:
+  // their run carries no marker word (leadingSchoolTypeRun returns 0).
+  // …and only when the client did NOT say the type himself. If he did, the
+  // ordinary pass already covers the row and must be left alone: «School of
+  // Journalism and Public Relation» binds as its own name only while «school»
+  // is still part of the run («of» is a connector, so the run has no room for
+  // the strip), and stripping it turned a row that bound into a refusal.
+  const mapLead = leadingSchoolTypeRun(rawHave);
+  const saidRaw = new Set(saidIdx.map(i => rawAll[i]!));
+  const saidTheType = rawHave.slice(0, mapLead).some(w => saidRaw.has(w));
+  let haveC = have;
+  let rawHaveC = rawHave;
+  let idxC = saidIdx;
+  if (mapLead > 0 && mapLead < rawHave.length && !saidTheType
+    && saidIdx.some(i => !PLACE_SCHOOL_TYPE_WORDS.has(rawAll[i]!))) {
+    haveC = have.slice(mapLead);
+    rawHaveC = rawHave.slice(mapLead);
+    let lead = 0;
+    while (lead < idxC.length && PLACE_SCHOOL_TYPE_WORDS.has(rawAll[idxC[lead]!]!)) lead++;
+    if (lead > 0) idxC = idxC.slice(lead);
+  }
+  const saidC = idxC.map(i => all[i]);
   // THE HEAD IS THE FIRST WORD THAT CARRIES IDENTITY (the map-wide audit,
   // 2026-10-28): every row must bind when the client says its OWN name, and
   // 107 of 5,992 did not. Two shapes did it — a connector in front («Кај
@@ -290,22 +359,22 @@ export function poiNameCoversClientWords(clientText: string, poiName: string): b
   const identityWord = (w: string, i: number): boolean =>
     !PLACE_CONNECTORS.has(w) && !PLACE_CONNECTORS.has(all[i] ?? '') && !PLACE_CITY_WORDS.has(w)
     && !PLACE_VENUE_WORDS.has(w);
-  let headAt = rawHave.findIndex((w, i) => w.length >= 3 && identityWord(w, i));
-  if (headAt === -1) headAt = rawHave.findIndex((w, i) => identityWord(w, i));
+  let headAt = rawHaveC.findIndex((w, i) => w.length >= 3 && identityWord(w, i));
+  if (headAt === -1) headAt = rawHaveC.findIndex((w, i) => identityWord(w, i));
   // A name made ONLY of generic words («Трговски центар», «Центар») has no
   // identity word to be its head — the same says-its-own-name contract then
   // falls back to the first real word, so the map's generic row still binds
   // when a client names it.
   if (headAt === -1) {
-    headAt = rawHave.findIndex((w, i) => !PLACE_CONNECTORS.has(w) && !PLACE_CONNECTORS.has(all[i] ?? ''));
+    headAt = rawHaveC.findIndex((w, i) => !PLACE_CONNECTORS.has(w) && !PLACE_CONNECTORS.has(all[i] ?? ''));
   }
-  const head = headAt === -1 ? undefined : have[headAt];
-  const headRaw = headAt === -1 ? '' : rawHave[headAt];
+  const head = headAt === -1 ? undefined : haveC[headAt];
+  const headRaw = headAt === -1 ? '' : rawHaveC[headAt];
   // The head test is what refuses a place whose name puts a brand IN FRONT of
   // what the client said. A name with NO identity word at all («Трговски
   // центар») has no brand to put in front, so it rests on the run check alone.
-  const headSaid = !!head && said.some((w, k) => w === head || wordsAlmostEqual(rawAll[saidIdx[k]], headRaw));
-  const hasIdentityHead = rawHave.some((w, i) => identityWord(w, i));
+  const headSaid = !!head && saidC.some((w, k) => w === head || wordsAlmostEqual(rawAll[idxC[k]!], headRaw));
+  const hasIdentityHead = rawHaveC.some((w, i) => identityWord(w, i));
   if (!headSaid && hasIdentityHead) return false;
   // THE TYPO BUDGET (one slip per WORD, the [21:42] «ПОРТА БУНЈАКОВЕЦ» /
   // [21:45] «ДАЈМОНД МОЛ» line of business): a client who drops, doubles or
@@ -325,9 +394,9 @@ export function poiNameCoversClientWords(clientText: string, poiName: string): b
   // word, and a two-word name written with one slip in each is still the name
   // the client said. Short words (<5 letters) stay exact.
   const wordMatches = (mi: number, k: number, run: string[], runRaw: string[]): boolean => {
-    if (have[mi] === run[k]) return true;
-    const longEnough = rawHave[mi].length >= 5 && runRaw[k].length >= 5;
-    return longEnough && wordsAlmostEqual(runRaw[k], rawHave[mi]);
+    if (haveC[mi] === run[k]) return true;
+    const longEnough = rawHaveC[mi]!.length >= 5 && runRaw[k]!.length >= 5;
+    return longEnough && wordsAlmostEqual(runRaw[k], rawHaveC[mi]);
   };
   // ONE INSERTED MAP WORD IS STILL THE SAME NAME (the «Бунјаковац 5» →
   // «Буњаковец кула 5» class): the map carries qualifiers a client omits —
@@ -340,7 +409,7 @@ export function poiNameCoversClientWords(clientText: string, poiName: string): b
     if (run.length === 0) return false;
     const walk = (mi: number, k: number, gaps: number): boolean => {
       if (k === run.length) return true;
-      for (let j = mi; j < have.length; j++) {
+      for (let j = mi; j < haveC.length; j++) {
         const skipped = j - mi;
         if (skipped > gaps) return false;
         if (!wordMatches(j, k, run, runRaw)) continue;
@@ -360,7 +429,7 @@ export function poiNameCoversClientWords(clientText: string, poiName: string): b
   // the short words dropped, which is what keeps «kaj BROZ KAFE» matching
   // «Broz Cafe».
   if (contains(all, rawAll)) return true;
-  const runIdx = [...saidIdx];
+  const runIdx = [...idxC];
   for (;;) {
     if (contains(runIdx.map(i => all[i]), runIdx.map(i => rawAll[i]))) return true;
     const tailWord = rawAll[runIdx[runIdx.length - 1]];
