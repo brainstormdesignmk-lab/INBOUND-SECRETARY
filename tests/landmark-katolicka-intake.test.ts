@@ -141,3 +141,26 @@ test('the church answers to its own name — «Sacred Heart», «Свето Ср
     assert.match(anchor, /Пресвето Срце Исусово/u, `the same row every time, got ${anchor}`);
   }
 });
+
+// THE OTHER CHURCH STILL EXISTS. The map files the parish as «Католичка црква
+// Свети Јосиф» — the type leads, the saint follows — and the coverage guard
+// refuses a name whose first word the client did not say (the rule that keeps
+// «ELS Novo Lisice» from answering «vo novo lisice»). A client who names the
+// saint must still reach his church, and must never be sent to the cathedral.
+test('«кај Свети Јосиф» reaches the parish — the saint is the identity', async () => {
+  const said = [
+    'SAKAM STAN KAJ SVETI JOSIF',
+    'SAKAM STAN KAJ SV. JOSIF',
+    'SAKAM STAN KAJ KATOLICKA CRKVA SVETI JOSIF',
+  ];
+  let i = 0;
+  for (const msg of said) {
+    const { say, sessions, chatId } = makeHandler(`st-josif-${i++}`, ROWS);
+    await say('ZDRAVO');
+    await say(msg);
+    const anchor = sessions.get(chatId)!.slots.poiAnchor ?? '';
+    assert.match(anchor, /Свети Јосиф/u, `«${msg}» is the parish, got ${anchor || 'nothing'}`);
+    assert.doesNotMatch(anchor, /Катедрала|Срце/u,
+      `«${msg}» is NOT the cathedral: ${anchor}`);
+  }
+});

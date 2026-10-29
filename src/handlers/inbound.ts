@@ -152,19 +152,31 @@ const PLACE_VENUE_DROP = new Set(['tc', 'тц', 'trgovski', 'трговски', 
 /** THE CATHOLIC CHURCH OF SKOPJE — the map's row for what Google lists as
  *  «Sacred Heart Catholic Church» (41.9950, 21.4178, Центар). */
 const CATHEDRAL_POI = 'Римокатоличка Катедрала Пресвето Срце Исусово';
+/** The parish church two kilometres east — its own place, reached only when the
+ *  client names it («Свети Јосиф»). */
+const ST_JOSEPH_POI = 'Католичка црква Свети Јосиф';
 
-/** A GENERIC NAME MEANS THE PLACE EVERYONE KNOWS (the [10:07] capture). The map
- *  holds several rows whose name starts with the same words: the CATHEDRAL
- *  «Римокатоличка Катедрала Пресвето Срце Исусово» (Google: «Sacred Heart
- *  Catholic Church»), the parish «Католичка црква Свети Јосиф» two kilometres
- *  east, and «Католичка црква кон Центар» — which is not a church at all but a
- *  BUS STOP named after the cathedral. The nearest-branch lookup has no center
- *  on the intake turn and kept returning one of those, so the rent search was
- *  anchored on the wrong side of town. When the client's phrase is ONLY a
- *  generic word for the church, the row below is what he means; a client who
- *  names the qualifier himself («Свети Јосиф», «кон Центар») never reaches
- *  this table. */
-const GENERIC_PLACE_CANON: Array<[RegExp, string]> = [
+/** A PLACE WORD THAT SIMILARITY CANNOT PLACE, resolved first (the [10:07]
+ *  capture). Two cases, one table, because both are the same promise: when the
+ *  client's words can only mean one place, the map's fuzzy passes must not
+ *  decide which.
+ *
+ *   • A GENERIC WORD MEANS THE PLACE EVERYONE KNOWS. The map holds several rows
+ *     that start with the same words: the CATHEDRAL «Римокатоличка Катедрала
+ *     Пресвето Срце Исусово» (Google: «Sacred Heart Catholic Church»), the
+ *     parish «Католичка црква Свети Јосиф» two kilometres east, and «Католичка
+ *     црква кон Центар» — which is not a church at all but a BUS STOP named
+ *     after the cathedral. The nearest-branch lookup has no center on the
+ *     intake turn and kept returning one of those, so the rent search was
+ *     anchored on the wrong side of town.
+ *   • A SAINT IS THE IDENTITY. Where the map's row leads with the TYPE
+ *     («Католичка црква …», «Основно училиште …»), the name the client knows is
+ *     a suffix, and the coverage guard — rightly — refuses a name that does not
+ *     open with a word he said (see «ELS Novo Lisice»).
+ *
+ *  A client who names the qualifier himself («Свети Јосиф», «кон Центар») never
+ *  reaches the generic readings, and the fuzzy lookup owns the rest. */
+const PLACE_CANON: Array<[RegExp, string]> = [
   // «католичка» and its ч/ц fold («католицка», the extractor's own spelling) are
   // the same word here, so both are written into the class rather than left to
   // a loose comparison that a one-word phrase never reaches.
@@ -178,10 +190,20 @@ const GENERIC_PLACE_CANON: Array<[RegExp, string]> = [
   // is in the class too. The tail is VENUE WORDS only: anything carrying
   // identity («… кај плоштад») never reaches this table.
   [/^(?:(?:пре)?свето\s+срце(?:\s+исусово)?|(?:pre)?sveto\s+srce(?:\s+isusovo)?|sacred\s+heart|са[кцч]ред\s+х[еиа]?арт)(?:\s+(?:католи[чц]ка|цатхоли[чц]|католик|catholic|црква|crkva|катедрала|katedrala|church|чурч|цурч))*$/, CATHEDRAL_POI],
+  // THE PARISH BY ITS SAINT («кај Свети Јосиф»). Its map row leads with the
+  // TYPE — «Католичка црква Свети Јосиф» — and the coverage guard requires the
+  // map name's first word to be one the client said, because a phantom
+  // business in front of an area («ELS Novo Lisice» for «kaj vas vo novo
+  // lisice») must not bind. That rule is right, so a client who names the saint
+  // and not the type is refused by the map: the saint is the identity here, and
+  // the row below is the one place he can mean. «Св.»/«св.» and the extractor's
+  // Latin-in-Cyrillic «сwети» are the same word; «католичка» in front changes
+  // nothing (the bare form already means the CATHEDRAL, above).
+  [/^(?:(?:католи[чц]ка|katolic[ck]a)\s+(?:црква\s+|crkva\s+)?)?(?:св|свети|сwети|sv|sveti)\.?\s+(?:јосиф|josif)$/, ST_JOSEPH_POI],
 ];
 
 /** The client's phrase with the vague/proximity fillers removed, lowercased —
- *  what remains is the NAME, which is what GENERIC_PLACE_CANON matches on. */
+ *  what remains is the NAME, which is what PLACE_CANON matches on. */
 function genericPlaceKey(phrase: string): string {
   return phrase
     .replace(/[.!?,;:]+/gu, ' ')
@@ -1722,11 +1744,12 @@ export class InboundHandler {
       // area instead of inventing one.
       return undefined;
     }
-    // THE WELL-KNOWN PLACE, before any similarity pass (see
-    // GENERIC_PLACE_CANON): a generic «католичка» is the cathedral, not the
-    // near-namesake the nearest-branch lookup would otherwise return.
+    // THE WELL-KNOWN PLACE, before any similarity pass (see PLACE_CANON): a
+    // generic «католичка» is the cathedral, not the near-namesake the
+    // nearest-branch lookup would otherwise return — and a saint the map files
+    // behind the word «црква» is reached by the saint's own name.
     const genericKey = genericPlaceKey(clean);
-    for (const [re, canonical] of GENERIC_PLACE_CANON) {
+    for (const [re, canonical] of PLACE_CANON) {
       if (!re.test(genericKey)) continue;
       const canon = this.landmarks.findPlace(canonical);
       if (canon) return canon;
