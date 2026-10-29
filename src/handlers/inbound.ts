@@ -999,7 +999,18 @@ export class InboundHandler {
     const LANDMARK_PREP_RE = /(?<![\p{L}\p{N}])(?:kaj|do|blizu|кај|до|близу|во\s+близина\s+на)(?![\p{L}\p{N}])/iu;
     const pointsAtOne = POINTS_AT_ONE_RE.test(text) || detectAvailabilityAsk(text);
     let poi: MentionPoi | undefined;
-    if (sig.descriptor && sig.descriptor.trim().length >= MIN_POI_DESCRIPTOR) {
+    // THE PLACE IS READ THE SAME WAY EVERY OTHER LANDMARK SEAM READS IT (the
+    // [20:24] capture): placeWish() verifies each wish tail against the offline
+    // map and takes the first REAL place, and its resolvePlace applies the
+    // unmentioned-word guard. The raw findPlace pass below had neither: the
+    // descriptor's grammar leftovers fuzzed onto businesses nobody had named
+    // ("ВАС НА САЈТ СТАН КАЈ БРОЗ КАФЕ" → «вас на» → «Фас-Вас»), and the bogus
+    // anchor then signed off a mention bind on a flat across town.
+    if (sig.descriptor) {
+      const wished = this.placeWish(text);
+      if (wished) poi = { name: wished.name, lat: wished.lat, lon: wished.lon };
+    }
+    if (!poi && sig.descriptor && sig.descriptor.trim().length >= MIN_POI_DESCRIPTOR) {
       // The map cannot resolve "сјо дали е достапен уште" — try the descriptor's
       // prefixes, longest first, so the landmark the client led with is what
       // the map is asked about (same seam as the text evidence above).
@@ -1084,7 +1095,19 @@ export class InboundHandler {
         const namedOk = !!row && textNamesPlace(adText(row), placeName);
         return coordsOk || namedOk;
       });
-      const placedCands = placed.length > 0 ? placed : typedCands;
+      // A PLACE THE MAP RESOLVED WITH NO ROW THERE IS NOT A POOL-WIDE GUESS.
+      // The wider pool is only the honest reading when the rows carry nothing
+      // to place them by (no coordinates) — then "nothing near" really is
+      // "nothing to go on". When the anchor is real and the rows ARE mapped,
+      // the ones at that place are the only legitimate candidates: falling back
+      // served the whole city and bound a Кисела Вода flat to «кај Броз кафе»
+      // (the [20:24] capture — the client got an ad 5 km from the place he
+      // named). No row at the place → no bind → the funnel takes the turn and
+      // offers what IS near, which is the honest answer.
+      const mapped = typedCands.some(c => c.lat !== undefined && c.lon !== undefined);
+      const placedCands = placed.length > 0
+        ? placed
+        : (poi && mapped ? [] : typedCands);
       const feedHit = resolveMention(text, placedCands, { poi });
       if (feedHit?.kind === 'unique' && feedHit.eb !== undefined) match = feedHit;
       if (feedHit?.kind === 'ambiguous' && (feedHit.candidates ?? []).length > 1) {
@@ -1107,7 +1130,7 @@ export class InboundHandler {
         // exists, else the feed row's OWN landmark (a replay or a map-less run
         // must not lose the name the ad already carries).
         const placeName = poi?.name ?? rows[0]?.landmarks?.[0]?.landmark ?? rows[0]?.landmark;
-        const place = placeName ? ` близу ${placeName}` : ' во тој дел од градот';
+        const place = placeName ? ` близу ${displayPlaceName(placeName)}` : ' во тој дел од градот';
         const lines = rows.map(p => {
           // THE ROW'S OWN FACTS, structured columns first (тераса, лифт, кат,
           // реновирање) and the ad's first sentence only when it has none — the

@@ -13,7 +13,7 @@ import {
   detectFeeSurprise, detectProvisionWho, detectLocationConfirm,
   detectResultSetQuestion, detectBedroomsRange, detectExplicitWiden,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
-  detectDocumentsAsk, detectOwnerContactHold, extractPoiWish,
+  detectDocumentsAsk, detectOwnerContactHold, extractPoiWish, extractPoiWishCandidates,
   detectAgentAttendanceAsk, detectBusinessBudgetAsk,
   BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK,
   detectEbPriceAssertion, extractEbPriceAssertion, detectBudgetUpAsk,
@@ -1628,6 +1628,27 @@ test('[10:28] extractPoiWish: the GRAMMAR bridge is trimmed, never the place', (
   assert.equal(extractPoiWish('bese kaj vas vo broz kafe'), 'броз кафе');
   assert.equal(extractPoiWish('PISUVASE DO BROZ KAFE', { withCriteria: true }), 'BROZ KAFE');
   assert.equal(extractPoiWish('PISUVASE DO TRGOVSKI LISICE', { withCriteria: true }), 'TRGOVSKI LISICE');
+});
+
+test('[20:24] extractPoiWish: the SECOND proximity phrase carries the place', () => {
+  // "ZDRAVO GLEDAV KAJ VAS NA SAJT STAN KAJ BROZ KAFE. DALI USTE E NA PRODAZBA ?"
+  // — «кај вас на сајт» is the grammar of "on your website"; the flat is the
+  // one «кај Броз кафе». The greedy capture ran over BOTH openers and the trims
+  // only shortened it from the right, so «броз кафе» was never a candidate: the
+  // turn fell through to the mentioned-set bind and answered about an ad in
+  // Кисела Вода, 5 km away.
+  const msg = 'ZDRAVO GLEDAV KAJ VAS NA SAJT STAN KAJ BROZ KAFE. DALI USTE E NA PRODAZBA ?';
+  const cands = extractPoiWishCandidates(msg, { withCriteria: true });
+  assert.ok(cands.some(c => /^броз кафе$/u.test(c)),
+    `the second phrase must be its own candidate: ${JSON.stringify(cands)}`);
+  // The first phrase stops at the second opener — the grammar never runs over
+  // the place and comes back as a "place" of its own.
+  assert.ok(cands.every(c => !/кај броз/u.test(c)),
+    `the grammar tail must not swallow the place: ${JSON.stringify(cands)}`);
+  // Same words, no second clause — unchanged behaviour.
+  assert.equal(extractPoiWish('STAN KAJ BROZ KAFE', { withCriteria: true }), 'броз кафе');
+  assert.ok(extractPoiWishCandidates('GLEDAV KAJ VAS NA SAJT STAN KAJ BROZ KAFE', { withCriteria: true })
+    .includes('броз кафе'));
 });
 
 // ── [22:3x] EB-PRICE ASSERTION CAPTURE (pinned regression) ────────────

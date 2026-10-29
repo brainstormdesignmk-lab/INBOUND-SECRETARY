@@ -93,6 +93,22 @@ const FILLER_BRIDGE = new Set([
 export const POI_WISH_RE =
   /(?:во\s+бли[зж]ин(?:а|ата|у)|бли[зж]у|околу|околин(?:а|ата)|спроти|наспроти|кај|во\s+реон(?:от|а|ови|иве)?\s+на|до|do)\s+([\p{L}.][\p{L}. '-]{3,47})/giu;
 
+// THE SECOND PROXIMITY PHRASE OF ONE CAPTURE. A client sentence can carry TWO
+// openers and only the second one names the place: "ZDRAVO GLEDAV KAJ VAS NA
+// SAJT STAN KAJ BROZ KAFE" — the opening «кај вас на сајт» is pure grammar
+// ("on your site"), the flat is «кај Броз кафе». The capture is greedy, so ONE
+// tail carried both and every trim only shortened it from the RIGHT: the place
+// the client actually named was never a candidate, the tail died in the map
+// check, and the turn fell through to whatever row was on the table (the
+// [20:24] capture: an ad 5 km away in Кисела Вода). Returns the offset of the
+// FIRST whole-word opener inside `tail` that is not at its start, or -1.
+function embeddedOpenerAt(tail: string): number {
+  const re = /(?<![\p{L}\p{N}])(?:кај|бли[зж]у|околу|спроти|наспроти|до)(?![\p{L}\p{N}])/giu;
+  const m = re.exec(tail);
+  if (!m || m.index === 0) return -1;
+  return m.index;
+}
+
 /** The POI-wish tail of a search phrase ("околу Капитол Бисер" → "Капитол
  *  Бисер"), or undefined. Raw text first, then the normalizeMc fold (Latin
  *  input) — the returned tail keeps the script it was found in, so a POI
@@ -123,9 +139,19 @@ export function extractPoiWishCandidates(text: string, opts: { withCriteria?: bo
     re.lastIndex = 0;
     const out: string[] = [];
     for (let m = re.exec(src); m; m = re.exec(src)) {
+      // TWO PROXIMITY PHRASES IN ONE CLAUSE (see embeddedOpenerAt): the tail is
+      // cut at the second opener and the scan RE-READS from there, so the
+      // second phrase becomes its own candidate in text order instead of a
+      // grammar-trim of the first.
+      let captured = m[1];
+      const second = embeddedOpenerAt(captured);
+      if (second >= 0) {
+        captured = captured.slice(0, second);
+        re.lastIndex = m.index + (m[0].length - m[1].length) + second;
+      }
       // "во близина на X" / "околина на X" — the preposition inside the
       // proximity phrase is not part of the place name.
-      let t2 = m[1].trim().replace(/^(?:на|vo|во)\s+/iu, '');
+      let t2 = captured.trim().replace(/^(?:на|vo|во)\s+/iu, '');
       // FILLER BRIDGE (the [10:28] capture): the capture after the opener is
       // greedy, so GRAMMAR rides into the tail — "gledav eden stan kaj VAS VO
       // novo lisice" captured "вас во ново лисице", and the map lookup then fuzzed
