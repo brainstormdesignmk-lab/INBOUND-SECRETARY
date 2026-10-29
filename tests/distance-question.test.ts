@@ -236,6 +236,91 @@ test('[16:11] a distance ask with no landmark in it never invents a place', asyn
   assert.ok(!/се наоѓа на \d+ метри/.test(answer), `no invented distance: ${answer}`);
 });
 
+// ── THE EB NAMED IN THE ASK OWNS THE NUMBER (the [21:22] capture) ───────────
+//
+//   [21:21] NA KOLKAVO RASTOJANIE E OD BROZ KAFE ?
+//   [21:21] ЛИНА: Broz Cafe се наоѓа на околу 530 метри од недвижноста …   (EB 84 ✓)
+//   [21:22] A OVOJ PRVIOT 95 NA KOLKAVO RASTOJANIE E OD BROZ KAFE?
+//   [21:22] ЛИНА: Broz Cafe се наоѓа на околу 530 метри …                   (still 84 ✗)
+//
+// The client compared TWO flats by the same landmark and heard one number
+// twice: the lane only read the slots, never the Евидентен број in the message,
+// so every distance came back as the flat described first.
+const EB95: Property = {
+  eb: 95, id: 95, uuid: 'eb95-capture',
+  address: 'ЦРВЕНА ВОДА', location: 'Центар',
+  lat: 41.9997, lon: 21.4186, geo_source: 'google_cached',
+  service: 'buy', price: 204000, bedrooms: 3,
+} as Property;
+const EB84: Property = {
+  eb: 84, id: 84, uuid: 'eb84-capture',
+  address: 'РОЗА ЛУКСЕМБУРГ', location: 'Центар',
+  lat: 42.0050, lon: 21.4171, geo_source: 'google_cached',
+  service: 'buy', price: 117000, bedrooms: 3,
+} as Property;
+
+class MultiProps extends PropertyService {
+  constructor(private rows: Property[]) { super('http://feed-not-used'); }
+  async getAll(): Promise<Property[]> { return this.rows; }
+  async getByEb(eb: number): Promise<Property | undefined> { return this.rows.find(p => p.eb === eb); }
+  get healthy(): boolean { return true; }
+}
+
+async function makeMultiHandler(rows: Property[]): Promise<{ handler: InboundHandler; sessions: SessionStore; sent: string[] }> {
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const sent: string[] = [];
+  const channels = new ChannelRegistry();
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const props = new MultiProps(rows);
+  const handler = new InboundHandler({
+    cfg, db, sessions,
+    classifier: new Classifier(new FailingLlm(), cfg, props),
+    responder: new Responder(new FailingLlm(), cfg),
+    properties: props,
+    appointments: new AppointmentStore(db),
+    escalations: new EscalationStore(db),
+    meta: new MetaStore(db),
+    channels,
+    landmarks: new LandmarkService(db, { osm: false, offlineMap: map() }),
+  });
+  return { handler, sessions, sent };
+}
+
+/** The metres the reply states („на околу 130 метри“), or undefined. */
+function metresOf(answer: string): number | undefined {
+  const m = answer.match(/на (?:околу )?(\d+) метри/u);
+  return m ? parseInt(m[1], 10) : undefined;
+}
+
+test('[21:22] the Евидентен број named in the ask is the flat the distance is for', async () => {
+  const { handler, sessions, sent } = await makeMultiHandler([EB95, EB84]);
+  const chatId = 'capture-2122';
+  sessions.set(freshSession('test', chatId));
+
+  // The turn before: EB 84 was described, so it owns the slots.
+  await handler.handle('test', chatId, 'ZDRAVO STO MOZES DA MI KAZES ZA EV BR 84 ?');
+  assert.equal(sessions.get(chatId)?.slots.propertyId, 84, 'EB 84 owns the conversation first');
+  await handler.handle('test', chatId, 'NA KOLKAVO RASTOJANIE E OD BROZ KAFE ?');
+  const for84 = sent[sent.length - 1] ?? '';
+  assert.match(for84, /Broz Cafe/u, `the place is named: ${for84}`);
+  const d84 = metresOf(for84);
+  assert.ok(d84 !== undefined, `EB 84's distance is measured: ${for84}`);
+
+  // The client now points at the OTHER flat by its number…
+  await handler.handle('test', chatId, 'A OVOJ PRVIOT 95 NA KOLKAVO RASTOJANIE E OD BROZ KAFE?');
+  const for95 = sent[sent.length - 1] ?? '';
+  const d95 = metresOf(for95);
+  assert.ok(d95 !== undefined, `EB 95's distance is measured: ${for95}`);
+  assert.notEqual(for95, for84, `the second flat gets its OWN answer: ${for95}`);
+  // EB 95 is the near one in this pair — the number must follow the flat, not
+  // the slot the previous turn left behind.
+  assert.ok(d95 < d84!, `EB 95 (${d95} m) is nearer than EB 84 (${d84} m)`);
+  // …and it becomes the flat under discussion.
+  assert.equal(sessions.get(chatId)?.slots.propertyId, 95, 'the named flat is under discussion from here on');
+});
+
+
 test('[22:25] a place the map does not know is never given a fabricated distance', async () => {
   const { handler, sessions, sent } = await makeHandler();
   const chatId = 'capture-2225-miss';

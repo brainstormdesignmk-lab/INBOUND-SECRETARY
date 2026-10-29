@@ -2895,7 +2895,22 @@ export class InboundHandler {
     if (isDistanceQuestion(text)
       && !detectService(text) && !detectBothServices(text)) {
       const placeName = extractDistancePlace(text);
-      // Anchor: the property on the table. An EB named a turn or two ago still
+      // THE EB NAMED IN THIS MESSAGE OUTRANKS THE ONE ON THE TABLE (the [21:22]
+      // capture): «A OVOJ PRVIOT 95 NA KOLKAVO RASTOJANIE E OD BROZ KAFE?» asked
+      // about EB 95 and heard EB 84's 530 m AGAIN — the lane only ever read the
+      // slots, so the client could compare two flats' cards but never two
+      // distances, and every distance he asked for came back as the first flat's.
+      // The number is read from the words OUTSIDE the place phrase: a place
+      // carries numbers of its own («ТЦ 26 Јули») and those are never an
+      // Евидентен број.
+      const restOfText = placeName
+        ? text.replace(new RegExp(placeName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'iu'), ' ')
+        : text;
+      const namedEb = inferPropertyId(restOfText);
+      const namedProp = namedEb != null
+        ? await this.deps.properties.getByEb(namedEb).catch(() => undefined)
+        : undefined;
+      // Anchor: the flat this message NAMES, else the property on the table. An EB named a turn or two ago still
       // owns the conversation — read straight from the history, because
       // inferPropertyId() deliberately VETOES any text containing каде/наоѓа
       // (it guards the landmark lane), and the turn before this one is exactly
@@ -2912,12 +2927,12 @@ export class InboundHandler {
         }
         return undefined;
       })();
-      const anchorEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+      const anchorEb = namedProp?.eb ?? session.slots.propertyId ?? session.slots.interestedPropertyId
         ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
         ?? histEb;
-      const anchorProp = anchorEb != null
+      const anchorProp = namedProp ?? (anchorEb != null
         ? await this.deps.properties.getByEb(anchorEb).catch(() => undefined)
-        : undefined;
+        : undefined);
       // THE REAL LOCATION — resolveSearchCenter, never the raw feed column.
       // A stored pin can disagree with the trusted building point by hundreds
       // of metres (the EB 70 class), and a distance measured from a damaged
@@ -2951,6 +2966,10 @@ export class InboundHandler {
           const walk = center.trusted && d >= 100 && d <= 2000 ? ` (околу ${mins} минути пешки)` : '';
           const answer = `${hit.name} се наоѓа на ${approx}${distPhrase}${walk} од недвижноста што ја разгледуваме${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на недвижноста се открива на денот на посетата.`;
           session.slots.location = anchorProp.location ?? session.slots.location;
+          // A flat the client NAMES is the one under discussion from here on
+          // (same rule as the describe lane) — «и тaa?» must stay on THIS one,
+          // not fall back to the pair she was showing before.
+          if (namedProp) session.slots.propertyId = namedProp.eb;
           routeLog(chatId, text, 'DISTANCE');
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
