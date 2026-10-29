@@ -217,6 +217,16 @@ export const FIXED_SEEDS: Record<string, string[]> = {
  */
 export const POOL_CONTRACTS: Record<string, RegExp> = {
   'discovery.waiver.ack': /големин[аата]|квадратур/iu,
+  // THE EMPTY-SEARCH PAIRS. Both forms say the SAME two things — nothing fits
+  // the criteria HERE — and then offer a way out (keep the criteria for later,
+  // or look in another part of town). The place form is the one that names the
+  // landmark the client used; the district form names the area. A learned
+  // variant that drops the offer reads as a dead end, and one that promises
+  // stock is worse, so both are checked on every serve.
+  'exhausted.location': /^(?=[\s\S]*(?:исцрпивме|исцрпени|исцрпани|немаме|нема повеќе|прикажавме|прегледавме|погледнавме|изгледавме|искористивме|искористени|поминавме|покажавме|изложивме|изложени|разгледавме))(?=[\s\S]*(?:друга населба|друг дел од градот|друга локаци|други населби|некаде на друго место))(?=[\s\S]*(?:забележам|запишам|зачувам|сочувам|евидентирам|регистрирам|контактирам|известам|бележам))/iu,
+  'exhausted.place': /^(?=[\s\S]*(?:исцрпивме|исцрпени|исцрпани|немаме|нема повеќе|прикажавме|прикажан\p{L}*|прегледавме|погледнавме|изгледавме|искористивме|искористени|поминавме|покажавме|изложивме|изложени|разгледавме))(?=[\s\S]*(?:друга населба|друг дел од градот|друга локаци|други населби|некаде на друго место))(?=[\s\S]*(?:забележам|запишам|зачувам|сочувам|евидентирам|регистрирам|контактирам|известам|бележам))/iu,
+  'no.match.location': /^(?=[\s\S]*(?:немам|нема|не располагам|ги немам|не содржи))(?=[\s\S]*(?:друг\p{L}*[^.!?]{0,20}(?:локаци|населб|делови од градот)|пошироко))/iu,
+  'no.match.place': /^(?=[\s\S]*(?:немам|нема|не располагам|ги немам|не содржи))(?=[\s\S]*(?:друг\p{L}*[^.!?]{0,20}(?:локаци|населб|делови од градот)|пошироко))/iu,
   'owner.relay:counter.bare': /друг/iu,
   'vague.time': /колку/iu,
   'vague.time.owner': /колку/iu,
@@ -306,8 +316,21 @@ export function fallbackVariant(state: State, recent: string[] = []): string | u
  * The deterministic empty-result line, bank-backed: the location form fills
  * {location}, the plain form is used when no area was named. Returns undefined
  * when the bank has no variants, so the caller keeps its code-built line.
+ *
+ * The PLACE form exists for the same reason the drained line has one: a search
+ * anchored on a place («кај Бисер», «околу Диамонд Мол») derives a district, and
+ * «Во Центар немам ништо…» answers about geography the client never named. The
+ * place outranks the district whenever the search is anchored on one.
  */
-export function noMatchLine(location: string | undefined, recent: string[] = []): string | undefined {
+export function noMatchLine(
+  location: string | undefined,
+  recent: string[] = [],
+  place?: string,
+): string | undefined {
+  if (place) {
+    const named = pickVariant('no.match.place', { recent, vars: { place } });
+    if (named) return named;
+  }
   return location
     ? pickVariant('no.match.location', { recent, vars: { location } })
     : pickVariant('no.match.plain', { recent });
@@ -340,8 +363,22 @@ export function relaxedCategoryLine(
  * form fills {location}; the plain form is used when no area was fixed.
  * Returns undefined when the bank has no variants, so the caller keeps its
  * code-built line.
+ *
+ * A PLACE THE CLIENT NAMED OUTRANKS THE DISTRICT (the [21:46] capture): after a
+ * search moved onto «Дајмонд Мол», the drained line said «Во Центар веќе ги
+ * погледнавме сите недвижности» — a district he never asked about, while the
+ * mall was the thing he had just named. The place form fills {place} and is
+ * preferred whenever the search is anchored on a real place.
  */
-export function exhaustedLine(location: string | undefined, recent: string[] = []): string | undefined {
+export function exhaustedLine(
+  location: string | undefined,
+  recent: string[] = [],
+  place?: string,
+): string | undefined {
+  if (place) {
+    const named = pickVariant('exhausted.place', { recent, vars: { place } });
+    if (named) return named;
+  }
   return location
     ? pickVariant('exhausted.location', { recent, vars: { location } })
     : pickVariant('exhausted.plain', { recent });

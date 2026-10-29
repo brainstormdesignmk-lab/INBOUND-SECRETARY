@@ -303,3 +303,122 @@ test('the served pair is the flat AT the anchor', async () => {
     `the flat on Ул. Буњаковец (104) must win over the cheaper Карпош row: ${answer}`);
   assert.ok(!/Евидентен број 105/u.test(answer), `the Карпош row is not the pair: ${answer}`);
 });
+
+// ── THE [18:34] CAPTURE — «MI TREBA STAN KAJ CITY MALL ZA STUDENT» ──────────
+//   [18:34] MI TREBA STAN KAJ CITY MALL ZA STUDENT
+//   [18:34] ЛИНА: … за купување или повеќе Ве интересира изнајмување?
+//   [18:35] DA IZNAJMAM
+//   [18:35] ЛИНА: Имате ли омилена локација или конкретен дел од градот…?
+// The client named City Mall in the FIRST message; the funnel asked him for a
+// location anyway. The extractor hands the place over folded to CYRILLIC
+// («цитy малл») while the map stores it in Latin («Skopje City Mall»), and the
+// coverage guard compared the two word lists across scripts — no shared word,
+// no place, and the anchor never reached the session.
+const CITY_MALL_ROWS: Property[] = [
+  // 10 m from the mall, rent, in budget — the flat the capture was looking for.
+  { eb: 48, id: 48, location: 'Карпош III', address: 'Ул. Роберт Кох 4', price: 250, bedrooms: 3, sqm: 70, size: '70 м²', service: 'rent', lat: 42.0042, lon: 21.3917 },
+  { eb: 49, id: 49, location: 'Карпош III', address: 'Ул. Роберт Кох 6', price: 380, bedrooms: 2, sqm: 55, size: '55 м²', service: 'rent', lat: 42.0048, lon: 21.3923 },
+];
+
+test('[18:34] «STAN KAJ CITY MALL» is a location answer — intake and service turn never re-ask the area', async () => {
+  const { handler, sessions, sent, chatId } = makeHandler(CITY_MALL_ROWS, 'city-mall-intake');
+  await handler.handle('test', chatId, 'MI TREBA STAN KAJ CITY MALL ZA STUDENT');
+  const s = sessions.get(chatId)!;
+  assert.equal(s.slots.poiAnchor, 'Skopje City Mall', 'the Latin map place resolves from the client\'s Latin words');
+  assert.ok(s.slots.location, 'the place also seeds the area');
+  assert.ok(!/населба|дел од градот|локација во градот/iu.test(sent[0]),
+    `the first reply must not ask for a location he just named: ${sent[0]}`);
+
+  await handler.handle('test', chatId, 'DA IZNAJMAM');
+  assert.match(sent[1], /спалн|spaln/iu, `bedrooms asked instead: ${sent[1]}`);
+  assert.ok(!/населба|дел од градот|локација во градот/iu.test(sent[1]),
+    `the area is never re-asked: ${sent[1]}`);
+
+  await handler.handle('test', chatId, 'DO 400 EVRA');
+  await handler.handle('test', chatId, 'NEBITNO ZA SPALNI');
+  const serve = sent[sent.length - 1];
+  assert.match(serve, /Евидентен број 48[\s\S]*од Скопје Сити Мол/, `the flat is served near the mall: ${serve}`);
+  // ONE PLACE, SAID ONCE PER CARD: the landmark sentence and the anchor
+  // sentence may not name the same mall twice (two spellings read as two
+  // different places). The anchor line — with the measured distance — stays.
+  assert.doesNotMatch(serve, /во близина на[^.]*Сити Мол/iu, serve);
+  assert.doesNotMatch(serve, /Skopje City Mall/, serve);
+});
+
+// ── THE [18:56] CAPTURE — «STANCE ZA PRODAVANJE KAJ DRZAVNA BOLNICA?» ───────
+//   [18:56] ZDRAVO STANCE ZA PRODAVANJE KAJ DRZAVNA BOLNICA?
+//   [18:57] ЛИНА [без LLM]: Имате ли омилена локација или конкретен дел од
+//            градот каде што го барате станот?
+// The client named the state hospital — the place Skopjani mean when they say
+// «државна болница», the УКЦ „Мајка Тереза“ complex. The map carried the
+// complex's twenty individual clinics but NOT the complex itself, and the
+// alias table knew only «воена болница», so no pass could place it: the wish
+// died, no anchor reached the session, and the funnel asked for a
+// neighborhood. The row now lives in the overrides file and the colloquial
+// name is an alias for it.
+const BOLNICA_ROWS: Property[] = [
+  // 200 m from the complex, at the top of the client's budget.
+  { eb: 61, id: 61, location: 'Центар', address: 'Ул. Водњанска 12', price: 95000, bedrooms: 2, sqm: 58, size: '58 м²', service: 'buy', lat: 41.9880, lon: 21.4240 },
+  // 400 m away, the second option in Центар.
+  { eb: 62, id: 62, location: 'Центар', address: 'Ул. Водњанска 30', price: 108000, bedrooms: 2, sqm: 60, size: '60 м²', service: 'buy', lat: 41.9869, lon: 21.4231 },
+  // Cheaper — but across the river: the anchor must outrank it.
+  { eb: 63, id: 63, location: 'Карпош', address: 'Ул. Карпош 9', price: 82000, bedrooms: 2, sqm: 57, size: '57 м²', service: 'buy', lat: 42.0050, lon: 21.4100 },
+];
+
+test('[18:56] «KAJ DRZAVNA BOLNICA» is a location answer — the state hospital is the clinical centre', async () => {
+  const { handler, sessions, sent, chatId } = makeHandler(BOLNICA_ROWS, 'drzavna-bolnica-intake');
+  await handler.handle('test', chatId, 'ZDRAVO STANCE ZA PRODAVANJE KAJ DRZAVNA BOLNICA?');
+  const s = sessions.get(chatId)!;
+  assert.equal(s.slots.poiAnchor, 'Клинички центар',
+    'the colloquial state hospital resolves to the complex the map now holds');
+  assert.equal(s.slots.service, 'buy', 'ZA PRODAVANJE is flats for SALE');
+  assert.ok(s.slots.location, `the place seeds the area, got ${s.slots.location}`);
+  assert.ok(!/населба|дел од градот|омилена локација/iu.test(sent[0]),
+    `no location question for a place he just named: ${sent[0]}`);
+
+  await handler.handle('test', chatId, 'EDNA SPALNA');
+  await handler.handle('test', chatId, 'DO 110000');
+  const serve = sent[sent.length - 1];
+  assert.match(serve, /Евидентен број 61/u, `the flat at the hospital is served: ${serve}`);
+  assert.ok(!/Евидентен број 63/u.test(serve), `the cheaper Карпош row is not: ${serve}`);
+});
+
+// ── THE [20:49] CAPTURE — «MI TREBA STAN KAJ CITY MOL» ─────────────────────
+//   [20:49] MI TREBA STAN KAJ CITY MOL
+//   [20:49] ЛИНА: … купување или изнајмување …?
+//   [20:49] DA KUPAM SAKAM
+//   [20:50] ЛИНА [без LLM]: Кој конкретен дел од градот го имате предвид …?
+// The client wrote MOL — the Macedonian word for a mall — where the earlier
+// capture wrote MALL. The extractor hands over «цитy мол»; the map holds
+// «Сити Мол» and «Skopje City Mall». The same English word is spelled city /
+// siti / сити and mall / mol / мол, and the coverage guard compared the raw
+// words: [city, mol] equalled neither [siti, mol] nor [skopje, city, mall], so
+// the resolved mall was thrown away and the funnel asked for the area he had
+// just named.
+const CITY_MOL_ROWS: Property[] = [
+  { eb: 91, id: 91, location: 'Карпош III', address: 'Ул. Роберт Кох 4', price: 110000, bedrooms: 2, sqm: 58, size: '58 м²', service: 'buy', lat: 42.0042, lon: 21.3917 },
+  { eb: 92, id: 92, location: 'Карпош III', address: 'Ул. Роберт Кох 6', price: 118000, bedrooms: 2, sqm: 60, size: '60 м²', service: 'buy', lat: 42.0048, lon: 21.3923 },
+  // Cheaper, same profile — three kilometres away: the anchor must outrank it.
+  { eb: 93, id: 93, location: 'Аеродром', address: 'Ул. Јане Сандански 20', price: 88000, bedrooms: 2, sqm: 57, size: '57 м²', service: 'buy', lat: 41.9800, lon: 21.4500 },
+];
+
+test('[20:49] «STAN KAJ CITY MOL» is the same mall as «CITY MALL» — one spelling family, one place', async () => {
+  const { handler, sessions, sent, chatId } = makeHandler(CITY_MOL_ROWS, 'city-mol-intake');
+  await handler.handle('test', chatId, 'MI TREBA STAN KAJ CITY MOL');
+  const s = sessions.get(chatId)!;
+  assert.equal(s.slots.poiAnchor, 'Skopje City Mall', 'MOL binds to the mall the map holds');
+  assert.ok(s.slots.location, `the place seeds the area, got ${s.slots.location}`);
+  assert.ok(!/населба|дел од градот|омилена локација/iu.test(sent[0]),
+    `no location question for the place he just named: ${sent[0]}`);
+
+  await handler.handle('test', chatId, 'DA KUPAM SAKAM');
+  assert.match(sent[1], /спалн|spaln/iu, `bedrooms asked instead: ${sent[1]}`);
+  assert.ok(!/дел од градот|населба/iu.test(sent[1]), `the area is never re-asked: ${sent[1]}`);
+
+  await handler.handle('test', chatId, 'EDNA SPALNA');
+  await handler.handle('test', chatId, 'DO 120000');
+  const serve = sent[sent.length - 1];
+  assert.match(serve, /Евидентен број 91/u, `the flat at the mall is served: ${serve}`);
+  assert.match(serve, /Сити Мол/u, `the anchor is named the way the operator writes it: ${serve}`);
+  assert.ok(!/Евидентен број 93/u.test(serve), `the cheaper Аеродром row is not: ${serve}`);
+});

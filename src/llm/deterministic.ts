@@ -1734,7 +1734,12 @@ export function detectBudget(text: string): string | undefined {
     const digits = m[2].replace(/[\s.,]/g, '');
     let n = parseInt(digits, 10);
     if (!Number.isFinite(n) || n <= 0) continue;
-    if (m[3]) n *= 1000; // "80 илјади" / "120k" -> 80000 / 120000
+    // "80 илјади" / "120k" -> 80000 / 120000. The multiplier only applies to a
+    // BARE number: "OKOLU 100 000 ILJADI" already spells the amount out and
+    // the suffix is emphasis, not a second thousands step — multiplying it
+    // gave 100,000,000 and the price ranking then preferred a flat costing
+    // twice what the client said he paid (the 02:18 Водно capture).
+    if (m[3] && n < 1000) n *= 1000;
     const hasCur = !!m[4];
     // 1900-2100 without currency is a construction year, not a budget
     if (n >= 1900 && n <= 2100 && !hasCur) continue;

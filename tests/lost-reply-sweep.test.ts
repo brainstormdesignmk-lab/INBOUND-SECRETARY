@@ -84,5 +84,12 @@ test('lost-reply sweep: the candidate list is finite and reviewed', () => {
 
 /** Candidates read and judged benign (each is a `next`/state lane whose guard
  *  cannot co-fire with its neighbour) — lower this when one is made provably
- *  safe. Read the list with `npm run reply:sweep`. */
-const REVIEWED = 22;
+ *  safe. Read the list with `npm run reply:sweep`.
+ *
+ * 23rd read 2026-10-29: @7382 `reply = buildLocateSeenConfirm(factProp)` — the
+ * first arm of the property_locate ladder (`if (factProp) … else if …`), so it
+ * is exclusive with the serve lanes beside it. The sweep still reports it
+ * because later, unrelated lanes in `processMessage` assign `reply`; that is
+ * the same shape as every candidate above, and the arm sets state to closing
+ * and answers the turn's question in full (the 02:19 Водно capture). */
+const REVIEWED = 23;

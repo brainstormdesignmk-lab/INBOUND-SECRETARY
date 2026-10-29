@@ -86,7 +86,7 @@ test('feed parse: over-cap claims and annotation residue never reach a consumer'
   }
 });
 
-test('LandmarkService: the FEED ranked list wins — nearest valid, street names rejected, EB-hash variety', async () => {
+test('LandmarkService: the FEED ranked list wins — nearest valid, street names rejected, same claim for every EB', async () => {
   const db = new Db(':memory:');
   const svc = new LandmarkService(db, { osm: false });
   const list: FeedLandmark[] = [
@@ -99,9 +99,11 @@ test('LandmarkService: the FEED ranked list wins — nearest valid, street names
   assert.equal(a.source, 'feed');
   assert.ok(a.landmark.length > 0);
   assert.notEqual(a.landmark, 'Улица Македонија'); // the street is filtered out
-  assert.ok(['Кафе бар Ван Гог', 'Градежен факултет'].includes(a.landmark), a.landmark);
-  // different EBs rotate for variety — both still come from the valid list
-  assert.ok(['Кафе бар Ван Гог', 'Градежен факултет'].includes(b.landmark), b.landmark);
+  // THE FIRST NAME is the top of the ranking (most significant, then nearest) —
+  // it must not change per EB: two cards describing the same row used to name
+  // different neighbours than the page's own rotation led with.
+  assert.equal(a.landmark, 'Кафе бар Ван Гог');
+  assert.equal(b.landmark, a.landmark);
 });
 
 test('LandmarkService: no feed list, no offline map → honest none (no table/network fallback)', async () => {

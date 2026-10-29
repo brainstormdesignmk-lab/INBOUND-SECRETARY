@@ -40,10 +40,11 @@ import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/str
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extractDetailsLandmark, resolveSearchCenter, FEED_LANDMARK_MAX_M, type PropertyRow, type Center } from '../geo/landmarks';
-import { toCyrillic, translitToLatin } from '../geo/offlineMap';
+import { toLatin, toCyrillic, translitToLatin, officialPlaceName, canonicalWordKey, wordsAlmostEqual } from '../geo/offlineMap';
 import { walkMinutes, distM } from '../geo/precision';
 import { routeLog, resolveIntent, dispatchSimple } from './router';
 import { VisitScheduler } from '../visits/scheduler';
+import { recordPlaceMiss } from '../store/placeMisses';
 import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
@@ -51,7 +52,7 @@ import {
   ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
-  LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, LOCATE_SERVICE_ASK, buildLocateMatches, pairBatchMeta,
+  LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, LOCATE_SERVICE_ASK, buildLocateMatches, buildLocateSeenConfirm, pairBatchMeta,
   buildLocateLandmarkIntro, buildLocateLandmarkEntry, buildLocateLandmarkFallback, LOCATE_LANDMARK_PRICE_PROBE,
   locateNoun,  buildLocateFirstAsk, buildLocateServiceAsk, buildLocateMoreSpecsAsk,
   buildLocateLandmarkPriceProbe, buildDescribeIntro,
@@ -91,19 +92,212 @@ const PLACE_PAIR_BAND_M = 250;
 const EB_DISCLAIM_RE =
   /(?<![\p{L}])(?:не\s+(?:го\s+)?(?:запиш[а-џ]*|запомнив|запамтив|зна[а-џ]*|знам|немам\s+број)|(?<![\p{L}])ne\s+go\s+(?:zapis[a-z]*|pisuv[a-z]*|zna[a-z]*|zapamt[a-z]*)|(?<![\p{L}])nesum\s+go\s+pi[a-z]*|(?<![\p{L}])neznam\b)/iu;
 
-/** Does the MAP's place name stay within what the CLIENT said? Compared through
- *  the loose Skopje fold (ч/ц, ш/с, ќ/к, ѓ/џ, and the area aliases), so "BROZ
- *  KAFE" reaches "Broz Cafe" and "lisice" reaches "Лисиче". Only the map
- *  name's FIRST word is required: that is where a phantom business name puts
- *  the brand the client never typed ("ELS Novo Lisice"), while a real short
- *  reference stays valid ("kaj Zegin" → "Zegin Apteka", "kaj Vero" → "Vero
- *  Center"). Words shorter than 3 letters carry no identity and are skipped. */
-function poiNameFollowsClientWords(clientText: string, poiName: string): boolean {
-  const words = (s: string): string[] => placeLooseKey(normalizeLocation(s))
-    .split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 3);
-  const said = words(clientText);
-  const head = words(poiName)[0];
-  return !head || said.includes(head);
+// The city's own name is how the map QUALIFIES a place ("Skopje City Mall"),
+// never how it names a different one.
+const PLACE_CITY_WORDS = new Set(['скопје', 'скопју', 'skopje', 'skopju']);
+// Reference words a CLIENT appends to a name ("… SKOLOTO", "… CRKVATA") — the
+// map's own name never carries them, so they may be dropped before the name
+// match. An INSTITUTION NOUN is deliberately NOT here: «ВОЕНА БОЛНИЦА» is a
+// name, and dropping «болница» is exactly how it became «Воена академија».
+/** Connector words that carry no identity: dropped from the comparison run
+ *  («Амбасада НА Германија» ≡ «Embassy OF Germany»). Anything else — including
+ *  a two-letter brand like «ОК» — is identity and stays. */
+const PLACE_CONNECTORS = new Set([
+  'na', 'vo', 'od', 'do', 'za', 'so', 'i', 'u', 'kaj', 'sproti',
+  'of', 'the', 'in', 'at', 'and', 'to',
+]);
+const PLACE_REFERENCE_TAIL = new Set([
+  'skoloto', 'skolata', 'skolo', 'школото', 'школата', 'школо',
+  'ucilisteto', 'uciliste', 'училиштето', 'училиште',
+  'crkvata', 'crkva', 'црквата', 'црква',
+  'marketot', 'marketo', 'маркетот', 'molot', 'молот', 'parkot', 'паркот',
+  'kafanata', 'кафаната', 'zgradata', 'zgrada', 'зградата', 'зграда',
+  // A PROXIMITY tail is not part of the place's name: «КАЈ ОЛИМПИКО ОКОЛУ 400
+  // ЕВРА БЕШЕ» asks for a price NEAR Олимпико, and the greedy extractor hands
+  // the tail over as «олимпико околу». Without these the coverage guard refused
+  // the map's own «Олимпико» and the funnel asked for a neighborhood the
+  // client had just named.
+  'okolu', 'околу', 'blizu', 'близу', 'near', 'nearby',
+]);
+
+/** WHAT KIND OF VENUE a place is — never WHICH one it is. «ТЦ Џевахир» says the
+ *  shopping centre named Џевахир; the map files that complex as «Џевахир кула
+ *  А» (its own OSM name), so the type word is the ONLY thing standing between
+ *  the client's words and the map's row — and the guard refused it, which is
+ *  how «ТЦ Џевахир» cost the pair its second place («Околу Џевахир кула А
+ *  во моментов немам ништо…» never got said).
+ *
+ *  TWO SETS, because they do different jobs:
+ *   • VENUE_WORDS may not be the HEAD of a name (the head is the word that
+ *     identifies it: «Shopping Center Bunjakovec» starts with three venue
+ *     words and its identity is «Bunjakovec»);
+ *   • only the abbreviations are DROPPED from the client's run, where they are
+ *     pure class words («TC», «ТЦ», «трговски», «shopping»). «Центар»/«Мол»
+ *     are NOT dropped: «Веро Центар» (the mall) and «Веро 9» (the shop inside
+ *     it) are different places, and the word is the only thing separating two
+ *     rows whose brand is identical. */
+const PLACE_VENUE_WORDS = new Set([
+  'tc', 'тц', 'trgovski', 'трговски', 'shopping', 'shop',
+  'center', 'centre', 'centar', 'центар', 'mol', 'мол', 'mall', 'малл',
+]);
+const PLACE_VENUE_DROP = new Set(['tc', 'тц', 'trgovski', 'трговски', 'shopping']);
+
+/** Does the MAP's place name COVER what the CLIENT said? A hard contract, not a
+ *  similarity score: a name the client typed may never bind to a place whose
+ *  own name REPLACES one of its words.
+ *
+ *  The old rule checked only the map name's first word, which is where a
+ *  phantom business name puts its brand ("ELS Novo Lisice" must lose to
+ *  "kaj vas vo novo lisice"). What it could not see is the other direction:
+ *  «ВОЕНА БОЛНИЦА» reached «Воена академија Генерал Михаило Апостолски» on the
+ *  shared modifier «воена» and the pair was served around a place the client
+ *  never named, 5 km across town. So BOTH halves are checked now:
+ *    1. the map name's first real word must be one the client said (brand-in-
+ *       front refused; the city name «Skopje …» is allowed as a qualifier);
+ *    2. the client's words must sit CONTIGUOUSLY in the map name, in order —
+ *       only trailing reference words («… SKOLOTO») may be dropped. A map name
+ *       that substitutes a word for one of the client's is a DIFFERENT place.
+ *  Compared through the loose Skopje fold (ч/ц, ш/с, ќ/к, ѓ/џ, aliases) with
+ *  the documented k/c bridge, so "BROZ KAFE" still reaches "Broz Cafe". */
+export function poiNameCoversClientWords(clientText: string, poiName: string): boolean {
+  // ONE SCRIPT FOR THE COMPARISON (the [18:34] «STAN KAJ CITY MALL» capture):
+  // the extractor hands the place over already folded to CYRILLIC — «цитy
+  // малл» for the Latin «CITY MALL» — while the map stores the place in Latin
+  // («Skopje City Mall»). Word-by-word comparison across two scripts matched
+  // nothing, the guard refused the map's own place, and the funnel asked the
+  // client for a location he had just named. Both sides are folded to the
+  // Latin letter class before the words are compared; the k/c bridge below is
+  // what still makes «Католичка» ≡ «Katolicka».
+  // RAW Latin fold, NOT normalizeLocation: that helper transliterates Latin
+  // into Cyrillic and back, so «Skopje City Mall» came out «skopje citj mall»
+  // while the client's own «цитy малл» came out «city mall» — the same words,
+  // two spellings, and the guard refused the map's place. toLatin() is
+  // character-faithful in both directions, so both sides land on «city mall».
+  // ONE SPELLING PER LOANWORD (the [20:49] «STAN KAJ CITY MOL» capture): the
+  // client says MOL — the Macedonian word for a mall — and the map holds
+  // «Сити Мол» / «Skopje City Mall». Both words are the SAME English words
+  // spelled three ways (city / siti / сити, mall / mol / мол), and word-by-word
+  // comparison refused every map row: [city, mol] never equals [siti, mol] nor
+  // [skopje, city, mall], so the resolved place was thrown away and the funnel
+  // asked for a location the client had just named. The table folds the
+  // spelling FAMILIES a Skopje client actually uses onto one key. Only these
+  // families — no open-ended phonetic fuzzing, which is what the guard exists
+  // to prevent.
+  // TWO PARALLEL LISTS: the words as written (their LENGTH and the city-word
+  // test are properties of the spelling — «els» is a three-letter brand) and
+  // their comparison keys (the sound skeleton, which is shorter: «els» → «ls»).
+  // Reading the length off the key instead let «ELS Novo Lisice» pass the
+  // brand-in-front check, because its key is two letters wide.
+  const raw = (s: string): string[] => toLatin(s).split(/[^a-z0-9]+/u).filter(Boolean);
+  const rawAll = raw(clientText);
+  const rawHave = raw(poiName);
+  const all = rawAll.map(w => canonicalWordKey(w));
+  const have = rawHave.map(w => canonicalWordKey(w));
+  // The run carries its ORIGINAL word indices, because the reference-tail test
+  // («… ОКОЛУ», «… SKOLOTO») is a test on the WORD, not on its sound key —
+  // checking the key dropped every trailing qualifier and made
+  // «КАЈ ОЛИМПИКО ОКОЛУ 400 ЕВРА» unresolvable.
+  //
+  // ONLY CONNECTORS ARE DROPPED („на“, „во“, „од“, „и“, „the“), never a short
+  // word in general: the earlier ≥3-letter rule silently threw away the part of
+  // a name that IDENTIFIES it — «ОК Хотел» lost its «ОК» and matched the map's
+  // unrelated «Хотел 7», and every «ДМ»/«ТЦ» name lost its own abbreviation.
+  const saidIdx = rawAll.map((_, i) => i)
+    .filter(i => !PLACE_CONNECTORS.has(rawAll[i]) && !PLACE_CONNECTORS.has(all[i]))
+    .filter(i => !PLACE_VENUE_DROP.has(rawAll[i]));
+  const said = saidIdx.map(i => all[i]);
+  if (said.length === 0) return true;
+  // THE HEAD IS THE FIRST WORD THAT CARRIES IDENTITY (the map-wide audit,
+  // 2026-10-28): every row must bind when the client says its OWN name, and
+  // 107 of 5,992 did not. Two shapes did it — a connector in front («Кај
+  // Џино», «The Gallery», «Kaj Serdarot») and a name made only of short words
+  // («DM», «9», «B 19»). The connector shapes failed because the client's
+  // words drop connectors while the head was taken from the map's raw first
+  // word, so «the» was compared against «gallery»; the short shapes failed the
+  // ≥3-letter head rule that exists only to keep a TWO-LETTER BRAND from
+  // sliding past it („ELS Novo Lisice“). Both are fixed here: connectors and
+  // city words are skipped, and the ≥3-letter preference applies only while a
+  // word that long exists at all.
+  const identityWord = (w: string, i: number): boolean =>
+    !PLACE_CONNECTORS.has(w) && !PLACE_CONNECTORS.has(all[i] ?? '') && !PLACE_CITY_WORDS.has(w)
+    && !PLACE_VENUE_WORDS.has(w);
+  let headAt = rawHave.findIndex((w, i) => w.length >= 3 && identityWord(w, i));
+  if (headAt === -1) headAt = rawHave.findIndex((w, i) => identityWord(w, i));
+  // A name made ONLY of generic words («Трговски центар», «Центар») has no
+  // identity word to be its head — the same says-its-own-name contract then
+  // falls back to the first real word, so the map's generic row still binds
+  // when a client names it.
+  if (headAt === -1) {
+    headAt = rawHave.findIndex((w, i) => !PLACE_CONNECTORS.has(w) && !PLACE_CONNECTORS.has(all[i] ?? ''));
+  }
+  const head = headAt === -1 ? undefined : have[headAt];
+  const headRaw = headAt === -1 ? '' : rawHave[headAt];
+  // The head test is what refuses a place whose name puts a brand IN FRONT of
+  // what the client said. A name with NO identity word at all («Трговски
+  // центар») has no brand to put in front, so it rests on the run check alone.
+  const headSaid = !!head && said.some((w, k) => w === head || wordsAlmostEqual(rawAll[saidIdx[k]], headRaw));
+  const hasIdentityHead = rawHave.some((w, i) => identityWord(w, i));
+  if (!headSaid && hasIdentityHead) return false;
+  // THE TYPO BUDGET (one slip per WORD, the [21:42] «ПОРТА БУНЈАКОВЕЦ» /
+  // [21:45] «ДАЈМОНД МОЛ» line of business): a client who drops, doubles or
+  // swaps ONE letter inside a word of five letters or more still named that
+  // place — «Комерцијална» → «Комерцјална», «Бунјаковац» → «Буњаковец».
+  // The slip is per word, so a two-word name with one typo in each is still the
+  // name, and it only opens on canonical keys of five letters or more, so short
+  // names („KAM“/„KAN“, „Vero“/„Vodno“) stay exact. Told apart from the previous
+  // contract: the map name must still START with one of the client's words
+  // (typo-tolerant), and the client's run must still sit in the map name IN
+  // ORDER with at most ONE map word in between (a qualifier the client
+  // omitted) — a typo may not re-order, add or drop one of the CLIENT's words,
+  // or substitute a different place.
+  // A WORD THAT MATCHES — exactly through the fold, or with ONE slip. The slip
+  // is per WORD, not per name (the owner's "more tolerant" call after the
+  // [21:41]–[21:46] captures): «Бунјаковац» and «Буњаковец» both slip in ONE
+  // word, and a two-word name written with one slip in each is still the name
+  // the client said. Short words (<5 letters) stay exact.
+  const wordMatches = (mi: number, k: number, run: string[], runRaw: string[]): boolean => {
+    if (have[mi] === run[k]) return true;
+    const longEnough = rawHave[mi].length >= 5 && runRaw[k].length >= 5;
+    return longEnough && wordsAlmostEqual(runRaw[k], rawHave[mi]);
+  };
+  // ONE INSERTED MAP WORD IS STILL THE SAME NAME (the «Бунјаковац 5» →
+  // «Буњаковец кула 5» class): the map carries qualifiers a client omits —
+  // «кула», «куќа», «ТЦ» — and a numbered branch of a compound could never bind
+  // while the guard demanded a contiguous run. At most ONE map word may be
+  // skipped, and only BETWEEN the client's words: nothing on the CLIENT's side
+  // is added, dropped or re-ordered, so the name still has to line up word for
+  // word, and the head / venue / category checks above still stand.
+  const contains = (run: string[], runRaw: string[]): boolean => {
+    if (run.length === 0) return false;
+    const walk = (mi: number, k: number, gaps: number): boolean => {
+      if (k === run.length) return true;
+      for (let j = mi; j < have.length; j++) {
+        const skipped = j - mi;
+        if (skipped > gaps) return false;
+        if (!wordMatches(j, k, run, runRaw)) continue;
+        if (walk(j + 1, k + 1, gaps - skipped)) return true;
+      }
+      return false;
+    };
+    return walk(0, 0, 1);
+  };
+  // SHORT CONNECTORS COUNT (the global map audit): the contiguity run used to
+  // drop words under three letters, so «Амбасада на Германија» — the client
+  // saying the map's OWN name, exactly — ran as [ambasada, germanija] against
+  // [ambasada, na, germanija], found no window, and was refused. Every name
+  // with a preposition in it became unreachable: embassies («Амбасада на …»),
+  // schools («Дом за слепи»), agencies («Агенција за …»). The client's words
+  // are therefore matched BOTH ways: as typed (connectors included) and with
+  // the short words dropped, which is what keeps «kaj BROZ KAFE» matching
+  // «Broz Cafe».
+  if (contains(all, rawAll)) return true;
+  const runIdx = [...saidIdx];
+  for (;;) {
+    if (contains(runIdx.map(i => all[i]), runIdx.map(i => rawAll[i]))) return true;
+    const tailWord = rawAll[runIdx[runIdx.length - 1]];
+    if (!tailWord || !PLACE_REFERENCE_TAIL.has(tailWord)) return false;
+    runIdx.pop();
+  }
 }
 // GREETING_ONLY_RE moved to deterministic.ts (shared with the pre-classify's
 // greeting ownership — the 15:12 TUI capture) and imported below.
@@ -329,6 +523,38 @@ function detailHaystack(p: Property): string {
     : '';
   return [p.details ?? '', p.landmark ?? '', ...(p.features ?? []),
     ...(p.noFeatures ?? []), floorWord].join(' ');
+}
+
+/** EVERY card the number could mean — «тој 71 квадрата», «таа од 99 000». The
+ *  size or the price in the message, matched against the cards on the table.
+ *  A POINTING word is required, so «сакам 71 квадрати» stays a new criterion
+ *  and a plain «71» never becomes a silent choice (the 02:19 Водно capture).
+ *  ALL carriers are returned: the caller resolves one, or ASKS between them
+ *  when two cards share the fact — never re-serves the whole table. */
+function matchByNumber(text: string, rows: Property[]): Property[] {
+  if (rows.length === 0 || !DETAIL_POINT_RE.test(text)) return [];
+  const numOf = (raw: string): number => Number(raw.replace(/[\s.,]/g, ''));
+  const size = text.match(/(?<![\p{L}\p{N}])(\d[\d\s.,]*)\s*(?:кв(?:адрат\w*)?|м²|м2|m²|m2|kv(?:adrat\w*)?)(?![\p{L}\p{N}])/iu);
+  if (size) {
+    const n = numOf(size[1]);
+    const hits = rows.filter(p => typeof p.sqm === 'number' && Math.abs(p.sqm - n) <= 1);
+    if (hits.length > 0) return hits;
+  }
+  const money = text.match(/(?<![\p{L}\p{N}])(\d[\d\s.,]*)\s*(?:евра|евро|evra|evro|eur|€|илјади|iljadi)(?![\p{L}\p{N}])/iu);
+  if (money) {
+    const n = numOf(money[1]);
+    const tol = Math.max(2000, Math.round(n * 0.05));
+    const hits = rows.filter(p => typeof p.price === 'number' && Math.abs(p.price - n) <= tol);
+    if (hits.length > 0) return hits;
+  }
+  return [];
+}
+
+/** The ONE card the number identifies — undefined when two cards carry it (the
+ *  caller keeps the question open instead of guessing). */
+function pickByNumber(text: string, rows: Property[]): number | undefined {
+  const hits = matchByNumber(text, rows);
+  return hits.length === 1 ? hits[0].eb : undefined;
 }
 
 /** The flat the client pointED AT by one of its facts. Only a POINTING phrase
@@ -894,7 +1120,7 @@ export class InboundHandler {
       // client agrees to leave his area.
       session.slots.areaExhausted = true;
       return {
-        reply: exhaustedLine(session.slots.location ?? anchor?.name, assistantTexts(session)) ?? LOCATE_REFINE_ASK,
+        reply: exhaustedLine(session.slots.location, assistantTexts(session), anchor?.name) ?? LOCATE_REFINE_ASK,
         bankKey: 'exhausted.location',
         shown: [],
       };
@@ -1209,19 +1435,18 @@ export class InboundHandler {
     const remaining = new Map(pool.map(p => [p.id, p] as const));
     const queue: number[] = [];
     const anchorOf: Record<string, { name: string; lat: number; lon: number }> = {};
-    const take = (place: { name: string; lat: number; lon: number }): boolean => {
-      let best: { p: Property; d: number } | undefined;
-      for (const p of remaining.values()) {
-        const d = distTo(p, place);
-        if (d > LANDMARK_NEAR_M) continue;
-        if (!best || d < best.d || (d === best.d && p.eb < best.p.eb)) best = { p, d };
-      }
-      if (!best) return false;
-      queue.push(best.p.id);
-      remaining.delete(best.p.id);
-      anchorOf[String(best.p.id)] = { name: place.name, lat: place.lat, lon: place.lon };
-      return true;
+    const takeRow = (row: Property, place: { name: string; lat: number; lon: number }): void => {
+      queue.push(row.id);
+      remaining.delete(row.id);
+      anchorOf[String(row.id)] = { name: place.name, lat: place.lat, lon: place.lon };
     };
+    /** Rows still inside a place's honest radius, nearest first. */
+    const optionsFor = (place: { name: string; lat: number; lon: number }): Property[] =>
+      [...remaining.values()]
+        .map(p => ({ p, d: distTo(p, place) }))
+        .filter(x => x.d <= LANDMARK_NEAR_M)
+        .sort((a, b) => a.d - b.d || a.p.eb - b.p.eb)
+        .map(x => x.p);
     // A place with NO row at all in the radius is genuinely empty for this
     // search — that is the honest line, not a place merely drained by earlier
     // turns (the used-up case just yields one card for that chunk).
@@ -1238,16 +1463,102 @@ export class InboundHandler {
       const stocked = chunk.filter(pl => !empty.includes(pl.name));
       if (stocked.length === 0) continue;
       const picks = stocked.length === 1 ? [stocked[0], stocked[0]] : stocked;
+      // ONE CARD PER PLACE, DISTINCT ROWS (the [15:36] capture): two places
+      // ~800 m apart share most of their radius, so a plain "nearest row per
+      // place" serve gave BOTH slots to the place drawn first and left the
+      // second one looking empty — while the very flat that was near it sat on
+      // the other card. The client asked for «воена болница ИЛИ City Mall» and
+      // got two cards around the hospital, introduced as «по една опција до
+      // … и до City Mall». Assignment is therefore a small matching problem:
+      //   • the place with the FEWEST options picks first (the scarce place
+      //     keeps its only flat);
+      //   • a row that also stands inside a still-hungry place's radius is kept
+      //     for that place while it has an option of its own (exclusivity);
+      //   • inside those rules the nearest row wins.
+      // With nothing left to give, the place simply has no card this turn —
+      // which the serve must say, never paper over (pairBatchMeta names only
+      // the places the batch actually answers).
+      const want = new Map<string, { place: { name: string; lat: number; lon: number }; n: number }>();
+      for (const pl of picks) {
+        const e = want.get(pl.name);
+        if (e) e.n++; else want.set(pl.name, { place: pl, n: 1 });
+      }
+      const cands = new Map<string, Property[]>();
+      for (const [name, e] of want) cands.set(name, optionsFor(e.place));
+      const entries = [...want.values()];
+      const claimed = new Set<number>();
+      const pickedFor = new Map<string, Property[]>();
+      if (entries.length === 2 && entries.every(e => e.n === 1)) {
+        // THE PAIR IS A MATCHING, NOT TWO NEAREST LOOKUPS. Two places a few
+        // hundred metres apart share almost every candidate: "nearest row to
+        // each, greedily" either gave both slots to whichever place was walked
+        // first, or handed one place a 500 m row merely to "save" a 10 m row
+        // for a place that already had its own. The chunk therefore takes the
+        // two DISTINCT rows whose TOTAL distance to their two places is
+        // smallest — the closest honest assignment, one card per place.
+        const [a, b] = entries;
+        const listA = cands.get(a.place.name) ?? [];
+        const listB = cands.get(b.place.name) ?? [];
+        let pairA: Property | undefined;
+        let pairB: Property | undefined;
+        let bestTotal = Number.POSITIVE_INFINITY;
+        for (const ra of listA) {
+          const da = distTo(ra, a.place);
+          for (const rb of listB) {
+            if (rb.id === ra.id) continue;
+            const total = da + distTo(rb, b.place);
+            if (total < bestTotal) { bestTotal = total; pairA = ra; pairB = rb; }
+          }
+        }
+        if (pairA && pairB) {
+          pickedFor.set(a.place.name, [pairA]);
+          pickedFor.set(b.place.name, [pairB]);
+          claimed.add(pairA.id);
+          claimed.add(pairB.id);
+        } else {
+          // ONE FLAT ANSWERS BOTH PLACES (the [15:36] capture): it is a single
+          // honest card, given to the place it stands nearest — the opener then
+          // names that place and the card states every distance it really has.
+          const row = listA[0] ?? listB[0];
+          if (row) {
+            const owner = distTo(row, a.place) <= distTo(row, b.place) ? a : b;
+            pickedFor.set(owner.place.name, [row]);
+            claimed.add(row.id);
+          }
+        }
+      } else {
+        // A single stocked place fills both slots with its two nearest rows.
+        for (const e of entries) {
+          const got: Property[] = [];
+          for (const row of cands.get(e.place.name) ?? []) {
+            if (got.length >= e.n) break;
+            if (claimed.has(row.id)) continue;
+            claimed.add(row.id);
+            got.push(row);
+          }
+          pickedFor.set(e.place.name, got);
+        }
+      }
       let added = 0;
-      for (const place of picks) if (take(place)) added++;
+      const queued = new Set<string>();
+      for (const pl of picks) {
+        if (queued.has(pl.name)) continue;
+        queued.add(pl.name);
+        for (const row of pickedFor.get(pl.name) ?? []) { takeRow(row, pl); added++; }
+      }
       if (added === 0 && stocked.length === 1) {
         // The stocked place ran dry: stop instead of spinning the rotation.
         break;
       }
     }
     // Leftovers (outside every place's honest radius, or past the rotation) rank
-    // last, each still anchored on the NEAREST place named so the card states
-    // how far it really is — never a distance that belongs to another card.
+    // last — they are ALTERNATIVES, not answers to the two places. Only a row
+    // that really stands inside a named place's radius gets an anchor: a flat
+    // 3 km away labelled «од Болница 8ми Септември» is the false geography the
+    // pair contract exists to prevent (the [15:36] capture: the pair claimed
+    // «по една опција» for two places while its second card was 3,1 km from
+    // the nearer of them). Un-anchored rows are never counted as answering a
+    // place — pairBatchMeta() only uses the anchors it is given.
     for (const p of pool) {
       if (!remaining.has(p.id)) continue;
       let nearest = places[0];
@@ -1258,9 +1569,27 @@ export class InboundHandler {
       }
       queue.push(p.id);
       remaining.delete(p.id);
-      anchorOf[String(p.id)] = { name: nearest.name, lat: nearest.lat, lon: nearest.lon };
+      if (bestD <= LANDMARK_NEAR_M) {
+        anchorOf[String(p.id)] = { name: nearest.name, lat: nearest.lat, lon: nearest.lon };
+      }
+    }
+    // BOTH PLACES, ONE FLAT: two places a kilometre apart often share every
+    // candidate (the only 2-room under budget near either), and the old serve
+    // then left one place looking empty while its flat was already on the
+    // table under the other name. Every queued card records the OTHER named
+    // places it stands within the honest radius of, so it answers for them
+    // too — the card states each distance and the opener names both.
+    const byId = new Map(pool.map(p => [p.id, p] as const));
+    const alsoNearOf: Record<string, Array<{ name: string; lat: number; lon: number }>> = {};
+    for (const id of queue) {
+      const row = byId.get(id);
+      if (!row) continue;
+      const own = anchorOf[String(id)];
+      const others = places.filter(pl => pl.name !== own?.name && distTo(row, pl) <= LANDMARK_NEAR_M);
+      if (others.length > 0) alsoNearOf[String(id)] = others;
     }
     slots.pairAnchorOf = anchorOf;
+    slots.pairAlsoNearOf = alsoNearOf;
     slots.pairEmpty = empty;
     return queue;
   }
@@ -1297,6 +1626,19 @@ export class InboundHandler {
     return parts.length > 0 ? parts.join(' и ') : undefined;
   }
 
+  /** THE PLACE a search is steering by, as prose — «Диамонд Мол» — or undefined
+   *  when it steers by a DISTRICT or by several places at once. The drained line
+   *  uses it so it answers about the place the client named instead of the
+   *  district that place happens to sit in (the [21:46] capture: a search moved
+   *  onto Дајмонд Мол and the empty result said «Во Центар веќе ги погледнавме
+   *  сите недвижности» — a district he never asked about).
+   *  displayPlaceName(), so the prose form matches every other place line. */
+  private searchPlaceLabel(session: ChatSession): string | undefined {
+    const one = session.slots.poiAnchor
+      ?? (session.slots.poiPlaces?.length === 1 ? session.slots.poiPlaces[0]!.name : undefined);
+    return one ? displayPlaceName(one) : undefined;
+  }
+
   /** Resolve a place the CLIENT named to the map's own POI. This is how a
    *  human reads a landmark the customer drops in passing (the [13:28]
    *  "PISUVASE DO BROZ KAFE"): not as a word to match exactly, but as a place
@@ -1316,6 +1658,23 @@ export class InboundHandler {
   private resolvePlace(name: string | undefined): { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined {
     const clean = (name ?? '').trim();
     if (!this.landmarks || clean.length < 4) return undefined;
+    // A COLLOQUIAL NAME the map's own alias table knows («ВОЕНА БОЛНИЦА» IS the
+    // ГОБ „8 Септември“ — the old military hospital) is answered BY THAT NAME.
+    // It is not a similarity guess, so the word-coverage guard below (which
+    // exists to stop fuzzy substitutions) does not apply to it.
+    const official = officialPlaceName(clean);
+    if (official) {
+      const aliased = this.landmarks.findPlace(official);
+      if (aliased) return aliased;
+      // The colloquial name is KNOWN to mean ANOTHER place, and that place is
+      // not on the map. Falling through to the fuzzy passes here answered the
+      // shared word («воена») with «Воена академија Генерал Михаило
+      // Апостолски» — a military ACADEMY five kilometres across town, for a
+      // client who asked about the military HOSPITAL (the [15:36] capture).
+      // A known-other name has no honest reading here: the funnel asks for the
+      // area instead of inventing one.
+      return undefined;
+    }
     const variants = (s: string): string[] => [s, translitToLatin(s), toCyrillic(s)];
     // CLAUSE PREFIXES: the extractor's capture is greedy, so a landmark typed
     // ahead of a second clause keeps it ("PISUVASE DO BROZ KAFE. BESE OKOLU
@@ -1332,6 +1691,11 @@ export class InboundHandler {
     // the funnel asks for details instead.
     const head = clauses[0].split(/\s+/).filter(Boolean);
     if (head.length === 2 && head[0].length >= 4) tries.push(...variants(head[0]));
+    // The place the lookup found but the guard refused — recorded with the miss
+    // below, because "the map HAS a row and we threw it away" is a different
+    // bug from "the map has no such place", and the weekly digest must not
+    // blur them.
+    let refused: string | undefined;
     for (const t of tries) {
       const hit = this.landmarks.findPlace(t);
       // UNMENTIONED-WORD GUARD (the [10:28] capture): findPlace is a FUZZY
@@ -1344,8 +1708,21 @@ export class InboundHandler {
       // brand put in FRONT of the area ("ELS …") is refused. A client entering
       // a chain by its own word still resolves ("kaj TTK Banka" → "TTK Banka
       // Beverly Hills").
-      if (hit && poiNameFollowsClientWords(clean, hit.name)) return hit;
+      if (hit && poiNameCoversClientWords(clean, hit.name)) return hit;
+      if (hit && !refused) refused = hit.name;
     }
+    // TYPO RECOVERY (the [21:42]–[21:46] captures): every exact pass missed or
+    // was refused, so ask the map for the ONE place within a letter of what the
+    // client typed. The same coverage guard still signs off, so a near-name can
+    // never bind a different place: «Карош 1» reaches «Карпош», «Шпарасе»
+    // reaches «Шпаркасе», while «KAM»/«KAN» and any tie stay a MISS.
+    const loose = this.landmarks.findPlaceLoose ? this.landmarks.findPlaceLoose(clean) : undefined;
+    if (loose && poiNameCoversClientWords(clean, loose.name)) return loose;
+    // TELEMETRY (never throws, day-rotated JSONL): a place the client named and
+    // the map could not accept. Read it weekly with scripts/place-misses.ts and
+    // add the words that repeat — that is how the next CITY MOL is found before
+    // a client loses a turn to it.
+    recordPlaceMiss({ at: Date.now(), chatId: '', text: clean, refused });
     return undefined;
   }
 
@@ -1361,6 +1738,16 @@ export class InboundHandler {
       const a = this.resolvePlace(cand);
       if (a) return a;
     }
+    // A BARE PLACE NAME IS STILL A PLACE (the [21:42] capture): the extractor
+    // only reads a wish behind a preposition («кај», «околу», «во близина на»),
+    // so the client answering the funnel with «PORTA BUNJAKOVEC» — the map's
+    // own place, 2 words — produced NO candidate at all and the funnel asked
+    // him for a neighbourhood he had just named. When nothing was extracted,
+    // the whole message is tried as one place name: short, no digits, no money
+    // or size vocabulary, and — the only thing that matters — it must resolve
+    // to a REAL map row, so grammar can never become a place.
+    const bare = this.barePlace(text);
+    if (bare) return bare;
     return undefined;
   }
 
@@ -1381,16 +1768,52 @@ export class InboundHandler {
       ...extractPoiWishCandidates(text, { withCriteria: true }),
       ...extractPoiListCandidates(text),
     ];
+    // FRAGMENTS OF ONE NAME ARE NOT MORE PLACES. The extractor emits the greedy
+    // tail AND its trims ("воена болница или", "воена болница", "воена") and
+    // every one was resolved on its own: the trim «воена» bound a DIFFERENT
+    // map place («Воена академија …»), so one named place became two and the
+    // pair answered a place nobody had said. A candidate that extends, or is
+    // extended by, a name already accepted in this message is that same name.
+    const toks = (s: string): string[] => placeLooseKey(normalizeLocation(s))
+      .split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const accepted: string[][] = [];
     for (const cand of candidates) {
+      const words = toks(cand);
+      if (words.length === 0) continue;
+      const same = (a: string[], b: string[]): boolean => a.length > b.length
+        && b.every((w, k) => a[k] === w);
+      if (accepted.some(a => same(a, words) || same(words, a))) continue;
       const a = this.resolvePlace(cand);
       if (!a) continue;
+      accepted.push(words);
       const key = a.name.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({ name: a.name, lat: a.lat, lon: a.lon });
       if (out.length >= 4) break;
     }
+    // A BARE PLACE NAME IS STILL A PLACE (the [21:42] capture — see placeWish):
+    // the client answers the funnel with «PORTA BUNJAKOVEC» and the extractor,
+    // which only reads a wish behind a preposition, produces nothing. The whole
+    // message is tried as one place name and must resolve to a REAL map row.
+    if (out.length === 0) {
+      const bare = this.barePlace(text);
+      if (bare) out.push({ name: bare.name, lat: bare.lat, lon: bare.lon });
+    }
     return out;
+  }
+
+  /** The whole message read as ONE place name — only when it is short, has no
+   *  digits and no money/size vocabulary, and actually resolves on the map.
+   *  Shared by placeWish() and placesWish() so both seams read a bare answer
+   *  the same way. */
+  private barePlace(text: string): { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined {
+    const bare = text.replace(/[?!.,;:]+/gu, ' ').replace(/\s+/g, ' ').trim();
+    const words = bare.split(' ').filter(Boolean);
+    if (bare.length < 4 || words.length < 1 || words.length > 4) return undefined;
+    if (/\d/u.test(bare)) return undefined;
+    if (/(?:евра|евро|eur|денар|denar|спалн|spaln|м2|м²|илјад|iljad)/iu.test(bare)) return undefined;
+    return this.resolvePlace(bare);
   }
 
   /** The AREA a map place sits in, read from the feed's OWN rows — the bank is
@@ -1574,6 +1997,19 @@ export class InboundHandler {
   private async tryLearnedServe(session: ChatSession, text: string): Promise<boolean> {
     const bank = this.deps.bank;
     if (!bank || fsmRequired(text)) return false;
+    // A PLACE DURING A SEARCH IS SEARCH TRAFFIC (the [21:45] capture): the
+    // client asked «STANCINJA OKOLU DIAMOND MALL ?» while his search was
+    // already open, and the learned bank answered with a can't-check-right-now
+    // paragraph — no serve, no anchor, nothing. `fsmRequired` cannot see this:
+    // it is a pure-text rule and «STANCINJA» (a dialect word for a small flat)
+    // is not in its vocabulary. The map can see it: if the message names a
+    // place the map knows AND this session is already inside a search, the
+    // funnel owns the turn. Idle chats keep the learned lane (a landmark
+    // question with no need behind it is still bank traffic).
+    const searching = session.state !== 'idle'
+      || !!session.slots.service || !!session.slots.location
+      || !!session.slots.bedrooms || !!session.slots.budget || !!session.slots.poiAnchor;
+    if (searching && this.placeWish(text)) return false;
     const before = session.state;
     let reply: string | undefined;
     let source: string | undefined;
@@ -3325,10 +3761,12 @@ export class InboundHandler {
         const prep = locPrep(actualLoc);
         const poiType = poiProp.house ? 'Куќата' : poiProp.business ? 'Деловниот простор' : 'Станот';
         const poiHint = `${poiType} со Евидентен број ${poiProp.eb} се наоѓа ${prep} ${actualLoc}. Точната адреса се открива на денот на посетата.`;
-        // Anchor the context on the discussed property
-        if (session.slots.propertyId !== poiProp.eb && session.slots.interestedPropertyId !== poiProp.eb) {
-          session.slots.interestedPropertyId = poiProp.eb;
-        }
+        // Anchor the context on the discussed property — but ONLY when this
+        // lane actually ANSWERS. Arm it here and a message that merely carries
+        // a demonstrative («мислам дека беше ТОЈ од 71 квадрат») binds the last
+        // card of the table before falling through untouched, and the pick
+        // question ends up anchored on a flat the client never chose (the 02:19
+        // Водно capture).
         const placeCandidate = extractPoiConfirmPlace(text);
         let answer: string | undefined;
         if (placeCandidate && this.landmarks) {
@@ -3361,12 +3799,27 @@ export class InboundHandler {
         }
         if (answer) {
           session.slots.location = actualLoc;  // anchor the discussion context
+          if (session.slots.propertyId !== poiProp.eb && session.slots.interestedPropertyId !== poiProp.eb) {
+            session.slots.interestedPropertyId = poiProp.eb;
+          }
           routeLog(chatId, text, 'POI_CONFIRM');
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
           this.deps.sessions.set(session);
           await this.sendRaw(session, answer, 'deterministic');
           return;
+        }
+        // AN AVAILABILITY ASK ON THE CARD IS ABOUT THAT CARD (the [21:27]
+        // capture): «Дали е слободна и дали ја имате уште?» right after the
+        // serve falls through this lane to the classifier, which resolves the
+        // property from the SLOT — not from the batch tail. Left unarmed, the
+        // discovery funnel re-asked «колку спални соби?» about the house she
+        // had just described. The demonstrative case above stays unarmed: this
+        // is not «мислам дека беше тој», it is a question ABOUT the card.
+        if (detectAvailabilityAsk(text)
+          && session.slots.propertyId !== poiProp.eb
+          && session.slots.interestedPropertyId !== poiProp.eb) {
+          session.slots.interestedPropertyId = poiProp.eb;
         }
       }
       // No map hit, no neighborhood reading, no confirm form → fall through
@@ -4637,8 +5090,16 @@ export class InboundHandler {
           .filter((n): n is number => typeof n === 'number'))
       .slice(0, 2);
     if (onTableEbs.length > 0 && detectDescribeAsk(text)) {
-      const rows = (await Promise.all(onTableEbs.map(eb => this.deps.properties.getByEb(eb).catch(() => undefined))))
+      const table = (await Promise.all(onTableEbs.map(eb => this.deps.properties.getByEb(eb).catch(() => undefined))))
         .filter((p): p is Property => !!p);
+      // ONE CARD WHEN HE NAMED ONE (the 02:20 Водно capture): «ШТО МОЖЕШ ДА МИ
+      // КАЖЕШ ЗА 51?» — he pointed at ONE of the two numbers on the table, and
+      // the answer dumped BOTH cards. The name/detail he gives scopes the
+      // description; only an un-named "ОПИШИ ГИ" describes the whole table.
+      const named = pickDescribed(text, onTableEbs)
+        ?? pickByDetail(text, table)
+        ?? pickByNumber(text, table);
+      const rows = named !== undefined ? table.filter(p => p.eb === named) : table;
       if (rows.length > 0) {
         routeLog(chatId, text, 'DESCRIBE_TABLE');
         const intro = buildDescribeIntro(rows.length, {
@@ -4647,6 +5108,10 @@ export class InboundHandler {
         });
         const answer = `${intro}\n\n${rows.map(p => buildPropertyCard(p)).join('\n\n')}`;
         session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...rows.map(p => p.eb)])];
+        // An EB named here is the property UNDER DISCUSSION from now on. It is
+        // not an expression of interest — «што можеш да ми кажеш за 51?» asks
+        // for the card, so only the discussion anchor moves.
+        if (named !== undefined) session.slots.propertyId = named;
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
@@ -5633,6 +6098,7 @@ export class InboundHandler {
           }
           session.slots.poiPlaces = undefined;
           session.slots.pairAnchorOf = undefined;
+          session.slots.pairAlsoNearOf = undefined;
           session.slots.pairEmpty = undefined;
           session.slots.pairEmptySaid = undefined;
           session.slots.ladderQueue = undefined;
@@ -5695,6 +6161,7 @@ export class InboundHandler {
         // it), and so does any new place set (its pair anchors are stale).
         session.slots.poiPlaces = wishPlaces.length > 1 ? wishPlaces : undefined;
         session.slots.pairAnchorOf = undefined;
+        session.slots.pairAlsoNearOf = undefined;
         session.slots.pairEmpty = undefined;
         session.slots.pairEmptySaid = undefined;
         session.slots.poiAnchor = wishPlace.name;
@@ -6055,7 +6522,7 @@ export class InboundHandler {
         ? `Во моментов имам само еден стан според ${criteria}. Да Ви го покажам?`
         : count > 1
           ? `Во моментов имам ${count} станови според ${criteria}. Дали да ги видите сите, или да ги прескокнеме оние што веќе ги видовте?`
-          : (pickVariant('no.match.location', { recent: assistantTexts(session), vars: { location: session.slots.location ?? '' } })
+          : (noMatchLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
             ?? NO_MATCH_LINE(session.slots.location));
       if (count > 0) bankKey = undefined;
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
@@ -6357,7 +6824,7 @@ export class InboundHandler {
           if (await this.presentPricierBatch(session, text)) return;
           // Nothing pricier in the area either: the honest exhausted line,
           // never a silent junk refill and never silence.
-          const exhausted = exhaustedLine(session.slots.location, assistantTexts(session))
+          const exhausted = exhaustedLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
             ?? 'Ги прегледавме опциите во овој реон. Можам да ги запишам Вашите барања и да Ве известам штом се појави нешто соодветно, или да погледнеме во друга населба?';
           pushHistory(session, { role: 'user', text: this.lastUserText ?? '' }, this.cfg.maxHistory);
           pushHistory(session, { role: 'assistant', text: exhausted }, this.cfg.maxHistory);
@@ -6913,7 +7380,44 @@ export class InboundHandler {
       // NOTE: serveOnEntry must fall through to the serve chain below — these
       // are if/else-if branches, so an inner "empty else" BREAKS the chain and
       // leaves the reply empty (hit twice in the [20:15] repair).
-      if (before !== 'property_locate' && !reply && askServiceOnEntry) {
+      //
+      // DID HE JUST ANSWER THE QUESTION? (the 02:19 Водно capture) The client
+      // points at ONE of the cards he was shown, by its own fact — «мислам дека
+      // беше тој од 71 квадрат». That IS his answer to "дали некој од овие е тој
+      // што го видовте?", so the reply names the flat and moves on; re-ranking
+      // the same pool and re-serving the pair (what used to happen) told him she
+      // was not listening. Position picks («првиот») keep their own lane — the
+      // classifier turns those into INTERESTED, which owns the fee.
+      const shownRows = (await Promise.all((session.slots.currentBatch ?? [])
+        .map(id => this.deps.properties.getById(id).catch(() => undefined))))
+        .filter((p): p is Property => !!p);
+      let factMatches: Property[] = [];
+      if (before === 'property_locate' && !reply) {
+        factMatches = matchByNumber(text, shownRows);
+        if (factMatches.length === 0) {
+          const byFacet = pickByDetail(text, shownRows);
+          if (byFacet !== undefined) factMatches = shownRows.filter(p => p.eb === byFacet);
+        }
+      }
+      const factProp = factMatches.length === 1 ? factMatches[0] : undefined;
+      if (factProp) {
+        session.state = 'closing';
+        next = 'closing';
+        session.slots.propertyId = factProp.eb;
+        session.slots.interestedPropertyId = factProp.eb;
+        session.slots.ownerContactPending = true;
+        session.slots.describedEbs = undefined;
+        reply = buildLocateSeenConfirm(factProp);
+      } else if (factMatches.length > 1) {
+        // TWO CARDS CARRY THE FACT — ask WHICH one, over those two only. This
+        // is still an answer (his words narrowed the table), never a repeat of
+        // the whole pair. The batch shrinks to the carriers, so his next
+        // «првиот» / EB picks among exactly these.
+        const carriers = factMatches.slice(0, 2);
+        session.slots.currentBatch = carriers.map(p => p.id);
+        session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...carriers.map(p => p.id)])];
+        reply = buildLocateMatches(carriers, session.history.length, !ebDisclaimed);
+      } else if (before !== 'property_locate' && !reply && askServiceOnEntry) {
         reply = buildLocateServiceAsk(session.slots, !ebDisclaimed);
       } else if (before !== 'property_locate' && !reply && !serveOnEntry && !(anchor && ebDisclaimed)) {
         // Just entered — ask the number first (the easy path when known),
@@ -7018,8 +7522,25 @@ export class InboundHandler {
         // A NEW identifying detail (населба / цена / квадрати) re-ranks the
         // WHOLE candidate pool — excluding already-shown matches here would
         // hide the property the client is actually narrowing toward.
-        const matches = (await this.deps.properties.closestMatches(locateOpts)).slice(0, 2);
-        reply = matches.length > 0 ? present(matches) : LOCATE_REFINE_ASK;
+        // THE AREA IS A LOCK, NOT A RANK (the 02:18 Водно capture): he is
+        // identifying THE flat he saw on Водно, so a single Водно match may not
+        // be padded with a Центар flat just to fill the second slot — "Евидентен
+        // број 95 … во Центар" under "стан на Водно" is a different search
+        // wearing the same question. One in-area match = one card (the closer
+        // is already singular); nothing at all = ask about other areas, never
+        // swap them in silently (the same lock locateNextOptions enforces).
+        const pool = await this.deps.properties.closestMatches(locateOpts);
+        const inArea = session.slots.location
+          ? pool.filter(p => locMatches(String(p.location ?? ''), session.slots.location!))
+          : pool;
+        if (inArea.length === 0 && pool.length > 0 && session.slots.location) {
+          session.slots.areaExhausted = true;
+          reply = exhaustedLine(session.slots.location, assistantTexts(session)) ?? LOCATE_REFINE_ASK;
+          bankKey = 'exhausted.location';
+        } else {
+          const matches = (inArea.length > 0 ? inArea : pool).slice(0, 2);
+          reply = matches.length > 0 ? present(matches) : LOCATE_REFINE_ASK;
+        }
       } else {
         // No identifying details yet — collect населба / цена / квадрати.
         reply = LOCATE_DETAILS_ASK;
@@ -7766,7 +8287,7 @@ ${contactReminder}`;
           session.slots.areaExhausted = true;
           reply = !this.deps.properties.healthy
             ? FEED_UNAVAILABLE_LINE
-            : noMatchLine(session.slots.location, assistantTexts(session))
+            : noMatchLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
               ?? NO_MATCH_LINE(session.slots.location);
         }
       }
@@ -7790,9 +8311,9 @@ ${contactReminder}`;
         ? FEED_UNAVAILABLE_LINE
         : typedMiss
           ?? (before === 'discovery' || areaRequested
-            ? noMatchLine(session.slots.location ?? ev.location, assistantTexts(session))
+            ? noMatchLine(session.slots.location ?? ev.location, assistantTexts(session), this.searchPlaceLabel(session))
               ?? NO_MATCH_LINE(session.slots.location ?? ev.location)
-            : exhaustedLine(session.slots.location, assistantTexts(session))
+            : exhaustedLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
               ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location));
     // PENDING-VISIT CONFIRM (the [13:28] multi-question capture): Lina just
     // answered a fact question WITH the re-confirm ("Дали сè уште сте
@@ -7928,6 +8449,7 @@ ${contactReminder}`;
           assistantTexts(session), {
           anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix,
           perCardAnchor: pair.perCardAnchor,
+          perCardAlsoAnchors: pair.perCardAlsoAnchors,
         });
         reply = prefix ? `${prefix.trimEnd()}\n\n${cards}` : cards;
       } else {
@@ -8265,6 +8787,7 @@ ${contactReminder}`;
           anywhere: session.slots.anywhere, budget: session.slots.budget, noOpener: !!prefix,
           anchor: anchorPlace ? { name: displayPlaceName(session.slots.poiAnchor as string), lat: anchorPlace.lat, lon: anchorPlace.lon } : undefined,
           perCardAnchor: pair.perCardAnchor,
+          perCardAlsoAnchors: pair.perCardAlsoAnchors,
         });
         reply = prefix ? `${prefix.trimEnd()}\n\n${cards}` : cards;
       }
@@ -9100,7 +9623,10 @@ ${contactReminder}`;
     const pair = pairBatchMeta(session, batch);
     const introText = pair.opener ? `${intro.trimEnd()} ${pair.opener}` : intro;
     const withEmpty = pair.emptyLine ? `${introText.trimEnd()} ${pair.emptyLine}` : introText;
-    const reply = `${withEmpty}\n\n${batch.map((p, i) => buildPropertyCard(p, { anchor: pair.perCardAnchor?.[i] })).join('\n\n')}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
+    const reply = `${withEmpty}\n\n${batch.map((p, i) => buildPropertyCard(p, {
+      anchor: pair.perCardAnchor?.[i],
+      alsoAnchors: pair.perCardAlsoAnchors?.[i],
+    })).join('\n\n')}\n\n${pickCloser(PRESENTATION_CLOSERS_ALL, session.history.length)}`;
     pushHistory(session, { role: 'user', text: this.lastUserText ?? '' }, this.cfg.maxHistory);
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
@@ -9383,7 +9909,7 @@ ${contactReminder}`;
     }
     // Genuinely nothing left anywhere: the exhausted line (bank-backed).
     session.slots.areaExhausted = true;
-    const exhausted = exhaustedLine(session.slots.location, assistantTexts(session))
+    const exhausted = exhaustedLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
       ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location);
     pushHistory(session, { role: 'user', text: this.lastUserText ?? '' }, this.cfg.maxHistory);
     pushHistory(session, { role: 'assistant', text: exhausted }, this.cfg.maxHistory);

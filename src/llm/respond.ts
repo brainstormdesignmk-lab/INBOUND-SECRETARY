@@ -370,6 +370,7 @@ export class Responder {
             budget: session.slots.budget,
             noOpener: showWaiverAck || !!pair.opener,
             perCardAnchor: pair.perCardAnchor,
+            perCardAlsoAnchors: pair.perCardAlsoAnchors,
           }),
           this.cfg.publicSiteUrl, assistantTexts(session)), source: 'fallback' };
       }

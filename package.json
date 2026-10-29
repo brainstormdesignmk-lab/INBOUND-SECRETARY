@@ -31,6 +31,7 @@
     "backup:restore": "tsx scripts/restore.ts",
     "test": "tsx --test tests/*.test.ts",
     "test:c": "bash scripts/run-tests-compiled.sh",
+    "place:misses": "tsx scripts/place-misses.ts",
     "test:fast": "bash scripts/run-tests-compiled.sh --skip-slow",
     "tui": "tsx src/tui/run.ts",
     "tui:frame-check": "tsx scripts/tui-frame-check.ts",

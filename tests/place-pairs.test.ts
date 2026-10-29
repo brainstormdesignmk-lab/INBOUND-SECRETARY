@@ -256,3 +256,164 @@ test('a location CONFIRM about the flat on the table is still a confirm', () => 
   // «vo TOJ del na gradot» is a deictic, not a place to pivot to.
   assert.equal(isPlaceSearchPivot('STO IMATE VO TOJ DEL NA GRADOT ?'), false);
 });
+
+// ── THE [15:36] CAPTURE ────────────────────────────────────────────────────
+//   [15:35] SAKAM DA KUPAM DVOSOBEN STAN KAJ VOENA BOLNICA ILI CITY MALL
+//   [15:36] DO 120000 EVRA DA NE E PRIZEMJE ILI POTKROVJE
+//   ЛИНА: «Еве ги најблиските опции до Воена академија Генерал Михаило
+//          Апостолски: …» — the military HOSPITAL read as the military ACADEMY
+//          (a different institution 5 km across town), and the City Mall
+//          leg never searched at all.
+// The two contracts pinned here:
+//   1. «воена болница» is the map's «Болница 8ми Септември» (the old military
+//      hospital) — never «Воена академија …» on the shared word «воена».
+//   2. A two-place ask serves the pair across BOTH places — and when the batch
+//      also carries a far ALTERNATIVE, it is never introduced as
+//      «по една опција до X и до Y».
+const BOLNICA = { lat: 42.003998599999996, lon: 21.4016971 };   // Болница 8ми Септември
+const CITY_MALL = { lat: 42.004219299999995, lon: 21.3917118 }; // Skopje City Mall
+
+const nearBolnica = (eb: number, dLon: number): Property => ({
+  eb, id: eb, location: 'Карпош III', price: 90000, bedrooms: 2, sqm: 50, size: '50 м²',
+  service: 'buy', lat: BOLNICA.lat, lon: BOLNICA.lon + dLon,
+});
+
+test('[15:36] «воена болница ИЛИ City Mall» is read as the hospital AND the mall, one card each', async () => {
+  const rows: Property[] = [
+    // ~1,2 km EAST of the hospital, 2 km from the mall — stock for the hospital leg only.
+    nearBolnica(401, 0.0160),
+    // ~800 m west of the mall, ~1,6 km from the hospital — stock for the mall leg only.
+    { eb: 402, id: 402, location: 'Карпош III', price: 95000, bedrooms: 2, sqm: 52, size: '52 м²',
+      service: 'buy', lat: CITY_MALL.lat, lon: CITY_MALL.lon - 0.0097 },
+    // Between the two, inside BOTH radii — the shared flat the capture's pair collided on.
+    { eb: 403, id: 403, location: 'Карпош III', price: 99000, bedrooms: 2, sqm: 54, size: '54 м²',
+      service: 'buy', lat: 42.0040, lon: 21.3990 },
+  ];
+  const { say, sessions, chatId } = makeHandler('voena-bolnica-city-mall', rows);
+  await say('SAKAM DA KUPAM DVOSOBEN STAN KAJ VOENA BOLNICA ILI CITY MALL');
+  const reply = await say('DO 120000 EVRA DA NE E PRIZEMJE ILI POTKROVJE');
+
+  assert.deepEqual(sessions.get(chatId)!.slots.poiPlaces?.map(p => p.name),
+    ['Болница 8ми Септември', 'Skopje City Mall'],
+    'the colloquial hospital name resolves to the real hospital, and the mall is kept');
+  assert.doesNotMatch(reply, /Воена академија/, 'the military ACADEMY is a different place — never served');
+
+  const batch = sessions.get(chatId)!.slots.currentBatch ?? [];
+  const anchors = sessions.get(chatId)!.slots.pairAnchorOf ?? {};
+  const also = sessions.get(chatId)!.slots.pairAlsoNearOf ?? {};
+  const answersHospital = batch.some(id => anchors[String(id)]?.name === 'Болница 8ми Септември'
+    || (also[String(id)] ?? []).some(a => a.name === 'Болница 8ми Септември'));
+  const answersMall = batch.some(id => anchors[String(id)]?.name === 'Skopje City Mall'
+    || (also[String(id)] ?? []).some(a => a.name === 'Skopje City Mall'));
+  assert.ok(answersHospital, `the pair must answer the hospital: ${JSON.stringify(batch)}`);
+  assert.ok(answersMall, `the pair must answer the mall: ${JSON.stringify(batch)}`);
+  assert.match(reply, /од Болница 8ми Септември/);
+  assert.match(reply, /од Скопје Сити Мол/);
+});
+
+test('[15:36] a far alternative never rides the pair claim «по една опција до X и до Y»', async () => {
+  // The live pool: ONE flat within reach of either place (inside both radii)
+  // and the rest of the ledger 3+ km away. The old serve paired that flat with
+  // a 3,1 km row and introduced both as «по една опција до Болница … и до
+  // Сити Мол» — a claim about geography neither card had.
+  const rows: Property[] = [
+    { eb: 403, id: 403, location: 'Карпош III', price: 69500, bedrooms: 2, sqm: 35, size: '35 м²',
+      service: 'buy', lat: 42.0040, lon: 21.3990 },
+    // 3,1 km east — the alternative that used to be dressed as an answer.
+    { eb: 404, id: 404, location: 'Центар', price: 99000, bedrooms: 2, sqm: 51, size: '51 м²',
+      service: 'buy', lat: 42.0000, lon: 21.4400 },
+  ];
+  const { say, sessions, chatId } = makeHandler('voena-bolnica-far', rows);
+  await say('SAKAM DA KUPAM DVOSOBEN STAN KAJ VOENA BOLNICA ILI CITY MALL');
+  const reply = await say('DO 120000 EVRA DA NE E PRIZEMJE ILI POTKROVJE');
+
+  assert.deepEqual(sessions.get(chatId)!.slots.currentBatch, [403, 404],
+    'the near flat and the alternative');
+  assert.doesNotMatch(reply, /по една опција до/,
+    `a batch carrying a far alternative is not a pair answer: ${reply}`);
+  // The near card states BOTH distances it really has — that is what lets the
+  // client judge it; the far card states only its own.
+  assert.match(reply, /Евидентен број 403[\s\S]*од Болница 8ми Септември[\s\S]*од Скопје Сити Мол/);
+  const farAnchors = sessions.get(chatId)!.slots.pairAnchorOf ?? {};
+  assert.equal(farAnchors['404'], undefined,
+    'a row outside every named radius is an alternative, not an answer');
+});
+
+// ── THE [21:41]–[21:46] CAPTURE ────────────────────────────────────────────
+//   [21:41] ZDRAVO / STANCE POD KIRIJA MI TREBA
+//   [21:42] PORTA BUNJAKOVEC          → «На кој дел од градот…?» (the place was
+//                                        not bound, so the funnel re-asked)
+//   [21:44] …two options served near Градска болница…
+//   [21:45] A NESTO OKOLU DAJMOND MOL → «Тоа се наоѓа во близина на Геолошки
+//                                        завод» — the NEARBY-ABOUT-THE-FLAT
+//                                        lane answered a NEW place it could not
+//                                        read, while Diamond Mall sat 300 m away
+//   [21:45] STANCINJA OKOLU DIAMOND MALL? → «немам детали околу Дајмонд Мол»
+// Two contracts: (1) a bare place answer binds, and (2) «a neshto okolu X»
+// keeps the criteria, confirms once, then serves the place the client named.
+test('[21:41] «PORTA BUNJAKOVEC» binds, and «A NESTO OKOLU DAJMOND MOL» searches at the mall', async () => {
+  const PORTA = { lat: 41.9983476, lon: 21.4234951 };  // Порта Буњаковец
+  const MALL = { lat: 41.9903797, lon: 21.4299742 };   // Diamond Mall
+  const rows: Property[] = [
+    { eb: 411, id: 411, location: 'Центар', price: 400, bedrooms: 2, sqm: 50, size: '50 м²', service: 'rent', lat: PORTA.lat + 0.0002, lon: PORTA.lon },
+    { eb: 421, id: 421, location: 'Центар', price: 450, bedrooms: 2, sqm: 55, size: '55 м²', service: 'rent', lat: MALL.lat, lon: MALL.lon + 0.0003 },
+    { eb: 422, id: 422, location: 'Центар', price: 500, bedrooms: 2, sqm: 62, size: '62 м²', service: 'rent', lat: MALL.lat + 0.0004, lon: MALL.lon },
+  ];
+  const { say, sessions, chatId } = makeHandler('capture-2146', rows);
+
+  await say('ZDRAVO');
+  await say('STANCE POD KIRIJA MI TREBA');
+  await say('PORTA BUNJAKOVEC');
+  assert.equal(sessions.get(chatId)!.slots.location, 'Центар',
+    'the bare place answer fills the location — the funnel must not re-ask «кој дел од градот»');
+
+  await say('DVE SOBI');
+  const first = await say('DO 600');
+  assert.match(first, /Порта Буњаковец/, 'the first serve is near the place he named');
+
+  // The [21:45] turn: a NEW place named with «a neshto okolu …».
+  const confirm = await say('A NESTO OKOLU DAJMOND MOL');
+  assert.match(confirm, /истите критериуми/, 'the criteria stand — they are never re-asked');
+  assert.match(confirm, /Диамонд Мол/, 'the mall the client named, not the flat\'s own landmark');
+  assert.doesNotMatch(confirm, /Геолошки завод/, 'never a where-is about the previous flat');
+  assert.deepEqual(sessions.get(chatId)!.slots.pendingPivot?.name, 'Diamond Mall');
+
+  const served = await say('DA');
+  // 422 sat inside the first radius too, so it was already served; 421 is the
+  // mall-side row that is still new — the search MOVED to the named place.
+  assert.deepEqual(sessions.get(chatId)!.slots.currentBatch, [421],
+    'the serve is near the mall, not near Порта Буњаковец');
+  assert.match(served, /Еве ги најблиските опции до Диамонд Мол:/);
+  assert.doesNotMatch(served, /телефонскиот број/, 'a search confirm is not a phone request');
+
+  // [21:46] «STANCINJA OKOLU DIAMOND MALL ?» — every mall-side row is shown, so
+  // the drained line must speak about the MALL, never about the district it
+  // sits in (the capture's failure was «немам детали околу Дајмонд Мол»).
+  const drained = await say('STANCINJA OKOLU DIAMOND MALL ?');
+  assert.match(drained, /Диамонд Мол/, 'the drained line names the place he asked about');
+  assert.doesNotMatch(drained, /Во Центар/, 'never the district he never asked about');
+});
+
+// ── THE [00:46] CAPTURE — A WORD THAT HEADS TWO PLACES ─────────────────────
+//   [00:46] ZDRAVO , SAKAM DA KUPAM STANCE KAJ BISER , KAPITOL
+//   [00:47] ЛИНА: Имам две недвижности близу Бисер Травел: …Водно
+// The live map holds a travel AGENCY «Бисер Травел» (Центар) and the mall
+// «Biser Shopping Center» — 130 m from ТЦ Капитол, which the client NAMED in
+// the same breath. The shortest-name rule bound the office; nobody navigates
+// by a travel agency, and one of the cards it pulled was in Водно.
+test('[00:46] «KAJ BISER» anchors on the MALL, never on the travel agency', async () => {
+  const cfg = loadConfig();
+  const map = new OfflineMapStore(cfg.skopjePoisDb);
+  if (!map.available) return; // no live map on this machine — the rule is pinned in offlineMap.test.ts
+  const MALL = { lat: 41.9849838, lon: 21.4656569 };
+  const rows: Property[] = [
+    { eb: 501, id: 501, location: 'Ново Лисиче', price: 185000, bedrooms: 3, sqm: 82, size: '82 м²', service: 'buy', lat: MALL.lat + 0.0002, lon: MALL.lon },
+    { eb: 502, id: 502, location: 'Ново Лисиче', price: 99000, bedrooms: 3, sqm: 71, size: '71 м²', service: 'buy', lat: MALL.lat - 0.0003, lon: MALL.lon + 0.0002 },
+  ];
+  const { say, sessions, chatId } = makeHandler('capture-0046', rows);
+  const reply = await say('ZDRAVO , SAKAM DA KUPAM STANCE KAJ BISER , KAPITOL');
+
+  assert.doesNotMatch(reply, /Бисер Травел/, `the agency is never the anchor: ${reply}`);
+  const anchor = sessions.get(chatId)!.slots.poiAnchor;
+  assert.equal(anchor, 'Biser Shopping Center', `the mall the client meant: ${anchor}`);
+});

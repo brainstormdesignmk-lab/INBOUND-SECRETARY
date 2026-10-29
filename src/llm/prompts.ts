@@ -383,6 +383,17 @@ export function buildLocateMatchLine(p: Property): string {
   return `Евидентен број ${p.eb} — ${what}${bits.length ? `, ${bits.join(', ')}` : ''}.`;
 }
 
+/** THE CONFIRMATION OF A SEEN-PROPERTY PICK BY ONE OF ITS FACTS — «мислам
+ *  дека беше тој од 71 квадрат» (the 02:19 Водно capture). He did not read an
+ *  Евидентен број back, so the reply has to say WHICH flat he just pointed at:
+ *  the card's own identity line, then the question that moves the hunt on. A
+ *  bare availability ack here read as not listening, and re-serving the pair
+ *  read as a machine — he had already answered the question.
+ *  Gender-neutral on purpose: the row may be стан/куќа/гарсоњера/плац. */
+export function buildLocateSeenConfirm(p: Property): string {
+  return `Да, точно. ${buildLocateMatchLine(p)}\n\nДали сакате да Ви закажам посета?`;
+}
+
 export function buildLocateMatches(properties: Property[], closerIndex = 0, withNumberInvite = true): string {
   const lines = properties.slice(0, 2).map(p => buildLocateMatchLine(p)).join('\n');
   // ONE CARD, ONE QUESTION (the [11:07] replay): the plural closer asked him to
@@ -1499,7 +1510,12 @@ export function conversationalDetails(p: Property): string | undefined {
  * path reads professional instead of robotic. Grammar is hand-written, so it
  * is always correct.
  */
-export function buildPropertyCard(p: Property, opts: { anchor?: { name: string; lat: number; lon: number } } = {}): string {
+export function buildPropertyCard(p: Property, opts: {
+  anchor?: { name: string; lat: number; lon: number };
+  /** OTHER places the SAME flat also stands near (two named places 1 km apart
+   *  routinely share one card) — each distance is stated, never dropped. */
+  alsoAnchors?: Array<{ name: string; lat: number; lon: number }>;
+} = {}): string {
   // Strip internal feed disambiguator: "Центар (населба)" → "Центар"
   const loc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
   // NA/VO agreement: Водно is a mountain — "на Водно"; everywhere else "во"
@@ -1518,20 +1534,39 @@ export function buildPropertyCard(p: Property, opts: { anchor?: { name: string; 
   // boilerplate, no street. undefined = nothing usable -> the card omits it.
   const details = conversationalDetails(p);
   // NEARBY ON THE FIRST TURN: first feed-ranked landmark, contract-checked.
+  // A feed list whose first entry FAILS the contract (a shop — the owner's
+  // «Butik Galion» rule — or a stale over-200 m row) is not replaced with
+  // silence: the resolver's own answer `p.landmark` is the same property's
+  // landmark after the guard (the boutique became «ТЦ Бисер»), so the card
+  // still tells the client where the flat is.
   const firstLm = firstLandmarkProblem(p.landmarks) === undefined
     ? (p.landmarks?.[0]?.landmark ?? undefined)
-    : undefined;
-  if (firstLm && !details?.includes(firstLm)) s += ` Се наоѓа во близина на ${firstLm}.`;
+    : (p.landmark || undefined);
   // ANCHORED SEARCH: the client named the place he wants to live around, so
   // every card states its OWN distance from it — a pair of offers without
   // distances cannot be judged against «околу Лептокарија» ([17:26]). Measured
   // from the real pin; rows without coordinates simply omit the line.
-  if (opts.anchor && typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0) {
-    const d = distM(opts.anchor.lat, opts.anchor.lon, p.lat, p.lon);
-    const distText = d < 1000
+  const anchors = [opts.anchor, ...(opts.alsoAnchors ?? [])]
+    .filter((a): a is { name: string; lat: number; lon: number } => !!a);
+  // ONE PLACE, SAID ONCE. When the card's own landmark IS the place the search
+  // is anchored on, the next sentence named it again — «во близина на Skopje
+  // City Mall. Се наоѓа на 10 m од Скопје Сити Мол.» Two spellings of one mall
+  // read like two different places. The anchor line (which carries the measured
+  // distance) is the one that stays.
+  const anchorEcho = !!firstLm && anchors.some(a =>
+    displayPlaceName(a.name).toLowerCase() === displayPlaceName(firstLm).toLowerCase());
+  if (firstLm && !anchorEcho && !details?.includes(firstLm)) {
+    s += ` Се наоѓа во близина на ${displayPlaceName(firstLm)}.`;
+  }
+  if (anchors.length > 0 && typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0) {
+    const distText = (d: number): string => (d < 1000
       ? `${Math.max(10, Math.round(d / 10) * 10)} m`
-      : `${(d / 1000).toFixed(1).replace('.', ',')} km`;
-    s += ` Се наоѓа на ${distText} од ${opts.anchor.name}.`;
+      : `${(d / 1000).toFixed(1).replace('.', ',')} km`);
+    const parts = anchors
+      .map(a => ({ name: a.name, d: distM(a.lat, a.lon, p.lat as number, p.lon as number) }))
+      .filter(x => Number.isFinite(x.d))
+      .map(x => `${distText(x.d)} од ${x.name}`);
+    if (parts.length > 0) s += ` Се наоѓа на ${parts.join(' и на ')}.`;
   }
   // Landmark line restORED — but from the FEED's own ranked list, not a live
   // geocode. The [02:27] capture: a batch of two was served with NEITHER
@@ -1573,13 +1608,16 @@ export function buildPropertyCard(p: Property, opts: { anchor?: { name: string; 
   return s;
 }
 
-export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0, recent: string[] = [], opts: { anywhere?: boolean; budget?: string; noOpener?: boolean; anchor?: { name: string; lat: number; lon: number }; perCardAnchor?: Array<{ name: string; lat: number; lon: number } | undefined> } = {}): string {
+export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0, recent: string[] = [], opts: { anywhere?: boolean; budget?: string; noOpener?: boolean; anchor?: { name: string; lat: number; lon: number }; perCardAnchor?: Array<{ name: string; lat: number; lon: number } | undefined>; perCardAlsoAnchors?: Array<Array<{ name: string; lat: number; lon: number }> | undefined> } = {}): string {
   // A CROSS-PLACE PAIR states each card's OWN distance: the first offer stands
   // near one place the client named, the second near the other («1,2 km од
   // ТЦ Буњаковец»), so one anchor for the whole batch would be a lie for half
   // of it. perCardAnchor wins over the shared anchor, card by card.
   const cards = properties.slice(0, 2)
-    .map((p, i) => buildPropertyCard(p, { anchor: opts.perCardAnchor?.[i] ?? opts.anchor })).join('\n\n');
+    .map((p, i) => buildPropertyCard(p, {
+      anchor: opts.perCardAnchor?.[i] ?? opts.anchor,
+      alsoAnchors: opts.perCardAlsoAnchors?.[i],
+    })).join('\n\n');
   const closer = state === 'presentation'
     ? pickCloser(PRESENTATION_CLOSERS_ALL, closerIndex)
     : pickCloser(PROPERTY_QUERY_CLOSERS_ALL, closerIndex);
@@ -1617,26 +1655,43 @@ export function pairBatchMeta(session: ChatSession, properties: Property[]): {
   opener?: string;
   emptyLine?: string;
   perCardAnchor?: Array<{ name: string; lat: number; lon: number } | undefined>;
+  perCardAlsoAnchors?: Array<Array<{ name: string; lat: number; lon: number }> | undefined>;
 } {
   const places = (session.slots.poiPlaces?.length ?? 0) >= 2 ? session.slots.poiPlaces : undefined;
   if (!places) return {};
   const anchors = properties.map(p => session.slots.pairAnchorOf?.[String(p.id)]);
-  const names = [...new Set(anchors
-    .filter((a): a is { name: string; lat: number; lon: number } => !!a)
-    .map(a => a.name))];
+  const alsoOf = properties.map(p => session.slots.pairAlsoNearOf?.[String(p.id)] ?? []);
+  // The opener names the places the CARDS WERE DRAWN FOR, in card order — the
+  // rotation's own pair (the [18:48] contract: 1/2, then 3/1, then 2/3). A card
+  // that merely STANDS near a third place still states that distance (see
+  // alsoAnchors) without claiming the batch was drawn for it: naming every
+  // radius neighbour made a 3/1 serve read as a three-place answer.
+  const names: string[] = [];
+  for (const a of anchors) if (a && !names.includes(a.name)) names.push(a.name);
+  // EVERY card must be an ANSWER. A batch that also carries an ALTERNATIVE —
+  // a row outside every named place's radius, which carries no anchor — must
+  // not be introduced as «по една опција до X и до Y» (the [15:36] capture:
+  // the second card sat 3,1 km from the nearer place while the opener claimed
+  // it answered the pair). Such a batch keeps the ordinary presentation
+  // opener and lets each card state only the distances it really has.
+  const allAnswered = anchors.every((a, i) => !!a || alsoOf[i].length > 0);
   const said = new Set(session.slots.pairEmptySaid ?? []);
   const empty = (session.slots.pairEmpty ?? []).filter(n => !said.has(n));
   if (empty.length > 0) session.slots.pairEmptySaid = [...said, ...empty];
   return {
-    opener: names.length >= 2
-      ? `Еве по една опција до ${names.map(n => displayPlaceName(n)).join(' и до ')}:`
-      : names.length === 1 ? `Еве ја најблиската опција до ${displayPlaceName(names[0])}:`
-      : undefined,
+    opener: !allAnswered ? undefined
+      : names.length >= 2
+        ? `Еве по една опција до ${names.map(n => displayPlaceName(n)).join(' и до ')}:`
+        : names.length === 1 ? `Еве ја најблиската опција до ${displayPlaceName(names[0])}:`
+        : undefined,
     emptyLine: empty
       .map(n => `Околу ${displayPlaceName(n)} во моментов немам ништо што одговара на овие критериуми.`)
       .join(' ') || undefined,
     perCardAnchor: anchors.map(a => a
       ? { name: displayPlaceName(a.name), lat: a.lat, lon: a.lon } : undefined),
+    perCardAlsoAnchors: alsoOf.map(list => (list.length > 0
+      ? list.map(a => ({ name: displayPlaceName(a.name), lat: a.lat, lon: a.lon }))
+      : undefined)),
   };
 }
 

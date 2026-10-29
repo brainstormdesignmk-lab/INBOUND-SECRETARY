@@ -136,6 +136,13 @@ function parseFeedLandmarks(v: unknown): FeedLandmark[] | undefined {
   for (const e of v) {
     if (!e || typeof e !== 'object') continue;
     const o = e as Record<string, unknown>;
+    // A SHOP IS NOT A LANDMARK, AND A SHOP INSIDE A MALL IS THE MALL (the
+    // owner's rule, the EB 53 capture: «во близина на Butik Galion» — a
+    // boutique inside ТЦ Бисер, typed «Shopping mall» by the feed, in the first
+    // rotation slot). The entry is KEPT here — the resolver is the layer that
+    // can look the complex up in the map and serve «ТЦ Бисер» in its place
+    // (landmarks.feedRosterSlots / resolve step 1); dropping it at the reader
+    // would silently lose the nearest complex instead of naming it.
     const name = stripPoiAnnotation(str(o.landmark));
     if (!name || name.length > 80) continue;
     const key = identityKey(name) || name.toLowerCase();

@@ -23,11 +23,11 @@ import { EscalationStore } from '../src/store/escalations';
 import { MetaStore } from '../src/store/meta';
 import { EnrichmentStore } from '../src/store/enrichment';
 import { ChannelRegistry } from '../src/channels/types';
-import { InboundHandler } from '../src/handlers/inbound';
+import { InboundHandler, poiNameCoversClientWords } from '../src/handlers/inbound';
 import { displayAreaName, displayPlaceName } from '../src/llm/prompts';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
-import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
+import { OfflineMapStore, writeMap, toLatin } from '../src/geo/offlineMap';
 import path from 'path';
 import os from 'os';
 
@@ -950,4 +950,36 @@ test('[10:29] a place 3 km away is never named as «во близина» of the
   assert.ok(!/Црногорска Амбасада/u.test(reply), `a 3 km place is not «во близина»: ${reply}`);
   assert.match(reply, /Кисела Вода/u, `the honest area is served instead: ${reply}`);
   offlineMap.close();
+});
+
+test('[global] a client saying the map’s OWN name is never refused — short connectors included', () => {
+  // The guard exists to stop a client's words binding to a DIFFERENT place. It
+  // must never refuse the place itself: a map-wide audit (every row of
+  // data/skopje-pois.db, asked as the client says it) found 687 names refused —
+  // every name carrying a two-letter connector, because the contiguity run
+  // dropped words under three letters («Амбасада на Германија» ran as
+  // [ambasada, germanija] against [ambasada, na, germanija]). Embassies,
+  // agencies and schools were unreachable by their own names.
+  const own = [
+    'Амбасада на Германија', 'Амбасада на Шведска', 'Амбасада на Република Хрватска',
+    'Агенција за храна и ветеринарство', 'Агенција за цивилно воздухопловство',
+    'Дом за слепи', 'Државен архив на Македонија', 'Католичка црква кон Центар',
+    'Јахја Кемал основно и средно училиште', 'Skopje City Mall', 'ТЦ Бисер',
+  ];
+  for (const name of own) {
+    assert.equal(poiNameCoversClientWords(name, name), true, `«${name}» must bind to itself`);
+    // …including from the OTHER script, which is how the extractor hands a
+    // client's words over (Latin speech → «AMBASADA NA GERMANIJA»).
+    assert.equal(poiNameCoversClientWords(toLatin(name), name), true, `«${name}» must bind from Latin`);
+  }
+  // The capture that started this: Latin words, Latin map place, one script.
+  assert.equal(poiNameCoversClientWords('city mall', 'Skopje City Mall'), true);
+  // The refusals the guard exists for are untouched by that widening.
+  assert.equal(poiNameCoversClientWords('vo novo lisice', 'ELS Novo Lisice'), false,
+    'a business put IN FRONT of the area is still refused');
+  assert.equal(poiNameCoversClientWords('воена болница', 'Воена академија Генерал Михаило Апостолски'), false,
+    'a shared modifier is not the place');
+  // The extractor's own output for «KAJ BROZ KAFE» — the preposition is gone
+  // before the guard sees it, and the bar still binds.
+  assert.equal(poiNameCoversClientWords('броз кафе', 'Broz Cafe'), true);
 });

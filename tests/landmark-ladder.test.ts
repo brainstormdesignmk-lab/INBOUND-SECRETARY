@@ -138,7 +138,12 @@ test('first-landmark contract: within 200 m, a recognised type, a real distance'
   const far = firstLandmarkProblem([{ landmark: 'Скопје Сити Мол', type: 'mall', distance_m: FEED_LANDMARK_MAX_M + 57 }]);
   assert.ok(far && /200/.test(far), `257 m must be rejected: ${far}`);
 
-  const junk = firstLandmarkProblem([{ landmark: 'Бутик Галион', type: 'clothes', distance_m: 35 }]);
+  // A SHOP is rejected as a SHOP (the owner's EB 53 rule) — the reason names
+  // the real problem instead of blaming its type string.
+  const shop = firstLandmarkProblem([{ landmark: 'Бутик Галион', type: 'clothes', distance_m: 35 }]);
+  assert.ok(shop && /продавница/.test(shop), `a shop is not a landmark: ${shop}`);
+  // …and an unranked PUBLIC type is still caught by the type rule.
+  const junk = firstLandmarkProblem([{ landmark: 'Галион Центар', type: 'yes', distance_m: 35 }]);
   assert.ok(junk && /тип/.test(junk), `an unranked type must be rejected: ${junk}`);
 
   const unmeasured = firstLandmarkProblem([{ landmark: 'Нешто', type: 'park' }]);

@@ -16,6 +16,11 @@ test('response bank: every entry is non-empty and placeholders live only where e
       assert.ok(v.trim().length >= 10, `${key}: too short: "${v}"`);
       if (key === 'no.match.location' || key === 'exhausted.location') {
         assert.equal(v.match(/\{location\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+      } else if (key === 'exhausted.place' || key === 'no.match.place') {
+        // The place forms of the drained / empty lines: {place} is the map
+        // place the client named («Диамонд Мол», «ТЦ Бисер»), filled at serve
+        // time — exactly once.
+        assert.equal(v.match(/\{place\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else if (key === 'presentation.open.anywhere') {
         assert.equal(v.match(/\{budget\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else if (key === 'both.ask.service') {
@@ -145,6 +150,20 @@ test('exhaustedLine: location form fills the placeholder, plain form has none', 
   assert.ok(!withLoc?.includes('{location}'), withLoc);
   const plain = exhaustedLine(undefined);
   assert.ok(plain && RESPONSE_BANK['exhausted.plain'].includes(plain), plain);
+  // A PLACE OUTRANKS THE DISTRICT (the [21:46] capture): when the search is
+  // anchored on a place the client named, the drained line speaks about THAT
+  // place — never about the district that place sits in.
+  const withPlace = exhaustedLine('Центар', [], 'Диамонд Мол');
+  assert.ok(withPlace && withPlace.includes('Диамонд Мол'), withPlace);
+  assert.ok(!withPlace?.includes('{place}'), withPlace);
+  assert.ok(!withPlace?.includes('Центар'), `${withPlace}`, 'the district never replaces the place');
+  const filled = RESPONSE_BANK['exhausted.place'].map(v => v.split('{place}').join('Диамонд Мол'));
+  assert.ok(filled.includes(withPlace!), withPlace);
+  // …and the empty-search form behaves the same way.
+  const noMatch = noMatchLine('Центар', [], 'ТЦ Бисер');
+  assert.ok(noMatch && noMatch.includes('ТЦ Бисер'), noMatch);
+  assert.ok(!noMatch?.includes('{place}'), noMatch);
+  assert.ok(!noMatch?.includes('Центар'), `${noMatch}`, 'the district never replaces the place');
 });
 
 // ROTATING POOLS are documented in responseBank.ts (POOL_CONTRACTS): every
