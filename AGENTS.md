@@ -107,6 +107,12 @@ explanation lane (`zosto barate pari za poseta?` → `fee.why`, no rung), while 
 why-word TRAILING an accusation is the accusation itself
 (`PARI ZA POSETA ZEMATE ? ZOSTO?` → nag, rung 1). The client named the money
 first and appended the why as an afterthought.
+THE BARE CHARGE QUESTION COUNTS (the [13:09] capture): «NAPLATUVATE ?» — the
+whole message is the 2nd-person charge verb and a question mark — is a nag and
+climbs rung 1. Families that demand an object noun or a negation miss it, and
+the funnel re-serves the SAME fee.ask disclosure (the re-disclosure bug). The
+arm is whole-message anchored, so a longer sentence keeps its own lane, and a
+payment-METHOD ask («плаќате со картичка?») stays out.
 EVERYTHING NON-POSITIVE CLIMBS TO THE END (the [22:0x] field rule, buy AND
 rent): a bare hesitation (`NEZNAM`, `OVA NE GO OCEKUVAV`, `ne sum siguren`,
 `se mislam`, `ne znam dali da platam`) burns rung 1 — before this it was
@@ -123,6 +129,15 @@ rejecting the fee MODEL. A dislike with no policy noun is about a PROPERTY
 (`ne mi se dopagja stanot`) and keeps its lane, and a policy ASSERTION
 (`тоа се правилата на агенцијата`) is still the `fee.rules` explanation — no
 rung (pinned in `tests/fee-serve-routing.test.ts`, the [12:40] e2e).
+THE PER-VISIT MATHS QUESTION CLIMBS ONCE THE LADDER IS CLIMBING (the [19:40]
+capture): «ZA SEKOJ STAN STO KE SE POSETI PO 500 ?» is `detectFeePerPropertyAsk`
+(a per-unit marker + a viewing anchor + a fee-sized figure, currency optional).
+On a FRESH question it gets `buildFeePerProperty` — rule confirmed, the client's
+own sum named, no rung burned. Once `slots.feeRejections >= 1` it is just
+another nag: the lane serves the rung ALONE (no maths prefix) so rung 3 is the
+binary decision, never a re-explanation of terms the client already rejected.
+The price lanes are vetoed on it (`isFeeTraffic`/`isFeeFrame`/per-property /
+fee-amount) — the field answered this very message with `price.negotiate`.
 NO PIVOT OUT OF A NAG: `detectCheaperSearch` is vetoed on `detectFeeNag`, so a
 fee objection can never be answered with a cheaper-property pair — the [23:12]
 burst pivoted to EB 56 + EB 42 instead of finishing the ladder with the binary
@@ -143,6 +158,33 @@ THE DISCLOSURE TURN IS NEVER CONSENT: a visit command ("KONTAKTIRAJTE GO",
 "DOGOVORI MI") is also an agreement token, so the turn that serves any
 `fee.ask.*` clears `viewingFeeAgreed`. Without that, the client's next message —
 even a fee question — jumped straight to contact collection (the rent capture).
+
+## 2b. Two room categories, one cap EACH (`slots.categoryBudgets`)
+
+«DVOSOBEN MOZE DO 90000 I TROSOBEN DO 150000» is not "2 rooms + budget". The
+[19:14] capture served two ДВОСОБНИ, one of them 110.000 — 20.000 over the cap
+the client had named FOR THAT CATEGORY (the 150.000 of the трисобен leg had
+become the only budget, and the second category was dropped).
+
+- `detectCategoryBudgets` (`src/llm/deterministic.ts`) pairs each figure with
+  the category BY POSITION — each category owns the text up to the next one and
+  takes its first figure; a figure BEFORE the first category belongs to it, and
+  an already-capped category hands its stretch figure to the next uncapped one
+  (the reversed «do 90000 dvosoben» order). One source of truth: the money scan
+  (`collectMoneyMentions`) is the SAME one `detectBudget` uses.
+- It lands as `slots.categoryBudgets` (room → its own cap), with
+  `bedroomsMin/Max` + `bedroomsAlt` carrying the categories and `slots.budget`
+  holding the HIGHEST cap so every other lane keeps one honest figure. An exact
+  room count or a plain range retires the split (`applySlots`).
+- SERVE: `categoryPairQueue` interleaves one card per category per batch, each
+  filtered by ITS OWN cap, nearest to the named place first (inside each
+  category), and the nearer of the two leads. A drained category hands the
+  batch to the survivor (two cards a turn).
+- HONESTY: the drain sentence is decided where the batch is carved
+  (`categoryDrainNote`) and applied at the send choke, so no serve lane can drop
+  it; when every category is drained in the area the turn offers BOTH pivots —
+  «друга населба или во друга категорија». Figures come from the slots, never
+  hardcoded. Pinned in `tests/category-budget-pairs.test.ts`.
 
 Rules for touching this area:
 
@@ -271,6 +313,212 @@ SAME question again (the [23:47]/[23:48] capture: "во кој дел од гр�
   `anywhere` silently skips the location ask.
 - With `anywhere` true the location AND bedrooms questions are skipped and the
   presentation is city-wide, ordered from the most popular neighbourhoods.
+
+## 4d. One gate for the advice lanes — deny by default
+
+Every pre-classifier lane that answers with ADVICE PROSE (off-topic, defer,
+negotiate, comparison, feature, neighbourhood, documents, mortgage) was, one
+capture at a time, found claiming a SEARCH. Those vetoes used to be eight
+separate copies inside the detectors, so a lane added tomorrow inherited
+nothing and re-opened the hole (the [22:34] class, then [01:48]).
+
+The policy is now ONE table — `ADVICE_GATES` + `adviceLaneAdmits(intent, text)`
+in `src/llm/deterministic.ts` — consulted in BOTH places a lane can fire:
+
+- `dispatchSimple` applies it BEFORE the detector runs, so a lane added to
+  `SIMPLE_DETECTORS` with no row and no veto of its own is still kept off a
+  search turn;
+- each detector calls it itself, so the `inbound.ts` fast paths, the
+  `ROUTING_ORDER` mirror and `isGenuineQuestion` see the same policy.
+
+Members are shared predicates, never lanes' private checks:
+`needsAskShape` (`hasAskShape`), `standsDownOnSpecs: 'always' | 'unlessAsk'`
+(`carriesSearchSpecs` → `extractSlots`, the funnel's own parser),
+`standsDownOnStockSearch` (`isStockSearch`), `standsDownOnRecommendAsk`
+(`detectRecommendAsk`), `standsDownOnInventoryAsk` (`detectInventoryAsk`).
+
+- **DEFAULT IS DENY.** An intent with no row is treated as an advice lane.
+- A lane that legitimately OWNS spec-bearing turns declares `exempt` **and says
+  why** (`PROVISION_ASK`, `PROVISION_WHO`, `FEE_WHY`, `ESCALATION`,
+  `WORKDAYS_QUESTION`, `SCHEDULING_FLEX`). An exemption is a decision a reviewer
+  can argue with, never an absence of code — the money and hours protocols name
+  amounts by design (see §2).
+- Lane grammar that is about THAT lane stays in the lane (`BANK_PLACE_RE` — a
+  bank is also a place; `DOCUMENTS_NEGATED_RE` — a negated paperwork mention;
+  `DISCUSSED_PROPERTY_RE` — a question about the flat on the table). Moving
+  those into the table would hide lane meaning in a policy flag.
+- Pins: `tests/advice-lanes-search-answers.test.ts` proves the inheritance with
+  a fake lane pushed into `SIMPLE_DETECTORS` (it must NOT answer a search) and
+  a row for every real one; `tests/place-inventory-ask.test.ts` pins the
+  inventory family.
+
+THE INVENTORY ASK CARRIES A QUALIFIER ([01:36], the RENT sibling): «STO IMATE
+POVOLNO VO TOJ REON?» missed the family because the grammar demanded the
+preposition immediately after the have-verb, so the AREA-ADVICE lane claimed the
+turn on the word «реон» and answered a rent search with a philosophy paragraph.
+`INVENTORY_ASK_RE` and `INVENTORY_VERB_RE` share one qualifier gap (`INV_GAP`,
+no clause punctuation, ≤20 chars); the place reference after the preposition is
+still required, so the shape stays a have-ask about a place.
+THE PROXIMITY OPENER IS TYPED BY HUMANS: «OKOU BUNJAKOVEC» («околу» with the л
+dropped) must name the place, or the funnel asks for a location the client just
+gave and the next turn («во тој реон») has no referent. The dirty spellings live
+in ONE Cyrillic-canonical family (`PROXIMITY_OPENER_SRC`) and every reader of
+the wish uses it — including the whole-word veto that runs BEFORE the extractor
+(`окоу` is what normalizeMc folds «OKOU» to); a word list that knows only
+«околу» kills the message before any regex sees it. Latin forms are NOT listed
+in the extractor: the raw pass runs first and would return «KAPITOL BISER»
+where every caller expects the folded tail.
+THE INVENTORY ASK IS A SEARCH ([01:48]): «ШТО ИМАТЕ ВО ТОЈ РЕОН?» after «SAKAM
+DA KUPAM STAN VO BLIZINA NA ZELEZNICKA» asks WHAT IS AVAILABLE there — the
+show-me family, never an essay about neighbourhood character.
+`detectInventoryAsk` (what-word × have-verb × a demonstrative place reference or
+a feed area) feeds `detectSeeOffers`, and both AREA-ADVICE and OFFTOPIC stand
+down on it.
+
+A TYPED ANSWER TO A REMEMBERED INVENTORY ASK IS A SERVE ([02:16]): «ШТО ИМАТЕ
+ВО БУЊАКОВЕЦ?» remembers the place (`slots.inventoryPending`), and the next
+message — «SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC» — has service + TYPE + the
+place, which is enough to present a pair ranked from it and ask THAT type's
+characteristics (спални + цена for стан/куќа, м² + цена for деловен простор/плац).
+Two traps, both fixed and pinned in `tests/inventory-type-ask.test.ts`:
+- the event is `INTENT_DECLARED`, so the turn never entered the presentation
+  composition branch — it fell through to the LLM-less fallback, which served
+  cards with NO anchor, NO distance and NO question. The branch now also admits
+  the `seeOffers` lane; ANY future lane that sets `next = 'presentation'` must
+  check it reaches a composition site, not the fallback.
+- the protocol ask beside the cards is `buildDiscoveryAsk(session.slots)` — the
+  shared type-aware builder — never a hard-coded «колку спални + цена на станот»
+  pair, which asked a ДУЌАН for bedrooms.
+
+AN UNKNOWN TYPE IS NEVER NAMED (the [04:17] capture): «ZDRAVO. STO IMATE VO
+BUNJAKOVEC?» names a PLACE and nothing else, and the service ask defaulted to
+the `.stan` bank batch — «Дали станот го барате за да го купите или сакате да го
+земете под закуп?» asked about an apartment the client never mentioned.
+
+THE TYPE IS KNOWN TWO WAYS, and the flat is a real category (it just has no
+flag of its own):
+
+- a POSITIVE category flag — `house` (a `yard` wish implies one), `business`,
+  `plac`;
+- FLAT EVIDENCE — `flat` (the handler records `detectFlat(text)`: стан/станот/
+  станови/апартман/гарсоњера, with a TRAILING boundary so «станбена површина»
+  is not a flat), `garsonjera`, `house === false`, or any bedroom count (only a
+  residential unit has спални).
+
+`slots.flat` is reconciled ONCE per turn in `inbound.ts` (after `applySlots`,
+before the FSM block): a positive category on file retires it, otherwise the
+message's own flat word sets it. Without that slot «MI TREBA STAN» and «STO
+IMATE VO BUNJAKOVEC?» were the same message, so the same apartment wording
+served both the right case and the guess.
+
+WHAT AN UNKNOWN TYPE DOES NOW:
+
+- the MARKET ask is the type-neutral one (`discovery.ask.service.any`: «Дали Ве
+  интересира купување на недвижност или претпочитате изнајмување?»), whose
+  variants are validated to name no property type — a flat is not a safe default
+  either, the client may want a shop or a plot;
+- the LOCATION ask is neutral too (`discovery.ask.location.any`);
+- THE STOCK-AT-A-PLACE ASK OWES THE TYPE (`slots.inventoryPending`, the [02:15]
+  family): «Кој тип недвижност Ве интересира — стан, куќа, деловен простор или
+  плац?» (`both.ask.type`), with the type-specific pair HELD BACK — «колку
+  спални» is a question a дуќан never has, and a price cap is worded per
+  category;
+- ANY OTHER FUNNEL KEEPS ITS RESIDENTIAL SEQUENCE unchanged. An area + budget
+  search is already inside it, and a type question there re-asks what the client
+  does not treat as missing — the [13:44] capture answered «EDNA» to a type
+  question and the funnel re-asked (the loop class).
+
+Pins: `tests/respond.test.ts` (the builder: neutral market/location, the type
+ask only on `inventoryPending`, no collateral on house/flat), and
+`tests/landmark-intake-discovery.test.ts` (the exact capture end to end: market →
+type → flat, plus the anchor path unchanged). Bank keys are added to BOTH
+`src/data/responses.ts` and the generator spec (`src/scripts/generateResponses.ts`)
+with a ban list, so a regeneration cannot reintroduce a type word.
+
+NOT EVERY EDGE INTO `presentation` IS A REFINEMENT. The FSM also lands there on
+`presentation.STAY`, `presentation.REJECTED`, `property_query.REJECTED`,
+`closing.REJECTED` — no `DETAILS_PROVIDED`/`SEARCH_REQUESTED` event, so the
+composition branch is skipped and the turn falls to `Responder`. With a brain up
+that is the LLM's turn; with every brain DOWN the code-built fallback served the
+batch with no place, no distance and no question (the audit probe's
+`HMMM INTERESNO` after an anchored serve). The fallback is now a composition
+site in its own right: the handler wires `setPlaceResolver` (its own
+`landmarks.findPlace`) into the responder ONCE in the constructor, the fallback
+passes that pin to `buildPropertyCards` (so every card states its measured
+distance) and appends `missingCriteriaAsk(session.slots)`. Pins:
+`tests/presentation-fallback-anchored.test.ts`. When you add a lane that sets
+`next = 'presentation'`, ask TWO questions: does a composition branch take it,
+and does the fallback still name the place if every brain is down?
+
+A PLACE NAMED IN A SEARCH MUST SURVIVE TO `slots.poiAnchor` ON *EVERY* PATH.
+The [01:48] capture lost «VO BLIZINA NA ZELEZNICKA» because the DETERMINISTIC
+classify path built its own event and dropped the wish the LLM path carried —
+the resolver was already right, the anchor simply never got there. When a
+place-shaped fix is made, check both classify paths (`classify.ts` deterministic
+core + the LLM-down recompute), not just `resolvePlace`.
+
+LATIN ARMS GO ON THE RAW TEXT: `normalizeMc` is PHONETIC («STO IMAS» → «сто
+имас», s→с not ш), so a grammar matched only on the fold is blind to Latin
+typing. Match the raw text first, then the fold — the same reason
+`SEE_OFFERS_RE` carries its own Latin arms.
+
+## 4e. A CLOCK IS NEVER A PLACE (the visit ping-pong)
+
+The [00:59] capture: the owner countered «Петок 18:00», the client answered
+«DALI KE MOZE PORANO MALCE . NAKAJ 5 ?» (an hour earlier — around 5), and Lina
+served the property's landmark + a maps pin. Two rules keep that from returning:
+
+- **«накај/nakaj N» IS A CLOCK on BOTH sides.** The owner parser has read
+  «NAKAJ 4» since [17:45]; the client detector did not, so the turn carried no
+  time, the slot stayed empty and the owner was never asked. The prefix lives in
+  `visits/time.CLOCK_RE`, `hasClockHint` and `detectVisitTime`'s `VISIT_TIME_RE`
+  — one family, three readers, never re-declared. A digit after «накај» is never
+  a place: `detectSurroundingsAsk` stands down on it (and on any earlier/later
+  word carrying an hour), because «накај» is also a SIDE trigger.
+- **The client's counter keeps the OWNER'S DAY.** `counterMergedTerm` in
+  `llm/classify.ts` is the ONE merge for `time_confirm` and both
+  `owner_checking` legs: a bare clock (or an hour adjustment) takes the day from
+  `slots.ownerTime` first, then from a day-only stored slot — a stored CLOCK
+  never resurrects. The owner is re-asked with the client's hour, and the
+  follow-up names his refused term (that is why 18:00 must appear in the ask).
+
+## 4f. ROOMS ARE NOT BEDROOMS, AND A RECALL IS NOT A SEARCH
+
+The [09:07–09:11] capture ran three defects in a row, each one a WRONG SUBJECT:
+
+- **THE FEED'S ROOM COUNT IS NOT A BEDROOM COUNT.** `tip_na_sobi` carries ROOMS
+  (еднособен / двособен / трисобен = дневна + спални) — the same convention
+  `slots.bedrooms` uses («две спални» → 3). Copy that quotes it as bedrooms is
+  off by one: EB 66, a трисобен with две спални, answered «Има 3 спални соби.»
+  (`infoAnswer.bedroomPhrase` now speaks `rooms − 1`, and a гарсоњера / еднособен
+  is named as having no separate bedroom). Every site that speaks the count does
+  this — the inventory labels did it right all along, which is how the info lane
+  stood out.
+- **A SIZE-ONLY RECALL IS A DESCRIPTION, NOT A NEW SEARCH.** «IMAVTE EDEN STAN
+  KAJ СЈО SO DVE SPALNI?» names a LANDMARK + size and no price. The seen-listing
+  lane demanded a remembered price, so the shape fell to the locate funnel —
+  which, with his SEARCH budget (120.000) below the flat he meant (145.000), had
+  nothing to serve and answered an owner-consult line plus a criteria ask. The
+  lane now owns `landmark + size` as well as `area/landmark + remembered price`:
+  rows with THAT room count at THAT place, nearest first WITHIN the size tier
+  (`roomTier`), the session's own service instead of re-asking buy-or-rent, and
+  `buildAboveBudgetNote` when the rows cost more than the search cap — hidden
+  behind the budget it claims the flat does not exist, silently served it
+  claims it fits. A self-describing recall also owns the turn when cards are
+  already on the table: he is naming a DIFFERENT listing.
+  THE SIZE LEG REQUIRES THE LANDMARK, NOT JUST A NEIGHBOURHOOD: «со две
+  спални во Маџар маало, за купување» with no money is a SEARCH awaiting its
+  price — the [madjari] money-anchor gate asks for it and serves nothing
+  (`tests/locate-money-anchor.test.ts`). Кај/до/близу + a map row is one-place
+  reading; a bare area keeps the funnel.
+- **THE FLAT UNDER DISCUSSION OWNS ITS OWN NUMBERS.** «66 DALI E DOSTAPEN USTE?»
+  pins 66; the next turn's distance question named no EB, so the DISTANCE_BATCH
+  arm answered with the two cards of the OLD batch and stamped the nearest of
+  THEM onto the slots — the client had to say «TE PRASAV ZA 66» twice. The batch
+  is the subject only while nothing else is: no flat under discussion, or the
+  discussed one IS in the batch (the two-card comparison the arm exists for).
+  A single-flat distance that has more than one card behind it NAMES the flat
+  («…со Евидентен број 66»); one card needs no number.
 
 ## 5. Tests and expectations
 

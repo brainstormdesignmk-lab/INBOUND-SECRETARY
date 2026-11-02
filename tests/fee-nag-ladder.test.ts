@@ -40,8 +40,9 @@ import {
   detectFeeChargePushback, detectFeeFirstTime, detectFeeWhy, detectProvisionAsk,
   detectNegatedFeePay, detectFeeComplaint, detectFeeRules, detectFeeNag,
   detectFeePaymentAgreement, detectWhereIs, isWhereLandmarkQuestion, isFeeTraffic,
+  detectFeePerPropertyAsk, feeArithmeticCount,
 } from '../src/llm/deterministic';
-import { buildFeeRule, buildFeeDecision, feeLadder, feePersuasion } from '../src/llm/prompts';
+import { buildFeeRule, buildFeeDecision, feeLadder, feePersuasion, buildFeePerProperty } from '../src/llm/prompts';
 
 setLearnedBank({
   variants: () => [],
@@ -802,4 +803,217 @@ test('[14:36] the arrow is anaphoric only: object-bearing forms keep their lanes
   for (const t of ['dali mi odgovara?', 'ne mi se dopaga', 'ne sakam da platam']) {
     assert.equal(detectFeeAnaphoricRefusal(t), false, `not the arrow: ${t}`);
   }
+});
+
+// ── THE PER-PROPERTY FEE ARITHMETIC (the [23:44]/[23:45] capture) ────────────
+// «500 DEN PO STAN?» → «AKO GI VIDAM DVATA TOA SE 1000DEN»: the client checked
+// the maths after the disclosure and the turn was answered with the drained-
+// search line. The rule and the sum must be CONFIRMED, the fee question left
+// open, and no rung burned.
+
+test('fee arithmetic: the detector owns «po stan» and the «dvata … 1000» sum, never resistance', () => {
+  assert.equal(detectFeePerPropertyAsk('500 DEN PO STAN?'), true, 'per-property question');
+  assert.equal(detectFeePerPropertyAsk('500 den po nedviznost'), true, 'Cyrillic unit noun');
+  assert.equal(detectFeePerPropertyAsk('300 denari za sekoj stan'), true, 'each-property form');
+  assert.equal(detectFeePerPropertyAsk('500 DEN PO STAN?\nAKO GI VIDAM DVATA TOA SE 1000DEN'), true, 'the live burst');
+  assert.equal(feeArithmeticCount('AKO GI VIDAM DVATA TOA SE 1000DEN'), 2, 'the pair is named');
+  assert.equal(feeArithmeticCount('500 DEN PO STAN?'), undefined, 'no count invented');
+  // Resistance keeps its own lane — the ladder must still burn the rung:
+  assert.equal(detectFeePerPropertyAsk('SKAPO E TOA . ZA SEKOJ STAN PO 300DEN'), false, 'a complaint is not arithmetic');
+  assert.equal(detectFeePerPropertyAsk('zoshto 500 denari ?'), false, 'why-question');
+  assert.equal(detectFeePerPropertyAsk('ne sakam da platam 500 denari'), false, 'refusal');
+  assert.equal(detectFeePerPropertyAsk('500 denari?'), false, 'a bare amount ask stays feeAmount');
+  // Property money is outside the fee band:
+  assert.equal(detectFeePerPropertyAsk('dvata stana se po 130000 evra'), false);
+});
+
+test('[02:43] the BARE sum «za dva stana toa se 1000 za gledanje samo» is arithmetic — and a nag', () => {
+  // No currency word, so the amount probe used to find nothing: the whole turn
+  // fell through to the exhausted-search line (about Студентски Дом!) with the
+  // fee pushback unregistered. The bare sum is 2 × 500 stated by the client.
+  const t = 'za dva stana toa se 1000 za gledanje samo';
+  assert.equal(detectFeePerPropertyAsk(t), true, 'a count + viewing noun + fee-sized bare sum');
+  assert.equal(feeArithmeticCount(t), 2);
+  assert.equal(detectFeePerPropertyAsk('ZA DVA STANA TOA SE 1000 ZA GLEDANJE SAMO'), true);
+  // A budget, a size and a price keep their own lanes:
+  assert.equal(detectFeePerPropertyAsk('do 1000 evra za stan'), false);
+  assert.equal(detectFeePerPropertyAsk('1000 kvadrata za dva stana'), false);
+  assert.equal(detectFeePerPropertyAsk('1000 eur za gledanje na dva stana'), false, 'a price-sized figure is not a fee');
+});
+
+test('buildFeePerProperty: per unit, the client\'s own total, the declared market', () => {
+  const buyTwo = buildFeePerProperty('buy', 2);
+  assert.ok(/за секое разгледување/iu.test(buyTwo), `the per-property rule is stated: ${buyTwo}`);
+  assert.ok(/вкупно\s*1[.,\u00a0\u202f ]?000\s*денари/iu.test(buyTwo), `the sum is named: ${buyTwo}`);
+  assert.ok(/0%/u.test(buyTwo), 'the 0% commission stays in the buy copy');
+  const rentTwo = buildFeePerProperty('rent', 2);
+  assert.ok(/вкупно\s*600\s*денари/iu.test(rentTwo), `the rent fee is 300: ${rentTwo}`);
+  assert.ok(!/0%/u.test(rentTwo), 'no buy commission talk at a renter');
+  const unknown = buildFeePerProperty(undefined, 2);
+  assert.ok(/300\s*денари/iu.test(unknown) && /500\s*денари/iu.test(unknown), 'an undeclared market names both fees');
+  assert.ok(/изнајмување или купување/iu.test(unknown), 'and asks which');
+});
+
+test('e2e [23:45]: the arithmetic is confirmed and the funnel stays at the fee — never the drained-search line', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'fee-per-property-live';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return sessions.get(chatId)!;
+  };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  let s = await send('SAKAM DA JA VIDAM');
+  assert.equal(s.state, 'closing', 'the fee protocol is open');
+
+  s = await send('500 DEN PO STAN?\nAKO GI VIDAM DVATA TOA SE 1000DEN');
+  const reply = sent[sent.length - 1];
+  assert.ok(/за секое разгледување|по недвижност/iu.test(reply), `the per-property rule must be stated: ${reply.slice(0, 140)}`);
+  assert.ok(/вкупно\s*1[.,\u00a0\u202f ]?000\s*денари/iu.test(reply), `the client's own sum must be confirmed: ${reply.slice(0, 140)}`);
+  assert.ok(!/погледнавме|друга населба|исцрп/iu.test(reply), `never a drained-search line: ${reply.slice(0, 140)}`);
+  assert.equal(s.slots.feeRejections, undefined, 'arithmetic is not resistance — no rung');
+  assert.equal(s.slots.feeDisclosed, true, 'the fee question is still open');
+});
+
+test('e2e [02:43]: the bare-sum pushback confirms the maths AND registers the nag — never the exhausted-search line', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'fee-bare-sum';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return { s: sessions.get(chatId)!, reply: sent[sent.length - 1] ?? '' };
+  };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('SAKAM DA JA VIDAM');
+  const r = await send('za dva stana toa se 1000 za gledanje samo');
+  assert.equal(r.s.slots.feeRejections, 1, 'the pushback must burn ONE rung');
+  assert.ok(/вкупно\s*1[.,\u00a0\u202f ]?000\s*денари/iu.test(r.reply), `the client's own sum is confirmed: ${r.reply.slice(0, 160)}`);
+  assert.ok(/0%|провизиј/iu.test(r.reply), `the rung keeps the value framing: ${r.reply.slice(0, 160)}`);
+  assert.ok(!/погледнавме|друга населба|Студентски Дом/iu.test(r.reply), `never the drained-search line: ${r.reply.slice(0, 160)}`);
+});
+
+test('[13:09] the BARE charge question «NAPLATUVATE ?» is a nag — never a second disclosure', () => {
+  // The owner's capture: the buy disclosure was served, the client answered
+  // with the two-word charge question «NAPLATUVATE ?», and the SAME disclosure
+  // line came back. AGENTS.md's nag list names a CHARGE QUESTION beside
+  // accusations/complaints/refusals; families 1 and 2 both demanded an object
+  // noun or a negation, so the shape matched nothing and the funnel re-told the
+  // fee instead of burning rung 1.
+  // Both scripts AND the Latin typings that normalizeMc respells letter by
+  // letter (kj→ќ, c→ц, s→с) — the family is a stem + \p{L}*, never a phrase list.
+  const nags = ['NAPLATUVATE ?', 'наплатувате?', 'NAPLAKJATE ?', 'наплаќате?',
+    'DALI NAPLATUVATE?', 'дали наплаќате?', 'A ZEMATE ?', 'PLAKJATE ?',
+    'NAPLATUVAS?', 'А НАПЛАТУВАТЕ ?', 'naplakate ?'];
+  for (const t of nags) assert.equal(detectFeeNag(t), true, `charge question not recognised: ${t}`);
+  for (const t of nags) assert.equal(isFeeTraffic(t) || detectFeeNag(t), true, `not fee traffic: ${t}`);
+  // NOT nags — each keeps the lane it belongs to:
+  assert.equal(detectFeeNag('kolku e za poseta?'), false, 'a how-much question is explanation traffic');
+  assert.equal(detectFeeNag('zosto naplatuvate?'), false, 'so is a leading why-question');
+  assert.equal(detectFeeNag('ке платам 500 денари за посета'), false, 'consent is never resistance');
+  assert.equal(detectFeeNag('плаќате со картичка?'), false, 'a payment-METHOD ask is not resistance');
+  assert.equal(detectFeeNag('naplatuvate za stanot?'), false, 'an object-bearing turn keeps family 2');
+  assert.equal(detectFeeNag('500 DEN PO STAN?'), false, 'the bare arithmetic question burns nothing');
+});
+
+test('e2e [13:08/13:09]: «NAPLATUVATE ?» climbs rung 1 — the fee.ask is never served twice', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'fee-bare-charge-question';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return { s: sessions.get(chatId)!, reply: sent[sent.length - 1] ?? '' };
+  };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  const ask = await send('SAKAM DA JA VIDAM');
+  assert.equal(ask.s.state, 'closing', 'the fee protocol is open');
+  assert.ok(inAskPool(ask.reply), `the disclosure comes first: ${ask.reply.slice(0, 90)}`);
+  assert.equal(ask.s.slots.feeRejections, undefined, 'the disclosure is not a rung');
+
+  // [13:09] the charge question: ONE rung, the persuasion — not the same line.
+  const r = await send('NAPLATUVATE ?');
+  assert.equal(r.s.slots.feeRejections, 1, 'the charge question must burn exactly ONE rung');
+  assert.ok(inPersuadePool(r.reply), `rung 1 is the persuasion: ${r.reply.slice(0, 140)}`);
+  assert.ok(!inAskPool(r.reply), `the fee must NOT be re-disclosed: ${r.reply.slice(0, 140)}`);
+  assert.notEqual(r.reply.trim(), ask.reply.trim(), 'never the former line again');
+  assert.equal(r.s.state, 'closing', 'the fee question is where resistance is answered');
+
+  // …and the ladder keeps climbing on the same shape (one rung each time).
+  const r2 = await send('DALI NAPLATUVATE?');
+  assert.equal(r2.s.slots.feeRejections, 2, 'the second charge question is rung 2');
+  assert.ok(inRulePool(r2.reply), `rung 2 is the agency rule: ${r2.reply.slice(0, 140)}`);
+  assert.ok(!inAskPool(r2.reply), 'still never a re-disclosure');
+});
+
+// ── THE AMOUNTLESS PER-VISIT QUESTION (the [19:39]/[19:40] capture) ──────────
+// «NAPLAKJATE ZA POSETI?» → rung 1 · «NE BEV SPREMEN… / NIKOJ NE MI ZEMAL PARI
+// ZA GLEDANJE» → rung 2 · «ZA SEKOJ STAN STO KE SE POSETI PO 500 ?» → the field
+// answered «Цената е поставена директно од сопственикот» (price.negotiate): the
+// question carries no currency word and no plural count, so every arithmetic arm
+// missed it, and the price lane read it as a counter-offer. The owner's rule:
+// she cannot indefinitely explain the terms of the visit — once the ladder is
+// climbing, the per-visit maths question CLIMBS with it and rung 3 is the
+// decision (yes / no / your call).
+
+test('[19:40] «ZA SEKOJ STAN STO KE SE POSETI PO 500?» is fee arithmetic — property money keeps its lane', () => {
+  const asks = [
+    'ZA SEKOJ STAN STO KE SE POSETI PO 500 ?',
+    'za sekoj stan sto ke se poseti po 500',
+    'ЗА СЕКОЈ СТАН ШТО ЌЕ СЕ ПОСЕТИ ПО 500 ?',
+    'po sekoj stan sto ke go vidam 500',
+    'по секој стан што ќе го видам 500',
+    'za sekoja poseta 500',
+    'за секоја посета 500',
+    '500 po stan za gledanje',
+  ];
+  for (const t of asks) assert.equal(detectFeePerPropertyAsk(t), true, `the per-visit maths is not recognised: ${t}`);
+  // Property money must never be pulled into the fee lanes: no per-unit marker,
+  // or no viewing anchor, or an amount above the fee band.
+  for (const t of ['za sekoj stan 1000 evra', '20 evra po kvadrat', '1000 kvadrata za dva stana',
+    'nekoj stan po 1500 denari', '500 evra po stan']) {
+    assert.equal(detectFeePerPropertyAsk(t), false, `not fee arithmetic: ${t}`);
+  }
+  // A PUSHING-BACK version of the same shape is resistance, not arithmetic —
+  // the ladder owns it (unchanged from the [23:12] burst).
+  assert.equal(detectFeePerPropertyAsk('SKAPO E TOA . ZA SEKOJ STAN PO 300DEN'), false, 'a complaint is not arithmetic');
+});
+
+test('e2e [19:40]: after two rungs the per-visit maths question serves the DECISION — terms are never re-explained', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'fee-per-property-nag';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return { s: sessions.get(chatId)!, reply: sent[sent.length - 1] ?? '' };
+  };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  await send('SAKAM DA JA VIDAM');
+
+  const r1 = await send('NAPLAKJATE ZA POSETI?');
+  assert.equal(r1.s.slots.feeRejections, 1, 'the charge question burns rung 1');
+  assert.ok(inPersuadePool(r1.reply), `rung 1 is the persuasion: ${r1.reply.slice(0, 120)}`);
+
+  const r2 = await send('NIKOJ NE MI ZEMAL PARI ZA GLEDANJE');
+  assert.equal(r2.s.slots.feeRejections, 2, 'the universal complaint burns rung 2');
+  assert.ok(inRulePool(r2.reply), `rung 2 is the agency rule: ${r2.reply.slice(0, 120)}`);
+
+  // The field's third resistance — the per-visit maths question.
+  const r3 = await send('ZA SEKOJ STAN STO KE SE POSETI PO 500 ?');
+  assert.equal(r3.s.slots.feeRejections, 3, 'the maths question keeps climbing — one rung');
+  assert.ok(inDecidePool(r3.reply), `rung 3 is the binary decision: ${r3.reply.slice(0, 160)}`);
+  assert.ok(!/за секое разгледување|по недвижност/iu.test(r3.reply), `the terms are not re-explained: ${r3.reply.slice(0, 160)}`);
+  assert.ok(!/сопственикот|одредена од сопственик/iu.test(r3.reply), `never the owner-price policy (price.negotiate): ${r3.reply.slice(0, 160)}`);
+  assert.ok(!inAskPool(r3.reply), 'never a re-disclosure');
+  assert.equal(r3.s.state, 'closing', 'the decision keeps the fee question open');
 });

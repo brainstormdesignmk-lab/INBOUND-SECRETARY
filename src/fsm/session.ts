@@ -30,12 +30,51 @@ export interface SlotData {
   rentBudget?: string;          // the client's cap for RENT money alone
   buyBudget?: string;           // the client's cap for BUY money alone
   dualService?: boolean;        // both budgets are on file — serve rent+buy pairs
+  /** PER-CATEGORY MONEY (the [19:14] capture): «DVOSOBEN MOZE DO 90000 I
+   *  TROSOBEN DO 150000» — TWO room categories, each with ITS OWN cap, in one
+   *  search near one place. Room count → cap (strings, like slots.budget).
+   *  While it is armed (≥2 entries) the presentation serves PAIRS — one card
+   *  per category, nearest to the named place first — and a drained category
+   *  is NAMED instead of being silently swapped for the other one.
+   *  bedroomsMin/Max (+bedroomsAlt) carry the categories themselves, and
+   *  slots.budget carries the HIGHEST cap so every other lane still has one
+   *  honest money figure. */
+  categoryBudgets?: Record<string, string>;
+  /** The room categories the CURRENT search has drained (nothing left in this
+   *  area under that category's own cap) — presentation state, not discovery. */
+  categoryDrained?: number[];
+  /** Which drained announcement was already spoken (the once-per-fact key, the
+   *  same discipline as dualEmptyTold): categories + area + the caps. */
+  categoryDrainedTold?: string;
+  /** The drained sentence DUE for the batch just carved (decided in loadProps,
+   *  applied at the send choke): a batch holding one category of the pair means
+   *  the other has nothing left here under its own cap. */
+  categoryDrainNote?: string;
+  /** EMPTY-LEG HONESTY (the [23:10] dual capture): the segment of a dual
+   *  search that has NO stock at all. The turn serves the other leg and says
+   *  so in one sentence — silence would claim a comparison that never
+   *  happened. `dualEmptyKey` identifies that fact (leg + money + size) and
+   *  `dualEmptyTold` remembers it, so the honesty line is spoken once per
+   *  search instead of on every batch. */
+  dualEmptyLeg?: 'rent' | 'buy' | 'both';
+  /** A dual search whose stock is FULLY drained (every row of both legs was
+   *  already served). The turn says «ги покажав сите» and offers the pivots
+   *  instead of recycling cards the client has seen. */
+  dualDrained?: boolean;
+  dualEmptyKey?: string;
+  dualEmptyTold?: string;
   anywhere?: boolean;           // "било каде" — no location preference (satisfies location)
   sizeWaived?: boolean;        // "големината не ми е битна" — skip bedrooms question
   waiverAcked?: boolean;       // the banked discovery.waiver.ack intro was served for THIS waiver
   exactLocationTurns?: number; // consecutive EXACT-address demands (turn 2 = agency protocol)
   pricePriority?: boolean;     // "што поевтино" — sort by price, skip budget question
   garsonjera?: boolean;        // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
+  /** The client NAMED a flat (стан/апартман/гарсоњера). Flats are the one
+   *  category with no flag of their own, so without this slot the discovery ask
+   *  could not tell «MI TREBA STAN» from a message that named no type at all —
+   *  and guessed the flat for both (the [04:17] capture). Cleared when another
+   *  category (куќа/деловен простор/плац) takes the search over. */
+  flat?: boolean;
   plac?: boolean;              // "плац за градење" — land plot category
   yard?: boolean;              // "со двор/дворче/градина" — needs outdoor space (implies house)
   propertyId?: number;          // EB of the property currently discussed
@@ -78,11 +117,25 @@ export interface SlotData {
    *  area or the SAME price in other neighborhoods — set while that question
    *  is the client's open context; the answer message routes on it. */
   moreChoicePending?: boolean;
+  /** THE INVENTORY ASK WAITING FOR ITS TYPE (the [02:15] capture):
+   *  «STO IMATE VO BUNJAKOVEC?» names a place and asks for stock, but neither a
+   *  service nor a property type is on file — a pair of flats for a client who
+   *  may want a shop is a guess. Lina asks the TYPE (стан/куќа/деловен
+   *  простор/плац) and this flag makes the ANSWER a serve turn: the type + the
+   *  place are enough to present a pair and ask that type's characteristics.
+   *  Cleared the moment the client answers. */
+  inventoryPending?: boolean;
   /** The property the cheaper search anchors on — what he CHOSE. Filled from
    *  the focused EB when the two-way choice is asked; the "elsewhere" answer
    *  re-uses these characteristics verbatim in the other naselbi. */
   cheaperAnchor?: { bedrooms?: number; sqm?: number; house?: boolean; business?: boolean; price?: number };
   viewingFeeAgreed?: boolean;
+  /** THE FEE HAS BEEN TOLD ONCE (the [20:40] capture): the visit-fee figure
+   *  (300/500 денари) was disclosed and the client has not answered yet. This
+   *  is what makes the NEXT «да» the agreement — without it the funnel
+   *  re-disclosed the fee on the first «да» and only collected the contact on
+   *  the second one. Cleared once the agreement is taken. */
+  feeDisclosed?: boolean;
   // v2 — visit sub-funnel
   visitTime?: string;           // client's proposed time (free text)
   ownerTime?: string;           // owner's counter-proposal (from OwnerAgent)

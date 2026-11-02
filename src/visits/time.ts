@@ -69,7 +69,13 @@ const REL_DAY_RE = /(задутре|zadutre|утре|utre|денес|денес�
 // is REQUIRED so "11.06" (a date) is never read as 11:06. "на/na" and "од/od"
 // are legal time prefixes too ("na 5", "od 6") — dates are never written with
 // them, so no date collision.
-const CLOCK_RE = /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od)\s*(\d{1,2})(?:[:.](\d{2}))?\b/i;
+// «накај 5» / «nakaj 5» is a clock too (the [00:59] capture: «DALI KE MOZE
+// PORANO MALCE . NAKAJ 5 ?» — the client moving the owner's 18:00 an hour
+// earlier). The OWNER-side parser already read «NAKAJ 4» (the [17:45] rule);
+// the CLIENT side had no such prefix, so the message carried no time at all,
+// never reached the owner, and the surroundings lane answered it with a
+// landmark. «накај» means "towards" and a bare hour after it is only a clock.
+const CLOCK_RE = /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od|накај|nakaj)\s*(\d{1,2})(?:[:.](\d{2}))?\b/i;
 // A bare hour WITH the hour-word suffix: "6 saat", "6 саати", "6 casot" —
 // Latin transcripts write the hour as digits + the hour noun. The suffix
 // anchors the digits as a clock (a bare "6" alone never parses as a time).
@@ -97,6 +103,18 @@ function hourWordClock(t: string): { 1: string; 2?: string; length: number } | n
 // (see visitClockHour — 1–8 are PM: "пет и пол" = 17:30).
 // The trailing-room-noun veto keeps the bedroom fraction ("една и пол
 // спални") out.
+/** The hour a token names — a word («пет», «pet») or digits («5»). */
+function spokenHour(token: string): number | undefined {
+  const raw = token.trim().toLowerCase();
+  if (!raw) return undefined;
+  if (/^\d{1,2}$/.test(raw)) {
+    const n = Number(raw);
+    return n >= 0 && n <= 23 ? n : undefined;
+  }
+  for (const [re, h] of HOUR_WORDS) if (re.test(raw)) return h;
+  return undefined;
+}
+
 const HOUR_WORDS: Array<[RegExp, number]> = [
   [/(?:еден|една|eden|edna)(?![\p{L}\p{N}])/iu, 1],
   [/(?:два|dva)(?![\p{L}\p{N}])/iu, 2],
@@ -136,6 +154,49 @@ function digitHalfClock(t: string): { 1: string; length: number } | null {
   const m = t.match(DIGIT_HALF_RE);
   return m ? { 1: m[1], length: 2 } : null;
 }
+
+// DIGIT + "и" + MINUTES — «5 I 30» / «5 и 30» = 5:30 (the [13:16] capture: the
+// client answered the exact-hour ask with «NEKA BIDE 5 I 30» and the funnel
+// repeated the whole term question, because no family covered an hour digit, a
+// conjunction and the minutes). The minutes must be TWO digits, and the clock
+// must not run into a word: «5 и 30 стана» is a count and «5 и 30 евра» is
+// money, so neither can ever be read as a clock.
+export const DIGIT_MINUTES_RE =
+  /(?<![\p{L}\p{N}])(\d{1,2})\s*(?:и|i)\s*(\d{2})(?![\d\p{L}])(?!\s*(?:спалн|spaln|соби|sobi|стан|stan|стана|stana|евр|evr|eur|ден|den|м2|m2|кв|kv))/iu;
+
+// THE SPOKEN QUARTERS AND THE HALF-TO — the same "x past y" arithmetic said
+// with words instead of digits: «пет и четврт» (5:15), «без четврт пет»
+// (4:45), «без 15 пет» (4:45), «пол 6» (5:30 — Macedonian "half TO six", the
+// mirror of «6 и пол» = 6:30, which HALF_CLOCK_RE already owns). The hour
+// token is a word OR digits, and the same room/money veto as the digit
+// families stops «5 и четврт спални» from reading as a clock.
+const SPOKEN_HOUR_SRC =
+  '(еден|една|два|три|четири|пет|шест|седум|осум|девет|десет|единаесет|дванаесет'
+  + '|eden|edna|dva|tri|cetiri|pet|sest|shest|sedum|osum|devet|deset|edinaeset|dvanaeset'
+  + '|\\d{1,2})';
+const CLOCK_NOUN_SRC = '(?:четврт|четвртина|петнаесет|петнаест|cetvrt|cetvrtina|petnaeset|15)';
+const CLOCK_UNIT_VETO = '(?!\\s*(?:спалн|spaln|соби|sobi|стан|stan|стана|stana|евр|evr|eur|ден|den|м2|m2|кв|kv))';
+export const QUARTER_PAST_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])' + SPOKEN_HOUR_SRC + '\\s+(?:и|i)\\s+' + CLOCK_NOUN_SRC + '(?![\\p{L}\\p{N}])' + CLOCK_UNIT_VETO, 'iu');
+export const QUARTER_TO_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:без|bez)\\s+' + CLOCK_NOUN_SRC + '\\s+' + SPOKEN_HOUR_SRC + '(?![\\p{L}\\p{N}])' + CLOCK_UNIT_VETO, 'iu');
+export const HALF_TO_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:пол|пола|pol|pola)\\s+' + SPOKEN_HOUR_SRC + '(?![\\p{L}\\p{N}])' + CLOCK_UNIT_VETO, 'iu');
+
+// A RANGE names two clocks. PER THE PINNED CONTRACT a CLOSED range («од 17:00
+// до 19:00», «5-7», «меѓу 5 и 7») is a concrete TERM that starts at its first
+// clock — the [23:48] rule re-asks only the OPEN window («од 5 па натака»),
+// because a window start there is availability, not an appointment. The range
+// is still a family of its own so the FIRST number is what the parser reads
+// (a bare «5-7» has no preposition for CLOCK_RE to bind).
+const RANGE_NUM = '(?:\\d{1,2}(?:[.:]\\d{2})?)';
+// Group 1 = the start of an "од X до Y" / "X-Y" range, group 2 = the start of
+// a "меѓу X и Y" range — the parser reads whichever alternative fired.
+export const TIME_RANGE_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:од\\s+|od\\s+)?(' + RANGE_NUM + ')\\s*(?:до|do|[-–—])\\s*' + RANGE_NUM
+  + '(?![\\p{L}\\p{N}])' + CLOCK_UNIT_VETO
+  + '|(?<![\\p{L}\\p{N}])(?:меѓу|megju|помеѓу|pomegju)\\s+(' + RANGE_NUM + ')\\s+(?:и|i)\\s+' + RANGE_NUM
+  + '(?![\\p{L}\\p{N}])' + CLOCK_UNIT_VETO, 'iu');
 // A BARE clock "17:30" — legal only when the message carries no date (a bare
 // HH:MM next to a date is ambiguous and the date wins).
 const BARE_CLOCK_RE = /\b(\d{1,2})[:.](\d{2})\b/;
@@ -250,12 +311,37 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   const th = t.match(DAY_TRAILING_HOUR_RE);
   const hw = hourWordClock(t);
   const dhm = t.match(DIGIT_HALF_RE); // "7ipol" — :30 wins over the bare digit
+  const dm = t.match(DIGIT_MINUTES_RE); // "5 i 30" = 5:30 (the [13:16] capture)
+  const qp = t.match(QUARTER_PAST_RE); // "пет и четврт" = 5:15
+  const qt = t.match(QUARTER_TO_RE); // "без четврт пет" = 4:45
+  const ht = t.match(HALF_TO_RE); // "пол 6" = 5:30
+  const rg = t.match(TIME_RANGE_RE); // closed range → its FIRST clock
   const clock = hw ?? th ?? t.match(CLOCK_RE);
   if (hc !== undefined) {
     hour = hc * 60 + 30; // "пет и пол" = 5:30
   } else if (dhm) {
     const h = Number(dhm[1]); // "7ipol" / "7 и пол" = 7:30 (see DIGIT_HALF_RE)
     if (h >= 0 && h <= 23) hour = h * 60 + 30;
+  } else if (dm) {
+    const h = Number(dm[1]);
+    const m = Number(dm[2]);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) hour = h * 60 + m;
+  } else if (qt) {
+    const h = spokenHour(qt[1]); // "bez cetvrt pet" = 4:45 (one hour back)
+    if (h !== undefined) hour = ((h + 23) % 24) * 60 + 45;
+  } else if (qp) {
+    const h = spokenHour(qp[1]); // "pet i cetvrt" = 5:15
+    if (h !== undefined) hour = h * 60 + 15;
+  } else if (ht) {
+    const h = spokenHour(ht[1]); // "pol 6" = 5:30 (half TO six)
+    if (h !== undefined) hour = ((h + 23) % 24) * 60 + 30;
+  } else if (rg && (rg[1] ?? rg[2])) {
+    // A closed range starts at its first clock («5-7» → 5, «5:00 - 7:00» → 5:00,
+    // «меѓу 5 и 7» → 5 — the [23:48] contract: only an OPEN window is vague).
+    // The capture may carry minutes («17:00»), so the HOUR is the part before
+    // the separator.
+    const h = Number(String(rg[1] ?? rg[2]).split(/[.:]/)[0]);
+    if (h >= 0 && h <= 23) hour = h * 60;
   } else if (clock) {
     const h = Number(clock[1]);
     const m = clock[2] ? Number(clock[2]) : 0;
@@ -378,8 +464,13 @@ export function hasClockHint(s: string): boolean {
   if (HOUR_WORD_RE.test(s)) return true;
   if (HALF_CLOCK_RE.test(s)) return true;
   if (DIGIT_HALF_RE.test(s)) return true; // «6IPOL» / «7 и пол»
+  if (DIGIT_MINUTES_RE.test(s)) return true; // «5 I 30» / «5 и 30»
+  if (QUARTER_PAST_RE.test(s)) return true; // «пет и четврт»
+  if (QUARTER_TO_RE.test(s)) return true; // «без четврт пет»
+  if (HALF_TO_RE.test(s)) return true; // «пол 6» = 5:30
+  if (TIME_RANGE_RE.test(s)) return true; // «од 5 до 7» — a window, not a term
   if (DAY_TRAILING_HOUR_RE.test(s)) return true;
-  return /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od)\s*\d{1,2}\b/i.test(s);
+  return /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od|накај|nakaj)\s*\d{1,2}\b/i.test(s);
 }
 
 /** Canonical Macedonian weekday named in the phrase ("VTORNIK" → "вторник"),

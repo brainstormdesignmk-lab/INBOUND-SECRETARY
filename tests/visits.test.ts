@@ -742,6 +742,64 @@ test('[22:31] detectVagueTime: bare day + period has NO clock — the exact-cloc
   assert.equal(detectVagueTime('sreda popladne okolu 6'), false);
 });
 
+test('[23:48] detectVagueTime: an OPEN-ENDED window is not a term — the exact hour is re-asked', () => {
+  // «SLOBODNA SUM OD 5 SAAT PA NATAKA» was resolved to 17:00 and relayed to the
+  // owner as «Понеделник, 02.11.2026 во 17:00» — a time the client never gave.
+  // A window START is availability, not an appointment.
+  for (const t of [
+    'SLOBODNA SUM OD 5 SAAT PA NATAKA',
+    'slobodna sum od 5 saat pa nataka',
+    'OD 17:00 PA NATAKA',
+    'od 5 pa natamu',
+    'слободна сум од 5 саат понатака',
+    'OD 5 NAVAKA',
+  ]) assert.equal(detectVagueTime(t), true, `a window must re-ask the hour: ${t}`);
+  // A CLOSED term keeps its lane — no new re-ask on concrete clock/day pairs.
+  assert.equal(detectVagueTime('PONEDELNIK VO 17:00'), false);
+  assert.equal(detectVagueTime('od 17:00 do 19:00'), false);
+  assert.equal(detectVagueTime('VO PONEDENIK MOZAM POPLADNE OKOLU 6'), false);
+});
+
+test('[23:48] e2e: the open window never reaches the owner — the exact-hour ask fires first', async () => {
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const cfg = loadConfig();
+  const props = new FakeProps(ROWS);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, t: string) => { sent.push(t); } });
+  const ownerMsgs: string[] = [];
+  const sched = new VisitScheduler({
+    db, events: new EventStore(db), owners: new OwnerStore(db), properties: props,
+    notifyClient: async () => {},
+    notifyOwner: async (_chatId, eb, text) => { ownerMsgs.push(`[EB ${eb}] ${text}`); },
+    notifyOperator: async () => {},
+    now: () => NOW,
+  });
+  const handler = new InboundHandler({ cfg, db, sessions,
+    classifier: new Classifier(new FailingLlm(), cfg, props),
+    responder: new Responder(new FailingLlm(), cfg), properties: props,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db), meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false }), visits: sched,
+  });
+  const chatId = 'window-2348';
+  const s = freshSession('test', chatId);
+  s.state = 'visit_scheduling';
+  s.slots.propertyId = 78;
+  s.slots.interestedPropertyId = 78;
+  s.slots.service = 'buy';
+  s.slots.viewingFeeAgreed = true;
+  s.slots.visitTime = 'Понеделник';
+  sessions.set(s);
+
+  await handler.handle('test', chatId, 'SLOBODNA SUM OD 5 SAAT PA NATAKA');
+  const after = sessions.get(chatId)!;
+  assert.equal(ownerMsgs.length, 0, `the owner was pinged with a term the client never gave: ${ownerMsgs.join(' | ')}`);
+  assert.equal(after.state, 'visit_scheduling', `the exact-hour ask must fire first, got ${after.state} (reply: ${sent[sent.length - 1]})`);
+  assert.ok(/\?/.test(sent[sent.length - 1] ?? ''), `the turn asks for the exact hour: ${sent[sent.length - 1]}`);
+  db.close();
+});
+
 test('[00:57] normalizeOwnerTime: the merged pair reaches the owner canonically', () => {
   assert.equal(normalizeOwnerTime('VO PONEDENIK MOZAM POPLADNE OKOLU 6', NOW_OCT), 'Понеделник, 26.10.2026 во 18:00');
 });

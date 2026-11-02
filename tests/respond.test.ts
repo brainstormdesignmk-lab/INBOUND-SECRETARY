@@ -584,6 +584,49 @@ test('buildDiscoveryAsk: the recap NEVER appears — only the missing question, 
   assert.ok(!generic.includes('Разбрав — барате'), generic);
 });
 
+test('buildDiscoveryAsk: an UNKNOWN type is ASKED, never assumed (the [04:17] capture)', () => {
+  const place = { poiAnchor: 'Буњаковец', poiArea: 'Центар' } as SlotData;
+  // «ZDRAVO. STO IMATE VO BUNJAKOVEC?» names a PLACE and nothing else. The
+  // market question may carry NO type word at all — a flat is not a safe
+  // default (the client may want a shop or a plot).
+  const ask = buildDiscoveryAsk(place);
+  assert.ok(!/стан|куќ|деловен|гарсоњер/iu.test(ask), `the type was assumed: ${ask}`);
+  assert.match(ask, /куп|изнајм|кириј|закуп/iu, `the market question is what he needs: ${ask}`);
+  assert.ok(ask.trim().endsWith('?'), ask);
+  // A started conversation drops the opener's greeting but keeps the question.
+  const later = buildDiscoveryAsk(place,
+    ['Здраво. Дали барате недвижност за купување или повеќе Ве интересира изнајмување?']);
+  assert.ok(!/^(?:Здраво|Добар\s+ден|Добредојдовте|Добродојдовте|Повелете)/iu.test(later), later);
+  assert.ok(!/стан|куќ/iu.test(later), later);
+
+  // The STOCK-AT-A-PLACE funnel (`inventoryPending`) owes the TYPE question,
+  // and no type-specific question rides along — «колку спални» is a question a
+  // дуќан never has, and a price cap is worded per category.
+  const typed = buildDiscoveryAsk({ ...place, service: 'buy', inventoryPending: true } as SlotData);
+  assert.match(typed, /тип/iu, `the type question is owed: ${typed}`);
+  assert.ok(!/спалн/iu.test(typed), `bedrooms asked before the type is known: ${typed}`);
+  assert.ok(!/до која цена|цената на станот/iu.test(typed), `price asked before the type is known: ${typed}`);
+  // An ordinary area + budget search is NOT held: it is already inside the
+  // residential funnel and keeps the bedroom/budget pair (the [13:44] contract).
+  const plain = buildDiscoveryAsk({ ...place, service: 'buy' } as SlotData);
+  assert.match(plain, /спалн/iu, `the residential pair is unchanged: ${plain}`);
+  assert.ok(!/Кој тип недвижност|тип на недвижност/iu.test(plain), plain);
+  // …and its LOCATION ask is type-neutral when nothing names a type.
+  const locOnly = buildDiscoveryAsk({ service: 'buy' } as SlotData);
+  assert.ok(!/станот|куќата|деловниот/iu.test(locOnly), `a type the client never named: ${locOnly}`);
+  assert.match(locOnly, /дел од градот|населба/iu, locOnly);
+
+  // The client NAMED a flat -> the flat funnel is right again (спални + цена).
+  const flat = buildDiscoveryAsk({ ...place, service: 'buy', flat: true } as SlotData);
+  assert.ok(!/тип/iu.test(flat), `the type is known — never ask it: ${flat}`);
+  assert.match(flat, /спалн/iu, flat);
+  // …and a house keeps its own wording.
+  const house = buildDiscoveryAsk({ ...place, service: 'buy', house: true } as SlotData);
+  assert.match(house, /куќ/iu, house);
+  // A bare type-only wish still opens with the market question, never a guess.
+  assert.match(buildDiscoveryAsk({}) as string, /куп|изнајм|кириј/iu);
+});
+
 test('buildDiscoveryAsk: a bare "zdravo" gets a GENERIC greeting — never an apartment assumption', () => {
   const ask = buildDiscoveryAsk({} as SlotData);
   const bank = RESPONSE_BANK['greeting.open'] ?? [];
@@ -620,9 +663,14 @@ test('buildDiscoveryAsk: never re-asks known slots, never the generic buy/rent b
   assert.ok(!ask.includes('купување или за изнајмување'), ask);
   assert.ok(!ask.includes('Колку спални'), ask);
   assert.ok(!ask.includes('Во кој дел'), ask);
-  // intent known, no location -> asks location only
+  // intent known, no location, NO TYPE NAMED -> asks the location only, in the
+  // type-NEUTRAL wording. The old expectation pinned «стан» here because the
+  // flat was the funnel's default for an unknown type — the [04:17] rule this
+  // file already asserts above (locOnly): a flat is not a safe default, the
+  // client may want a shop or a plot.
   const loc = buildDiscoveryAsk({ service: 'buy' } as SlotData);
-  assert.ok(/стан/.test(loc) && /(дел од градот|населба|локаци)/iu.test(loc), loc);
+  assert.ok(!/стан|куќ|деловен|гарсоњер/iu.test(loc), loc);
+  assert.ok(/(дел од градот|населба|локаци)/iu.test(loc), loc);
   assert.ok(!loc.includes('купување или за изнајмување'), loc);
   assert.ok(!loc.includes('Колку спални'), loc);
   // nothing known -> generic greeting + intent question, NO apartment assumption

@@ -14,6 +14,7 @@ import {
   detectResultSetQuestion, detectBedroomsRange, detectExplicitWiden,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
   detectDocumentsAsk, detectOwnerContactHold, extractPoiWish, extractPoiWishCandidates,
+  detectNearestOfShown, detectCloseRemarkToBatch, detectLocationNag,
   detectAgentAttendanceAsk, detectBusinessBudgetAsk,
   BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK,
   detectEbPriceAssertion, extractEbPriceAssertion, detectBudgetUpAsk,
@@ -1166,8 +1167,14 @@ test('detectSeeOffers: mid-discovery "што имате во понуда?" is a
   assert.equal(detectSeeOffers('покажи ми'), true);
   assert.equal(detectSeeOffers('имате ли нешто'), true);
   // a location search is NOT a see-offers ask (the text after имаш breaks it)
-  assert.equal(detectSeeOffers('што имаш во Карпош?'), false);
-  assert.equal(detectSeeOffers('sto imas vo karpos?'), false);
+  // SUPERSEDED EXPECTATION (the [01:48] capture): this used to be `false`
+  // because «што имаш во Карпош?» was read as a location search. It is the same
+  // INVENTORY question as «што имате во тој реон?» — the client asks what is
+  // available in the area he just named, and the show-me lane answers it with
+  // real offers area-locked. Reading it as a search that must first ask
+  // bedrooms is what let the area-advice paragraph own the turn.
+  assert.equal(detectSeeOffers('што имаш во Карпош?'), true);
+  assert.equal(detectSeeOffers('sto imas vo karpos?'), true);
   // ordinary messages are not see-offers
   assert.equal(detectSeeOffers('zdravo'), false);
   assert.equal(detectSeeOffers('ми треба стан'), false);
@@ -1628,6 +1635,56 @@ test('[10:28] extractPoiWish: the GRAMMAR bridge is trimmed, never the place', (
   assert.equal(extractPoiWish('bese kaj vas vo broz kafe'), 'броз кафе');
   assert.equal(extractPoiWish('PISUVASE DO BROZ KAFE', { withCriteria: true }), 'BROZ KAFE');
   assert.equal(extractPoiWish('PISUVASE DO TRGOVSKI LISICE', { withCriteria: true }), 'TRGOVSKI LISICE');
+});
+
+test('[22:03] detectNearestOfShown: “koj e najblisku do …” is a comparison, not a location nag', () => {
+  // The client compares the flats already on the table by how close they are to
+  // the place he names — both spellings of the comparative (-zu / -sku).
+  for (const t of [
+    'KOJ E NAJBLISKU DO KAFICOT ?',
+    'KOJ OD OVIE E NAJBLIZU DO BROZ KAFE ?',
+    'кој е најблиску до кафичот?',
+    'КОЈА Е НАЈБЛИЗУ ДО БРОЗ КАФЕ?',
+    'A KOJ E NAJBLIZOK OD CENTAR ?',
+  ]) {
+    assert.equal(detectNearestOfShown(t), true, `must fire: ${t}`);
+  }
+  // The nag detector must not claim it — „најблиску“ CONTAINS „блиску“, and
+  // matching inside the superlative answered the comparison with the last
+  // flat's nearby landmark (the [22:03] capture).
+  for (const t of ['KOJ E NAJBLISKU DO KAFICOT ?', 'кој е најблизу до кафичот?']) {
+    assert.equal(detectLocationNag(t), false, `must not be a nag: ${t}`);
+  }
+  // A plain proximity nag keeps its lane.
+  assert.equal(detectLocationNag('blisku do centar'), true);
+  // A SHOP HUNT (no copula or preposition after the superlative) is not the
+  // comparison — it asks for a place to be found, not for a ranking.
+  assert.equal(detectNearestOfShown('која е најблизата аптека?'), false);
+  assert.equal(detectNearestOfShown('KOJ E NAJBLISKU MARKET ?'), false);
+  // A statement about one flat is neither.
+  assert.equal(detectNearestOfShown('blizu e do kaficot'), false);
+});
+
+// THE [20:17] CAPTURE: three flats near Броз Кафе were listed, the client
+// pointed back at them — «OVA BESE BLISKU» — and the funnel answered with the
+// recall ask ("во која населба е, колку квадрати има и по која цена беше?").
+test('[20:17] detectCloseRemarkToBatch: a deictic “this one was close” about the batch', () => {
+  for (const t of [
+    'OVA BESE BLISKU',
+    'ova bese blisku',
+    'оваа беше блиску',
+    'ОВА Е БЛИЗУ',
+    'ovie se poblisku do kafeto',
+  ]) {
+    assert.equal(detectCloseRemarkToBatch(t), true, `must fire: ${t}`);
+  }
+  // Not a remark about the batch: a SEARCH need (no deictic), a plain answer,
+  // and the explicit ranking question (which ranks every row instead).
+  assert.equal(detectCloseRemarkToBatch('SAKAM STAN BLISKU DO ZELEZNICKA'), false);
+  assert.equal(detectCloseRemarkToBatch('DALI E USTE AKTIVEN ?'), false);
+  assert.equal(detectCloseRemarkToBatch('ova e 204 000 evra'), false);
+  assert.equal(detectCloseRemarkToBatch('KOJ E NAJBLISKU DO KAFICOT ?'), false);
+  assert.equal(detectCloseRemarkToBatch('која е најблизу до кафичот?'), false);
 });
 
 test('[20:24] extractPoiWish: the SECOND proximity phrase carries the place', () => {

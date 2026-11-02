@@ -1,6 +1,6 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase, placeLooseKey } from '../data/properties';
-import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, visitClockHour } from '../visits/time';
+import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, DIGIT_MINUTES_RE, QUARTER_PAST_RE, QUARTER_TO_RE, HALF_TO_RE, TIME_RANGE_RE, visitClockHour } from '../visits/time';
 
 // Re-export: the handler's split-intake gates (day-only vs clock-completion)
 // live on this module's surface; the canonical implementation is visits/time.
@@ -8,6 +8,12 @@ export { hasClockHint };
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
+// The recommendation grammar lives in its own module (the [11:39] family).
+// Imported here so the advice lanes consult ONE predicate for "the client asks
+// which flat to pick" instead of duplicating the word classes — and a choice
+// ask is never a price negotiation (the route-drift replay). recommend.ts
+// imports only data/prompts/normalize, so there is no cycle.
+import { detectRecommendAsk } from './recommend';
 import { AVAILABILITY_LEXICON, toRegexAlt, expandAdjective, adjectiveFormsV2, nounFormsV2, formsRegex, hasParkingWord } from './morphology';
 import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaivedSlots, buildPricePrioritySlots, buildWidenSlots, buildWhySlots,
   buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots, buildFeeRulesSlots,
@@ -88,10 +94,39 @@ const FILLER_BRIDGE = new Set([
   'vas', 'вас', 'mene', 'мене', 'nas', 'нас', 'tebe', 'тебе',
   'toa', 'тоа', 'toj', 'тој', 'ovaa', 'оваа', 'ovoj', 'овој', 'onaa', 'онаа',
   'ovde', 'овде', 'tamu', 'таму', 'kaj', 'кај', 'vo', 'во', 'na', 'на', 'u', 'у',
+  // «на САЈТ / на СТРАНИЦАТА» — the website the client saw the ad on, never a
+  // place (the [23:00] capture: the tail «вас на сајт» survived the trim, then
+  // the map answered «сајт» with a bakery).
+  'sajt', 'сајт', 'sajtot', 'сајтот', 'stranica', 'страница',
+  'stranicata', 'страницата', 'stranata', 'страната',
 ]);
 
+// THE TAIL FLOOR IS THREE LETTERS, not four: an INSTITUTION is often an
+// acronym — «кај СЈО», «кај УЈП», «кај ГОБ» — and the four-character minimum
+// dropped every one of them. In the [23:00] capture («GLEDAV EDEN STAN KAJ VAS
+// NA SAJT KAJ SJO») that made «СЈО» invisible while the grammar tail «вас на
+// сајт» survived as the only candidate, and the map resolved «сајт» to a bakery
+// in Капиштец. Junk of that length cannot reach a place now: the map refuses
+// everyday single words (NOT_A_PLACE_ALONE) and the caller's coverage guard
+// still has to accept the row's name.
+// THE PROXIMITY OPENER IS TYPED BY HUMANS (the [01:36] capture): «OKOU
+// BUNJAKOVEC» — «околу» with the л dropped — named the place and was read by
+// nothing, so the funnel asked «Која локација…» of a client who had just said
+// it, and the next turn («STO IMATE POVOLNO VO TOJ REON?») had no referent.
+// The dirty spellings live HERE, beside the clean ones, so every reader of the
+// wish (both classify legs, the locate lane) inherits them; «накај» joins as a
+// direction opener (a bare HOUR after it is never a place — the tail needs
+// three letters, see the capture group).
+// CYRILLIC-CANONICAL, like every other grammar here: the extractor runs the raw
+// text first and the normalizeMc fold second, so a Latin spelling arrives here
+// already folded («OKOU» → «окоу»). Listing the Latin forms as well would make
+// the RAW pass win and hand back «KAPITOL BISER» instead of the folded tail
+// every caller and test expects — the fold is the one place a Latin opener is
+// read, not a second vocabulary to keep in sync.
+const PROXIMITY_OPENER_SRC =
+  '(?:во\\s+бли[зж]ин(?:а|ата|у)|бли[зж]у|околу|около|окло|оклу|окоу|околин(?:а|ата)|спроти|наспроти|накај|кај|во\\s+реон(?:от|а|ови|иве)?\\s+на|до|do)';
 export const POI_WISH_RE =
-  /(?:во\s+бли[зж]ин(?:а|ата|у)|бли[зж]у|околу|околин(?:а|ата)|спроти|наспроти|кај|во\s+реон(?:от|а|ови|иве)?\s+на|до|do)\s+([\p{L}.][\p{L}. '-]{3,47})/giu;
+  new RegExp(PROXIMITY_OPENER_SRC + '\\s+([\\p{L}.][\\p{L}. \'-]{2,47})', 'giu');
 
 // THE SECOND PROXIMITY PHRASE OF ONE CAPTURE. A client sentence can carry TWO
 // openers and only the second one names the place: "ZDRAVO GLEDAV KAJ VAS NA
@@ -173,7 +208,7 @@ export function extractPoiWishCandidates(text: string, opts: { withCriteria?: bo
       // full tail's digit/word veto AND in every trim's own re-check.
       const variant = (s: string): string | undefined => {
         s = s.replace(/[?!,.:;]+$/u, '').trim();
-        if (s.length < 4) return undefined;
+        if (s.length < 3) return undefined;
         const vw = s.split(/\s+/).filter(Boolean);
         if (s.length > 48 || vw.length > 4) return undefined;
         if (TARGETING_RE.test(s)) return undefined;
@@ -200,8 +235,13 @@ export function extractPoiWishCandidates(text: string, opts: { withCriteria?: bo
   // in the folded text — "okolucinar" (one fused word containing "околу")
   // must never extract a wish tail, while "vo blizina na X" (multiword
   // preposition) still passes via its "во\s+бли[зж]ин" opener.
+  // THE SAME OPENER FAMILY AS POI_WISH_RE, dirty spellings included: this veto
+  // runs FIRST, so a word list that knows only «околу» silently killed the [01:36]
+  // «OKOU BUNJAKOVEC» before the extractor was ever reached (normalizeMc folds
+  // it to «окоу»). One family, two readers — the whole-word test is what keeps
+  // «okolucinar» out, not the vocabulary.
   const nf = ' ' + normalizeMc(t).replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim() + ' ';
-  if (!/ (?:во|бли[зж]ин(?:а|ата|у)?|бли[зж]у|околу|околин(?:а|ата)?|спроти|наспроти|кај|до) /iu.test(nf)) {
+  if (!/ (?:во|бли[зж]ин(?:а|ата|у)?|бли[зж]у|околу|около|окло|оклу|окоу|околин(?:а|ата)?|спроти|наспроти|накај|кај|до) /iu.test(nf)) {
     return [];
   }
   // WHOLE-MESSAGE veto (default): a message carrying a price/size/EB is a
@@ -267,6 +307,9 @@ export interface DetectedSlots {
   business?: boolean;  // деловен простор / канцеларија / локал
   house?: boolean;     // куќа — a residential request that is NOT a стан
   budget?: string;     // canonical digits, e.g. "80000"
+  /** PER-CATEGORY MONEY (the [19:14] capture): «dvosoben do 90000 i trosoben do
+   *  150000» — each room category with its OWN cap, cheapest category first. */
+  categoryBudgets?: Array<{ rooms: number; budget: string }>;
   anywhere?: boolean;  // "било каде" — no location preference (satisfies location)
   need?: boolean;      // a bare "ми треба стан" without any extracted detail
   rejected?: boolean;
@@ -382,16 +425,145 @@ export function detectSeenProperty(text: string): boolean {
 // repeating the missing question. Latin + Cyrillic. "што имаш во Карпош?" (a
 // location search) is NOT this — the text after имаш/имате breaks the anchor.
 const SEE_OFFERS_RE =
-  /(што\s+(?:имаш|имате|има)\s+(?:во\s+|на\s+)?понуда|што\s+(?:имаш|имате|има)\s+(?:на\s+)?(?:лагер|залиха)|sto\s+(?:imas|imate)\s+(?:vo\s+|na\s+)?ponuda|sto\s+(?:imas|imate)\s+(?:na\s+)?(?:lager|zaliha)|помало\s+нешто|нешто\s+помало|покажи\s+ми|имате\s+ли\s+нешто|имаш\s+ли\s+нешто|pomalo\s+nesto|pokazi\s+mi|imate\s+li\s+nesto|imas\s+li\s+nesto|(?:што|sto)\s+(?:имаш|имате|imas|imate)\s*\??$|asto\s+po(?:e|е)ftin|најефтино|naj(e|е)ftino|што\s+е\s+најефтино|колку\s+е\s+најевтин|bilo\s+kolku|било\s+колку|билоколку|bilo\s+kolkube|било\s+колку\s+бе|spalnite\s+ne\s+se\s+tolku\s+bitni|спалните\s+не\s+се\s+толку\s+битни|не\s+се\s+битни\s+спалните|ne\s+se\s+bitni\s+spalnite|pokazi\s+koi|покажи\s+кои|koi\s+gi\s+ima\p{L}*|кои\s+ги\s+има\p{L}*|sto\s+gi\s+ima\p{L}*|што\s+ги\s+има\p{L}*)/iu;
+  /(што\s+(?:имаш|имате|има)\s+(?:во\s+|на\s+)?понуда|што\s+(?:имаш|имате|има)\s+(?:на\s+)?(?:лагер|залиха)|sto\s+(?:imas|imate)\s+(?:vo\s+|na\s+)?ponuda|sto\s+(?:imas|imate)\s+(?:na\s+)?(?:lager|zaliha)|(?:што|sto)\s+(?:имаш|имате|има|imas|imate)\s+(?:достапн|dostapn)\p{L}*|помало\s+нешто|нешто\s+помало|покажи\s+ми|имате\s+ли\s+нешто|имаш\s+ли\s+нешто|pomalo\s+nesto|pokazi\s+mi|imate\s+li\s+nesto|imas\s+li\s+nesto|(?:што|sto)\s+(?:имаш|имате|imas|imate)\s*\??$|asto\s+po(?:e|е)ftin|најефтино|naj(e|е)ftino|што\s+е\s+најефтино|колку\s+е\s+најевтин|bilo\s+kolku|било\s+колку|билоколку|bilo\s+kolkube|било\s+колку\s+бе|spalnite\s+ne\s+se\s+tolku\s+bitni|спалните\s+не\s+се\s+толку\s+битни|не\s+се\s+битни\s+спалните|ne\s+se\s+bitni\s+spalnite|pokazi\s+koi|покажи\s+кои|koi\s+gi\s+ima\p{L}*|кои\s+ги\s+има\p{L}*|sto\s+gi\s+ima\p{L}*|што\s+ги\s+има\p{L}*)/iu;
 // The last three arm-pairs above are THE [12:34] UNDECIDED SHOW-ME:
 // mid-discovery the client asks to see the INVENTORY to decide for himself —
 // «pokazi koi imas za da odlucam», «кои ги имаш», «што ги имаш на лагер». The
 // old arms only caught «покажи ми» (with the clitic), so these re-asked
 // discovery and the client typed a THIRD time before anything was served.
 
+// AN INVENTORY ASK ANCHORED ON A PLACE (the [01:48] capture):
+//   [01:48] ZDRAVO SAKAM DA KUPAM STAN VO BLIZINA NA ZELEZNICKA
+//   [01:48] STO IMATE VO TOJ REON ?
+//   [01:48] ЛИНА: «Различни населби одговараат на различни потреби… што Ви е
+//           поважно: пристапна цена, тивка атмосфера или близина до центарот?»
+// The client asks WHAT IS AVAILABLE in the place he just named. That is the
+// show-me question («што имате во понуда?» is the same family, one word along)
+// and the answer is inventory, never an essay about neighbourhood character —
+// the [22:34] mistake repeated one turn later by the AREA-ADVICE lane, because
+// «реон» is in its vocabulary.
+// GRAMMAR: have-verb × what-word × a PLACE reference — either a demonstrative
+// the client just pointed at («тој/овој/тоа … реон / населба / кварт / дел /
+// место / таму») or «што имате таму», or «што нудите». The FEED-AREA name is
+// matched by `detectInventoryAsk` (KNOWN_NEIGHBORHOODS, shared with
+// isStockSearch), so this regex carries no place data of its own.
+// THE QUALIFIER SLOT (the [01:36] capture): «STO IMATE POVOLNO VO TOJ REON ?»
+// — the client drops an adjective between the have-verb and the place. The old
+// grammar demanded the preposition IMMEDIATELY after the verb, so the whole
+// family missed, the AREA-ADVICE lane claimed the turn (it owns «реон») and the
+// client got an essay about neighbourhood character instead of the rent
+// inventory and the missing-criteria questions. One wildcard gap (no clause
+// punctuation, ≤20 chars) carries any qualifier — «поволно», «евтино»,
+// «достапно», «во понуда» — and the place reference after the preposition is
+// still required, so the shape stays a have-ask about a place.
+const INV_GAP = '[^.!?,\\n]{0,20}';
+const INVENTORY_ASK_RE = new RegExp(
+  '(?:што|sto)\\s+(?:имаш|имате|има|imas|imate)\\s*' + INV_GAP + '\\s*(?:\\?|$)'
+  + '|(?:што|sto)\\s+(?:имаш|имате|има|imas|imate)\\s+' + INV_GAP + '\\s*(?:во|vo|на|na)\\s+'
+  +   '(?:(?:тој|toj|овој|ovoj|тоа|toa|тие|tie|таа|taa|таму|tamu)\\s+)?'
+  +   '(?:реон|reon|населб|naselb|кварт|kvart|дел|del|место|mesto|град|grad|област|oblast|подрачј|podracj)\\p{L}*(?:\\s|\\?|$)'
+  + '|(?:што|sto)\\s+(?:имаш|имате|има|imas|imate)\\s+(?:таму|tamu)(?:\\s|\\?|$)'
+  + '|(?:што|sto)\\s+(?:нудите|нудиш|нуди|нудат|nudite|nudi|nudis)\\p{L}*(?:\\s|\\?|$)',
+  'iu');
+// Same qualifier slot as the family above: the FEED-AREA arm must see
+// «sto imate povolno vo aerodrom» too, or a named area answers with advice.
+const INVENTORY_VERB_RE = new RegExp(
+  '(?:што|sto)\\s+(?:имаш|имате|има|imas|imate)\\s+' + INV_GAP + '\\s*(?:во|vo|на|na)\\s+', 'iu');
+
+/** True when the client asks for the INVENTORY — what is available — as
+ *  opposed to advice about where to live. Anchored either on a demonstrative
+ *  («во тој реон») or on a feed area the client named («во Аеродром»). */
+export function detectInventoryAsk(text: string): boolean {
+  if (INVENTORY_ASK_RE.test(text)) return true;
+  const norm = normalizeMc(text);
+  if (INVENTORY_ASK_RE.test(norm)) return true;
+  // The FEED AREA that carries the anchor («што имате во Аеродром?»). Both the
+  // client's own spelling and the normalised fold are tried: the area table is
+  // Cyrillic while the client types Latin, and locMatches is case/stem-based
+  // rather than transliterating — testing only the fold missed «Карпош» typed
+  // as «KARPOS» (and only the raw missed the reverse).
+  // THE VERB IS MATCHED ON THE RAW TEXT FIRST: normalizeMc is PHONETIC, so
+  // «STO IMAS» folds to «сто имас» (s→с, not ш) — testing only the fold made
+  // every Latin inventory ask invisible, the same reason SEE_OFFERS_RE carries
+  // its own Latin arms. The AREA is then checked in both spellings, because the
+  // table is Cyrillic while the client types either.
+  const verb = INVENTORY_VERB_RE.test(text) || INVENTORY_VERB_RE.test(norm);
+  if (!verb) return false;
+  if (KNOWN_NEIGHBORHOODS.some(loc => locMatches(text, loc) || locMatches(norm, loc))) return true;
+  // A PLACE THE FEED DOES NOT OWN IS STILL THE PLACE HE MEANS (the [02:15]
+  // capture): «STO IMATE VO BUNJAKOVEC?» — Буњаковец is a naselba/POI the map
+  // knows, not a feed neighbourhood, so the area arm missed it and the turn was
+  // answered with the generic greeting. The tail is PLACE-SHAPED and resolved
+  // against the map by the caller; a grammar/demonstrative tail is not a place.
+  return extractInventoryPlace(text) !== undefined;
+}
+
+// THE PLACE AN INVENTORY ASK NAMES, when it is not a feed area. The have-verb
+// family's tail after «во/на» — «STO IMATE (POVOLNO) VO BUNJAKOVEC». Shape
+// only: letters, ≤40 chars, no digits; a DEMONSTRATIVE tail («во тој реон») is
+// not a place name (the area arm already owns that shape), and the offer/grammar
+// words that follow «во» in ordinary speech («во понуда», «во моментов»,
+// «во Скопје») are refused here so a browse never becomes a place.
+const INVENTORY_PLACE_RE = new RegExp(
+  '(?:што|sto)\\s+(?:имаш|имате|има|imas|imate)\\s+' + INV_GAP + '\\s*(?:во|vo|на|na)\\s+([\\p{L}][\\p{L} .\'-]{2,40})', 'iu');
+const INVENTORY_PLACE_STOP = new Set([
+  'понуда', 'понуди', 'ponuda', 'продажба', 'prodazba', 'изнајмување', 'iznajmuvanje',
+  'кирија', 'kirija', 'градот', 'gradot', 'моментов', 'momentov', 'момент', 'moment',
+  'лагер', 'lager', 'залиха', 'zaliha', 'скопје', 'skopje', 'град', 'grad', 'цело', 'celo',
+  'близина', 'blizina', 'тој', 'toj', 'овој', 'ovoj', 'тоа', 'toa', 'таа', 'taa', 'тие', 'tie', 'таму', 'tamu',
+]);
+
+/** The place an inventory ask names («… VO BUNJAKOVEC» → «BUNJAKOVEC»), or
+ *  undefined. Shape only — the caller resolves it against the offline map. */
+export function extractInventoryPlace(text: string): string | undefined {
+  const m = text.match(INVENTORY_PLACE_RE);
+  if (!m) return undefined;
+  const words = m[1].replace(/[?!,.:;]+$/u, '').trim().split(/\s+/).filter(Boolean);
+  // ANY stop word disqualifies the tail — «во тој реон» leaves «реон» after the
+  // demonstrative is dropped, and that is the AREA arm's shape, not a place
+  // name. Only a clean, purely nominal tail is a candidate.
+  if (words.some(w => INVENTORY_PLACE_STOP.has(w.toLowerCase()))) return undefined;
+  const place = words.join(' ');
+  if (place.length < 3 || /\d/.test(place)) return undefined;
+  return place;
+}
+
+// THE PROPERTY TYPE WORD — every category the feed sells, not only стан: the
+// inventory ask is answered by asking WHAT he wants before anything is served
+// (the [02:15] capture), and each type then gets its OWN characteristics
+// questions (спални + цена for стан/куќа, м² + цена for дуќан/плац).
+const PROPERTY_TYPE_WORD_RE =
+  /(?<![\p{L}])(?:стан\p{L}*|stan\p{L}*|апартман\p{L}*|apartman\p{L}*|гарсоњер\p{L}*|garsonjer\p{L}*|куќ\p{L}*|кук\p{L}*|kukj\p{L}*|kuka\p{L}*|вил\p{L}*|vila\p{L}*|дуќан\p{L}*|dukjan\p{L}*|dukan\p{L}*|локал\p{L}*|lokal\p{L}*|деловен\p{L}*|deloven\p{L}*|канцелари\p{L}*|kancelari\p{L}*|магацин\p{L}*|magacin\p{L}*|плац\p{L}*|plac\p{L}*|земјишт\p{L}*|zemjist\p{L}*|гараж\p{L}*|garaz\p{L}*)/iu;
+
+// THE FLAT WORD — the one category with no flag of its own. `house`/`business`/
+// `plac` carry booleans; a flat carried NOTHING, so a funnel that did not know
+// the type guessed it by default and asked about an apartment the client never
+// named (the [04:17] capture). Recording the flat is what lets an unknown type
+// be ASKED instead of assumed.
+//
+// The trailing guard is the point: `стан\p{L}*` (the loose type-word regex
+// above) matches «станбена површина» — the most common word in this feed — and
+// «стандард». Only a real surface form is a flat: стан/станот/стана/станови/
+// становите/станче, апартман + inflections, гарсоњера (a studio IS a flat).
+const FLAT_WORD_RE = /(?<![\p{L}])(?:стан(?:от|ов|а|и|ови|овите|че|чето)?|апартман\p{L}*|гарсоњер\p{L}*)(?![\p{L}])/iu;
+const FLAT_WORD_LATIN_RE = /(?<![a-z])(?:stan(?:ot|ov|a|i|ovi|ovite)?|apartman[a-z]*|garsonjer[a-z]*)(?![a-z])/iu;
+
+/** True when the message names a FLAT (стан/апартман/гарсоњера). A flat is a
+ *  real category — it just has no flag, so the discovery funnel reads it here. */
+export function detectFlat(text: string): boolean {
+  const norm = normalizeMc(text);
+  return FLAT_WORD_RE.test(text) || FLAT_WORD_RE.test(norm)
+    || FLAT_WORD_LATIN_RE.test(text) || FLAT_WORD_LATIN_RE.test(norm);
+}
+
+/** True when the message NAMES a property type (any of the feed's categories). */
+export function detectPropertyTypeWord(text: string): boolean {
+  return PROPERTY_TYPE_WORD_RE.test(text) || PROPERTY_TYPE_WORD_RE.test(normalizeMc(text));
+}
+
 /** True when the client asks to see current offers mid-collection. */
 export function detectSeeOffers(text: string): boolean {
-  return SEE_OFFERS_RE.test(text);
+  return SEE_OFFERS_RE.test(text) || detectInventoryAsk(text);
 }
 
 // [17:14] The SMALLER-SIZE INTENT family: "NESTO POMALO / нешто помало"
@@ -947,6 +1119,119 @@ export function detectFeeAmountAsk(text: string): boolean {
   if (!fee) return false;
   const prop = _feeAmountPropObjectRe.exec(slot);
   return !prop || fee.index < prop.index;
+}
+
+// ── THE PER-PROPERTY FEE ARITHMETIC (the [23:44]/[23:45] capture) ───────────
+// «500 DEN PO STAN?» then «AKO GI VIDAM DVATA TOA SE 1000DEN»: the fee had
+// just been disclosed and the client was CHECKING THE MATHS — is the fee per
+// flat, and does seeing both flats mean twice the money? The funnel answered
+// «Околу Буњаковец веќе ги погледнавме сите недвижности…», a drained-search
+// line to a 500 × 2 question: the plural («dvata») read as a request to see the
+// pair again, so a fee sum landed in the search machinery. The arithmetic is
+// CONFIRMATION traffic — never resistance, never a rung, never a search — so
+// it owns its own detector and its own serve.
+//
+// PRECISION: a FEE-SIZED amount (≤2000 ден / ≤100 евра, the bound the why-frame
+// already uses, so a property price can never qualify) must sit beside ONE of
+//   1. a PER-UNIT marker — «po stan / po nedviznost / po poseta / za sekoj
+//      stan» (the client asks whether the fee repeats per property), or
+//   2. the PLURAL the client is multiplying — «dvata / dvete / dve» (the
+//      client already did the sum and is asking Lina to confirm it).
+// Resistance keeps its own lanes: a price complaint («SKAPO E TOA . ZA SEKOJ
+// STAN PO 300DEN»), a why/existence question, a rules dismissal, a provision
+// complaint and a payment refusal all veto here, so the nag ladder still owns
+// every pushback and this lane never burns a rung.
+const FEE_PER_AMT_RE = /(?<![\p{L}\p{N}])(\d{1,6}(?:[.,]\d{1,3})?)\s*(денари|денар|ден|denari|denar|den|евра|евр|евро|еуро|evra|evr|evro|eur|мкд|mkd|€)(?![\p{L}])/giu;
+const FEE_PER_UNIT_RE = /(?<![\p{L}])(?:po|по)\s+(?:stan\p{L}*|стан\p{L}*|nedviznos\p{L}*|недвижнос\p{L}*|nedviznin\p{L}*|некретнин\p{L}*|poset\p{L}*|посет\p{L}*|razgled\p{L}*|разглед\p{L}*|gledanj\p{L}*|гледањ\p{L}*|objekt\p{L}*|објект\p{L}*)/iu;
+// BOTH distributive prepositions: «za sekoj stan» AND «po sekoj stan» name the
+// same per-property reading, and the field types both.
+const FEE_PER_EACH_RE = /(?<![\p{L}])(?:za|за|po|по)\s+(?:sekoja|секоја|sekoj|секој|sekoe|секое)\s+(?:stan\p{L}*|стан\p{L}*|nedviznos\p{L}*|недвижнос\p{L}*|poset\p{L}*|посет\p{L}*|razgled\p{L}*|разглед\p{L}*|objekt\p{L}*|објект\p{L}*)/iu;
+const FEE_PER_PLURAL_RE = /(?<![\p{L}])(?:двата|двете)(?![\p{L}])/u;
+// THE BARE SUM (the [02:43] capture): «za dva stana toa se 1000 za gledanje
+// samo» states the TOTAL without naming a currency — «1000» is 2 × 500 in the
+// client's head, and the old amount probe demanded ден/евра, so nothing owned
+// the turn and the exhausted-search line answered a fee complaint. A bare sum
+// is fee arithmetic when BOTH anchors are present: a COUNT of flats and a
+// VIEWING noun. Anything else with a bare number (a rent budget, a size, a
+// price) keeps its lane.
+const FEE_PER_BARE_AMT_RE = /(?<![\p{L}\p{N}])(\d{1,4})(?![\d:.,])(?!\s*(?:ден|den|евр|evr|eur|€|м2|m2|квадрат|kvadrat|спалн|spaln))/giu;
+const FEE_PER_COUNT_RE = /(?<![\p{L}])(?:dva|два|dvata|двата|dve|две|dvete|двете|tri|три)(?![\p{L}])\s*(?:stana|стана|stan\p{L}*|стан\p{L}*|nedviznos\p{L}*|недвижнос\p{L}*|poseti|посети)/iu;
+const FEE_PER_VIEW_NOUN_RE = /(?:gledanj\p{L}*|гледањ\p{L}*|poset\p{L}*|посет\p{L}*|razgled\p{L}*|разглед\p{L}*|vizit\p{L}*|визит\p{L}*)/iu;
+// The VIEWING VERB is an anchor too (the [19:40] capture): «ZA SEKOJ STAN STO KE
+// SE POSETI PO 500 ?» names the act with the verb (посети), not a viewing noun.
+// Without this the amountless per-unit arm below could not fire on the very
+// shape the field produced — the message fell to the PROPERTY price lanes and
+// «Цената е поставена директно од сопственикот» answered a question about the
+// VISIT fee.
+const FEE_PER_VIEW_ANCHOR_RE = /(?:poset\p{L}*|посет\p{L}*|razgled\p{L}*|разглед\p{L}*|gleda\p{L}*|гледа\p{L}*|gledanj\p{L}*|гледањ\p{L}*|vizit\p{L}*|визит\p{L}*|vid\p{L}*|вид\p{L}*)/iu;
+
+/** True when the client is CHECKING THE FEE MATHS — per property, or the sum
+ *  for the flats on the table. Never true for resistance (see the vetoes), for
+ *  a bare amount ask («500 denari?» — no unit, no plural) or for any amount
+ *  above the fee band (a property price). */
+export function detectFeePerPropertyAsk(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ').trim();
+  if (!flat) return false;
+  if (detectFeeWhy(flat) || detectFeeComplaint(flat) || detectFeeSurprise(flat) || detectFeeRules(flat)) return false;
+  // A NAG is the ladder's turn, not arithmetic: «SKAPO E TOA . ZA SEKOJ STAN PO
+  // 300DEN» carries the per-unit marker AND the price objection — the ladder
+  // must burn its rung (the [23:12] field burst), so the nag grammar wins here.
+  if (detectFeeNag(flat)) return false;
+  if (detectNegatedFeePay(flat) || detectNegatedAgreement(flat) || detectRejection(flat)) return false;
+  if (detectProvisionResistance(flat) || detectFeeChargePushback(flat)) return false;
+  // An AGREEMENT is consent traffic, not a maths question (the fee-agreed lane
+  // owns it), unless the same burst still asks something.
+  if (detectFeePaymentAgreement(flat) && !/\?/.test(flat)) return false;
+  let feeSized = 0;
+  for (const m of flat.matchAll(FEE_PER_AMT_RE)) {
+    const n = Number(m[1].replace(/[.,]/g, ''));
+    const evr = /(?:евра|евр|евро|еуро|evra|evr|evro|eur|€)/iu.test(m[2]);
+    if (Number.isFinite(n) && (evr ? n <= 100 : n <= 2000)) feeSized += 1;
+  }
+  if (feeSized === 0) {
+    // BARE SUM: a count of flats + a viewing noun + a fee-sized number. It has
+    // to be checked HERE — before the currency probe's verdict — because the
+    // [02:43] burst names no currency at all («…toa se 1000 za gledanje samo»).
+    if (FEE_PER_COUNT_RE.test(flat) && FEE_PER_VIEW_NOUN_RE.test(flat)) {
+      for (const m of flat.matchAll(FEE_PER_BARE_AMT_RE)) {
+        const n = Number(m[1]);
+        if (n >= 50 && n <= 2000) return true;
+      }
+    }
+    // THE AMOUNTLESS PER-VISIT QUESTION (the [19:40] capture): a PER-UNIT marker
+    // + a VIEWING anchor + a fee-sized bare number — «ZA SEKOJ STAN STO KE SE
+    // POSETI PO 500 ?», «по секој стан што ќе го видам 500», «za sekoja poseta
+    // 500». The client states the amount without a currency word, so the amount
+    // probe above found nothing, the bare-sum arm demanded a PLURAL COUNT he
+    // never named, and the turn left the fee lanes entirely (price.negotiate
+    // answered it). The per-unit marker is what keeps a property number out:
+    // without it a bare figure beside a flat is a budget, a size or a price and
+    // keeps its own lane.
+    if ((FEE_PER_UNIT_RE.test(flat) || FEE_PER_EACH_RE.test(flat))
+      && FEE_PER_VIEW_ANCHOR_RE.test(flat)) {
+      for (const m of flat.matchAll(FEE_PER_BARE_AMT_RE)) {
+        const n = Number(m[1]);
+        if (n >= 50 && n <= 2000) return true;
+      }
+    }
+    return false;
+  }
+  if (FEE_PER_UNIT_RE.test(flat) || FEE_PER_EACH_RE.test(flat)) return true;
+  return FEE_PER_PLURAL_RE.test(normalizeMc(flat));
+}
+
+/** HOW MANY properties the client is multiplying the fee by — «dvata»/«dvete»
+ *  → 2, «3 poseti» → 3. Undefined when the burst names no count: the serve
+ *  then states the per-property rule without inventing a total. */
+export function feeArithmeticCount(text: string): number | undefined {
+  const cyr = normalizeMc(text.replace(/\n/g, ' ')).toLowerCase();
+  if (/(?<![\p{L}])(?:двата|двете)(?![\p{L}])/u.test(cyr)) return 2;
+  // «dva stana» / «две посети» — the count the client multiplies the fee by.
+  if (/(?<![\p{L}])(?:два|две)\s+(?:недвижности|стана|станот|посети|објекти)/u.test(cyr)) return 2;
+  const m = cyr.match(/(?<![\p{L}])(\d{1,2})\s*(?:недвижности|недвижност|стана|станот|посети|посета|објекти|објект)/u);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  return n >= 1 && n <= 9 ? n : undefined;
 }
 
 // ── Which property / property choice (the [00:06]–[00:08] live burst) ────────
@@ -1720,41 +2005,24 @@ export function extractEbPriceAssertion(text: string): { eb?: number; amount?: n
   return { eb, amount };
 }
 
-export function detectBudget(text: string): string | undefined {
+export interface MoneyMention { amount: number; index: number; end: number }
+
+/** Every money mention in a message, WITH ITS POSITION. The budget read and the
+ *  per-category pairing both need the same figures, so the scan lives in ONE
+ *  place — a second copy of this regex is how a cap and "the budget" start
+ *  disagreeing (the `5IPOL` detector/validator class, one layer up). Amounts
+ *  follow the budget rules: a thousands suffix multiplies a BARE number, a
+ *  construction year is not money, and small currency figures beside FEE words
+ *  are the viewing fee, never a search cap. */
+function collectMoneyMentions(text: string): MoneyMention[] {
   // [22:33] veto: an assertion of an EB's price ("44 e 130000 evra kaj vas na
-  // stranicata") names the PROPERTY's price — never the client's budget. The
-  // old read slotted 130000 as a NEW budget, discarded his standing budget
-  // and the funnel answered the criteria-miss for a house whose own asking
-  // price IS that figure. The value still lands on the price table only via
-  // the price-assertion lane (handlers/inbound.ts keeps the money traffic).
-  if (detectEbPriceAssertion(text)) return undefined;
+  // stranicata") names the PROPERTY's price — never the client's budget.
+  if (detectEbPriceAssertion(text)) return [];
   // Strip phone numbers first — "078/914 196" must never glue into "914196".
   const cleaned = text.replace(/\b0\d{1,2}\s*[/.]\s*\d{2,4}(?:\s*\d{2,4})?\b/g, ' ');
-  // Cyrillic AND Latin currency spellings — clients type "500 EVRA" in Latin
-  // far more often than "евра"; /i does NOT fold Latin E into Cyrillic е.
-  // A CAP WORD before the number (до/околу/под/do/okolu/oko/pod — "up to /
-  // around / under") marks a PRICE even without currency: "bilo kade do 250"
-  // is a rent budget of 250, so the 250 is never misread as an EB. The
-  // lookbehind is Unicode-aware (JS \b never binds around Cyrillic — "до 250"
-  // after "каде" would otherwise never match) and blocks glued words ("здо").
-  // "za/за" joins the cap words: "A ZA 250?" (21:16) is "for 250 [денари]" —
-  // a price correction after a presentation, never an Евидентен број and
-  // never a no-criteria STAY. Same class as до/околу/под (a bare za+N is
-  // price talk; "za broj 90" / "za stan 90" keep their noun and don't match).
-  // The thousand suffix carries BOTH the words and the k shorthand: "do 120k"
-  // (without it the deterministic path slotted a 120 EUR budget and the hard
-  // filter emptied every search). Latin and Cyrillic k written out (/iu does
-  // NOT fold k into к). The bare k/к arms REQUIRE a non-letter after them —
-  // "120 km" stays 120, "120k" and "120k evra" multiply.
-  // "iljadi" joins the words: the [19:42] capture "OKOLU 115 ILJADI EVRA" —
-  // without the Latin transliteration the multiplier missed and the budget
-  // slotted 115 EUR, which re-asked the price the client had just given and
-  // served rent rows 200/350 evra instead of the ~115000 buy matches.
-  // "hiljadi" is the Latin spelling of хилјади — the SAME gap: "okolu 115
-  // hiljadi" read 115 and served a garsojiera+deloven pair.
   const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d[\d\s.,]*)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(евра|евро|evra|evro|eur|€)?/giu;
+  const out: MoneyMention[] = [];
   let m: RegExpExecArray | null;
-  let bestN = 0;
   while ((m = re.exec(cleaned)) !== null) {
     const capped = !!m[1];
     const digits = m[2].replace(/[\s.,]/g, '');
@@ -1762,24 +2030,98 @@ export function detectBudget(text: string): string | undefined {
     if (!Number.isFinite(n) || n <= 0) continue;
     // "80 илјади" / "120k" -> 80000 / 120000. The multiplier only applies to a
     // BARE number: "OKOLU 100 000 ILJADI" already spells the amount out and
-    // the suffix is emphasis, not a second thousands step — multiplying it
-    // gave 100,000,000 and the price ranking then preferred a flat costing
-    // twice what the client said he paid (the 02:18 Водно capture).
+    // the suffix is emphasis, not a second thousands step.
     if (m[3] && n < 1000) n *= 1000;
     const hasCur = !!m[4];
-    // 1900-2100 without currency is a construction year, not a budget
+    // 1900-2100 without currency is a construction year, not a budget.
     if (n >= 1900 && n <= 2100 && !hasCur) continue;
-    // Fee-context small figures (fee hardening): "10 evra ne e bas
-    // simbolichna" disputes the viewing fee — it must never seed a budget
-    // slot. Fee anchors co-occur; property-priced complaints ("stanot e
-    // 10 evra") never carry them, and real capped budgets are unaffected
-    // (a cap word IS the client naming their limit).
+    // Fee-context small figures: "10 evra ne e bas simbolichna" disputes the
+    // viewing fee — it must never seed a budget slot.
     if ((n < 100 || hasCur) && FEE_CTX_RE.test(cleaned)) continue;
-    // Cap-prefixed figures need a sanity floor ("до 3 соби" is bedrooms, not a
-    // budget) but no currency — "до 250" is a rent price in a rent funnel.
-    if ((n >= 1000 || hasCur || (capped && n >= 100)) && n > bestN) bestN = n;
+    // Cap-prefixed figures need a sanity floor ("до 3 соби" is bedrooms) but
+    // no currency — "до 250" is a rent price in a rent funnel.
+    if (!(n >= 1000 || hasCur || (capped && n >= 100))) continue;
+    out.push({ amount: n, index: m.index, end: m.index + m[0].length });
   }
+  return out;
+}
+
+export function detectBudget(text: string): string | undefined {
+  let bestN = 0;
+  for (const m of collectMoneyMentions(text)) if (m.amount > bestN) bestN = m.amount;
   return bestN > 0 ? String(bestN) : undefined;
+}
+
+/** Every ROOM-CATEGORY mention in a message, with its position. Both scripts
+ *  and both shapes: the adjective ("двособен", "dvosoben", "trosoben", "dvo
+ *  sobno") and the counted noun ("2 sobi", "3 sobni", "две соби"). Overlapping
+ *  hits (":двособен " inside a longer word-number phrase) keep the LONGEST, and
+ *  a hit wholly inside another is dropped — one word, one category. */
+function collectRoomCategories(text: string): Array<{ rooms: number; index: number; end: number }> {
+  const hits: Array<{ rooms: number; index: number; end: number }> = [];
+  for (const [re, rooms] of BED_WORDS) {
+    const g = new RegExp(re.source, 'giu');
+    let m: RegExpExecArray | null;
+    while ((m = g.exec(text)) !== null) {
+      if (m[0].length === 0) { g.lastIndex += 1; continue; }
+      hits.push({ rooms, index: m.index, end: m.index + m[0].length });
+    }
+  }
+  const dg = /(\d+)\s*[-\s]?\s*(?:sobi|soba|sobni|soben|sobna|sobno|соби|соба|собни|собен|собна|собно)/giu;
+  let dm: RegExpExecArray | null;
+  while ((dm = dg.exec(text)) !== null) {
+    const n = parseInt(dm[1], 10);
+    if (n >= 1 && n <= 5) hits.push({ rooms: n, index: dm.index, end: dm.index + dm[0].length });
+  }
+  hits.sort((a, b) => a.index - b.index || (b.end - b.index) - (a.end - a.index));
+  const kept: Array<{ rooms: number; index: number; end: number }> = [];
+  for (const h of hits) {
+    if (kept.some(k => h.index >= k.index && h.end <= k.end)) continue;
+    kept.push(h);
+  }
+  return kept;
+}
+
+/**
+ * PER-CATEGORY MONEY (the [19:14] capture): «DVOSOBEN MOZE DO 90000 I TROSOBEN
+ * DO 150000» / «2 sobi do 90.000, 3 sobi do 150.000» / «do 90.000 dvosoben i do
+ * 150.000 trosoben» — TWO room categories, each with its OWN cap.
+ *
+ * The figure is paired with the category BY POSITION, not by proximity: each
+ * category owns the text between it and the next one, and the FIRST figure in
+ * that stretch is its cap. A figure BEFORE the first category belongs to it,
+ * and a category already capped (the reversed «do X dvosoben» order) hands its
+ * stretch figure to the next uncapped category. Fewer than two categories WITH
+ * money is not this lane — a single category keeps the plain budget slot.
+ *
+ * Returns the categories cheapest-first (room count ascending).
+ */
+export function detectCategoryBudgets(text: string): Array<{ rooms: number; budget: string }> | undefined {
+  const cats = collectRoomCategories(text);
+  if (cats.length < 2) return undefined;
+  const ordered = [...cats].sort((a, b) => a.index - b.index);
+  const firstMoney = (s: string): number | undefined => collectMoneyMentions(s)[0]?.amount;
+  const caps: Array<number | undefined> = ordered.map(() => undefined);
+  const put = (from: number, amount: number): void => {
+    for (let i = Math.max(0, from); i < caps.length; i++) {
+      if (caps[i] === undefined) { caps[i] = amount; return; }
+    }
+  };
+  const pre = firstMoney(text.slice(0, ordered[0].index));
+  if (pre !== undefined) put(0, pre);
+  for (let i = 0; i < ordered.length; i++) {
+    const next = i + 1 < ordered.length ? ordered[i + 1].index : text.length;
+    const amount = firstMoney(text.slice(ordered[i].end, next));
+    if (amount !== undefined) put(i, amount);
+  }
+  const byRooms = new Map<number, string>();
+  for (let i = 0; i < ordered.length; i++) {
+    const amount = caps[i];
+    if (amount === undefined) continue;
+    if (!byRooms.has(ordered[i].rooms)) byRooms.set(ordered[i].rooms, String(amount));
+  }
+  if (byRooms.size < 2) return undefined;
+  return [...byRooms.entries()].sort((a, b) => a[0] - b[0]).map(([rooms, budget]) => ({ rooms, budget }));
 }
 
 // "било каде" / "bilo kade" / "каде било" / "секаде" / "anywhere" — the
@@ -2025,8 +2367,11 @@ export function detectLocationNag(text: string): boolean {
     || /(?:околу|okolu|околно|okolno|одприлика|odprilika|приближно|priblizno|некаде|nekade)\s+(?:каде|kade|kad|ka[je])\s+(?:е|e|се|se)/iu.test(text)
     // "kade e nekade vo" — where approximately in
     || /(?:каде|kade|kad|ka[je])\s+(?:е|e|се\s+нао[гѓ]а|se\s+naogja)\s+(?:некаде|nekade)\s+(?:во|vo|на|na)/iu.test(text)
-    // "blisku do" / "блиску до" — close to
-    || /(?:блиску|blisku|блиско|blisko|поблиску|poblisku)\s+(?:до|do|од|od|кон|kon)/iu.test(text)
+    // "blisku do" / "блиску до" — close to. WORD-BOUNDED: „NAJBLISKU do
+    // kaficot“ is a COMPARISON between the offered flats (detectNearestOfShown
+    // owns it), and matching inside the superlative made this nag answer it
+    // with the last flat's nearby landmark (the [22:03] capture).
+    || /(?<!\p{L})(?:блиску|blisku|блиско|blisko|поблиску|poblisku)\s+(?:до|do|од|od|кон|kon)/iu.test(text)
     // "priblizno vo" / "приближно во" — approximately in
     || /(?:приближно|priblizno|околу|okolu|околно|okolno|некаде|nekade|одприлика|odprilika)\s+(?:во|vo|на|na)/iu.test(text)
     // "kolku e daleku" / "колку е далеку" — how far
@@ -2287,7 +2632,32 @@ const PROPERTY_DESC_REV_RE =
   /(?<![\p{L}\p{N}])(?:кај|кaj|kaj|во|vo|near|close|околу|okolu)(?![\p{L}\p{N}])\s+[^.!?\n]{2,30}\s+(?:е|е\s+ли)?\s*(?<![\p{L}\p{N}])(?:стан(?:от)?|stan(?:ot)?|куќ(?:ата|а)|kuk(?:ata|a)?|гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a)?|lokal(?:ot|a)?|vila|vilata)(?![\p{L}\p{N}])/iu;
 /** True when the client describes a specific property they remember. */
 export function detectPropertyDescription(text: string): boolean {
+  // The same class on the remembered-property lane: a request verb + a place
+  // is a SEARCH («mi treba nesto od stranata na aerodrom…»), never a
+  // description of a flat the client saw — the locate funnel would ask which
+  // Евидентен број he means for rows he has not been shown yet.
+  if (isPlaceAcquisition(text)) return false;
   return PROPERTY_DESC_RE.test(text) || PROPERTY_DESC_REV_RE.test(text);
+}
+
+// THE SEEN-LISTING RECALL (the [18:41] capture): «ИМАВТЕ ЕДНА КУЌА НАКАЈ
+// СКОПЈЕ СЕВЕР . ОКОЛУ 130 000 БЕШЕ» — past-tense «you had» + determiner + a
+// property noun. He is recalling ONE listing he saw with us, not opening a
+// criteria search, and neither PROPERTY_DESC_RE (it wants кај/во/околу after a
+// DEFINITE «куќата», and «накај» is not in its preposition set) nor
+// detectSeenProperty ('куќа' is not a SEEN_OBJ) claimed it — the message fell
+// to the criteria funnel, which asked «Колку спални соби…» about a house he had
+// just described. The determiner is REQUIRED (the SEEN_HAD rule): «имавте ли
+// стан во Центар?» is a search, «имавте ЕДНА куќа» names a unit. Present
+// tense («имате стан») never matches — that is always a search.
+const SEEN_LISTING_RECALL_RE =
+  /(?<![\p{L}\p{N}])(?:имавте|имаше|имав|imavte|imase|imav)(?![\p{L}\p{N}])[^.!?\n]{0,18}(?<![\p{L}\p{N}])(?:еден|една|едно|некој|некоја|некое|eden|edna|edno|nekoj|nekoja|nekoe)(?![\p{L}\p{N}])[^.!?\n]{0,14}(?<![\p{L}\p{N}])(?:куќа|куќата|кука|kukja|kuka|kukata|стан|станот|stan|stanot|гарсоњера|гарсоњерата|garsonjera|garsonjerata|плац|плацот|plac|placot|lokal|локал|деловен)(?![\p{L}\p{N}])/iu;
+
+/** True when the client RECALLS a listing he saw with the agency («имавте една
+ *  куќа накај Скопје Север»). The recalled place/price is the description —
+ *  the funnel must find that listing, never ask him to describe it again. */
+export function detectSeenListingRecall(text: string): boolean {
+  return SEEN_LISTING_RECALL_RE.test(text);
 }
 
 // A proposed visit time (LLM-down path for visit_scheduling -> owner check).
@@ -2309,8 +2679,13 @@ export function detectPropertyDescription(text: string): boolean {
 //     not), the trailing "h" is swallowed by the unbounded \d{1,2}.
 //   "ponedelok"      — distance-2 typo of понеделник/ponedelnik, outside
 //     fuzzyHasToken's reach; spelled out here.
+// «накај 5» / «nakaj 5» — the [00:59] capture («DALI KE MOZE PORANO MALCE .
+// NAKAJ 5 ?»): the client moving the owner's 18:00 to ~17:00. The PARSER has
+// read «NAKAJ 4» since the [17:45] owner rule; this detector did not, so the
+// slot stayed empty and the turn never reached the owner. Same money/size
+// guard as the на/од arms — «накај 180 евра» is a price, not a clock.
 const VISIT_TIME_RE =
-  /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|после\s*\d{1,2}|по\s*\d{1,2}|(?<![а-џ])(?:на|од)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|понеделник|понеделок|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|\b\d{1,2}:\d{2}\b|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|po\s*\d{1,2}|(?<![a-zа-џ])(?:na|od)\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|ponedelok|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
+  /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|(?<![а-џ])(?:накај)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|после\s*\d{1,2}|по\s*\d{1,2}|(?<![а-џ])(?:на|од)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|понеделник|понеделок|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|\b\d{1,2}:\d{2}\b|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|(?<![a-zа-џ])nakaj\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|po\s*\d{1,2}|(?<![a-zа-џ])(?:na|od)\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|ponedelok|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
 
 export function detectVisitTime(text: string): string | undefined {
   // A working-days QUESTION ("VO NEDELA RABOTITE ?") contains the day token
@@ -2344,6 +2719,21 @@ export function detectVisitTime(text: string): string | undefined {
   // builder only knew the spoken «пет и пол», so without an LLM the answer was
   // not recognized as a time at all and the funnel re-asked the term.
   if (DIGIT_HALF_RE.test(text)) return text.trim().slice(0, 80);
+  // DIGIT + «и» + MINUTES («5 I 30» = 5:30) — the [13:16] capture: the client
+  // answered the exact-hour ask with «NEKA BIDE 5 I 30» and the funnel re-asked
+  // the whole term question, because no family read an hour digit, a
+  // conjunction and the minutes as a clock. One family, one source: the regex
+  // lives in visits/time.ts beside the half-hour siblings so the validator and
+  // the parser can never disagree with this detector.
+  if (DIGIT_MINUTES_RE.test(text)) return text.trim().slice(0, 80);
+  // SPOKEN QUARTERS, THE HALF-TO and RANGES — the rest of the same clock
+  // family (visits/time.ts owns every pattern): «пет и четврт» = 5:15,
+  // «без четврт пет» = 4:45, «пол 6» = 5:30, «од 5 до 7» = a WINDOW (the
+  // funnel asks the exact hour instead of relaying the first number). One arm
+  // per shape, all from the shared constants, so the detector, the validator
+  // and the parser can never disagree about what names a clock.
+  if (QUARTER_PAST_RE.test(text) || QUARTER_TO_RE.test(text) || HALF_TO_RE.test(text)) return text.trim().slice(0, 80);
+  if (TIME_RANGE_RE.test(text)) return text.trim().slice(0, 80);
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.
@@ -2388,6 +2778,18 @@ export function hasDayWord(text: string): boolean {
 // (without HH:MM) are also vague.
 const VAGUE_TIME_WORD_RE = /(?:попладне|напладне|претпладне|утрово|наутро|вечерва|вечер|навечер|popladne|napladne|utrovo|nautro|vecer|navecer)/i;
 const VAGUE_RELATIVE_RE = /(?:(?:после|posle|pred|пред)\s*\d{1,2})(?![.:]\d{2})/i;
+// OPEN-ENDED AVAILABILITY IS NOT A TERM (the [23:48] capture).
+// «SLOBODNA SUM OD 5 SAAT PA NATAKA» names when the client BECOMES free, not
+// an hour the owner can hold — yet the funnel resolved it to 17:00 and asked
+// the owner to confirm «Понеделник, 02.11.2026 во 17:00», a time the client
+// never gave. The day+clock arm below read «од 5» as a concrete clock, so a
+// window passed as a term. A window start (with or without its «па натака /
+// понатака / натаму / надаље» tail) must re-ask the EXACT hour instead.
+const OPEN_WINDOW_TAIL_RE = /(?:(?:па|pa)\s*(?:натака|nataka|понатака|ponataka|натаму|natamu|наваму|navamu|навака|navaka))|(?:(?:надаље|nadalje|натаму|natamu|понатака|ponataka)(?![\p{L}]))/iu;
+// `(?!\d)` stops the digits from backtracking to a shorter hour inside a
+// longer clock: without it «od 17:00 do 19:00» matched «od 1» (then the closing
+// «до» was never seen) and a CLOSED range was re-asked forever.
+const OPEN_WINDOW_FROM_RE = /(?<![\p{L}])(?:од|od)\s*\d{1,2}(?:[.:]\d{2})?(?![\d:.])\s*(?:саат\p{L}*|saat\p{L}*|час\p{L}*|cas\p{L}*)?(?!\s*(?:до|do)(?![\p{L}]))/iu;
 // A specific clock: HH:MM or "во/по 16:00" or "после 18:00" (with minutes)
 const SPECIFIC_CLOCK_RE = /\d{1,2}[.:]\d{2}|(?:(?:во|по|после|околу|vo|po|posle|okolu)\s*\d{1,2}[.:]\d{2})/i;
 // Day-of-week + time-of-day combo ("UTRE POPLADNE", "СРЕДА ПОПЛАДНЕ") = context
@@ -2398,6 +2800,9 @@ const DAY_PLUS_PERIOD_RE = /(?:утре|задутре|denes|utre|zadutre|sreda|
  *  Returns false when the text already has a specific clock OR a day+period
  *  combo that gives enough context ("UTRE POPLADNE POSLE 6"). */
 export function detectVagueTime(text: string): boolean {
+  // An OPEN WINDOW beats every specificity arm below: «од 17:00 па натака» is
+  // explicit about the clock and still not a term the owner can accept.
+  if (OPEN_WINDOW_TAIL_RE.test(text) || OPEN_WINDOW_FROM_RE.test(text)) return true;
   if (SPECIFIC_CLOCK_RE.test(text)) return false;
   // Day-anchored clock PROPOSAL ("понеделник попладне околу 6", "ВТОРНИК ВО
   // 19") is already a concrete term — the day names the date and the clock
@@ -3163,7 +3568,13 @@ export function isValidPhone(phone: string): boolean {
 // accepted as well.
 export function isValidVisitTime(t: string): boolean {
   if (t.length > 80) return false;
-  return VISIT_TIME_RE.test(t) || /\b\d{1,2}[:.]\d{2}\b/.test(t) || HOUR_WORD_RE.test(t);
+  // ONE CLOCK FAMILY (the [13:17] capture): the validator used to enumerate two
+  // shapes (HH:MM and the hour word), so «5IPOL»/«7 и пол»/«5 I 30» passed
+  // detectVisitTime and then failed HERE — the client's own time read as
+  // "not a time" further down the funnel, and the owner was asked for an hour
+  // the client had already given. hasClockHint is the source of truth for
+  // "this phrase names a clock", shared with the ask/merge gates.
+  return VISIT_TIME_RE.test(t) || hasClockHint(t);
 }
 
 // Known Skopje neighborhoods — the FALLBACK for location detection. The feed's
@@ -4129,6 +4540,23 @@ function sideAnchorPhrases(text: string): string[] {
  *  Returns the place NAMES the client named (possibly none — „на која страна
  *  е?“ names nothing, and the caller then keeps its existing answer). */
 export function detectSurroundingsAsk(text: string): { anchors: string[] } | undefined {
+  // «MI TREBA NESTO OD STRANATA NA AERODROM , MICURIN» (the [04:01] capture)
+  // is an ACQUISITION on that side — «од страната на» is the client saying
+  // WHERE he wants rows, not asking which side the flat is on. The lane
+  // answered it with one property's landmark (ЕБ 77 се наоѓа во близина на…)
+  // for a client who had asked for offers. A request verb + a place with no
+  // definite property subject is the funnel's turn.
+  if (isPlaceAcquisition(text)) return undefined;
+  // A CLOCK IS NOT A DIRECTION (the [00:59] capture): «DALI KE MOZE PORANO
+  // MALCE . NAKAJ 5 ?» — the client asking for an hour earlier than the
+  // owner's 18:00. «накај» fired the trigger, the phrase extractor dropped the
+  // digit (digits never name a place), and this lane answered a SCHEDULING
+  // message with the property's landmark + a maps pin. A trigger followed by a
+  // bare hour is time traffic; so is any earlier/later adjustment that names
+  // an hour. Both belong to the scheduler, never to the surroundings reader.
+  if (/(?:накај|nakaj|кон|kon)\s*\d{1,2}(?![.\d/])/iu.test(text)) return undefined;
+  if (/(?:порано|porano|покасно|pokasno|подоцна|podocna|поскоро|poskoro)/iu.test(text)
+    && /\d/.test(text)) return undefined;
   const n = normalizeMc(text);
   const sideAsk = SIDE_TRIGGER_RE.test(n);
   const nearnessAsk = NEARNESS_WORD_RE.test(n) && OR_WORD_RE.test(n);
@@ -4243,6 +4671,15 @@ export function detectNearbyAsk(text: string): boolean {
   const exempt = words <= 10 && new RegExp(NB2_NEAR, 'iu').test(n0);
   // Guard: exact-address asks keep priority — never swallow them.
   if (matchesBoth(EXACT_ADDRESS_RE, t)) return false;
+  // A FEATURE OF THE DISCUSSED FLAT IS NOT A SURROUNDINGS ASK (found by
+  // putting the mirror rows in place): «DALI STANOT IMA PARKING?» names the
+  // property on the table and asks about IT — the have-initial nearby grammar
+  // ("ima … parking") claimed it, and because the executor's nearby
+  // interceptor runs before every funnel branch the client got an answer about
+  // the NEIGHBOURHOOD when he asked whether the flat has parking. The definite
+  // property subject is what separates the two: «што има во близина на
+  // зградата?» carries none and stays a surroundings read.
+  if (matchesBoth(DISCUSSED_PROPERTY_RE, t) && detectFeatureAsk(t)) return false;
   // Single canonical pass: Latin/homoglyphs → Cyrillic (normalize.ts contract).
   const n = normalizeMc(t);
   if (NEARBY_AREA_TARGET_RE.test(n)) return false;
@@ -4272,6 +4709,13 @@ const DESCRIBE_ASK_RE = new RegExp(
   + '|(?:каж|каз|kazi|kazhi)\\p{L}*(?:\\s+ми|\\s+mi)?\\s+(?:повеќе|повече|повеке|поке|поќе|poveke|povekje|povishe|povishe)'
   + '|(?:повеќе|повече|повеке|поке|поќе|poveke|povekje)\\s+(?:за|za)(?!\\p{L})'
   + '|(?:што|sto)\\s+има\\s+(?:во|vo)(?!\\p{L})'
+  // ASK-FOR-INFO (the [00:15] «DAJ MI INFO ZA 91» capture): «дај ми инфо за»,
+  // «информации за станот», «DAJ MI INFORMACII ZA 84» — the client asks for
+  // the WHOLE flat, not one facet. No facet matched, so the turn fell to the
+  // classifier and the bare EB read as an availability question: «Би требало
+  // да е сеуште достапен» answered a request for the facts. The noun needs its
+  // own arm because no verb is in it.
+  + '|(?:дај|daj)(?:\\s+ми|\\s+mi)?\\s+(?:инфо|информаци|info|informacii)'
   + ')', 'iu');
 
 // THE TELL-ME SCAFFOLD (the [13:09] capture): «STO MOZES DA MI KAZES ZA
@@ -4284,12 +4728,18 @@ const DESCRIBE_ASK_RE = new RegExp(
 // so both scripts are spelled out and the RAW text is tested as well.
 const TELL_ME_SCAFFOLD_RE = /(?:што|сто|sto|shto|sho)(?:\s|$)[^!?\n]{0,40}?(?:кажеш|кажете|раскажеш|раскажете|kazes|kazesh|kazete|raskazes|raskazesh)(?![\p{L}\p{N}])/iu;
 
+// A question about the information available for a specific referent, not a
+// general request about agency terms, fees, or other unrelated topics.
+const REFERENT_INFO_ASK_RE = /(?<![\p{L}\p{N}])(?:кои|какви|каква|што|сто)\s+(?:информаци\p{L}*|инфо)(?:\s+ги)?\s+(?:имаш|имас|имате|има)\s+за\s+(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој)(?![\p{L}\p{N}])/iu;
+
 /** True when the client asks for the DESCRIPTION of the flat(s) in play. The
  *  surroundings grammar keeps its own lane: «што има во близина?» is never a
  *  describe-ask about a property. */
 export function detectDescribeAsk(text: string): boolean {
   if (detectNearbyAsk(text)) return false;
-  return DESCRIBE_ASK_RE.test(normalizeMc(text)) || TELL_ME_SCAFFOLD_RE.test(text);
+  const normalized = normalizeMc(text);
+  return DESCRIBE_ASK_RE.test(normalized) || TELL_ME_SCAFFOLD_RE.test(text)
+    || REFERENT_INFO_ASK_RE.test(normalized);
 }
 
 // ── CONTEXT DISAMBIGUATION for the ambiguous "more/other" family ───────────
@@ -4309,7 +4759,10 @@ export function detectDescribeAsk(text: string): boolean {
  *  Tested on normalizeMc output (Latin → Cyrillic), like every detector.
  *  "бликсин" covers the x-for-х Viber typo ("VO BLIXINA", [22:44]). */
 export function hasProximityAnchor(text: string): boolean {
-  return /(?:каде|во\s+бли[зж]ин|бли[зж]ин|бликсин|бли[зж]у|околу|околин|наспроти|сспроти|спроти|тука|локациј|адрес)/u
+  // The dirty spellings of the proximity opener count too (the [01:36] «OKOU
+  // BUNJAKOVEC»): the fold turns it into «окоу», which the clean list missed, so
+  // every caller of this probe saw a message with no anchor at all.
+  return /(?:каде|во\s+бли[зж]ин|бли[зж]ин|бликсин|бли[зж]у|околу|около|окло|оклу|окоу|околин|наспроти|сспроти|спроти|накај|тука|локациј|адрес)/u
     .test(normalizeMc(text));
 }
 
@@ -4606,8 +5059,14 @@ export function isKadeTocno(text: string): boolean {
 
 // Off-topic redirect: the client asks about Lina herself, small talk, or
 // gibberish — NOT related to real estate. Redirect to the funnel.
+// THE SELF-INTRO ARM NEEDS THE PRONOUN (the route-drift replay): the old
+// `кој (си|сте|е) (ти|вие)?` had an OPTIONAL pronoun, so a bare «кој е …» was
+// small talk — and «KOJ E NAJSKAPIOT STAN VO CENTAR?» (a price-extreme ask)
+// and «KOJ E PODOBAR STAN OD OVIE DVA ?» (a recommendation ask) were answered
+// with the off-topic redirect. «кој си/сте» is self-intro on its own; «кој е»
+// only with the pronoun. Every other «кој е …» belongs to a property lane.
 const OFFTOPIC_RE =
-  /(?:кој\s+(?:си|сте|е)\s+(?:ти|вие)?|што\s+(?:си|сте|правиш|правите|бараш|бараете)|како\s+(?:си|сте|е|викаш|викате)|(?:who\s+are\s+you|what\s+(?:are\s+you|do\s+you|is\s+your)|how\s+are\s+you|whats\s+up|hey|sup|hello\b|hi\b|привет|здраво\s+до)|колку\s+(?:години|пати|pline)\s+(?:си|сте|имаш|имате)|(?:tell\s+me\s+about\s+yourself|што\s+мислиш\s+за)|(?:дени|ноќи|denes|utre|vecher|sonce|dazhd|sneg|vreme)[^.!?]*\?)/iu;
+  /(?:кој\s+(?:си|сте)\s*(?:ти|вие)?|кој\s+е\s+(?:ти|вие)(?![\p{L}\p{N}])|што\s+(?:си|сте|правиш|правите|бараш|бараете)|како\s+(?:си|сте|е|викаш|викате)|(?:who\s+are\s+you|what\s+(?:are\s+you|do\s+you|is\s+your)|how\s+are\s+you|whats\s+up|hey|sup|hello\b|hi\b|привет|здраво\s+до)|колку\s+(?:години|пати|pline)\s+(?:си|сте|имаш|имате)|(?:tell\s+me\s+about\s+yourself|што\s+мислиш\s+за)|(?:дени|ноќи|denes|utre|vecher|sonce|dazhd|sneg|vreme)[^.!?]*\?)/iu;
 
 /** True when the message is off-topic / small talk / self-intro question. */
 export function detectOfftopic(text: string): boolean {
@@ -4617,6 +5076,11 @@ export function detectOfftopic(text: string): boolean {
   // redirect to a parking question (queue #161/#164). The feature family owns
   // that text; the redirect must not claim it.
   if (detectFeatureAsk(text)) return false;
+  // A SEARCH IS NEVER SMALL TALK (the [22:34] lane sweep): a message carrying
+  // specs (rooms/м²/money/category) is doing business, however many stray
+  // small-talk words ride on it — the redirect must not answer it. The policy
+  // is the shared row (ADVICE_GATES.OFFTOPIC), not a local copy.
+  if (!adviceLaneAdmits('OFFTOPIC', text)) return false;
   return matchesBoth(OFFTOPIC_RE, text) || extFires('offtopic', text);
 }
 
@@ -4636,6 +5100,10 @@ const DEFER_GRAMMAR_RE = new RegExp(
 
 /** True when the client wants to defer the decision. */
 export function detectDefer(text: string): boolean {
+  // A DEFERRAL CARRYING A SEARCH IS STILL A SEARCH (the lane sweep): «ke se
+  // javam podocna, baram stan do 80000 vo aerodrom» gives the criteria the
+  // funnel needs — the “when you call, I'll be here” line would ignore them.
+  if (!adviceLaneAdmits('DEFER', text)) return false;
   return matchesBoth(DEFER_RE, text) || matchesBoth(DEFER_GRAMMAR_RE, text) || extFires('defer', text);
 }
 
@@ -4862,6 +5330,15 @@ export function counterOfferFeeSized(text: string): boolean {
 
 /** True when the client wants to negotiate the price. */
 export function detectNegotiate(text: string): boolean {
+  // A CHEAPER SEARCH IS NOT A NEGOTIATION (the lane sweep): «daj mi poevtino
+  // stan do 70000 vo karpos», «sakam stan so popust do 80000» name new rows —
+  // the cheaper/re-search lane owns them, and the fixed-price answer is wrong.
+  // A bare «poevtino»/«popust» about the flat on the table carries no specs,
+  // so it still negotiates. A CHOICE ask (the route-drift replay) is the
+  // recommendation lane's turn — the two ЕВ numbers inside «koj stan bi mi go
+  // preporacale 54 ili 63?» hit the counter-offer grammar. Both members are
+  // rows of the one gate (ADVICE_GATES.NEGOTIATE), not local copies.
+  if (!adviceLaneAdmits('NEGOTIATE', text)) return false;
   return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text) || extFires('negotiate', text)
     // Counter-offer class — freshness keeps its fast-path; fee-consent wins
     // only for FEE-SIZED amounts ("ok ke platam 500 denari" = consent, while
@@ -4973,6 +5450,37 @@ const TIMING_INTENT_RE = /(?:^|[^\p{L}])(?:кога|koga)(?=$|[^\p{L}])/iu;
 const NAG_CHALLENGE_RE = /(?:^|[^\p{L}])(?:каде|кде|кај)[^.!?\n]{0,28}?(?:вид|глед|пиш|пис|чит|најд|чу)\p{L}*/iu;
 // "од каде пари за посета" — the source demand without an attribution verb.
 const NAG_FROM_RE = /(?:^|[^\p{L}])од\s+каде(?=$|[^\p{L}])/iu;
+// THE BARE CHARGE QUESTION (family 2b — the [13:09] capture). The whole
+// message is the 2nd-person charge verb and a question mark —
+// «NAPLATUVATE ?» — served right after the fee.ask, hours after every other
+// arm had been hardened. AGENTS.md's nag list names a CHARGE QUESTION beside
+// accusations, complaints and refusals, but family 2 demands an OBJECT noun
+// ("zemaте PARI") and family 1 a negation, so this shape matched NOTHING: the
+// turn fell through the money lanes and the SAME fee.ask line was served a
+// second time (the re-disclosure the [22:0x] rule exists to prevent).
+// The anchor is the thing that makes this safe: only a message that IS the
+// charge verb (with at most a leading connective/dali and a trailing
+// particle) fires, so every longer sentence keeps its own lane. Stems, not
+// surface forms: normalizeMc maps the Latin typings per letter (kj→ќ, c→ц,
+// s→с), so "naplakjas", "naplakate", "naplatuvas" arrive spelled differently
+// from their Cyrillic originals — the stem + \p{L}* covers every inflection.
+// The leading connective ("A ZEMATE ?", "DALI NAPLATUVATE ?") is stripped by
+// its own LITERAL regex and the bare-question test runs on the remainder: a
+// string-built alternative list inside the anchored pattern is one escaping
+// slip away from never matching the prefix at all, and this is the family that
+// has to fire from the very first message.
+const NAG_CHARGE_QUESTION_LEAD_RE = /^(?:дали|зарем|па|а|и|вие|dali|zarem|pa|vie)\s+/iu;
+const NAG_CHARGE_QUESTION_VERB =
+  '(?:наплатува|наплаќа|наплака|наплата|наплати|зема|плаќа|плака|плати)\\p{L}*';
+const NAG_CHARGE_QUESTION_RE = new RegExp(
+  '^\\s*' + NAG_CHARGE_QUESTION_VERB
+  + '(?:\\s+(?:вие|vie|па|pa|и|i|а|a))?\\s*[.?!…]*\\s*$',
+  'iu');
+// A payment-METHOD ask ("plakjate so kartichka?", "naplatuvate na smetka?")
+// wears the same charge verb but is about how to pay, not whether to — it is
+// never resistance and must keep its own lane.
+const NAG_METHOD_ASK_RE =
+  /(?:картичк|kartichk|банка|banka|готовин|gotovin|кеш(?![а-ш])|kesh|уплат|uplat|трансфер|transfer|сметк|smetk|онлајн|online|paypal)/iu;
 
 /**
  * True when the client RESISTS the visit fee (300 or 500) — the single
@@ -5011,6 +5519,16 @@ export type PriceEval = 'cheap' | 'expensive';
  *  half (see detectPriceEval callers); expensive stays detected but un-routed
  *  until the fee/property ambiguity is resolved by the arbitration layer. */
 export function detectPriceEval(text: string): PriceEval | undefined {
+  // A SEARCH REQUEST IS NOT A VALENCE REMARK (the route-drift replay): «MI
+  // TREBA DUKJAN VO CENTAR / MOZE DA GO IZNAJMAM , A AKO IMA DOBRA CENA MOZE I
+  // DA KUPAM» names a request, a type and BOTH services — «ako ima dobra cena»
+  // is his condition, not praise for a price on the table. Production served it
+  // as an unknown property-price evaluate (no owner), and the mirror predicted
+  // PRICE_EVAL_CHEAP, so the valence lane was one step from answering a search
+  // with «цената е навистина поволна». The veto sits HERE, in the parser, so
+  // every caller (router mirror, moneyArbitration, arbiterLlm, routeHealth)
+  // agrees — a valence axis only exists for a property that is ON THE TABLE.
+  if (isStockSearch(text)) return undefined;
   const t = normalizeMc(text);
   if (hasFeeReferent(t)) return undefined;
   if (COMPARATIVE_CHEAPER_RE.test(t)) return undefined;
@@ -5174,6 +5692,16 @@ export function detectFeeNag(text: string): boolean {
     const neutralAsk = NAG_NEUTRAL_ASK_RE.test(cyr) && !universal && !valueComplaint && !negated;
     if (!neutralAsk) return true;
   }
+
+  // 2b) THE BARE CHARGE QUESTION — «NAPLATUVATE ?» (the [13:09] capture).
+  //     The whole message is the 2nd-person charge verb and a question mark;
+  //     families 1 and 2 both demand an object, so the shape matched nothing,
+  //     the turn fell through the money lanes and the SAME fee.ask line was
+  //     served a second time. A charge QUESTION is on the owner's nag list, and
+  //     the whole-message anchor keeps every longer sentence in its own lane. A
+  //     payment-method ask wears the same verb and is NOT resistance.
+  if (!NAG_METHOD_ASK_RE.test(cyr)
+    && NAG_CHARGE_QUESTION_RE.test(cyr.replace(NAG_CHARGE_QUESTION_LEAD_RE, ''))) return true;
 
   // 3) UNIVERSAL/COMPARATIVE — "nobody charges", "other agencies are free",
   //    "only you".
@@ -5938,11 +6466,31 @@ export function detectDocumentsAsk(text: string): boolean {
   // ("STAPI VO KONTAKT I INFORMIRAJ ME" got the documents lecture). Loan words
   // from the inform- stem are NEVER about paperwork.
   if (/(?:inform|информ)/i.test(text)) return false;
+  // A NEGATED OR DEFERRED DOCUMENTS MENTION IS NOT A DOCUMENTS ASK (the
+  // [22:34] lane sweep): «ne mi treba dokumenti sega» and «dokumentite ke gi
+  // gledame podocna» are things a client says WHILE SEARCHING — the documents
+  // lecture answered both instead of the funnel. A genuine question keeps the
+  // lane («ne treba li da nosam dokumenti?»), so the veto only stands when the
+  // message asks nothing. The NEGATION is this lane's own grammar; the
+  // search-spec half is the shared row (ADVICE_GATES.DOCUMENTS_ASK).
+  if (!hasAskShape(text)
+      && (DOCUMENTS_NEGATED_RE.test(text) || DOCUMENTS_NEGATED_RE.test(normalizeMc(text)))) return false;
+  if (!adviceLaneAdmits('DOCUMENTS_ASK', text)) return false;
   if (matchesBoth(DOCUMENTS_RE, text)) return true;
   // Typo fallback: “dokumeti”, “документа” — the anchor is long and
   // unambiguous (the договори-ми / inform guards above already ran).
   return fuzzyHasToken(text, ['документи', 'документација']) || extFires('documents', text);
 }
+
+// A PLACE PHRASE WITH «БАНКА» (see detectMortgageAsk's veto): a bank branch is
+// a landmark like any other, and the preposition is what distinguishes
+// «во близина на банка» (geography) from «кредит од банка» (financing).
+const BANK_PLACE_RE =
+  /(?:(?:во|vo)\s+близин\p{L}*|(?:во|vo)\s+близу|близу|blizu|околу|okolu|кај|kaj|спроти|sproti|наспроти|nasproti|(?:во|vo)\s+реон\p{L}*|(?:во|vo)\s+регион\p{L}*|(?:во|vo)\s+region\p{L}*)\s+(?:на\s+|na\s+|до\s+|do\s+)?банк/iu;
+
+// A NEGATED / DEFERRED documents mention (see detectDocumentsAsk's veto).
+const DOCUMENTS_NEGATED_RE =
+  /(?<![\p{L}\p{N}])(?:ne|не|bez|без|nemam|немам)\s+(?:mi\s+|ми\s+)?(?:treba\p{L}*|треба\p{L}*|sakam|сакам|se|се)?[^.?!]{0,20}(?:dokument|документ|dogovor|договор)/iu;
 
 // Mortgage / credit info: the client mentions credit/mortgage or asks about financing.
 const MORTGAGE_RE =
@@ -5950,6 +6498,19 @@ const MORTGAGE_RE =
 
 /** True when the client mentions mortgage / credit / bank financing. */
 export function detectMortgageAsk(text: string): boolean {
+  // A BANK IS ALSO A PLACE (the [22:34] lane sweep): «vo blizina na banka»,
+  // «vo reon na banka», «kaj banka» are geography — the nearby/where-is lanes
+  // own them, never the financing script. Only the prepositional place shape
+  // is vetoed; «kredit od banka» keeps its lane.
+  if (matchesBoth(BANK_PLACE_RE, text)) return false;
+  // A FINANCING MENTION INSIDE A SEARCH IS A SEARCH (the [22:34] lane sweep):
+  // «sakam stan so kredit do 90000 vo aerodrom» wants flats — the generic
+  // mortgage script is not an answer to a completed search. Specs + no
+  // question means the funnel owns the turn; an actual financing ASK
+  // («dali moze so kredit?», «kolku e kamatata?») keeps the lane either way.
+  // The place-phrase veto above is THIS lane's grammar; the search-spec half
+  // is the shared row (ADVICE_GATES.MORTGAGE_ASK).
+  if (!adviceLaneAdmits('MORTGAGE_ASK', text)) return false;
   if (matchesBoth(MORTGAGE_RE, text)) return true;
   // Typo fallback: “kredit”, “hipoteka” slips. Deliberately NO “банка” —
   // the word is a landmark/POI magnet (“банка во близина”) and would
@@ -5995,6 +6556,12 @@ const LOC_CONFIRM_WH_RE = /^\s*(?:sto|shto|што|штo|kade|каде|kolku|ко
  * own context guards — this only guards the detector class.
  */
 export function detectLocationConfirm(text: string): boolean {
+  // A RANKING ASK IS NOT A CONFIRMATION (the [04:02] capture): «KAZI MI KOI
+  // STANOVI VO AERODROM SE NAJBLISKU DO ZELEZNICKA?» asks WHICH flats in an
+  // area are nearest a place — the classifier read the «vo … ?» shape as an
+  // area confirmation and answered «Не, станот со ЕБ 77 е во Центар», a
+  // correction of a statement nobody made. The nearest lane owns it.
+  if (detectNearestOfShown(text)) return false;
   // BUDGET-UP veto (the [25:2x] queue): a bare pricier ask that happens to
   // carry a confirmation marker ("DAJ NESTO POSKAPO TOGAS" — the togas/togash
   // marker) is a SEARCH instruction about money-direction, never an area
@@ -6311,8 +6878,20 @@ export function isDistanceQuestion(text: string): boolean {
     // …but only as a QUESTION. A bare „da ne e daleku“ („it isn't far, is
     // it?“) is a statement and keeps its own lane — so the cue is a question
     // mark, a „kolku/kolkavo“, or an explicit „dali/дали“, never a bare copula.
-    return text.includes('?')
-      || matchesBoth(new RegExp(`${W}(?:kolku|колку|kolkavo|колкаво|dali|дали)${E}`, 'iu'), text);
+    // …AND an explicit ASKING verb counts as the question (the [04:04]
+    // capture): «RASTOJANIE NA 75 DO ZELEZNICKA STANICA PRASAV» has no «?»
+    // and no kolku/dali, so the distance lane never saw it and the turn was
+    // answered as an AVAILABILITY question («Би требало да е сеуште
+    // достапен») — a non-answer to a measurement he was asking for.
+    if (text.includes('?')
+      || matchesBoth(new RegExp(`${W}(?:kolku|колку|kolkavo|колкаво|dali|дали|prasam|prasav|прашам|прашав|прашање|pitanje|ask)${E}`, 'iu'), text)) return true;
+    // A DISTANCE NOUN BOUND TO A PLACE is a request even with the verb dropped
+    // («RASTOJANIE NA 75 DO ZELEZNICKA STANICA»): a mere remark about distance
+    // carries no place to measure to, so the place phrase is the discriminator
+    // — not a question mark the client did not type. Checked with a LOCAL
+    // regex on purpose: calling extractDistancePlace here recursed (it asks
+    // this function whether the message is a distance question).
+    return /(?<![\p{L}])(?:od|do|од|до)(?![\p{L}])\s+[\p{L}][\p{L}.'’ -]{2,40}/iu.test(text);
   }
   // „kolku minuti / metri“ — the unit IS the distance ask.
   if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}(?:[^.?!\\n]{0,20})${W}(?:minuti|минути|metri|метри|km|км)${E}`, 'iu'), text)) return true;
@@ -6333,11 +6912,92 @@ export function extractDistancePlace(text: string): string | undefined {
   if (!isDistanceQuestion(text)) return undefined;
   // The last „do/до“ wins: „od stanot do …“ has one; „do 300 evra do centar“
   // (a cap followed by a place) must resolve the PLACE.
-  const dest = scanDistanceTail(text, PLACE_TO_RE, undefined);
+  // THE ASKING VERB IS NOT PART OF THE PLACE (the [04:04] capture):
+  // «RASTOJANIE NA 75 DO ZELEZNICKA STANICA PRASAV» captured «ZELEZNICKA
+  // STANICA PRASAV» — the tail runs to the end of the sentence, so the verb he
+  // used to ask became part of the place name and the map lookup had to fuzz a
+  // string nobody typed. Asked verbs are dropped from the tail.
+  const trimAsk = (s: string | undefined): string | undefined => {
+    if (!s) return s;
+    const cut = s.replace(/(?<![\p{L}])(?:prasam|prasav|prasame|prasaj|прашам|прашав|прашаме|прашај|pitanje|прашање|ask(?:ing)?)(?![\p{L}])\s*$/iu, '').trim();
+    return cut || s;
+  };
+  const dest = trimAsk(scanDistanceTail(text, PLACE_TO_RE, undefined));
   if (dest !== undefined) return dest;
   // FROM-form ([16:11]): the property is the SUBJECT, the landmark follows
   // „од“. A property noun there („od stanot“) is the subject, not a place.
-  return scanDistanceTail(text, PLACE_FROM_RE, DISTANCE_SUBJECT_WORDS);
+  return trimAsk(scanDistanceTail(text, PLACE_FROM_RE, DISTANCE_SUBJECT_WORDS));
+}
+
+/** „КОЈ Е НАЈБЛИСКУ ДО KAFICOT?“ / „KOJ OD OVIE E NAJBLIZU DO BROZ KAFE?“ —
+ *  a COMPARISON between the properties already on the table, not a where-is ask
+ *  and not a distance nag. It carries an interrogative (кој/која/кое) AND the
+ *  superlative next to a copula or a preposition: „најблизу е“, „најблиску до“,
+ *  „најблизок од“. A shop hunt („која е најблизата аптека?“) has no copula or
+ *  preposition after the superlative and never fires.
+ *
+ *  WHY IT EXISTS (the [22:03] capture): after three flats near Броз кафе were
+ *  offered, «KOJ E NAJBLISKU DO KAFICOT ?» fell into the LOCATION_NAG lane (its
+ *  «блиску до» arm matched INSIDE «najblisku») and was answered with the last
+ *  flat's nearby landmark — „Тоа се наоѓа во близина на УДГС Здравко Цветковски“
+ *  — a landmark nobody had asked about, for a flat the client had not chosen. */
+export function detectNearestOfShown(text: string): boolean {
+  // «KOI STANOVI …» is the PLURAL which-ask and was missing (the [04:02]
+  // capture): without «koi/кои» the ranking lane never fired on the exact
+  // sentence the client used, and the location-confirm lane took the turn.
+  const ASKS_WHICH_RE = /(?<![\p{L}\p{N}])(?:кој|koj|кои|koi|која|koja|кое|koe)(?![\p{L}\p{N}])/iu;
+  // The stem is «најбли-/najbli-» and NOT «најблиз»: the comparative comes in
+  // two consonants („najbli-Z-u e“ and „najbli-S-ku do“ — the client wrote the
+  // second), and a stem that pins the z misses half of them.
+  const SUPERLATIVE_RE = /(?:најбли|najbli)\p{L}*(?:\s*(?:е|e|до|do|од|od|кон|kon))(?![\p{L}\p{N}])/iu;
+  return ASKS_WHICH_RE.test(text) && SUPERLATIVE_RE.test(text);
+}
+
+/** «OVA BESE BLISKU» ([20:17]) — a DEICTIC closeness remark about the batch
+ *  just served: «this one was close», «оваа беше блиску», «ovie se blisku».
+ *  There is no interrogative and no place in it: the referent is the flats on
+ *  the table and the place is the hunt's own anchor, so the answer is the ONE
+ *  nearest of the offered rows and its measured distance from that anchor.
+ *
+ *  WHY IT EXISTS: three flats near Броз Кафе had just been listed, the client
+ *  pointed back at them with «OVA BESE BLISKU», and the funnel answered with
+ *  the recall ask («во која населба е, колку квадрати има и по која цена
+ *  беше?») — as if he were describing a listing from another agency.
+ *
+ *  All three classes are required: a deictic, a proximity word (with the
+ *  comparative forms — «поблиску», «најблиску»), and NO interrogative. A
+ *  «koja e najblisku do …» ask stays with detectNearestOfShown, which ranks
+ *  EVERY row instead of naming one. */
+export function detectCloseRemarkToBatch(text: string): boolean {
+  const DEICTIC_RE = /(?<![\p{L}\p{N}])(?:ova|ovaa|ovoj|ovie|ovaа|ова|оваа|овој|овие)(?![\p{L}\p{N}])/iu;
+  const PROXIMITY_RE = /(?:najbli|најбли|pobli|побли|blisku|блиску|blizu|близу|blizin|близин)/iu;
+  const ASKS_WHICH_RE = /(?<![\p{L}\p{N}])(?:koj|koja|koe|koi|dali|which|кој|која|кое|кои|дали)(?![\p{L}\p{N}])/iu;
+  const forms = [text, normalizeMc(text)];
+  return forms.some(f => DEICTIC_RE.test(f) && PROXIMITY_RE.test(f) && !ASKS_WHICH_RE.test(f));
+}
+
+/** «KOI VI SE USLOVITE ZA IZNAJMUVANJE ?» ([20:40]) — the client asks for the
+ *  TERMS OF RENTING, not for the viewing fee. We already own that answer
+ *  (provision.ask.rent: the 50% / one-full-rent commission tiers, the owner's
+ *  first rent + deposit, the one-year minimum); the turn only needs the
+ *  REROUTE — it used to land in the fee-disclosure lane and hear «300 денари»
+ *  twice in a row.
+ *
+ *  Grammar, not phrases: a CONDITIONS word (услов-/uslov-, both scripts and all
+ *  inflections) AND a RENT word (изнајм-/najam/закуп/kirija/renta/rent). Both
+ *  are required — «кои Ви се условите?» alone has no market (the deposit or the
+ *  commission could be meant), and it keeps its own lane.
+ *
+ *  It vetoes itself on fee RESISTANCE/WHY traffic: «условите за изнајмување се
+ *  премногу» is a complaint for the ladder, never an information ask. */
+export function detectRentTermsAsk(text: string): boolean {
+  const flat = text.replace(/\n/g, ' ');
+  const TERMS_RE = /(?<![\p{L}\p{N}])(?:uslov|услов)/iu;
+  const RENT_RE = /(?:iznajm|изнајм|najam|наем|zakup|закуп|kirij|кириј|renta|рента|rent)/iu;
+  if (!TERMS_RE.test(flat) || !RENT_RE.test(flat)) return false;
+  if (detectFeeWhy(flat) || detectFeeComplaint(flat)) return false;
+  if (detectProvisionResistance(flat)) return false;
+  return true;
 }
 
 // The preposition slots. Both capture the place tail in the client's own
@@ -6478,10 +7138,236 @@ export function detectRingElimination(text: string): string | undefined {
 
 // Neighborhood general: the client asks general questions about neighborhoods.
 const NEIGHBORHOOD_RE =
-  /(?:во\s+(?:која|кој)\s+(?:населба|дел|локаци|део|neighborhood|area|part)\s+(?:е\s+)?(?:најдобро|подобро|популарно|барано|барана|супер|одлично|добро)|(?:како\s+е|што\s+е|какво\s+е|каков\s+е|каква\s+е)\s+во\s+(?:центар|капиштец|карпош|аеродром|кисела\s+вода|влае|ѓорче|маџари|хиподром|ченто|орце|пржино|тафталиџе|кареа)|(?:безбедно|сигурно)\s+(?:ли\s+е|е\s+ли|во)|safe\s+(?:in|area|neighborhood)|населба(?:\s|$)|кварт(?:\s|$)|реон(?:\s|$)|лиjspx|neighborhood(?:\s|$)|area(?:\s|$))/iu;
+  /(?:во\s+(?:која|кој)\s+(?:населба|дел|локаци|део|neighborhood|area|part)\s+(?:е\s+)?(?:најдобро|подобро|популарно|барано|барана|супер|одлично|добро)|(?:како\s+е|што\s+е|какво\s+е|каков\s+е|каква\s+е)\s+во\s+(?:центар|капиштец|карпош|аеродром|кисела\s+вода|влае|ѓорче|маџари|хиподром|ченто|орце|пржино|тафталиџе|кареа)|(?:безбедно|сигурно)\s+(?:ли\s+е|е\s+ли|во)|safe\s+(?:in|area|neighborhood)|(?<![\p{L}\p{N}])(?:населб|кварт|реон|neighborhood|area)\p{L}*(?![\p{L}\p{N}])|лиjspx)/iu;
+
+// A SEARCH THAT NAMES AN AREA IS NOT AREA ADVICE (the [22:34] capture).
+//
+//   [22:34] sakam da kupam stance vo aerodrom
+//   [22:34] ЛИНА [без LLM]: 1. Колку спални соби … 2. Која е максималната цена …
+//   [22:34] dvosoben stan do 100000 vo reon kaj biser i kapitol mol
+//   [22:34] ЛИНА [deterministic:fast]: Сите локации имаат сопствени погодности.
+//           За да можам да Ви дадам вистинска препорака, би сакала да знам дали
+//           за Вас е поважна близината до центарот, тивкиот крај или
+//           попристапната цена?
+//
+// The client ANSWERED the funnel — двособен (2 rooms), до 100000, and the
+// geography «во реон кај Бисер и Капитол» — and got the generic advice
+// paragraph. `NEIGHBORHOOD_RE`'s bare area nouns («населба», «кварт», «реон»,
+// «area»…) matched the word «реон» alone, so the lane answered before any
+// slot was applied. Two structural guards, both about what the lane IS:
+//
+//   1. IT ANSWERS A QUESTION ABOUT LIVING SOMEWHERE. A statement is never a
+//      request for advice: without a question mark or an interrogative
+//      (кој/која/каков/како/што/каде/дали/зошто/колку/which/what/where/how)
+//      the bare area nouns are a client NAMING an area, not asking about one.
+//      «VO REON KAJ BISER» on its own is the answer to «во кој дел од
+//      градот?» — the funnel's location slot, never this lane.
+//   2. IT IS ABOUT GEOGRAPHY, NOT A LISTING. A message carrying search SPECS
+//      (rooms/м²/money/category) is a search, even when phrased as a question
+//      — the discovery/presentation legs own it. A service word alone is NOT
+//      specs: «SAKAM DA KUPAM, KOJA NASELBA E NAJDOBRA?» is still area advice.
+//
+// Genuine area advice («DALI E DOBRA NASELBATA AERODROM ZA ŽIVEEЊE?», «VO KOJA
+// NASELBA IMA NAJDOBRI STANOVI?», the learned «во кои населби имате понуди?»)
+// keeps its lane: question shape, no specs.
+const ASK_SHAPE_RE =
+  /(?:\?)|(?<![\p{L}\p{N}])(?:кој|која|кое|кои|каков|каква|какво|какви|како|што|шо|каде|дали|зошто|колку|koj|koja|koe|koi|kakov|kakva|kakvo|kakvi|kako|sto|sho|kade|dali|zosto|kolku|which|what|where|how)(?![\p{L}\p{N}])/iu;
+
+/** THE PROPERTY ON THE TABLE, in the definite form a client uses when asking
+ *  about it («stanot», «kućata», «imovot»). Such a question targets THAT flat,
+ *  never the neighbourhood market — see detectNeighborhoodAsk's veto. */
+const DISCUSSED_PROPERTY_RE =
+  /(?<![\p{L}\p{N}])(?:stanot|станот|kukjata|куќата|kukata|imovot|имотот|lokalot|локалот|prostorot|просторот)(?![\p{L}\p{N}])/iu;
+
+/** True when the message ASKS something (question mark or interrogative).
+ *  Shared by every advice lane: a STATEMENT is never a request for advice —
+ *  the [22:34] capture had the client ANSWERING the funnel, not asking about
+ *  neighbourhoods, and the same shape recurs for financing/paperwork. */
+function hasAskShape(text: string): boolean {
+  return matchesBoth(ASK_SHAPE_RE, text);
+}
+
+/** Search SPECS (not geography): rooms/м²/money/category. `extractSlots` is the
+ *  one parser the funnel uses, so the guard cannot drift from what the turn
+ *  will actually store. Shared by the advice lanes swept after the [22:34]
+ *  capture: a message carrying specs is a search, and the funnel — not an
+ *  advice script — owns it. */
+function carriesSearchSpecs(text: string): boolean {
+  const ev = extractSlots(text);
+  return ev.bedrooms !== undefined || ev.bedroomsMin !== undefined || ev.bedroomsMax !== undefined
+    || ev.sqm !== undefined || !!ev.budget
+    || ev.business !== undefined || ev.plac || ev.yard || !!ev.garsonjera;
+}
+
+// A STOCK SEARCH INSTRUCTION (the lane sweep after the [22:34] capture): a
+// request verb + specs + the property TYPE (or a named area) is the funnel
+// asking for ROWS. It is never an evaluation of what is on the table, never a
+// decision to postpone, never a price negotiation about the flat under
+// discussion — those three lanes were answering it with canned prose:
+//
+//   COMPARISON  «sakam stan podobar od ovoj do 95000 vo aerodrom» → diff help
+//   DEFER       «ke se javam podocna, baram stan do 80000 vo aerodrom» → “later”
+//   NEGOTIATE   «daj mi poevtino stan do 70000 vo karpos» → “the price is fixed”
+//
+// The word classes are shared with the other advice guards: specs come from
+// extractSlots (the funnel's own parser), the type/area table is the same one
+// detectLocation reads, so the guard works with the feed down.
+// «МИ ТРЕБА» / «MI TREBA» is the same request as «треба ми» with the clitic in
+// FRONT — the order Skopjan writes it in. Without the reversed arm the [01:47]
+// «MI TREBA DUKJAN VO CENTAR» did not read as a search at all (the route-drift
+// replay: production served it as unknown.property-price.evaluate because the
+// valence lane claimed «ako ima dobra cena»).
+const STOCK_VERB_RE =
+  /(?:sakam|сакам|baram|барам|daj|дај|najdi|најди|pokazi|покажи|treba\s+mi|треба\s+mi|треба\s+ми|mi\s+treba|ми\s+треба|imate|имате)/iu;
+const STOCK_TYPE_RE =
+  /(?:stan|стан|kukj|куќ|kuka|куќа|lokal|локал|dukj|дукј|duќ|duc|plac|плац|garsonj|гарсоњ|deloven|деловен|biznis|бизнис)/iu;
+
+function isStockSearch(text: string): boolean {
+  if (!carriesSearchSpecs(text)) return false;
+  if (!matchesBoth(STOCK_VERB_RE, text)) return false;
+  if (matchesBoth(STOCK_TYPE_RE, text)) return true;
+  return KNOWN_NEIGHBORHOODS.some(loc => locMatches(text, loc));
+}
+
+// ── THE ADVICE-LANE GATE — one policy, inherited by every lane ───────────────
+// Every lane in this family answers a turn with ADVICE PROSE, and each of them
+// was, one capture at a time, found claiming a SEARCH. Those vetoes used to be
+// eight separate copies inside the detectors, which meant a lane added tomorrow
+// inherited NOTHING: it had to remember the same checks, in the same order, or
+// it shipped answering «Sakam stan do 80000 vo aerodrom» with a paragraph about
+// neighbourhood character (the [22:34] class).
+//
+// The policy is now ONE table, and every lane is gated in BOTH places it can
+// fire, through the same function:
+//   • the detector itself — inbound.ts fast paths, resolveIntent, isGenuineQuestion
+//   • dispatchSimple, BEFORE the detector runs — so a lane added to
+//     SIMPLE_DETECTORS with no row and no veto of its own is STILL kept off a
+//     search turn (tests/advice-lanes-search-answers.test.ts pins that
+//     inheritance with a fake lane, plus the row for every real one)
+//
+// DEFAULT IS DENY: an intent with no row is treated as an advice lane and stands
+// down on search turns. A lane that legitimately OWNS spec-bearing turns must
+// declare `exempt` and say WHY, so the decision is visible in review instead of
+// being an implicit absence of code.
+//
+// Shared predicates only: `carriesSearchSpecs` reads extractSlots (the funnel's
+// own parser) and `isStockSearch` reads the feed-area table, so the gate cannot
+// drift from what the turn will actually store — and the notice-contract tables
+// (`DISCUSSED_PROPERTY_RE`, `BANK_PLACE_RE`, `DOCUMENTS_NEGATED_RE`) stay in the
+// lane, because they are grammar about THAT lane, not a search-turn policy.
+export interface AdviceGate {
+  /** Stand down unless the message ASKS something (? / interrogative). */
+  needsAskShape?: boolean;
+  /** Stand down on search specs — always, or only when the message asks nothing. */
+  standsDownOnSpecs?: 'always' | 'unlessAsk';
+  /** Stand down on a stock search instruction (request verb + specs + type/area). */
+  standsDownOnStockSearch?: boolean;
+  /** Stand down on a choice/recommendation ask — RECOMMEND_ASK owns that turn. */
+  standsDownOnRecommendAsk?: boolean;
+  /** Stand down on an INVENTORY ask («што имате во тој реон?») — the show-me
+   *  lane owns it; the client wants rows, not advice (§ ACRAST [01:48]). */
+  standsDownOnInventoryAsk?: boolean;
+  /** This lane OWNS turns that carry specs (money/hour/escalation substance)
+   *  — but only when its own SUBJECT is present. `owns` is the proof, required
+   *  by the type: an exemption without one is the hole this table exists to
+   *  close (a stray spec never lets a fee lane answer a search). */
+  exempt?: { owns: (text: string) => boolean };
+  note: string;
+}
+
+const DEFAULT_ADVICE_GATE: AdviceGate = {
+  standsDownOnSpecs: 'always',
+  standsDownOnStockSearch: true,
+  note: 'default for a lane added without a policy row — deny on a search turn',
+};
+
+/** ONE row per pre-classifier lane (dispatchSimple's intents). A row is a
+ *  DECISION, never a formality: the exempt ones say what they own. */
+export const ADVICE_GATES: Record<string, AdviceGate> = {
+  OFFTOPIC: { standsDownOnSpecs: 'always', standsDownOnInventoryAsk: true,
+    note: 'a search with small talk mixed in is still a search ([22:34] sweep); an inventory ask is the show-me lane' },
+  DEFER: { standsDownOnStockSearch: true,
+    note: '«ke se javam podocna, baram stan do 80000 vo aerodrom» wants rows NOW' },
+  NEGOTIATE: { standsDownOnStockSearch: true, standsDownOnRecommendAsk: true,
+    note: 'a cheaper/other-flat search is not price pushback; a choice ask belongs to RECOMMEND_ASK' },
+  COMPARISON: { standsDownOnStockSearch: true,
+    note: '«sakam stan podobar od ovoj do 95000» asks for a better FLAT, not a diff of two on the table' },
+  FEATURE_ASK: { standsDownOnSpecs: 'unlessAsk',
+    note: '«40 KVADRATI, DO 500 EVRA» is a criteria answer; a real feature question asks («DALI IMA TERASA?»)' },
+  NEIGHBORHOOD_ASK: { needsAskShape: true, standsDownOnSpecs: 'always', standsDownOnInventoryAsk: true,
+    note: 'area ADVICE needs a question about areas; a search that names a reon is geography, and «што имате во тој реон?» is inventory ([01:48])' },
+  DOCUMENTS_ASK: { standsDownOnSpecs: 'unlessAsk',
+    note: 'paperwork mentioned inside a search («dokumentite ke gi gledame podocna») is not a paperwork ask' },
+  MORTGAGE_ASK: { standsDownOnSpecs: 'unlessAsk',
+    note: 'a financing preference inside a search («so kredit do 90000 vo aerodrom») is still a search' },
+  // EXEMPT — the substance of these lanes IS an amount/time/request that a
+  // spec parser would read as a search. Standing them down would silence the
+  // money and hours protocols (AGENTS.md §2), so each says what it owns.
+  PROVISION_ASK: { exempt: { owns: t => /(?:провизиј|provizij|provizio|commission|агенциск|agenck|агенциј|agenc|надомест|nadomest|посета|poseta|такса|taksa|данок|danok|fee)/iu.test(t) },
+    note: 'the commission/visit-fee question names money by design («500 den po stan?»)' },
+  PROVISION_WHO: { exempt: { owns: t => /(?:провизиј|provizij|commission|агенциск|agenck|надомест|nadomest|трошок|trosok|адвокат|advokat|нотар|notar|данок|danok|такса|taksa|кој\s+пла|koj\s+pla|плаќа|плака|plakja|kuпuvач|купувач|kupuvac|prodavac|продавач)/iu.test(t) },
+    note: 'whose-split question — the amounts are the subject' },
+  FEE_WHY: { exempt: { owns: t => /(?:посета|poseta|надомест|nadomest|провизиј|provizij|плаќа|plakja|плата|pari|пари|цена|cena|fee)/iu.test(t) },
+    note: 'the bare fee claim names the charge; must beat provision.ask (the [09:0x] transcript)' },
+  ESCALATION: { exempt: { owns: t => /(?:менаџер|менагер|menadzer|manager|supervisor|управител|upravitel|директор|direktor|шеф|sef|boss|погоре|pogore|не\s+ми\s+е\s+јасно\s+со)/iu.test(t) },
+    note: 'a manager request is honored whatever else the message carries' },
+  WORKDAYS_QUESTION: { exempt: { owns: t => /(?:сабот|sabot|недел|nedel|петок|petok|викенд|vikend|празни|prazni|работни|rabotni|денес|denes|утре|utre|час|saat|саат)/iu.test(t) },
+    note: 'an hours question is always an hours question' },
+  SCHEDULING_FLEX: { exempt: { owns: t => /(?:саат|saat|час|cas|после|posle|пред|pred|утре|utre|дутре|popladne|попладне|наутро|nautro|вечер|vecer|викенд|vikend|време|vreme|термин|termin)/iu.test(t) },
+    note: 'visit-window talk in visit states — times are not search specs' },
+};
+
+/** An ACQUISITION on a named side/place: «mi treba nesto od stranata na
+ *  aerodrom, micurin», «sakam stan vo blizina na X». A request verb plus a
+ *  place and NO definite property subject — the client is asking for ROWS,
+ *  never which side an existing flat is on, and never which flat he saw.
+ *  Shared by the surroundings and remembered-property lanes (both claimed such
+ *  turns in the [04:01] capture). */
+export function isPlaceAcquisition(text: string): boolean {
+  if (matchesBoth(DISCUSSED_PROPERTY_RE, text)) return false;
+  if (!matchesBoth(STOCK_VERB_RE, text)) return false;
+  const norm = normalizeMc(text);
+  return extractPoiWishCandidates(text).length > 0
+    || detectLocation(text, []) !== undefined
+    || KNOWN_NEIGHBORHOODS.some(loc => locMatches(text, loc) || locMatches(norm, loc));
+}
+
+/** True when `intent` may ANSWER this text. THE one gate every advice lane
+ *  consults; DENIES BY DEFAULT, which is how a new lane inherits it. */
+export function adviceLaneAdmits(intent: string, text: string): boolean {
+  const row = ADVICE_GATES[intent];
+  // An EXEMPT lane still has to show its own subject: the fee/money/hours
+  // protocols may carry specs, but a turn without their vocabulary is not
+  // theirs to answer (the exemption stops being a hole).
+  if (row?.exempt) return row.exempt.owns(text);
+  const gate = row ?? DEFAULT_ADVICE_GATE;
+  if (gate.needsAskShape && !hasAskShape(text)) return false;
+  if (gate.standsDownOnStockSearch && isStockSearch(text)) return false;
+  if (gate.standsDownOnInventoryAsk && detectInventoryAsk(text)) return false;
+  if (gate.standsDownOnRecommendAsk && detectRecommendAsk(text)) return false;
+  if (gate.standsDownOnSpecs === 'always' && carriesSearchSpecs(text)) return false;
+  if (gate.standsDownOnSpecs === 'unlessAsk' && !hasAskShape(text) && carriesSearchSpecs(text)) return false;
+  return true;
+}
 
 /** True when the client asks a general neighborhood question. */
 export function detectNeighborhoodAsk(text: string): boolean {
+  // A BROWSE IS NOT A GEOGRAPHY QUESTION (the [00:12] «STO IMATE DOSTAPNO VO
+  // MOMENTOV ?» capture). The extension table carries the stem «моментов», so
+  // the phrase matched the neighborhood family and the turn was answered with
+  // «кој фактор Ви е пресуден: близината до центарот, мирот…» — about a client
+  // who had just named two places and asked what is available. «Што имате
+  // достапно» asks for the INVENTORY; the see-offers lane owns it, and the
+  // place-anchored search of the pool is what answers it.
+  if (detectSeeOffers(text)) return false;
+  // THE [22:34] CAPTURE (see above): specs or no question shape ⇒ a SEARCH
+  // whose geography the client is naming, never a request for area advice.
+  // Both conditions are the shared row (ADVICE_GATES.NEIGHBORHOOD_ASK).
+  if (!adviceLaneAdmits('NEIGHBORHOOD_ASK', text)) return false;
+  // A QUESTION ABOUT THE DISCUSSED PROPERTY IS NOT AREA ADVICE (the
+  // route-drift replay): «VO KOJA NASELBA E STANOT» asks where the FLAT is —
+  // the property-location lane owns it, not the neighborhood paragraph.
+  if (matchesBoth(DISCUSSED_PROPERTY_RE, text)) return false;
   return matchesBoth(NEIGHBORHOOD_RE, text) || extFires('neighborhood', text);
 }
 
@@ -6876,12 +7762,40 @@ export function detectComparison(text: string): boolean {
   // way to the search machinery — comparison is an EVAL class about two
   // properties on the table, never a search instruction.
   if (detectBudgetUpAsk(text)) return false;
+  // …and neither is a STOCK SEARCH that happens to carry a comparative
+  // adjective (the lane sweep): «sakam stan podobar od ovoj do 95000 vo
+  // aerodrom» asks for a better FLAT, not for a diff of two on the table.
+  if (!adviceLaneAdmits('COMPARISON', text)) return false;
+  // A "SHOW ME …" ASK IS A SEARCH, NOT A DIFF (the route-drift replay):
+  // «POMALO NESTO DO 300EVRA» (see-offers) and «A NESTO POSKAPO DO 1000 EVRA»
+  // (the raise-the-cap widen class) both hit COMPARISON_RE's bare comparative
+  // arms — the search lanes own them, and a diff of two rows is not the answer.
+  if (detectSeeOffers(text) || detectExplicitWiden(text)) return false;
   return matchesBoth(COMPARISON_RE, text) || extFires('comparison', text);
 }
 
 // Feature question after a property was shown: the client asks about a feature.
 const FEATURE_RE =
   /(?:има\s+ли\s+(?:паркинг|лифт|кујна|тераса|башта|двор|orman|klima|garazha|garage|lift|elevator|kujna|kitchen|terasa|terrace|yard|balkon|orman|ormar|klima|centralno|kamin|solarni|alarm|video|security)|(?:дали|е\s+ли)\s+(?:е\s+)?(?:реновиран|новоградба|стар|нов)|е\s+ли\s+(?:реновиран|новоградба|стар|нов)|newly\s+renovated|renovated|new\s+build|(?:паркинг|лифт|кујна|тераса|двор|balkon|orman|klima|garazha|garage|lift|elevator|kujna|kitchen|terasa|terrace|yard|orman|ormar|klima|centralno|kamin|solarni|alarm|video|security)\s+(?:ли|да|е|има|ќе\s+има|би\s+имало)|energy\s+(?:class|rating|efficien)|енергетска\s+(?:класа|ефикасност|рејтинг)|колку\s+(?:квадрати|м2|квадратни)|колку\s+е\s+(?:голем|големина)|колку\s+(?:спални|соби)|колку\s+е\s+(?:голем|големина)|spalni|sobi|kvadrati|kolku\s+(?:spalni|sobi|kvadrati)|колку\s+спални|колку\s+соби|колку\s+квадрати|колку\s+м2|спални(?:\s|$)|соби(?:\s|$)|кујна(?:\s|$)|тераса(?:\s|$)|лифт(?:\s|$)|паркинг(?:\s|$)|garage(?:\s|$)|lift(?:\s|$)|kitchen(?:\s|$)|bedroom(?:\s|$)|parking(?:\s|$))/iu;
+
+// AREA + SPECS (the [22:42] capture): „DEBAR MAALO , DVE SPALNI ?“ names a
+// NEIGHBOURHOOD and a bedroom count in one breath. That is the client pivoting
+// the hunt to another area — FEATURE_RE's bare „spalni“/„соби“ arms claimed it
+// and the FEATURE_ASK lane answered with the owner-contact script („Кои
+// карактеристики Ви се од суштинско значење?“, „ќе стапам во контакт со
+// сопственикот“) for a flat nobody was discussing. A size spec is a NUMBER
+// bound to bedrooms/rooms or square metres — „kolku spalni ima stanot vo
+// centar?“ carries no number and stays a genuine feature question.
+const SIZE_SPEC_RE =
+  /(?<![\p{L}\p{N}])(?:(?:едно|една|еден|две|два|три|четири|пет|шест|edna|eden|dve|dva|tri|cetiri|pet|sest|\d)[\s-]*(?:спални|spalni|соби|sobi)|(?:спални|spalni|соби|sobi)[\s-]*\d|(?:над|nad|do|под|pod|okolu|околу)[\s-]*\d+[\s-]*(?:м2|m2|квадрати|kvadrati)|\d+[\s-]*(?:м2|m2)(?![\p{L}\p{N}]))/iu;
+
+/** A named city area together with a size spec — a SEARCH pivot, never a
+ *  per-property feature question. Areas come from the same table
+ *  detectLocation uses, so this works with the feed down. */
+export function namesAreaWithSize(text: string): boolean {
+  if (!SIZE_SPEC_RE.test(text)) return false;
+  return KNOWN_NEIGHBORHOODS.some(loc => locMatches(text, loc));
+}
 
 /** True when the client asks about a specific property feature.
  *  Parking is matched by the morphology family (hasParkingWord) rather than
@@ -6892,6 +7806,16 @@ export function detectFeatureAsk(text: string): boolean {
   // kukji") is search criteria, never a per-property feature question — the
   // owner-contact lane must not own it.
   if (detectCriteriaStatement(text)) return false;
+  // A CRITERIA ANSWER IS NOT A FEATURE QUESTION (the route-drift replay):
+  // «40 KVADRATI, DO 500 EVRA» and «DO 500 KVADRATI, IMAM 500000 EVRA BUDJET»
+  // state the search — FEATURE_RE's bare «квадрати» arm answered them with the
+  // owner-contact script. A real feature question is an ASK («DALI IMA
+  // TERASA?», «kolku kvadrati ima?»), so specs + no question is the veto —
+  // the shared row (ADVICE_GATES.FEATURE_ASK).
+  if (!adviceLaneAdmits('FEATURE_ASK', text)) return false;
+  // An AREA + SIZE message („DEBAR MAALO , DVE SPALNI ?“) is a search in that
+  // area, not a question about one flat's features.
+  if (namesAreaWithSize(text)) return false;
   return matchesBoth(FEATURE_RE, text) || hasParkingWord(text) || extFires('feature-ask', text);
 }
 
@@ -7055,7 +7979,7 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
 
 
 // Both services: client wants BOTH buy and rent.
-const BOTH_SERVICES_RE = /(?:^|\s)(?:i\s+тоа\s+i\s+тоа|i\s+за\s+двете|за\s+двете|и\s+тоа\s+и\s+тоа|и\s+за\s+двете|за\s+двете|i\s+купам\s+i\s+киријам|и\s+купам\s+и\s+кирија|кедето|ке\s+треба(?:ат)?|ќе\s+треба(?:ат)?|сакам\s+(?:i\s+)?(?:купам|киријам)|сакам\s+(?:и\s+)?(?:купам|кирија)|две\s+работи|две\s+работи|купување\s+i\s+изнајмување|купување\s+и\s+изнајмување|i\s+купувам\s+i\s+изнајмувам|и\s+купувам\s+и\s+изнајмувам|ке\s+купам\s+i\s+киријам|ќе\s+купам\s+и\s+кирија|моз(?:e|ам|хе|ххе?|ззе?)\s+да\s+куп(?:ам|увам).*?моз(?:e|ам|хе|ххе?|ззе?)\s+(?:i\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајм(?:ување))|може\s+да\s+куп(?:ам|увам).*?може\s+(?:и\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајмување))/iu;
+const BOTH_SERVICES_RE = /(?:^|\s)(?:i\s+тоа\s+i\s+тоа|i\s+за\s+двете|за\s+двете|и\s+тоа\s+и\s+тоа|и\s+за\s+двете|за\s+двете|i\s+купам\s+i\s+киријам|и\s+купам\s+и\s+кирија|кедето|ке\s+треба(?:ат)?|ќе\s+треба(?:ат)?|сакам\s+(?:[iи]\s+)?(?:купам|киријам)|сакам\s+(?:и\s+)?(?:купам|кирија)|две\s+работи|две\s+работи|купување\s+i\s+изнајмување|купување\s+и\s+изнајмување|i\s+купувам\s+i\s+изнајмувам|и\s+купувам\s+и\s+изнајмувам|ке\s+купам\s+i\s+киријам|ќе\s+купам\s+и\s+кирија|моз(?:[еe]|ам|хе|ххе?|ззе?)\s+да\s+куп(?:ам|увам).*?моз(?:[еe]|ам|хе|ххе?|ззе?)\s+(?:[iи]\s+)?да\s+изн(?:ајм(?:увам|ам|ат|аме)|ајм(?:ување))|може\s+да\s+куп(?:ам|увам).*?може\s+(?:и\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајмување)|моз(?:[еe]|ам|хе|ххе?|ззе?)\s+да\s+(?:го\s+)?изн(?:ајм(?:увам|ам|ат|аме)|ајм(?:ување)).*?моз(?:[еe]|ам|хе|ххе?|ззе?)\s+(?:[iи]\s+)?да\s+(?:го\s+)?куп(?:ам|увам)|може\s+да\s+(?:го\s+)?изн(?:ајм(?:увам|ам|ат)|ајмување).*?може\s+(?:и\s+)?да\s+куп(?:ам|увам))/iu;
 export function detectBothServices(text: string): boolean {
   return matchesBoth(BOTH_SERVICES_RE, text) || extFires('both-services', text);
 }
@@ -7134,6 +8058,20 @@ export function extractSlots(text: string): DetectedSlots {
   if (sqm) out.sqm = sqm;
   const budget = detectBudget(text);
   if (budget) out.budget = budget;
+  // PER-CATEGORY MONEY (the [19:14] capture): «DVOSOBEN MOZE DO 90000 I
+  // TROSOBEN DO 150000» is TWO room categories, each with its OWN cap — not
+  // one rooms slot plus one budget (that read served two двособни, one of
+  // them 20.000 over the cap the client had just named for that category).
+  // The categories ride bedroomsMin/Max (the existing alternation ladder) and
+  // slots.budget keeps the HIGHEST cap so every other lane is unaffected.
+  const catBudgets = detectCategoryBudgets(text);
+  if (catBudgets) {
+    out.categoryBudgets = catBudgets;
+    delete out.bedrooms;
+    out.bedroomsMin = catBudgets[0].rooms;
+    out.bedroomsMax = catBudgets[catBudgets.length - 1].rooms;
+    out.budget = catBudgets.reduce((hi, c) => (Number(c.budget) > Number(hi) ? c.budget : hi), catBudgets[0].budget);
+  }
   if (detectAnywhere(text)) out.anywhere = true;
   if (detectApartmentNeed(text)) out.need = true;
   if (detectRejection(text)) out.rejected = true;

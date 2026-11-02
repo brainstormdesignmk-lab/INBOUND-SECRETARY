@@ -160,6 +160,22 @@ const RATE_VERB_SQM_RE = new RegExp(
 const YEAR_BUILT_RE = /(?:од\s+)?(?:која|којашто)\s+година\s+(?:е\s+)?(?:изград|градб|зград|станат|куќата|објектот)|кога\s+(?:е\s+)?(?:изградена|изграден|изградено|подигната|подигнат)|година\s+на\s+(?:изградба|градба)|колку\s+(?:е\s+)?стар(?:а|о)?\s+(?:зградата|зграда|куќата|куќа|станат|објектот)/iu;
 const RENOVATION_YEAR_RE = /(?:кога\s+(?:е\s+)?(?:реновиран|реновирана|реновирано))|(?:дали\s+(?:е\s+)?реновир)|(?:реновиран(?:а|о)?\s+(?:во|година))/iu;
 
+// THE ELLIPTICAL YEAR ASK — the flat is named by its Евидентен број and the
+// building noun every arm above requires is GONE (the [11:41] capture:
+// «OD KOJA GODINA E 90 ?»). The message carried no facet at all, the INFO block
+// was skipped, and the describe lane answered a one-word question with the
+// whole property CARD — while the feed holds year_built = 1970 for that exact
+// flat. The frame («од која година е») plus an EB, a deictic or nothing at all
+// is the ask; a word that is NONE of those («од која година е цената?») never
+// matches, so this arm cannot swallow a different question.
+const YEAR_BUILT_ELLIPTIC_RE = new RegExp(
+  `(?:^|[\\s,.;:!?])(?:од\\s+)?(?:која|којашто)\\s+година\\s+(?:е|беше)`
+  + `(?:\\s+(?:ев(?:идентен)?\\.?\\s*(?:бр\\.?\\s*)?)?\\d{1,3}`
+  + `|\\s+(?:оваа|ова|тоа|тој|станот|станат|зградата|објектот|куќата))?`
+  + `\\s*(?:[?!.,]|$)`,
+  'iu',
+);
+
 export interface InfoAskContext {
   /** The previous assistant line already named a floor ("Се наоѓа на 3 кат" /
    *  "Зградата има 5 ката") — what makes a bare "posleden?" a last-floor ask
@@ -195,7 +211,7 @@ export function detectInfoFacets(text: string, ctx: InfoAskContext = {}): InfoFa
   // YEAR FAMILY — answered from the real columns (year_built /
   // renovation_year). Self-contained probes: the question word is part of the
   // pattern, so `isQuestion` is not required.
-  if (YEAR_BUILT_RE.test(t)) f.yearBuilt = true;
+  if (YEAR_BUILT_RE.test(t) || YEAR_BUILT_ELLIPTIC_RE.test(t)) f.yearBuilt = true;
   if (RENOVATION_YEAR_RE.test(t)) f.renovation = true;
 
   // SQM — "колку квадрат/м2", "колку (е) голем", or a површина/големина word
@@ -283,10 +299,26 @@ function floorsWord(n: number): string {
   return n === 1 ? 'кат' : 'ката';
 }
 
-function bedroomPhrase(n: number): string {
-  if (n === 1) return 'Има една спална соба.';
-  if (n === 2) return 'Има две спални соби.';
-  return `Има ${n} спални соби.`;
+/** THE ROOM COUNT IS NOT THE BEDROOM COUNT (the [09:11] capture): the feed's
+ *  `tip_na_sobi` carries ROOMS — еднособен / двособен / трисобен, i.e. the
+ *  living room PLUS the bedrooms (the same convention slots.bedrooms uses: a
+ *  client asking for «две спални» is served tri-sobni rows). Quoting that
+ *  number back as bedrooms told the client EB 66 — a трисобен with две
+ *  спални — «Има 3 спални соби.». One room is the дневна, so speak rooms − 1,
+ *  and an еднособен honestly has no separate bedroom at all. */
+function bedroomPhrase(rooms: number, p: Property): string {
+  const beds = rooms - 1;
+  if (beds <= 0) {
+    // A STUDIO/еднособен genuinely has no separate bedroom — say which unit it
+    // is (a гарсоњера is not a small one-bedroom flat).
+    return p.studio === true || (p.sqm ?? 99) < 35
+      ? 'Тоа е гарсоњера — еден простор, без посебна спална соба.'
+      : 'Нема посебна спална соба — тоа е еднособен стан.';
+  }
+  if (beds === 1) return 'Има една спална соба.';
+  if (beds === 2) return 'Има две спални соби.';
+  if (beds === 3) return 'Има три спални соби.';
+  return `Има ${beds} спални соби.`;
 }
 
 /** The unit's storey: the STRUCTURED feed column first (`kat` — hand-entered
@@ -390,7 +422,7 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
   }
   if (facets.rooms) {
     if (p.bedrooms !== undefined) {
-      sentences.push(bedroomPhrase(p.bedrooms));
+      sentences.push(bedroomPhrase(p.bedrooms, p));
       answered = true;
     } else if ((p.sqm ?? 99) < 35) {
       sentences.push('Тоа е гарсоњера — еден простор, без посебна спална соба.');

@@ -580,6 +580,29 @@ const SPEC: GenerationKey[] = [
     banned: [/стан|деловен/],
     question: true,
   },
+  // THE TYPE IS UNKNOWN (the [04:17] capture): a flat, a house, a shop and a
+  // plot all reach this key, so it may name NO property type at all — only the
+  // market question. Same ban list as greeting.open, minus the greeting.
+  {
+    key: 'discovery.ask.service.any',
+    sources: ['Дали Ве интересира купување на недвижност или претпочитате изнајмување?'],
+    count: 10,
+    instructions: 'Типот на недвижност е НЕПОЗНАТ (клиентот именувал само место). Прашај дали бара купување или изнајмување на НЕДВИЖНОСТ. НИКАКО не спомнувај стан, апартман, куќа, деловен простор или плац; БЕЗ поздрав.',
+    required: [/(?:куп|изнајм|кириј)/iu],
+    banned: [/стан/, /куќ/, /деловен/, /апартман/, /плац/],
+    question: true,
+  },
+  // …and the location ask for the same unknown-type state: «во кој дел го барате
+  // станот?» names a flat nobody said.
+  {
+    key: 'discovery.ask.location.any',
+    sources: ['Во кој дел од градот ја барате недвижноста?'],
+    count: 10,
+    instructions: 'Типот на недвижност е НЕПОЗНАТ — прашај во кој дел од градот/која населба ја бара НЕДВИЖНОСТА. НИКАКО не спомнувај стан, куќа, деловен простор или плац.',
+    required: [/(?:дел од градот|населба|локациј)/iu],
+    banned: [/стан/, /куќ/, /деловен/, /плац/],
+    question: true,
+  },
   {
     key: 'discovery.ask.service.business',
     sources: ['Дали го барате за купување или за изнајмување?'],

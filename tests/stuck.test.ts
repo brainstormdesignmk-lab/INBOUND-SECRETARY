@@ -1298,6 +1298,10 @@ test('GORAN TUI regression: "MI TREBA STANCE VO AERODROM" is NOT a buy statement
   assert.equal(s.slots.service, undefined);
   assert.equal(s.slots.location, 'Аеродром');
   assert.ok(!sent[0].includes('Разбрав — барате'), sent[0]);
+  // The client SAID «STANCE», so the flat wording is correct here — «стан» is
+  // only an assumption when nothing named a type (the [04:17] rule, which is
+  // why the flat is recorded as `slots.flat` now: this ask used to say «станот»
+  // by DEFAULT, which is the same sentence for the right and the wrong case).
   assert.ok(/стан/.test(sent[0]) && /(куп|изнајм|кириј)/iu.test(sent[0]), sent[0]);
   assert.ok(!sent[0].includes('барате стан за купување'), sent[0]); // never the false claim
   assert.ok(!sent[0].includes('Евидентен број'), sent[0]); // no property before intent

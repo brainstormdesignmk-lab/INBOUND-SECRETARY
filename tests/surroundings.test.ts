@@ -167,11 +167,17 @@ test('findAnchor: the client\'s definite forms resolve to the LOCAL place, never
     (viaFindPlace!.lon - center.lon) * 82000));
   assert.ok(/Тафталиџе/i.test(viaFindPlace!.name) && trapM > 900,
     `findPlace returns ${viaFindPlace!.name} (${trapM}m) for the same word — the gate is what keeps the answer local`);
-  // The client's OTHER word shows the same contrast from the opposite side:
-  // the definite form the map cannot look up at all (MISS) resolves through
-  // anchorWordForms to the mall.
-  assert.equal(svc.findPlace('трговскиот', center), undefined,
-    'the definite form the client typed is not in the POI table — the article strip is what makes it resolvable');
+  // THE DEFINITE FORM IS NOW REACHED BY THE MAP'S OWN FOLDING PASSES (updated
+  // 2026-10-31): the old assertion pinned a MISS on „трговскиот“ (the article
+  // strip in anchorWordForms was then the only way in). The phonetic/canonical
+  // passes resolve it today — but an UN-CENTRED lookup answers the shorter
+  // same-named row („Трговски Лисиче“, ~5.5 km across town), never the mall
+  // beside the flat; the centre is what picks the local branch. The gate, not
+  // the article strip, is therefore what makes the side answer honest — the
+  // assertion states that truth instead of a MISS that no longer happens.
+  const unGated = svc.findPlace('трговскиот');
+  assert.ok(unGated && /Лисиче/i.test(unGated.name),
+    `an un-centred lookup can pick a same-named place elsewhere: ${unGated?.name}`);
 });
 
 test('findAnchor: the nearest named place is the side — the mall beats the market from EB 77', () => {

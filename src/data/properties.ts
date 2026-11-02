@@ -1398,6 +1398,26 @@ function popularityRank(loc: string | undefined): number {
 export class PropertyService {
   private cache: { at: number; data: Property[] } | null = null;
   private ok = false;
+  /** THE CATEGORY LOCK (the [20:37] capture, set by InboundHandler each turn):
+   *  once the client has chosen a type — кућа / деловен простор / плац /
+   *  гарсоњера — NO lane may serve another category, however it builds its
+   *  pool. The handler derives the lock from the session slots and installs it
+   *  here; candidates()/closestMatches()/search() apply it only when the CALLER
+   *  did not state a category of its own (a caller's own filter is
+   *  authoritative, so a deliberate typed search is never narrowed further).
+   *  A generic ask with no type leaves the lock undefined and sees everything,
+   *  which is the owner's rule verbatim. */
+  private typeLock: ((p: Property) => boolean) | undefined;
+
+  /** Install (or clear) the per-turn category lock. */
+  setTypeLock(lock?: (p: Property) => boolean): void {
+    this.typeLock = lock;
+  }
+
+  /** The lock, applied to a pool only when the caller declared no category. */
+  private locked(rows: Property[], callerDeclaredType: boolean): Property[] {
+    return callerDeclaredType || !this.typeLock ? rows : rows.filter(this.typeLock);
+  }
 
   constructor(private url: string, private ttlMs = 5 * 60_000) {}
 
@@ -1524,7 +1544,7 @@ export class PropertyService {
       const max = parseBudgetMax(opts.budget);
       if (max) out = out.filter(p => p.price === undefined || p.price <= max);
     }
-    return out;
+    return this.locked(out, opts.house !== undefined || opts.business !== undefined);
   }
 
   /**
@@ -1568,6 +1588,10 @@ export class PropertyService {
       // rows out — a ranked "closest" serve for a flat hunt must not surface
       // a плац the client never named. Only an explicit plac ask sees them.
       .filter(p => opts.plac === true ? p.plac === true : p.plac !== true)
+      // THE CATEGORY LOCK: a generic caller (no type of its own) inherits the
+      // session's chosen category — the house recall below can never surface a
+      // studio again.
+      .filter(p => this.locked([p], opts.house !== undefined || opts.business !== undefined || !!opts.plac).length === 1)
       .map(p => ({
         p,
         score: (inLoc(p) ? 0 : 1_000_000) + priceDist(p) + sqmDist(p) * 500 // м² → €-ish weight
@@ -1669,7 +1693,8 @@ export class PropertyService {
     const sameArea = finalBase.filter(inLoc);
     // No spill: with a location, the pool IS the area (possibly empty); without
     // one, the whole city. The funnel decides what to do when the area is empty.
-    const pool = opts.location ? sameArea : finalBase;
+    const pool = this.locked(opts.location ? sameArea : finalBase,
+      opts.house !== undefined || opts.business !== undefined || !!opts.plac);
     return pool
       .map(p => ({ p, inLoc: inLoc(p), dist: p.price !== undefined ? Math.abs(p.price - (max ?? 0)) : 0, rank: popularityRank(p.location) }))
       // sortBySqm: "помало нешто" mid-discovery — SMALLEST м² first, going up

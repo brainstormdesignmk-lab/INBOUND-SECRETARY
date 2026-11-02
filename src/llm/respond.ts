@@ -8,7 +8,7 @@ import { dynamicAnswer, generateDynamic, type DynamicResult } from './dynamicFal
 import { arbitrateMoney } from './moneyArbitration';
 import { llmArbitrateKey } from './arbiterLlm';
 import type { BankStore } from '../store/bank';
-import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, buildFeeAsk, buildContactAsk, feeLadder, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX, pairBatchMeta } from './prompts';
+import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, missingCriteriaAsk, displayPlaceName, buildFeeAsk, buildContactAsk, feeLadder, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX, pairBatchMeta } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
 
 // Anchored so a property price like "68.300 евра" never trips it — only a
@@ -243,6 +243,18 @@ export class Responder {
     this.escalationLlm = llm;
   }
 
+  /** Resolve a place the client named to the map's own pin. Wired by the
+   *  handler (it owns the landmark service), so the LLM-LESS serve can state
+   *  MEASURED distances like the deterministic lanes — a card batch with no
+   *  anchor reads as a catalogue dump, and a pair cannot be judged against
+   *  «во близина на Железничка» without the distance. Absent in a standalone
+   *  responder: the serve then names the place only. */
+  private placeResolver?: (name: string) => { name: string; lat: number; lon: number } | undefined;
+
+  setPlaceResolver(fn: (name: string) => { name: string; lat: number; lon: number } | undefined): void {
+    this.placeResolver = fn;
+  }
+
   /** Swap the serving brain at runtime (TUI chooser: gemini/groq/llm-free).
    *  This is a COST PREFERENCE for direct prose, never a knowledge ceiling:
    *  when the deterministic layer + bank have no answer, escalate() uses
@@ -359,19 +371,37 @@ export class Responder {
         // BOTH places — the opener names them and each card carries its own
         // distance, exactly like the deterministic lanes.
         const pair = pairBatchMeta(session, properties);
+        // THE ANCHOR AND THE QUESTIONS SURVIVE THE FALLBACK (the presentation
+        // lane audit): a turn that reaches 'presentation' without matching a
+        // composition branch (a STAY, a REJECTED from property_query/closing)
+        // lands HERE when every brain is down — and this builder used to serve
+        // the batch with NO place and NO criteria question, which is the exact
+        // catalogue dump the [02:16] contract forbids. The distance is what
+        // makes the pair judgeable; the questions are the funnel's own.
+        const anchorName = session.slots.poiAnchor;
+        const pin = anchorName && this.placeResolver ? this.placeResolver(anchorName) : undefined;
+        const anchor = pin && anchorName
+          ? { name: displayPlaceName(anchorName), lat: pin.lat, lon: pin.lon }
+          : undefined;
+        const ask = missingCriteriaAsk(session.slots, assistantTexts(session));
+        const anchorLine = anchor && !pair.opener
+          ? `Еве ги најблиските опции до ${anchor.name}:\n\n` : '';
         return { text: guardText(session.state,
           (showWaiverAck
             ? `${waiverAck(session.slots.budget, assistantTexts(session))}\n\n`
             : '')
           + (pair.opener ? `${pair.opener}\n\n` : '')
           + (pair.emptyLine ? `${pair.emptyLine}\n\n` : '')
+          + anchorLine
           + buildPropertyCards(properties, session.state, session.history.length, assistantTexts(session), {
             anywhere: session.slots.anywhere,
             budget: session.slots.budget,
-            noOpener: showWaiverAck || !!pair.opener,
+            noOpener: showWaiverAck || !!pair.opener || !!anchorLine,
+            anchor,
             perCardAnchor: pair.perCardAnchor,
             perCardAlsoAnchors: pair.perCardAlsoAnchors,
-          }),
+          })
+          + (ask ? `\n\n${ask}` : ''),
           this.cfg.publicSiteUrl, assistantTexts(session)), source: 'fallback' };
       }
       return {

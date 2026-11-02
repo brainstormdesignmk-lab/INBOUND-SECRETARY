@@ -326,8 +326,34 @@ test('builders: price answer names EB, type and the feed price', () => {
 test('builders: multi-facet compound ask answers all facets in one reply', () => {
   const a = buildInfoAnswer(P63, { sqm: true, rooms: true, floor: true });
   assert.ok(a?.includes('28 м²'), a);
-  assert.ok(a?.includes('една спална'), a);
+  // THE STUDIO HAS NO BEDROOM: this row is 28 м², i.e. a гарсоњера (one space).
+  // The old expectation was «една спална» because the ROOM count was read as
+  // the bedroom count — the [09:11] class, corrected here at the expectation.
+  assert.ok(a?.includes('гарсоњера'), a);
+  assert.ok(!a?.includes('една спална'), a);
   assert.ok(a?.includes('сутерен'), a);
+});
+
+// ── ROOMS ARE NOT BEDROOMS (the [09:11] capture) ────────────────────────────
+//
+//   [09:11] KOLKU SPALNI IMA ?
+//   [09:11] ЛИНА: Има 3 спални соби.        ← EB 66 is a ТРИСОБЕН: TWO bedrooms
+//
+// The feed's `tip_na_sobi` carries ROOMS (дневна + спални), the same convention
+// slots.bedrooms uses («две спални» → 3). Quoting it back as bedrooms told the
+// client a flat with two bedrooms had three.
+test('builders: the room count is spoken as one bedroom fewer', () => {
+  const row = (bedrooms: number, over: Record<string, unknown> = {}): Property => ({
+    eb: 66, id: 66, address: 'X', location: 'Центар', service: 'buy',
+    sqm: 79, bedrooms, ...over,
+  }) as Property;
+  assert.equal(buildInfoAnswer(row(3), { rooms: true }), 'Има две спални соби.');
+  assert.equal(buildInfoAnswer(row(2), { rooms: true }), 'Има една спална соба.');
+  assert.equal(buildInfoAnswer(row(4), { rooms: true }), 'Има три спални соби.');
+  assert.equal(buildInfoAnswer(row(1), { rooms: true }), 'Нема посебна спална соба — тоа е еднособен стан.');
+  // A studio is named as the studio it is.
+  assert.equal(buildInfoAnswer(row(1, { sqm: 28 }), { rooms: true }),
+    'Тоа е гарсоњера — еден простор, без посебна спална соба.');
 });
 
 test('builders: known feature answered, unknown feature gets the honest no-data line', () => {

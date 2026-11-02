@@ -149,6 +149,36 @@ test('the intake resolves Буњаковец to Центар and the learned row
   assert.equal(s.slots.location, 'Центар', `Буњаковец resolves to its feed area, got ${s.slots.location}`);
 });
 
+test('[04:17] stock at a place with NO type asks the MARKET, then the TYPE, never an apartment', async () => {
+  const { handler, sessions, sent, chatId } = makeHandler();
+  await handler.handle('test', chatId, 'ZDRAVO. STO IMATE VO BUNJAKOVEC ?');
+  const answer = sent[sent.length - 1] ?? '';
+  // The client named a PLACE and nothing else. The old reply was «Дали станот го
+  // барате за да го купите или сакате да го земете под закуп?» — an apartment he
+  // never mentioned. The market question is the type-neutral one, and it may
+  // NEVER carry a property-type word.
+  assert.ok(!/стан|куќ|деловен простор|гарсоњер/iu.test(answer),
+    `the type was assumed (the [04:17] capture): ${answer}`);
+  assert.match(answer, /куп|изнајм|кириј|закуп/iu, `the market question is what he owes: ${answer}`);
+  assert.ok(answer.trim().endsWith('?'), answer);
+
+  // The market answer follows it with the TYPE question: he still has not said
+  // WHAT he wants, and no pair can be chosen without it. The bedroom/price
+  // questions wait for that answer.
+  await handler.handle('test', chatId, 'SAKAM DA KUPAM');
+  const typed = sent[sent.length - 1] ?? '';
+  assert.equal(sessions.get(chatId)!.slots.service, 'buy');
+  assert.match(typed, /тип|стан, куќа|деловен простор/iu, `the type ask is owed: ${typed}`);
+  assert.ok(!/спалн/iu.test(typed), `a bedroom question before the type is known: ${typed}`);
+
+  // …and a flat answer turns it into the flat funnel: the type is on file, so
+  // the ask moves on to the flat's own characteristics.
+  await handler.handle('test', chatId, 'DVOSOBEN STAN');
+  const flat = sent[sent.length - 1] ?? '';
+  assert.equal(sessions.get(chatId)!.slots.flat, true, 'the flat the client named is on file');
+  assert.ok(!/Кој тип недвижност|тип на недвижност/iu.test(flat), `the type is known now: ${flat}`);
+});
+
 test('after the buy answer the funnel asks bedrooms AND budget, never the neighborhood', async () => {
   const { handler, sessions, sent, chatId } = makeHandler();
   await handler.handle('test', chatId, MSG_INTAKE);
@@ -165,10 +195,18 @@ test('after the buy answer the funnel asks bedrooms AND budget, never the neighb
 test('buildDiscoveryAsk: a landmark anchor satisfies the location question', () => {
   // A CITY-LEVEL value (typically inferred, never said) does not — but the
   // anchor already named the area, so the pair is asked, not the neighborhood.
+  // The residential sequence here is UNCHANGED by the [04:17] type rule: the
+  // type question belongs to the stock-at-a-place ask (`inventoryPending`), and
+  // an area + budget search is already inside this funnel.
   const ask = buildDiscoveryAsk({ service: 'buy', location: 'Скопје', poiAnchor: 'Буњаковец', poiArea: 'Центар' } as SlotData);
   assert.ok(!/населба|naselba|дел од градот|локација во градот/iu.test(ask), `no neighborhood ask: ${ask}`);
   assert.match(ask, /спалн|spaln/iu, `bedrooms asked: ${ask}`);
   assert.match(ask, /цена|cenа/iu, `budget asked: ${ask}`);
+  // The stock-at-a-place funnel asks the TYPE instead — its pair is not owed
+  // until the category is known (спални vs м²).
+  const held = buildDiscoveryAsk({ service: 'buy', location: 'Скопје', poiAnchor: 'Буњаковец', poiArea: 'Центар', inventoryPending: true } as SlotData);
+  assert.match(held, /тип/iu, `the type question, not a category-specific one: ${held}`);
+  assert.ok(!/спалн|spaln/iu.test(held), `no bedroom question before the type is known: ${held}`);
   // Without an anchor the behavior is unchanged: city-level → ask the area.
   const bare = buildDiscoveryAsk({ service: 'buy', location: 'Скопје' } as SlotData);
   assert.match(bare, /населба|naselba|дел од градот|локација во градот|lokacija vo gradot/iu,
@@ -423,4 +461,46 @@ test('[20:49] «STAN KAJ CITY MOL» is the same mall as «CITY MALL» — one sp
   assert.match(serve, /Евидентен број 91/u, `the flat at the mall is served: ${serve}`);
   assert.match(serve, /Сити Мол/u, `the anchor is named the way the operator writes it: ${serve}`);
   assert.ok(!/Евидентен број 93/u.test(serve), `the cheaper Аеродром row is not: ${serve}`);
+});
+
+// ── THE [23:26] CAPTURE — «STAN BLISKU DO ZELEZNICKA STANICA» ───────────────
+//   [23:26] ZDRAVO SAKAM DA KUPAM STAN BLISKU DO ZELEZNICKA STANICA
+//   [23:26] ЛИНА [без LLM]: Кој дел од градот Ви е најпривлечен …?
+// The map HAS the station — «Железничка станица Скопје» (41.99096, 21.44589).
+// Two separate things dropped the client's own words:
+//   (1) the LOCATION_NAG lane claimed the turn on «BLISKU DO» while nothing was
+//       on the table — the message is a SEARCH, not a push-back about the
+//       location of a flat;
+//   (2) the fuzzy lookup answered the bare two words with «Стара Железничка
+//       Станица» (the old station building, 1.3 km west) and the name-coverage
+//       guard rightly refused it — that name does not OPEN with a word the
+//       client said (the «ELS Novo Lisice» rule) — so no anchor reached the
+//       session and discovery asked for the area he had just named.
+const STANICA_ROWS: Property[] = [
+  // ~250 m from the station, Центар, buy — the flat the search is for.
+  { eb: 301, id: 301, location: 'Центар', address: 'Ул. Браќа Миладиновци 4', price: 118000, bedrooms: 2, sqm: 58, size: '58 м²', service: 'buy', lat: 41.9918, lon: 21.4452 },
+  // ~500 m away, same profile — the second card of the pair.
+  { eb: 302, id: 302, location: 'Центар', address: 'Ул. Браќа Миладиновци 22', price: 124000, bedrooms: 2, sqm: 60, size: '60 м²', service: 'buy', lat: 41.9924, lon: 21.4470 },
+  // Cheaper, but ~1.8 km south: the anchor must outrank the price.
+  { eb: 303, id: 303, location: 'Аеродром', address: 'Ул. Јане Сандански 20', price: 96000, bedrooms: 2, sqm: 57, size: '57 м²', service: 'buy', lat: 41.9800, lon: 21.4500 },
+];
+
+test('[23:26] «BLISKU DO ZELEZNICKA STANICA» is the station — never «which part of the city»', async () => {
+  const { handler, sessions, sent, chatId } = makeHandler(STANICA_ROWS, 'zeleznicka-intake');
+  await handler.handle('test', chatId, 'ZDRAVO SAKAM DA KUPAM STAN BLISKU DO ZELEZNICKA STANICA');
+  const s = sessions.get(chatId)!;
+  const answer = sent[0] ?? '';
+  assert.equal(s.slots.service, 'buy');
+  assert.equal(s.slots.poiAnchor, 'Железничка станица Скопје',
+    `the station Skopjani mean, got ${s.slots.poiAnchor}`);
+  assert.ok(!/дел од градот|населба|омилена локација|lokacija/iu.test(answer),
+    `no area question — he named the place: ${answer}`);
+
+  await handler.handle('test', chatId, 'EDNA SPALNA');
+  await handler.handle('test', chatId, 'DO 130000');
+  const serve = sent[sent.length - 1];
+  assert.equal(sessions.get(chatId)!.state, 'presentation', `the criteria are complete: ${serve}`);
+  assert.match(serve, /Евидентен број 301/u, `the flat nearest the station leads: ${serve}`);
+  assert.ok(!/Евидентен број 303/u.test(serve),
+    `the cheaper Аеродром flat is 1.8 km away — the anchor outranks price: ${serve}`);
 });

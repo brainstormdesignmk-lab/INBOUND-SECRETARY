@@ -20,9 +20,11 @@ import {
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
   detectDrugAlternative, detectInvestmentOpinion, detectWorkdaysQuestion,
-  detectFeeWhy, isDistanceQuestion, detectMarketPriceAsk, detectMarketMemoryAsk,
+  detectFeeWhy, isDistanceQuestion, detectNearestOfShown, detectCloseRemarkToBatch,
+  detectMarketPriceAsk, detectMarketMemoryAsk,
   detectBusinessBudgetAsk,
-  detectPriceEval,
+  detectPriceEval, adviceLaneAdmits,
+  detectNearbyAsk, detectSeenListingRecall,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -52,10 +54,26 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => !!detectWhereIs(t) },
   { intent: 'DISTANCE', note: '"KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?" ([22:25]) — how far the discussed property is from a place the client names. Sits after WHERE_IS (каде owns those), and BEFORE every funnel branch: the classifier read „STANOT“ as PROPERTY_ID_REQUESTED and answered a distance question with the property card',
     fires: t => isDistanceQuestion(t) },
+  { intent: 'NEAREST_OF_SHOWN', note: '«KOJ E NAJBLISKU DO KAFICOT?» ([22:03]) — which of the flats ALREADY OFFERED is nearest to the place the client names. Sits after WHERE_IS/DISTANCE (which own their questions) and before the funnel branches: the location-nag lane answered it with the last flat\'s nearby landmark, because «најблиску» contains «блиску»',
+    fires: t => detectNearestOfShown(t) },
+  { intent: 'NEAREST_OF_BATCH', note: '«OVA BESE BLISKU» ([20:17]) — a DEICTIC closeness remark about the batch just listed. No interrogative and no place of its own, so it sits AFTER NEAREST_OF_SHOWN (which owns the explicit «koj e najblisku do …» ranking) and BEFORE the funnel: the classifier read it as a description of an unknown listing and asked which neighbourhood/price it was',
+    fires: t => detectCloseRemarkToBatch(t) },
   { intent: 'MARKET_MEMORY', note: '„ИМАШЕчЕ ЕДНА КУчА ПРЕД НЕКОЕ ВРЕМЕ КАЈ ВАС… ОКОЛУ 400 ЕВРА КИРИЈА” ([02:00]) — a recall of an OLD agency listing. Sits BEFORE MARKET_PRICE: the rent noun + the ask shape make the market mirror claim the row, while the market arm does not capture it (landmark ≠ feed area, singular noun, rent-only guard) — the turn then fell to the discovery funnel. The archive ack owns it: the old offer is not in the feed, so no figure is quoted as live, and the recollected type/segment/amount land in slots for the follow-up search',
     fires: t => detectMarketMemoryAsk(t) },
   { intent: 'MARKET_PRICE', note: '"KAKO SE DVIZAT CENIVE ZA STANOVI VO AERODROM?" ([16:57]) — the €/m² range for a CATEGORY in an AREA, answered from the feed\'s own rows. Sits after WHERE_IS/DISTANCE (which own their questions) and before every property-price branch, which would otherwise quote the single flat on the table',
     fires: t => detectMarketPriceAsk(t) },
+  // R3 — the two rows the mirror was MISSING, found by replaying the production
+  // route-drift corpus through resolveIntent: the executor already served both
+  // (`inbound.ts` NEARBY_ASK interceptor, SEEN_LISTING_RECALL block), while the
+  // mirror predicted advice lanes instead — «STO IMA VO BLIZINA NA
+  // GARSONJERATA KAJ CRNOGORSKA AMBASADA?» was predicted PROPERTY_DESCRIPTION
+  // (production: NEARBY_ASK) and «IMAVTE EDNA KUKJA NAKAJ AERODROM …» was
+  // predicted SURROUNDINGS (production: SEEN_LISTING_RECALL). A missing row is
+  // not cosmetic: the drift log then blames the lane that was right.
+  { intent: 'NEARBY_ASK', note: 'what else is around the discussed/named building («sto ima vo blizina na …?») — the executor intercepts it before every funnel branch, so it must beat PROPERTY_DESCRIPTION here too',
+    fires: t => detectNearbyAsk(t) },
+  { intent: 'SEEN_LISTING_RECALL', note: 'a RECALLED listing («imavte edna kukja nakaj … okolu 130 000 bese») — past-tense had + determiner + property noun; the archive ack owns it, never the criteria funnel or a surroundings read',
+    fires: t => detectSeenListingRecall(t) },
   { intent: 'SURROUNDINGS', note: 'which-side / relative-to-the-named-places ask ("od stranata na trgovskiot ili odkaj pazarceto") — a LOCATION question the classifier settled with the closing fee pitch ([01:29] capture). Sits after WHERE_IS, which owns the каде questions, and before every funnel branch',
     fires: t => !!detectSurroundingsAsk(t) },
   { intent: 'PROPERTY_DESCRIPTION', note: '"гарсоњерата кај амбасадата" — remembered-property flow before FSM discovery swallows it',
@@ -182,10 +200,15 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   OWNER_CONTACT: M('OWNER_CONTACT', 'name/phone capture first'),
   WHERE_IS: M('WHERE_IS', 'каде owns those questions'),
   DISTANCE: M('DISTANCE', 'how far the discussed flat is from X'),
+  DISTANCE_BATCH: P('the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat’s number came back)'),
+  INFO_ASK_FLOORS: P('one floor question naming TWO flats («na koj sprat e 94 ? a na koj 90 ?») — one clause per Евидентен број (the [11:38] capture: only the bound flat was answered)'),
+  NEAREST_OF_SHOWN: M('NEAREST_OF_SHOWN', 'which of the offered flats is nearest to X'),
+  NEAREST_OF_BATCH: M('NEAREST_OF_BATCH', '«ova bese blisku» — the one nearest of the batch, with its measured distance'),
   MARKET_MEMORY: M('MARKET_MEMORY', 'a recollected OLD agency listing (имаше/беше … кај вас + noun + amount) — honest archive ack, beats MARKET_PRICE'),
   MARKET_PRICE: M('MARKET_PRICE', 'category+area fare range, beats PRICE_ASK'),
   SURROUNDINGS: M('SURROUNDINGS', 'which-side / relative-to-named-place'),
   PROPERTY_DESCRIPTION: M('PROPERTY_DESCRIPTION', 'remembered-property flow'),
+  SEEN_LISTING_RECALL: M('SEEN_LISTING_RECALL', 'a recalled listing («имавте една куќа накај Скопје Север, околу 130 000 беше») served from the bank by category+area+price in helpful mode — never the criteria ask ([18:41] capture)'),
   DESCRIBE_TABLE: P('“опиши ми ги?” — the flats she just offered, answered from the bank rows'),
   PICK_DESCRIBED: P('a pick among the flats she just described → the availability answer'),
   LOCATE_CONTINUE: P('bare «не» while choosing among described flats — the hunt continues'),
@@ -233,7 +256,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   LANDMARK_LADDER: P('location-nag ladder rung'),
   LOCATION_NAG: P('location question refused again'),
   MONEY_CLARIFY: P('money-without-target clarification'),
-  NEARBY_ASK: P('what is near the building'),
+  NEARBY_ASK: M('NEARBY_ASK', 'what is near the building — the interceptor runs before every funnel branch'),
   NEARBY_THREAD: P('what-else-is-near (rotation → protocol → lifecycle)'),
   'OWNER_HOLD:fast': P('owner unreachable continuation'),
   POI_CONFIRM: P('POI confirm question (landmark near?)'),
@@ -247,6 +270,8 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'PRICE_FRESHNESS:fast': P('is this price fresh? ask'),
   PROXY_CONTACT: P('contact via proxy (third person)'),
   RECOMMEND_ASK: P('“koj bi mi go preporacale?”'),
+  RENT_TERMS: P('the conditions of renting (commission tiers, first rent + deposit, one-year minimum) — provision.ask.rent, never the viewing fee'),
+  FEE_AGREED_FIRST: P('the first «да» after the fee disclosure — agreement opens contact collection'),
   'REMARK:bank': P('bank-backed generic remark'),
   'REMARK:fast': P('generic remark (deterministic)'),
   'RENT_MATH:fast': P('total cost math (kirija × term)'),
@@ -265,7 +290,9 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
 //   detectX(text) && stateGate(state) → bankKey || fallback
 //
 // This table encodes them as DATA so a new detector is one array entry —
-// no if/else editing, no ordering accident.
+// no if/else editing, no ordering accident. "One array entry" is complete: the
+// advice-lane gate (see dispatchSimple) is inherited by every entry, so a new
+// lane needs no search-turn veto of its own.
 //
 // IMPORTANCE: order matters — first match wins.  The order mirrors the
 // current if/else chain in inbound.ts exactly.
@@ -389,6 +416,14 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
  * Try the simple deterministic detectors in order.
  * Returns { intent, bankKey, fallback } for the first match, or undefined.
  *
+ * THE ADVICE-LANE GATE IS APPLIED HERE, not only inside the detectors that
+ * happen to have one: `adviceLaneAdmits` is the single policy table
+ * (ADVICE_GATES in llm/deterministic), and it DENIES BY DEFAULT. A lane added
+ * to this array tomorrow therefore cannot answer a search turn even if its own
+ * detector knows nothing about searches — the row, or an explicit `exempt`
+ * decision, is what lets it serve. tests/advice-lanes-search-answers.test.ts
+ * proves the inheritance with a fake lane and pins a row for every real one.
+ *
  * NOTE: OFFTOPIC has a special state gate (NOT owner_checking/pending)
  * that differs from the normal "allowedStates includes" check — handled
  * explicitly below.
@@ -400,6 +435,9 @@ export function dispatchSimple(
   for (const d of SIMPLE_DETECTORS) {
     try {
       if (!d.detect(text)) continue;
+
+      // THE SHARED GATE — before the lane can serve anything.
+      if (!adviceLaneAdmits(d.intent, text)) continue;
 
       // OFFTOPIC special gate: fires everywhere EXCEPT owner_checking/pending
       if (d.intent === 'OFFTOPIC') {

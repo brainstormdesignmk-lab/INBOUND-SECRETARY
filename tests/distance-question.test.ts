@@ -259,6 +259,13 @@ const EB84: Property = {
   service: 'buy', price: 117000, bedrooms: 3,
 } as Property;
 
+const EB77: Property = {
+  eb: 77, id: 77, uuid: 'eb77-capture',
+  address: 'МИРЧЕ ОРОВЧАНЕЦ 86', location: 'Центар',
+  lat: 41.9985, lon: 21.4192, geo_source: 'google_cached',
+  service: 'buy', price: 130000, bedrooms: 2,
+} as Property;
+
 class MultiProps extends PropertyService {
   constructor(private rows: Property[]) { super('http://feed-not-used'); }
   async getAll(): Promise<Property[]> { return this.rows; }
@@ -321,6 +328,96 @@ test('[21:22] the Евидентен број named in the ask is the flat the d
 });
 
 
+// ── THE COMPARISON (the [22:03] capture) ────────────────────────────────────
+//
+//   [22:02] ZDRAVO IMAVTE EDEN STAN ZA PRODAZBA KAJ BROZ KAFE . DALI USTE SE PRODAVA ?
+//   [22:02] ЛИНА: Имам три недвижности близу Броз Кафе: 95 / 84 / 77 …
+//   [22:03] KOJ E NAJBLISKU DO KAFICOT ?
+//   [22:03] ЛИНА: Тоа се наоѓа во близина на УДГС Здравко Цветковски. <maps link>
+//
+// The client asks WHICH of the three is nearest to the café he just named. The
+// reply was the LAST flat's nearby landmark — a landmark nobody asked about,
+// for a flat he had not chosen.
+test('[22:03] “koj e najblisku do kaficot?” names the nearest of the offered flats', async () => {
+  const { handler, sessions, sent } = await makeMultiHandler([EB95, EB84, EB77]);
+  const chatId = 'capture-2203';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'ZDRAVO IMAVTE EDEN STAN ZA PRODAZBA KAJ BROZ KAFE . DALI USTE SE PRODAVA ?');
+  const offered = sent[sent.length - 1] ?? '';
+  assert.ok(/95/u.test(offered) && /84/u.test(offered) && /77/u.test(offered),
+    `the three flats near the place are offered first: ${offered}`);
+  sent.length = 0;
+
+  // The café is a PRONOUN here — the anchor of the hunt is what it means.
+  await handler.handle('test', chatId, 'KOJ E NAJBLISKU DO KAFICOT ?');
+  const answer = sent[sent.length - 1] ?? '';
+  assert.match(answer, /Најблизу до Броз Кафе е Евидентен број 95/u,
+    `the nearest of the three answers the question: ${answer}`);
+  // Every offered flat is ranked, and the ranking follows the real distances.
+  assert.match(answer, /Евидентен број 77/u, `the others are ranked too: ${answer}`);
+  assert.match(answer, /Евидентен број 84/u, `the others are ranked too: ${answer}`);
+  const metres = [...answer.matchAll(/(\d+) метри/gu)].map(m => parseInt(m[1], 10));
+  assert.ok(metres.length === 3, `three measured distances: ${answer}`);
+  assert.deepEqual(metres, [...metres].sort((a, b) => a - b), `nearest first: ${answer}`);
+  // The failure is gone: no landmark line, no rotation, no link.
+  assert.ok(!/се наоѓа во близина на/u.test(answer), `never the nearby-landmark line: ${answer}`);
+  assert.ok(!/maps\.google/u.test(answer), `no place link: ${answer}`);
+
+  // Naming the place explicitly answers the same way.
+  sent.length = 0;
+  await handler.handle('test', chatId, 'A KOJ E NAJBLISKU DO BROZ KAFE ?');
+  const explicit = sent[sent.length - 1] ?? '';
+  assert.match(explicit, /Најблизу до Броз Кафе е Евидентен број 95/u, `same answer for the named place: ${explicit}`);
+});
+
+// ── «OVA BESE BLISKU» (the [20:17] capture) ─────────────────────────────────
+//
+//   [20:16] GLEDAV EDEN STAN KAJ VAS KAJ BROZ KAFE / DALI E USTE AKTIVEN ?
+//   [20:16] ЛИНА: Имам три недвижности близу Броз Кафе: 95 / 84 / 77 …
+//   [20:17] OVA BESE BLISKU
+//   [20:17] ЛИНА: Во ред, ќе се обидам да го најдам. Кажете ми — во која
+//                   населба е, колку квадрати има и по која цена беше?   ✗
+//
+// The client pointed BACK at the batch. The mandated answer names the one
+// nearest of the offered flats and the measured distance, in one sentence.
+test('[20:17] “ova bese blisku” names the nearest of the batch and its distance', async () => {
+  const { handler, sessions, sent } = await makeMultiHandler([EB95, EB84, EB77]);
+  const chatId = 'capture-2017';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'ZDRAVO IMAVTE EDEN STAN ZA PRODAZBA KAJ BROZ KAFE . DALI USTE SE PRODAVA ?');
+  const offered = sent[sent.length - 1] ?? '';
+  assert.ok(/95/u.test(offered) && /84/u.test(offered) && /77/u.test(offered),
+    `the batch near the place is on the table: ${offered}`);
+  sent.length = 0;
+
+  await handler.handle('test', chatId, 'OVA BESE BLISKU');
+  const answer = sent[sent.length - 1] ?? '';
+  // The dictated shape: the nearest EB and the distance from the place.
+  assert.match(answer,
+    /Недвижноста која е најблиску до Броз Кафе е: Евидентен број 95 на \d+ метри растојание\./u,
+    `the dictated sentence, nearest of the batch: ${answer}`);
+  // THE TURN ADVANCES: the sentence names the flat, then the visit offer asks
+  // for it — one question, and no fee wording before the client agrees.
+  assert.match(answer, /посета/iu, `a visit must be offered after the sentence: ${answer}`);
+  // The pool's variants are both shapes — a question ("Дали би сакале…?") and
+  // an offer with its promise ("…Ќе организирам посета во термин по Ваш
+  // избор.") — so the contract is the OFFER, not a trailing question mark.
+  assert.match(answer, /(?:организирам|закажам|договорам) посета/iu,
+    `the offer must say it arranges the visit: ${answer}`);
+  assert.ok(answer.split('\n\n').length >= 2, `the offer is its own paragraph: ${answer}`);
+  assert.ok(!/надомест|денар|300|500/u.test(answer), `no fee wording yet: ${answer}`);
+  // …and the nearest flat is the one under discussion, so a "да" continues the
+  // visit protocol on it instead of restarting the hunt.
+  assert.equal(sessions.get(chatId)?.slots.propertyId, 95, 'the nearest flat is bound');
+  // The [20:17] failure is gone: no recall ask, no card re-serve, no landmark
+  // line about a flat nobody chose.
+  assert.ok(!/во која населба е/u.test(answer), `never the recall ask: ${answer}`);
+  assert.ok(!/се наоѓа во близина на/u.test(answer), `no nearby-landmark line: ${answer}`);
+  assert.ok(!/maps\.google/u.test(answer), `no place link: ${answer}`);
+});
+
 test('[22:25] a place the map does not know is never given a fabricated distance', async () => {
   const { handler, sessions, sent } = await makeHandler();
   const chatId = 'capture-2225-miss';
@@ -330,4 +427,139 @@ test('[22:25] a place the map does not know is never given a fabricated distance
   await handler.handle('test', chatId, 'KOLKU IMA OD STANOT DO NEPOSTOECHKO MESTO XYZ?');
   const answer = sent[sent.length - 1] ?? '';
   assert.ok(!/се наоѓа на \d+ метри/.test(answer), `no invented distance: ${answer}`);
+});
+
+// ── «ЕКОНОМСКОТО» IS A MAP PLACE, NOT A GAP (the [11:28] capture) ────────────
+//
+//   [11:27] cards for EB 94 and EB 90 — both Кисела Вода
+//   [11:28] NA KOLKAVO RASTOJANIE SE DO EKONOMSKOTO ?
+//   [11:31] ЛИНА [dynamic]: Точното растојание до Економското училиште не ми е
+//            заведено во записите. Веднаш ќе проверам кај сопствениците…     ✗
+//
+// The map KNOWS the school: «СЕПУГС Васил Антевски - Дрен», the city's Средно
+// економско-правно училиште in Кисела Вода — 166 m from EB 94, 622 m from
+// EB 90. Its row carries only the official abbreviation, so the client's words
+// («економското», «економското сколо») never matched it, the lane fell through
+// and the LLM invented a gap about a place the map measures to the metre. Both
+// halves are pinned here: the name bridge, and one measured line per flat.
+const EB94: Property = {
+  eb: 94, id: 94, uuid: 'eb94-capture',
+  address: 'ТОНЕ ТОМШИЌ 25', location: 'Кисела Вода',
+  lat: 41.9813, lon: 21.4382, geo_source: 'osm_building',
+  service: 'buy', price: 92000, bedrooms: 2,
+} as Property;
+const EB90: Property = {
+  eb: 90, id: 90, uuid: 'eb90-capture',
+  address: 'ЛОКОВ 5', location: 'Кисела Вода',
+  lat: 41.9744, lon: 21.4403, geo_source: 'google_cached',
+  service: 'buy', price: 75000, bedrooms: 2,
+} as Property;
+
+test('«економското» reaches the school row filed under СЕПУГС', () => {
+  for (const q of ['економското', 'EKONOMSKOTO', 'економското училиште',
+    'ЕКОНОМСКОТО СКОЛО', 'ekonomsko uciliste']) {
+    const hit = map().findPoiByName(q, { lat: 41.9813, lon: 21.4382 });
+    assert.ok(hit, `${q} must resolve`);
+    assert.match(hit!.name, /СЕПУГС/u, `${q} → the economics school row: ${hit!.name}`);
+  }
+});
+
+test('[11:28] the distance question after two cards answers for BOTH flats', async () => {
+  const { handler, sessions, sent } = await makeMultiHandler([EB94, EB90]);
+  const chatId = 'capture-1128';
+  const s = freshSession('test', chatId);
+  s.slots.currentBatch = [94, 90];
+  s.slots.presentedIds = [94, 90];
+  s.slots.propertyId = 94;
+  s.slots.service = 'buy';
+  sessions.set(s);
+
+  await handler.handle('test', chatId, 'NA KOLKAVO RASTOJANIE SE DO EKONOMSKOTO ?');
+  const answer = sent[sent.length - 1] ?? '';
+  assert.ok(answer, 'the distance question must be answered');
+  // The failure is gone: never an invented gap about a place the map measures.
+  assert.ok(!/не ми е заведено|не е заведено|ќе проверам кај сопственик/u.test(answer),
+    `never the invented gap: ${answer}`);
+  // The school, spelled out — an acronym alone tells the client nothing.
+  assert.match(answer, /Средно економско-правно училиште/u, `the school is named in full: ${answer}`);
+  const at = (eb: number): number | undefined => {
+    const m = answer.match(new RegExp(`Евидентен број ${eb} — на (?:околу )?(\\d+) метри`, 'u'));
+    return m ? parseInt(m[1], 10) : undefined;
+  };
+  const d94 = at(94), d90 = at(90);
+  assert.ok(d94 !== undefined, `EB 94 has its own distance: ${answer}`);
+  assert.ok(d90 !== undefined, `EB 90 has its own distance: ${answer}`);
+  // Measured, not invented: EB 94 is ~166–200 m from the school, EB 90 ~600 m.
+  assert.ok(d94! >= 100 && d94! <= 300, `EB 94 is close to the school: ${d94}`);
+  assert.ok(d90! >= 450 && d90! <= 900, `EB 90 is farther from it: ${d90}`);
+  assert.ok(d94! < d90!, `nearest first: ${answer}`);
+  // The turn advances, and the nearest flat is the one a «да» continues on.
+  assert.match(answer, /посета/iu, `a visit is offered: ${answer}`);
+  assert.equal(sessions.get(chatId)?.slots.propertyId, 94, 'the nearest flat is bound');
+});
+
+test('[11:28] one flat keeps the single-sentence distance answer', async () => {
+  const { handler, sessions, sent } = await makeMultiHandler([EB94]);
+  const chatId = 'capture-1128-one';
+  const s = freshSession('test', chatId);
+  s.slots.propertyId = 94;
+  s.slots.service = 'buy';
+  sessions.set(s);
+  await handler.handle('test', chatId, 'NA KOLKAVO RASTOJANIE E STANOT OD EKONOMSKOTO ?');
+  const answer = sent[sent.length - 1] ?? '';
+  assert.match(answer, /Средно економско-правно училиште[^.]*се наоѓа на \d+ метри/u,
+    `the measured sentence, school spelled out: ${answer}`);
+  assert.match(answer, /од недвижноста/u, `stated as a distance FROM the property: ${answer}`);
+});
+
+// ── THE FLAT HE JUST ASKED ABOUT OWNS THE DISTANCE (the [09:09] capture) ────
+//
+//   [09:09] 66 DALI E DOSTAPEN USTE ?            → availability ack, 66 pinned
+//   [09:09] NA KOLKAVO RASTOJANIE E OD BUNJAKOVEC ?
+//   [09:09] ЛИНА: Растојанието до Буњаковец:  • 84 …  • 51 …      ✗ (the batch)
+//   [09:10] TE PRASAV ZA 66                                        (and again)
+//
+// 66 was the flat under discussion; the batch arm answered for the two cards
+// behind it and then stamped the nearest of THEM onto the slots, so the next
+// turn had no anchor at all. The batch is the subject only while nothing else
+// is: either no flat is under discussion, or the discussed one is IN the batch.
+const EB66D: Property = {
+  eb: 66, id: 66, uuid: 'eb66-capture',
+  address: 'РУЗВЕЛТОВА', location: 'Центар',
+  lat: 41.9990, lon: 21.4320, geo_source: 'google_cached',
+  service: 'buy', price: 145000, bedrooms: 3,
+} as Property;
+const EB51D: Property = {
+  eb: 51, id: 51, uuid: 'eb51-capture',
+  address: 'ВОДНО', location: 'Водно',
+  lat: 41.9900, lon: 21.4000, geo_source: 'google_cached',
+  service: 'buy', price: 105000, bedrooms: 3,
+} as Property;
+
+test('[09:09] a discussed flat OUTSIDE the batch answers the distance alone, by its number', async () => {
+  const { handler, sessions, sent } = await makeMultiHandler([EB66D, EB84, EB51D]);
+  const chatId = 'capture-0909';
+  const s = freshSession('test', chatId);
+  s.state = 'closing';
+  s.slots.service = 'buy';
+  // «66 DALI E DOSTAPEN USTE?» pinned 66; the batch behind it is the OLD pair.
+  s.slots.propertyId = 66;
+  s.slots.interestedPropertyId = 66;
+  s.slots.currentBatch = [84, 51];
+  s.slots.presentedIds = [84, 51, 66];
+  sessions.set(s);
+
+  await handler.handle('test', chatId, 'NA KOLKAVO RASTOJANIE E OD BUNJAKOVEC ?');
+  const answer = sent[sent.length - 1] ?? '';
+
+  assert.match(answer, /Буњаковец/u, `the named place is resolved: ${answer}`);
+  assert.match(answer, /Евидентен број 66/u, `the flat he asked about is NAMED: ${answer}`);
+  // Measured, never invented — the unit follows the distance (this fixture's
+  // EB 66 is ~1,1 km from the mall, so the metre-only helper would miss it).
+  assert.match(answer, /се наоѓа на (?:околу )?\d+(?:,\d+)? (?:метри|километри)/u,
+    `66's distance is measured: ${answer}`);
+  assert.ok(!/Евидентен број 84|Евидентен број 51/u.test(answer),
+    `the flats of the old batch are not the subject: ${answer}`);
+  assert.equal(sessions.get(chatId)?.slots.propertyId, 66,
+    'the discussed flat stays bound (it was overwritten with the batch before)');
 });

@@ -102,6 +102,15 @@ test('an empty FIRST search asks about other parts, never for name and phone', a
   assert.doesNotMatch(reply, /(?<![\p{L}])(?:име(?:\s+и\s+презиме)?|телефон)(?![\p{L}])/iu,
     `no contact ask before anything was shown: ${reply}`);
   assert.match(reply, /Дебар Маало/);
-  assert.match(reply, /(друга локациј|други (?:населби|локации|делови)|блиски локации|пошироко)/iu,
+  // The widen is a QUESTION about other areas — whichever bank variant answers.
+  // «Дебар Маало» is also a MAP place, so the empty search is anchored on the
+  // quarter and the anchored-empty copy says «некоја друга сооодветна
+  // локација»; the area-locked copy says «друга локација», and its own pool
+  // also carries «некоја друга населба» (singular) and «други делови од
+  // градот». Same question, same promise (and the reply still names Дебар
+  // Маало, asserted above) — the expectation is the contract, not one wording
+  // of it. The singular «населба» arm was missing: the pool's fourth variant
+  // answered correctly and the assertion alone called it a failure.
+  assert.match(reply, /(друга\s+(?:соодветна\s+)?(?:локациј|населб)|други (?:населби|локации|делови)|друг дел од градот|блиски локации|пошироко)/iu,
     `the widen is a QUESTION about other areas: ${reply}`);
 });

@@ -27,19 +27,32 @@ export interface Classified {
  * A bare clock with no day donates the OWNER'S counter day ("порано во 5"
  * after «четврток во 19:30» → "четврток во 5") — never a TODAY collapse.
  */
+/** THE CLIENT'S COUNTER TO THE OWNER'S TERM, merged into ONE phrase. A bare
+ *  clock — or an EARLIER/LATER adjustment of the owner's own hour («DALI KE MOZE
+ *  PORANO MALCE . NAKAJ 5 ?», the [00:59] capture: the owner offered Петок
+ *  18:00 and the client asked for around 5) — keeps the OWNER'S DAY: the client
+ *  is moving the HOUR, not the day. The owner's term is the day donor BEFORE
+ *  the stored slot, whose own clock may be the term the client is leaving
+ *  behind (the [17:45] rule).
+ *
+ *  ONE function for all three readers (time_confirm plus both owner_checking
+ *  legs): they used to merge differently, so the same message could keep the
+ *  owner's day on one path and lose it on the other. */
+function counterMergedTerm(t: string, session: ChatSession): string {
+  if (hasDayWord(t) || !hasClockHint(t)) return t;
+  const ownerTerm = session.slots.ownerTime ?? '';
+  const donor = hasDayWord(ownerTerm) ? ownerTerm : (session.slots.visitTime ?? '');
+  const d = extractDayWord(donor);
+  return d ? `${d} ${t.trim()}` : t;
+}
+
 function timeConfirmCounterEvent(t: string, session: ChatSession): Event {
   const ownerTerm = session.slots.ownerTime ?? '';
   const normDetect = normalizeOwnerTime(t);
   if (normDetect && ownerTerm && normDetect === normalizeOwnerTime(ownerTerm)) {
     return { type: 'TIME_ACCEPTED' }; // echo of the term on the table
   }
-  let merged = t;
-  if (!hasDayWord(t) && hasClockHint(t)) {
-    const dayDonor = hasDayWord(ownerTerm) ? ownerTerm : (session.slots.visitTime ?? '');
-    const d = extractDayWord(dayDonor);
-    if (d) merged = `${d} ${t.trim()}`;
-  }
-  return { type: 'VISIT_TIME_PROVIDED', visitTime: merged };
+  return { type: 'VISIT_TIME_PROVIDED', visitTime: counterMergedTerm(t, session) };
 }
 
 // Cold brain: pure intent extraction, never persona prose.
@@ -490,6 +503,15 @@ export class Classifier {
       garsonjera: slots.garsonjera,
       plac: slots.plac, yard: slots.yard,
     });
+    // THE PLACE IN A SEARCH PHRASE SURVIVES THE DETERMINISTIC PATH (the [01:48]
+    // capture): «SAKAM DA KUPAM STAN VO BLIZINA NA ZELEZNICKA» names the anchor
+    // the client's NEXT turn refers to («STO IMATE VO TOJ REON?»). The LLM path
+    // stamped poiAnchor on its event, but this path builds a FRESH one and the
+    // wish was dropped — the funnel then asked its criteria with no geography
+    // at all, and the follow-up had no referent to answer from. Attached to a
+    // real event only (STAY returns above).
+    const wishHere = ev.type !== 'STAY' ? extractPoiWish(text) : undefined;
+    if (wishHere) (ev as { poiAnchor?: string }).poiAnchor = wishHere;
 
     // Bare-number: set propertyId on event BEFORE funnel overrides so
     // visit interest can read it ("ДОГОВОРИ MI ЗА ОВОЈ СО БРОЈ 89" →
@@ -823,14 +845,10 @@ export class Classifier {
           && (text.trim().toLowerCase() === stored.split(',')[0].trim().toLowerCase()
             || stored.trim().toLowerCase().endsWith(text.trim().toLowerCase()));
         if (t && !dupClock && t.trim().toLowerCase() !== stored.trim().toLowerCase()) {
-          let merged = t;
-          if (!hasDayWord(t) && hasDayWord(stored)) {
-            // DAY-FIRST merge everywhere ([12:43] contract) — and only when
-            // the stored phrase lacks its own clock (a stored clock must
-            // never resurrect under a new bare proposal).
-            if (!hasClockHint(stored)) merged = `${stored.trim()} ${t.trim()}`;
-          }
-          ev = { type: 'VISIT_TIME_PROVIDED', visitTime: merged };
+          // DAY-FIRST merge ([12:43] contract) through the ONE helper the
+          // time_confirm leg uses: the owner's day is the context of an hour
+          // adjustment, and a stored clock never resurrects under it.
+          ev = { type: 'VISIT_TIME_PROVIDED', visitTime: counterMergedTerm(t, session) };
         }
         // else: a duplicate re-send (whole phrase, or the bare clock after a
         // merge) or no time at all — ev unchanged, the check stays in flight.
@@ -1253,7 +1271,13 @@ export class Classifier {
         garsonjera: ev.garsonjera || undefined,
         plac: ev.plac || undefined, yard: ev.yard || undefined,
       });
-      if (det.type !== 'STAY') parsed.event = det;
+      // The same anchor carry as the deterministic path: buildEvent() knows
+      // nothing about places, so replacing the LLM event with `det` used to
+      // erase the poiAnchor the client had just named.
+      if (det.type !== 'STAY') {
+        if (poiWish) (det as { poiAnchor?: string }).poiAnchor = poiWish;
+        parsed.event = det;
+      }
       // Same session-merge completeness as the deterministic path (LLM-down
       // mirrors it): merged criteria complete → SEARCH_REQUESTED, never a
       // dead-end "Во ред, ги забележав" in discovery.
@@ -1499,17 +1523,8 @@ export class Classifier {
           && (text.trim().toLowerCase() === stored.split(',')[0].trim().toLowerCase()
             || stored.trim().toLowerCase().endsWith(text.trim().toLowerCase()));
         if (t && !dupClock && t.trim().toLowerCase() !== stored.trim().toLowerCase()) {
-          let merged = t;
-          if (!hasDayWord(t) && hasDayWord(stored)) {
-            // DAY-FIRST merge order everywhere ([12:43] contract): the stored
-            // day is the context, the new clock is the news — and
-            // hasClockHint/normalizeOwnerTime read the day-then-hour form.
-            // The clock-carrying-store guard: a stored phrase with its own
-            // clock never donates the day (the rejected 18:00 must not
-            // resurrect under a new proposal).
-            if (!hasClockHint(stored)) merged = `${stored.trim()} ${t.trim()}`;
-          }
-          parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: merged };
+          // Same ONE merge helper as the deterministic leg and time_confirm.
+          parsed.event = { type: 'VISIT_TIME_PROVIDED', visitTime: counterMergedTerm(t, session) };
         }
       }
     }

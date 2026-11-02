@@ -20,6 +20,25 @@ test('recommend-ask detector: grammar family coverage', () => {
   assert.equal(detectRecommendAsk('preporaka?'), true);
 });
 
+// THE [02:16] CAPTURE: „SE MISLAM MEGJU OVIE DVE. NE ZNAM KOJA DA JA ODBERAM."
+// then „KOJA OPCIJA BI MI JA PREPORACALE?". Neither message names the verb
+// „preporac-“ in its first half, so recognition has to come from the CLASSES
+// (choose / option-noun / comparative), not from appended phrases.
+test('recommend-ask detector: choice, option and comparative classes', () => {
+  assert.equal(detectRecommendAsk('KOJA OPCIJA BI MI JA PREPORACALE ?'), true);
+  assert.equal(detectRecommendAsk('koja opcija bi mi ja preporacale ?'), true);
+  assert.equal(detectRecommendAsk('koe bi go odbrale?'), true);
+  assert.equal(detectRecommendAsk('ne znam koja da ja odberam'), true);
+  assert.equal(detectRecommendAsk('која опција е подобра?'), true);
+  assert.equal(detectRecommendAsk('која да ја одберам?'), true);
+  assert.equal(detectRecommendAsk('ШТО БИ ИЗБРАЛЕ ВИЕ?'), true);
+  // The interrogative anchor keeps the same stems out of ordinary speech:
+  // „избегав од тоа“ (I avoided it) is not a choice question.
+  assert.equal(detectRecommendAsk('izbegav od toa'), false);
+  assert.equal(detectRecommendAsk('избегав од тоа'), false);
+  assert.equal(detectRecommendAsk('koja e cenata?'), false);
+});
+
 test('comparative-judgment family routes to the same handler (the 18:21 transcript)', () => {
   assert.equal(detectRecommendAsk('KOJ OD OVIE DVA E PODOBAR SPORED VAS ?'), true);
   assert.equal(detectRecommendAsk('koj e podobar?'), true);
@@ -68,12 +87,32 @@ test('buildRecommendation: full cards from DB facts + the clientela close', () =
   assert.match(out, /Аеродром/);
   assert.match(out, /110\.000/);
   // The close: any variant, but always the clientela/in-person framing +
-  // the visit offer. The rotation is RANDOM — assert the last line is a
-  // question that offers a visit, whatever the picked phrasing is.
+  // the visit offer. The rotation is RANDOM — assert the last line carries
+  // both, whatever the picked phrasing is.
+  //
+  // Two shapes are legitimate and both are served: a QUESTION („Дали да
+  // договорам посета?“) and a CONFIRMATION ASK („Треба само да ми потврдите
+  // која…“) — the second is how the owner-dictated wordings are phrased, and a
+  // proverb-style line („Убавината е во очите на набљудувачот“) carries no
+  // question mark at all.
   const closer = out.trim().split('\n').pop() ?? '';
-  assert.match(closer, /\?$/, `close must end with a question: ${closer}`);
-  assert.match(closer, /посета/, `close must offer a visit: ${closer}`);
-  assert.match(out, /осетите просторот|на лице место|во живо|погледнете во живо/);
+  assert.match(closer, /посет|осети|види лично/, `close must offer a visit: ${closer}`);
+  assert.match(closer, /\?$|потврд|кажете|посочите|Ве молам/, `close must put the choice to the client: ${closer}`);
+  assert.match(out, /осетите просторот|на лице место|во живо|погледнете во живо|се види лично/);
+});
+
+// The owner dictated two wordings for this exact question and they must be
+// served verbatim — no model paraphrase of a phrase that was written by hand.
+test('recommend.close: the two dictated [02:16] wordings are present verbatim', () => {
+  const v = (RESPONSE_BANK as Record<string, string[]> | undefined)['recommend.close'] ?? [];
+  const dictated = [
+    'Секоја недвижнина има своја специфичност. Најдобро е да ги погледнете во живо, и сами да одлучите. Треба само да ми потврдите која од нив би сакале да ја посетите, и јас ќе договорам се.',
+    'Убавината е во очите на набљудувачот. Секоја недвижност мора да се види лично за да се осети. Ако сакате да ви договорам посета треба само да ми кажете кој Евидентен број би сакале да го видите и јас ќе се погрижам за се.',
+  ];
+  for (const d of dictated) assert.ok(v.includes(d), `missing dictated wording: ${d.slice(0, 40)}…`);
+  // …and the code-built rotation carries them too, so the bank and the fallback
+  // never drift apart.
+  for (const d of dictated) assert.ok(RECOMMEND_CLOSE_LINES.includes(d), `code fallback missing: ${d.slice(0, 40)}…`);
 });
 
 test('recommend.close bank key: owner wording only, FROZEN against enrichment', () => {
