@@ -180,25 +180,24 @@ test('the intake resolves Буњаковец to Центар and the learned row
   assert.equal(s.slots.location, 'Центар', `Буњаковец resolves to its feed area, got ${s.slots.location}`);
 });
 
-test('[04:17] stock at a place with NO type is SERVED there, and the type is asked — never presumed', async () => {
+test('[04:17] stock at a place with NO type is answered in prose — no category presumed', async () => {
   const { handler, sessions, sent, chatId } = makeHandler();
   await handler.handle('test', chatId, 'ZDRAVO. STO IMATE VO BUNJAKOVEC ?');
   const answer = sent[sent.length - 1] ?? '';
-  // The client named a PLACE and nothing else. Two superseded readings, one
-  // surviving contract:
-  //   • the ORIGINAL defect was «Дали СТАНОТ го барате…» — an apartment he never
-  //     mentioned, so no QUESTION may presume a category;
-  //   • the market question was the interim answer (he must name buy/rent);
-  //   • since the [01:45] extension the rows near the place ARE served, and the
-  //     type question rides the serve — the place the client named buys stock.
-  // The type-presumption contract is now checked on the QUESTION, because the
-  // CARDS legitimately describe the rows that exist («трисобен стан» is their
-  // own fact, not an assumption about him).
-  assert.match(answer, /Евидентен број 10[24]/u, `the rows near Буњаковец serve: ${answer}`);
+  // The client named a PLACE and nothing else. The [17:30] owner rule is the
+  // contract now: no card pair (a card answers a category he never named), and
+  // no question that presumes one. The place is named back to him, and the
+  // question still owed is asked — the MARKET, since he has not said buy or
+  // rent either.
+  assert.doesNotMatch(answer, /Евидентен број/u, `no cards before the category: ${answer}`);
   assert.ok(!/Дали станот|станот го барате|стан за купување или за изнајмување|куќата го барате/iu.test(answer),
     `the question presumes a category (the [04:17] capture): ${answer}`);
-  assert.match(answer, /тип|стан, куќа, деловен простор или плац|купување или изнајмување/iu,
-    `the type/market question is what he owes: ${answer}`);
+  assert.match(answer, /Буњак/iu, `the place he named is named back: ${answer}`);
+  // The market question rotates wordings («купување или изнајмување», «…за
+  // купување или ЗА изнајмување», «барате опција за изнајмување») — the
+  // contract is both markets named, in either order.
+  assert.match(answer, /(?:куп|набав)\p{L}*[\s\S]{0,60}изнајм|изнајм\p{L}*[\s\S]{0,60}(?:куп|набав)/iu,
+    `the market question is what he owes: ${answer}`);
   assert.ok(answer.trim().endsWith('?'), answer);
 
   // The service answer keeps the TYPE question open: he still has not said WHAT
@@ -240,19 +239,15 @@ test('[22:58] the area the client named survives the turn that answers him', asy
   const s = sessions.get(chatId)!;
   // A learned row for this exact phrasing IS in the bank, and it must not own
   // the turn: stock-at-a-place is funnel traffic (the [02:15]/[04:17]
-  // contract), and the stored prose is what used to swallow the geography.
+  // contract), and a verbatim stored answer is what used to swallow the
+  // geography.
   assert.notEqual(sent[sent.length - 1], LEARNED_CAPITOL,
-    'a stock-at-a-place ask must not be answered by stored prose');
-  // THE OPTIONS ASK IS SERVED (the [01:45] capture, which supersedes the
-  // market-question assertion this line used to pin): «што имате ИНТЕРЕСНО кај
-  // X» asks to SEE what is there. Two clients asked that question in one
-  // session — «DALI IMATE NESTO INTERESNO KAJ ZEBRA ?» got three properties while
-  // «ZDRAVO . STO IMATE INTERESNO KAJ ZEBRA ?» got «дали сте во потрага по
-  // недвижност за купување или за изнајмување?». The rows near the place are
-  // served now, and the TYPE question (the [02:15] owner rule) rides the reply,
-  // type-neutral — no category is presumed.
-  assert.match(sent[sent.length - 1] ?? '', /Евидентен број \d+/u,
-    `the inventory near the place is served: ${sent[sent.length - 1]}`);
+    'a stock-at-a-place ask must not be answered by the stored verbatim row');
+  // THE [17:30] OWNER ANSWER: prose with the place in it + the market question.
+  // No cards: he named a place, not a category or a market.
+  assert.doesNotMatch(sent[sent.length - 1] ?? '', /Евидентен број \d+/u,
+    `no cards on the stock ask: ${sent[sent.length - 1]}`);
+  assert.match(sent[sent.length - 1] ?? '', /Капитол/iu, `the place is named back: ${sent[sent.length - 1]}`);
   assert.ok(!/стан(?:от)? го барате|стан за купување или за изнајмување/iu.test(sent[sent.length - 1] ?? ''),
     `no property type is presumed: ${sent[sent.length - 1]}`);
   assert.ok(s.slots.poiAnchor, 'the place the client named is on file');

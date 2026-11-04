@@ -113,7 +113,13 @@ test('[00:11] two railway places are served ONE CARD EACH, each with its own dis
     ['Железничка станица Скопје', 'ТЦ Скопјанка'],
     'both places the client named are kept, in his order');
 
-  const reply = await say('STO IMATE DOSTAPNO VO MOMENTOV ?');
+  // The categories' criteria are still owed, so the inventory turn ASKS them
+  // (the [20:39] owner order: define the ask, then serve) and serves no card.
+  const ask = await say('STO IMATE DOSTAPNO VO MOMENTOV ?');
+  assert.doesNotMatch(ask, /Евидентен број/u, `no pair before the criteria: ${ask}`);
+
+  // …with them in, the pair is served ONE CARD PER PLACE.
+  const reply = await say('TRISOBEN DO 200000');
   const s = sessions.get(chatId)!;
   assert.equal(s.slots.currentBatch?.length, 2, `a pair of two cards: ${reply}`);
   const anchors = (s.slots.currentBatch ?? []).map(id => s.slots.pairAnchorOf?.[String(id)]?.name).filter(Boolean);
@@ -127,6 +133,9 @@ test('[00:15] «DAJ MI INFO ZA 91» answers the FLAT, never its availability', a
   const { say } = makeHandler('zel-info');
   await say('ZDRAVO DAKAM DA KUPAM STAN DO ZELEXNICKA , SKOPJANKA');
   await say('STO IMATE DOSTAPNO VO MOMENTOV ?');
+  // The pair is on the table only after the criteria (the [20:39] order) — the
+  // info ask below is about a card the client has actually been shown.
+  await say('TRISOBEN DO 200000');
   const reply = await say('DAJ MI INFO ZA 91');
 
   assert.match(reply, /Евидентен број 91/, `the card he asked for: ${reply}`);

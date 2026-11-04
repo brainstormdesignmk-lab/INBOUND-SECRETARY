@@ -18,9 +18,14 @@
  *   1. the place the client named survives into the fallback, with the
  *      MEASURED distance on every card (the handler wires its landmark
  *      service into the responder once, in the constructor);
- *   2. the funnel's own questions ride the serve — `missingCriteriaAsk` is
- *      type-aware, so a стан asks спални + money and a деловен простор asks
- *      м² + price, and nothing already on file is re-asked.
+ *   2. nothing already on file is re-asked — `missingCriteriaAsk` is
+ *      type-aware (спални + money for a стан, м² + price for a деловен
+ *      простор) and asks ONLY what is missing. Since the [17:43] order
+ *      completes the criteria BEFORE the pair, a batch on the table normally
+ *      has nothing left to ask: the fallback must not invent a question about
+ *      a criterion the session already holds (the old assertion required the
+ *      questions to ride the serve, which only held while the pair was served
+ *      with the criteria still owed).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -51,6 +56,11 @@ const ROWS: Property[] = [
   { eb: 922, id: 922, location: 'Центар', address: 'Ул. Никола Вапцаров 21', price: 380, service: 'rent', bedrooms: 1, sqm: 40, size: '40 м²', lat: 41.9981, lon: 21.4195 },
   { eb: 923, id: 923, location: 'Центар', address: 'Ул. Буњаковец 4', price: 700, service: 'rent', bedrooms: 2, sqm: 55, size: '55 м²', lat: 41.9970, lon: 21.4179 },
   { eb: 924, id: 924, location: 'Центар', address: 'Ул. Буњаковец 9', price: 900, service: 'rent', bedrooms: 3, sqm: 90, size: '90 м²', lat: 41.9985, lon: 21.4188 },
+  // TWO MORE two-room rent rows: the [17:43] order makes the setup answer the
+  // flat's criteria before the pair, so the criteria answer itself serves a pair
+  // and the audit's turn must still find a SECOND batch behind it.
+  { eb: 925, id: 925, location: 'Центар', address: 'Ул. Никола Вапцаров 30', price: 480, service: 'rent', bedrooms: 2, sqm: 61, size: '61 м²', lat: 41.9974, lon: 21.4186 },
+  { eb: 926, id: 926, location: 'Центар', address: 'Ул. Никола Вапцаров 34', price: 470, service: 'rent', bedrooms: 2, sqm: 58, size: '58 м²', lat: 41.9972, lon: 21.4183 },
 ];
 
 class FakeProps extends PropertyService {
@@ -95,7 +105,11 @@ async function auditTurn(id: string, message: string): Promise<string> {
   if (!map.available) return ''; // no live map on this machine — the pins below are unreachable
   const { say, sessions, chatId } = makeHandler(id);
   await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
+  // The order the owner fixed ([17:43]): market → TYPE → the category's own
+  // questions → the pair. The type answer asks the criteria, so the audit's
+  // setup must answer them before a pair is on the table.
   await say('SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC ?');
+  await say('DVOSOBEN DO 500');
   const s = sessions.get(chatId)!;
   assert.equal(s.state, 'presentation', 'the setup turn must be in presentation');
   assert.ok(s.slots.poiAnchor, 'the setup turn must carry the place');
@@ -106,8 +120,8 @@ const assertAnchoredServe = (reply: string, lane: string): void => {
   assert.match(reply, /Буњак/iu, `${lane}: the place the client named is dropped: ${reply}`);
   assert.match(reply, /(?:m|метри|km) од/iu, `${lane}: the cards state no measured distance: ${reply}`);
   assert.match(reply, /Евидентен број 92\d/u, `${lane}: nothing was served: ${reply}`);
-  assert.match(reply, /спалн/iu, `${lane}: the rooms question is missing: ${reply}`);
-  assert.match(reply, /кирија|цена/iu, `${lane}: the money question is missing: ${reply}`);
+  assert.doesNotMatch(reply, /колку спални/iu, `${lane}: the rooms are on file, never re-asked: ${reply}`);
+  assert.doesNotMatch(reply, /До колку евра|До која цена/iu, `${lane}: the money is on file, never re-asked: ${reply}`);
 };
 
 test('audit: a STAY in presentation still serves the anchor + the questions', async () => {

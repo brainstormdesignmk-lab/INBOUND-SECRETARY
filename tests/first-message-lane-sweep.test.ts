@@ -94,23 +94,43 @@ const TYPE_ASK = /тип недвижност|стан, куќа|деловен 
 const RECALL_ASK = /таа што ја баравте|which of these did you mean/iu;
 const CARDS = /Евидентен број \d+|Станот под Евидентен|Куќата под Евидентен|Деловниот простор под Евидентен|Плацот под Евидентен/iu;
 
-test('first-message stock-at-a-place asks are SERVED from the place, in every opening', async () => {
+test('first-message stock-at-a-place asks are ANSWERED from the place, in every opening', async () => {
   const cfg = loadConfig();
   const map = new OfflineMapStore(cfg.skopjePoisDb);
   if (!map.available) return; // no live map on this machine — offlineMap.test.ts pins the DB
   // The [01:45] pair, the [02:15] neutral shape, and the «кај» opening — one
   // question in four spellings.
+  //
+  // THE ANSWER IS THE [20:38] PROSE, NOT A CARD PAIR (the owner's rule, for
+  // EVERY landmark): the place is acknowledged and the market question is
+  // asked — «Здраво. За <place> — дали Ве интересира купување на недвижност
+  // или претпочитате изнајмување?». Two flats with prices on top of that read
+  // as «an apartment was assumed, buy or rent was assumed» — exactly what the
+  // capture was — and a stock claim («имаме одлични понуди») asserts inventory
+  // we have not looked at. Cards come AFTER the category and its criteria are
+  // known (the [02:16] chain), never before.
   for (const [i, msg] of [
     'DALI IMATE NESTO INTERESNO KAJ BUNJAKOVEC ?',
     'ZDRAVO . STO IMATE INTERESNO KAJ BUNJAKOVEC ?',
     'ZDRAVO. STO IMATE VO BUNJAKOVEC?',
     'IMATE LI NESTO KAJ BUNJAKOVEC ?',
   ].entries()) {
-    const { say } = makeHandler(`sweep-serve-${i}`);
+    const { say, sessions, chatId } = makeHandler(`sweep-serve-${i}`);
     const reply = await say(msg);
-    assert.match(reply, CARDS, `the rows near the place must serve: ${msg} → ${reply}`);
+    assert.doesNotMatch(reply, CARDS, `no card may be served before the category: ${msg} → ${reply}`);
+    assert.match(reply, /Буњак/u, `the place the client named is the answer's anchor: ${msg} → ${reply}`);
+    // CONTRACT: both markets named in ONE question (the bank's variants put
+    // «на недвижност» between them — pinning one wording made a false failure).
+    assert.match(reply, /(?:куп|набав)\p{L}*[\s\S]{0,60}изнајм|изнајм\p{L}*[\s\S]{0,60}(?:куп|набав)/iu,
+      `the one question still owed (the market) is asked: ${msg} → ${reply}`);
+    assert.doesNotMatch(reply, /тип недвижност|стан, куќа/iu,
+      `the type follows the market, not the other way round: ${msg} → ${reply}`);
     assert.doesNotMatch(reply, LOCATION_ASK, `the place is named — never re-asked: ${msg} → ${reply}`);
     assert.doesNotMatch(reply, RECALL_ASK, `a blank acquisition is not a recall (the [02:38] rule): ${msg} → ${reply}`);
+    // The type is STILL OWED and no batch was shown — the flags the next turn reads.
+    const s = sessions.get(chatId)!;
+    assert.equal(s.slots.inventoryPending, true, `the type is still owed: ${msg}`);
+    assert.notEqual(s.slots.inventoryOptionsServed, true, `no batch was served: ${msg}`);
   }
 });
 
@@ -154,9 +174,17 @@ test('the feature lane keeps its turn — «dali ima terasa vo stanot?» is not 
   const map = new OfflineMapStore(cfg.skopjePoisDb);
   if (!map.available) return;
   const { say } = makeHandler('sweep-feature');
-  // A card is on the table first, so the confirm/feature machinery is armed —
-  // the case that used to be answered with an inventory serve.
-  await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
+  // A stock ask at the place is answered with prose (no card), then the typed
+  // answer serves the pair — so a card IS on the table when the feature
+  // question arrives, which is the case that used to be answered with a second
+  // inventory serve (the word «стан» in «vo stanot» read as the category
+  // answer to the ask still owed).
+  const prose = await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
+  assert.doesNotMatch(prose, CARDS, `the stock ask serves prose, not a pair: ${prose}`);
+  const ask = await say('SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC ?');
+  assert.doesNotMatch(ask, CARDS, `the type is answered with its criteria, not a pair: ${ask}`);
+  const cards = await say('DVOSOBEN DO 500');
+  assert.match(cards, CARDS, `the criteria serve the pair: ${cards}`);
   const reply = await say('DALI IMA TERASA VO STANOT ?');
   assert.doesNotMatch(reply, /Еве ги најблиските опции/iu,
     `a feature question is not a new inventory serve: ${reply}`);

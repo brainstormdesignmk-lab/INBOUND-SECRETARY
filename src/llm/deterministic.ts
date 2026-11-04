@@ -488,15 +488,26 @@ const INVENTORY_VERB_RE = new RegExp(
 // alternation carries the dropped-vowel typo «IMTE» — a client typing fast is
 // not asking a different question, and the earlier family silently dropped the
 // whole turn over one missing letter.
+// THE QUALIFIER CAN ALSO SIT BEFORE THE VERB (the [10:16] capture): «ZDRAVO ,
+// STO INTERESNO IMATE OKOLU BEVERLI HILS ?» — «интересно» stands between the
+// what-word and the have-verb, and every arm above demands the verb
+// IMMEDIATELY after «што», so the turn was not an inventory ask at all: the
+// place was bound (the nearby lane) but the ask was not, `inventoryPending`
+// stayed empty, and the market answer was followed by «колку спални соби…»
+// about a flat the client had never named. The qualifier slot is now on BOTH
+// sides of the verb in the three readers that carry a PLACE (ask, «кај» tail,
+// «во/на/околу» tail), and «околу/близу» join the prepositions — a place
+// question with the same grammar as «кај».
+const INV_PRE_VERB_GAP = '(?:[^.!?,\\n]{0,20}\\s*)?';
 const INV_ASK_KAJ_RE =
-  /(?:што|sto)\s+(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)\s+(?:[^.!?,\n]{0,20}\s*)?(?:кај|kaj)\s+/iu;
+  /(?:што|sto)\s+(?:[^.!?,\n]{0,20}\s*)?(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)\s+(?:[^.!?,\n]{0,20}\s*)?(?:кај|kaj)\s+/iu;
 /** The PLACE tail of the same ask — the mirror of INV_ASK_KAJ_RE, so the ask
  *  and the place it names can never disagree about what the client said. The
  *  verb alternation is spelled out in BOTH literals (three lines apart, on
  *  purpose): a string-built regex needs doubled backslashes plus an escaped
  *  quote, and a slip there is a syntax error rather than a silent miss. */
 const INV_PLACE_KAJ_RE =
-  /(?:што|sto)\s+(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)\s+(?:[^.!?,\n]{0,20}\s*)?(?:кај|kaj)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
+  /(?:што|sto)\s+(?:[^.!?,\n]{0,20}\s*)?(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)\s+(?:[^.!?,\n]{0,20}\s*)?(?:кај|kaj)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
 
 // THE OPTIONS QUALIFIER — «ШТО ИМАТЕ ИНТЕРЕСНО КАЈ X ?», «ИМАТЕ ЛИ НЕШТО КАЈ X».
 // The neutral «што имате во X?» asks about a place and owes the TYPE question
@@ -526,7 +537,7 @@ const INV_OPTIONS_QUALIFIER_RE = /(?:интересн|interesn|нешто|nesto)
 // lost its turn to the show-me lane. The «што» arm keeps the full alternation
 // (there the 3rd person IS the have-ask: «што има во Карпош?»).
 const INV_ASK_PLACE_RE =
-  /(?:(?:што|sto)\s+(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)|(?:дали|dali)\s+(?:имаш|имате|имте|imas|imate|imte)|(?:имаш|имате|имте|imas|imate|imte)\s+(?:ли|li))\s+(?:[^.!?,\n]{0,24}\s*)?(?:кај|kaj|во|vo|на|na)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
+  /(?:(?:што|sto)\s+(?:[^.!?,\n]{0,20}\s*)?(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)|(?:дали|dali)\s+(?:имаш|имате|имте|imas|imate|imte)|(?:имаш|имате|имте|imas|imate|imte)\s+(?:ли|li))\s+(?:[^.!?,\n]{0,24}\s*)?(?:кај|kaj|во|vo|на|na|околу|okolu|около|okolo|близу|blizu)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
 
 /** True when the client asks for the INVENTORY — what is available — as
  *  opposed to advice about where to live. Anchored either on a demonstrative
@@ -569,7 +580,8 @@ export function detectInventoryAsk(text: string): boolean {
 // words that follow «во» in ordinary speech («во понуда», «во моментов»,
 // «во Скопје») are refused here so a browse never becomes a place.
 const INVENTORY_PLACE_RE = new RegExp(
-  '(?:што|sto)\\s+(?:имаш|имате|има|imas|imate)\\s+' + INV_GAP + '\\s*(?:во|vo|на|na)\\s+([\\p{L}][\\p{L} .\'-]{2,40})', 'iu');
+  '(?:што|sto)\\s+' + INV_PRE_VERB_GAP + '(?:имаш|имате|има|imas|imate)\\s+' + INV_GAP
+  + '\\s*(?:во|vo|на|na|околу|okolu|около|okolo|близу|blizu)\\s+([\\p{L}][\\p{L} .\'-]{2,40})', 'iu');
 const INVENTORY_PLACE_STOP = new Set([
   'понуда', 'понуди', 'ponuda', 'продажба', 'prodazba', 'изнајмување', 'iznajmuvanje',
   'кирија', 'kirija', 'градот', 'gradot', 'моментов', 'momentov', 'момент', 'moment',
@@ -613,8 +625,15 @@ const PROPERTY_TYPE_WORD_RE =
 // above) matches «станбена површина» — the most common word in this feed — and
 // «стандард». Only a real surface form is a flat: стан/станот/стана/станови/
 // становите/станче, апартман + inflections, гарсоњера (a studio IS a flat).
-const FLAT_WORD_RE = /(?<![\p{L}])(?:стан(?:от|ов|а|и|ови|овите|че|чето)?|апартман\p{L}*|гарсоњер\p{L}*)(?![\p{L}])/iu;
-const FLAT_WORD_LATIN_RE = /(?<![a-z])(?:stan(?:ot|ov|a|i|ovi|ovite)?|apartman[a-z]*|garsonjer[a-z]*)(?![a-z])/iu;
+// THE PLURAL THE CLIENTS ACTUALLY TYPE (the [20:39] capture «STANCE SAKAM DA
+// ZEMAM»): the standard plural is «станови», but the field writes «stance» /
+// «stancevi» — and the type-word regex above accepted it while this one did
+// not, so the flat flag stayed unarmed. The discovery funnel then could not
+// see that the type was KNOWN: it served a pair before asking the category's
+// own questions (the exact order the owner fixed). A plural of «стан» is a
+// flat the same way the singular is, so the endings carry it.
+const FLAT_WORD_RE = /(?<![\p{L}])(?:стан(?:от|ов|а|и|ови|овите|че|чето|це|цеви|цевите)?|апартман\p{L}*|гарсоњер\p{L}*)(?![\p{L}])/iu;
+const FLAT_WORD_LATIN_RE = /(?<![a-z])(?:stan(?:ot|ov|a|i|ovi|ovite|ce|cevi|cevite)?|apartman[a-z]*|garsonjer[a-z]*)(?![a-z])/iu;
 
 /** True when the message names a FLAT (стан/апартман/гарсоњера). A flat is a
  *  real category — it just has no flag, so the discovery funnel reads it here. */

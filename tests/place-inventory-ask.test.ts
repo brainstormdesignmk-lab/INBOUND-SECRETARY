@@ -141,17 +141,26 @@ test('[01:48] the named place survives turn 1 and the inventory turn serves it',
   assert.doesNotMatch(ask, AREA_ADVICE, `a place + a search is never area advice: ${ask}`);
   assert.match(ask, /спалн|цена|price/iu, `the funnel asks its missing criterion: ${ask}`);
 
-  // TURN 2 — «STO IMATE VO TOJ REON?» is answered with ROWS ranked from the
-  // place, never with the area-advice paragraph.
+  // TURN 2 — «STO IMATE VO TOJ REON?» with the category known and its criteria
+  // still missing is the CRITERIA ASK (the [20:39] owner order: define the ask,
+  // then serve). It is never the area-advice paragraph either.
   const reply = await say('STO IMATE VO TOJ REON ?');
   const s2 = sessions.get(chatId)!;
-  assert.equal(s2.state, 'presentation', `the inventory ask presents: ${reply}`);
+  assert.equal(s2.state, 'discovery', `the criteria are still owed: ${reply}`);
   assert.doesNotMatch(reply, AREA_ADVICE, `the area paragraph answered an inventory ask: ${reply}`);
-  assert.match(reply, /Евидентен број 901/u, `the flat nearest the station leads: ${reply}`);
-  assert.match(reply, /Евидентен број 902/u, `the pair is the two nearest: ${reply}`);
-  assert.ok(!/Евидентен број 903/u.test(reply),
-    `the cheapest flat is 4.5 km away — the anchor outranks price: ${reply}`);
-  assert.match(reply, /Железнич/iu, `the answer names the place it ranked from: ${reply}`);
+  assert.doesNotMatch(reply, /Евидентен број/u, `no pair before the criteria: ${reply}`);
+  assert.match(reply, /спалн/iu, `the rooms question: ${reply}`);
+  assert.match(reply, /цена|буџет/iu, `and the price question: ${reply}`);
+
+  // TURN 3 — the criteria arrive, and the pair is ranked FROM the place: the
+  // nearest flat leads, and the cheap one 4.5 km away is never the answer.
+  const served = await say('DVOSOBEN DO 90000');
+  const s3 = sessions.get(chatId)!;
+  assert.equal(s3.state, 'presentation', `the criteria present the pair: ${served}`);
+  assert.match(served, /Евидентен број 90[12]/u, `the pair is the two nearest: ${served}`);
+  assert.ok(!/Евидентен број 903/u.test(served),
+    `the cheapest flat is 4.5 km away — the anchor outranks price: ${served}`);
+  assert.match(served, /Железнич/iu, `the answer names the place it ranked from: ${served}`);
 });
 
 test('[02:38] a blank acquisition near a landmark is served + asked, never read as a recall', async () => {
@@ -168,22 +177,25 @@ test('[02:38] a blank acquisition near a landmark is served + asked, never read 
   assert.ok(s1.slots.poiAnchor, `the place survived: ${ask}`);
   assert.match(ask, /спалн|цена/iu, `the protocol questions come with the search: ${ask}`);
 
+  // TURN 2 — the criteria are owed, so they are asked (the [20:39] owner order),
+  // and it is NEVER the recall question: he never said he had seen a flat.
   const reply = await say('STO IMATE VO TOJ REON?');
   const s2 = sessions.get(chatId)!;
-  assert.equal(s2.state, 'presentation', `the inventory ask serves: ${reply}`);
-  // NEVER the recall question: he never said he had seen a flat.
+  assert.equal(s2.state, 'discovery', `the criteria are still owed: ${reply}`);
   assert.doesNotMatch(reply, /таа што ја баравте|the one you saw/iu,
     `a blank acquisition was asked which flat he meant: ${reply}`);
-  // The nearby pair, WITH the measured distance to the place he named.
-  assert.match(reply, /Евидентен број 901/u, `the flat nearest the station serves: ${reply}`);
-  assert.match(reply, /901[\s\S]{0,120}(?:m|метри|km) од/u, `the card states its distance: ${reply}`);
-  // …and the room/price protocol rides the same reply (the owner's rule: serve
-  // near the landmark AND ask what the funnel always asks).
-  assert.match(reply, /спалн/iu, `the rooms question rides the serve: ${reply}`);
-  assert.match(reply, /цена|буџет|износ/iu, `the price question rides the serve: ${reply}`);
-  // Criteria still unset — the ask is honest, not a repeat of an answer.
+  assert.doesNotMatch(reply, /Евидентен број/u, `no pair before the criteria: ${reply}`);
+  assert.match(reply, /спалн/iu, `the rooms question: ${reply}`);
+  assert.match(reply, /цена|буџет|износ/iu, `the price question: ${reply}`);
   assert.equal(s2.slots.bedrooms, undefined);
   assert.equal(s2.slots.budget, undefined);
+
+  // TURN 3 — with the criteria in, the nearby pair serves, each card stating the
+  // measured distance to the place he named.
+  const served = await say('DVOSOBEN DO 90000');
+  assert.equal(sessions.get(chatId)!.state, 'presentation', `the criteria serve: ${served}`);
+  assert.match(served, /Евидентен број 901/u, `the flat nearest the station serves: ${served}`);
+  assert.match(served, /901[\s\S]{0,120}(?:m|метри|km) од/u, `the card states its distance: ${served}`);
 });
 
 test('[01:48] the criteria answer that follows resumes the funnel with the anchor intact', async () => {
@@ -192,6 +204,8 @@ test('[01:48] the criteria answer that follows resumes the funnel with the ancho
   if (!map.available) return;
   const { say, sessions, chatId } = makeHandler('capture-0148-follow');
   await say('ZDRAVO SAKAM DA KUPAM STAN VO BLIZINA NA ZELEZNICKA');
+  // The criteria ask (never the pair — the [20:39] owner order), then the
+  // criteria themselves.
   await say('STO IMATE VO TOJ REON ?');
   const reply = await say('dvosoben do 90000');
   const s = sessions.get(chatId)!;
@@ -200,11 +214,12 @@ test('[01:48] the criteria answer that follows resumes the funnel with the ancho
   assert.ok(s.slots.poiAnchor, 'the anchor survives the criteria turn');
   assert.equal(s.state, 'presentation');
   assert.doesNotMatch(reply, AREA_ADVICE, `no area advice after the criteria: ${reply}`);
-  // THE [11:39] ALREADY-SHOWN RULE: 901 was on the table last turn, so the
-  // criteria turn does not replay it — it serves the other двособен and states
-  // the MEASURED distance to the place the client named (the anchor is still
-  // what ranks the pool, 2.7 km away or not).
-  assert.match(reply, /Евидентен број 903/u, `the other двособен is served: ${reply}`);
+  // The pair is ranked from the anchor and states the MEASURED distance to the
+  // place the client named. 901 is the nearest двособен, so it LEADS (nothing
+  // was shown before it — the inventory turn asked the criteria instead of
+  // serving, the [20:39] order), and the 1-bedroom flat is not the двособен he
+  // asked for.
+  assert.match(reply, /Евидентен број 901/u, `the nearest двособен is served: ${reply}`);
   assert.ok(!/Евидентен број 902/u.test(reply),
     `the 1-bedroom flat is not the двособен he asked for: ${reply}`);
   assert.match(reply, /Железнич/iu, `the answer is anchored to the named place: ${reply}`);

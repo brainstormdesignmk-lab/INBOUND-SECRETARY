@@ -9,6 +9,22 @@ import type { BankStore } from '../src/store/bank';
 // in every client answer is "недвижност" (owner rule, 2026-10-19).
 const IMOT_RE = /(?:^|[^\p{L}])имот(?:от|ите|и)?(?![\p{L}])/iu;
 
+// THE OWNER'S [20:38] COPY RULE, at the DATA level: the stock-at-a-place prose
+// never asserts inventory there. «Во близина на X имаме одлични понуди» was the
+// first sentence a client heard and it claims stock nobody has looked at — the
+// prose is the market question, and this guard keeps a future seed from putting
+// the claim back.
+const STOCK_CLAIM_RE = /(?:^|[^\p{L}])(?:имаме|има|имаат)(?:\s+[^.!?\n]{0,40}?)?\s*(?:понуд|опци|интересн\w*|избор|станов|недвижност|нешто)/iu;
+
+test('response bank: the place-stock prose never claims stock at the place', () => {
+  for (const v of RESPONSE_BANK['place.stock.ask'] ?? []) {
+    assert.doesNotMatch(v, STOCK_CLAIM_RE,
+      `the place prose claims stock (the [20:38] owner rule): "${v}"`);
+    assert.match(v, /(?:куп|набав)\p{L}*[\s\S]{0,60}изнајм|изнајм\p{L}*[\s\S]{0,60}(?:куп|набав)/iu,
+      `the market question is the one thing it must ask: "${v}"`);
+  }
+});
+
 test('response bank: every entry is non-empty and placeholders live only where expected', () => {
   for (const [key, variants] of Object.entries(RESPONSE_BANK)) {
     assert.ok(variants.length > 0, `${key}: empty bank`);
@@ -16,10 +32,13 @@ test('response bank: every entry is non-empty and placeholders live only where e
       assert.ok(v.trim().length >= 10, `${key}: too short: "${v}"`);
       if (key === 'no.match.location' || key === 'exhausted.location') {
         assert.equal(v.match(/\{location\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
-      } else if (key === 'exhausted.place' || key === 'no.match.place') {
-        // The place forms of the drained / empty lines: {place} is the map
-        // place the client named («Диамонд Мол», «ТЦ Бисер»), filled at serve
-        // time — exactly once.
+      } else if (key === 'exhausted.place' || key === 'no.match.place'
+        || key === 'place.stock.ask') {
+        // The place forms of the drained / empty lines, and the [17:30] stock
+        // prose: {place} is the map place the client named («Диамонд Мол»,
+        // «ТЦ Бисер»), filled at serve time — exactly once. A stock prose that
+        // could not name the place would be the ONE thing it may never be
+        // (a sentence that answers a different district than the one asked).
         assert.equal(v.match(/\{place\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else if (key === 'presentation.open.anywhere') {
         assert.equal(v.match(/\{budget\}/g)?.length ?? 0, 1, `${key}: "${v}"`);

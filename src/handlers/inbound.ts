@@ -8,7 +8,7 @@ import {
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
 import { shouldLogForEnrichment } from '../llm/enrichPolicy';
 import { shouldTryDynamic, validateDynamicAnswer, typeEstablished } from '../llm/dynamicFallback';
-import { PLACE_PROMOTE_AFTER, PLACE_TEMPLATE_KEY, placeTemplateFrom, renderPlaceTemplate } from '../llm/placeTemplate';
+import { PLACE_PROMOTE_AFTER, PLACE_TEMPLATE_KEY, assertsStockAtPlace, placeTemplateFrom, renderPlaceTemplate } from '../llm/placeTemplate';
 import { detectPersonalAsk, personalReply } from '../llm/personal';
 import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
@@ -814,6 +814,28 @@ function continuesCancelledVisit(text: string): boolean {
     || detectVagueTime(text)      // «може после 6?» — a term too vague for the owner
     || hasDayWord(text)
     || DAYLESS_RETURN_RE.test(text);
+}
+
+/** THE TYPE WAS NAMED BUT NO SEARCH EXISTS YET (the [10:16] round).
+ *  «STAN MI TREBA» after a stock-at-a-place browse carries a category and
+ *  nothing else: no size, no price, no waived criterion. An empty pool here is
+ *  NOT a search that came up short — «нема … според Вашите критериуми» invents
+ *  conditions the client never stated. The funnel's own questions (the
+ *  category's: спални + цена for a flat or a house, м² + цена for a shop or a
+ *  plot) are the answer, and the chat stays in discovery.
+ *
+ *  Read by BOTH empty-pool legs (the drained lane and the composed
+ *  presentation) so the two can never disagree about the same turn.
+ *
+ *  `typedAnswer` is the turn's own signal (this message named a category):
+ *  loadProps CONSUMES `inventoryPending` the moment the typed answer starts
+ *  its batch, so the flag alone was false by the time the empty-pool legs ran
+ *  and «STAN MI TREBA» still got «нема … според Вашите критериуми». */
+function typeNamedNoCriteria(slots: ChatSession['slots'], typedAnswer = false): boolean {
+  return (typedAnswer || slots.inventoryPending === true)
+    && slots.bedrooms === undefined && slots.sqm === undefined
+    && slots.bedroomsMin === undefined && !slots.garsonjera
+    && !slots.plac && !slots.sizeWaived;
 }
 
 function typedNoMatchLine(slots: ChatSession['slots']): string | undefined {
@@ -2858,6 +2880,13 @@ export class InboundHandler {
         continue;
       }
       const template = placeTemplateFrom(row.answer, [named.name, invPlace, extractPoiWish(row.msg)]);
+      if (template && assertsStockAtPlace(template)) {
+        out.push({
+          id: row.id, msg: row.msg, anchor: named.name,
+          reason: 'the answer claims stock at the place — the prose is the market question', written: false,
+        });
+        continue;
+      }
       if (!template) {
         out.push({
           id: row.id, msg: row.msg, anchor: named.name,
@@ -2879,14 +2908,25 @@ export class InboundHandler {
     return out;
   }
 
-  private async tryPlaceInventoryServe(session: ChatSession, text: string): Promise<boolean> {
+  /** THE PROSE FOR THIS PLACE, WITHOUT THE SEND — the picking half of the A+B
+   *  serve. It remembers the place, owes the type, and returns the first
+   *  candidate that passes the serve-time contract, or undefined.
+   *
+   *  Split from the send so a lane that ALSO decides `reply` (the drained /
+   *  empty-pool legs — «околу Беверли Хилс» has no feed rows, and the stored
+   *  prose the operator kept is the better answer than a generic line) can use
+   *  the prose as ITS reply, through the normal epilogue (history, enrichment,
+   *  route log), instead of a second early-returning send path.
+   *
+   *  No side effect on the bank here: `notePlaceServe` owns the hit count. */
+  private async placeTemplateAnswer(session: ChatSession, text: string): Promise<{ text: string; id?: number; template?: string } | undefined> {
     const bank = this.deps.bank;
-    if (!bank || !detectInventoryAsk(text)) return false;
+    if (!bank || !detectInventoryAsk(text)) return undefined;
     const named = (() => {
       const invPlace = extractInventoryPlace(text);
       return (invPlace ? this.resolvePlace(invPlace) : undefined) ?? this.placeWish(text);
     })();
-    if (!named) return false;
+    if (!named) return undefined;
     await this.rememberPlace(session, named);
     session.slots.inventoryPending = true;
 
@@ -2900,32 +2940,48 @@ export class InboundHandler {
     if (promoted) candidates.push({ text: promoted });
 
     for (const cand of candidates) {
+      // A STOCK CLAIM IS NOT A PLACE PROSE (the [20:38] owner rule): a stored or
+      // promoted template may name the place perfectly and still assert stock
+      // there («имаме одлични опции во регионот околу {place}»). The place prose
+      // is the market question; the claim is skipped and the next candidate —
+      // ending with the bank's claim-free `place.stock.ask` — answers.
+      if (assertsStockAtPlace(cand.text)) continue;
       if (validateDynamicAnswer(cand.text, text, { typeKnown: typeEstablished(session.slots, text) }).length > 0) continue;
-      if (cand.id !== undefined) {
-        const hits = bank.bumpDynamicHits(cand.id);
-        // B — PROMOTE ON CLEAN REPEAT: the wording has now served cleanly this
-        // many times, so it joins the copy layer where the funnel serves it.
-        if (cand.template && hits >= PLACE_PROMOTE_AFTER) {
-          bank.addVariant(PLACE_TEMPLATE_KEY, cand.template, 'promoted: clean place serves');
-        }
-      }
-      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
-      pushHistory(session, { role: 'assistant', text: cand.text }, this.cfg.maxHistory);
-      this.deps.sessions.set(session);
-      if (this.deps.enrichment) {
-        try {
-          this.deps.enrichment.insert({
-            chatId: session.chatId, state: session.state, eventType: 'PLACE_TEMPLATE',
-            userMsg: text, replyText: cand.text, replySource: 'place-template',
-            bankKey: PLACE_TEMPLATE_KEY,
-          });
-        } catch { /* advisory log */ }
-      }
-      this.detGaveUp = false;
-      await this.sendRaw(session, cand.text, 'deterministic:place-template');
-      return true;
+      return cand;
     }
-    return false;
+    return undefined;
+  }
+
+  /** Count the clean serve and promote the wording into the copy layer. */
+  private notePlaceServe(picked: { text: string; id?: number; template?: string }): void {
+    if (picked.id === undefined || !this.deps.bank) return;
+    const hits = this.deps.bank.bumpDynamicHits(picked.id);
+    // B — PROMOTE ON CLEAN REPEAT: the wording has now served cleanly this
+    // many times, so it joins the copy layer where the funnel serves it.
+    if (picked.template && hits >= PLACE_PROMOTE_AFTER) {
+      this.deps.bank.addVariant(PLACE_TEMPLATE_KEY, picked.template, 'promoted: clean place serves');
+    }
+  }
+
+  private async tryPlaceInventoryServe(session: ChatSession, text: string): Promise<boolean> {
+    const cand = await this.placeTemplateAnswer(session, text);
+    if (!cand) return false;
+    this.notePlaceServe(cand);
+    pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+    pushHistory(session, { role: 'assistant', text: cand.text }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+    if (this.deps.enrichment) {
+      try {
+        this.deps.enrichment.insert({
+          chatId: session.chatId, state: session.state, eventType: 'PLACE_TEMPLATE',
+          userMsg: text, replyText: cand.text, replySource: 'place-template',
+          bankKey: PLACE_TEMPLATE_KEY,
+        });
+      } catch { /* advisory log */ }
+    }
+    this.detGaveUp = false;
+    await this.sendRaw(session, cand.text, 'deterministic:place-template');
+    return true;
   }
 
   private async processMessage(channel: string, chatId: string, text: string, opts: HandleOpts): Promise<void> {
@@ -7580,6 +7636,13 @@ export class InboundHandler {
     // in the slot — applySlots resolves this message's own wish into the slot
     // a few lines down, so the two cannot be compared after it).
     const anchorBeforeTurn = session.slots.poiAnchor;
+    /** The market BEFORE this message — applySlots() below writes the message's
+     *  own declaration into the slot, so a lane that has to tell an ANSWER to
+     *  the market question from an interest in the card on the table must read
+     *  the pre-turn value (the [10:16] follow-on: «ZA KUPUVANJE SUM
+     *  ZAINTERESIRAN» answering «дали Ве интересира купување или изнајмување?»
+     *  was read as the client liking the flat that had just been served). */
+    const marketKnownBeforeTurn = !!session.slots.service && !session.slots.serviceInferred;
     if (!dualEngaged) {
       const slotsEvent = resultSetQuestion
         ? { ...ev, bedroomsMin: undefined, bedroomsMax: undefined } as Event
@@ -7931,6 +7994,175 @@ export class InboundHandler {
       // TYPE and expects a pair from there (the [02:16] capture).
       session.slots.inventoryPending = true;
     }
+    // A STOCK-AT-A-PLACE ASK IS ANSWERED IN PROSE — NEVER WITH A CARD PAIR (the
+    // [17:30] owner rule, stated for ALL landmarks).
+    //
+    // «ZDRAVO , STO IMATE INTERESNO KAJ CITY MOL» names a PLACE and nothing else:
+    // the client has not said whether he wants to buy or rent, nor whether he
+    // wants a flat, a house, a shop or a plot. Serving the two nearest rows put
+    // flat cards with prices in front of him — two answers he never asked for —
+    // and the trailing question could not undo that. The accepted shape is the
+    // [10:16]/[17:30] prose: the place is named, the offer is warm, and the ONE
+    // question still owed is asked (the MARKET when it is not the client's own
+    // word, the TYPE once it is).
+    //
+    // The stored/promoted {place} template serves when the place has one (the
+    // taught wording, no model call); otherwise the same shape is composed from
+    // the bank (`place.stock.ask`, a {place} key). Cards are served by the
+    // typed-answer lane AFTER the category is known — the [02:16] contract.
+    // …and only while the CATEGORY is unknown: a client who already said «стан»
+    // (this message or an earlier one) is asking about stock of THAT category,
+    // so the rows near the place are the answer he is owed (the [01:48]
+    // contract), and a typed answer serves its pair with its own questions
+    // (the [02:16] contract). Prose replaces the pair only for a category-less
+    // «what have you got there?».
+    const categoryKnown = session.slots.flat === true || session.slots.house === true
+      || session.slots.business === true || !!session.slots.plac
+      || session.slots.garsonjera === true || session.slots.bedrooms !== undefined
+      || session.slots.bedroomsMin !== undefined || session.slots.sqm !== undefined;
+    const stockAskNoType = (before === 'idle' || before === 'intent' || before === 'discovery')
+      && detectInventoryAsk(text) && !detectPropertyTypeWord(text)
+      && !categoryKnown
+      && !!session.slots.poiAnchor;
+    // A STOCK ASK WITH THE CATEGORY ALREADY ON FILE AND ITS CRITERIA MISSING IS
+    // THE CRITERIA QUESTIONS (the [20:39] owner rule, generalized): the client
+    // said «стан» on an earlier turn, so a «што имате тука?» is answered by the
+    // flat's own questions — not by a pair that presumes the rooms and the
+    // price he has not given yet. Before this, the category made
+    // `stockAskNoType` stand down, the turn fell through to the serve lane, and
+    // the cards went out with «колку спални / која цена» AFTER them: exactly the
+    // inverted order the owner flagged. When the criteria ARE complete the ask
+    // is a normal serve and this guard stays out of its way.
+    const stockAskWithType = (before === 'idle' || before === 'intent' || before === 'discovery')
+      && detectInventoryAsk(text) && categoryKnown && !!session.slots.poiAnchor
+      && !this.slotsComplete(session);
+    if (stockAskNoType || stockAskWithType) {
+      // The market is the CLIENT's word only — a pin taken from a served row is
+      // marked `serviceInferred` and does not count as an answer.
+      const marketKnown = session.slots.service !== undefined && session.slots.serviceInferred !== true;
+      const shown = this.landmarks?.findPlace(session.slots.poiAnchor as string)?.name
+        ?? session.slots.poiAnchor as string;
+      let reply: string | undefined;
+      if (!marketKnown) {
+        const taught = await this.placeTemplateAnswer(session, text);
+        if (taught) {
+          this.notePlaceServe(taught);
+          reply = taught.text;
+        } else {
+          const prose = pickVariant('place.stock.ask', {
+            recent: assistantTexts(session), vars: { place: displayPlaceName(shown) },
+          });
+          // Bank miss (P4): the literal serves as the last resort, same shape.
+          // Bank miss (P4): the literal is the SAME shape as the seeds above —
+          // the place acknowledged, the market question asked, and NO stock
+          // claim (the [20:38] owner rule): «имаме одлични понуди» at a place
+          // nobody has looked at yet is a fabricated fact.
+          reply = prose ?? `Здраво. За ${displayPlaceName(shown)} — дали Ве интересира купување на недвижност или претпочитате изнајмување?`;
+        }
+      } else if (stockAskWithType) {
+        // The market AND the category are known — what is still owed is the
+        // category's own criteria (спални + цена / м² + цена), asked BEFORE any
+        // pair is put in front of him.
+        reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+      } else {
+        reply = pickVariant('both.ask.type', { recent: assistantTexts(session) })
+          ?? 'Каква недвижност имате на ум? Ве интересира стан, куќа, деловен простор или можеби плац?';
+      }
+      // No batch was served — the blank-serve flag must not claim otherwise. The
+      // TYPE stays owed until the client names a category; when the category is
+      // already on file, what is owed is its criteria, so the flag clears.
+      session.slots.inventoryPending = stockAskWithType ? undefined : true;
+      session.slots.inventoryOptionsServed = undefined;
+      session.slots.areaExhausted = undefined;
+      session.state = 'discovery';
+      next = 'discovery';
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment) {
+        try {
+          this.deps.enrichment.insert({
+            chatId: session.chatId, state: 'discovery', eventType: 'PLACE_STOCK_ASK',
+            userMsg: text, replyText: reply, replySource: 'deterministic',
+            // The criteria ask is composed per category (buildDiscoveryAsk), so
+            // it has no single bank key — naming `both.ask.type` here would
+            // mislabel a turn that never asked for a type.
+            bankKey: !marketKnown ? 'place.stock.ask' : (stockAskWithType ? undefined : 'both.ask.type'),
+          });
+        } catch { /* advisory log */ }
+      }
+      this.detGaveUp = false;
+      await this.sendRaw(session, reply, 'deterministic:place-stock');
+      return;
+    }
+    // A QUESTION ABOUT A FEATURE IS NEVER THE ANSWER TO THE TYPE ASK (the [09:07]
+    // lane, the first-message sweep's own case): after «што имате во X?» the type
+    // is owed (`inventoryPending`), and «DALI IMA TERASA VO STANOT ?» names the
+    // word «стан» — so `detectPropertyTypeWord` read it as the category answer
+    // and the turn became a fresh pair instead of a question about the flat on
+    // the table. The FEATURE lane owns that message; the inventory serve may not.
+    // Deliberately narrow: a QUESTION (`?`) that asks about a feature and carries
+    // no acquisition verb. «STAN SO TERASA DO 80000» states the search (no
+    // question, or a wish verb) and is still the typed answer it always was.
+    const unitFeatureQuestion = detectFeatureAsk(text) && text.includes('?')
+      && !/(?:сакам|sakam|барам|baram|треба|treba|изнајм|iznajm|купув|kupuv|продав|prodav)/iu.test(text);
+    // THE ORDER THE OWNER FIXED (the [17:43] rule, for every landmark):
+    //   1. the market («купување или изнајмување?»),
+    //   2. the TYPE («стан, куќа, деловен простор или плац?»),
+    //   3. the category's OWN characteristics (спални + цена for a flat or a
+    //      house, м² + цена for a shop or a plot — buildDiscoveryAsk holds the
+    //      per-category wording, so a дуќан is never asked «колку спални»),
+    //   4. THEN the pair.
+    // This turn chose the category while the funnel still owes its questions, so
+    // the answer is THOSE QUESTIONS — a pair on top of the type question pre-
+    // empts the criteria it is about to ask for and reads as a catalogue dump
+    // (the [17:43] capture). Criteria that arrive with the type in ONE message
+    // (`slotsComplete`) skip this lane and serve immediately, as before.
+    // THE WORD IS THE EVIDENCE, NOT THE SLOT (the [20:39] capture): this lane
+    // used to require an ARMED category slot, so a type word the slot writer
+    // missed («STANCE SAKAM DA ZEMAM» — a plural the flat detector did not know)
+    // fell through to the serve below, which put a pair on the table and asked
+    // «колку спални / која цена» AFTER it. Exactly the order the owner fixed,
+    // inverted. `detectPropertyTypeWord` is the predicate the serve lane itself
+    // trusts (`seeOffers`), so the ask lane and the serve lane can never
+    // disagree about whether the client named a category: if the type word is
+    // there and the criteria are not, the criteria are the answer.
+    // The slot is still written here (from the same word) so the questions and
+    // the pool that follows belong to the type the client actually named.
+    const categoryJustChosen = !unitFeatureQuestion && !!session.slots.inventoryPending
+      && detectPropertyTypeWord(text)
+      && (detectService(text) !== undefined || !!session.slots.service)
+      && !!session.slots.poiAnchor
+      && !this.slotsComplete(session);
+    if (categoryJustChosen) {
+      // Record the type this message named. `detectFlat` is the one category
+      // with no flag of its own; house/business/plac/yard are reconciled
+      // earlier in the turn (applySlots + the type reconcile above).
+      if (detectFlat(text)) session.slots.flat = true;
+      session.slots.inventoryPending = undefined;
+      session.slots.inventoryOptionsServed = undefined;
+      session.slots.areaExhausted = undefined;
+      session.state = 'discovery';
+      next = 'discovery';
+      const ask = buildDiscoveryAsk(session.slots, assistantTexts(session));
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      if (this.deps.enrichment) {
+        try {
+          // No single bankKey: the ask is composed from the category's own
+          // questions (спални + цена, or м² + цена) and may carry one or two of
+          // them — naming a flat key here would mislabel a дуќан turn.
+          this.deps.enrichment.insert({
+            chatId: session.chatId, state: 'discovery', eventType: 'CATEGORY_ASK',
+            userMsg: text, replyText: ask, replySource: 'deterministic',
+          });
+        } catch { /* advisory log */ }
+      }
+      this.detGaveUp = false;
+      await this.sendRaw(session, ask, 'deterministic:category-ask');
+      return;
+    }
     // THE TYPED ANSWER TO A NAMED PLACE IS A SERVE (the [02:16] capture):
     // «SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC» has service + type + the place the
     // previous turn already put on file. That is enough to present a pair ranked
@@ -7968,12 +8200,13 @@ export class InboundHandler {
     const blankBatchBefore = !!session.slots.inventoryOptionsServed;
     const stockAtPlace = (before === 'idle' || before === 'intent' || before === 'discovery')
       && detectInventoryAsk(text) && !!session.slots.poiAnchor;
-    const seeOffers = ((before === 'discovery' || stockAtPlace)
+    const seeOffers = (((before === 'discovery' || stockAtPlace)
         && (detectSeeOffers(text) || (!!session.slots.inventoryPending && detectPropertyTypeWord(text))))
       // …and the typed answer to the remembered ask serves WHATEVER the state
       // drifted to while the greeting was on screen — the client asked for stock
       // at a place, then said WHICH stock; that is a serve, not a re-ask.
-      || typedAnswer;
+      || typedAnswer)
+      && !unitFeatureQuestion;
 
     // [17:14] POMALO = SMALLER-SIZE INTENT, not a show-me: "NESTO POMALO" says
     // the units shown were TOO BIG, and "smaller" is ambiguous (garsonjera OR
@@ -8795,8 +9028,21 @@ export class InboundHandler {
     // consistent: the fee script (300 vs 500 денари), the agent pool, the
     // stored appointment fee and the visit protocol all follow the property's
     // market, never a missing slot.
+    // A PINNED MARKET IS NOT A DECLARED ONE (the [10:16] capture): this pin keeps
+    // the pool and the protocols coherent for a client who jumps straight to an
+    // Евидентен број, but on a BROWSE batch the market was never the client's
+    // word — the first row of a blank «што имате околу Беверли Хилс?» serve
+    // declared «buy», buildDiscoveryAsk read that as an answered criterion and
+    // the funnel went on to «колку спални соби…» about an apartment nobody named.
+    // The pin therefore carries its own flag, and every ASK reads the flag: an
+    // inferred market still gets asked (buildDiscoveryAsk), and the client's own
+    // declaration clears it (applySlots). A property he POINTED AT is a
+    // different warrant — the market comes from the ad he chose.
+    const pointsAtProperty = session.slots.propertyId !== undefined
+      || session.slots.interestedPropertyId !== undefined;
     if (!session.slots.service && props[0]?.service) {
       session.slots.service = props[0].service;
+      session.slots.serviceInferred = pointsAtProperty ? undefined : true;
     }
 
     // Exhausted-area pivot: the selected area(s) are drained and Lina just asked
@@ -9441,8 +9687,45 @@ ${contactReminder}`;
 ${contactReminder}`;
         replySource = r.source;
       }
+    } else if (!marketKnownBeforeTurn
+        && session.slots.propertyId === undefined
+        && session.slots.interestedPropertyId === undefined
+        && detectService(text) !== undefined
+        // A MARKET ANSWER, NOT A SEARCH: the message must carry nothing else the
+        // funnel could act on — «SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC» declares a
+        // market too, and it is the typed serve (its type word owns the turn).
+        && !detectPropertyTypeWord(text)
+        && !ev.bedrooms && !ev.sqm && !ev.bedroomsMin && !ev.budget
+        && this.namedOnTableEb(session, text) === undefined) {
+      // A MARKET ANSWER IS A FUNNEL ANSWER (the [10:16] follow-on): the funnel
+      // had just asked «дали Ве интересира купување или изнајмување?» and
+      // «ZA KUPUVANJE SUM ZAINTERESIRAN» answered IT. «Заинтересиран» is in the
+      // interest vocabulary, so the turn was served «Многу ми е мило што Ви се
+      // допадна токму оваа недвижност!» (property.liked) about the card the
+      // browse happened to leave on the table — the client never picked one.
+      // The enthusiasm lane's warrant is a property HE pointed at; with the
+      // market unknown before the turn and no EB named, the declaration is the
+      // answer to the market question and the funnel continues — the TYPE comes
+      // next, then that category's own criteria.
+      session.state = 'discovery';
+      next = 'discovery';
+      reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+      bankKey = session.slots.inventoryPending ? 'both.ask.type' : 'discovery.ask.service.any';
     } else if (next === 'closing'
         && detectPropertyInterest(text)
+        // A MARKET ANSWER IS NOT PROPERTY INTEREST (the [10:16] follow-on): the
+        // funnel had just asked «дали Ве интересира купување или изнајмување?»
+        // and «ZA KUPUVANJE SUM ZAINTERESIRAN» answered IT — «заинтересиран» is
+        // in the interest vocabulary, so the turn was served «Многу ми е мило
+        // што Ви се допадна токму оваа недвижност!» about the card the browse
+        // happened to leave on the table. The warrant for the enthusiasm lane
+        // is that HE picked a property; a declaration of the market he was just
+        // asked, with no property named on file and no card he pointed at,
+        // belongs to the funnel (which then asks the TYPE).
+        && !(!marketKnownBeforeTurn
+          && session.slots.propertyId === undefined
+          && session.slots.interestedPropertyId === undefined
+          && detectService(text) !== undefined)
         && !detectRemark(text)
         && !detectVisitInterest(text) // visit noun INSIDE the praise ("ke go kupam ako e dobar vo zivo", the [02:31] capture) is an AGREEMENT TO VISIT — the fee gate below owns it, never property.liked
         && !detectVisitTimingQuestion(text) // timing QUESTION → the confirm-ask leg below, never the visit offer (the [19:56] rule)
@@ -10169,6 +10452,45 @@ ${contactReminder}`;
         session.slots.categoryDrainedTold = `all|${session.slots.location ?? ''}`;
         reply = this.categoryAllDrainedLine(session);
         bankKey = 'batch.done.choice';
+      } else if (!session.slots.service && !session.slots.dualService
+        && (session.slots.presentedIds?.length ?? 0) === 0) {
+        // THE MARKET IS STILL UNKNOWN AND NOTHING WAS EVER SHOWN (the [10:16]
+        // capture): «ZDRAVO , STO INTERESNO IMATE OKOLU BEVERLI HILS ?» asks for
+        // STOCK at a place, not for a flat — an empty pool here is not an
+        // exhaustion (no criteria were ever given, no card was ever served), and
+        // the drained line invents a search the client never made. The funnel's
+        // own ask is the answer, and the chat STAYS in discovery so the market —
+        // then the TYPE — is what the next turns resolve, instead of the bedrooms
+        // question about an apartment nobody named.
+        session.slots.areaExhausted = false;
+        session.state = 'discovery';
+        next = 'discovery';
+        // THE STORED PROSE WINS WHERE NO CARD CAN (the [10:16] capture): a place
+        // the feed holds nothing near («околу Беверли Хилс») has an accepted
+        // answer on file — stored verbatim AND as a {place} template — and that
+        // wording is the operator's, not a generic funnel line. It is used as
+        // THIS lane's reply (bankKey + history recorded by the epilogue) and
+        // validated against the same serve-time contract; a place with cards
+        // never reaches this branch, so the [01:45] card serve is untouched.
+        const placeProse = await this.placeTemplateAnswer(session, text);
+        if (placeProse) {
+          this.notePlaceServe(placeProse);
+          reply = placeProse.text;
+          bankKey = PLACE_TEMPLATE_KEY;
+        } else {
+          reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+        }
+      } else if (typeNamedNoCriteria(session.slots, typedAnswer)) {
+        // THE TYPE WAS JUST NAMED AND THE SIZE IS STILL UNKNOWN (the [10:16]
+        // capture): «STAN MI TREBA» after a stock-at-a-place browse cannot be
+        // answered with «немам соодветна недвижност … што ги исполнува Вашите
+        // услови» — there are no conditions yet, the size and the price were
+        // never asked. The funnel owes those questions first (the category's
+        // own: спални + цена for a flat or a house, м² + цена for a shop or a
+        // plot), and the no-match claim belongs to a search that HAS criteria.
+        session.state = 'discovery';
+        next = 'discovery';
+        reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
       } else {
         const typedMiss = typedNoMatchLine(session.slots);
         reply = !this.deps.properties.healthy
@@ -10509,7 +10831,16 @@ ${contactReminder}`;
       // REPEAT-WIDEN ([21:26] freeze) lives in the pre-FSM widen-pivot block
       // above — the empty-presentation leg below intercepts an empty pool
       // before this leg ever sees it.
-      if (props.length === 0) {
+      if (props.length === 0 && typeNamedNoCriteria(session.slots, typedAnswer)) {
+        // THE TYPE WAS NAMED, NO SEARCH EXISTS YET (the same [10:16] rule as the
+        // drained lane above): the composed presentation must not answer a
+        // category-only turn with «нема слободна недвижност околу {place}
+        // според Вашите критериуми» — no criteria were ever given. Ask the
+        // category's own questions instead of claiming a failed search.
+        session.state = 'discovery';
+        next = 'discovery';
+        reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+      } else if (props.length === 0) {
         // CRITERIA-DONE PIVOT (the [20:33] fix): the refined pool is empty
         // AFTER rows were already served and no EB anchor owns the turn —
         // the honest answer is "the matching choices are done" + the two
@@ -12299,7 +12630,12 @@ ${contactReminder}`;
   }
 
   private applySlots(session: ChatSession, ev: Event): void {
-    if (ev.service) { session.slots.service = ev.service; session.slots.bothServices = undefined; }
+    if (ev.service) {
+      session.slots.service = ev.service;
+      session.slots.bothServices = undefined;
+      // HIS OWN WORD — the [10:16] inferred-market flag is spent.
+      session.slots.serviceInferred = undefined;
+    }
     // Clients type Latin ("centar", "kapistec"); canonicalize to Cyrillic so
     // replies and the deterministic no-match lines read naturally.
     // A MULTI-WORD place is never collapsed into a one-word district alias: the
@@ -13160,9 +13496,18 @@ ${contactReminder}`;
       const queuePool = queue
         .map(id => pool.find(p => p.id === id))
         .filter((p): p is Property => !!p);
+      // A BLANK BATCH IS CATEGORY-DIVERSE (the [16:57] capture): with no type
+      // and no market declared, the pair must answer «what is there» — one row
+      // per category, nearest first — never the two nearest rows read as an
+      // assumption about what the client wants.
+      const blankServe = session.slots.inventoryOptionsServed === true
+        && session.slots.house === undefined && session.slots.business === undefined
+        && !session.slots.plac && session.slots.bedrooms === undefined
+        && session.slots.bedroomsMin === undefined && session.slots.sqm === undefined
+        && !session.slots.garsonjera;
       const batch = session.slots.countBudget
         ? fitCountBudgetPair(queuePool, session.slots.countBudget.pair)
-        : queuePool.slice(0, 2);
+        : blankServe ? onePerCategoryBatch(queuePool) : queuePool.slice(0, 2);
       session.slots.ladderQueue = queue.filter(id => !batch.some(p => p.id === id));
       session.slots.presentedIds = [...shown, ...batch.map(p => p.id)];
       session.slots.currentBatch = batch.map(p => p.id);
@@ -13225,6 +13570,52 @@ ${contactReminder}`;
  * 133.000 one under a 140.000 "two" figure. A row too rich for THIS pair is
  * skipped, not consumed: it stays in the pool for a later turn.
  */
+/**
+ * THE CATEGORY of a feed row: a land plot, business space, a house, or a flat.
+ * Deterministic, column-based — never read off the ad prose.
+ */
+function rowCategory(p: Property): 'plac' | 'business' | 'house' | 'flat' {
+  if (p.plac) return 'plac';
+  if (p.business) return 'business';
+  if (p.house) return 'house';
+  return 'flat';
+}
+
+/**
+ * ONE ROW PER CATEGORY — the BLANK options serve (the [16:57] capture).
+ *
+ * «ZDRAVO , STO INTERESNO IMATE KAJ LEPTOKARIJA ?» names a place and asks for
+ * stock: the client said nothing about a flat, a house, a shop or a plot, and
+ * nothing about buy or rent. The batch used to be the two NEAREST rows, and at
+ * that place both happened to be apartments — two flat cards with prices read
+ * as «here are the flats we assumed you wanted» (the owner's complaint: HE NEVER
+ * SAID HE NEEDED AN APARTMENT). The cards answer «what is there», so the batch
+ * must show what CATEGORIES are there: the nearest row of each, in the ranked
+ * order, until the pair is full. Where the place holds only one category, the
+ * nearest remaining rows fill the second slot — an honest pair, not a padded
+ * fiction.
+ *
+ * Applied ONLY to a blank batch (`inventoryOptionsServed`): a typed search is
+ * one category by definition and must never be diluted.
+ */
+function onePerCategoryBatch(rows: Property[], take = 2): Property[] {
+  const out: Property[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const cat = rowCategory(row);
+    if (seen.has(cat)) continue;
+    seen.add(cat);
+    out.push(row);
+    if (out.length >= take) return out;
+  }
+  for (const row of rows) {
+    if (out.includes(row)) continue;
+    out.push(row);
+    if (out.length >= take) return out;
+  }
+  return out;
+}
+
 function fitCountBudgetPair(rows: Property[], pairCap: string | undefined, take = 2): Property[] {
   const cap = pairCap ? Number(String(pairCap).replace(/[^\d]/g, '')) : NaN;
   if (!Number.isFinite(cap) || cap <= 0) return rows.slice(0, take);

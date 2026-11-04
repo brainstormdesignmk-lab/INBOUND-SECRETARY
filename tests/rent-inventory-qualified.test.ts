@@ -122,19 +122,33 @@ test('e2e [01:36]: a RENT search near a place asks its own questions — never t
   assert.match(ask, /спалн/iu, `the funnel asks the rooms: ${ask}`);
   assert.match(ask, /кирија|износ|цена/iu, `and the MONTHLY rent: ${ask}`);
 
-  // TURN 2 — the qualified inventory ask.
+  // TURN 2 — the qualified inventory ask. The MARKET is on file and the TYPE is
+  // not, so the order the owner fixed ([17:43]: market → type → criteria → the
+  // pair) owes the TYPE — never a pair that presumes a flat.
   const reply = await say('STO IMATE POVOLNO VO TOJ REON ?');
   const s2 = sessions.get(chatId)!;
   assert.doesNotMatch(reply, AREA_ADVICE, `the area paragraph answered an inventory ask: ${reply}`);
   assert.equal(s2.slots.service, 'rent', 'the market survives the inventory turn');
   assert.ok(s2.slots.poiAnchor, 'the anchor survives the inventory turn');
-  // The inventory is served (rent rows only) or the honest no-stock line, and
-  // either way the missing criteria are asked instead of a philosophy paragraph.
-  const servedCards = /Евидентен број 91[12]/u.test(reply);
-  if (servedCards) {
-    assert.equal(s2.state, 'presentation', `the inventory ask presents: ${reply}`);
-    assert.ok(!/Евидентен број 913/u.test(reply), `a BUY row in a rent answer: ${reply}`);
-    assert.match(reply, /(?:м|метри|km) од/iu, `the distance to the named place is stated: ${reply}`);
-  }
-  assert.match(reply, /спалн|кирија|износ|цена/iu, `the missing rent criteria are asked: ${reply}`);
+  assert.doesNotMatch(reply, /Евидентен број/u,
+    `no card is served before the criteria are known: ${reply}`);
+  // The category is ALREADY on file — turn 1 said «STANCE» (a plural the flat
+  // detector did not know, so the slot stayed empty and this turn asked the TYPE
+  // again, per «the type is still owed»). With the plural recognised, the one
+  // question owed is the flat's own criteria — asked, not a pair served.
+  assert.match(reply, /спалн/iu, `the flat's rooms question: ${reply}`);
+  assert.match(reply, /кирија|износ|цена/iu, `and the MONTHLY rent: ${reply}`);
+
+  // TURN 3 — the category, then ITS OWN criteria (спални + месечна кирија).
+  const typeAsk = await say('STAN MI TREBA');
+  assert.match(typeAsk, /спалн/iu, `the flat's rooms question: ${typeAsk}`);
+  assert.match(typeAsk, /кирија|износ|цена/iu, `and the MONTHLY rent: ${typeAsk}`);
+
+  // TURN 4 — with the criteria on file the rent rows near the place serve.
+  const served = await say('DVOSOBEN DO 500');
+  const s4 = sessions.get(chatId)!;
+  assert.equal(s4.state, 'presentation', `the criteria present the pair: ${served}`);
+  assert.match(served, /Евидентен број 91[12]/u, `a rent row must serve: ${served}`);
+  assert.ok(!/Евидентен број 913/u.test(served), `a BUY row in a rent answer: ${served}`);
+  assert.match(served, /(?:м|метри|km) од/iu, `the distance to the named place is stated: ${served}`);
 });

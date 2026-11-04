@@ -886,10 +886,78 @@ Rules:
 - Never template a sentence whose FACTS ride the place (availability, price,
   stock counts): that is the data-driven class, and `FORBIDDEN_FACTS` already
   refuses such prose at generation.
+- NO STOCK CLAIM IN THE PLACE PROSE (the [20:38] owner rule): «Имаме одлични
+  опции во регионот околу Беверли Хилс» was the FIRST sentence a client heard
+  and it asserts inventory nobody has looked at — it reads as «we have something
+  special everywhere». `assertsStockAtPlace` refuses such a template at serve
+  time AND at backfill time, and `place.stock.ask` carries the owner's plain
+  shape only: the place acknowledged neutrally, the market question
+  («дали Ве интересира купување на недвижност или претпочитате
+  изнајмување?») — no hype, no claim. A test pins every seed variant.
 
 Tests: `tests/place-template-serve.test.ts` (the slot + district guard, the
 reworded serve, the 3-serve promotion at a new place, the correction reset) and
 `tests/dynamic-fallback.test.ts` (the generate seam stores the template).
+
+### 4g. The order is the owner's: define the ask, THEN serve the pair
+
+Every landmark, every opening (the [17:43] rule, restated at [20:39]): market →
+TYPE → the category's own criteria → the pair. A pair on the table before the
+criteria are named is the defect, twice captured:
+
+- the category-ask lane gated on an ARMED SLOT, so «STANCE SAKAM DA ZEMAM» — the
+  plural the field writes, which `detectPropertyTypeWord` knew and `detectFlat`
+  did not — armed nothing, fell through to the serve lane, and got the cards
+  with «колку спални / која цена» AFTER them. The lane now keys off the WORD (the
+  same predicate the serve lane trusts) and writes the slot itself, so the two
+  lanes can never disagree about whether the client named a category.
+- a stock ask whose CATEGORY is already on file and whose criteria are missing
+  (`stockAskWithType`) is answered with `buildDiscoveryAsk` — never a pair.
+- the same applies to the PLURAL of a category noun: «stance», «stancevi»,
+  «станови» are the field's spellings of «стан», and a detector that knows the
+  category word but not its plural arms nothing (`detectFlat` now carries them).
+
+Tests: `tests/inventory-type-ask.test.ts` (the [20:39] chain end to end, the
+plural detector, no card before the criteria).
+
+### 4h. The landmark lookup is paid ONCE, and the suite budget depends on it
+
+The geo layer is a hot path, and it used to be quadratic in the wrong places:
+«STO IMATE KAJ KAPITOL MOL» cost **18.5 s per turn, every turn** (measured), and
+the test suite inherited it (files with place traffic took minutes each). Two
+causes, both now contracts:
+
+- **PER-ROW FACTS ARE DERIVED ONCE PER STORE** (`poiRows()` + the lazy accessors
+  in `src/geo/offlineMap.ts`: `catOf`, `isShop`, `isTransit`, `isResidential`,
+  `tokensOf`, `phoneOf`, `canonSetOf`, `typoWords*`). Healed name, folded and
+  transliterated forms, category, tenant/transit/residential flags, token /
+  phonetic / canonical / typo keys are properties of the ROW, never of the
+  needle. A name pass must not run its own `SELECT … FROM pois` and must not
+  re-derive a row it can ask for.
+- **RANKS ARE ROW-WIDE, NOT PAIRWISE.** `matchRank` / `partOfVenue` scored
+  inside the sort comparator re-tokenize every candidate O(n log n) times; they
+  are computed once per candidate (the `scored` array).
+- `findPoiByName` is MEMOIZED, misses included (a place the map does not hold
+  stays a miss), and hands out copies so no caller mutates the cache.
+- `pruneOutsideBbox()` must invalidate the index — any future writer of `pois`
+  calls `invalidatePoiIndex()`.
+- The `/tmp/landmark-debug.log` trail is opt-in (`LINA_LANDMARK_DEBUG`); it used
+  to be an unconditional `appendFileSync` on every match (28 MB of runtime
+  side effect on this box).
+- `toLatin`/`toCyrillic`/`translitToLatin` use module-level lookup tables (they
+  built/linear-scanned per call, and `soundKey` runs them over every map word).
+
+Bound, stated plainly: the first DEEP lookup in a process (one the cheap
+substring pass cannot answer — «KAPITOL MOL» is one, its spelling only meets
+the map in the canonical pass) pays ~1.4 s to derive the key families for all
+5.992 rows; after that a lookup is ~1 ms and a whole turn ~190 ms. That one-time
+cost is per process, which is invisible in the running appliance but is paid
+once per test bundle. Persisting the derived keys in the DB is the next step if
+that bound ever matters (it would need a staleness check against `pois`).
+
+Tests: `tests/place-lookup-cache.test.ts` (one row-set read, the index built in
+one place, 20 cached lookups under the ceiling, copies, a remembered miss, the
+answers unchanged).
 
 ## 5. Tests and expectations
 

@@ -125,4 +125,16 @@ test('lost-reply sweep: the candidate list is finite and reviewed', () => {
 // lane's price prepend, gated on `bankKey` being `fee.ask.rent|buy` AND a price
 // ask in the same message. Benign by the same guard; the new per-category
 // lanes are `sendRaw` + return lanes and never write `reply`.
-const REVIEWED = 27;
+// 28th read 2026-11-04: two pairs joined the list with the [17:30]/[17:43]
+// lanes, both READ and both benign:
+//   @7523→@8025 — @7523 is the `dispatchSimple` bank-miss literal
+//     (`reply = simpleFast.fallback`) inside `if (simpleFast) { … }`, which
+//     sends the reply and RETURNS at the end of that block. The sweep reads
+//     `returns` on the innermost branch only, so the enclosing lane's return
+//     is invisible to it; @8025 (`reply = taught.text`) is another lane that
+//     only runs when `simpleFast` is undefined.
+//   @10807→@10816 — both are branches of ONE ladder inside the empty-pool
+//     lane (`if (dualDrained) … else if (categoryBudgets) … else if (doneAsk)
+//     … else`), so they can never both run; the sweep's block parser ends the
+//     first branch early on the sibling indentation and cannot see that.
+const REVIEWED = 28;

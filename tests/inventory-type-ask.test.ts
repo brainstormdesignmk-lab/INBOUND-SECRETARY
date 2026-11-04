@@ -41,8 +41,9 @@ import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore } from '../src/geo/offlineMap';
 import {
   detectInventoryAsk, detectSeeOffers, detectPropertyTypeWord, extractInventoryPlace,
-  detectNeighborhoodAsk,
+  detectNeighborhoodAsk, detectFlat,
 } from '../src/llm/deterministic';
+import { assertsStockAtPlace } from '../src/llm/placeTemplate';
 import { dispatchSimple } from '../src/handlers/router';
 
 class FailingLlm implements LlmClient {
@@ -71,7 +72,7 @@ class FakeProps extends PropertyService {
   get healthy(): boolean { return true; }
 }
 
-function makeHandler(id: string) {
+function makeHandler(id: string, rows: Property[] = ROWS) {
   const cfg = loadConfig();
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
@@ -80,9 +81,9 @@ function makeHandler(id: string) {
   channels.register({ name: 'test', send: async (_c: string, text: string) => { sent.push(text); } });
   const handler = new InboundHandler({
     cfg, db, sessions,
-    classifier: new Classifier(new FailingLlm(), cfg, new FakeProps(ROWS)),
+    classifier: new Classifier(new FailingLlm(), cfg, new FakeProps(rows)),
     responder: new Responder(new FailingLlm(), cfg),
-    properties: new FakeProps(ROWS),
+    properties: new FakeProps(rows),
     appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
     meta: new MetaStore(db), channels,
     landmarks: new LandmarkService(db, { osm: false, offlineMap: new OfflineMapStore(cfg.skopjePoisDb) }),
@@ -127,7 +128,7 @@ test('[02:15] «STO IMATE VO BUNJAKOVEC?» is inventory — the place is a POI, 
   assert.equal(detectPropertyTypeWord('ZDRAVO'), false);
 });
 
-test('e2e [02:15]: the OPENING ask is served from the place — and the place is remembered', async () => {
+test('e2e [02:15]: the OPENING ask is answered in prose — the place is remembered', async () => {
   const cfg = loadConfig();
   const map = new OfflineMapStore(cfg.skopjePoisDb);
   if (!map.available) return; // no live map on this machine — offlineMap.test.ts pins the DB
@@ -135,32 +136,30 @@ test('e2e [02:15]: the OPENING ask is served from the place — and the place is
 
   const first = await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
   const s1 = sessions.get(chatId)!;
-  // THE SERVE IS THE ANSWER (the owner's [01:45] extension of this rule): the
-  // client named a place and asked for stock, so the rows near it are shown.
-  // This assertion used to pin «nothing is served on a blank session (there is
-  // no type to serve)» — the lost PLACE was the reported defect then; what the
-  // place now buys is the serve itself, with the TYPE question riding it (the
-  // [02:15] owner wording, type-neutral — no category is presumed).
-  assert.match(first, /Евидентен број 92\d/u, `the rows near the place serve: ${first}`);
+  // THE [17:30] OWNER RULE: a stock-at-a-place ask is a FUNNEL step — the place
+  // is named, the offer is warm, and the question that is still owed is asked
+  // (the MARKET here: the client never said buy or rent). No card is served,
+  // because a card would answer a category he never named. Cards come after the
+  // market and the type ([02:16]).
+  assert.match(first, /Буњак/iu, `the answer names the place he asked about: ${first}`);
+  assert.doesNotMatch(first, /Евидентен број/u, `no card pair before a category is known: ${first}`);
   assert.ok(!/стан(?:от)? го барате/iu.test(first), `no property type is presumed: ${first}`);
-  assert.match(first, /тип|стан, куќа|деловен простор или плац|купување или за изнајмување/iu,
-    `the type question rides the serve: ${first}`);
+  assert.match(first, /(?:куп|набав)\p{L}*[\s\S]{0,60}изнајм|изнајм\p{L}*[\s\S]{0,60}(?:куп|набав)/iu,
+    `the market question is the answer: ${first}`);
   assert.ok(s1.slots.poiAnchor, `the place the client named was dropped: ${first}`);
   assert.match(s1.slots.poiAnchor!, /буњак/iu, `wrong anchor: ${s1.slots.poiAnchor}`);
+  assert.equal(s1.slots.inventoryPending, true, 'the type is still owed');
 });
 
-test('[01:45] the SAME ask in two openings gets the SAME answer — the options at the place', async () => {
+test('[01:45] the SAME ask in two openings gets the SAME answer — prose, one question', async () => {
   // One session, two clients:
-  //   [01:45] DALI IMATE NESTO INTERESNO KAJ ZEBRA?   → three properties near Зебра
+  //   [01:45] DALI IMATE NESTO INTERESNO KAJ ZEBRA ?   → properties near Зебра
   //   [01:46] ZDRAVO . STO IMATE INTERESNO KAJ ZEBRA? → «дали сте во потрага по
   //           недвижност за купување или за изнајмување?»
-  // Same question, two openings, two different answers. The dali/li shape was
-  // not an inventory ask at all (it reached the classifier as a
-  // PROPERTY_DESCRIPTION guess, so its serve depended on that guess) and the
-  // «интересно/нешто» qualifier was ignored. Both are ONE family now: a PLACE +
-  // an options qualifier is a SHOW-ME ask, answered from the rows around the
-  // place. The PLAIN «што имате во X» keeps the [02:15] contract — remember the
-  // place and ask the type, serve nothing before the category is known.
+  // Same question, two openings, two different answers. The [17:30] owner rule
+  // settles it on the SECOND shape for BOTH: the client named a place and a
+  // category was never said, so the answer is the prose + the market question —
+  // never a card pair that presumes the category.
   const cfg = loadConfig();
   const map = new OfflineMapStore(cfg.skopjePoisDb);
   if (!map.available) return; // no live map on this machine — offlineMap.test.ts pins the DB
@@ -172,23 +171,111 @@ test('[01:45] the SAME ask in two openings gets the SAME answer — the options 
     const { say, sessions, chatId } = makeHandler(`capture-0145-${i}`);
     const reply = await say(msg);
     const s = sessions.get(chatId)!;
-    assert.match(reply, /Евидентен број 92\d/u, `the rows near the place must serve: ${msg} → ${reply}`);
+    assert.doesNotMatch(reply, /Евидентен број/u, `${msg}: no cards before the category: ${reply}`);
+    assert.match(reply, /Буњак/iu, `${msg}: the place rides the answer: ${reply}`);
     assert.match(s.slots.poiAnchor ?? '', /буњак/iu, `${msg}: the place on file, got ${s.slots.poiAnchor}`);
-    assert.equal(s.slots.inventoryOptionsServed, true, `${msg}: a blank options serve is on file`);
     assert.equal(s.slots.inventoryPending, true, `${msg}: the type is still owed`);
     assert.doesNotMatch(reply, LOCATION_ASK, `${msg}: the place he named is never re-asked: ${reply}`);
-    // …and the type question rides the serve, type-neutral (names no category he
-    // did not say — the cards describe the rows, the QUESTION presumes nothing).
-    assert.match(reply, /тип|стан, куќа|деловен простор или плац/iu, `${msg}: the type ask: ${reply}`);
+    // CONTRACT, not one wording: the market question's bank variants read
+    // «купување или изнајмување», «купување или ЗА изнајмување» and «барате
+    // опција за изнајмување» — what must hold is BOTH markets named.
+    assert.match(reply, /(?:куп|набав)\p{L}*[\s\S]{0,60}изнајм|изнајм\p{L}*[\s\S]{0,60}(?:куп|набав)/iu,
+      `${msg}: the market question is the funnel step: ${reply}`);
   }
 
-  // The NEUTRAL shape serves too (the owner extended [01:45] to it): the cards
-  // answer «what is there» and the type question rides them. The difference
-  // between the openings is gone — one question, one answer.
+  // The NEUTRAL shape gets the SAME treatment (the owner extended [01:45] to
+  // it). The difference between the openings is gone — one question, one answer.
   const { say, chatId } = makeHandler('capture-0145-plain');
   const plain = await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
-  assert.match(plain, /Евидентен број 92\d/u, `the neutral ask serves the rows: ${plain}`);
+  assert.doesNotMatch(plain, /Евидентен број/u, `the neutral ask serves no cards: ${plain}`);
+  assert.match(plain, /Буњак/iu, `the neutral ask names the place: ${plain}`);
   assert.doesNotMatch(plain, LOCATION_ASK, `the place he named is never re-asked: ${plain}`);
+});
+
+test('[16:57]/[17:30] the owner chain: prose → market → TYPE → the pair', async () => {
+  // The [16:57] capture: «ZDRAVO , STO INTERESNO IMATE KAJ LEPTOKARIJA ?» — he
+  // named a place and asked for stock; he never said apartment, buy or rent.
+  // The [17:30] capture is the answer the owner accepted, and it is the chain
+  // pinned here end to end:
+  //   prose + «купување или изнајмување?» → «DA KUPAM SAKAM» asks the TYPE
+  //   («стан, куќа, деловен простор или можеби плац?») → only then the pair,
+  //   with that category's own criteria questions.
+  const cfg = loadConfig();
+  const map = new OfflineMapStore(cfg.skopjePoisDb);
+  if (!map.available) return;
+  // Near Буњаковец: two flats are the closest rows, a house is farther.
+  const rows: Property[] = [
+    { eb: 901, id: 901, location: 'Центар', address: 'Ул. Буњаковец 2', price: 69500, service: 'buy', bedrooms: 2, sqm: 35, size: '35 м²', lat: 41.9975, lon: 21.4186 },
+    { eb: 902, id: 902, location: 'Центар', address: 'Ул. Буњаковец 6', price: 60000, service: 'buy', bedrooms: 3, sqm: 55, size: '55 м²', lat: 41.9976, lon: 21.4187 },
+    { eb: 903, id: 903, location: 'Центар', address: 'Ул. Буњаковец 30', price: 90000, service: 'buy', house: true, bedrooms: 4, sqm: 150, size: '150 м²', lat: 41.9989, lon: 21.4202 },
+  ];
+  const { say, sessions, chatId } = makeHandler('capture-1657', rows);
+
+  const first = await say('ZDRAVO , STO INTERESNO IMATE KAJ BUNJAKOVEC ?');
+  assert.doesNotMatch(first, /Евидентен број/u, `no cards on the stock ask: ${first}`);
+  // CONTRACT-level, not one bank wording: BOTH markets named in the question.
+  // The owner's [20:38] copy («…дали Ве интересира купување на недвижност или
+  // претпочитате изнајмување?») puts «на недвижност» between them, which the
+  // old «купување или изнајмување» pattern could not see.
+  assert.match(first, /(?:куп|набав)\p{L}*[\s\S]{0,60}изнајм|изнајм\p{L}*[\s\S]{0,60}(?:куп|набав)/iu,
+    `the market question is the answer: ${first}`);
+  const s1 = sessions.get(chatId)!;
+  assert.equal(s1.slots.inventoryPending, true, 'the type is still owed');
+
+  const second = await say('DA KUPAM SAKAM');
+  assert.match(second, /стан, куќа, деловен простор или плац/iu,
+    `the TYPE question follows the market: ${second}`);
+  assert.ok(!/спалн/iu.test(second), `no bedrooms question before the type: ${second}`);
+
+  // STEP 3 — the category's OWN questions, and NO pair yet (the owner's
+  // [17:43] order: market → type → the category's information → the pair).
+  const third = await say('STAN MI TREBA');
+  assert.doesNotMatch(third, /Евидентен број/u,
+    `no card before the category's criteria are known: ${third}`);
+  assert.match(third, /спалн/iu, `the flat's own size question: ${third}`);
+  assert.match(third, /цена|буџет|кирија/iu, `and its price question: ${third}`);
+
+  // STEP 4 — with the criteria on file the pair is served, from that place.
+  const fourth = await say('DVOSOBEN DO 80000');
+  assert.match(fourth, /Евидентен број 90[12]/u, `the pair is served once the criteria are known: ${fourth}`);
+});
+
+test('[20:39] «STANCE» is a flat — the plural the type word knows is still the category answer', async () => {
+  // The capture: the client wrote the PLURAL the field writes («STANCE», not
+  // «STAN»). `detectPropertyTypeWord` knew it, `detectFlat` did not — so the
+  // flat slot stayed empty, the category-ask lane could not fire, and the serve
+  // lane put a pair on the table and asked «колку спални / која цена» AFTER it.
+  // The owner's order is the opposite: define the ask, then serve a pair.
+  const cfg = loadConfig();
+  const map = new OfflineMapStore(cfg.skopjePoisDb);
+  if (!map.available) return;
+  assert.equal(detectFlat('STANCE SAKAM DA ZEMAM'), true, 'the plural is a flat');
+  assert.equal(detectFlat('STANCEVI'), true, 'and so is the longer plural');
+  assert.equal(detectFlat('СТАНЦЕ') || detectFlat('станце'), true, 'in either script');
+
+  const { say, sessions, chatId } = makeHandler('capture-2039');
+  const first = await say('ZDRAVO , KAZI MI STO IMA INTERESNO KAJ BUNJAKOVEC ?');
+  // The place prose claims NOTHING about stock (the [20:38] owner rule).
+  assert.equal(assertsStockAtPlace(first), false, `no stock claim in the opening: ${first}`);
+  assert.doesNotMatch(first, /Евидентен број/u, `no cards on the stock ask: ${first}`);
+  assert.match(first, /купување[\s\S]{0,40}изнајмување/iu, `the market question: ${first}`);
+
+  const second = await say('ZA KUPUVANJE SUM');
+  assert.match(second, /стан, куќа, деловен простор или плац/iu, `the TYPE is asked: ${second}`);
+
+  // THE TURN THE CAPTURE GOT WRONG: the category alone (no rooms, no price).
+  const third = await say('STANCE SAKAM DA ZEMAM');
+  assert.doesNotMatch(third, /Евидентен број/u,
+    `no pair before the criteria are known: ${third}`);
+  assert.match(third, /спалн/iu, `the flat's size question is asked FIRST: ${third}`);
+  assert.match(third, /цена|буџет/iu, `and its price question: ${third}`);
+  const s = sessions.get(chatId)!;
+  assert.equal(s.slots.flat, true, 'the plural armed the flat slot');
+  assert.deepEqual(s.slots.presentedIds ?? [], [], 'nothing was presented');
+
+  // …and the pair only after the criteria (the order, end to end).
+  const fourth = await say('DVOSOBEN DO 80000');
+  assert.match(fourth, /Евидентен број/u, `the pair serves once the criteria are known: ${fourth}`);
 });
 
 test('e2e [02:16]: the typed acquisition SERVES from that place and asks its own questions', async () => {
@@ -198,18 +285,24 @@ test('e2e [02:16]: the typed acquisition SERVES from that place and asks its own
   const { say, sessions, chatId } = makeHandler('capture-0216');
   await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
 
-  const reply = await say('SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC ?');
+  // The type answer comes BEFORE the criteria and before any card (the [17:43]
+  // order): the flat's own rooms + rent questions are the answer here.
+  const ask = await say('SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC ?');
   const s = sessions.get(chatId)!;
-  assert.equal(s.slots.service, 'rent', `the market is rent: ${reply}`);
-  assert.equal(s.state, 'presentation', `the typed answer presents: ${reply}`);
-  assert.doesNotMatch(reply, LOCATION_ASK, `the place he named must not be re-asked: ${reply}`);
-  // A pair from that place, RENT only, with its distance stated.
+  assert.equal(s.slots.service, 'rent', `the market is rent: ${ask}`);
+  assert.equal(s.state, 'discovery', `the criteria are still owed: ${ask}`);
+  assert.doesNotMatch(ask, LOCATION_ASK, `the place he named must not be re-asked: ${ask}`);
+  assert.doesNotMatch(ask, /Евидентен број/u, `no card before the criteria: ${ask}`);
+  assert.match(ask, /спалн/iu, `the rooms question: ${ask}`);
+  assert.match(ask, /кирија|цена|износ/iu, `the rent question: ${ask}`);
+
+  // …and the pair is served once they are answered — from that place, RENT only,
+  // with its distance stated.
+  const reply = await say('DVOSOBEN DO 500');
+  assert.equal(sessions.get(chatId)!.state, 'presentation', `the criteria complete the funnel: ${reply}`);
   assert.match(reply, /Евидентен број 92[12]/u, `a rent card must serve: ${reply}`);
   assert.ok(!/Евидентен број 92[34]/u.test(reply), `business rows in a стан answer: ${reply}`);
   assert.match(reply, /(?:м|метри|km) од|Железнич|Буњак/iu, `the serve states its anchor: ${reply}`);
-  // …and the rooms + rent questions ride the same turn.
-  assert.match(reply, /спалн/iu, `the rooms question rides the serve: ${reply}`);
-  assert.match(reply, /кирија|цена|износ/iu, `the rent question rides the serve: ${reply}`);
 });
 
 test('e2e [02:16] sibling: a BUSINESS ask gets м² + price, never the bedrooms question', async () => {
@@ -219,15 +312,18 @@ test('e2e [02:16] sibling: a BUSINESS ask gets м² + price, never the bedrooms 
   const { say, sessions, chatId } = makeHandler('capture-0216-biz');
   await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
 
-  const reply = await say('SAKAM DA IZNAJMAM DUKJAN VO BUNJAKOVEC ?');
+  const ask = await say('SAKAM DA IZNAJMAM DUKJAN VO BUNJAKOVEC ?');
   const s = sessions.get(chatId)!;
   assert.equal(s.slots.service, 'rent');
   assert.equal(s.slots.business, true, 'the commercial market is on file');
-  assert.doesNotMatch(reply, LOCATION_ASK, `the place must not be re-asked: ${reply}`);
-  // A деловен простор is sized in м², not in спални.
-  assert.doesNotMatch(reply, /колку спални|спални соби/iu, `a business ask was asked for bedrooms: ${reply}`);
-  assert.match(reply, /површина|м²|квадрат/iu, `the business size question rides the serve: ${reply}`);
-  assert.match(reply, /цена|кирија|износ/iu, `and its price question: ${reply}`);
+  assert.doesNotMatch(ask, LOCATION_ASK, `the place must not be re-asked: ${ask}`);
+  // A деловен простор is sized in м², not in спални — and asked BEFORE the pair.
+  assert.doesNotMatch(ask, /колку спални|спални соби/iu, `a business ask was asked for bedrooms: ${ask}`);
+  assert.doesNotMatch(ask, /Евидентен број/u, `no card before the criteria: ${ask}`);
+  assert.match(ask, /површина|м²|квадрат/iu, `the business size question: ${ask}`);
+  assert.match(ask, /цена|кирија|износ/iu, `and its price question: ${ask}`);
+
+  const reply = await say('60 KVADRATI DO 800');
   assert.match(reply, /Евидентен број 92[34]/u, `a business card must serve: ${reply}`);
 });
 
@@ -241,15 +337,18 @@ test('e2e [02:16] sibling: a HOUSE ask asks the house criteria, never the flat w
   const { say, sessions, chatId } = makeHandler('capture-0216-house');
   await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
 
-  const reply = await say('SAKAM DA IZNAJMAM KUKJA VO BUNJAKOVEC ?');
+  const ask = await say('SAKAM DA IZNAJMAM KUKJA VO BUNJAKOVEC ?');
   const s = sessions.get(chatId)!;
   assert.equal(s.slots.service, 'rent');
   assert.equal(s.slots.house, true, 'the house category is on file');
-  assert.doesNotMatch(reply, LOCATION_ASK, `the place must not be re-asked: ${reply}`);
+  assert.doesNotMatch(ask, LOCATION_ASK, `the place must not be re-asked: ${ask}`);
+  assert.doesNotMatch(ask, /Евидентен број/u, `no card before the criteria: ${ask}`);
+  assert.match(ask, /спалн/iu, `the house is asked for bedrooms: ${ask}`);
+  assert.match(ask, /кирија|цена/iu, `and for its money: ${ask}`);
+
+  const reply = await say('CETIRISOBEN DO 700');
   assert.match(reply, /Евидентен број 925/u, `the house card must serve: ${reply}`);
   assert.match(reply, /Куќата под Евидентен број/u, `a house reads as куќата: ${reply}`);
-  assert.match(reply, /спалн/iu, `the house is asked for bedrooms: ${reply}`);
-  assert.match(reply, /кирија|цена/iu, `and for its money: ${reply}`);
 });
 
 test('e2e [02:16] sibling: a PLOT ask is asked for the plot — no bedrooms, no «станот»', async () => {
@@ -259,15 +358,18 @@ test('e2e [02:16] sibling: a PLOT ask is asked for the plot — no bedrooms, no 
   const { say, sessions, chatId } = makeHandler('capture-0216-plac');
   await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
 
-  const reply = await say('SAKAM DA KUPAM PLAC VO BUNJAKOVEC ?');
+  const ask = await say('SAKAM DA KUPAM PLAC VO BUNJAKOVEC ?');
   const s = sessions.get(chatId)!;
   assert.equal(s.slots.service, 'buy');
   assert.equal(s.slots.plac, true, 'the plot category is on file');
-  assert.doesNotMatch(reply, LOCATION_ASK, `the place must not be re-asked: ${reply}`);
+  assert.doesNotMatch(ask, LOCATION_ASK, `the place must not be re-asked: ${ask}`);
   // A ПЛАЦ has no спални and is never «станот» — the builder's own rule.
-  assert.doesNotMatch(reply, /спалн/iu, `a land plot was asked for bedrooms: ${reply}`);
-  assert.doesNotMatch(reply, /станот|станот под/iu, `a land plot was called a flat: ${reply}`);
-  assert.match(reply, /плац/iu, `the plot question names the plot: ${reply}`);
-  assert.match(reply, /цена/iu, `and asks its price: ${reply}`);
+  assert.doesNotMatch(ask, /спалн/iu, `a land plot was asked for bedrooms: ${ask}`);
+  assert.doesNotMatch(ask, /станот/iu, `a land plot was called a flat: ${ask}`);
+  assert.match(ask, /плац/iu, `the plot question names the plot: ${ask}`);
+  assert.match(ask, /цена/iu, `and asks its price: ${ask}`);
+  assert.doesNotMatch(ask, /Евидентен број/u, `no card before the criteria: ${ask}`);
+
+  const reply = await say('DO 50000');
   assert.match(reply, /Евидентен број 926/u, `the plot card must serve: ${reply}`);
 });

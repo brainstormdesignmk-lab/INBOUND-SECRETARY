@@ -298,6 +298,26 @@ export const RESPONSE_BANK: Record<string, string[]> = {
     "Повелете. Може ли да ми кажете дали Ве интересира купување или изнајмување на недвижност?",
     "Добредојдовте. Дали барате соодветна недвижност за купување или сакате да изнајмите?",
   ],
+  // THE STOCK-AT-A-PLACE ASK (the [17:30] owner rule): «што имате интересно кај
+  // X» is a FUNNEL step, not a card serve — the client has named a place, not a
+  // market and not a category, so the answer is the market question, asked
+  // plainly. Cards come AFTER the market and the type are known ([02:16]); here
+  // they would presume both.
+  //
+  // NO STOCK CLAIM (the [20:38] owner rule): «имаме одлични понуди околу X»
+  // asserts inventory at a place we have not looked at yet — it reads as «we
+  // have something special everywhere», which is not true and was the first
+  // thing the client heard. The place is acknowledged in a neutral clause and
+  // the ONE question owed is asked; the claim never appears. Same family of
+  // sentences as `discovery.ask.service.any`, so the wording the owner asked
+  // for is the wording served.
+  "place.stock.ask": [
+    "Здраво. За {place} — дали Ве интересира купување на недвижност или претпочитате изнајмување?",
+    "Здраво! Во врска со {place}, дали Ве интересира купување на недвижност или претпочитате изнајмување?",
+    "Добар ден. За {place} — дали планирате купување на недвижност или барате опција за изнајмување?",
+    "Здраво! Во близина на {place}: дали Ве интересира купување или изнајмување на недвижност?",
+    "Повелете. За {place}, дали барате недвижност за купување или повеќе Ве интересира изнајмување?",
+  ],
   "both.ask.type": [
     "Кој тип недвижност Ве интересира? Стан, куќа, деловен простор или плац?",
     "Разбирам. За да Ви понудам соодветни опции, кажете ми — барате стан, куќа, деловен простор или плац?",

@@ -652,7 +652,16 @@ export class Classifier {
     // keeps the like-lane into closing.
     const freshPid = ev.type === 'PROPERTY_ID_REQUESTED' ? ev.propertyId : undefined;
     const isSwitch = freshPid !== undefined && freshPid !== session.slots.propertyId;
-    if (!isSwitch && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE' && ev.type !== 'INTERESTED'
+    // A MARKET DECLARATION IS NOT INTEREST IN THE CARD (the [10:16] follow-on):
+    // «ZA KUPUVANJE SUM ZAINTERESIRAN» answers «дали Ве интересира купување или
+    // изнајмување?» — the word «заинтересиран» is in the interest vocabulary, so
+    // a browse that left one card on the table turned the market answer into
+    // INTERESTED and the funnel closed on a flat the client never picked. While
+    // the market is still UNKNOWN, a message that declares one is the answer to
+    // that question (its type question follows), never a property preference.
+    const marketAnswer = (!session.slots.service || session.slots.serviceInferred)
+      && !session.slots.dualService && detectService(text) !== undefined;
+    if (!isSwitch && !marketAnswer && ev.type !== 'REJECTED' && ev.type !== 'ESCALATE' && ev.type !== 'INTERESTED'
       && detectPropertyInterest(text)
       && PROP_INTAKE_STATES.has(session.state)
       && propertyOnTable(session)) {
@@ -1401,7 +1410,12 @@ export class Classifier {
     // a new search). The client is pointing at a property ALREADY on the
     // table; the FSM turns INTERESTED into the enthusiasm + visit-offer flow
     // with the NAMED property bound (the handler's mention resolver).
-    if (parsed.event.type !== 'REJECTED' && parsed.event.type !== 'ESCALATE'
+    // Same rule as the deterministic leg above: while the market is unknown (a
+    // pin taken from a browse batch does not count as the client's word), a
+    // market declaration answers the market question, not the card on the table.
+    const marketAnswer = (!session.slots.service || session.slots.serviceInferred)
+      && !session.slots.dualService && detectService(text) !== undefined;
+    if (!marketAnswer && parsed.event.type !== 'REJECTED' && parsed.event.type !== 'ESCALATE'
       && parsed.event.type !== 'INTERESTED'
       && detectPropertyInterest(text)
       && PROP_INTAKE_STATES.has(session.state)

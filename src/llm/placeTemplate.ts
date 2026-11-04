@@ -74,6 +74,29 @@ export function placeTemplateFrom(answer: string, forms: Array<string | undefine
   return undefined;
 }
 
+/**
+ * True when the sentence ASSERTS INVENTORY AT THE PLACE — «имаме одлични
+ * понуди», «имаме интересни опции околу X», «имаме неколку станови». That is
+ * a claim about stock we have not looked at when the prose is served (the
+ * [20:38] capture: «Имаме одлични опции во регионот околу Беверли Хилс» as the
+ * FIRST thing a client heard — it reads as «we have something special
+ * everywhere», and the owner killed it). The place prose is the market
+ * question, never a stock claim, so a stored/promoted template of that shape
+ * must not serve even though it names the place correctly.
+ *
+ * Only a CLAIM fires: the owner-specified wording («Дали Ве интересира
+ * купување…») and questions in general are untouched, and the feed's own card
+ * copy is out of scope (this predicate is consulted by the place-prose lane
+ * only).
+ */
+const STOCK_CLAIM_RE = /(?<![\p{L}])(?:имаме|има|имаат|располагаме)(?:\s+[^.!?\n]{0,40}?)?\s*(?:понуд|опци|интересн\w*|избор|станов|недвижност|нешто)/iu;
+
+export function assertsStockAtPlace(text: string): boolean {
+  const t = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  return STOCK_CLAIM_RE.test(t);
+}
+
 /** The template with the client's place in it. A blank place is never
  *  substituted (an empty slot in client copy is worse than no template). */
 export function renderPlaceTemplate(template: string, place: string): string {

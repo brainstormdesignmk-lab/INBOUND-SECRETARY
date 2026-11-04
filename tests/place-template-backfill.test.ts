@@ -64,9 +64,14 @@ function makeHandler() {
 }
 
 const Q = 'ZDRAVO\nSTO IMTE INTERESNO KAJ KAPITOL MOL ?';
-/** The [22:59] prose the operator kept — no template yet (an older capture). */
+/** The [22:59] prose, CLAIM-FREE — the shape the owner wants served. */
 const ANSWER =
-  'Здраво! Во близина на Капитол Мол имаме одлични понуди, па со задоволство би Ви помогнала да го најдеме вистинскиот избор за Вас. Кажете ми, дали Ве интересира купување или изнајмување на недвижност?';
+  'Здраво! Во врска со Капитол Мол, дали Ве интересира купување на недвижност или претпочитате изнајмување?';
+/** A stored capture that ASSERTS STOCK at the place — never templated/served
+ *  (the [20:38] owner rule). */
+const Q_CLAIM = 'STO IMTE INTERESNO KAJ OLYMPICO ?';
+const ANSWER_CLAIM =
+  'Здраво! Имаме одлични опции во регионот околу ТЦ Олимпико. За да можам да ви издвојам соодветни понуди, дали Ве интересира купување или изнајмување?';
 /** District-bound: true only in Аеродром, so it must NEVER become a template. */
 const Q_DISTRICT = 'STO IMATE VO AERODROM ?';
 const ANSWER_DISTRICT =
@@ -76,6 +81,7 @@ test('the backfill templates a stored capture and refuses a district-bound one',
   const { handler, bank, sent } = makeHandler();
   bank.addDynamic('dynamic:idle:sto-imte-interesno', 'idle', Q, ANSWER);
   bank.addDynamic('dynamic:idle:sto-aerodrom', 'idle', Q_DISTRICT, ANSWER_DISTRICT);
+  bank.addDynamic('dynamic:idle:sto-olympico', 'idle', Q_CLAIM, ANSWER_CLAIM);
   assert.equal(bank.retrievePlaceTemplate('ТЦ Капитол'), undefined, 'nothing templated yet (an older capture)');
 
   // DRY RUN — reports, writes nothing.
@@ -89,6 +95,13 @@ test('the backfill templates a stored capture and refuses a district-bound one',
   const districtRow = dry.find(r => r.msg === Q_DISTRICT)!;
   assert.equal(districtRow.template, undefined, 'a district-bound answer is never templated');
   assert.match(districtRow.reason ?? '', /district-bound|never names/iu, JSON.stringify(districtRow));
+
+  // A STOCK CLAIM is refused at the source too (the [20:38] owner rule): the
+  // place prose is the market question, and backfilling the claim would put it
+  // back in front of a client at a place nobody has looked at.
+  const claimRow = dry.find(r => r.msg === Q_CLAIM)!;
+  assert.equal(claimRow.template, undefined, 'a claiming answer is never templated');
+  assert.match(claimRow.reason ?? '', /claims stock/iu, JSON.stringify(claimRow));
 
   // APPLY — only the derivable row gets a template.
   const applied = await handler.backfillPlaceTemplates({ apply: true });

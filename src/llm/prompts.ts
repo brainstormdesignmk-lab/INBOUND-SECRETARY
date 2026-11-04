@@ -801,7 +801,13 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // offer), so the asks below read the flag instead — asking «за купување или
   // за изнајмување?» straight after he said BOTH is the loop this capture is.
   const dual = !!slots.dualService;
-  const serviceKnown = !!slots.service || dual;
+  // A MARKET PINNED FROM A BROWSE BATCH IS THE FEED'S WORD (the [10:16] capture):
+  // «што имате околу X» served a row, the pin took its service so the pool and
+  // the protocols stay coherent — but the client never said buy or rent, and
+  // reading the pin as an answered criterion is what turned the next turn into
+  // «колку спални соби…» for an apartment nobody named. Only HIS declaration
+  // (or a dual deal) answers the market question.
+  const serviceKnown = (!!slots.service && !slots.serviceInferred) || dual;
   const knownAny = !!(serviceKnown || locationKnown || slots.bedrooms || (slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined) || slots.sqm || slots.budget || anywhere);
   // The client opened with NO criteria at all ("zdravo") — Lina does NOT know
   // the property type, so she must never assume an apartment. Bank key

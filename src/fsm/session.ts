@@ -37,6 +37,13 @@ export interface SlotData {
   rentBudget?: string;          // the client's cap for RENT money alone
   buyBudget?: string;           // the client's cap for BUY money alone
   dualService?: boolean;        // both budgets are on file — serve rent+buy pairs
+  /** THE MARKET WAS PINNED FROM A BATCH, NOT DECLARED (the [10:16] capture):
+   *  a browse serve takes the first row's service so the pool and the protocols
+   *  stay coherent, but that is the FEED's word — the client never said it. The
+   *  funnel still owes the market question (buildDiscoveryAsk) and the
+   *  classifier must not read «заинтересиран» as interest in that row. Cleared
+   *  by the client's own declaration (applySlots). */
+  serviceInferred?: boolean;
   /** PER-CATEGORY MONEY (the [19:14] capture): «DVOSOBEN MOZE DO 90000 I
    *  TROSOBEN DO 150000» — TWO room categories, each with ITS OWN cap, in one
    *  search near one place. Room count → cap (strings, like slots.budget).
