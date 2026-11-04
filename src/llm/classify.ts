@@ -6,7 +6,8 @@ import { PropertyService } from '../data/properties';
 import { extractSlots, DetectedSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectFeeNag, detectFeeAmountAsk, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
-import { extractDayWord } from '../visits/time';
+import { extractDayWord, mergeVisitTerm, detectSameTimeReference } from '../visits/time';
+import { ebNumbersInText } from './ebNumber';
 import { normalizeOwnerTime } from './prompts';
 
 export interface Classified {
@@ -39,11 +40,22 @@ export interface Classified {
  *  legs): they used to merge differently, so the same message could keep the
  *  owner's day on one path and lose it on the other. */
 function counterMergedTerm(t: string, session: ChatSession): string {
+  // ONE merge for every reader — including the SAME-TIME reference
+  // («CETVRTOK ISTO VREME MOZE ?», the [20:31] capture), which names the day
+  // and reuses the hour already in play. The hour donor chain is the owner's
+  // counter first, then the owner's term, then the stored slot: the client is
+  // moving one of the two fields, never silently dropping both.
+  const donors = [
+    session.slots.ownerCounterTime,
+    session.slots.ownerTime,
+    session.slots.visitTime,
+  ];
+  // A SAME-TIME reference needs BOTH halves spelled out (the day from the
+  // message, the hour from the term in play) — that is the merge helper.
+  if (detectSameTimeReference(t)) return mergeVisitTerm(t, donors);
   if (hasDayWord(t) || !hasClockHint(t)) return t;
-  const ownerTerm = session.slots.ownerTime ?? '';
-  const donor = hasDayWord(ownerTerm) ? ownerTerm : (session.slots.visitTime ?? '');
-  const d = extractDayWord(donor);
-  return d ? `${d} ${t.trim()}` : t;
+  const donorDay = donors.map(d => (d ? extractDayWord(d) : undefined)).find(Boolean);
+  return donorDay ? `${donorDay} ${t.trim()}` : t;
 }
 
 function timeConfirmCounterEvent(t: string, session: ChatSession): Event {
@@ -230,12 +242,28 @@ export function inferPropertyId(text: string): number | undefined {
   // bare-EB guards, the 22:19 visit protocol and the persistence pin). The
   // "A ZA 250?" price echo is resolved by resolveBarePid (budget/lastPrice
   // veto) at the classifier level, NOT here — "za <digits>" is an EB frame.
-  if (!detectEyeCatch(text)
-    && /(спални|соби|евра|евро|evra|evro|денари|ден\.|хилјади|\beur\b|\bmkd\b|м2|м²|m2|m²|кв\.?м|kvadrat|саат|часа|часот|spalna|spalni|(?:до|околу|под|do|okolu|oko|pod)\s*\d{2,3}\b)/i.test(text)) return undefined;
-  const m = text.match(/\b(\d{2,3})\b(?!\s*[.,]\d)/);
-  if (!m) return undefined;
-  const n = parseInt(m[1], 10);
-  return n >= 10 && n <= 999 ? n : undefined;
+  // THE NUMBER'S OWN NEIGHBOURHOOD DECIDES, not the whole message (the [20:11]
+  // capture): the old veto refused to read ANY number once the message carried
+  // a unit word — so «KOLKU DOAGJA CENA PO KVADRAT ZA 53?» lost the 53 to the
+  // «kvadrat» that was asking for its RATE. Every lane that guards on
+  // "a named property owns its lane" (the market band lane among them) then
+  // saw no flat, and the client got Аеродром's €/м² band for a question about
+  // one flat. ebNumbersInText keeps the same rules — a number with a unit after
+  // it, behind a cap/comparison word, or inside a thousands figure is still a
+  // criterion — but applies them LOCALLY.
+  const mentioned = ebNumbersInText(text);
+  if (mentioned.length > 0) return mentioned[0];
+  // THE EYE-CATCH IDIOM is the one shape the cap rule cannot see on its own:
+  // «mi fati oko 94» carries «око» as the EYE, not as «околу», so the number IS
+  // the Евидентен број there.
+  if (detectEyeCatch(text)) {
+    const m = text.match(/(?<![\p{L}\p{N}])(\d{2,3})(?!\s*[.,]\d)(?![\p{L}\p{N}])/u);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n >= 10) return n;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -795,7 +823,22 @@ export class Classifier {
         if (!hasDayWord(t) && hasDayWord(storedT) && !hasClockHint(t) && hasClockHint(storedT)) {
           mergedT = `${storedT.trim()} ${t.trim()}`;
         }
-        ev = { type: 'VISIT_TIME_PROVIDED', visitTime: mergedT };
+        // SAME-TIME REFERENCE («CETVRTOK ISTO VREME MOZE ?») is the ONE shape
+        // merged here: it names a day and reuses the hour on the table, so the
+        // phrase must carry both before it leaves this leg. A bare clock is NOT
+        // merged here — applySlots owns the day-first concatenation (the raw
+        // stored phrase + the clock, so «VO PONEDENIK MOZAM POPLADNE» + «OKOLU 6»
+        // stays one readable term) and normalizeOwnerTime resolves it.
+        ev = {
+          type: 'VISIT_TIME_PROVIDED',
+          visitTime: detectSameTimeReference(mergedT)
+            ? mergeVisitTerm(mergedT, [
+              session.slots.ownerCounterTime,
+              session.slots.ownerTime,
+              session.slots.visitTime,
+            ])
+            : mergedT,
+        };
       }
     }
 

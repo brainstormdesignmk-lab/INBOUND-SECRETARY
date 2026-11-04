@@ -104,8 +104,25 @@ const SEARCH_CRITERION_RE = /(?:(?:^|[\s,.])(?:барам|бараме|бара�
 
 /** The honest answer when a facet is asked about but the feed stores nothing:
  *  the agency relays owner questions, so the line promises exactly that. */
-export const INFO_NO_DATA_LINE =
-  'Немам информација во системот; немам податок во базата — ќе го прашам сопственикот и ќе Ви потврдам.';
+// ONE variant per turn, IN ROTATION — never both in one sentence. The old line
+// glued the two ways of saying the same thing together
+// («Немам информација во системот; немам податок во базата — …»), which read
+// like two different admissions in one breath. The promise (ask the owner,
+// confirm back) is the contract; the opening varies.
+export const INFO_NO_DATA_LINES: readonly string[] = [
+  'Немам информација во системот — ќе го прашам сопственикот и ќе Ви потврдам.',
+  'Немам податок во базата — ќе го прашам сопственикот и ќе Ви потврдам.',
+];
+/** The canonical (first) variant — the frozen bank key's code source. */
+export const INFO_NO_DATA_LINE = INFO_NO_DATA_LINES[0];
+let noDataTurn = 0;
+/** The rotation: each miss advances one variant, so a client who asks two
+ *  unanswerable facts in a row does not read the same sentence twice. */
+export function noDataLine(): string {
+  const line = INFO_NO_DATA_LINES[noDataTurn % INFO_NO_DATA_LINES.length];
+  noDataTurn++;
+  return line;
+}
 
 /** The BUILDING-height miss: the feed's `vkupno_katovi` is "Не е наведено".
  *  Distinct from the generic line because the client asked a countable fact —
@@ -404,7 +421,7 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
       // same owner-relay contract as every other missing fact.
       sentences.push(`${type} со Евидентен број ${p.eb} чини ${p.price.toLocaleString('mk-MK')} евра, но немам податок за површината во базата — ќе го прашам сопственикот и ќе Ви потврдам.`);
     } else {
-      sentences.push(INFO_NO_DATA_LINE);
+      sentences.push(noDataLine());
     }
     answered = true;
   }
@@ -433,7 +450,7 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
     const fl = floorPhrase(p);
     // A floor ask with no stored floor is a missing FACT, not a silent fall
     // through to the generic lane (which used to answer with something else).
-    sentences.push(fl ?? INFO_NO_DATA_LINE);
+    sentences.push(fl ?? noDataLine());
     answered = true;
   }
   // "колку ката има зградата" — the BUILDING's height. Never the unit floor.
@@ -458,7 +475,7 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
     } else if (fl !== undefined && fl >= 0) {
       sentences.push(`${fl === 0 ? 'Се наоѓа во приземје' : `Се наоѓа на ${fl} кат`}, но немам податок во базата колку ката има зградата — ќе го прашам сопственикот и ќе Ви потврдам.`);
     } else {
-      sentences.push(INFO_NO_DATA_LINE);
+      sentences.push(noDataLine());
     }
     answered = true;
   }
@@ -503,7 +520,7 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
       // Feature-ONLY ask about data the feed doesn't store — honest deferral,
       // never a fabricated feature. When another facet already answered
       // ("na koj kat e i ima lift?"), the stored fact must not be discarded.
-      return INFO_NO_DATA_LINE;
+      return noDataLine();
     }
   }
 

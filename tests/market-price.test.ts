@@ -942,3 +942,42 @@ test('an area-less row joins its area band through its own ad text', async () =>
   const answer = sent[sent.length - 1] ?? '';
   assert.match(answer, /цените варираат од 1\.250 до 1\.500 евра за м²/u, `both Центaр rows, no 1.200: ${answer}`);
 });
+
+// ── 5. ONE FLAT IS A RATE, NOT A MARKET BAND (the [20:11] capture) ─────────
+//
+//   [20:11] KOLKU DOAGJA CENA PO KVADRAT ZA 53 ?
+//   [20:11] ЛИНА: Во Аеродром, цените варираат од 1.250 до 2.026 евра за м² …
+//
+// He asked EB 53's own rate and got the neighbourhood's range. The band lane
+// DID carry the right guard («a named property owns its lane»), but the reader
+// behind it refused to read any number in a message containing «kvadrat» — the
+// very word that asks for the rate. See src/llm/ebNumber.ts and
+// tests/eb-number.test.ts for the reader; this is the end-to-end contract.
+test('[20:11] «CENA PO KVADRAT ZA 53» answers EB 53\'s rate, never the Аеродром band', async () => {
+  const rows: Property[] = [
+    // 55.000 / 44 = 1.250 €/m² — the flat the client named.
+    { eb: 53, id: 53, address: 'Мичурин 5', location: 'Аеродром', price: 55000, sqm: 44, service: 'buy', bedrooms: 2 },
+    // 110.000 / 70 = 1.571 €/m² — the other card, and the band's upper end.
+    { eb: 54, id: 54, address: 'Мичурин 7', location: 'Аеродром', price: 110000, sqm: 70, service: 'buy', bedrooms: 3 },
+  ];
+  const { handler, sessions, sent } = makeHandler(rows);
+  const chatId = 'capture-2011';
+  const s = freshSession('test', chatId);
+  s.slots.service = 'buy';
+  s.slots.location = 'Аеродром';
+  s.slots.presentedIds = [53, 54];
+  s.slots.currentBatch = [53, 54];
+  s.slots.propertyId = 54;
+  sessions.set(s);
+
+  await handler.handle('test', chatId, 'KOLKU DOAGJA CENA PO KVADRAT ZA 53 ?');
+  const answer = sent[sent.length - 1] ?? '';
+
+  assert.match(answer, /односно 1\.250 евра за м²/u, `EB 53's own rate: ${answer}`);
+  assert.match(answer, /Евидентен број 53/u, `the answer names the flat asked about: ${answer}`);
+  assert.doesNotMatch(answer, /цените варираат/u, `never the neighbourhood band: ${answer}`);
+  assert.doesNotMatch(answer, /1\.571/u, `never the OTHER card's rate (EB 54): ${answer}`);
+  // The turn MOVES the conversation to the flat he priced (same rule as the
+  // rest of the info family): the next bare «kolku kvadrati ima?» answers 53.
+  assert.equal(sessions.get(chatId)?.slots.interestedPropertyId, 53);
+});

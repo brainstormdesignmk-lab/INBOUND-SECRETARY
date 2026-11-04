@@ -127,7 +127,7 @@ test('[02:15] «STO IMATE VO BUNJAKOVEC?» is inventory — the place is a POI, 
   assert.equal(detectPropertyTypeWord('ZDRAVO'), false);
 });
 
-test('e2e [02:15]: the greeting may answer the OPENING ask — but the place is remembered', async () => {
+test('e2e [02:15]: the OPENING ask is served from the place — and the place is remembered', async () => {
   const cfg = loadConfig();
   const map = new OfflineMapStore(cfg.skopjePoisDb);
   if (!map.available) return; // no live map on this machine — offlineMap.test.ts pins the DB
@@ -135,11 +135,60 @@ test('e2e [02:15]: the greeting may answer the OPENING ask — but the place is 
 
   const first = await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
   const s1 = sessions.get(chatId)!;
-  // Nothing is served on a blank session (there is no type to serve), and that
-  // is fine — the failure the owner reported was the LOST place, not the greeting.
-  assert.doesNotMatch(first, /Евидентен број/iu, first);
+  // THE SERVE IS THE ANSWER (the owner's [01:45] extension of this rule): the
+  // client named a place and asked for stock, so the rows near it are shown.
+  // This assertion used to pin «nothing is served on a blank session (there is
+  // no type to serve)» — the lost PLACE was the reported defect then; what the
+  // place now buys is the serve itself, with the TYPE question riding it (the
+  // [02:15] owner wording, type-neutral — no category is presumed).
+  assert.match(first, /Евидентен број 92\d/u, `the rows near the place serve: ${first}`);
+  assert.ok(!/стан(?:от)? го барате/iu.test(first), `no property type is presumed: ${first}`);
+  assert.match(first, /тип|стан, куќа|деловен простор или плац|купување или за изнајмување/iu,
+    `the type question rides the serve: ${first}`);
   assert.ok(s1.slots.poiAnchor, `the place the client named was dropped: ${first}`);
   assert.match(s1.slots.poiAnchor!, /буњак/iu, `wrong anchor: ${s1.slots.poiAnchor}`);
+});
+
+test('[01:45] the SAME ask in two openings gets the SAME answer — the options at the place', async () => {
+  // One session, two clients:
+  //   [01:45] DALI IMATE NESTO INTERESNO KAJ ZEBRA?   → three properties near Зебра
+  //   [01:46] ZDRAVO . STO IMATE INTERESNO KAJ ZEBRA? → «дали сте во потрага по
+  //           недвижност за купување или за изнајмување?»
+  // Same question, two openings, two different answers. The dali/li shape was
+  // not an inventory ask at all (it reached the classifier as a
+  // PROPERTY_DESCRIPTION guess, so its serve depended on that guess) and the
+  // «интересно/нешто» qualifier was ignored. Both are ONE family now: a PLACE +
+  // an options qualifier is a SHOW-ME ask, answered from the rows around the
+  // place. The PLAIN «што имате во X» keeps the [02:15] contract — remember the
+  // place and ask the type, serve nothing before the category is known.
+  const cfg = loadConfig();
+  const map = new OfflineMapStore(cfg.skopjePoisDb);
+  if (!map.available) return; // no live map on this machine — offlineMap.test.ts pins the DB
+  const OPENINGS = [
+    'DALI IMATE NESTO INTERESNO KAJ BUNJAKOVEC ?',
+    'ZDRAVO . STO IMATE INTERESNO KAJ BUNJAKOVEC ?',
+  ];
+  for (const [i, msg] of OPENINGS.entries()) {
+    const { say, sessions, chatId } = makeHandler(`capture-0145-${i}`);
+    const reply = await say(msg);
+    const s = sessions.get(chatId)!;
+    assert.match(reply, /Евидентен број 92\d/u, `the rows near the place must serve: ${msg} → ${reply}`);
+    assert.match(s.slots.poiAnchor ?? '', /буњак/iu, `${msg}: the place on file, got ${s.slots.poiAnchor}`);
+    assert.equal(s.slots.inventoryOptionsServed, true, `${msg}: a blank options serve is on file`);
+    assert.equal(s.slots.inventoryPending, true, `${msg}: the type is still owed`);
+    assert.doesNotMatch(reply, LOCATION_ASK, `${msg}: the place he named is never re-asked: ${reply}`);
+    // …and the type question rides the serve, type-neutral (names no category he
+    // did not say — the cards describe the rows, the QUESTION presumes nothing).
+    assert.match(reply, /тип|стан, куќа|деловен простор или плац/iu, `${msg}: the type ask: ${reply}`);
+  }
+
+  // The NEUTRAL shape serves too (the owner extended [01:45] to it): the cards
+  // answer «what is there» and the type question rides them. The difference
+  // between the openings is gone — one question, one answer.
+  const { say, chatId } = makeHandler('capture-0145-plain');
+  const plain = await say('ZDRAVO. STO IMATE VO BUNJAKOVEC?');
+  assert.match(plain, /Евидентен број 92\d/u, `the neutral ask serves the rows: ${plain}`);
+  assert.doesNotMatch(plain, LOCATION_ASK, `the place he named is never re-asked: ${plain}`);
 });
 
 test('e2e [02:16]: the typed acquisition SERVES from that place and asks its own questions', async () => {

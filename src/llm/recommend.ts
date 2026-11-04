@@ -20,6 +20,7 @@ import type { Property } from '../data/properties';
 import { pricePerM2, sqmOfRow } from '../data/properties';
 import { buildPropertyCard } from './prompts';
 import { normalizeMc } from './normalize';
+import { ebNumbersInText } from './ebNumber';
 
 /** Word classes for the recommendation ask. The verb family: preporac-/препорач-
  *  (all conjugations), izber-/избира-/избор- (choose), suggest/recommend. */
@@ -152,10 +153,13 @@ export function collectMentionedEbs(
     // time or floor UNIT belongs to the criteria ("50 m²", "120 000 evra",
     // "6 saat", "3 kat"), and a number behind a comparison word ("nad 50",
     // "do 120", "preku 60") is a limit, not a reference to a listing.
-    const re = /(?:\b(?:stanot|stan|kuca|куќата|куќа|станот|стан|eb|е|евидентен\s+број|evi[dđ]enten)\s*)?(?<![\p{L}\p{N}])(?<!(?:nad|над|do|до|pod|под|okolu|околу|preku|преку|poveke|повеќе|pomalo|помалку)\s*)\b(\d{2,3})\b(?!\s*[.,]\d)(?!\s+\d{3})(?!\s*(?:м2|м²|m2|m²|кв\.?\s*м|kvadrat|квадрат|спалн|соби|sob|евра|евро|evra|evro|€|денар|денари|den|%|кат|саат|час))/giu;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(raw))) {
-      const n = parseInt(m[1], 10);
+    //
+    // ONE READER (src/llm/ebNumber.ts): the same grammar backs
+    // inferPropertyId, so the market lane's "a named property owns its lane"
+    // guard and this binder can never disagree — the [20:11] capture lost the
+    // 53 in «CENA PO KVADRAT ZA 53» only because two copies of this rule
+    // disagreed about the word «kvadrat».
+    for (const n of ebNumbersInText(raw)) {
       if (validEbs.has(n) && !found.includes(n)) found.push(n);
     }
   }

@@ -39,7 +39,7 @@ import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore } from '../src/geo/offlineMap';
 import { BankStore } from '../src/store/bank';
 import { buildDiscoveryAsk } from '../src/llm/prompts';
-import { extractPoiWish, fsmRequired } from '../src/llm/deterministic';
+import { extractPoiWish, fsmRequired, detectInventoryAsk, extractInventoryPlace } from '../src/llm/deterministic';
 import type { SlotData } from '../src/fsm/session';
 
 class FailingLlm implements LlmClient {
@@ -50,6 +50,33 @@ const MSG_INTAKE = 'ZDRAVO , MI TREBA STANCE VO BLIZINA NA BUNJAKOVEC';
 /** The stored row the live run served instead of running the funnel. */
 const LEARNED_ANSWER =
   'Здраво! Со задоволство ќе ви помогнам да најдеме соодветен стан во близина на Буњаковец. Веднаш ќе ги проверам сите достапни опции.';
+
+/**
+ * THE [22:58]/[23:00] CAPTURE — a LEARNED answer must not eat the place it
+ * answered about.
+ *
+ *   [22:58] STO IMTE INTERESNO KAJ KAPITOL MOL ?
+ *   [22:59] ЛИНА [dynamic]: Здраво! Во близина на Капитол Мол имаме одлични
+ *           понуди… Кажете ми, дали Ве интересира купување или изнајмување
+ *           на недвижност?                       ← the prose is RIGHT
+ *   [23:00] ZA KUPUVANJE SUM
+ *   [23:00] ЛИНА: Кажете ми во која населба или дел од градот ја барате
+ *           недвижноста?                          ← the area HE JUST NAMED
+ *
+ * The prose was served by the learned/dynamic lane, which returns BEFORE the
+ * classifier's applySlots() — the one seam every landmark rule in the repo
+ * lived in. The place died with the turn. The fix binds it in that lane (and
+ * the have-ask family reads «кај», and the dropped-vowel «IMTE»).
+ */
+const MSG_CAPITOL = 'STO IMTE INTERESNO KAJ KAPITOL MOL ?';
+/** The SIBLING shape the learned lane still owns: landmark chatter with no
+ *  criteria (fsmRequired false), so `tryLearnedServe` answers it — and it
+ *  returns before `applySlots()`, the only other place the anchor is written. */
+const MSG_OLYMPICO = 'KAJ OLYMPICO IMA POSTAVA';
+const LEARNED_OLYMPICO =
+  'Да, имаме огласи во тој дел од градот. Кажете ми каква недвижност Ве интересира, за да проверам што е достапно.';
+const LEARNED_CAPITOL =
+  'Здраво! Во близина на Капитол Мол имаме одлични понуди, па со задоволство би Ви помогнала да го најдеме вистинскиот избор за Вас. Кажете ми, дали Ве интересира купување или изнајмување на недвижност?';
 
 const ROWS: Property[] = [
   // The neighbourhood + the street the anchor names (Bunjakovec is in Центар).
@@ -111,6 +138,10 @@ function makeHandler(rows: Property[] = ROWS, id = 'bunjakovec-intake') {
   // The live learned row — it must never answer an intake turn.
   const bank = new BankStore(db);
   bank.addDynamic('dynamic:idle:zdravo-treba-stance', 'idle', MSG_INTAKE, LEARNED_ANSWER);
+  // …and the [22:58] row: the learned answer the operator KEPT (it is correct
+  // prose) that must not cost the session the place it answered about.
+  bank.addDynamic('dynamic:idle:sto-imte-interesno', 'idle', MSG_CAPITOL, LEARNED_CAPITOL);
+  bank.addDynamic('dynamic:idle:kaj-olympico', 'idle', MSG_OLYMPICO, LEARNED_OLYMPICO);
   const handler = new InboundHandler({
     cfg, db, sessions, bank,
     classifier: new Classifier(new FailingLlm(), cfg, new FakeProps(rows)),
@@ -149,26 +180,37 @@ test('the intake resolves Буњаковец to Центар and the learned row
   assert.equal(s.slots.location, 'Центар', `Буњаковец resolves to its feed area, got ${s.slots.location}`);
 });
 
-test('[04:17] stock at a place with NO type asks the MARKET, then the TYPE, never an apartment', async () => {
+test('[04:17] stock at a place with NO type is SERVED there, and the type is asked — never presumed', async () => {
   const { handler, sessions, sent, chatId } = makeHandler();
   await handler.handle('test', chatId, 'ZDRAVO. STO IMATE VO BUNJAKOVEC ?');
   const answer = sent[sent.length - 1] ?? '';
-  // The client named a PLACE and nothing else. The old reply was «Дали станот го
-  // барате за да го купите или сакате да го земете под закуп?» — an apartment he
-  // never mentioned. The market question is the type-neutral one, and it may
-  // NEVER carry a property-type word.
-  assert.ok(!/стан|куќ|деловен простор|гарсоњер/iu.test(answer),
-    `the type was assumed (the [04:17] capture): ${answer}`);
-  assert.match(answer, /куп|изнајм|кириј|закуп/iu, `the market question is what he owes: ${answer}`);
+  // The client named a PLACE and nothing else. Two superseded readings, one
+  // surviving contract:
+  //   • the ORIGINAL defect was «Дали СТАНОТ го барате…» — an apartment he never
+  //     mentioned, so no QUESTION may presume a category;
+  //   • the market question was the interim answer (he must name buy/rent);
+  //   • since the [01:45] extension the rows near the place ARE served, and the
+  //     type question rides the serve — the place the client named buys stock.
+  // The type-presumption contract is now checked on the QUESTION, because the
+  // CARDS legitimately describe the rows that exist («трисобен стан» is their
+  // own fact, not an assumption about him).
+  assert.match(answer, /Евидентен број 10[24]/u, `the rows near Буњаковец serve: ${answer}`);
+  assert.ok(!/Дали станот|станот го барате|стан за купување или за изнајмување|куќата го барате/iu.test(answer),
+    `the question presumes a category (the [04:17] capture): ${answer}`);
+  assert.match(answer, /тип|стан, куќа, деловен простор или плац|купување или изнајмување/iu,
+    `the type/market question is what he owes: ${answer}`);
   assert.ok(answer.trim().endsWith('?'), answer);
 
-  // The market answer follows it with the TYPE question: he still has not said
-  // WHAT he wants, and no pair can be chosen without it. The bedroom/price
-  // questions wait for that answer.
+  // The service answer keeps the TYPE question open: he still has not said WHAT
+  // he wants, and no pair can be chosen without it.
   await handler.handle('test', chatId, 'SAKAM DA KUPAM');
   const typed = sent[sent.length - 1] ?? '';
   assert.equal(sessions.get(chatId)!.slots.service, 'buy');
-  assert.match(typed, /тип|стан, куќа|деловен простор/iu, `the type ask is owed: ${typed}`);
+  // CONTRACT, not one wording: `both.ask.type` also asks by enumerating the
+  // categories («барате стан, куќа, деловен простор или плац?»), which has no
+  // noun «тип» — match the whole family.
+  const TYPE_ASK = /тип|стан, куќа|деловен простор или плац/iu;
+  assert.match(typed, TYPE_ASK, `the type ask is owed: ${typed}`);
   assert.ok(!/спалн/iu.test(typed), `a bedroom question before the type is known: ${typed}`);
 
   // …and a flat answer turns it into the flat funnel: the type is on file, so
@@ -176,7 +218,7 @@ test('[04:17] stock at a place with NO type asks the MARKET, then the TYPE, neve
   await handler.handle('test', chatId, 'DVOSOBEN STAN');
   const flat = sent[sent.length - 1] ?? '';
   assert.equal(sessions.get(chatId)!.slots.flat, true, 'the flat the client named is on file');
-  assert.ok(!/Кој тип недвижност|тип на недвижност/iu.test(flat), `the type is known now: ${flat}`);
+  assert.ok(!TYPE_ASK.test(flat), `the type is known now: ${flat}`);
 });
 
 test('after the buy answer the funnel asks bedrooms AND budget, never the neighborhood', async () => {
@@ -192,6 +234,74 @@ test('after the buy answer the funnel asks bedrooms AND budget, never the neighb
     `the neighborhood question must NOT be re-asked after «во близина на Буњаковец»: ${answer}`);
 });
 
+test('[22:58] the area the client named survives the turn that answers him', async () => {
+  const { handler, sessions, sent, chatId } = makeHandler();
+  await handler.handle('test', chatId, MSG_CAPITOL);
+  const s = sessions.get(chatId)!;
+  // A learned row for this exact phrasing IS in the bank, and it must not own
+  // the turn: stock-at-a-place is funnel traffic (the [02:15]/[04:17]
+  // contract), and the stored prose is what used to swallow the geography.
+  assert.notEqual(sent[sent.length - 1], LEARNED_CAPITOL,
+    'a stock-at-a-place ask must not be answered by stored prose');
+  // THE OPTIONS ASK IS SERVED (the [01:45] capture, which supersedes the
+  // market-question assertion this line used to pin): «што имате ИНТЕРЕСНО кај
+  // X» asks to SEE what is there. Two clients asked that question in one
+  // session — «DALI IMATE NESTO INTERESNO KAJ ZEBRA ?» got three properties while
+  // «ZDRAVO . STO IMATE INTERESNO KAJ ZEBRA ?» got «дали сте во потрага по
+  // недвижност за купување или за изнајмување?». The rows near the place are
+  // served now, and the TYPE question (the [02:15] owner rule) rides the reply,
+  // type-neutral — no category is presumed.
+  assert.match(sent[sent.length - 1] ?? '', /Евидентен број \d+/u,
+    `the inventory near the place is served: ${sent[sent.length - 1]}`);
+  assert.ok(!/стан(?:от)? го барате|стан за купување или за изнајмување/iu.test(sent[sent.length - 1] ?? ''),
+    `no property type is presumed: ${sent[sent.length - 1]}`);
+  assert.ok(s.slots.poiAnchor, 'the place the client named is on file');
+  assert.match(s.slots.poiAnchor!.toLowerCase(), /капитол|kapitol/u, `anchor: ${s.slots.poiAnchor}`);
+  assert.equal(s.slots.inventoryPending, true, 'stock-at-a-place is remembered for the type ask');
+
+  await handler.handle('test', chatId, 'ZA KUPUVANJE SUM');
+  const ask = sent[sent.length - 1] ?? '';
+  assert.equal(sessions.get(chatId)!.slots.service, 'buy');
+  assert.ok(!/населба|naselba|дел од градот/iu.test(ask),
+    `the neighbourhood he just named must not be re-asked: ${ask}`);
+  // The place is known, the SERVICE is now known, the TYPE was never said: the
+  // stock-at-a-place funnel asks WHICH CATEGORY, never a flat's bedrooms.
+  assert.match(ask, /тип|стан, куќа|деловен простор или плац/iu, `the type question is owed: ${ask}`);
+  assert.ok(!/спалн|spaln/iu.test(ask), `no bedroom question before the type is known: ${ask}`);
+});
+
+test('«што имате КАЈ X» is a stock-at-a-place ask, like «во X»', () => {
+  // The preposition the family never had: «кај» is how a Macedonian client
+  // asks for stock at a place, and the dropped-vowel verb («IMTE») is a typo,
+  // not a different question.
+  for (const m of [
+    'STO IMTE INTERESNO KAJ KAPITOL MOL ?',
+    'STO IMATE INTERESNO KAJ KAPITOL MOL ?',
+    'ШТО ИМАТЕ ПОВОЛНО КАЈ КАПИТОЛ МОЛ',
+  ]) {
+    assert.equal(detectInventoryAsk(m), true, `not read as an inventory ask: ${m}`);
+  }
+  assert.equal(extractInventoryPlace('STO IMATE INTERESNO KAJ KAPITOL MOL ?'), 'KAPITOL MOL');
+  // A pronoun tail is not a place — «кај вас» asks about the AGENCY.
+  assert.equal(extractInventoryPlace('STO IMATE KAJ VAS ?'), undefined);
+  // The «во/на» shape keeps working (the [02:15] contract).
+  assert.equal(extractInventoryPlace('ZDRAVO. STO IMATE VO BUNJAKOVEC ?'), 'BUNJAKOVEC');
+});
+
+test('a LEARNED answer still records the place it answered about', async () => {
+  // The sibling of the [22:58] capture: when the learned lane DOES own the turn
+  // (landmark chatter with no criteria — fsmRequired false), it returns before
+  // `applySlots()`, so the anchor has to be written in that lane. Before this,
+  // the answer served and the place died with the turn.
+  const { handler, sessions, sent, chatId } = makeHandler();
+  await handler.handle('test', chatId, MSG_OLYMPICO);
+  assert.equal(sent[sent.length - 1], LEARNED_OLYMPICO,
+    `the learned answer still serves: ${sent[sent.length - 1]}`);
+  const s = sessions.get(chatId)!;
+  assert.ok(s.slots.poiAnchor, 'the place the answer was about is on file');
+  assert.match(s.slots.poiAnchor!.toLowerCase(), /олимпико|olympico/iu, `anchor: ${s.slots.poiAnchor}`);
+});
+
 test('buildDiscoveryAsk: a landmark anchor satisfies the location question', () => {
   // A CITY-LEVEL value (typically inferred, never said) does not — but the
   // anchor already named the area, so the pair is asked, not the neighborhood.
@@ -205,7 +315,11 @@ test('buildDiscoveryAsk: a landmark anchor satisfies the location question', () 
   // The stock-at-a-place funnel asks the TYPE instead — its pair is not owed
   // until the category is known (спални vs м²).
   const held = buildDiscoveryAsk({ service: 'buy', location: 'Скопје', poiAnchor: 'Буњаковец', poiArea: 'Центар', inventoryPending: true } as SlotData);
-  assert.match(held, /тип/iu, `the type question, not a category-specific one: ${held}`);
+  // CONTRACT: ask WHICH CATEGORY, in the bank's own rotating wording. One
+  // `both.ask.type` seed enumerates the categories («барате стан, куќа, деловен
+  // простор или плац?») and carries no noun «тип» — pinning «тип» failed on it.
+  assert.match(held, /тип|стан, куќа|деловен простор или плац/iu,
+    `the type question, not a category-specific one: ${held}`);
   assert.ok(!/спалн|spaln/iu.test(held), `no bedroom question before the type is known: ${held}`);
   // Without an anchor the behavior is unchanged: city-level → ask the area.
   const bare = buildDiscoveryAsk({ service: 'buy', location: 'Скопје' } as SlotData);

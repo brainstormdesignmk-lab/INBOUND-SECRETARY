@@ -57,6 +57,12 @@ const PROJECT_ROOT = (() => {
 })();
 const FEED_FIXTURE = path.join(PROJECT_ROOT, 'tests', 'fixtures', 'pty-feed.json');
 
+// RAW KEY SEQUENCES (PtySession.key writes bytes, it does not know names —
+// src/tui/pty.ts). xterm's terminfo: kf3=\EOR, kpp=\E[5~, knp=\E[6~.
+const KEY_F3 = '\x1bOR';
+const KEY_PAGEUP = '\x1b[5~';
+const KEY_PAGEDOWN = '\x1b[6~';
+
 /** Serve the fixture feed on an ephemeral local port; returns its URL + closer. */
 async function serveFeedFixture(): Promise<{ url: string; close: () => Promise<void> }> {
   const body = fs.readFileSync(FEED_FIXTURE, 'utf8');
@@ -696,6 +702,125 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
       { timeoutMs: 15_000, label: 'the notebook (language rules)' },
     );
 
+    // ── 7j. THE OWNER PANE SCROLLS IN [F3] MODE (the operator's question) ────
+    // The owner panel carries the visit ping-pong — the terms that actually
+    // reach the owner — and it was UNREADABLE: PgUp/PgDn drove the chat pane
+    // only, and renderOwner pinned the box to its last line on every render, so
+    // an operator could never re-read what was relayed. This section fills the
+    // pane past its 6 content rows with REAL owner asks, then presses the keys
+    // through the real tty and asserts on Terminal state: the owner pane moves
+    // in [F3] mode and the chat stays put, and the reverse in client mode.
+    await session.key(' ');                                    // [Space] = new client
+    await session.typeLine('Сопственик-Клиент');
+    const ownerPane = (): string => session.terminal.paneText('СОПСТВЕНИК') ?? '';
+    const chatPane = (): string => session.terminal.paneText('РАЗГОВОР') ?? '';
+    // A client turn whose PROOF is a CHANGE in the owner pane: each new term
+    // re-pings the owner, so waiting on "the pane changed" (not on a phrase the
+    // pane may already carry) is what makes this section deterministic.
+    const ownerTurn = async (text: string, label: string): Promise<void> => {
+      await session.waitQuiet(350);
+      const before = ownerPane();
+      await session.typeLine(text);
+      await session.waitForScreen(() => ownerPane() !== before, { timeoutMs: 25_000, label });
+      await session.waitQuiet(350);
+    };
+    // `turn()` — not a plain text match — because these panes ALREADY carry
+    // earlier 500-денари copy from the anchor burst: a predicate that only asks
+    // "is this text somewhere on screen" returns instantly and the next message
+    // is typed while the previous reply is still in flight, so the app coalesces
+    // the burst (production behaviour) and the visit step never happens.
+    await turn('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 88', 'the EB 88 card (owner-scroll client)', /Евидентен број\s*88/iu);
+    await turn('DALI E SEUSTE DOSTAPEN ?', 'the availability question', /достап|слобод|цена|сопственик|евиденциј/iu);
+    await turn('E OVOJ MOZE', 'the choice arms the fee', /500\s*денари/u);
+    // The exact tested agreement token — 'DA SOGLASUVAM' without the comma is
+    // NOT read as fee agreement and the funnel stalls at the fee gate.
+    await turn('DA, SE SOGLASUVAM', 'the fee agreement → the contact ask', /име|телефон|контакт/iu);
+    await turn('ZORAN 078/914 196', 'the contact → the term ask', /термин|посета|часот/iu);
+    await turn('VO SABOTA VO 12:00', 'the first term → the owner is asked', /известам|потврдам/u);
+    // The owner pane must hold the ASK, not its placeholder text.
+    await session.waitForScreen(
+      () => /сака посета|Клиентот/u.test(ownerPane()),
+      { timeoutMs: 20_000, label: 'the first owner ask on the owner pane' },
+    );
+    await session.waitQuiet(350);
+    // Three terms in total: the first ask is the long availability intro, the
+    // next two are follow-up asks — together they overflow the 8-row owner box
+    // (6 content rows), so PgUp has somewhere to go.
+    await ownerTurn('VO CETVRTOK VO 16:00', 'the second term → a second owner ask');
+    await ownerTurn('VO PETOK VO 11:00', 'the third term → a third owner ask');
+    if (!ownerPane().trim()) {
+      failures.push('the owner pane stayed empty — the visit flow never reached the owner, so the scroll check could not run');
+    }
+    // OVERFLOW PROOF: the owner box is 8 rows (6 content rows). If the FIRST ask
+    // (the long availability intro) is no longer on the pane while the newest
+    // one is, the content is taller than the viewport — otherwise PgUp would be
+    // a legitimate no-op and the assertions below would prove nothing.
+    const ownerFull = ownerPane();
+    if (!/Клиентот/u.test(ownerFull)) {
+      failures.push(`the owner pane does not show the newest ask: ${ownerFull.replace(/\s+/g, ' ').slice(0, 160)}`);
+    }
+    if (/Ве контактирам во врска со пројавен интерес/u.test(ownerFull)) {
+      failures.push('the owner pane still fits on one screen — the scroll assertions would be vacuous');
+    }
+
+    // [F3] = write as the owner; the status bar says so (read from Terminal rows).
+    await session.key(KEY_F3);
+    await session.waitForScreen(
+      () => session.terminal.rowsText().some(r => /СОПСТВЕНИК режим/u.test(r)),
+      { timeoutMs: 10_000, label: 'the [F3] owner-mode badge' },
+    );
+    await session.waitQuiet(300);
+    const ownerAtBottom = ownerPane();
+    const chatBeforeOwnerScroll = chatPane();
+    await session.key(KEY_PAGEUP);
+    await session.waitQuiet(350);
+    if (ownerPane() === ownerAtBottom) {
+      failures.push('PgUp in [F3] owner mode did NOT move the owner pane');
+    }
+    if (chatPane() !== chatBeforeOwnerScroll) {
+      failures.push('PgUp in [F3] owner mode moved the CHAT pane');
+    }
+    // PgDn until the pane is back at its newest line (the follow flag re-arms
+    // itself at the bottom — a fixed count could stop short on a taller pane).
+    for (let i = 0; i < 6 && ownerPane() !== ownerAtBottom; i++) {
+      await session.key(KEY_PAGEDOWN);
+      await session.waitQuiet(120);
+    }
+    if (!/Клиентот/u.test(ownerPane())) {
+      failures.push(`PgDn did not return the owner pane to its newest line: ${ownerPane().replace(/\s+/g, ' ').slice(-120)}`);
+    }
+
+    // Back to CLIENT mode: the same keys must drive the CHAT pane and leave the
+    // owner pane exactly where it is.
+    await session.key(KEY_F3);
+    await session.waitForScreen(
+      () => !session.terminal.rowsText().some(r => /СОПСТВЕНИК режим/u.test(r)),
+      { timeoutMs: 10_000, label: 'the [F3] owner mode badge cleared' },
+    );
+    await session.waitQuiet(300);
+    const ownerBeforeClientScroll = ownerPane();
+    const chatBeforeClientScroll = chatPane();
+    await session.key(KEY_PAGEUP);
+    await session.waitQuiet(350);
+    if (chatPane() === chatBeforeClientScroll) {
+      failures.push('PgUp in CLIENT mode did NOT move the chat pane');
+    }
+    if (ownerPane() !== ownerBeforeClientScroll) {
+      failures.push('PgUp in CLIENT mode moved the OWNER pane');
+    }
+    // Both panes end at the bottom, so section 8's frame invariants (the newest
+    // line at the bottom of the chat) still describe this screen.
+    for (let i = 0; i < 12; i++) {
+      await session.key(KEY_PAGEDOWN);
+      await session.waitQuiet(60);
+    }
+    await session.typeLine('/state');
+    await session.waitForScreen(
+      () => /\[slots\] dump=/.test(chatPane()),
+      { timeoutMs: 15_000, label: 'the notebook (owner scroll)' },
+    );
+    notes.push(`owner pane scroll: ${ownerPane().split('\n').filter(l => l.trim()).length} visible rows after PgUp/PgDn`);
+
     // Let the last frame settle: the send delay + one ticker pass.
     await new Promise(r => setTimeout(r, 800));
 
@@ -744,7 +869,11 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
     if (!/^\[slots\] dump=/.test(lastVisible)) {
       failures.push(`the chat pane is not showing the newest content at the bottom: ${lastVisible.slice(0, 80)}`);
     }
-    if (/ЛИНА/u.test(panes['СОПСТВЕНИК'])) failures.push('the owner pane carries chat replies');
+    // The owner pane legitimately shows Lina's OWNER asks as `[hh:mm] ЛИНА: …`
+    // (no source tag). A CHAT reply is the one that carries a source tag
+    // (`ЛИНА [без LLM]:`, `ЛИНА [deterministic:fast]:`), so that tag — not the
+    // bare name — is what would prove the client's conversation leaked in.
+    if (/ЛИНА\s*\[/u.test(panes['СОПСТВЕНИК'])) failures.push('the owner pane carries chat replies');
     if (chat.length === 0) failures.push('the chat pane is empty after a full funnel');
 
     // The LAST reply must be fully on screen — the wrap must not push its tail

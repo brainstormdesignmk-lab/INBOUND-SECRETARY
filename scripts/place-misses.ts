@@ -19,9 +19,23 @@
 //
 // Usage: npx tsx scripts/place-misses.ts [--days 7] [--top 25] [--no-suggest]
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { loadConfig } from '../src/config';
 import { OfflineMapStore } from '../src/geo/offlineMap';
 import { readPlaceMisses } from '../src/store/placeMisses';
+import { Db } from '../src/store/db';
+import { SessionStore } from '../src/fsm/session';
+import { Classifier } from '../src/llm/classify';
+import { Responder } from '../src/llm/respond';
+import { PropertyService, Property } from '../src/data/properties';
+import { AppointmentStore } from '../src/store/appointments';
+import { EscalationStore } from '../src/store/escalations';
+import { MetaStore } from '../src/store/meta';
+import { ChannelRegistry } from '../src/channels/types';
+import { InboundHandler, isPlaceClassWord } from '../src/handlers/inbound';
+import { LandmarkService } from '../src/geo/landmarks';
+import { LlmClient } from '../src/llm/types';
 
 /** The map's best answer for a name that missed: what it resolves to NOW, or
  *  the rows a human would most likely point the alias at (one-slip recovery
@@ -46,8 +60,87 @@ function suggest(text: string, map?: OfflineMapStore): string[] {
   return out;
 }
 
+// ── --sweep: THE CLASS-TAIL REPLAY ──────────────────────────────────────────
+// The [01:05] KAPITOL MOL family: a client who appends a CLASS WORD to a place
+// name («… мол», «… маркет», «… џамија») is the shape that keeps dying at the
+// coverage guard. This mode replays EVERY captured miss of that shape through
+// the REAL pipeline (the shipped handler, not a lookup mock) and says which
+// ones the map now binds and which are still dead ends — so the sweep is a
+// command, not a one-off investigation.
+//
+// Usage: npx tsx scripts/place-misses.ts --sweep
+
+class NoLlm implements LlmClient {
+  async complete(): Promise<string> { throw new Error('sweep: no LLM'); }
+}
+class EmptyFeed extends PropertyService {
+  constructor() { super('http://sweep-feed'); }
+  async getAll(): Promise<Property[]> { return []; }
+  get healthy(): boolean { return true; }
+}
+
+/** A place opener already in the text means it is fed as the client wrote it;
+ *  otherwise the text is wrapped in one, because the logged fragment is what
+ *  the extractor RETURNS (it always came out of a «kaj/okolu/do» phrase). */
+const SWEEP_OPENERS = /^(?:vo|во|okolu|околу|kaj|кај|do|до|blizu|близу|na|на|kon|кон|sproti|спроти|nasproti|наспроти)\b/u;
+
+async function sweepClassTails(): Promise<void> {
+  const dir = 'data';
+  const texts = new Map<string, number>();
+  for (const f of fs.readdirSync(dir).filter(n => n.startsWith('place-misses-') && n.endsWith('.jsonl'))) {
+    for (const line of fs.readFileSync(path.join(dir, f), 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const o = JSON.parse(line) as { text?: string };
+        const t = String(o.text ?? '').trim().toLowerCase();
+        if (t) texts.set(t, (texts.get(t) ?? 0) + 1);
+      } catch { /* a malformed line is not the sweep's business */ }
+    }
+  }
+  const shaped = [...texts].filter(([t]) => isPlaceClassWord(t.split(/\s+/).pop() ?? ''))
+    .sort((a, b) => b[1] - a[1]);
+  if (shaped.length === 0) {
+    console.log('No class-tail place misses recorded.');
+    return;
+  }
+  const cfg = loadConfig();
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const channels = new ChannelRegistry();
+  channels.register({ name: 'sweep', send: async () => {} });
+  const properties = new EmptyFeed();
+  const handler = new InboundHandler({
+    cfg, db, sessions,
+    classifier: new Classifier(new NoLlm(), cfg, properties),
+    responder: new Responder(new NoLlm(), cfg),
+    properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false, offlineMap: new OfflineMapStore(cfg.skopjePoisDb) }),
+  });
+  let bound = 0;
+  const dead: string[] = [];
+  console.log(`class-tail place misses: ${shaped.length} distinct shape(s)\n`);
+  for (const [text, n] of shaped) {
+    const msg = SWEEP_OPENERS.test(text) ? text : `SAKAM DA KUPAM STAN KAJ ${text}`;
+    const chatId = `sweep-${dead.length}-${bound}-${n}`;
+    await handler.handle('sweep', chatId, msg);
+    const s = sessions.get(chatId)!;
+    const anchor = s.slots.poiAnchor;
+    if (anchor) bound++;
+    else dead.push(text);
+    console.log(`  ${String(n).padStart(4)}×  «${text}»  → ${anchor ?? `—  (area: ${s.slots.location ?? 'none'})`}`);
+  }
+  console.log(`\n${bound}/${shaped.length} class-tail shapes bind a map place.`);
+  if (dead.length) {
+    console.log('still unbound (check whether the map holds the row before adding an alias):');
+    for (const t of dead) console.log(`  «${t}»`);
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  if (args.includes('--sweep')) { await sweepClassTails(); return; }
   const days = Number(args[args.indexOf('--days') + 1]) || 7;
   const top = Number(args[args.indexOf('--top') + 1]) || 25;
   const withSuggestions = !args.includes('--no-suggest');

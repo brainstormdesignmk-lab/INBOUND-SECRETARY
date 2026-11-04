@@ -208,6 +208,16 @@ export class BankStore {
     if (!dynamicCols.some(c => c.name === 'processed')) {
       this.db.db.exec(`ALTER TABLE bank_dynamic ADD COLUMN processed INTEGER NOT NULL DEFAULT 0`);
     }
+    // PLACE-TEMPLATED CAPTURES (A of the closed loop): a generated answer about
+    // a NAMED PLACE is true only for that place, so the verbatim `answer` can
+    // never serve another district. `tmpl` holds the same sentence with its
+    // place span replaced by the literal `{place}` slot (`PLACE_SLOT` in
+    // src/llm/placeTemplate.ts — not imported here, to keep this store free of
+    // the llm layer's import graph), `place` is the anchor it was written for,
+    // and `hits` counts CLEAN serves: the promotion trigger (B).
+    if (!dynamicCols.some(c => c.name === 'tmpl')) this.db.db.exec(`ALTER TABLE bank_dynamic ADD COLUMN tmpl TEXT`);
+    if (!dynamicCols.some(c => c.name === 'place')) this.db.db.exec(`ALTER TABLE bank_dynamic ADD COLUMN place TEXT`);
+    if (!dynamicCols.some(c => c.name === 'hits')) this.db.db.exec(`ALTER TABLE bank_dynamic ADD COLUMN hits INTEGER NOT NULL DEFAULT 0`);
     if (!cols.some(c => c.name === 'family')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN family TEXT`);
     if (!cols.some(c => c.name === 'resolved_at')) this.db.db.exec(`ALTER TABLE bank_corrections ADD COLUMN resolved_at INTEGER`);
     // OPERATOR CORRECTION (2026-10 transcript): the row used to hold only ONE
@@ -300,17 +310,29 @@ export class BankStore {
 
   // ---------- bank_dynamic (runtime fallback store) ----------
 
-  /** Store a validated dynamic answer. Idempotent per (key, msg). */
-  addDynamic(key: string, state: string, msg: string, answer: string): boolean {
+  /** Store a validated dynamic answer. Idempotent per (key, msg).
+   *
+   *  `meta.template` / `meta.place` are the PLACE-TEMPLATED form of the same
+   *  sentence and the anchor it was written for. A template without the slot is
+   *  refused here (an un-substitutable "template" would serve a sentence about
+   *  no place at all); a place without a template is meaningless and dropped. */
+  addDynamic(
+    key: string, state: string, msg: string, answer: string,
+    meta?: { template?: string; place?: string },
+  ): boolean {
     if (!key.startsWith('dynamic:')) return false;
     const m = msg.trim(); const a = answer.trim();
     if (!m || !a) return false;
+    const tmpl = meta?.template && meta.template.includes('{place}') ? meta.template : null;
+    const place = tmpl && meta?.place ? meta.place.trim() || null : null;
     try {
       const res = this.db.db.prepare(
-        `INSERT INTO bank_dynamic (key, state, msg, answer, created_at, processed) VALUES (?, ?, ?, ?, ?, 0)
+        `INSERT INTO bank_dynamic (key, state, msg, answer, created_at, processed, tmpl, place, hits)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0)
          ON CONFLICT(key, msg) DO UPDATE SET state=excluded.state, answer=excluded.answer,
-           created_at=excluded.created_at, processed=0 WHERE bank_dynamic.processed=1`
-      ).run(key, state, m, a, Date.now());
+           created_at=excluded.created_at, processed=0, tmpl=excluded.tmpl, place=excluded.place,
+           hits=0 WHERE bank_dynamic.processed=1`
+      ).run(key, state, m, a, Date.now(), tmpl, place);
       return res.changes > 0;
     } catch { return false; }
   }
@@ -344,7 +366,11 @@ export class BankStore {
     if (!a) return { ok: false, reason: 'empty answer' };
     const row = this.findDynamicRow(state, msg);
     if (!row) return { ok: false, reason: 'no matching dynamic row' };
-    const res = this.db.db.prepare(`UPDATE bank_dynamic SET answer = ? WHERE id = ?`).run(a, row.id);
+    // Same rule as updateDynamicAnswer: the human corrected the prose, so the
+    // place template built from it stops serving and the counter restarts.
+    const res = this.db.db.prepare(
+      `UPDATE bank_dynamic SET answer = ?, tmpl = NULL, place = NULL, hits = 0 WHERE id = ?`
+    ).run(a, row.id);
     return res.changes > 0 ? { ok: true, id: row.id, key: row.key } : { ok: false, reason: 'update failed' };
   }
 
@@ -452,11 +478,50 @@ export class BankStore {
     ).run(id, msg, answer).changes > 0;
   }
 
-  /** Update one dynamic capture by row id (bank:tui edit; validated by the caller). */
+  /** Update one dynamic capture by row id (bank:tui edit; validated by the caller).
+   *
+   *  A CORRECTION INVALIDATES THE TEMPLATE (B's "clean" condition): the operator
+   *  just said that prose was wrong, so its place-templated copy is wrong too and
+   *  must not keep serving for another place. The promotion counter restarts. */
   updateDynamicAnswer(id: number, answer: string): boolean {
     const a = answer.trim();
     if (!a) return false;
-    return this.db.db.prepare(`UPDATE bank_dynamic SET answer = ? WHERE id = ?`).run(a, id).changes > 0;
+    return this.db.db.prepare(
+      `UPDATE bank_dynamic SET answer = ?, tmpl = NULL, place = NULL, hits = 0 WHERE id = ?`
+    ).run(a, id).changes > 0;
+  }
+
+  /** A+B: the place template stored for this anchor, cleanest row first. */
+  retrievePlaceTemplate(place: string): { id: number; key: string; template: string } | undefined {
+    const p = (place ?? '').trim();
+    if (!p) return undefined;
+    return this.db.db.prepare(
+      `SELECT id, key, tmpl AS template FROM bank_dynamic
+       WHERE tmpl IS NOT NULL AND place IS NOT NULL
+         AND lower(place) = lower(?) AND processed = 0
+       ORDER BY hits DESC, id ASC LIMIT 1`
+    ).get(p) as { id: number; key: string; template: string } | undefined;
+  }
+
+  /** A+B BACKFILL: attach a {place} template to a row captured before the
+   *  template layer existed. The caller derives it with the generation
+   *  predicate (never a guess) and validates the rendered form first; this only
+   *  refuses a template without the slot, and never touches a processed row
+   *  (that row is already audit history). */
+  setPlaceTemplate(id: number, template: string, place: string): boolean {
+    const t = (template ?? '').trim();
+    const p = (place ?? '').trim();
+    if (!t.includes('{place}') || !p) return false;
+    return this.db.db.prepare(
+      `UPDATE bank_dynamic SET tmpl = ?, place = ?, hits = 0 WHERE id = ? AND processed = 0`
+    ).run(t, p, id).changes > 0;
+  }
+
+  /** One clean serve of a templated row — the promotion counter (B). */
+  bumpDynamicHits(id: number): number {
+    this.db.db.prepare(`UPDATE bank_dynamic SET hits = hits + 1 WHERE id = ?`).run(id);
+    const row = this.db.db.prepare(`SELECT hits FROM bank_dynamic WHERE id = ?`).get(id) as { hits: number } | undefined;
+    return row?.hits ?? 0;
   }
 
   /** Reject a dynamic capture: stop serving it (bank:tui X). */

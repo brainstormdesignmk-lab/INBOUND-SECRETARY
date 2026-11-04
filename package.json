@@ -54,6 +54,8 @@
     "bank:audit-seeds": "tsx scripts/audit-seeds.ts",
     "bank:relearn": "tsx scripts/relearn.ts",
     "bank:purge-personal": "tsx scripts/purge-dynamic.ts",
+    "bank:audit-dynamic": "tsx scripts/bank-dynamic-audit.ts",
+    "bank:place-templates": "tsx scripts/bank-place-templates.ts",
     "bank:tui": "tsx src/bank/run.ts",
     "bank:teach": "tsx scripts/teach.ts",
     "bank:fallback-census": "tsx scripts/fallback-census.ts",

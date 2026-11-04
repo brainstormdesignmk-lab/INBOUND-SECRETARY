@@ -19,6 +19,7 @@ import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
 import { buildLayout, esc, guardGlyphs, hhmm, wrapMarked, paneTextWidth, CHAT_PANE_FRACTION } from './layout';
 import { FramePainter } from './paint';
+import type { OwnerVerdict } from '../backoffice/ownerAgent';
 import { detectOwnerVerdict, detectOwnerAddressReply } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
 import { LandmarkService } from '../geo/landmarks';
@@ -80,6 +81,10 @@ export class TuiApp {
   private menuIndex = 0;
   private menuBox: any = null;
   private chatFollow = true; // false once the user scrolls up — new messages no longer yank to bottom
+  /** Same for the OWNER pane. The owner ping-pong IS the visit negotiation, so
+   *  the operator must be able to read it back: [F3] + PgUp drives this pane,
+   *  and a render must never yank a reader to the bottom. */
+  private ownerFollow = true;
 
   private chains = new Map<string, Promise<void>>();
   private busy = new Set<string>();
@@ -87,6 +92,9 @@ export class TuiApp {
   private ownerTyping: {
     chatId: string; until: number;
     eb: number; action: 'ok' | 'sold' | 'rented' | 'counter' | 'price'; ownerTime?: string;
+    /** A PARSED plain-text verdict (the owner channel) — applied as-is when the
+     *  window closes; the /owner shortcuts carry an ACTION instead. */
+    verdict?: OwnerVerdict;
   } | null = null;
   private ownerTimer: NodeJS.Timeout | null = null;
   // Client "typing" window — mirror of the owner's: after the client sends a
@@ -264,6 +272,13 @@ export class TuiApp {
       this.renderOwner();
       this.repaint();
     };
+    // MIRROR OF THE REAL CLIENT RELAY (the [10:24] audit hole): the pane used
+    // to echo the RAW parsed verdict («counter (Околу 5)») while the client got
+    // a different sentence, so a wrong relay looked identical to a healthy one.
+    // What the operator reads as relayed is now the exact text that went out.
+    this.pipeline.onOwnerRelay = (chatId, text) => {
+      this.appendOwnerMsg(chatId, { role: 'system', text: `пренесено на клиентот: ${text}`, at: Date.now() });
+    };
     // Messages TO the owner (the sale congratulation) land in the same panel —
     // the operator plays the owner here; production sends to his phone.
     this.pipeline.onOwnerMessage = (chatId, _eb, text) => {
@@ -378,10 +393,15 @@ export class TuiApp {
         this.renderStatus();
         this.repaint();
         return;
-      case 'pageup': this.scrollChat(-1); return;
-      case 'pagedown': this.scrollChat(1); return;
-      case 'home': this.box.chatBox.scrollTo(0); this.chatFollow = false; this.repaint(); return;
-      case 'end': this.box.chatBox.setScrollPerc(100); this.chatFollow = true; this.repaint(); return;
+      // THE SCROLL KEYS FOLLOW THE FOCUS: PgUp/PgDn used to drive the CHAT pane
+      // only — and renderOwner pinned the owner pane to the bottom on every
+      // render — so the owner conversation (the ping-pong that fixes the visit
+      // term) could not be read back at all. In owner mode they drive the OWNER
+      // pane; otherwise the chat, exactly as before.
+      case 'pageup': this.scrollFocusedPane(-1); return;
+      case 'pagedown': this.scrollFocusedPane(1); return;
+      case 'home': this.scrollFocusedPaneTo(0); return;
+      case 'end': this.scrollFocusedPaneTo(100); return;
       case 'enter':
         // Text typed + Enter = SEND it. In owner mode it answers as the OWNER
         // (plain text parsed into a verdict); otherwise it is the client's
@@ -420,6 +440,44 @@ export class TuiApp {
     return this.leads[this.selected];
   }
 
+  /** The pane the scroll keys drive: the OWNER panel while the input writes as
+   *  the owner ([F3]), the chat pane otherwise — the pane on screen that the
+   *  operator is working in is the pane the keys must move. */
+  private scrollFocusedPane(dir: number): void {
+    if (this.ownerMode) this.scrollOwner(dir);
+    else this.scrollChat(dir);
+  }
+
+  /** Home/End follow the same focus; both re-anchor the follow flag so the pane
+   *  stops/starts tracking new lines exactly like their chat counterparts. */
+  private scrollFocusedPaneTo(perc: number): void {
+    if (this.ownerMode) {
+      this.box.ownerBox.setScrollPerc(perc);
+      this.ownerFollow = perc >= 100;
+    } else {
+      this.box.chatBox.setScrollPerc(perc);
+      this.chatFollow = perc >= 100;
+    }
+    this.renderStatus();
+    this.repaint();
+  }
+
+  private scrollOwner(dir: number): void {
+    const lead = this.activeLead();
+    if (!lead) return;
+    const { ownerBox } = this.box;
+    const step = Math.max(1, Math.floor(ownerBox.height / 2));
+    if (dir < 0) {
+      ownerBox.scroll(-step);
+      this.ownerFollow = false;
+    } else {
+      ownerBox.scroll(step);
+      if (ownerBox.getScrollPerc() >= 100) this.ownerFollow = true;
+    }
+    this.renderStatus();
+    this.repaint();
+  }
+
   private scrollChat(dir: number): void {
     const lead = this.activeLead();
     if (!lead) return;
@@ -439,6 +497,7 @@ export class TuiApp {
   private move(delta: number): void {
     if (!this.leads.length) return;
     this.selected = Math.max(0, Math.min(this.leads.length - 1, this.selected + delta));
+    this.ownerFollow = true; // a different chat starts at ITS newest owner line
     this.renderLeads();
     this.renderChat();
     this.renderStatus();
@@ -862,6 +921,26 @@ export class TuiApp {
           });
         return;
       }
+      // THE OWNER'S CHANNEL STAYS LIVE WHILE THE TERM IS UNSETTLED: a correction
+      // that arrives after the first relay (the [20:27]–[20:28] capture:
+      // «NE MOZAM UTRE» applied, the next sentence died with «нема активна
+      // проверка») must reach the funnel, which re-relays it to the client.
+      const liveSession = this.sessions.get(lead.chatId);
+      const liveEb = liveSession?.slots.propertyId ?? liveSession?.slots.interestedPropertyId;
+      if (liveSession && liveEb !== undefined
+        && (liveSession.state === 'owner_checking' || liveSession.state === 'time_confirm')) {
+        const late = detectOwnerVerdict(text, liveSession.slots.visitTime ?? '');
+        if (late && this.pipeline.ownerFollowup(lead.chatId, liveEb, late)) {
+          this.appendOwnerMsg(lead.chatId, { role: 'user', text, at: Date.now() });
+          this.appendOwnerMsg(lead.chatId, {
+            role: 'system',
+            text: `одговор примен: ${late.status}${late.ownerTime ? ` (${late.ownerTime})` : ''} — Лина го пренесува на клиентот`,
+            at: Date.now(),
+          });
+          this.renderAll();
+          return;
+        }
+      }
       this.appendOwnerMsg(lead.chatId, { role: 'system', text: 'нема активна проверка за овој клиент', at: Date.now() });
       this.renderAll();
       return;
@@ -875,15 +954,29 @@ export class TuiApp {
       this.renderAll();
       return;
     }
-    const applied = this.pipeline.ownerAnswer(lead.chatId, pending, verdict);
+    // THE OWNER TYPES IN A WINDOW, exactly like the client: applying the first
+    // message instantly relayed half a thought to the client and left the next
+    // sentence dead (the [20:27] capture). A follow-up inside the window
+    // REPLACES the verdict and resets the timer; Lina relays the final word
+    // once. [Enter] with an empty buffer flushes it immediately.
+    const ownerDelay = this.cfg.ownerTypingDelayMs;
+    if (this.ownerTimer) { clearTimeout(this.ownerTimer); this.ownerTimer = null; }
+    this.ownerTyping = {
+      chatId: lead.chatId, until: Date.now() + ownerDelay,
+      eb: pending,
+      // a parsed verdict speaks ok|counter|gone; the shortcut vocabulary says
+      // sold/rented — 'gone' maps to the sold path (same owners-table write).
+      action: verdict.status === 'gone' ? 'sold' : verdict.status,
+      ownerTime: verdict.ownerTime, verdict,
+    };
     this.appendOwnerMsg(lead.chatId, {
       role: 'system',
-      text: applied
-        ? `одговор примен: ${verdict.status}${verdict.ownerTime ? ` (${verdict.ownerTime})` : ''} — Лина го пренесува на клиентот`
-        : 'одговорот не е примен (нема чекање или погрешен ЕБ)',
+      text: `одговор примен: ${verdict.status}${verdict.ownerTime ? ` (${verdict.ownerTime})` : ''} — Лина го пренесува на клиентот по крајот на пораката`,
       at: Date.now(),
     });
-    this.renderAll();
+    this.renderStatus();
+    this.repaint();
+    this.ownerTimer = setTimeout(() => this.ownerAnswer(), ownerDelay);
   }
 
   /** Apply the owner's Turn-0 address reply: confirm → Turn 1 goes out;
@@ -920,7 +1013,22 @@ export class TuiApp {
     const agent = this.pipeline.ownerAgent as unknown as {
       simulate?: (chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string) => boolean;
     };
-    agent.simulate?.(ot.chatId, ot.eb, ot.action, ot.ownerTime);
+    // A PARSED verdict (the plain-text owner channel) applies as-is; the /owner
+    // shortcuts still write the owners table through simulate.
+    const applied = ot.verdict
+      ? this.pipeline.ownerAnswer(ot.chatId, ot.eb, ot.verdict)
+      : agent.simulate?.(ot.chatId, ot.eb, ot.action, ot.ownerTime);
+    // The answer is APPLIED here, not necessarily relayed: a clock-less counter
+    // re-asks the owner and sends the client nothing. The actual client text
+    // arrives through onOwnerRelay, so the pane can never claim a relay that
+    // did not happen (or a different term than the one that went out).
+    this.appendOwnerMsg(ot.chatId, {
+      role: 'system',
+      text: applied === false
+        ? 'одговорот не е примен (нема чекање или погрешен ЕБ)'
+        : `примен: ${ot.action}${ot.ownerTime ? ` (${ot.ownerTime})` : ''}`,
+      at: Date.now(),
+    });
     this.renderStatus();
     this.repaint();
   }
@@ -1103,8 +1211,15 @@ export class TuiApp {
           return `{red-fg}[${t}] ✗ ${esc(m.text)}{/red-fg}`;
       }
     });
+    // NEVER YANK A READER TO THE BOTTOM: the operator scrolls this pane ([F3] +
+    // PgUp) to re-read what was actually relayed to the owner. The old
+    // unconditional setScrollPerc(100) undid that on the very next render — the
+    // pane was permanently stuck on its last line. Follow only when the reader
+    // is at (or near) the bottom, exactly like the chat pane.
+    const perc = ownerBox.getScrollPerc();
     ownerBox.setContent(lines.map(l => wrapMarked(l, this.paneWidth())).join('\n\n'));
-    ownerBox.setScrollPerc(100);
+    if (this.ownerFollow || perc >= 100) ownerBox.setScrollPerc(100);
+    else ownerBox.setScrollPerc(perc);
     this.ownerContent = lead.ownerMsgs.map(m => `${m.at}|${m.role}|${m.text}`).join('\u0001');
   }
 
@@ -1164,6 +1279,11 @@ export class TuiApp {
     }
     if (lead && !this.chatFollow) {
       s += '{white-bg}{black-fg} ▲ нови пораки — PgDn за долу {/black-fg}{/white-bg} · ';
+    }
+    // The owner pane is scrolled up: say which pane the keys are moving, or the
+    // operator reads a stale frame as "nothing new arrived".
+    if (this.ownerMode && !this.ownerFollow) {
+      s += '{white-bg}{black-fg} ▲ сопственик — PgDn долу {/black-fg}{/white-bg} · ';
     }
     s += 'antiban: 9/s бакет · 100/час по клиент';
     s += ` · мозок: ${this.brainMode}`;

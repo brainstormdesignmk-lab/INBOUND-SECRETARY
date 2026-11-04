@@ -17,7 +17,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mapRow, Property } from '../src/data/properties';
 import {
-  detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LINE,
+  detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_DATA_LINES, INFO_NO_FLOORS_LINE,
 } from '../src/llm/infoAnswer';
 
 const row = (over: Record<string, unknown>): Record<string, unknown> => ({
@@ -126,7 +126,7 @@ test('unit floor comes from the feed column first, the ad text only as fallback'
   assert.equal(buildInfoAnswer(textOnly, facets), 'Се наоѓа на 4 кат.');
   // Neither: the honest line, never silence or a guess.
   const nothing = { ...P73, floor: undefined, details: 'Стан во Карпош.' } as Property;
-  assert.equal(buildInfoAnswer(nothing, facets), INFO_NO_DATA_LINE);
+  assert.ok(INFO_NO_DATA_LINES.includes(buildInfoAnswer(nothing, facets)), buildInfoAnswer(nothing, facets));
 });
 
 // THE [22:23] ELLIPSIS — "POSLEDEN ?" after "KAZI MI NA KOJ SPRAT E ?"

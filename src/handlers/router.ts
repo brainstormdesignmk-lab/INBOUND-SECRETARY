@@ -24,7 +24,7 @@ import {
   detectMarketPriceAsk, detectMarketMemoryAsk,
   detectBusinessBudgetAsk,
   detectPriceEval, adviceLaneAdmits,
-  detectNearbyAsk, detectSeenListingRecall,
+  detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -77,7 +77,12 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'SURROUNDINGS', note: 'which-side / relative-to-the-named-places ask ("od stranata na trgovskiot ili odkaj pazarceto") — a LOCATION question the classifier settled with the closing fee pitch ([01:29] capture). Sits after WHERE_IS, which owns the каде questions, and before every funnel branch',
     fires: t => !!detectSurroundingsAsk(t) },
   { intent: 'PROPERTY_DESCRIPTION', note: '"гарсоњерата кај амбасадата" — remembered-property flow before FSM discovery swallows it',
-    fires: (t) => detectPropertyDescription(t) && !detectService(t) && !detectBothServices(t) && !detectDrugAlternative(t) && !detectInvestmentOpinion(t) },
+    // …but never for a STOCK-AT-A-PLACE ask («DALI IMATE NESTO INTERESNO KAJ
+    // ZEBRA ?»): that is a present-tense show-me ask, the see-offers sell owns
+    // it, and reading it as a remember-which-flat turn is the [01:45] defect
+    // (two clients, one question, two answers). Same exclusion as the executor.
+    fires: (t) => detectPropertyDescription(t) && !detectInventoryAsk(t)
+      && !detectService(t) && !detectBothServices(t) && !detectDrugAlternative(t) && !detectInvestmentOpinion(t) },
   { intent: 'VISIT_CANCEL', note: 'cancellation only meaningful in visit states',
     fires: (t, s) => detectVisitCancellation(t) &&
       ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(s) },

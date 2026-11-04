@@ -5,7 +5,7 @@ import { pickVariant } from '../data/responseBank';
 import { Property, locPrep, mkTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent } from '../data/properties';
 import { firstLandmarkProblem } from '../geo/landmarks';
 import { distM } from '../geo/precision';
-import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint } from '../visits/time';
+import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint, extractDayWord, namesADay } from '../visits/time';
 
 export const BUY_FEE_MKD = '500 MKD';
 export const RENT_FEE_MKD = '300 MKD';
@@ -480,8 +480,40 @@ export function normalizeOwnerTime(raw: string, now: Date = new Date()): string 
   if (!phrase) return phrase;
   const resolved = parseVisitDateTime(phrase, now);
   if (!resolved) return mkTimePhrase(phrase);
+  // NEVER DATE AN UNDATED TERM TO TODAY (the [10:24] capture): the owner's
+  // clock arrived without a day («околу 5»), parseVisitDateTime anchored it to
+  // NOW, and the client was told «Сопственикот … Има друг предлог: Вторник,
+  // 03.11.2026 во 17:00» — today's weekday and today's date, for a term the
+  // man never named. A day belongs to the CALLER (the day the owner named, or
+  // the day he is answering — mergeOwnerTerm), so a phrase with no day keeps
+  // its own display form and the seam refuses to relay it as a fixed term.
+  if (!namesADay(phrase)) return mkTimePhrase(phrase);
   const clocked = hasClockHint(phrase);
   return clocked ? formatVisitDate(resolved) : `${weekdayName(resolved)}, ${formatDateOnly(resolved)}`;
+}
+
+/** THE OWNER'S DAY SURVIVES HIS NEXT SENTENCE (the [10:24] capture). The owner
+ *  answers a day-only counter with his exact hour in a SEPARATE message
+ *  («PETOK» → «OKOLU 5 MOZAM»), so the second verdict is a day-less clock.
+ *  `anchors` are the days on the table, most specific first: the day the owner
+ *  himself just named, then the day of the term he is answering. The first
+ *  anchor that carries a weekday donates it, in ONE place for every reader
+ *  (relay, stored term, next owner ping). A phrase that already names a day is
+ *  returned untouched, and a phrase with no day AND no anchor stays as it is —
+ *  the caller must ask the owner rather than invent one. */
+export function mergeOwnerTerm(term: string, anchors: Array<string | undefined>): string {
+  const phrase = (term ?? '').trim();
+  if (!phrase) return phrase;
+  if (namesADay(phrase)) return phrase;
+  for (const a of anchors) {
+    const src = (a ?? '').trim();
+    if (!src || !namesADay(src)) continue;
+    const day = extractDayWord(src);
+    // Capitalised like every other display form (extractDayWord answers the
+    // canonical LOWERCASE weekday; mkTimePhrase/normalizeOwnerTime capitalise).
+    if (day) return `${day.charAt(0).toUpperCase()}${day.slice(1)} ${phrase}`;
+  }
+  return phrase;
 }
 
 export function buildOwnerAsk(eb: number, proposedTime: string, opts?: OwnerAskProps): string {
@@ -1308,7 +1340,11 @@ export function stateTask(state: State, slots: SlotData): string {
   switch (state) {
     case 'idle':
     case 'intent':
-      return 'The client has not declared intent yet. Ask politely whether they are interested in BUYING (купување) or RENTING (изнајмување). Do not show any properties.';
+      // THE TYPE IS NOT KNOWN YET, so the service question must not presume
+      // one (the [21:20] capture: «STO IMATE OKOLU KAPITOL MOL?» answered
+      // «Дали барате СТАН за купување или за изнајмување?»). Ask the SERVICE on
+      // «недвижност»; the category question comes only after it is known.
+      return 'The client has not declared intent yet AND the property TYPE is unknown. Ask politely whether they are interested in BUYING (купување) or RENTING (изнајмување) on "недвижност" — NEVER name стан, куќа, локал, плац or гарсоњера, and never imply which one he wants. Do not show any properties.';
     case 'discovery': {
       const known = [
         slots.service ? `услуга: ${serviceLabel(slots.service)}` : null,
@@ -1360,7 +1396,12 @@ export function stateTask(state: State, slots: SlotData): string {
       return `An owner check is in progress for EB ${eb ?? '?'} at ${slots.visitTime ?? 'the proposed time'}. If the client writes, stay patient and brief: "${PATIENCE_LINE}" Do NOT promise the visit and do NOT invent availability.`;
     }
     case 'time_confirm': {
-      const ownerTime = slots.ownerTime ?? 'предложениот термин';
+      // The relay prompt carries the term the client is asked to accept — it
+      // must name its DAY even when the slot was stored before the day-merge
+      // existed (the day audit over the captured sessions): the anchor is the
+      // term the owner is answering / the client's own proposal.
+      const ownerTime = mergeOwnerTerm(slots.ownerTime ?? '', [slots.ownerAskTime, slots.visitTime])
+        || 'предложениот термин';
       return `The owner is available at a different time: "${ownerTime}". Relay this to the client and ask if it works: "Дали овој термин Ви одговара?" Do NOT renegotiate yourself — just relay and ask.`;
     }
     case 'pending':

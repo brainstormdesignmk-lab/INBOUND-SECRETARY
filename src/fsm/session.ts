@@ -21,6 +21,13 @@ export interface SlotData {
   business?: boolean;           // commercial property intent
   house?: boolean;              // куќа — a residential request that is NOT a стан
   budget?: string;
+  /** ALTERNATIVE BUDGET (the [20:08] capture): «MOZE SO EDNA DO 80000 ILI DVE
+   *  DO 140000» — ONE card up to `single`, OR TWO cards whose TOTAL stays
+   *  inside `pair`. slots.budget carries `single` (the STRICTER figure every
+   *  single-card lane already enforces), and the pair total is applied where a
+   *  batch is carved (fitCountBudgetPair) so no lane can serve 55.000 + 133.000
+   *  under a 140.000 "two" figure. */
+  countBudget?: { single: string; pair: string };
   // DUAL-SERVICE MONEY (the [12:33] business capture): the client splits his
   // budget PER SERVICE in consecutive messages — «za kirija do 1000 evra»,
   // «za kupuvanje do 2000000». Each lands in its OWN slot; when both exist
@@ -125,6 +132,14 @@ export interface SlotData {
    *  place are enough to present a pair and ask that type's characteristics.
    *  Cleared the moment the client answers. */
   inventoryPending?: boolean;
+  /** A BLANK OPTIONS SERVE WAS SHOWN (the [01:45] capture): «што имате
+   *  интересно кај X» is answered with the rows near the place, while the TYPE
+   *  is still unknown — so the batch on the table is NOT the type's pair. The
+   *  next message that names BOTH the market and the type must serve that
+   *  type's pair (never re-serve the blank batch, never re-ask the place); this
+   *  flag is what lets the typed-answer lane fire after a batch was shown, and
+   *  it clears the moment the typed serve happens. */
+  inventoryOptionsServed?: boolean;
   /** The property the cheaper search anchors on — what he CHOSE. Filled from
    *  the focused EB when the two-way choice is asked; the "elsewhere" answer
    *  re-uses these characteristics verbatim in the other naselbi. */
@@ -143,6 +158,15 @@ export interface SlotData {
    *  proposal is a SECOND owner turn — it relays "the client can't do X,
    *  here is Y" instead of repeating the first-time availability intro. */
   ownerAskTime?: string;
+  /** THE DAY THE OWNER HIMSELF NAMED (the [10:24] capture). An owner answers a
+   *  clock re-ask in TWO messages: «PETOK» and then «OKOLU 5 MOZAM». The clock
+   *  arrives day-less, was dated to TODAY by the display normalizer, and reached
+   *  the client as «Вторник, 03.11.2026 во 17:00» — a weekday and a date the
+   *  owner never said — while the raw «Околу 5» was stored as ownerTime /
+   *  ownerCounterTime (the term the client accepts, and the term the next owner
+   *  ping calls "refused"). This seed donates HIS day to his own clock.
+   *  Replaced by each clockless counter, consumed by the fixed counter/ok/gone. */
+  ownerClockDay?: string;
   /** The open WHOLE-DAY counter the owner just gave («ke mora vo ponedelnik,
    *  bilo koe vreme» — seeded into visitTime so the client's exact-clock answer
    *  completes the owner's own day). While it is set, the client's completed

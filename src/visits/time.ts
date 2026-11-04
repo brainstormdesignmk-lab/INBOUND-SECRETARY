@@ -459,6 +459,49 @@ export function weekdayName(d: Date): string {
  *  ("PONEDELIK 6" — the [12:42] split-intake must never re-ask that hour).
  *  Used by the owner-ask normalizer to decide whether the clock must be
  *  appended. */
+// ── «ISTO VREME» — the clock the client is NOT naming ───────────────────────
+//
+// THE [20:31] CAPTURE: the owner could not do «Утре во 18:00», Lina asked the
+// client for another term, and the client answered «CETVRTOK ISTO VREME MOZE ?»
+// — Thursday at the SAME TIME. The day was read, the hour was not, so the
+// funnel asked «во колку часот точно?» for a clock it had on the table, and the
+// owner's ping went out as a bare day. A same-time reference donates the hour
+// from the term already in play (the owner's counter first, then the term the
+// client gave); the client only ever has to move ONE of the two.
+const SAME_TIME_RE =
+  /(?<![\p{L}\p{N}])(?:isto|исто|istoto|истото|istata|истата)\s+(?:vreme|време)|same\s+time|исто\s+време\s+како/iu;
+
+/** True when the message reuses the CLOCK already on the table instead of
+ *  naming one («isto vreme», «исто време», «same time»). */
+export function detectSameTimeReference(s: string): boolean {
+  return SAME_TIME_RE.test(s);
+}
+
+/** THE COMPLETION MERGE — one rule for every reader (visit_scheduling,
+ *  time_confirm and both owner_checking legs). `donors` are the terms in play,
+ *  most specific first (the owner's counter, then the client's proposal).
+ *
+ *  - a same-time reference takes the DAY from the message (or the donor) and
+ *    the CLOCK from the donor;
+ *  - a bare clock with no day takes the donor's day (never a TODAY collapse);
+ *  - anything that already names a day or carries no clock is returned as-is. */
+export function mergeVisitTerm(t: string, donors: Array<string | undefined>): string {
+  const live = donors.filter((d): d is string => !!d && d.trim().length > 0);
+  if (detectSameTimeReference(t)) {
+    const withClock = live.find(d => hasClockHint(d));
+    const withDay = live.find(d => extractDayWord(d) !== undefined);
+    const day = extractDayWord(t) ?? (withDay ? extractDayWord(withDay) : undefined);
+    const at = withClock ? parseVisitDateTime(withClock) : undefined;
+    if (day && at) return `${day} во ${formatTimeOnly(at)}`;
+    if (at) return `во ${formatTimeOnly(at)}`;
+    if (day && withClock) return `${day} ${withClock.trim()}`;
+    return t;
+  }
+  if (extractDayWord(t) !== undefined || !hasClockHint(t)) return t;
+  const donorDay = live.map(d => extractDayWord(d)).find(Boolean);
+  return donorDay ? `${donorDay} ${t.trim()}` : t;
+}
+
 export function hasClockHint(s: string): boolean {
   if (/\d{1,2}[:.]\d{2}\b/.test(s)) return true;
   if (HOUR_WORD_RE.test(s)) return true;
@@ -478,6 +521,28 @@ export function hasClockHint(s: string): boolean {
 export function extractDayWord(s: string): string | undefined {
   for (const [re, d] of DAY_WORDS) if (re.test(s)) return MK_WEEKDAYS[d];
   return undefined;
+}
+
+// A relative day («утре», «денес») names the DAY just as concretely as a
+// weekday — it must not be re-anchored onto the term on the table, and it must
+// not be treated as "no day" (that would send the owner a needless re-ask).
+const RELATIVE_DAY_RE =
+  /(?<![\p{L}])(?:утре|utre|денес|denes|задутре|zadutre|другиот\s+ден|naredniot\s+den)(?![\p{L}])/iu;
+
+/** Does the phrase name the DAY itself — a weekday in either script, a relative
+ *  day, or an explicit date? THE [10:24] CONTRACT: a phrase that names a day is
+ *  never re-anchored, and a phrase that names none must inherit the day on the
+ *  table instead of being dated to TODAY (§ the owner-day carry in
+ *  mergeOwnerTerm / normalizeOwnerTime). A dotted pair counts as a date only
+ *  when it cannot be a clock (first part > 12) or carries a year — «18.10» is
+ *  both shapes, and an ambiguous pair is safer read as a clock that inherits a
+ *  day than as a date that invents one. */
+export function namesADay(s: string): boolean {
+  if (!s) return false;
+  if (extractDayWord(s) !== undefined) return true;
+  if (RELATIVE_DAY_RE.test(s)) return true;
+  if (/(?<![\p{N}])\d{1,2}\s*[.\/]\s*\d{1,2}\s*[.\/]\s*\d{2,4}(?![\p{N}])/u.test(s)) return true; // 05.11.2026
+  return /(?<![\p{N}])(?:[1-9]|[12]\d|3[01])\s*[.\/]\s*(?:0?[1-9]|1[0-2])(?![\p{N}.:])/u.test(s); // 18.10 (not 18.10 ч.)
 }
 
 /** "11.06.2026" — date only (used in the protocol messages). */

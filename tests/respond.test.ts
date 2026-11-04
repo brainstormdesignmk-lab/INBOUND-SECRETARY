@@ -602,23 +602,35 @@ test('buildDiscoveryAsk: an UNKNOWN type is ASKED, never assumed (the [04:17] ca
   // The STOCK-AT-A-PLACE funnel (`inventoryPending`) owes the TYPE question,
   // and no type-specific question rides along — «колку спални» is a question a
   // дуќан never has, and a price cap is worded per category.
+  // The type question's CONTRACT is "ask what kind of property", not one
+  // wording: `both.ask.type` rotates four seeds and one of them asks it by
+  // enumerating the categories («кажете ми — барате стан, куќа, деловен
+  // простор или плац?») with no noun «тип» at all. Pinning «тип» failed on a
+  // perfectly good variant, so the family is matched here — the noun OR the
+  // full category enumeration. Pinned in `landmark-intake-discovery.test.ts`
+  // (the served line) as well.
+  const TYPE_ASK = /тип|стан, куќа|деловен простор или плац/iu;
   const typed = buildDiscoveryAsk({ ...place, service: 'buy', inventoryPending: true } as SlotData);
-  assert.match(typed, /тип/iu, `the type question is owed: ${typed}`);
+  assert.match(typed, TYPE_ASK, `the type question is owed: ${typed}`);
   assert.ok(!/спалн/iu.test(typed), `bedrooms asked before the type is known: ${typed}`);
   assert.ok(!/до која цена|цената на станот/iu.test(typed), `price asked before the type is known: ${typed}`);
   // An ordinary area + budget search is NOT held: it is already inside the
   // residential funnel and keeps the bedroom/budget pair (the [13:44] contract).
   const plain = buildDiscoveryAsk({ ...place, service: 'buy' } as SlotData);
   assert.match(plain, /спалн/iu, `the residential pair is unchanged: ${plain}`);
-  assert.ok(!/Кој тип недвижност|тип на недвижност/iu.test(plain), plain);
+  assert.ok(!TYPE_ASK.test(plain), `the type is NOT owed inside the residential funnel: ${plain}`);
   // …and its LOCATION ask is type-neutral when nothing names a type.
+  // The CONTRACT is "ask WHERE", not one wording: `discovery.ask.location.any`
+  // rotates seeds and one asks it as «Дали имате одредена локација во градот за
+  // недвижноста што ја барате?» — no «дел од градот» and no «населба». Pinning
+  // those two nouns failed on a good variant, so the location family is matched.
   const locOnly = buildDiscoveryAsk({ service: 'buy' } as SlotData);
   assert.ok(!/станот|куќата|деловниот/iu.test(locOnly), `a type the client never named: ${locOnly}`);
-  assert.match(locOnly, /дел од градот|населба/iu, locOnly);
+  assert.match(locOnly, /дел од градот|населба|локациј|градот/iu, locOnly);
 
   // The client NAMED a flat -> the flat funnel is right again (спални + цена).
   const flat = buildDiscoveryAsk({ ...place, service: 'buy', flat: true } as SlotData);
-  assert.ok(!/тип/iu.test(flat), `the type is known — never ask it: ${flat}`);
+  assert.ok(!TYPE_ASK.test(flat), `the type is known — never ask it (noun OR enumeration): ${flat}`);
   assert.match(flat, /спалн/iu, flat);
   // …and a house keeps its own wording.
   const house = buildDiscoveryAsk({ ...place, service: 'buy', house: true } as SlotData);

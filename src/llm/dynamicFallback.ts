@@ -23,21 +23,38 @@
 import { violationsFor } from './bankConstraints';
 import { replyIsClean } from './enrichQuality';
 import {
-  detectAvailabilityAsk, detectContactRequest, detectOwnerContact, detectPriceAsk,
-  detectProvisionAsk, detectProvisionWho, detectVisitInterest, fsmRequired, isFeeFrame, isFeeTraffic,
+  detectAvailabilityAsk, detectContactRequest, detectInventoryAsk, detectOwnerContact, detectPriceAsk,
+  detectProvisionAsk, detectProvisionWho, detectVisitInterest, extractPoiWish, fsmRequired, isFeeFrame, isFeeTraffic,
 } from './deterministic';
+import { placeTemplateFrom } from './placeTemplate';
 import { isPersonalAsk, revealsMachineIdentity } from './personal';
 import type { LlmClient } from './types';
 import type { ChatSession } from '../fsm/session';
 
-/** The concrete-forbidden rule: no EB numbers, no amounts, no addresses.
- *  Session slots may only confirm what the client already established. */
+/** The concrete-forbidden rule: no EB numbers, no amounts, no addresses — and
+ *  NO PROPERTY DATA AT ALL. A generated answer may name a datum only when the
+ *  CLIENT said it (knownFacts); everything else must be admitted missing and
+ *  handed to the owner. Room count, area, year of build and the floor belong to
+ *  the property ROW, exactly like the price: an LLM writing «двособен, 68 м²,
+ *  изградена 2008, трети кат» invents facts the funnel cannot verify, which is
+ *  the same defect class as «стан» in the service question (§4i) — the reason
+ *  prompt wording failed there is the reason the guard lives here. */
 const FORBIDDEN_FACTS: RegExp[] = [
   /(?:евидентен|evidenten)?\s*број\s*\d+|eb\s*\.?\s*\d+|\b\d{3,}\b\s*(?:број|br)/iu,
   /\d[\d\s.,]{2,}\s*(?:евра|денари|мкд|eur|evra)/iu,
   /улица\s+\p{Lu}|ул\.\s*\p{Lu}/u,
   /\b\d{1,3}\s*м2\b|\b\d{1,3}\s*м²/iu,
   /достапен\s+(?:е|e)\s+(?:во|во момент)|слободен\s+(?:е|e)\s+(?:во|сега)/iu,
+  // ROOM COUNT / LAYOUT: «двособен», «трисобен», «гарсоњера» is a TYPE (own
+  // rule), «со две спални», «2 спални соби». Whole words, both scripts —
+  // «двособен» must not match inside a longer word.
+  /(?<![\p{L}])(?:едноиполсобен\p{L}*|едноипособен\p{L}*|двособен\p{L}*|двособна\p{L}*|трисобен\p{L}*|трисобна\p{L}*|четирисобен\p{L}*|ednoipolssoben\p{L}*|dvosoben\p{L}*|dvosobna\p{L}*|trosoben\p{L}*|cetvorosoben\p{L}*)(?![\p{L}])/iu,
+  /(?<![\p{L}])(?:една|две|три|четири|\d)\s+(?:спални|спална|spalni|spalna)(?![\p{L}])/iu,
+  // AREA / YEAR / FLOOR — the data facts the price-per-m² and year asks expose.
+  /(?<![\p{L}])\d{1,4}\s*(?:квадрат\p{L}*|kvadrat\p{L}*|квадратни\s+метри)(?![\p{L}])/iu,
+  /(?:изград\p{L}*|градена|реновир\p{L}*|renovir\p{L}*|izgrad\p{L}*)[^.?!]{0,25}\b(?:18|19|20)\d{2}\b/iu,
+  /\b(?:18|19|20)\d{2}\s*(?:година|godina)\b/iu,
+  /(?<![\p{L}])(?:на|na|во|vo)\s+(?:\d{1,2}\.?|прв\p{L}*|втор\p{L}*|трет\p{L}*|четврт\p{L}*|петти\p{L}*|шести\p{L}*|приземје|поткровј\p{L}*|prv\p{L}*|vtor\p{L}*|tret\p{L}*|cetvrt\p{L}*)\s+(?:кат|kat)\p{L}*/iu,
 ];
 
 /** What may be echoed from session slots — client-established context only. */
@@ -71,11 +88,42 @@ const GENERIC_PITCH_RE = /(?:извлеков|прилагодени на ваш
 /** An answer that admits the datum is missing (the honest shape). */
 const UNCERTAINTY_RE = /(?:не е наведено|немам (?:податок|информација)|не ми е достапно|ќе (?:го )?прашам (?:сопственикот|сопственик)|ќе проверам|не знам|не располагам)/iu;
 
+/** A PROPERTY TYPE IS A FACT THE CLIENT OWNS, and the SERVICE question is not
+ *  allowed to presume it (the [21:20] capture: «ZDRAVO , STO IMATE INTERESNO
+ *  OKOLU KAPITOL MOL ?» was answered «Дали барате СТАН за купување или за
+ *  изнајмување?» — he had named a place, never a flat). The bank copy is clean
+ *  ("…купување или изнајмување на недвижност?"); the leak lives in the
+ *  GENERATED path, where an LLM writes the sentence and no post-condition
+ *  forbade the noun. Prompt text alone is not a guard — this is. */
+export const PROPERTY_TYPE_NOUN_RE = /(?<![\p{L}])(?:стан|станот|станови|становите|станчиња|куќа|куќата|куќи|kukja|kukjata|kukji|kukj|kuc|апартман\p{L}*|apartman\w*|локал\p{L}*|lokal\w*|деловен\s+простор|деловниот\s+простор|deloven\s+prostor|плац\p{L}*|plac\w*|гарсоњер\p{L}*|garsonjer\w*|stan(?:ce|cevi|ovi|ovite|ot)?)(?![\p{L}])/iu;
+
+/** Does this text name a property TYPE? Whole words only — «стандард»,
+ *  «станбена површина» and «станар» are not types. */
+export function namesPropertyType(text: string): boolean {
+  return PROPERTY_TYPE_NOUN_RE.test(text ?? '');
+}
+
+/** THE SERVICE QUESTION (купување или изнајмување), in either order/script. */
+const ASKS_SERVICE_RE = /(?:купувањ\p{L}*[^.?!]{0,30}изнајмувањ|изнајмувањ\p{L}*[^.?!]{0,30}купувањ|kupuvanj\w*[^.?!]{0,30}iznajmuvanj|iznajmuvanj\w*[^.?!]{0,30}kupuvanj)/iu;
+
+/** Is the property TYPE established by the client? A slot set by applySlots is
+ *  the normal answer; `userMsg` covers the turn that names it. */
+export function typeEstablished(
+  slots: { flat?: boolean; house?: boolean; business?: boolean; plac?: boolean; garsonjera?: boolean; yard?: boolean },
+  userMsg?: string,
+): boolean {
+  return slots.flat === true || slots.house === true || slots.business === true
+    || slots.plac === true || slots.garsonjera === true || slots.yard === true
+    || namesPropertyType(userMsg ?? '');
+}
+
 /** Validation for a dynamic candidate — P1 baseline + hygiene + no-facts +
  *  RELEVANCE. `userMsg` is optional so existing callers/tests keep their
  *  contract; when given, a generic presentation pitch can no longer answer a
- *  factual question, because that is how the bank stored a wrong answer. */
-export function validateDynamicAnswer(answer: string, userMsg?: string): string[] {
+ *  factual question, because that is how the bank stored a wrong answer.
+ *  `typeKnown` says whether the client has established the property TYPE — the
+ *  service question may only presume it when he has. */
+export function validateDynamicAnswer(answer: string, userMsg?: string, opts?: { typeKnown?: boolean }): string[] {
   const violations = violationsFor(answer, 'dynamic.fallback');
   if (!replyIsClean(answer)) violations.push('fails reply hygiene (replyIsClean)');
   // PERSONA GUARD (the [08:38] capture): the stored age answer said „Јас сум
@@ -83,7 +131,15 @@ export function validateDynamicAnswer(answer: string, userMsg?: string): string[
   // breach, not a wording choice — rejected at generation AND on recall, so
   // tightening this rule retroactively neutralises rows stored before it.
   if (revealsMachineIdentity(answer)) violations.push('exposes a machine identity or refuses an age');
-  for (const re of FORBIDDEN_FACTS) if (re.test(answer)) { violations.push('names a concrete fact (EB/amount/address)'); break; }
+  for (const re of FORBIDDEN_FACTS) if (re.test(answer)) { violations.push('names a concrete fact (EB/amount/address/rooms/area/year/floor)'); break; }
+  // THE SERVICE QUESTION PRESUMES NO TYPE (the [21:20] capture): asking
+  // «купување или изнајмување?» over «стан» claims a fact the client never
+  // gave. Rejected at generation AND on recall, so a stored row from before
+  // this rule degrades to the deterministic line instead of serving.
+  if (!(opts?.typeKnown ?? typeEstablished({}, userMsg))
+    && ASKS_SERVICE_RE.test(answer) && namesPropertyType(answer)) {
+    violations.push('names a property type the client never mentioned (ask купување/изнајмување on недвижност)');
+  }
   if (userMsg && FACTUAL_ASK_RE.test(userMsg) && GENERIC_PITCH_RE.test(answer)
     && !UNCERTAINTY_RE.test(answer)) {
     // Deliberately narrower than "any answer that offers a visit": a legit
@@ -148,16 +204,26 @@ export interface DynamicResult {
   key?: string;
 }
 
+/** THE STORED-ROW AUDIT — which rule a `bank_dynamic` row breaks (empty =
+ *  clean). The row's own `msg` is the client's question, so a type presumption
+ *  is judged against it exactly as a fresh answer is judged against the turn:
+ *  one predicate for generation, recall and the purge sweep, or the sweep
+ *  drifts from what actually serves. */
+export function dynamicRowViolations(row: { msg: string; answer: string }): string[] {
+  return validateDynamicAnswer(row.answer, row.msg, { typeKnown: typeEstablished({}, row.msg) });
+}
+
 /** RECALL: a stored, previously-validated answer for this question shape. */
 export function recallDynamic(
   bank: { retrieveDynamic: (m: string) => { key: string; answer: string } | undefined },
   userMsg: string,
+  typeKnown?: boolean,
 ): DynamicResult | undefined {
   const hit = bank.retrieveDynamic(userMsg);
   if (!hit) return undefined;
   // Re-validate on recall: a contract change or hygiene tightening applies
   // retroactively — stale rows degrade to the normal path instead of serving.
-  if (validateDynamicAnswer(hit.answer, userMsg).length > 0) return undefined;
+  if (validateDynamicAnswer(hit.answer, userMsg, { typeKnown }).length > 0) return undefined;
   return { text: hit.answer, source: 'dynamic-recall', key: hit.key };
 }
 
@@ -172,7 +238,7 @@ export async function generateDynamic(
   session: ChatSession,
   userMsg: string,
   store: {
-    addDynamic: (key: string, state: string, msg: string, answer: string) => boolean;
+    addDynamic: (key: string, state: string, msg: string, answer: string, meta?: { template?: string; place?: string }) => boolean;
   },
 ): Promise<DynamicResult | undefined> {
   const facts = knownFacts(session);
@@ -194,6 +260,7 @@ export async function generateDynamic(
             '- Ако клиентот бара податок што го немаш (година на градба, година на реновирање, кат, ориентација…), кажи јасно дека податокот не е во твоите записи и дека ќе провериш кај сопственикот. НЕ одговарај на фактолошко прашање со општа презентација или понуда за посета.\n' +
             '- Користи САМО дадениот познат контекст. Не измислувај населби, згради или знаменитости.\n' +
             '- Без ветувања, гаранции, попусти или конкретни обврски.\n' +
+            '- Ако клиентот НЕ кажал каков вид недвижност бара, НИКОГАШ не именувај стан, куќа, локал, плац или гарсоњера. Прашај само „дали Ве интересира купување или изнајмување на недвижност?“ — видот се прашува потоа, откако ќе се знае услугата.\n' +
             `- Максимум 420 знаци. Само македонски — без англиски зборови освен имиња на места.\n\n${factBlock}`,
         },
         ...session.history.slice(-6).map(m => ({ role: m.role as 'user' | 'assistant', content: m.text })),
@@ -208,9 +275,22 @@ export async function generateDynamic(
       topP: 0.95,
     });
     const answer = res.trim();
-    if (!answer || validateDynamicAnswer(answer, userMsg).length > 0) return undefined;
+    const typeKnown = typeEstablished(session.slots, userMsg);
+    if (!answer || validateDynamicAnswer(answer, userMsg, { typeKnown }).length > 0) return undefined;
     const key = dynamicSlug(session.state, userMsg);
-    store.addDynamic(key, session.state, userMsg, answer);
+    // A — A STOCK-AT-A-PLACE ANSWER IS STORED TWICE (the [22:58] capture round):
+    // verbatim, for the phrasing it was taught, AND as a {place} template plus
+    // the anchor it was written for. The template is what makes the same
+    // sentence recyclable: same place in different words, and (once B promotes
+    // it) a different place in any words. `placeTemplateFrom` refuses a
+    // district-bound sentence, so this can never launder one district's claim
+    // into another's.
+    const anchor = session.slots.poiAnchor;
+    const template = detectInventoryAsk(userMsg) && anchor
+      ? placeTemplateFrom(answer, [anchor, extractPoiWish(userMsg)])
+      : undefined;
+    store.addDynamic(key, session.state, userMsg, answer,
+      template && anchor ? { template, place: anchor } : undefined);
     // Count the call against the session budget only once it SUCCEEDED — a
     // dirty answer or a quota error teaches us nothing and must not spend it.
     session.slots.generatedAnswers = (session.slots.generatedAnswers ?? 0) + 1;
@@ -232,10 +312,10 @@ export async function dynamicAnswer(
   userMsg: string,
   store: {
     retrieveDynamic: (m: string) => { key: string; answer: string } | undefined;
-    addDynamic: (key: string, state: string, msg: string, answer: string) => boolean;
+    addDynamic: (key: string, state: string, msg: string, answer: string, meta?: { template?: string; place?: string }) => boolean;
   },
 ): Promise<DynamicResult | undefined> {
-  const recalled = recallDynamic(store, userMsg);
+  const recalled = recallDynamic(store, userMsg, typeEstablished(session.slots, userMsg));
   if (recalled) return recalled;
   return generateDynamic(llm, session, userMsg, store);
 }

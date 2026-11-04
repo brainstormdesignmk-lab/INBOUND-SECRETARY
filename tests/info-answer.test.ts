@@ -28,7 +28,7 @@ import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
-import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_FLOORS_LINE, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE } from '../src/llm/infoAnswer';
+import { detectInfoFacets, buildInfoAnswer, INFO_NO_DATA_LINE, INFO_NO_DATA_LINES, INFO_NO_FLOORS_LINE, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE } from '../src/llm/infoAnswer';
 import { detectGlossaryAsk, answerGlossary, isGlossaryAsk, SUTEREN_MEANING, SUTEREN_DUG_IN } from '../src/llm/glossary';
 import { isSuterenUnit } from '../src/llm/infoAnswer';
 import { hasParkingWord } from '../src/llm/morphology';
@@ -297,7 +297,7 @@ test('handler: a parking ask routes to INFO, never the presentation card', async
   await handler.handle('test', 'parking', 'KAKO E RESENO PARKIRANJETO ?');
   // EB 63 stores nothing about parking — the honest owner-relay line, NOT the
   // full property card / off-topic redirect.
-  assert.equal(sent.at(-1), INFO_NO_DATA_LINE);
+  assert.ok(INFO_NO_DATA_LINES.includes(sent.at(-1)), sent.at(-1));
 });
 
 test('facets: criteria and opinions are NOT info asks', () => {
@@ -360,7 +360,7 @@ test('builders: known feature answered, unknown feature gets the honest no-data 
   const yes = buildInfoAnswer(P63, { features: ['греење'] });
   assert.ok(yes?.includes('греење на струја'), yes);
   const no = buildInfoAnswer(P63, { features: ['клима'] });
-  assert.equal(no, INFO_NO_DATA_LINE);
+  assert.ok(INFO_NO_DATA_LINES.includes(no), no);
 });
 
 test('builders: an explicit feed "Не" answers Нема, not the owner-relay line', () => {
@@ -369,7 +369,7 @@ test('builders: an explicit feed "Не" answers Нема, not the owner-relay li
   assert.equal(buildInfoAnswer(noLift, { features: ['лифт'] }), 'Нема лифт.');
   // Genuinely unrecorded stays the honest deferral.
   const unknown: Property = { eb: 98, id: 98, address: 'Y', location: 'Центар', service: 'buy' };
-  assert.equal(buildInfoAnswer(unknown, { features: ['лифт'] }), INFO_NO_DATA_LINE);
+  assert.ok(INFO_NO_DATA_LINES.includes(buildInfoAnswer(unknown, { features: ['лифт'] })), buildInfoAnswer(unknown, { features: ['лифт'] }));
 });
 
 test('builders: missing PRICE falls through; missing FLOOR is answered honestly', () => {
@@ -379,7 +379,7 @@ test('builders: missing PRICE falls through; missing FLOOR is answered honestly'
   // Floor has NO such lane: falling through used to hand the ask to whatever
   // answered next (the [10:40] "колку ката" → unit-floor bug). A missing
   // fact is stated as missing and deferred to the owner.
-  assert.equal(buildInfoAnswer(bare, { floor: true }), INFO_NO_DATA_LINE);
+  assert.ok(INFO_NO_DATA_LINES.includes(buildInfoAnswer(bare, { floor: true })), buildInfoAnswer(bare, { floor: true }));
   assert.equal(buildInfoAnswer(bare, { totalFloors: true }), INFO_NO_FLOORS_LINE);
 });
 
@@ -588,5 +588,5 @@ test('builders: the rate is computed from the feed price and surface', () => {
   assert.ok(!b.includes('за м²'), `no invented rate: ${b}`);
   // No price at all → the facet falls through (the FSM price lane owns it).
   const bare: Property = { eb: 97, id: 97, address: 'Z', location: 'Центар', service: 'buy', sqm: 40 };
-  assert.equal(buildInfoAnswer(bare, { pricePerSqm: true }), INFO_NO_DATA_LINE);
+  assert.ok(INFO_NO_DATA_LINES.includes(buildInfoAnswer(bare, { pricePerSqm: true })), buildInfoAnswer(bare, { pricePerSqm: true }));
 });

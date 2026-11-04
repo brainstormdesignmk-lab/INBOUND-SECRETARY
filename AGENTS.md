@@ -201,6 +201,112 @@ Rules for touching this area:
 - Copy assertions in tests are CONTRACT-level (sanctioned figure present, ends
   with a question, forbidden claims absent) — never "the sentence I saw last
   week". Bank variants rotate; pinning one wording makes a false failure.
+- THE ASK FAMILIES THAT ROTATE WORDINGS, matched as families and not pins:
+  `both.ask.type` asks the category as the noun «тип недвижност» OR by
+  enumerating it («барате стан, куќа, деловен простор или плац?») — a pin on
+  «тип» failed on a good variant; `discovery.ask.location.any` asks «во кој дел
+  од градот» / «во која населба» OR «одредена локација во градот», so a pin on
+  the first two nouns fails too. Match `/тип|стан, куќа|деловен простор или
+  плац/` and `/дел од градот|населба|локациј|градот/`; a NEGATIVE assertion
+  must use the same family or it silently stops checking.
+
+## 2c. Alternative budget: one up to X OR two up to Y (`slots.countBudget`)
+
+«MOZE SO EDNA DO 80000 ILI DVE DO 140000» is TWO money rules, not one: a single
+card up to 80.000, or TWO cards whose TOTAL stays inside 140.000. `detectBudget`
+keeps the largest figure, so the old read made 140.000 "the budget" — the [20:08]
+serve paired a 133.000 трисобен with a 55.000 двособен, and the next «DRUGO NESTO
+IMA, OSVEN OVIE DVA?» refilled with a 110.000 row because 110.000 ≤ 140.000
+looked like a criteria fit.
+
+- `detectCountBudget` (`src/llm/deterministic.ts`) splits the message at the OR
+  marker: a count (една/еден/1, две/два/2) AND money on BOTH sides. One side
+  without money is the room RANGE («edna ili dve»), never money. The money scan
+  is `collectMoneyMentions` — the SAME one `detectBudget` uses.
+- `slots.budget` keeps `single` (the STRICTER figure), so every single-card lane
+  — pool, pivots, price answers — is honest by construction; the pair total
+  rides `slots.countBudget` and is applied where a batch is carved
+  (`fitCountBudgetPair` in `loadProps`): a row too rich for THIS pair stays
+  queued for a later one.
+- THE WHOLE FAMILY VETOES, not the sentence: a count-budget message is never a
+  bedroom count (`detectBedrooms`) and never a room range
+  (`detectBedroomsRange`); and it is never a counter-offer (`detectNegotiate`,
+  whose modal bridge now also carries the cap-word guard B8 shares with B1/B2).
+  Without those three the money never reaches the slots at all — the [20:08]
+  capture was answered with the fixed-price owner pitch.
+- WHICH AXIS THE COUNTS COUNT IS A SESSION DECISION
+  (`InboundHandler.countBudgetNamesRooms`), never the words alone: «so edna do X
+  ili so dve do Y» means one bedroom / two bedrooms in this market AND one flat
+  / two flats in [20:08]. With the size axis still OPEN (no `bedrooms`, no
+  `bedroomsMin/Max`, no waiver, no studio/plac/business/yard) the counts ARE the
+  two room categories and land in `slots.categoryBudgets` (§2b) — one of each,
+  each inside ITS OWN cap, nearest first — and NEVER in `countBudget` (a pair
+  TOTAL is a different money rule and must not cap every single card twice).
+  The counts are BEDROOMS and the feed's axis is ROOMS: «една спална» is a
+  ДВОСОБЕН (2 rooms), «две спални» a ТРИСОБЕН (3) — `roomsFromBedrooms` states
+  that convention ONCE for the short forms, exactly as `detectBedrooms` applies
+  it inline (the трисобен EB 66 answered «SO DVE SPALNI»). The SINGLE-count
+  sibling («MOZE SO EDNA DO 100 000» answering «колку спални?») banks
+  `slots.bedrooms` through `detectBareBedroomCount`, same predicate, same
+  convention — read as a cap alone, the size slot stayed empty and the funnel
+  asked again.
+  The [09:46] capture: «MOZE SO EDNA DO 100 000 ILI SO DVE DO 150 000» answered
+  the funnel's «колку спални соби?» and, read as flats, left the size slot empty
+  so the funnel asked the SAME question again. A `SPALNI BILO KOLKU` waive (same
+  message or an earlier turn) or an already-banked room criterion keeps the
+  FLAT reading — the [20:08] contract. A property/option noun on the count
+  («MOZE EDEN STAN DO 80000», «DAJ MI DVE OPCII») means QUANTITY, never size.
+  Pinned in `tests/counted-room-pairs.test.ts` (both axes) next to
+  `tests/count-budget-pair.test.ts`.
+- SWEEP EVERY SIZE ANSWER, not the one in the bug report:
+  `tests/size-answer-sweep.test.ts` drives each captured answer shape through
+  the real handler (bare counts «2»/«DVA» and «daj so edna», the plus-notation
+  «2+1»/«1+1»/«3+1», rooms named directly «DVE SOBI»/«2 SOBI», the adjectives
+  «DVOSOBEN»/«TROSOBNI», ranges «EDNA ILI DVE», the studio «GARSONJERA», and
+  the waivers «SPALNI BILO KOLKU»/«NEBITNO») and asserts BOTH that the size
+  axis LANDED and that the question never comes back. It is a family test: a
+  new answer shape belongs there, or the next capture re-opens the loop. The
+  negative assertion matches the QUESTION (`колку спални` / `спални соби…?`),
+  never the words alone — every card description says «две спални соби», and the
+  waiver ACK says «големината не е проблем».
+- WHEN THE MONEY IS SPENT the turn says it with HIS two figures
+  (`countBudgetDrainedLine`), offers the pricier pair (they match the
+  characteristics; they are simply above his money) and names the third way out
+  (change the request/neighbourhood). Options come only AFTER the ask.
+- The pricier/similar serve never inherits the anchor's room count when size was
+  waived (`slots.sizeWaived`), and when NOTHING is pricier it says so and serves
+  the closest same-characteristics rows instead of going silent.
+- An answer that NAMES another neighbourhood re-runs the PRIMARY request THERE
+  (area = the named one, budget = the primary one), never a silent city-wide
+  widen.
+- Pinned in `tests/count-budget-pair.test.ts`.
+
+## 2d. A purchase cap is read AT ITS MAGNITUDE — never as an Евидентен број
+
+The [20:11] price sweep (`tests/price-answer-sweep.test.ts`) over the captured
+price answers (84 distinct messages) found two defects in one area:
+
+- A BUY cap typed in SMALL EUROS dead-ended the funnel: «DO 200 EVRA» was banked
+  as 200 €, the pool had nothing under 200 and the turn answered a NO-MATCH for
+  money the client never meant. `purchaseBudgetMagnitude` (`deterministic.ts`)
+  scales a euro figure below `PURCHASE_MIN_PLAUSIBLE_EUR` (10.000) by 1000 on a
+  PURCHASE — and only then: RENT keeps its literal hundreds (250–1300 € a month
+  is the real band, and the same words are CORRECT there), a figure with NO euro
+  marker is never touched («100000», «200 ILJADI», «до 100.000»), and the rule is
+  idempotent (a scaled figure is over the floor). `extractSlots` applies it to
+  the WHOLE money family (budget, `countBudget` pair, `categoryBudgets` caps)
+  when the message itself names the purchase; `applyPurchaseMagnitude` applies it
+  again in the handler once the SESSION service is known — the buy intent usually
+  arrived in an EARLIER turn, which is exactly the capture's shape.
+- «KE DADAM 400 E» / «400 E» was read as ЕВИДЕНТЕН БРОЈ 400 — «400 моментално го
+  нема во нашата понуда» — for a client naming his own price. The lone market «E»
+  is a currency token now, in BOTH readers: the money scan
+  (`collectMoneyMentions`) and the EB grammar (`UNIT_TAIL` in `ebNumber.ts`). It
+  counts ONLY clause-final (`[eEеЕ](?!\s*[\p{L}\p{N}])`): the copula («DA, 63 E
+  TAA» = "63 IS that") and a per-² rate («1286E PO M2») stay non-money, and the
+  63 there is still an EB.
+- NO figure is ever read as a fraction of a stored/asked budget — the sweep pins
+  verbatim reads for every captured shape, so a new shape goes in that file.
 
 ## 3. TUI rendering: one emulator, two harnesses
 
@@ -243,11 +349,9 @@ not. `/state` renders exactly three short rows from the live `SessionStore`:
 [slots] state=<fsm state> svc=<service>
 [slots] fee=<feeRejections> prov=<provisionRejections> agreed=<yes|no>
 [slots] any=<anywhere> bud=<budget>
-```
-
-Keep it to THREE short rows (a 24-row terminal leaves the chat pane ~10 rows; a
+```Keep it to THREE short rows (a 24-row terminal leaves the chat pane ~10 rows; a
 taller dump scrolls the newest reply and its own first rows off), and never wrap
-a value: the harness asserts these rows, so a scrolled-away counter is a check
+  a value: the harness asserts these rows, so a scrolled-away counter is a check
 that silently stops checking. The funnel asserts `fee=4` after the ladder (three
 rungs + the [22:03] challenge) and `any=true bud=80000` after the discovery pass.
 
@@ -462,6 +566,140 @@ LATIN ARMS GO ON THE RAW TEXT: `normalizeMc` is PHONETIC («STO IMAS» → «с�
 typing. Match the raw text first, then the fold — the same reason
 `SEE_OFFERS_RE` carries its own Latin arms.
 
+## 4h. THE OWNER IS A PARTY, NOT A CONFIRMATION BUTTON (the [20:16]–[20:33] batch)
+
+The visit ping-pong ran four defects in one session; each is now a rule:
+
+- **ONE missing-fact line per turn, IN ROTATION.** `INFO_NO_DATA_LINES` holds the
+  two ways of saying the same thing and `noDataLine()` advances one per miss.
+  The old constant glued them («Немам информација во системот; немам податок во
+  базата — …»), which reads like two admissions in one breath. Never concatenate
+  variants of one theme; rotate them.
+- **«ISTO VREME» REUSES THE CLOCK, IT DOES NOT ASK AGAIN.** «CETVRTOK ISTO VREME
+  MOZE ?» names the DAY and reuses the HOUR in play. `detectSameTimeReference` +
+  `mergeVisitTerm` (visits/time.ts) are the ONE merge for every reader
+  (visit_scheduling, time_confirm, both owner_checking legs); the donor chain is
+  `ownerCounterTime → ownerTime → visitTime`, so the client only ever moves one
+  field and the owner's ping carries both.
+- **A DAY-ONLY SLOT + A BARE HOUR IS A COMPLETE TERM.** The exact-hour ask leaves
+  «Четврток» in `slots.visitTime`; the client's «6» must reach the owner as
+  «Четврток, 05.11.2026 во 18:00», never as a day with no clock. `applySlots`
+  owns the raw day-first concatenation — do not canonicalize it in the
+  classifier (that destroyed «VO PONEDENIK MOZAM POPLADNE» + «OKOLU 6»).
+- **THE OWNER TYPES IN A WINDOW, LIKE THE CLIENT.** The plain-text owner channel
+  arms `ownerTyping` (`ownerTypingDelayMs`): a follow-up inside the window
+  REPLACES the verdict and resets the timer, and Lina relays the final word
+  ONCE. Applying the first sentence instantly relayed half a thought and left
+  the next one dead.
+- **THE OWNER'S CHANNEL STAYS LIVE WHILE THE TERM IS UNSETTLED.** After the
+  first verdict the check is consumed; `InboundHandler.ownerFollowup` re-opens
+  it (owner_checking / time_confirm → `applyOwnerVerdict`) so a correction
+  reaches the client instead of «нема активна проверка за овој клиент».
+  Outside those states it returns false and the console says so.
+  Pins: `tests/owner-window-same-time.test.ts`.
+- **THE OWNER'S DAY SURVIVES HIS NEXT SENTENCE (the [10:24] capture).** An owner
+  answers a clock re-ask in TWO messages — «PETOK», then «OKOLU 5 MOZAM» — so the
+  second verdict is a DAY-LESS clock. It used to be dated to TODAY by the display
+  normalizer and relayed as «Има друг предлог: Вторник, 03.11.2026 во 17:00» (a
+  weekday and a date he never said), while the RAW «Околу 5» was written to
+  `slots.ownerTime` / `ownerCounterTime` — the term the client accepts AND the
+  term the next owner ping calls "refused" (the [17:45] class, made permanent).
+  One rule: `mergeOwnerTerm` (prompts.ts) donates the most specific day on the
+  table — the owner's own last named day (`slots.ownerClockDay`), then the day of
+  the term he is answering (`ownerAskTime`), then `visitTime` — and the handler
+  STORES the canonical dated term. `normalizeOwnerTime` itself never dates an
+  undated phrase. Only when NEITHER party named a day does the clock keep its
+  next occurrence (`dateOwnerClock`, the [13:16/13:20] contract: his hour must
+  still reach the client, not trigger a second question) — today is never used
+  against a day somebody named. The TUI mirrors the ACTUAL relay text through
+  `onOwnerRelay`, so the operator pane can no longer echo a term the client did
+  not receive. Pins: `tests/owner-day-carry.test.ts`.
+- **THE DAY IS SETTLED AT EVERY SEAM, NOT ONLY AT THE STORE (the data/tui.db
+  day audit).** Replaying the captured sessions showed the same class in the
+  paths the first fix did not own: `appointments.time` = «Во 17:00»,
+  `visit_confirmed` / `agent_assigned` payloads = «Во 17:00», and the
+  `time_confirm` task prompt relaying `slots.ownerTime` verbatim — a visit no
+  human could date. `confirmVisit` now computes TWO forms from ONE merge
+  (`mergeOwnerTerm(slot, [ownerClockDay, ownerAskTime, visitTime])`):
+  `recordTime` — the slot in its own shape ([20:31] stores «UTRE POPLADNE OKOLU
+  16» verbatim; the scheduler parses it against its own clock) with a missing
+  day donated — goes to the appointment row, `markFinalized` and
+  `visits.arrange`; `displayTime` (`normalizeOwnerTime(recordTime)`) — named day
+  + date + 24h — goes to the client confirmation and both owner event
+  payloads. `stateTask('time_confirm')` merges at read time for slots stored
+  before the merge existed. Date the READER, never rewrite the slot, and never
+  bake a date into the record: a term that already names its day passes through
+  untouched. When adding a relay, ask: does this string name a DAY, or only an
+  hour?
+
+## 4i. THE SERVICE QUESTION PRESUMES NO PROPERTY TYPE (the [21:20] capture)
+
+«ZDRAVO , STO IMATE INTERESNO OKOLU KAPITOL MOL ?» was answered «Дали барате
+СТАН за купување или за изнајмување?» — the client named a PLACE, never a flat.
+The bank copy was already clean ("…купување или изнајмување на недвижност?");
+the leak is the GENERATED path (badge `dynamic`), where an LLM writes the
+sentence. **Prompt wording is not a guard** — this is why the same class keeps
+returning: every brain that improvises re-opens it.
+
+- **A POST-CONDITION, not a prompt sentence.** `validateDynamicAnswer` now
+  takes `{ typeKnown }` and REJECTS any candidate that asks the service
+  question (купување/изнајмување, either order, both scripts) while naming a
+  property type — the turn degrades to the clean deterministic line. The same
+  check runs on RECALL (`recallDynamic`, the exact-recall lane in `inbound.ts`),
+  so rows stored before the rule existed can never serve.
+- **THE CLIENT OWNS THE TYPE.** `typeEstablished(slots, userMsg)` is true only
+  when `applySlots` set one (`flat/house/business/plac/garsonjera/yard`) or the
+  client's own message names it — then «станот» is legitimate and the answer
+  passes untouched.
+- **WHOLE WORDS.** `PROPERTY_TYPE_NOUN_RE` is boundary-guarded both ways: a
+  place word is not a type, and «стандард», «станбена површина», «станар» are
+  not types. Latin forms (`stan/stanot/stance/kukj/lokal/plac`) count — the
+  field typing is Latin (`MI TREBA STANCE KAJ KAPITOL MOL`).
+- **THE CATEGORY QUESTION IS NOT THIS.** «барате стан, куќа, деловен простор
+  или плац?» enumerates every type and is sanctioned (§4); only a SERVICE ask
+  that singles out one type is the defect. The service is asked first, the
+  category after it.
+- **AND NO OTHER INVENTED FACT.** The same post-condition refuses the rest of
+  the property data: rooms (`двособен`, «со две спални»), area (квадрати),
+  year of build and the floor — row facts exactly like the price. The honest
+  miss («немам податок … ќе го прашам сопственикот») is the only shape a
+  generated answer may use for a datum it does not own.
+- **SWEEPING STORED ROWS.** `dynamicRowViolations(row)` is the single predicate
+  over a stored `bank_dynamic` row (its `msg` is the client turn, so a type
+  presumption is judged against the question that produced it). Recall refuses
+  bad rows anyway, but the nightly digest would fold them into `bank_variants`
+  first — so `npm run bank:audit-dynamic` reports them and
+  `npm run bank:audit-dynamic -- --apply` deletes them.
+  Pins: `tests/dynamic-fallback.test.ts` ([21:20]).
+
+## 4g. ONE FLAT IS A RATE, NOT A MARKET BAND (the EB reader)
+
+The [20:11] capture: «KOLKU DOAGJA CENA PO KVADRAT ZA 53?» asked EB 53's own
+rate and was answered with Аеродром's €/m² band. The band lane already carried
+the right guard — «a named property owns its lane» — but the reader behind it
+(`inferPropertyId`) vetoed the WHOLE MESSAGE as soon as a unit word appeared:
+`…|м2|м²|kvadrat|евра|спални|(?:до|околу|под)\s*\d{2,3}\b…`. The very word
+«kvadrat» that ASKS for the rate destroyed the number that names the flat.
+
+- **`src/llm/ebNumber.ts` is the ONE reader** (`ebNumbersInText` /
+  `firstEbNumber`): a number with a UNIT after it, behind a CAP/comparison word,
+  or inside a thousands figure is a criterion; a free number is a listing. The
+  judgement is LOCAL to the number, so «STAN 53, 50 M2, DO 90000 EVRA» names 53.
+  `inferPropertyId`, `collectMentionedEbs` and the market-band veto all consult
+  it — a second copy of this grammar is what produced the bug.
+- **THE FOLD IS MANDATORY HERE, not a second chance.** This reader answers with
+  a NUMBER, so «raw first, fold else» keeps the raw form's false positive:
+  «12 SPALNI» read as EB 12 because the Latin unit word missed the
+  Cyrillic-canonical unit list. Normalize once; the digits pass through.
+- **A NAMED FLAT IS NEVER A MARKET LEVEL.** `detectMarketPriceAsk` returns false
+  when the message names a flat, so the mirror (router) and the executor agree —
+  the band lane owns the CATEGORY («ceni po kvadrat za stanovi», «kako se
+  dvizat cenite vo Аеродром»), the info lane owns one flat's price ÷ м².
+  Pins: `tests/eb-number.test.ts`, `tests/market-price.test.ts` ([20:11] e2e).
+- **SWEEP THE GUARD FAMILY, NOT THE SENTENCE.** Any lane that guards on
+  «a named property» (`inferPropertyId(...) === undefined`) inherits this reader;
+  when it changes, rerun the classify/route-corpus suites, not just the lane.
+
 ## 4e. A CLOCK IS NEVER A PLACE (the visit ping-pong)
 
 The [00:59] capture: the owner countered «Петок 18:00», the client answered
@@ -519,6 +757,139 @@ The [09:07–09:11] capture ran three defects in a row, each one a WRONG SUBJECT
   discussed one IS in the batch (the two-card comparison the arm exists for).
   A single-flat distance that has more than one card behind it NAMES the flat
   («…со Евидентен број 66»); one card needs no number.
+
+## 4i. A PLACE'S CLASS IS NOT ITS NAME — but the row must carry it (the [01:05] KAPITOL MOL batch)
+
+«ZDRAVO. MI TREBA STANCE KAJ KAPITOL MOL» produced «На кој дел од градот …?» —
+about a mall the map holds THREE times («ТЦ Капитол», «Трговски центар
+Капитол», «Shopping Center Capitol Mall»). `data/place-misses-2026-11-03.jsonl`
+records the exact death: `{"text":"капитол мол","refused":"Kupi Moment
+Capitol Mall"}`. Three layers, all fixed in `src/handlers/inbound.ts`:
+
+- **THE CLASS TAIL** (`PLACE_CLASS_FAMILIES` + `placeClassFamily`): the noun a
+  client TACKS ONTO a name (мол/mall, маркет, хотел, болница, училиште, црква,
+  парк, кафе, аптека, банка, станица) is a class word, and the map rarely
+  stores it («ТЦ» / «трговски центар» / «Mall» are one class, three spellings).
+  It may be dropped from the CLIENT'S run ONLY when the map row DECLARES the
+  same class — one of its own words is in the family, OR the row's OSM `type`
+  is (a mall filed as «Олимпико» with no class word in its name still declares
+  `mall`). That is what keeps the old refusals: «ВОЕНА БОЛНИЦА» still never
+  reaches «Воена академија …» (no hospital word, a `School` type) and «ВЕРО
+  ЦЕНТАР» never reaches the shop «Веро 9» (a `Supermarket` declares the market
+  family, not the mall). A blanket drop of institution nouns is how that
+  refusal was born in the first place — do not reintroduce it.
+  THE TYPE IS WIRED END TO END: `OfflineMapStore.findPoiByName` /
+  `findPoisByName` / `findPoiByNameLoose` return the row's `type`,
+  `LandmarkService.findPlace` / `findPlaceLoose` pass it through, and
+  `poiNameCoversClientWords(client, name, type)` reads it. Do not drop the
+  column again on the way out — a name-only guard silently loses the class for
+  every brand-only row.
+- **THE LEADING CLASS RUN** (`leadingVenueRun`): the head test already skips
+  the map's leading venue words (the identity of «Shopping Center Bunjakovec»
+  is «Bunjakovec»), but the contiguity walk allowed only ONE skipped map word,
+  so any client word sitting further in was unreachable — even bare «капитол»
+  never bound «Трговски центар Капитол». Slice the leading run, BUT only as far
+  as the client did not say those words, or a row stops binding its own name
+  («Трговски центар Капитол», «Центар за ментално здравје» — the 27/5992
+  self-bind regressions the map-wide sweep catches immediately).
+- **THE LOOKUP MUST BE ASKED WITHOUT IT**: `resolvePlace` appends every try with
+  its class tail removed, because `findPoisByName` needs the row to CONTAIN the
+  whole phrase and no row contains «капитол мол». The coverage guard still
+  signs off on whatever comes back, so the trim can never bind a different
+  place.
+
+Pinned in `tests/place-class-tail.test.ts` (guard units + the e2e capture);
+the map-wide sweeps in `tests/place-bind-sweep.test.ts` and
+`tests/place-coverage-sweep.test.ts` are the regression fence for any future
+tweak of this guard.
+
+THE SWEEP IS A COMMAND, NOT AN INVESTIGATION: `npm run place:misses -- --sweep`
+replays every captured class-tail miss through the shipped handler and prints
+the place each one binds (or the honest unbound list). Run it after touching
+the guard or the class vocabulary. Current state (2026-11-03): kapitol mol →
+ТЦ Капитол, бисер и капитол мол → ТЦ Бисер, дајмонд мол → Diamond Mall, чаим
+беут ѓамија → Чазим Беут Ѓамија, zeleznicka/зелезницка stanica → the station,
+komercjalna banka → Комерцијална Банка; the centar family binds the AREA and
+must never bind a mall. Still unbound and NOT closable: «ок хоттел» (the map
+holds no ОК Хотел row) and «вардрска 1 - кон центар» (a street, not a place).
+
+TWO GUARD RULES FOUND BY THAT SWEEP — do not lose them:
+- THE SLIP BUDGET OPENS AT FOUR LETTERS (`oneSlip`): «чаим» IS «Чазим» (the
+  mosque's own name). The old five-letter floor required a real row to be
+  refused because 4 of its 5 letters were right. First letter must still
+  agree, and three-letter names (KAM/KAN) stay exact.
+- THE SOUND KEY MAY NOT CARRY A SHORT WORD ALONE: `canonicalWordKey` folds
+  vowels and k/c, so «чаим» and «KAM» are both «km» — the extractor's second
+  candidate bound a SUPERMARKET for a mosque. A key-only match now needs a
+  word of five letters or more, or a run whose other words carry the context;
+  a lone short word must be the word itself.
+
+### 4e. The place survives WHOEVER answers the turn
+
+The funnel's slot binding (`applySlots`) runs on the CLASSIFIER path. Every lane
+that answers EARLIER returns before it — the learned/dynamic serve at the top of
+`processMessage` (`tryLearnedServe`) is the big one — so a place the client named
+in THAT message used to vanish together with the answer.
+
+The [22:58] capture: «STO IMTE INTERESNO KAJ KAPITOL MOL ?» → a learned
+`[dynamic]` intro (correct prose, the operator kept it) → «ZA KUPUVANJE SUM» →
+«Кажете ми во која населба или дел од градот…». The client was asked for the area
+he had just named. THIS is why the same landmark bug kept returning after each
+fix: every earlier repair landed in `applySlots` / the discovery intake, which
+that lane never reaches.
+
+Rules:
+
+- `tryLearnedServe` binds the named place before it returns: `poiAnchor`, the
+  area (via `areaAtPlace`) when the location is void or the anchor CHANGED (a new
+  place is a new geography), and `inventoryPending` for a stock-at-a-place ask —
+  the same two effects the discovery intake applies. An echo of the same place
+  costs nothing; a new one clears the pair queues carved for the old one.
+- When adding any lane that sends a reply BEFORE `applySlots`, ask what slot the
+  turn would have written and write it there too. The place is the one that is
+  silently lost (nothing throws; the next turn just asks again).
+- The have-ask family reads **«кај»** as well as «во/на» (`INV_ASK_KAJ_RE` +
+  `INV_PLACE_KAJ_RE`) and tolerates the dropped-vowel verb («IMTE»): «што имате
+  кај X» is the most natural stock-at-a-place phrasing in Macedonian, and it was
+  not an inventory ask at all. A pronoun tail («кај вас/нас») is not a place.
+
+### 4f. A learned place answer is stored TWICE — prose and a `{place}` template
+
+A generated answer that names a place is true only for that place: «Во близина
+на Капитол Мол имаме одлични понуди…» is right for Капитол and a fabricated
+location for Ѓорче. `bank_dynamic` therefore keeps, beside the verbatim
+`answer`:
+
+- `tmpl` — the same sentence with its place span replaced by `{place}`
+  (`PLACE_SLOT` in `src/llm/placeTemplate.ts`),
+- `place` — the anchor it was written for,
+- `hits` — CLEAN serves: the promotion counter.
+
+Rules:
+
+- `placeTemplateFrom` refuses a DISTRICT-BOUND sentence: an answer naming a
+  FEED AREA (`KNOWN_NEIGHBORHOODS`, shared with `detectInventoryAsk` — one list,
+  no second copy) is never templated, or one district's stock claim would be
+  handed to a place in another one. Such a row keeps verbatim-only recall,
+  exactly as before the template layer existed.
+- `tryPlaceInventoryServe` renders the template with the map's name for the
+  place the CURRENT client named and passes the SAME `validateDynamicAnswer`
+  gate a fresh generation does. It runs before the learned lane, and it writes
+  the anchor + `inventoryPending` FIRST — so the follow-up asks the TYPE, never
+  the neighbourhood.
+- B — after `PLACE_PROMOTE_AFTER` (3) clean serves the template joins the copy
+  layer under `PLACE_TEMPLATE_KEY` (`discovery.place.inventory`), so it survives
+  the dynamic store's FIFO purge and serves places that never had a row.
+- A CORRECTION INVALIDATES THE TEMPLATE: `updateDynamicAnswer` / `rewriteDynamic`
+  clear `tmpl`/`place` and reset `hits`. The operator said the prose was wrong,
+  so its templated copy is wrong too.
+- Never template a sentence whose FACTS ride the place (availability, price,
+  stock counts): that is the data-driven class, and `FORBIDDEN_FACTS` already
+  refuses such prose at generation.
+
+Tests: `tests/place-template-serve.test.ts` (the slot + district guard, the
+reworded serve, the 3-serve promotion at a new place, the correction reset) and
+`tests/dynamic-fallback.test.ts` (the generate seam stores the template).
 
 ## 5. Tests and expectations
 

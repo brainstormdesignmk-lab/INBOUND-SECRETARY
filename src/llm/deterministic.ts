@@ -8,6 +8,7 @@ export { hasClockHint };
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
+import { firstEbNumber } from './ebNumber';
 // The recommendation grammar lives in its own module (the [11:39] family).
 // Imported here so the advice lanes consult ONE predicate for "the client asks
 // which flat to pick" instead of duplicating the word classes — and a choice
@@ -307,6 +308,11 @@ export interface DetectedSlots {
   business?: boolean;  // деловен простор / канцеларија / локал
   house?: boolean;     // куќа — a residential request that is NOT a стан
   budget?: string;     // canonical digits, e.g. "80000"
+  /** ALTERNATIVE BUDGET (the [20:08] capture): «so edna do 80000 ili dve do
+   *  140000» — ONE card under `single`, OR TWO whose TOTAL stays inside `pair`.
+   *  `budget` carries `single` (the STRICTER figure every single-card lane
+   *  already enforces). */
+  countBudget?: CountBudget;
   /** PER-CATEGORY MONEY (the [19:14] capture): «dvosoben do 90000 i trosoben do
    *  150000» — each room category with its OWN cap, cheapest category first. */
   categoryBudgets?: Array<{ rooms: number; budget: string }>;
@@ -470,6 +476,58 @@ const INVENTORY_ASK_RE = new RegExp(
 const INVENTORY_VERB_RE = new RegExp(
   '(?:што|sto)\\s+(?:имаш|имате|има|imas|imate)\\s+' + INV_GAP + '\\s*(?:во|vo|на|na)\\s+', 'iu');
 
+// THE «КАЈ» ARM OF THE HAVE-ASK (the [22:58] capture).
+//
+// «STO IMTE INTERESNO KAJ KAPITOL MOL ?» is the MOST NATURAL way a Macedonian
+// client asks for stock at a place, and the family above knew only «во/на» — so
+// the turn was not an inventory ask at all: it reached the learned/dynamic lane,
+// the place was never bound to the session, and the NEXT turn («ZA KUPUVANJE
+// SUM») asked for а neighbourhood the client had just named. Written as plain
+// regex literals (no string escaping) and deliberately narrow: the have-verb,
+// the ≤20-char qualifier slot, then «кај/kaj» and a place tail. The verb
+// alternation carries the dropped-vowel typo «IMTE» — a client typing fast is
+// not asking a different question, and the earlier family silently dropped the
+// whole turn over one missing letter.
+const INV_ASK_KAJ_RE =
+  /(?:што|sto)\s+(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)\s+(?:[^.!?,\n]{0,20}\s*)?(?:кај|kaj)\s+/iu;
+/** The PLACE tail of the same ask — the mirror of INV_ASK_KAJ_RE, so the ask
+ *  and the place it names can never disagree about what the client said. The
+ *  verb alternation is spelled out in BOTH literals (three lines apart, on
+ *  purpose): a string-built regex needs doubled backslashes plus an escaped
+ *  quote, and a slip there is a syntax error rather than a silent miss. */
+const INV_PLACE_KAJ_RE =
+  /(?:што|sto)\s+(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)\s+(?:[^.!?,\n]{0,20}\s*)?(?:кај|kaj)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
+
+// THE OPTIONS QUALIFIER — «ШТО ИМАТЕ ИНТЕРЕСНО КАЈ X ?», «ИМАТЕ ЛИ НЕШТО КАЈ X».
+// The neutral «што имате во X?» asks about a place and owes the TYPE question
+// (the [02:15]/[04:17] contract: nothing is served before the category is
+// known). Adding «интересно»/«нешто» changes the ask: the client wants to SEE
+// what is on offer there, and the [01:45] capture is exactly that — two clients
+// in one session asked the same question and one got three properties while
+// the other got «дали сте во потрага по недвижност за купување или за
+// изнајмување?». The qualifier is the whole difference between the two.
+const INV_OPTIONS_QUALIFIER_RE = /(?:интересн|interesn|нешто|nesto)/iu;
+
+/** The SAME ASK WITH A `DALI` / `LI` OPENING (the [01:45] capture):
+ *    «DALI IMATE NESTO INTERESNO KAJ ZEBRA ?»  → three properties near Зебра
+ *    «ZDRAVO . STO IMATE INTERESNO KAJ ZEBRA ?» → «дали сте во потрага по
+ *          недвижност за купување или за изнајмување?»
+ *  One question, two openings — and two clients in the SAME session got two
+ *  different answers, because every literal above demands the what-word first.
+ *  The dali/li shape was therefore not an inventory ask at all: it reached the
+ *  classifier as a PROPERTY_DESCRIPTION guess, and its stock-at-a-place serve
+ *  depended on that guess. The prefix slot, the ≤24-char qualifier slot and the
+ *  place prepositions are the SAME family's — one question, three openings —
+ *  and it yields the PLACE tail so the rows are ranked around the place named. */
+// THE `DALI` / `LI` ARMS TAKE ONLY THE 2ND-PERSON FORMS (имате/имаш/imate/imas):
+// «дали имате…» is the client asking US, while «дали ИМА тераса во станот?» is a
+// question about a flat's FEATURE — the 3rd-person «има» inside the family made
+// every «dali ima <feature> vo <thing>?» an inventory ask and the feature lane
+// lost its turn to the show-me lane. The «што» arm keeps the full alternation
+// (there the 3rd person IS the have-ask: «што има во Карпош?»).
+const INV_ASK_PLACE_RE =
+  /(?:(?:што|sto)\s+(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)|(?:дали|dali)\s+(?:имаш|имате|имте|imas|imate|imte)|(?:имаш|имате|имте|imas|imate|imte)\s+(?:ли|li))\s+(?:[^.!?,\n]{0,24}\s*)?(?:кај|kaj|во|vo|на|na)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
+
 /** True when the client asks for the INVENTORY — what is available — as
  *  opposed to advice about where to live. Anchored either on a demonstrative
  *  («во тој реон») or on a feed area the client named («во Аеродром»). */
@@ -477,6 +535,12 @@ export function detectInventoryAsk(text: string): boolean {
   if (INVENTORY_ASK_RE.test(text)) return true;
   const norm = normalizeMc(text);
   if (INVENTORY_ASK_RE.test(norm)) return true;
+  // «… КАЈ <place>» — the preposition the family above never had.
+  if (INV_ASK_KAJ_RE.test(text) || INV_ASK_KAJ_RE.test(norm)) return true;
+  // «DALI / ИМАТЕ ЛИ … <во|на|кај> <place>» — the other two openings of the
+  // same question (the [01:45] capture). Tested raw first for the same
+  // phonetic-fold reason as the verb above.
+  if (INV_ASK_PLACE_RE.test(text) || INV_ASK_PLACE_RE.test(norm)) return true;
   // The FEED AREA that carries the anchor («што имате во Аеродром?»). Both the
   // client's own spelling and the normalised fold are tried: the area table is
   // Cyrillic while the client types Latin, and locMatches is case/stem-based
@@ -511,12 +575,16 @@ const INVENTORY_PLACE_STOP = new Set([
   'кирија', 'kirija', 'градот', 'gradot', 'моментов', 'momentov', 'момент', 'moment',
   'лагер', 'lager', 'залиха', 'zaliha', 'скопје', 'skopje', 'град', 'grad', 'цело', 'celo',
   'близина', 'blizina', 'тој', 'toj', 'овој', 'ovoj', 'тоа', 'toa', 'таа', 'taa', 'тие', 'tie', 'таму', 'tamu',
+  // A PRONOUN IS NOT A PLACE (the «кај» arm): «што имате кај вас?» asks about
+  // the AGENCY, not a location — the ask stands, its tail does not.
+  'вас', 'vas', 'нас', 'nas', 'себе', 'sebe', 'мене', 'mene',
 ]);
 
 /** The place an inventory ask names («… VO BUNJAKOVEC» → «BUNJAKOVEC»), or
  *  undefined. Shape only — the caller resolves it against the offline map. */
 export function extractInventoryPlace(text: string): string | undefined {
-  const m = text.match(INVENTORY_PLACE_RE);
+  const m = text.match(INVENTORY_PLACE_RE) ?? text.match(INV_PLACE_KAJ_RE)
+    ?? text.match(INV_ASK_PLACE_RE);
   if (!m) return undefined;
   const words = m[1].replace(/[?!,.:;]+$/u, '').trim().split(/\s+/).filter(Boolean);
   // ANY stop word disqualifies the tail — «во тој реон» leaves «реон» after the
@@ -564,6 +632,17 @@ export function detectPropertyTypeWord(text: string): boolean {
 /** True when the client asks to see current offers mid-collection. */
 export function detectSeeOffers(text: string): boolean {
   return SEE_OFFERS_RE.test(text) || detectInventoryAsk(text);
+}
+
+/** A stock-at-a-place ask that also asks to SEE OPTIONS («што имате интересно
+ *  кај X», «имате ли нешто кај X»). The plain inventory ask waits for the type
+ *  (the [02:15] contract); this one is a show-me ask and is served from the rows
+ *  near the place — the [01:45] capture, where the same sentence in two
+ *  openings got two different answers. */
+export function detectInventoryOptionsAsk(text: string): boolean {
+  if (!detectInventoryAsk(text)) return false;
+  const norm = normalizeMc(text);
+  return INV_OPTIONS_QUALIFIER_RE.test(text) || INV_OPTIONS_QUALIFIER_RE.test(norm);
 }
 
 // [17:14] The SMALLER-SIZE INTENT family: "NESTO POMALO / нешто помало"
@@ -1663,6 +1742,12 @@ const RANGE_ROOM_NOUN_RE = /соб[иае]|sob[iae]/iu;
 export function detectBedroomsRange(text: string): { min: number; max: number } | undefined {
   const attempt = (t: string): { min: number; max: number } | undefined => {
     if (!RANGE_CONNECTOR_RE.test(t)) return undefined;
+    // ALTERNATIVE BUDGET (the [20:08] capture): «moze so edna do 80000 ili dve
+    // do 140000» counts FLATS, not bedrooms — both ends carry money, so the
+    // ends are a purchase-count deal. Without this veto the noun-less shape
+    // read as 2…3 rooms and the funnel silently re-typed a two-flat deal into
+    // a room band.
+    if (detectCountBudget(t)) return undefined;
     // Size/floor context: those digits are квадратура or a floor, never ends.
     // Budget digits need no veto (see RANGE_NON_BEDS_RE note) — the [09:17]
     // range arrives TOGETHER with the budget in one message.
@@ -1713,6 +1798,12 @@ export function detectBedroomsRange(text: string): { min: number; max: number } 
 }
 
 export function detectBedrooms(text: string): number | undefined {
+  // ALTERNATIVE BUDGET (the [20:08] capture): «SPALNI BILO KOLKU . MOZE SO EDNA
+  // DO 80000 ILI DVE DO 140000» counts FLATS, not rooms. The "so edna … ili
+  // dve" pair was read as 2 rooms, which pinned the whole pool to двособни and
+  // hid the трисобен above the cap from the pricier serve (the client asked for
+  // "поскап" and got one card). Same veto as the range detector's.
+  if (detectCountBudget(text)) return undefined;
   // NOUN-FIRST digits (the [23:57] capture): the funnel asked «колку спални»
   // and the client typed "spalni minimum 2" — BED_NUM_RE needs the digit
   // BEFORE the noun, the word loop found no word number, and the bare branch
@@ -2020,7 +2111,13 @@ function collectMoneyMentions(text: string): MoneyMention[] {
   if (detectEbPriceAssertion(text)) return [];
   // Strip phone numbers first — "078/914 196" must never glue into "914196".
   const cleaned = text.replace(/\b0\d{1,2}\s*[/.]\s*\d{2,4}(?:\s*\d{2,4})?\b/g, ' ');
-  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d[\d\s.,]*)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(евра|евро|evra|evro|eur|€)?/giu;
+  // THE LONE «E» (the [20:11] sweep): «KE DADAM 400 E», «400 e» — market
+  // shorthand for euros, and it must be MONEY. Without it the figure fell
+  // through to the Евидентен-број reader and the turn answered «400 моментално
+  // го нема во нашата понуда» to a client naming his price. Latin ONLY and
+  // clause-final: the Cyrillic «е» is the copula («DA, 63 E TAA» = "63 IS
+  // that"), and a trailing word («1286E PO M2») is a rate, never a cap.
+  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d[\d\s.,]*)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(евра|евро|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}]))?/giu;
   const out: MoneyMention[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(cleaned)) !== null) {
@@ -2050,6 +2147,111 @@ export function detectBudget(text: string): string | undefined {
   let bestN = 0;
   for (const m of collectMoneyMentions(text)) if (m.amount > bestN) bestN = m.amount;
   return bestN > 0 ? String(bestN) : undefined;
+}
+
+/** THE PURCHASE MAGNITUDE (the [20:11] sweep of the captured price answers):
+ *  on a BUY search a EURO cap below anything this market sells is the
+ *  dropped-thousands shorthand — «DO 200 EVRA», «CENTAR SO CENA OKOLU 115
+ *  EVRA», «KE DADAM 400 E» mean 200.000 / 115.000 / 400.000. Banked
+ *  literally, the funnel dead-ends: «DO 200 EVRA» produced a NO-MATCH turn
+ *  for 200 euros, and the client never heard that his own flats were inside
+ *  his money.
+ *
+ *  The three rules that keep it honest:
+ *   • ONLY on a purchase — RENT keeps its literal hundreds (250–1300 € a month
+ *     is the real band, and the same words are CORRECT there);
+ *   • ONLY with a EURO MARKER in the message — «100000», «200 ILJADI»,
+ *     «до 100.000» are read exactly as typed;
+ *   • IDEMPOTENT — a scaled figure is over the floor, so a second pass leaves
+ *     it alone (the handler re-applies it after the session service is known,
+ *     which is the case this rule exists for: the buy intent came in an
+ *     EARLIER turn).
+ *  Pinned in `tests/price-answer-sweep.test.ts`. */
+export const PURCHASE_MIN_PLAUSIBLE_EUR = 10000;
+// The marker may be GLUED to the digits («300EVRA», «120000evra» — both
+// captured), so only a LETTER to the left disqualifies it.
+const EURO_MARKER_RE =
+  /(?<![\p{L}])(?:евра|евро|евр|evra|evro|evr|eur|€|[eE])(?![\p{L}\p{N}])/iu;
+
+export function purchaseBudgetMagnitude(amount: string, text: string): string {
+  if (!EURO_MARKER_RE.test(text)) return amount;
+  const n = Number(String(amount).replace(/[^\d]/g, ''));
+  if (!Number.isFinite(n) || n <= 0 || n >= PURCHASE_MIN_PLAUSIBLE_EUR) return amount;
+  return String(n * 1000);
+}
+
+/** ALTERNATIVE BUDGET (the [20:08] capture): «MOZE SO EDNA DO 80000 ILI DVE DO
+ *  140000» — TWO money figures for TWO shopping shapes: ONE flat up to 80.000,
+ *  OR TWO flats whose TOTAL stays inside 140.000.
+ *
+ *  `detectBudget` keeps the LARGEST figure, so the old read made 140.000 "the
+ *  budget": the serve put a 133.000 трисобен beside a 55.000 двособен (53.000
+ *  over the single cap AND 48.000 over the "two" total), and the next «DRUGO
+ *  NESTO IMA?» refilled with a 110.000 row because 110.000 ≤ 140.000 looked
+ *  like a criteria fit.
+ *
+ *  Shape: a COUNT (one/two, еден/две, 1/2) AND a cap on EACH side of an OR
+ *  marker, both sides carrying money. A count without money on one side is the
+ *  room RANGE («edna ili dve»), whose own detector now vetoes this shape.
+ *  The money scan is the SAME `collectMoneyMentions` `detectBudget` uses. */
+export interface CountBudget { single: string; pair: string }
+
+const COUNT_ONE_TOKEN_RE = /(?<![\p{L}\p{N}])(?:една|еден|едно|1|edna|eden|edno|ena)(?![\p{L}\p{N}])/iu;
+const COUNT_TWO_TOKEN_RE = /(?<![\p{L}\p{N}])(?:две|два|2|dve|dva)(?![\p{L}\p{N}])/iu;
+const COUNT_BUDGET_OR_RE = /(?<![\p{L}\p{N}])(?:или|ili|or)(?![\p{L}\p{N}])/iu;
+
+export function detectCountBudget(text: string): CountBudget | undefined {
+  const split = COUNT_BUDGET_OR_RE.exec(text);
+  if (!split) return undefined;
+  const clause = (from: number, to: number): { count: 1 | 2; amount: number } | undefined => {
+    const part = text.slice(from, to);
+    const amounts = collectMoneyMentions(part).map(m => m.amount);
+    if (amounts.length === 0) return undefined;
+    const one = COUNT_ONE_TOKEN_RE.test(part);
+    const two = COUNT_TWO_TOKEN_RE.test(part);
+    if (one === two) return undefined; // neither, or a range's own two ends
+    return { count: one ? 1 : 2, amount: Math.max(...amounts) };
+  };
+  const left = clause(0, split.index);
+  const right = clause(split.index + split[0].length, text.length);
+  if (!left || !right || left.count === right.count) return undefined;
+  const single = left.count === 1 ? left.amount : right.amount;
+  const pair = left.count === 2 ? left.amount : right.amount;
+  if (single <= 0 || pair < single) return undefined;
+  return { single: String(single), pair: String(pair) };
+}
+
+/** THE ONE BEDROOMS→ROOMS CONVENTION of this feed (the [09:46] capture): the
+ *  feed's `bedrooms` field is a ROOM count, so «една спална» is a ДВОСОБЕН (2)
+ *  and «две спални» a ТРИСОБЕН (3). `detectBedrooms`/`detectBedroomsRange`
+ *  apply the same +1 inline (they also have to police the noun); the lanes that
+ *  name bedrooms in the SHORT form — «MOZE SO EDNA … ILI SO DVE …», no noun at
+ *  all — read the conversion from HERE, so the two can never drift.
+ *  Evidence in the field: «IMAVTE EDEN STAN KAJ SJO SO DVE SPALNI?» is the
+ *  трисобен (EB 66), and the [20:08] pair served a двособен for «so edna» and a
+ *  трисобен for «so dve». */
+export function roomsFromBedrooms(bedrooms: number): number {
+  return bedrooms + 1;
+}
+
+/** A BARE bedroom count — «SO EDNA», «SO DVE», «SO TRI» — with no спални/соби
+ *  noun on it (the noun shapes belong to `detectBedrooms`). Returns the count of
+ *  BEDROOMS named, never rooms. A property/option noun in the same message
+ *  («MOZE EDEN STAN DO 80000», «DAJ MI DVE OPCII») means FLATS — that is a
+ *  quantity, not a size, so the detector abstains. */
+const BARE_BEDROOM_COUNT_RE =
+  /(?<![\p{L}\p{N}])(?:so|со)\s+(една|еден|едно|edna|eden|edno|две|два|dve|dva|три|tri)(?![\p{L}\p{N}])/iu;
+const BARE_COUNT_TYPE_NOUN_RE =
+  /стан|stan|гарсоњер|garsonjer|куќ|kukj|делов|delov|плац|plac|локал|lokal|опци|opci|пар|par\b|комбинира/iu;
+
+export function detectBareBedroomCount(text: string): number | undefined {
+  const m = BARE_BEDROOM_COUNT_RE.exec(text);
+  if (!m) return undefined;
+  if (BARE_COUNT_TYPE_NOUN_RE.test(text)) return undefined;
+  const word = m[1].toLowerCase();
+  if (/^(?:една|еден|едно|edna|eden|edno)$/u.test(word)) return 1;
+  if (/^(?:две|два|dve|dva)$/u.test(word)) return 2;
+  return 3;
 }
 
 /** Every ROOM-CATEGORY mention in a message, with its position. Both scripts
@@ -3584,7 +3786,10 @@ export function isValidVisitTime(t: string): boolean {
 // funnel gives the honest no-match / feed-unavailable line instead of re-asking
 // the location question forever. Canonical feed spellings are included so a
 // fallback hit still matches real properties once the feed is back.
-const KNOWN_NEIGHBORHOODS = [
+// Exported for the place-template layer (src/llm/placeTemplate.ts): a sentence
+// that names a FEED AREA is district-bound and must never become a {place}
+// template — same list, one reader each, no second copy to drift.
+export const KNOWN_NEIGHBORHOODS = [
   'Центар', 'Центар (населба)', 'Карпош', 'Карпош III',
   'Аеродром', 'Кисела Вода', 'Капиштец', 'Чаир', 'Тафталиџе', 'Маџари',
   'Влае', 'Ново Лисиче', 'Лисиче', 'Водно', 'Козле',
@@ -5287,7 +5492,7 @@ const COUNTER_OFFER_RE = new RegExp(
   // amount (bare or suffixed). The bounded bridge covers every infinitive
   // between the modal and the money.
   + '|' + COUNTER_MODAL + COUNTER_PART + COUNTER_DA + String.raw`\s+`
-  + String.raw`[^.!?\n]{0,24}?` + String.raw`(?:за|на|za|na)?\s*\d[\d\s.,]*(?![\p{L}\p{N}])` + COUNTER_CRIT
+  + String.raw`(?:(?!(?:до|do|под|pod|околу|okolu)(?![\p{L}\p{N}]))[^.!?\n]){0,24}?` + String.raw`(?:за|на|za|na)?\s*(?!(?:до|do|под|pod|околу|okolu)(?![\p{L}\p{N}]))\d[\d\s.,]*(?![\p{L}\p{N}])` + COUNTER_CRIT
   // B9 the all-I-have idiom (see COUNTER_CEILING)
   + '|' + COUNTER_CEILING
   // B7 amount-first inversion — "150 evra moze?", "110000 moze?", "500 den togash?"
@@ -5339,6 +5544,14 @@ export function detectNegotiate(text: string): boolean {
   // preporacale 54 ili 63?» hit the counter-offer grammar. Both members are
   // rows of the one gate (ADVICE_GATES.NEGOTIATE), not local copies.
   if (!adviceLaneAdmits('NEGOTIATE', text)) return false;
+  // AN ALTERNATIVE BUDGET IS A SEARCH, NEVER A COUNTER-OFFER (the [20:08]
+  // capture): «MOZE SO EDNA DO 80000 ILI DVE DO 140000» answers "how much do
+  // you want to spend, and how many" — the counter-offer grammar's modal
+  // bridge (modal … amount) claimed it, the slot pass never ran, and the
+  // fixed-price owner pitch was served instead of the pair. The modal bridge
+  // also carries the family's CAP-WORD guard now (B8), so a plain "moze do
+  // 80000" is a search refinement too; this veto is the belt for the arm.
+  if (detectCountBudget(text)) return false;
   return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text) || extFires('negotiate', text)
     // Counter-offer class — freshness keeps its fast-path; fee-consent wins
     // only for FEE-SIZED amounts ("ok ke platam 500 denari" = consent, while
@@ -6664,6 +6877,18 @@ export function isPoiConfirmQuestion(text: string): boolean {
   // not claim it either.
   if (LOC_CONFIRM_WH_RE.test(text)) return false;
   if (matchesBoth(/(?<![\p{L}\p{N}])(?:kade|каде)(?![\p{L}\p{N}])/iu, text)) return false;
+  // A REQUEST FOR STOCK IS NOT A YES/NO ABOUT THE CARD (the [02:16] sibling,
+  // found by the first-message sweep): «SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC ?»
+  // was claimed by the trailing «?» alone, and with the blank serve's cards on
+  // the table the confirm lane answered «Да, директно до Буњаковец … Точната
+  // адреса се открива на денот на посетата» — an address confirmation for a
+  // message that asked for a flat at that place. A WANT-VERB + a property TYPE
+  // is a search; the confirmation family (copula «e / ne e», «dali e kaj X»)
+  // keeps every real confirm question.
+  if (detectPropertyTypeWord(text)
+    && /(?:^|[\s,;.!])(?:sakam|сакам|baram|барам|treba|треба|iznajmuvam|изнајмувам|kupuvam|купувам|iznajmam|изнајмам|izdavam|издавам)(?![\p{L}])/iu.test(text)) {
+    return false;
+  }
   if (/\?\s*$/.test(text)) return true;
   if (matchesBoth(LOC_CONFIRM_MARKERS_RE, text)) return true;
   // Leading "da" + copula/negation scaffold ("da ne e vo …", "da e kaj …").
@@ -7467,6 +7692,15 @@ const MARKET_RENT_WORD_RE =
  *  kvadrat?“, „kakva cena za m2?“, „kako cenite?“, „kakvi se cenite?“, and the
  *  bare service wording „цени за ИЗНАЈМУВАЊЕ во Аеродром?“. */
 export function detectMarketPriceAsk(text: string): boolean {
+  // A NAMED FLAT IS NOT A MARKET LEVEL (the [20:11] capture): «KOLKU DOAGJA
+  // CENA PO KVADRAT ZA 53 ?» asks EB 53's own rate. The per-м² unit alone made
+  // it look like a band question, and the answer was Аеродром's €/м² range —
+  // a market statistic for a flat the client pointed at by number. ONE PROPERTY
+  // is the property lane's question (INFO_ASK pricePerSqm = price ÷ м²); the
+  // band lane owns the CATEGORY («ceni po kvadrat za stanovi», «kako se dvizat
+  // cenite vo Аеродром»). The guard sits in the detector — not only in the
+  // handler — so the route mirror predicts the same lane the executor takes.
+  if (firstEbNumber(text) !== undefined) return false;
   const priceWord = matchesBoth(MARKET_PRICE_WORD_RE, text);
   const rentWord = matchesBoth(MARKET_RENT_WORD_RE, text);
   if (!priceWord && !rentWord) return false;
@@ -8058,6 +8292,16 @@ export function extractSlots(text: string): DetectedSlots {
   if (sqm) out.sqm = sqm;
   const budget = detectBudget(text);
   if (budget) out.budget = budget;
+  // ALTERNATIVE BUDGET (the [20:08] capture): «so edna do 80000 ili dve do
+  // 140000» — one card under the first figure, or two under the second. The
+  // event carries BOTH (countBudget) and `budget` keeps the STRICTER one, so
+  // every single-card lane is honest by construction; the pair total is
+  // enforced where a batch is carved.
+  const countBudget = detectCountBudget(text);
+  if (countBudget) {
+    out.countBudget = countBudget;
+    out.budget = countBudget.single;
+  }
   // PER-CATEGORY MONEY (the [19:14] capture): «DVOSOBEN MOZE DO 90000 I
   // TROSOBEN DO 150000» is TWO room categories, each with its OWN cap — not
   // one rooms slot plus one budget (that read served two двособни, one of
@@ -8071,6 +8315,23 @@ export function extractSlots(text: string): DetectedSlots {
     out.bedroomsMin = catBudgets[0].rooms;
     out.bedroomsMax = catBudgets[catBudgets.length - 1].rooms;
     out.budget = catBudgets.reduce((hi, c) => (Number(c.budget) > Number(hi) ? c.budget : hi), catBudgets[0].budget);
+  }
+  // PURCHASE MAGNITUDE (the [20:11] sweep): every money slot the message
+  // carries, through ONE rule — a small euro cap on a BUY search is thousands.
+  // The whole family (budget, either-or pair, per-category caps) is scaled so
+  // the lanes can never disagree about the client's money.
+  if (service === 'buy') {
+    if (out.budget) out.budget = purchaseBudgetMagnitude(out.budget, text);
+    if (out.countBudget) {
+      out.countBudget = {
+        single: purchaseBudgetMagnitude(out.countBudget.single, text),
+        pair: purchaseBudgetMagnitude(out.countBudget.pair, text),
+      };
+    }
+    if (out.categoryBudgets) {
+      out.categoryBudgets = out.categoryBudgets
+        .map(c => ({ ...c, budget: purchaseBudgetMagnitude(c.budget, text) }));
+    }
   }
   if (detectAnywhere(text)) out.anywhere = true;
   if (detectApartmentNeed(text)) out.need = true;
