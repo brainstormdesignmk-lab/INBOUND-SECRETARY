@@ -54,7 +54,12 @@ const DAY_WORDS: Array<[RegExp, number]> = [
   // "понеделок" — theCaught distance-2 n→k slip ([00:57] family, pinned in the
   // deterministic fuzzy sweep and mkTimePhrase's MK_DAY_FIX); a day word read
   // day-less makes every merge gate treat the stored day as day-less.
-  [/(понеделни|понеделк|понеделок|ponedelnik|ponedelk|ponedelok|ponedelik|ponedenik)/i, 1],
+  // "ponednik/понедник" — the dropped-«el» spelling a client actually types
+  // (the [04:05] capture: «DA OSTAVIME ZA PONEDNIK VO 6 MOZE?»). Unrecognized,
+  // the day word read as NO day, parseVisitDateTime anchored the clock to
+  // TODAY's weekday, and the owner was asked about Четврток instead of the
+  // Понеделник the client proposed.
+  [/(понеделни|понедник|понеделк|понеделок|ponedelnik|ponednik|ponedelk|ponedelok|ponedelik|ponedenik)/i, 1],
   [/(вторни|вторик|втрик|vtornik|vtorik|vtrik)/i, 2],
   [/(сред[аи]|сретта|срета|средта|sred[аa]|sredta|sreta)/i, 3],
   [/(четврто|четврток|цетврток|cetvrtok|četvrtok)/i, 4],
@@ -221,8 +226,8 @@ const PART_RE =
 // 9–12 stay as said (see visitClockHour).
 export const DAY_TRAILING_HOUR_RE =
   new RegExp(
-    '(?:понеделн|понеделк|понеделок|вторн|вторик|втрик|сред[аи]|сретта|срета|средта|четврт|цетврт|петочн|петок|петк|сабот|сабта|субота|недел|задутре|утре|денес|викенд'
-    +    '|ponedelnik|ponedelk|ponedelok|ponedelik|ponedenik|vtorn|vtorik|vtrik|sred|sredta|sreta|cetvrt|četvrt|petocn|petok|petk|sabot|sabta|subota|nedel|zadutre|utre|denes|vikend)'
+    '(?:понеделн|понедник|понеделк|понеделок|вторн|вторик|втрик|сред[аи]|сретта|срета|средта|четврт|цетврт|петочн|петок|петк|сабот|сабта|субота|недел|задутре|утре|денес|викенд'
+    +    '|ponedelnik|ponednik|ponedelk|ponedelok|ponedelik|ponedenik|vtorn|vtorik|vtrik|sred|sredta|sreta|cetvrt|četvrt|petocn|petok|petk|sabot|sabta|subota|nedel|zadutre|utre|denes|vikend)'
     + '[^\\d]{0,20}(\\d{1,2})(?![\\d:.])(?!\\s*(?:евр|eur|evr|ден|mkd|kv|кв|м2|m2))',
     'iu');
 

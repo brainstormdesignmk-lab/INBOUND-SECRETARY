@@ -420,8 +420,21 @@ test('repeating the same place continues the pair queue — it never restarts it
     `the echo must not re-serve the pair just shown: ${second}`);
   assert.ok(!/Евидентен број 201/u.test(second),
     `neither half of it: ${second}`);
-  assert.match(second, /Евидентен број 205/u,
-    `it walks on to the remaining Центар flat: ${second}`);
+  // THE RING ASKS BEFORE IT WALKS (the owner's 1 km «near» rule): the only rows
+  // still unshown are EB 205 (1,2 km) and the other districts' — none of them
+  // is «близу до Католичка», so the turn names the place, the measured distance
+  // and the ONE question instead of dressing a 1,2 km flat as the next near
+  // option. The queue itself is untouched: the pick walks on to EB 205.
+  assert.match(second, /немам недвижност во непосредна близина на Римокатоличка/u,
+    `nothing inside the ring — the ring question, not a far card: ${second}`);
+  assert.match(second, /подалеку во истата населба/u, `the two ways out: ${second}`);
+  assert.ok(!/Евидентен број 205/u.test(second), `no card rides the ring question: ${second}`);
+
+  await handler.handle('test', chatId, 'PODALEKU VO ISTATA NASELBA');
+  const third = sent[sent.length - 1] ?? '';
+  assert.match(third, /Евидентен број 205/u,
+    `the pick walks on to the remaining Центар flat: ${third}`);
+  assert.ok(!/Евидентен број 20[12]/u.test(third), `still no repeat of the pair: ${third}`);
 });
 
 test('a place the map cannot find keeps the neighborhood question — no silent stall', async () => {

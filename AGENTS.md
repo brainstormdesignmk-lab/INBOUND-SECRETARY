@@ -185,6 +185,40 @@ become the only budget, and the second category was dropped).
   it; when every category is drained in the area the turn offers BOTH pivots —
   «друга населба или во друга категорија». Figures come from the slots, never
   hardcoded. Pinned in `tests/category-budget-pairs.test.ts`.
+- TWO TRUTHS, TWO SENTENCES (the [03:45] capture): a category the client has
+  NEVER seen a card of, in THIS geography, is a gap in the system — «Моментално
+  во системот нема двособни до 120.000 евра во Аеродром — Ви покажувам
+  трoсобни» at the START of the serve; «Тоа е сè што имав двособни до 120.000
+  евра …» is for one that WAS shown and has now run out. `slots.categoriesServed`
+  therefore carries `categoriesServedGeo` (location + place anchor): a pair
+  served in Центар says nothing about the stock around a landmark named next,
+  and without the key the wording lied in both directions. The drain key
+  (`categoryDrainedTold`) includes the same geography, so the line is spoken
+  once per fact, not once per chat.
+- THE SAME SENTENCE COVERS EVERY CATEGORY (`noStockLine`, the [03:45] rule
+  applied to every type): a plain single-category miss is a system gap too,
+  never the old generic «немам недвижност што одговара на Вашите критериуми». The subject is the client's
+  OWN category with its own money — «нема двособни до 120.000 евра», «нема
+  трoсобни …», «нема гарсоњери до 300 евра месечно», «нема куќи со две спални
+  до 500 евра месечно», «нема плацеви од 300 м² до 30.000 евра», «нема деловни
+  простори од 50 м² до 1.000 евра месечно» — and a per-category cap
+  (`categoryBudgets`) outranks the single budget for its own tier. Every
+  criterion the client stated is in the sentence (a house's спални, a plot's
+  м²): the absence is scoped by what emptied the pool, never by less. The area comes from the search
+  (location, or the place anchor, never when `anywhere`), and the exits are the
+  client's real ones: another neighbourhood only when he pinned one, the price
+  only when he gave one, and always the register offer (never drop the lead).
+  `fresh` is the truth switch, not styling: it declines when the tier WAS on the
+  table here, so the drained family answers instead.
+- THE NOTEBOOK IS WRITTEN BY EVERY SERVE (`noteCategoriesOnTable` in
+  `loadProps`), not only by the pair lane: «was this category on the table?» is
+  a fact about the table, and the single-category answer reads the same record
+  the pair contract lives by. Pinned in `tests/no-stock-named-family.test.ts`
+  (one tier shown → «Уште?» is the drained family, while a tier this geography
+  never served is named — even in the same search).
+- THE THREE-ROOM PLURAL IS «трoсобни» (a LATIN o), the owner's own spelling —
+  never «трисобни» (`roomCategoryLabel`). Pinned in
+  `tests/capture-0342-tier-serve.test.ts`.
 
 Rules for touching this area:
 
@@ -958,6 +992,59 @@ that bound ever matters (it would need a staleness check against `pois`).
 Tests: `tests/place-lookup-cache.test.ts` (one row-set read, the index built in
 one place, 20 cached lookups under the ceiling, copies, a remembered miss, the
 answers unchanged).
+
+### 4j. NEAR IS ONE KILOMETRE — and the ring ASKS, it never decides
+
+The owner's number, for every type and both markets: a property may be called
+«близу до X» only within **1 km** of X; 1,5 km is not near. `LANDMARK_NEAR_M`
+(now 1000) is the ONE radius — the anchored serve, the cross-place queue and
+the locate ring all read it.
+
+- **NOTHING IN THE RING → ONE QUESTION, NO CARDS.** The turn names the place,
+  states the MEASURED distance to the nearest option and asks exactly one
+  binary question: «подалеку во истата населба, или во друга населба?»
+  (`slots.poiTooFarAsk` / `poiTooFarAnchor`, `detectSameAreaWiden` vs
+  `detectExplicitWiden`). The pick releases the ring (`slots.poiWidenScope` =
+  `'area'` / `'city'`), the next batch is drawn from that side, and the opener
+  SAYS which widen it was — a far card never wears the plain «до X». A NEW place
+  clears the pick: a widen released for one place says nothing about another.
+- **THE RING IS PER CARD.** A pair at 250 m + 1,8 km is not a near pair; the
+  far row waits for the widen like the client asked.
+- **THE CLIENT'S FARTHER ASK RELEASES THE RING — EVEN WITH NO ASK OPEN.**
+  «DAJ MI STO IMAS PODALEKU» after a near pair (`detectSameAreaWiden` with an
+  anchor, no new area in the message) IS the same-naselba widen: the pool is
+  re-drawn from the anchor's own naselba with the 1 km bound lifted, and the
+  batch says «Тоа е сè што имав двособни до 120.000 евра … понатаму ги
+  покажувам трoсобни» before it serves the 1,4 km card. Two traps this rule
+  closes: the criteria-done lane claims the more-verb («STO IMAS») and answers
+  «Ги исцрпивме …» while the card exists, and `nearRing` measures the WHOLE
+  pool — one near row that can never serve (over its category's cap) kept the
+  ring armed and cut the far stock, so the widen branch is checked BEFORE the
+  nearRing arm in `loadProps`.
+- **A CROSS-PLACE SEARCH IS NOT ONE RING.** «воена болница ИЛИ City Mall»,
+  «Универзална, Буњаковец, Католичка, Собрание»: each named place is measured
+  separately (`placePairQueue`) and the pool is measured against the NEAREST
+  named place, never against the first — otherwise the second place's stock is
+  cut out of the pool and the rotation reports it empty.
+- **AN ADDRESS THAT NAMES THE PLACE *IS* THE PLACE.** A flat on «Ул. Буњаковец
+  8» measured 1,4 km from the map's Буњаковец pin (a long street has ONE point)
+  and under this ring became «nothing near Буњаковец». Address identity beats
+  point geometry.
+- **A BARE CLASS NOUN IS NEVER A PLACE** (`refusesGenericNeedle`): «болница»,
+  «мол», «црква», «училиште», «амбасада», «аптека»… name a KIND — the map
+  refuses them instead of guessing the shortest row of that kind, and
+  `NOT_A_PLACE_ALONE` refuses the closed-class words («други», «секој», «прв»)
+  the same way. Two words, or one word that IS the institution's name
+  («Собрание», the Assembly — one building), still resolve. «воена болница» is
+  the HOSPITAL row (ГОБ 8-ми Септември), never the bus stop of that name.
+
+Tests: `tests/place-ring-widen.test.ts` (the ask, the two picks, the
+once-spent ask, «DRUGI» while it is open), `tests/capture-0342-tier-serve.test.ts`
+(the farther ask with no ask open — the same-naselba serve and the drain
+wording), `tests/place-class-noun-veto.test.ts`,
+`tests/place-pairs.test.ts` (the per-place rotation), `tests/place-no-stock.test.ts`,
+`tests/landmark-intake-discovery.test.ts` (the address identity and the echo
+that walks on after the pick).
 
 ## 5. Tests and expectations
 

@@ -334,7 +334,15 @@ export interface DetectedSlots {
 // PRODVA USTE?“ dropped its final vowel the way clients type it, so detecting
 // nothing made the funnel ask „купување или изнајмување?“ over a flat the
 // client had just called the one FOR SALE.
-const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|продав|\bbuy\b|kupuvam|kupam|kupan|kupi|kupn|kupuvanje|kupuvanjе|kupuvane|prodazba|prodava|prodv)/i;
+// THE PURCHASE NOUN IS A BUY WORD (the [08:43] capture): «KUPOVINA» alone was
+// answered with «Дали планирате купување или изнајмување?» — the Latin family
+// listed the VERBS (kupuvam/kupam/kupi) and the -uvanje noun, but not the
+// -ovina noun a client answers the market question with. The whole purchase
+// family is explicit now, verbs AND nouns, both scripts: kupovina / kupovinu /
+// kupovinata, kupovno, kupvam/kupva (the dropped vowel), kupuvajne (the -ajne
+// spelling), kupe/kupev (bought). «kupatilo» must stay a bathroom: no bare
+// `kup` stem is added, every form is written out.
+const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|продав|\bbuy\b|kupuvam|kupam|kupan|kupi|kupn|kupuvanje|kupuvanjе|kupuvane|kupovin|kupovn|kupv|kupuvaj|kupen|kupev|prodazba|prodava|prodv)/i;
 // «RENTANJE» IS A RENT WORD (the [20:56] capture): „ZA RENTANJE“ only matched
 // the bounded `\brent\b` before, so detectService returned nothing and the
 // funnel re-asked „купување или изнајмување?“ about a house the client had
@@ -507,7 +515,15 @@ const INV_ASK_KAJ_RE =
  *  purpose): a string-built regex needs doubled backslashes plus an escaped
  *  quote, and a slip there is a syntax error rather than a silent miss. */
 const INV_PLACE_KAJ_RE =
-  /(?:што|sto)\s+(?:[^.!?,\n]{0,20}\s*)?(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)\s+(?:[^.!?,\n]{0,20}\s*)?(?:кај|kaj)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
+  /(?:што|sto)\s+(?:[^.!?,\n]{0,20}\s*)?(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)\s+(?:[^.!?,\n]{0,20}\s*)?(?<![\p{L}])(?:кај|kaj)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
+/** THE PLACE **FIRST** ASK — «KAJ CITI MOL STO IMAS ?» (the [23:29] capture).
+ *  Every arm above demands the question word first, so a client who led with
+ *  the place (ordinary Macedonian word order) yielded NO place: the anchor
+ *  stayed on the previous landmark, the turn re-asked about it, and the pair
+ *  was drawn from a place the client had just left. The capture is lazy so it
+ *  stops at the «што/дали» that opens the ask. */
+const INV_PLACE_FIRST_RE =
+  /(?<![\p{L}])(?:кај|kaj|во|vo|на|na|околу|okolu|близу|blizu)\s+([\p{L}][\p{L} .'-]{2,40}?)\s+(?:што|sto|дали|dali)\s+(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)/iu;
 
 // THE OPTIONS QUALIFIER — «ШТО ИМАТЕ ИНТЕРЕСНО КАЈ X ?», «ИМАТЕ ЛИ НЕШТО КАЈ X».
 // The neutral «што имате во X?» asks about a place and owes the TYPE question
@@ -537,7 +553,7 @@ const INV_OPTIONS_QUALIFIER_RE = /(?:интересн|interesn|нешто|nesto)
 // lost its turn to the show-me lane. The «што» arm keeps the full alternation
 // (there the 3rd person IS the have-ask: «што има во Карпош?»).
 const INV_ASK_PLACE_RE =
-  /(?:(?:што|sto)\s+(?:[^.!?,\n]{0,20}\s*)?(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)|(?:дали|dali)\s+(?:имаш|имате|имте|imas|imate|imte)|(?:имаш|имате|имте|imas|imate|imte)\s+(?:ли|li))\s+(?:[^.!?,\n]{0,24}\s*)?(?:кај|kaj|во|vo|на|na|околу|okolu|около|okolo|близу|blizu)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
+  /(?:(?:што|sto)\s+(?:[^.!?,\n]{0,20}\s*)?(?:имаш|имате|има|имам|имте|imas|imate|ima|imam|imte)|(?:дали|dali)\s+(?:имаш|имате|имте|imas|imate|imte)|(?:имаш|имате|имте|imas|imate|imte)\s+(?:ли|li))\s+(?:[^.!?,\n]{0,24}\s*)?(?<![\p{L}])(?:кај|kaj|во|vo|на|na|околу|okolu|около|okolo|близу|blizu)\s+([\p{L}][\p{L} .'-]{2,40})/iu;
 
 /** True when the client asks for the INVENTORY — what is available — as
  *  opposed to advice about where to live. Anchored either on a demonstrative
@@ -579,9 +595,18 @@ export function detectInventoryAsk(text: string): boolean {
 // not a place name (the area arm already owns that shape), and the offer/grammar
 // words that follow «во» in ordinary speech («во понуда», «во моментов»,
 // «во Скопје») are refused here so a browse never becomes a place.
+// THE PREPOSITION MUST START A WORD (the [23:34] capture): without the
+// lookbehind, «во/на/…» could bind the TAIL of the place's own first word —
+// «VOENA BOLNICA» ends «VO»+«ENA»/«NA», so the tail «na» matched the
+// preposition and the capture began at «BOLNICA». The client's identity word
+// («воена») was silently dropped, the funnel searched a bare class noun, and
+// «ВОЕНА БОЛНИЦА» resolved to «Болница за зависности» — a different hospital
+// on the other side of town. Every arm below carries the same guard.
+const INV_PREP_BOUNDARY = '(?<![\\p{L}])';
 const INVENTORY_PLACE_RE = new RegExp(
   '(?:што|sto)\\s+' + INV_PRE_VERB_GAP + '(?:имаш|имате|има|imas|imate)\\s+' + INV_GAP
-  + '\\s*(?:во|vo|на|na|околу|okolu|около|okolo|близу|blizu)\\s+([\\p{L}][\\p{L} .\'-]{2,40})', 'iu');
+  + '\\s*' + INV_PREP_BOUNDARY
+  + '(?:во|vo|на|na|околу|okolu|около|okolo|близу|blizu)\\s+([\\p{L}][\\p{L} .\'-]{2,40})', 'iu');
 const INVENTORY_PLACE_STOP = new Set([
   'понуда', 'понуди', 'ponuda', 'продажба', 'prodazba', 'изнајмување', 'iznajmuvanje',
   'кирија', 'kirija', 'градот', 'gradot', 'моментов', 'momentov', 'момент', 'moment',
@@ -596,7 +621,7 @@ const INVENTORY_PLACE_STOP = new Set([
  *  undefined. Shape only — the caller resolves it against the offline map. */
 export function extractInventoryPlace(text: string): string | undefined {
   const m = text.match(INVENTORY_PLACE_RE) ?? text.match(INV_PLACE_KAJ_RE)
-    ?? text.match(INV_ASK_PLACE_RE);
+    ?? text.match(INV_ASK_PLACE_RE) ?? text.match(INV_PLACE_FIRST_RE);
   if (!m) return undefined;
   const words = m[1].replace(/[?!,.:;]+$/u, '').trim().split(/\s+/).filter(Boolean);
   // ANY stop word disqualifies the tail — «во тој реон» leaves «реон» after the
@@ -1139,8 +1164,21 @@ export function detectFeeChargePushback(text: string): boolean {
   const visitObject = NAG_VISIT_RE.test(normalizeMc(flat));
   if ((detectProvisionAsk(flat) && !visitObject)
     || detectNegatedFeePay(flat) || detectNegatedAgreement(flat) || detectRejection(flat)) return false;
-  if (/(?:колку|kolku|дали|dali)/iu.test(flat)) return false;
-  return FEE_CHARGE_PUSH_RE.test(flat);
+  // A QUESTION WORD ONLY DEFERS INSIDE ITS OWN SENTENCE (the [08:58]
+  // capture): «PARI ZA OTVARANJE NA STAN ? DALI STE NORMALNI VIE????» — the
+  // client STATES the charge accusation and appends the insult as a second
+  // sentence. The whole-message «дали» test read the insult as a genuine
+  // question and vetoed the accusation, so the turn fell out of the fee lanes
+  // and the DISTANCE lane answered «Не, тоа е на 2,2 километри од Станица 26»
+  // for a place nobody asked about. Clause by clause: an accusation whose own
+  // sentence carries no question word IS resistance; a real question («дали
+  // земате пари за посета?») keeps its clause together and stays in the
+  // amount/explanation family. A message with no accusation clause at all is
+  // never this lane (the single-sentence behaviour is unchanged).
+  const clauses = flat.split(/[.!?\n]+/u).map(c => c.trim()).filter(Boolean);
+  const accusations = clauses.filter(c => FEE_CHARGE_PUSH_RE.test(c));
+  if (accusations.length === 0) return false;
+  return accusations.some(c => !/(?:колку|kolku|дали|dali)/iu.test(c));
 }
 
 // FIRST TIME HEARING THE FEE — "OVA PRV PAT SLUSAM", "prv pat slusam da se
@@ -2280,11 +2318,17 @@ export function detectBareBedroomCount(text: string): number | undefined {
  *  a hit wholly inside another is dropped — one word, one category. */
 function collectRoomCategories(text: string): Array<{ rooms: number; index: number; end: number }> {
   const hits: Array<{ rooms: number; index: number; end: number }> = [];
+  /** Did a BEDROOM noun (спална/спални) name a category in this message? The
+   *  elided-count pass below rides on it — a message that merely SAYS «spalni»
+   *  somewhere («SPALNI BILO KOLKU . MOZE SO EDNA DO 80000…», the [20:08]
+   *  either-or budget) counts FLATS, not bedrooms. */
+  let bedroomNounSeen = false;
   for (const [re, rooms] of BED_WORDS) {
     const g = new RegExp(re.source, 'giu');
     let m: RegExpExecArray | null;
     while ((m = g.exec(text)) !== null) {
       if (m[0].length === 0) { g.lastIndex += 1; continue; }
+      if (/спалн|spaln/iu.test(m[0])) bedroomNounSeen = true;
       hits.push({ rooms, index: m.index, end: m.index + m[0].length });
     }
   }
@@ -2293,6 +2337,40 @@ function collectRoomCategories(text: string): Array<{ rooms: number; index: numb
   while ((dm = dg.exec(text)) !== null) {
     const n = parseInt(dm[1], 10);
     if (n >= 1 && n <= 5) hits.push({ rooms: n, index: dm.index, end: dm.index + dm[0].length });
+  }
+  // DIGIT + BEDROOM NOUN («1 SPALNA DO 120000 I 2 SPALNI DO 250000»): the
+  // digits above are the ROOM count («2 sobi»); a bedroom count is one more
+  // (rooms = bedrooms + living room), the same convention as BED_WORDS.
+  const dbg = /(\d+)\s*[-\s]?\s*(?:spalna|spalni|spalno|спална|спални|спално)/giu;
+  let dsm: RegExpExecArray | null;
+  while ((dsm = dbg.exec(text)) !== null) {
+    const n = parseInt(dsm[1], 10);
+    if (n >= 1 && n <= 4) {
+      bedroomNounSeen = true;
+      hits.push({ rooms: n + 1, index: dsm.index, end: dsm.index + dsm[0].length });
+    }
+  }
+  // THE SECOND CATEGORY NEEDS NO NOUN (the [23:27] capture): «MOZE SO EDNA
+  // SPALNA DO 120000 , SO DVE DO 250000» — the client names «една спална» and
+  // then only «so dve», because the AXIS is already spoken. The room-word scan
+  // above requires the noun on every category, so the second one vanished and
+  // the message collapsed to `bedrooms=2, budget=250000` — two двособни were
+  // served, BOTH over the 120.000 the client had just named for the one-bedroom.
+  // The elision is only readable when a bedroom noun ALREADY named a category
+  // in this message — «SPALNI BILO KOLKU . MOZE SO EDNA DO 80000 ILI DVE DO
+  // 140000» merely says the word while waiving the axis, and there the counts
+  // are FLATS (the [20:08] either-or budget). The money is REQUIRED on the bare
+  // side, so «so dve» answering a count question can never become a category.
+  if (bedroomNounSeen && !detectSizeWaived(text)) {
+    const bare = /(?<![\p{L}\p{N}])(?:so|со|i|и|ili|или)\s+(една|еден|едно|edna|eden|edno|две|два|dve|dva|три|tri|четири|cetiri|chetiri)\s*(?=(?:do|до)(?![\p{L}]))/giu;
+    let bm: RegExpExecArray | null;
+    while ((bm = bare.exec(text)) !== null) {
+      const word = (bm[1] ?? '').toLowerCase();
+      const n = /^(?:една|еден|едно|edna|eden|edno)$/u.test(word) ? 1
+        : /^(?:две|два|dve|dva)$/u.test(word) ? 2
+          : /^(?:три|tri)$/u.test(word) ? 3 : 4;
+      hits.push({ rooms: n + 1, index: bm.index, end: bm.index + bm[0].length });
+    }
   }
   hits.sort((a, b) => a.index - b.index || (b.end - b.index) - (a.end - a.index));
   const kept: Array<{ rooms: number; index: number; end: number }> = [];
@@ -2413,6 +2491,19 @@ const SIZE_WAIVED_RE = buildSizeWaivedSlots();
 /** True when the client says size/bedrooms don't matter. */
 export function detectSizeWaived(text: string): boolean {
   if (matchesBoth(SIZE_WAIVED_RE, text)) return true;
+  // THE WAIVER IS A CLAUSE, NOT THE WHOLE MESSAGE (the [23:34]/[23:35] capture):
+  // «NEBITNO KOLKU SPALNI↵BITNO E DA E DO 350 EVRA» — the client released the
+  // size and named the money in the same breath. Every waiver slot that carries
+  // a bare form is ENDISH-anchored (a SIZE concession may follow — «nebitno za
+  // golemina, edna spalna» — which is why they look at the end of the text), so
+  // the price clause cancelled the waiver, the funnel asked «колку спални
+  // соби?» a third time, and only the client's irritated repeat got through.
+  // A sentence boundary (newline, «.», «!», «?») starts a NEW criterion, so a
+  // waiver that owns one such clause is an answer. Commas are NOT boundaries:
+  // «nebitno za golemina, edna spalna» stays one clause with its size
+  // concession, which is exactly the case the ENDISH anchor protects.
+  const clauses = text.split(/[\n.!?]+/u).map(c => c.trim()).filter(Boolean);
+  if (clauses.length > 1 && clauses.some(c => matchesBoth(SIZE_WAIVED_RE, c))) return true;
   // Size-DIRECTION pivot (exhausted-pivot hardening): "a nesto pogolem da
   // vidime" — the client moves off the current size frame without naming a
   // count. "pomalo" is NOT here: "помало нешто" is owned by the see-offers
@@ -2906,14 +2997,38 @@ export function detectSeenListingRecall(text: string): boolean {
 // slot stayed empty and the turn never reached the owner. Same money/size
 // guard as the на/од arms — «накај 180 евра» is a price, not a clock.
 const VISIT_TIME_RE =
-  /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|(?<![а-џ])(?:накај)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|после\s*\d{1,2}|по\s*\d{1,2}|(?<![а-џ])(?:на|од)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|понеделник|понеделок|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|\b\d{1,2}:\d{2}\b|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|(?<![a-zа-џ])nakaj\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|po\s*\d{1,2}|(?<![a-zа-џ])(?:na|od)\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|ponedelok|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
+  /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|(?<![а-џ])(?:накај)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|после\s*\d{1,2}|по\s*\d{1,2}|(?<![а-џ])(?:на|од)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|понеделник|понеделок|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|\b\d{1,2}:\d{2}\b|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|(?<![a-zа-џ])nakaj\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|po\s*\d{1,2}|(?<![a-zа-џ])(?:na|od)\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|ponednik|ponedelok|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
+
+/** A CLAUSE THAT REFUSES A TERM — never the term (see visitTermClause). */
+const TERM_REFUSAL_RE = /(?<![\p{L}])(?:ne\s+mi\s+odgovara|ne\s+mi\s+e|ne\s+odgovara|ne\s+mozam|ne\s+moze|ne\s+sakam|ne\s+sum\s+vo\s+moznost|не\s+ми\s+одговара|не\s+ми\s+е|не\s+одговара|не\s+можам|не\s+може|не\s+сакам|не\s+сум\s+во\s+можност)(?![\p{L}])/iu;
+
+/** THE TERM THE CLIENT IS PROPOSING, out of a message that ALSO refuses one.
+ *
+ *  The [04:05] capture: «NE MI ODGOVARA PETOK VOOPSTO. DA OSTAVIME ZA
+ *  PONEDNIK VO 6 MOZE?» names TWO terms — the Friday the owner offered (which
+ *  the client cannot do) and the Monday he now proposes. The whole sentence
+ *  was stored as the visit term, so normalizeOwnerTime read the FIRST day+clock
+ *  in it and asked the owner about ПЕТОК 18:00 a second time: the client's own
+ *  refusal was relayed back as his proposal, and the negotiation could never
+ *  move. The refusal clause is context, not the term — it is dropped here, in
+ *  ONE place, so the slot, the owner ask and the appointment all read the same
+ *  proposal. A message with a single clause (or no refusal) is untouched. */
+export function visitTermClause(text: string): string {
+  const t = (text ?? '').trim();
+  if (!t || !TERM_REFUSAL_RE.test(t)) return t;
+  const clauses = t.split(/[.?!;,\n]+/u).map(c => c.trim()).filter(Boolean);
+  if (clauses.length < 2) return t;
+  const kept = clauses.filter(c => !TERM_REFUSAL_RE.test(c));
+  const joined = kept.join(', ').trim();
+  return joined || t;
+}
 
 export function detectVisitTime(text: string): string | undefined {
   // A working-days QUESTION ("VO NEDELA RABOTITE ?") contains the day token
   // "nedela" and matched — the question was then forwarded to the OWNER as a
   // proposed visit term. A question about agency hours is never a slot.
   if (detectWorkdaysQuestion(text)) return undefined;
-  if (VISIT_TIME_RE.test(text)) return text.trim().slice(0, 80);
+  if (VISIT_TIME_RE.test(text)) return visitTermClause(text).slice(0, 80);
   // DAY + TRAILING BARE HOUR ("PONEDELIK 6", "сабота 6") — the digit after a
   // day word IS the clock (the [12:42] transcript: only the day was captured,
   // the funnel re-asked the hour the client had already given, and the bare
@@ -2921,40 +3036,40 @@ export function detectVisitTime(text: string): string | undefined {
   // hour-digit message in the visit protocol ("6") — with a day already in
   // the stored slot, classify merges them; without one, the vague-time ask
   // collects the day. Guarded: no clock/date tail (11.06), no money tail.
-  if (DAY_TRAILING_HOUR_RE.test(text)) return text.trim().slice(0, 80);
+  if (DAY_TRAILING_HOUR_RE.test(text)) return visitTermClause(text).slice(0, 80);
   // BARE hour-word clock ("6 SAAT", "6 саати", "6 casot") — the split
   // [14:35] message: the client gave the day ("VO PONEDELNIK MOZAM") in one
   // message and the clock in the next. The hour noun anchors the digits as a
   // clock; a bare "6" alone (no hour word) still parses as nothing.
-  if (HOUR_WORD_RE.test(text)) return text.trim().slice(0, 80);
+  if (HOUR_WORD_RE.test(text)) return visitTermClause(text).slice(0, 80);
   // SPOKEN HALF-HOUR ("пет и пол" / "pet i pol" = 5:30, PM-shifted to 17:30
   // for afternoon viewings) — the [22:50] transcript: the client refined a
   // vague "VO VTORNIK POSLE 5" with "PA NEKA BIDE PET I POL" and the LLM
   // classifier alone read it as bare 5:30, dropping the day. Deterministic so
   // the day-donation merge can keep ВТОРНИК.
-  if (HALF_CLOCK_RE.test(text)) return text.trim().slice(0, 80);
+  if (HALF_CLOCK_RE.test(text)) return visitTermClause(text).slice(0, 80);
   // DIGIT HALF-HOUR («6IPOL», «7 и пол») — the SAME half-hour said with a
   // digit, which is how the [17:43] client answered the exact-hour ask
   // («NEKA BIDE 6IPOL» = 18:30). The owner's counter form («Cetvrtok vo
   // 7ipol») was already read by parseVisitDateTime, but the CLIENT-side slot
   // builder only knew the spoken «пет и пол», so without an LLM the answer was
   // not recognized as a time at all and the funnel re-asked the term.
-  if (DIGIT_HALF_RE.test(text)) return text.trim().slice(0, 80);
+  if (DIGIT_HALF_RE.test(text)) return visitTermClause(text).slice(0, 80);
   // DIGIT + «и» + MINUTES («5 I 30» = 5:30) — the [13:16] capture: the client
   // answered the exact-hour ask with «NEKA BIDE 5 I 30» and the funnel re-asked
   // the whole term question, because no family read an hour digit, a
   // conjunction and the minutes as a clock. One family, one source: the regex
   // lives in visits/time.ts beside the half-hour siblings so the validator and
   // the parser can never disagree with this detector.
-  if (DIGIT_MINUTES_RE.test(text)) return text.trim().slice(0, 80);
+  if (DIGIT_MINUTES_RE.test(text)) return visitTermClause(text).slice(0, 80);
   // SPOKEN QUARTERS, THE HALF-TO and RANGES — the rest of the same clock
   // family (visits/time.ts owns every pattern): «пет и четврт» = 5:15,
   // «без четврт пет» = 4:45, «пол 6» = 5:30, «од 5 до 7» = a WINDOW (the
   // funnel asks the exact hour instead of relaying the first number). One arm
   // per shape, all from the shared constants, so the detector, the validator
   // and the parser can never disagree about what names a clock.
-  if (QUARTER_PAST_RE.test(text) || QUARTER_TO_RE.test(text) || HALF_TO_RE.test(text)) return text.trim().slice(0, 80);
-  if (TIME_RANGE_RE.test(text)) return text.trim().slice(0, 80);
+  if (QUARTER_PAST_RE.test(text) || QUARTER_TO_RE.test(text) || HALF_TO_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  if (TIME_RANGE_RE.test(text)) return visitTermClause(text).slice(0, 80);
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.
@@ -2965,7 +3080,7 @@ export function detectVisitTime(text: string): string | undefined {
   // “ponedelik/понеделк” — the n→k / dropped-n slips ([12:42] transcript)
   // are pinned here too: three day-typo spellings, all meaning понеделник.
   if (fuzzyHasToken(text, ['понеделник', 'понеделк', 'вторник', 'четврток', 'сабота', 'недела',
-    'попладне', 'напладне', 'претпладне', 'викенд', 'задутре'])) return text.trim().slice(0, 80);
+    'попладне', 'напладне', 'претпладне', 'викенд', 'задутре'])) return visitTermClause(text).slice(0, 80);
   return undefined;
 }
 
@@ -2979,8 +3094,12 @@ export function detectVisitTime(text: string): string | undefined {
 // понеделок, вторик/втрик, сретта/срета/средта, цетврток/četvrtok, петк,
 // сабта/субота: a misspelled day must not read as clock-only, or every merge
 // gate treats the stored day as day-less (the [01:06] bug class).
+// «понедник» — the dropped-«el» spelling the client actually types (the
+// [04:05] capture); without it the term read as day-less and the slot merge
+// prefixed a STALE day onto the new proposal («петок DA OSTAVIME ZA PONEDNIK
+// VO 6»).
 const DAY_WORD_RE =
-  /(?:понеделн|понеделк|понеделок|вторн|вторик|втрик|сред[аио]|сретта|срета|средта|четврт|цетврт|петочн|петок|петк|сабот|сабта|субота|недел|задутре|утре|денес|викенд|ponedel|ponedenik|vtorn|vtorik|vtrik|sred[ai]|sredta|sreta|cetvrt|četvrt|petocn|petok|petk|sabot|sabta|subota|nedel|zadutre|utre|denes|vikend)/iu;
+  /(?:понеделн|понедник|понеделк|понеделок|вторн|вторик|втрик|сред[аио]|сретта|срета|средта|четврт|цетврт|петочн|петок|петк|сабот|сабта|субота|недел|задутре|утре|денес|викенд|ponedel|ponednik|ponedenik|vtorn|vtorik|vtrik|sred[ai]|sredta|sreta|cetvrt|četvrt|petocn|petok|petk|sabot|sabta|subota|nedel|zadutre|utre|denes|vikend)/iu;
 
 /** True when the phrase names an explicit DAY (weekday, relative day or the
  *  weekend). A bare clock ("6 SAAT") is NOT a day — the split [14:35] intake
@@ -3380,6 +3499,33 @@ export function detectBudgetUpAsk(text: string): boolean {
 const WIDEN_EXCLUDE_RE = /(контактирај|контактирајте|запиши|запишете|забележи|регистрирај|пријави|контактирај|контактирајте|регистрирај|запиши|забелези)/i;
 export function detectWidenIntent(text: string): boolean {
   return detectAgreement(text) && !matchesBoth(WIDEN_EXCLUDE_RE, text);
+}
+
+/** «ПОДАЛЕКУ ВО ИСТАТА НАСЕЛБА» — the FIRST of the two options the ring ask
+ *  offers when nothing sits within 1 km of the place the client named.
+ *
+ *  The other option («друга населба») already has its own detectors
+ *  (detectExplicitWiden / detectWidenIntent). This one is the SAME naselba,
+ *  farther away: the distance word (подалеку/поодалеку/подале/podale) with or
+ *  without the area tail, or the area phrase itself („во истата населба“,
+ *  „во истиот реон“). Deliberately NOT built from the bare area noun, so
+ *  «друга населба» can never be read as “same area” — the two answers must
+ *  steer different searches ([23:29]). */
+export function detectSameAreaWiden(text: string): boolean {
+  const DIST = /(?:подалеку|поодалеку|подале|поодалечено|podale|podaleku|poodaleku|poodalecheno)/iu;
+  // Inflected stems: населба/населбата/населби, реон/реонот/реони.
+  const AREA = /(?:населб|naselb|реон|reon)/iu;
+  const SAME = /(?:истата|истиот|истото|иста|istata|istiot|istoto|ista|оваа|овој|ovaa|ovoj)/iu;
+  if (matchesBoth(DIST, text)) {
+    // „подалеку во друга населба“ is the OTHER option — the explicit widen
+    // detector owns it, so the distance word must not claim it here.
+    if (matchesBoth(/друга|друг|други|druga|drugi|drug\b/iu, text)) return false;
+    return true;
+  }
+  if (matchesBoth(SAME, text) && matchesBoth(AREA, text)) return true;
+  // The area alone with a farther-direction verb: „во истата населба нешто“ is
+  // covered above; „во овој реон понатаму“ carries no other reading.
+  return matchesBoth(AREA, text) && matchesBoth(/(?:понатаму|ponatamu|натаму|natamu)/iu, text);
 }
 
 // Explicit WIDEN command — grammar-based (grammar.ts word classes + slot
@@ -7314,7 +7460,47 @@ export function extractPoiConfirmPlace(text: string): string | undefined {
     else if (words.length > 4) place = words.slice(0, 4).join(' ');
     else break;
   }
+  // A TIME PHRASE IS NOT A PLACE (the [04:05] capture). «DA OSTAVIME ZA
+  // PONEDNIK VO 6 MOZE?» — the client moving the viewing — produced the
+  // candidate «6 MOZE»; the map's phonetic pass matched «moze» to the
+  // restaurant «Mezzo» and the answer was a 3,9 km distance. The «vo/na/kaj»
+  // that opens this candidate is the preposition of a CLOCK, not of a place,
+  // so any candidate built from clock/day/verb vocabulary is refused HERE —
+  // before any lookup can turn it into geography. A real place name that
+  // carries a number («26 JULI», «7МИ СЕПТЕМВРИ») is not a bare numeral and has
+  // no time word, so it survives.
+  if (isTimePhraseCandidate(place)) return undefined;
   return place.length >= 3 ? place : undefined;
+}
+
+/** The vocabulary a clock/day/plan phrase is made of — never a place
+ *  (see extractPoiConfirmPlace). Weekdays and relative days in both scripts,
+ *  clock words, and the «може/можам» family in which a proposed term is
+ *  always wrapped. */
+const TIME_PHRASE_WORDS = new Set([
+  'saat', 'саат', 'saaт', 'cas', 'час', 'casot', 'часот', 'minuti', 'минути',
+  'utre', 'утре', 'denes', 'денес', 'vecher', 'вечер', 'vecer', 'утрината', 'utrinata',
+  'sega', 'сега', 'posle', 'после', 'popladne', 'попладне', 'prets', 'предтпладне',
+  'ponedelnik', 'понеделник', 'vtornik', 'вторник',
+  'sreda', 'среда', 'cetvrtok', 'четврток', 'petok', 'петок',
+  'sabota', 'сабота', 'nedela', 'недела',
+  'deneve', 'денови', 'ден', 'den', 'nedelata', 'неделата', 'sledniot', 'следниот',
+  'moze', 'може', 'mozam', 'можам', 'mozeme', 'можеме', 'mozes', 'можеш',
+  'moznost', 'можноста', 'ke', 'ќе', 'ajde', 'ајде', 'ostavime', 'оставиме',
+  'za', 'за', 'vo', 'во', 'na', 'на', 'i', 'и', 'od', 'од', 'do', 'до',
+]);
+
+function isTimePhraseCandidate(place: string): boolean {
+  const words = place.toLowerCase().split(/[^0-9\p{L}]+/u).filter(Boolean);
+  if (words.length === 0) return true;
+  // A clock time (6, 18:00, 17.30) carries no name; a NAME with a number
+  // («26 јули») always has a word of its own beside it.
+  const numerals = words.filter(w => /^\d{1,2}(?:[:.]\d{2})?$|^\d{4,}$/u.test(w));
+  const named = words.filter(w => !/^\d/u.test(w) && !TIME_PHRASE_WORDS.has(w));
+  if (named.length === 0 && numerals.length > 0) return true;
+  // …and a candidate that is ONLY time words («moze», «vo petok», «утре») names
+  // nothing at all.
+  return named.length === 0 && numerals.length === 0;
 }
 
 // ── NEAR-CENTER LADDER — the 23:08 protocol ────────────────────────────────
@@ -8059,6 +8245,14 @@ export function detectFeatureAsk(text: string): boolean {
   // kukji") is search criteria, never a per-property feature question — the
   // owner-contact lane must not own it.
   if (detectCriteriaStatement(text)) return false;
+  // A SIZE WAIVER IS A CRITERION ANSWER, NOT A FEATURE QUESTION (the [23:35]
+  // capture): «NEBITNI SE SPALNITEE. TI REKOV» — the client repeating that the
+  // bedrooms do not matter — matched FEATURE_RE on the word «спални» and the
+  // owner-contact script answered it («Ќе ја побарам оваа информација директно
+  // од сопственикот…»), so a released criterion was escalated to the owner and
+  // the funnel stalled. The waiver owns its message; feature asks about a
+  // flat's details still do.
+  if (detectSizeWaived(text)) return false;
   // A CRITERIA ANSWER IS NOT A FEATURE QUESTION (the route-drift replay):
   // «40 KVADRATI, DO 500 EVRA» and «DO 500 KVADRATI, IMAM 500000 EVRA BUDJET»
   // state the search — FEATURE_RE's bare «квадрати» arm answered them with the

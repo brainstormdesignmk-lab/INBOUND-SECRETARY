@@ -42,11 +42,15 @@ class FailingLlm implements LlmClient {
 }
 
 // The live map's Bunjakovec area (Центар). Rows are RENT — the capture's market.
+// THE COORDINATES ARE ON THE STREETS THEY NAME (the map's Буњаковец pin is
+// 41.99746, 21.41864): the fixture used to sit at lon 21.4377, ~1,6 km east —
+// «во близина на Буњаковец» by address, but far outside the owner's 1 km ring,
+// so the serve could not honestly be called near the place the client named.
 const ROWS: Property[] = [
-  { eb: 911, id: 911, location: 'Центар', address: 'Ул. Никола Вапцаров 8', price: 450, service: 'rent', bedrooms: 2, sqm: 62, size: '62 м²', lat: 41.9963, lon: 21.4377 },
-  { eb: 912, id: 912, location: 'Центар', address: 'Ул. Никола Вапцаров 21', price: 380, service: 'rent', bedrooms: 1, sqm: 40, size: '40 м²', lat: 41.9969, lon: 21.4381 },
+  { eb: 911, id: 911, location: 'Центар', address: 'Ул. Никола Вапцаров 8', price: 450, service: 'rent', bedrooms: 2, sqm: 62, size: '62 м²', lat: 41.9976, lon: 21.4196 },
+  { eb: 912, id: 912, location: 'Центар', address: 'Ул. Никола Вапцаров 21', price: 380, service: 'rent', bedrooms: 1, sqm: 40, size: '40 м²', lat: 41.9972, lon: 21.4190 },
   // A BUY row: it must never appear in a rent answer.
-  { eb: 913, id: 913, location: 'Центар', address: 'Ул. Буњаковец 4', price: 95000, service: 'buy', bedrooms: 2, sqm: 58, size: '58 м²', lat: 41.9962, lon: 21.4375 },
+  { eb: 913, id: 913, location: 'Центар', address: 'Ул. Буњаковец 4', price: 95000, service: 'buy', bedrooms: 2, sqm: 58, size: '58 м²', lat: 41.99745, lon: 21.41855 },
 ];
 
 class FakeProps extends PropertyService {
@@ -150,5 +154,8 @@ test('e2e [01:36]: a RENT search near a place asks its own questions — never t
   assert.equal(s4.state, 'presentation', `the criteria present the pair: ${served}`);
   assert.match(served, /Евидентен број 91[12]/u, `a rent row must serve: ${served}`);
   assert.ok(!/Евидентен број 913/u.test(served), `a BUY row in a rent answer: ${served}`);
-  assert.match(served, /(?:м|метри|km) од/iu, `the distance to the named place is stated: ${served}`);
+  // The card states metres under 1 km, and its unit is a LATIN «m» («на 80 m
+  // од Буњаковец»); the old regex only knew the Cyrillic unit because the
+  // fixture sat far enough away to print kilometres.
+  assert.match(served, /(?:м|m|метри|km) од/iu, `the distance to the named place is stated: ${served}`);
 });

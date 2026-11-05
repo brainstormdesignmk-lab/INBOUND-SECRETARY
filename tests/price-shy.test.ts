@@ -150,13 +150,24 @@ test('drained area: cheaper-ask OFFERS other neighborhoods (bank ask), widen onl
   // Show BOTH Кисела Вода rows (search → reject → next batch), so the area is drained.
   let s = await send('SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA');
   assert.ok(sent[0].includes('Евидентен број'), sent[0]);
+  // A WAIVED CRITERION IS AN ANSWER (the [23:35] capture): «NEBITNI SE
+  // SPALNITE» used to match the FEATURE_ASK family, so a released criterion was
+  // answered with the OWNER-CONTACT script («Јас ќе стапам во контакт со
+  // сопственикот…») — and this test pinned only its side effect, «no card».
+  // The waiver is now acknowledged and the search MOVES ON: the biggest unit
+  // in budget that has not been shown (46), never the pair just served (the
+  // old loop this assertion was written against), never a phone/owner ask.
   s = await send('NEBITNI SE SPALNITE');
-  assert.ok(!sent[1].includes('Евидентен број'), sent[1]); // sizeWaived alone must not re-present
+  assert.ok(!/сопственикот/iu.test(sent[1]), `a waiver is never escalated: ${sent[1]}`);
+  assert.ok(!PHONE_ASK.test(sent[1]), sent[1]);
+  assert.ok(!/Евидентен број (80|47)/u.test(sent[1]),
+    `the pair just shown is never re-presented: ${sent[1]}`);
+  assert.ok(/Евидентен број 46/u.test(sent[1]),
+    `the next biggest-in-budget row answers the waiver: ${sent[1]}`);
   s = await send('NE MI SE DOPAGA');
-  assert.ok(/Евидентен број (46|47)/.test(sent[2]), sent[2]); // next (cheaper) row
-  s = await send('NE MI SE DOPAGA');
-  // Area exhausted: the widen/register ASK, no more cards.
-  assert.ok(/друга населба|друг дел|друга локаци|регистрирам|запишам|контактирам|погледнеме/iu.test(sent[3]), sent[3]);
+  // All three Кисела Вода rows are now shown: the widen/register ASK, no cards.
+  assert.ok(!/Евидентен број/u.test(sent[2]), sent[2]);
+  assert.ok(/друга населба|друг дел|друга локаци|регистрирам|запишам|контактирам|погледнеме/iu.test(sent[2]), sent[2]);
 
   // Cheaper ask on a DRAINED area: the exhausted line already ASKED about
   // other neighborhoods, so the cheaper-ask IS the consent — Lina widens

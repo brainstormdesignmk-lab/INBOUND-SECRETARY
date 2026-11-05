@@ -195,7 +195,9 @@ test('[19:14] e2e: a drained category is NAMED, and the survivor fills both slot
     'the survivor continues alone once the двособен side is empty');
   assert.match(reply, /двособни/iu, `the drained category must be named: ${reply}`);
   assert.match(reply, /90\.000|90000/u, `with the money he gave for it: ${reply}`);
-  assert.match(reply, /трисобни/iu, `and the served category named as the continuation: ${reply}`);
+  // «трособни» — the owner's own spelling of the three-room plural (the
+  // [03:45] capture: NOT «трисобни»); the middle letter is a LATIN o.
+  assert.match(reply, /трособни/iu, `and the served category named as the continuation: ${reply}`);
 });
 
 test('[19:14] e2e: near a landmark the pair starts with the CLOSEST to it', async () => {

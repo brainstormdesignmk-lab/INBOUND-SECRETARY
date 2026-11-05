@@ -64,6 +64,18 @@ export interface SlotData {
    *  applied at the send choke): a batch holding one category of the pair means
    *  the other has nothing left here under its own cap. */
   categoryDrainNote?: string;
+  /** The room categories this chat has actually SERVED a card of (the [03:45]
+   *  contract): the difference between «Тоа е сè што имав» (he saw it and it ran
+   *  out) and «Моментално во системот нема» (the category was never on the
+   *  table at all). */
+  categoriesServed?: number[];
+  /** The GEOGRAPHY `categoriesServed` belongs to (location + place anchor).
+   *  «Was this category ever on the table?» is a question about THIS search: a
+   *  pair served in Центар says nothing about the stock around a landmark the
+   *  client names next. Without this key the [03:45] wording lied in both
+   *  directions — a category never served near the new place was announced as
+   *  «Тоа е сè што имав» (it was served, but somewhere else). */
+  categoriesServedGeo?: string;
   /** EMPTY-LEG HONESTY (the [23:10] dual capture): the segment of a dual
    *  search that has NO stock at all. The turn serves the other leg and says
    *  so in one sentence — silence would claim a comparison that never
@@ -223,7 +235,24 @@ export interface SlotData {
   nearbyLandmarkPlaceIds?: Array<string | null>; // parallel Google place_ids → ?cid= place-card links
   nearbyLandmarkEb?: number;      // WHICH property the slots were resolved for — a served slot must never outlive its property (21:51: EB 57 got EB 56's Завод landmarks 3.2 km away)
   poiAnchor?: string;             // client's POI wish from the SEARCH phrase ("okolu Kapitol Biser") — presentation must find candidates NEAR this point, not just in the neighborhood
-  poiAnchorTooFar?: boolean;      // the resolved anchor has NO in-pool property within the honest 1.5 km walk radius — the intro must say so
+  poiAnchorTooFar?: boolean;      // the resolved anchor has NO in-pool property within the honest 1 km walk radius — the intro must say so
+  /** THE ONE-KILOMETRE RING ASKS, IT DOES NOT DECIDE (the owner's [23:29]
+   *  rule): nothing in the criteria sits within 1 km of the place the client
+   *  named, so the turn asked «подалеку во истата населба, или друга
+   *  населба?» and serves nothing until the client picks. */
+  poiTooFarAsk?: boolean;
+  /** WHICH place the ring ask was about. The ask is only answerable while the
+   *  anchor is still that place — a place named in the meantime (or a pivot
+   *  confirm) makes the pending ask about a geography the client has left. */
+  poiTooFarAnchor?: string;
+  /** The widen the client PICKED for the anchor: 'area' = farther inside the
+   *  anchor's own naselba, 'city' = another naselba. While set, the ring no
+   *  longer blocks the serve (the client released it). Cleared when a NEW
+   *  place becomes the anchor. */
+  poiWidenScope?: 'area' | 'city';
+  /** The measured distance to the nearest in-criteria row on the last anchored
+   *  load — the ask states it instead of saying «далеку». */
+  poiNearestM?: number;
   /** The AREA the landmark anchor gave the locate funnel (Broz Cafe → Центар).
    *  While slots.location still equals it, later details ("околу 200.000 беше")
    *  keep ranking from that landmark; a NEW neighborhood in the message means

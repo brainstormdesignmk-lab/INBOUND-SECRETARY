@@ -97,17 +97,31 @@ function formatSlotValue(v: unknown): string {
  * slots; this is the answer to "but I need the rest NOW, on the call". It
  * prints every DEFINED slot, one per row, arrays and objects JSON-encoded, so
  * no JSON file is needed to answer an operator's question. It is taller than
- * the pane on purpose (that is why it is opt-in): the box follows the content
- * to the bottom, and the rows are ordered by what an operator reaches for
- * first, so the scroll-off tail is the least important keys.
+ * the pane on purpose (that is why it is opt-in), and the box follows the
+ * content to the BOTTOM — so the pane shows the TAIL of the dump: the
+ * alphabetical keys sit next to the dump pointer, and the priority keys
+ * (service, location, budget, presentedIds …) are one page-UP away, led by the
+ * slot the operator reaches for first. Never assert a priority row against the
+ * visible pane without counting the slots: the check stops checking the moment
+ * the notebook grows past the pane (the pty funnel pinned `presentedIds` to the
+ * pane and went blind the turn the notebook gained a slot).
  */
-export function sessionStateFullRows(s: ChatSession | null | undefined, dumpStatus: string): string[] {
-  if (!s) return ['[slots] (нема сесија)'];
-  const defined = Object.keys(s.slots).filter(k => s.slots[k as keyof typeof s.slots] !== undefined);
-  const ordered = [
+/** THE ROW ORDER of the full notebook — exported so a reader (the pty funnel)
+ *  can say WHICH rows it expects without hardcoding a copy of this rule. The
+ *  dump is taller than the pane, the pane shows its TAIL, and the row next to
+ *  the dump pointer is the LAST entry of this list. */
+export function sessionStateFullOrder(slots: ChatSession['slots'] | null | undefined): string[] {
+  if (!slots) return [];
+  const defined = Object.keys(slots).filter(k => slots[k as keyof typeof slots] !== undefined);
+  return [
     ...FULL_PRIORITY.filter(k => defined.includes(k)),
     ...defined.filter(k => !FULL_PRIORITY.includes(k)).sort(),
   ];
+}
+
+export function sessionStateFullRows(s: ChatSession | null | undefined, dumpStatus: string): string[] {
+  if (!s) return ['[slots] (нема сесија)'];
+  const ordered = sessionStateFullOrder(s.slots);
   return [
     `[slots] full state=${s.state} svc=${s.slots.service ?? '-'} n=${ordered.length}`,
     ...ordered.map(k => `[slots] ${k}=${formatSlotValue(s.slots[k as keyof typeof s.slots])}`),

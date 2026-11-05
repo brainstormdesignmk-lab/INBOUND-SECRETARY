@@ -1287,3 +1287,50 @@ test('[01:28] "ШТОМ ТАКА МОРА, ЗАКАЖИ" consented to the fee �
   assert.doesNotMatch(reply, /колку чини|киријата/iu,
     `the acceptance was answered with a PRICE line: ${reply.slice(0, 160)}`);
 });
+
+// THE [08:58]–[08:59] CAPTURE, one sequence: a charge accusation with an insult
+// appended, then the booking order.
+//
+//   08:58  «PARI ZA OTVARANJE NA STAN ? DALI STE NORMALNI VIE????»
+//          → «Не, тоа е на 2,2 километри од Станица 26, а недвижноста е во
+//          Кисела Вода…» — the whole-message «дали» test read the INSULT as a
+//          genuine question and vetoed the accusation, so the turn fell out of
+//          the fee lanes and the DISTANCE lane answered about a place nobody
+//          mentioned.
+//   08:59  «DOGOVORI MI»  → another persuasion round instead of the contact ask.
+//
+// Two contracts in one turn pair: every sentence of the message is read on its
+// own (an accusation clause with no question word IS a nag → rung 1), and a
+// booking imperative after the fee talk goes to contact collection
+// (`slots.feeRejections >= 1` counts as "the fee talk happened", the same
+// premise as the committed 21:05 branch).
+test('e2e [08:58]: an accusation followed by an insult is still rung 1, and DOGOVORI MI then takes the contact', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'capture-0858';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('ZDRAVO. ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  const warm = sessions.get(chatId)!;
+  warm.state = 'closing';
+  warm.slots.propertyId = 78;
+  warm.slots.interestedPropertyId = 78;
+  warm.slots.service = 'buy';
+  warm.slots.location = 'Капиштец';
+  sessions.set(warm);
+
+  let s = await send('PARI ZA OTVARANJE NA STAN ? DALI STE NORMALNI VIE????');
+  const nagReply = sent[sent.length - 1] ?? '';
+  assert.equal(s.slots.feeRejections, 1, 'the accusation is rung 1 of the visit-fee ladder');
+  assert.equal(s.state, 'closing', `a nag stays at the fee question, got: ${s.state}`);
+  assert.doesNotMatch(nagReply, /километри|Се наоѓа на|maps\.google/iu,
+    `a fee accusation was answered with geography: ${nagReply.slice(0, 160)}`);
+
+  // The booking order: the client has accepted, he asks her to ARRANGE it.
+  s = await send('DOGOVORI MI');
+  const closeReply = sent[sent.length - 1] ?? '';
+  assert.equal(s.state, 'contact_collection', `a booking order closes the fee funnel, got: ${s.state}`);
+  assert.equal(s.slots.viewingFeeAgreed, true, 'the order is the acceptance');
+  assert.ok(/име|телефон/iu.test(closeReply), `the name+phone ask must run, got: ${closeReply.slice(0, 160)}`);
+  assert.doesNotMatch(closeReply, /верувам|одлична можност|размислите/iu,
+    `another persuasion round was served instead of the contact ask: ${closeReply.slice(0, 160)}`);
+});

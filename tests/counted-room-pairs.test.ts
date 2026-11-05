@@ -169,7 +169,14 @@ test('[09:46] e2e: a drained count is NAMED, then both pivots are offered', asyn
   // and the turn says WHICH category is gone and with what money.
   const drained = await say('DRUGI OPCII');
   assert.deepEqual(sessions.get(chatId)!.slots.currentBatch, [702], JSON.stringify(sessions.get(chatId)!.slots.currentBatch));
-  assert.match(drained, /трисобни/iu, `the drained category must be named: ${drained}`);
+  // «трособни» — the owner's own spelling of the three-room plural (the
+  // [03:45] capture: NOT «трисобни»). The letter after «тр» is a CYRILLIC о:
+  // the first version of this line carried a LATIN o and this assertion
+  // carried the same mixed string, so the defect could never fail. Assert the
+  // pure spelling AND that no served word mixes scripts.
+  assert.match(drained, /\u0442\u0440\u043e\u0441\u043e\u0431\u043d\u0438/u, `the drained category must be named: ${drained}`);
+  assert.ok(!/[\u0400-\u04FF][a-z]|[a-z][\u0400-\u04FF]/u.test(drained),
+    `no word in the served copy may mix Cyrillic and Latin glyphs: ${drained}`);
   assert.match(drained, /150\.000/u, `with the money he gave for it: ${drained}`);
   assert.match(drained, /двособни/iu, `and the served category as the continuation: ${drained}`);
 

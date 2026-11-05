@@ -204,8 +204,14 @@ test('G: a business ask with NO business space never answers with apartments (th
   const body = sent.at(-1)!;
   assert.doesNotMatch(body, /Евидентен број 95|Евидентен број 74/,
     'a business ask must never be answered with apartments: ' + body);
-  assert.match(body, /деловен простор/iu, 'the miss names the requested category: ' + body);
-  assert.match(body, /500000/, 'the miss states the budget it searched: ' + body);
+  // The miss is the OWNER'S system-gap sentence (the [03:45] rule for every
+  // category): «Моментално во системот нема деловни простори од 500 м² до
+  // 500.000 евра во Центар.» — the plural category, the size, the money in the
+  // client's own formatting. The three contract points stay exactly the same
+  // (category named, searched money stated, register step offered); only the
+  // wording family changed, so the assertions follow it.
+  assert.match(body, /деловни простори/iu, 'the miss names the requested category: ' + body);
+  assert.match(body, /500\.?000/, 'the miss states the budget it searched: ' + body);
   assert.match(body, /запишам|забележам/iu, 'the miss offers the register step: ' + body);
   // The session keeps the category so the next turn cannot drift either.
   assert.equal(sent.length, 2, `turns: ${sent.join(' | ')}`);

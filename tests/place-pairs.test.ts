@@ -267,12 +267,15 @@ test('a location CONFIRM about the flat on the table is still a confirm', () => 
 //          (a different institution 5 km across town), and the City Mall
 //          leg never searched at all.
 // The two contracts pinned here:
-//   1. «воена болница» is the map's «Болница 8ми Септември» (the old military
-//      hospital) — never «Воена академија …» on the shared word «воена».
+//   1. «воена болница» is the map's HOSPITAL row «ГОБ 8-ми Септември» (the old
+//      military hospital) — never «Воена академија …» on the shared word
+//      «воена», and never the bus STOP that also carries the hospital's name
+//      (the alias target used to be «Болница 8ми Септември», which is the stop
+//      200 m away — every card was measured from a bus stop).
 //   2. A two-place ask serves the pair across BOTH places — and when the batch
 //      also carries a far ALTERNATIVE, it is never introduced as
 //      «по една опција до X и до Y».
-const BOLNICA = { lat: 42.003998599999996, lon: 21.4016971 };   // Болница 8ми Септември
+const BOLNICA = { lat: 42.0057642, lon: 21.4037835 };   // ГОБ 8-ми Септември (the hospital row)
 const CITY_MALL = { lat: 42.004219299999995, lon: 21.3917118 }; // Skopje City Mall
 
 const nearBolnica = (eb: number, dLon: number): Property => ({
@@ -282,8 +285,10 @@ const nearBolnica = (eb: number, dLon: number): Property => ({
 
 test('[15:36] «воена болница ИЛИ City Mall» is read as the hospital AND the mall, one card each', async () => {
   const rows: Property[] = [
-    // ~1,2 km EAST of the hospital, 2 km from the mall — stock for the hospital leg only.
-    nearBolnica(401, 0.0160),
+    // ~660 m EAST of the hospital, ~1,8 km from the mall — stock for the
+    // hospital leg only. (It used to sit at 1,2 km: that is outside the
+    // owner's 1 km «near» ring, so it could not answer the hospital leg.)
+    nearBolnica(401, 0.0097),
     // ~800 m west of the mall, ~1,6 km from the hospital — stock for the mall leg only.
     { eb: 402, id: 402, location: 'Карпош III', price: 95000, bedrooms: 2, sqm: 52, size: '52 м²',
       service: 'buy', lat: CITY_MALL.lat, lon: CITY_MALL.lon - 0.0097 },
@@ -296,20 +301,20 @@ test('[15:36] «воена болница ИЛИ City Mall» is read as the hosp
   const reply = await say('DO 120000 EVRA DA NE E PRIZEMJE ILI POTKROVJE');
 
   assert.deepEqual(sessions.get(chatId)!.slots.poiPlaces?.map(p => p.name),
-    ['Болница 8ми Септември', 'Skopje City Mall'],
+    ['ГОБ 8-ми Септември', 'Skopje City Mall'],
     'the colloquial hospital name resolves to the real hospital, and the mall is kept');
   assert.doesNotMatch(reply, /Воена академија/, 'the military ACADEMY is a different place — never served');
 
   const batch = sessions.get(chatId)!.slots.currentBatch ?? [];
   const anchors = sessions.get(chatId)!.slots.pairAnchorOf ?? {};
   const also = sessions.get(chatId)!.slots.pairAlsoNearOf ?? {};
-  const answersHospital = batch.some(id => anchors[String(id)]?.name === 'Болница 8ми Септември'
-    || (also[String(id)] ?? []).some(a => a.name === 'Болница 8ми Септември'));
+  const answersHospital = batch.some(id => anchors[String(id)]?.name === 'ГОБ 8-ми Септември'
+    || (also[String(id)] ?? []).some(a => a.name === 'ГОБ 8-ми Септември'));
   const answersMall = batch.some(id => anchors[String(id)]?.name === 'Skopje City Mall'
     || (also[String(id)] ?? []).some(a => a.name === 'Skopje City Mall'));
   assert.ok(answersHospital, `the pair must answer the hospital: ${JSON.stringify(batch)}`);
   assert.ok(answersMall, `the pair must answer the mall: ${JSON.stringify(batch)}`);
-  assert.match(reply, /од Болница 8ми Септември/);
+  assert.match(reply, /од ГОБ 8-ми Септември/);
   assert.match(reply, /од Скопје Сити Мол/);
 });
 
@@ -335,7 +340,7 @@ test('[15:36] a far alternative never rides the pair claim «по една оп�
     `a batch carrying a far alternative is not a pair answer: ${reply}`);
   // The near card states BOTH distances it really has — that is what lets the
   // client judge it; the far card states only its own.
-  assert.match(reply, /Евидентен број 403[\s\S]*од Болница 8ми Септември[\s\S]*од Скопје Сити Мол/);
+  assert.match(reply, /Евидентен број 403[\s\S]*од ГОБ 8-ми Септември[\s\S]*од Скопје Сити Мол/);
   const farAnchors = sessions.get(chatId)!.slots.pairAnchorOf ?? {};
   assert.equal(farAnchors['404'], undefined,
     'a row outside every named radius is an alternative, not an answer');

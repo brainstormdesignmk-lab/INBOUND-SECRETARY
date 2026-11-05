@@ -22,6 +22,11 @@ import * as os from 'os';
 import * as path from 'path';
 import * as http from 'http';
 import { PtySession } from '../src/tui/pty';
+// The full-notebook ROW ORDER is the app's own rule, not a copy of it: the pty
+// funnel may only assert rows the view is guaranteed to print where they can be
+// read (see 7f).
+import { sessionStateFullOrder } from '../src/tui/state';
+import type { ChatSession } from '../src/fsm/session';
 
 export interface FunnelOptions {
   cols?: number;
@@ -582,14 +587,45 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
     // The compact rows are a projection (a 10-row pane cannot hold 46 slots).
     // An operator mid-call must not have to open data/session-state.json, so
     // the full view prints every defined slot as its own row: arrays included.
+    //
+    // WHICH ROW CAN BE ASSERTED: the dump is TALLER than the chat pane by
+    // design, and the pane keeps the NEWEST rows — so only the tail of the
+    // dump is on screen. Pinning `presentedIds=[79]` here made the check a
+    // function of how many slots the chat happened to have: the notebook grew
+    // one slot and that row scrolled off, silently stopping the check. The
+    // shown-ids array is asserted where it cannot scroll (the dump record, above);
+    // the PANE assertion is the row that is adjacent to the dump pointer by
+    // construction — the alphabetically LAST defined slot — so it stays true
+    // however many slots accumulate.
     await session.typeLine('/state full');
     await session.waitForScreen(
-      () => /presentedIds=\[79\]/.test(session.terminal.paneText('РАЗГОВОР') ?? ''),
+      () => /\[slots\] dump=/.test(session.terminal.paneText('РАЗГОВОР') ?? ''),
       { timeoutMs: 15_000, label: 'the full notebook (/state full)' },
     );
+    // Read the record THIS command wrote (every /state rewrites it) and ask the
+    // VIEW for its own row order, so the expected tail key can never drift.
+    const fullDump = readDump();
+    const lastSlotKey = fullDump
+      ? sessionStateFullOrder(fullDump.slots as unknown as ChatSession['slots']).at(-1)
+      : undefined;
+    // A SETTLED frame (the dump is appended as one system message; a read caught
+    // mid-repaint is half a block — AGENTS §3). The tail row must be on the pane
+    // before anything is asserted about it.
+    if (lastSlotKey) {
+      await session.waitForScreen(
+        () => (session.terminal.paneText('РАЗГОВОР') ?? '').includes(`[slots] ${lastSlotKey}=`),
+        { timeoutMs: 15_000, label: `the last full-notebook row (${lastSlotKey})` },
+      );
+    }
     const fullPane = session.terminal.paneText('РАЗГОВОР') ?? '';
-    if (!/\[slots\] presentedIds=\[79\]/.test(fullPane)) {
-      failures.push(`/state full did not put the shown-ids array on the pane: ${fullPane.slice(-260)}`);
+    if (!lastSlotKey) {
+      failures.push('/state full had no defined slot to read back (the dump record is empty)');
+    } else if (!new RegExp(`\\[slots\\] ${lastSlotKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=`).test(fullPane)) {
+      failures.push(`/state full did not print the last defined slot (${lastSlotKey}) on the pane: ${fullPane.slice(-260)}`);
+    }
+    // A projection shows a handful of rows; the full view must be visibly more.
+    if ((fullPane.match(/\[slots\] /g) ?? []).length < 5) {
+      failures.push(`/state full printed a projection, not the notebook: ${fullPane.slice(-260)}`);
     }
     if (!/\[slots\] dump=/.test(fullPane)) {
       failures.push('/state full did not keep the dump row (the read must still say where the record is)');

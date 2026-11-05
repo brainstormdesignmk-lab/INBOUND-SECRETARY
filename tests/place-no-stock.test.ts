@@ -1,22 +1,21 @@
 /**
- * A PLACE THE MAP KNOWS, WITH NOTHING WITHIN REACH — what Lina serves.
+ * A PLACE THE MAP KNOWS, WITH NOTHING WITHIN ONE KILOMETRE — what Lina serves.
  *
  *   [client] ZDRAVO SAKAM DA KUPAM STAN BLISKU DO BUNJAKOVEC
  *   [client] EDNA SPALNA
  *   [client] DO 120000
- *   [ЛИНА  ] Во моментов немам недвижност во непосредна близина на Буњаковец.
- *            Еве ги најблиските опции во реонот:  … 3,2 km од Буњаковец …
+ *   [ЛИНА  ] Во моментов немам недвижност во непосредна близина на Буњаковец
+ *            (до 1 km) — најблиску што имам е на 3,2 km. Сакате ли да Ви
+ *            покажам нешто подалеку во истата населба, или да погледнеме во
+ *            друга населба?
  *
- * The same rule as [23:26]: the client named a place and the search must stay
- * honest about it. The stock is 3.2 km away, so the answer is three facts and
- * one offer —
- *   1. the place is NAMED (never silently swapped for another town),
- *   2. the MEASURED distance to the nearest option (not a vague «далеку»),
- *   3. the districts the cards actually come from (the old line said «во
- *      реонот» while the cards sat in Аеродром and the anchor had no feed area),
- *   4. the widen offered as a statement, so the message keeps ONE question.
- * The far rows are an explicit ALTERNATIVE — never presented as the answer to
- * «близу до X».
+ * THE OWNER'S [23:29] RULE REPLACED THE OLD DISCLAIMER-SERVE: NEAR is 1 km, and
+ * when the stock is outside the ring the turn ASKS the two ways out and WAITS —
+ * it does not put the far pair on the table behind a disclaimer (the old shape
+ * is kept below as history: «Еве ги најблиските опции во реонот: … 3,2 km …»).
+ * The place is still NAMED (never swapped for another town), the distance is
+ * still MEASURED (not a vague «далеку»), and the far rows are served only after
+ * the client picks a widen.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -55,8 +54,8 @@ const FAR_ROWS: Property[] = [
 
 // The same criteria, but 100 m from the place: the honesty line must NOT fire.
 const NEAR_ROWS: Property[] = [
-  { eb: 511, id: 511, location: 'Центар', address: 'Ул. Буњаковец 8', price: 112000, bedrooms: 2, sqm: 58, size: '58 м²', service: 'buy', lat: 41.9960, lon: 21.4360 },
-  { eb: 512, id: 512, location: 'Центар', address: 'Ул. Буњаковец 12', price: 118000, bedrooms: 2, sqm: 60, size: '60 м²', service: 'buy', lat: 41.9962, lon: 21.4358 },
+  { eb: 511, id: 511, location: 'Центар', address: 'Ул. Буњаковец 8', price: 112000, bedrooms: 2, sqm: 58, size: '58 м²', service: 'buy', lat: 41.9978, lon: 21.4198 },
+  { eb: 512, id: 512, location: 'Центар', address: 'Ул. Буњаковец 12', price: 118000, bedrooms: 2, sqm: 60, size: '60 м²', service: 'buy', lat: 41.9980, lon: 21.4200 },
 ];
 
 function makeHandler(rows: Property[], id: string) {
@@ -84,34 +83,39 @@ function makeHandler(rows: Property[], id: string) {
   return { say, sessions, chatId: id };
 }
 
-test('stock exists but only kilometres away: the place is named, the distance is measured, the widen is offered', async () => {
+test('stock exists but only kilometres away: the place is named, the distance is measured, the widen is ASKED', async () => {
   const { say, sessions, chatId } = makeHandler(FAR_ROWS, 'no-stock-far');
   await say('ZDRAVO SAKAM DA KUPAM STAN BLISKU DO BUNJAKOVEC');
   await say('EDNA SPALNA');
   const reply = await say('DO 120000');
   const s = sessions.get(chatId)!;
 
-  assert.equal(s.state, 'presentation', `the paired criteria serve: ${reply}`);
-  assert.equal(s.slots.poiAnchor, 'Буњаковец', `the place stays the anchor, got ${s.slots.poiAnchor}`);
   // 1. the place is named in the honesty sentence
   assert.match(reply, /немам недвижност во непосредна близина на Буњаковец/u,
     `the absence is stated about the place he named: ${reply}`);
-  // 2. the distance is MEASURED, not vague
-  assert.match(reply, /најблиску што имам е на \d+([.,]\d+)?\s*(?:km|км|метри)/u,
+  // 2. the ring is the owner's number, and the distance is MEASURED
+  assert.match(reply, /\(до 1 km\)/u, `the one-kilometre ring is stated: ${reply}`);
+  assert.match(reply, /најблиску што имам е на [\d.,]+\s*(?:km|км|метри)/u,
     `the nearest option comes with its distance: ${reply}`);
   assert.match(reply, /3,2\s*(?:km|км)/iu, `the real distance (≈3.2 km): ${reply}`);
-  // 3. the district the cards are actually in — never the old «во реонот»
-  assert.match(reply, /во Аеродром/u, `the cards' own district is named: ${reply}`);
-  assert.doesNotMatch(reply, /во реонот/u, `no vague district: ${reply}`);
-  // 4. the widen, as a statement the funnel can act on
+  // 3. BOTH ways out, as ONE question — and the choice is the client's
+  assert.match(reply, /истата населба/u, `the same-naselba option is offered: ${reply}`);
   assert.match(reply, /друга населба/u, `the other-neighbourhoods option is offered: ${reply}`);
-  // The far rows are an alternative — the cards are there, and the honesty line
-  // leads them instead of a proximity claim.
-  assert.match(reply, /Евидентен број 501/u, `the nearest option is served: ${reply}`);
-  assert.ok(reply.indexOf('немам недвижност') < reply.indexOf('501'),
-    `the honesty line comes FIRST: ${reply}`);
-  assert.doesNotMatch(reply, /Еве ги најблиските опции до Буњаковец/u,
-    `never the in-reach opener over far cards: ${reply}`);
+  // 4. NOTHING is served: the far rows are not the answer to «близу до X»
+  assert.doesNotMatch(reply, /Евидентен број 50[12]/u, `no far card rides the ask: ${reply}`);
+  assert.equal(s.slots.poiTooFarAsk, true, `the ring question is open: ${reply}`);
+  assert.equal(s.state, 'presentation', `the funnel stays where it is: ${reply}`);
+});
+
+test('the widen pick serves the far pair, with its measured distance', async () => {
+  const { say } = makeHandler(FAR_ROWS, 'no-stock-far-pick');
+  await say('ZDRAVO SAKAM DA KUPAM STAN BLISKU DO BUNJAKOVEC');
+  await say('EDNA SPALNA');
+  await say('DO 120000');
+  const reply = await say('PODALEKU VO ISTATA NASELBA');
+  assert.match(reply, /Евидентен број 50[12]/u, `the picked widen serves the stock: ${reply}`);
+  assert.match(reply, /на 3,2\s*(?:km|км)/iu, `the card keeps its real distance: ${reply}`);
+  assert.match(reply, /во истата населба/u, `the opener names the widen the client picked: ${reply}`);
 });
 
 test('stock within reach keeps the plain anchored opener — no absence line', async () => {

@@ -137,4 +137,12 @@ test('lost-reply sweep: the candidate list is finite and reviewed', () => {
 //     lane (`if (dualDrained) … else if (categoryBudgets) … else if (doneAsk)
 //     … else`), so they can never both run; the sweep's block parser ends the
 //     first branch early on the sibling indentation and cannot see that.
-const REVIEWED = 28;
+// 29th read 2026-11-05: one pair joined the list with the every-category
+// no-stock family, READ and benign: @11197→@11208 are SIBLING branches of the SAME
+// empty-pool ladder in `processMessage` (`else if (categoryBudgets …) … else
+// { … }`), so they can never both run. The final branch used to be a bare
+// `else reply = …` line and the sweep folded it into the branch above; the
+// generalised no-stock sentence needs a block there (the rooms + the fresh
+// switch computed before the assignment), so the parser now sees it as its own
+// writer. Same shape as the @10807→@10816 pair read on the 28th pass.
+const REVIEWED = 29;

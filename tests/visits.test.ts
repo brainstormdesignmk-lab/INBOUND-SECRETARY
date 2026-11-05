@@ -1032,7 +1032,15 @@ interface CancelProbeResult {
   terminated: boolean;
 }
 
-async function cancelProbe(text: string, opts: { anchored?: number; ebs?: number[] } = {}): Promise<CancelProbeResult> {
+async function cancelProbe(text: string, opts: {
+  anchored?: number;
+  ebs?: number[];
+  /** The state the client is in when the message lands. A TERM STATE
+   *  (owner_checking / time_confirm) means the owner's offer is on the table,
+   *  so a bare «не можам» is about THAT TERM — see the [09:04] ping-pong. */
+  state?: 'visit_scheduling' | 'owner_checking' | 'time_confirm';
+  visitTime?: string;
+} = {}): Promise<CancelProbeResult> {
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
   const appointments = new AppointmentStore(db);
@@ -1063,9 +1071,10 @@ async function cancelProbe(text: string, opts: { anchored?: number; ebs?: number
     appointments.markFinalized(id, 'четврток во 18:00');
   }
   const s = freshSession('test', chatId);
-  s.state = 'visit_scheduling';
+  s.state = opts.state ?? 'visit_scheduling';
   s.slots.service = 'buy';
   s.slots.viewingFeeAgreed = true;
+  if (opts.visitTime) s.slots.visitTime = opts.visitTime;
   if (opts.anchored !== undefined) s.slots.propertyId = opts.anchored;
   sessions.set(s);
 
@@ -1127,6 +1136,28 @@ test('cancellation corpus: every inflection of «откажи» cancels, every p
   assert.equal(namedAnswer.cancelled, true, 'the Евидентен број in the message is acted on');
   assert.equal(namedAnswer.cancelledEb, 78, 'and it beats the property the chat was discussing');
   assert.equal(namedAnswer.askedWhich, false, 'no further which-visit question');
+});
+
+// THE TERM ON THE TABLE OWNS THE «CAN'T» (the [09:04] ping-pong, third turn).
+// The owner had just offered a new term and the client answered «NE MOZAM VO TOA
+// VREME. MALCE POKASNO AKO MOZE 6». The cancel lane read «не можам» as a
+// cancellation of the visit, found the chat's leftover finalized appointments
+// for OTHER properties and asked «За која посета се работи?» — inventing visits
+// the client never had. In a term state a time rejection is scheduling language
+// unless the message carries its OWN cancel token.
+test('[09:04] a rejected TERM is not a cancelled visit — no which-visit question', async () => {
+  const r = await cancelProbe('NE MOZAM VO TOA VREME. MALCE POKASNO AKO MOZE 6', {
+    state: 'owner_checking', visitTime: 'Понеделник, 09.11.2026 во 17:00', ebs: [62, 94, 75, 47],
+  });
+  assert.equal(r.cancelled, false, 'the visit is alive — only the offered term was refused');
+  assert.equal(r.askedWhich, false, `never ask which visit the client has: ${JSON.stringify(r)}`);
+  assert.equal(r.terminated, false, 'the session keeps going');
+
+  // …and the OWN cancel token still cancels from the same state.
+  const own = await cancelProbe('NE MOZAM, OTKAZETE JA POSETATA', {
+    state: 'owner_checking', visitTime: 'Понеделник, 09.11.2026 во 17:00', ebs: [62, 94, 75, 47],
+  });
+  assert.equal(own.askedWhich, true, 'an explicit cancel with four visits still asks which');
 });
 
 test('cancel cleanup: the silenced protocol is counted for the operator and never fires after the cancel', async () => {

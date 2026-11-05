@@ -384,8 +384,14 @@ export class Responder {
           ? { name: displayPlaceName(anchorName), lat: pin.lat, lon: pin.lon }
           : undefined;
         const ask = missingCriteriaAsk(session.slots, assistantTexts(session));
+        // THE WIDEN THE CLIENT PICKED IS NAMED (the [23:29] ring rule): a pair
+        // served after «подалеку во истата населба» / «друга населба» must NOT
+        // wear the plain «до X» opener — the cards are beyond 1 km by the
+        // client's own choice, and the opener has to say which widen they are.
+        const widenWhere = session.slots.poiWidenScope === 'area' ? 'во истата населба '
+          : session.slots.poiWidenScope === 'city' ? 'во друга населба ' : '';
         const anchorLine = anchor && !pair.opener
-          ? `Еве ги најблиските опции до ${anchor.name}:\n\n` : '';
+          ? `Еве ги најблиските опции ${widenWhere}до ${anchor.name}:\n\n` : '';
         return { text: guardText(session.state,
           (showWaiverAck
             ? `${waiverAck(session.slots.budget, assistantTexts(session))}\n\n`
