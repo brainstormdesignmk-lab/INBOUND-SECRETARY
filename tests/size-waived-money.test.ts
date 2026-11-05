@@ -96,7 +96,10 @@ test('[21:40] bare "NEBITNO" waives bedrooms and presents the biggest-in-budget 
   s.slots.service = 'rent';
   sessions.set(s);
 
-  await handler.handle('test', chat, 'AERODROM DO 300E');
+  // «STAN» is named on purpose (expectation fixed, not the product): since the
+  // [19:06] contract an unnamed type is ASKED first — correct, but not the
+  // lane this waiver test measures (see tests/type-unknown-ask-and-correction).
+  await handler.handle('test', chat, 'STAN AERODROM DO 300E');
   const ask = sent[sent.length - 1];
   assert.ok(ask.includes('спални'), `the bedrooms ask must fire: ${ask}`);
 

@@ -656,12 +656,19 @@ test('[01:17]/[01:20] the client answering Lina\'s relay is parsed, never the re
   // is served this run.
   assert.equal(matchesPoolContract('owner.relay:counter.bare', sent[sent.length - 1]),
     true, `Lina asks the client for a new term: ${sent[sent.length - 1]?.slice(0, 90)}`);
-  // The refused term is DISPLAYED in Macedonian: the client typed "UTRE VO 4"
-  // Latin, and the relay echoed the raw Latin inside a Cyrillic sentence.
-  assert.ok(/Утре во 4/u.test(sent[sent.length - 1] ?? ''),
-    `the refused term is translit-Cyrillic: ${sent[sent.length - 1]}`);
+  // The refused term is DISPLAYED in Macedonian AND in canonical form: the
+  // client typed "UTRE VO 4" Latin, and the relay used to echo it as a bare
+  // phrase. Since the [18:52] contract ONE renderer (renderVisitTerm) renders
+  // every term shown to a person, so the client reads the resolved date and
+  // clock — «Петок, 06.11.2026 во 16:00» — never «Utре во 4» or «во 6».
+  // (Expectation fixed, not the product: the old raw-phrase echo is exactly
+  // the shorthand the [18:52] capture complained about.)
+  assert.ok(/\d{2}\.\d{2}\.\d{4} во \d{2}:\d{2}/u.test(sent[sent.length - 1] ?? ''),
+    `the refused term is rendered with its date and clock: ${sent[sent.length - 1]}`);
   assert.ok(!/UTRE/iu.test(sent[sent.length - 1] ?? ''),
     `no raw Latin in the client-facing relay: ${sent[sent.length - 1]}`);
+  assert.ok(!/во 4\b/u.test(sent[sent.length - 1] ?? ''),
+    `never a naked hour where 16:00 belongs: ${sent[sent.length - 1]}`);
 
   // The client had been silent for 2h46m ([22:31] → [01:17]); only the RELAY
   // is fresh. Age the inbound clock to reproduce the 01:20 wall.

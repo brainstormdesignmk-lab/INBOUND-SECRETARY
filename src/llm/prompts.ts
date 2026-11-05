@@ -2,7 +2,7 @@ import { State, Service } from '../fsm/machine';
 import { SlotData, ChatSession } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
-import { Property, locPrep, mkTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent } from '../data/properties';
+import { Property, locPrep, mkTimePhrase, normalizeTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent } from '../data/properties';
 import { firstLandmarkProblem } from '../geo/landmarks';
 import { distM } from '../geo/precision';
 import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint, extractDayWord, namesADay } from '../visits/time';
@@ -492,6 +492,21 @@ export function normalizeOwnerTime(raw: string, now: Date = new Date()): string 
   return clocked ? formatVisitDate(resolved) : `${weekdayName(resolved)}, ${formatDateOnly(resolved)}`;
 }
 
+/** THE ONE RENDERER FOR A TERM SHOWN TO A PERSON (the [18:52] capture): the
+ *  owner's counter reached the owner panel as «Среда во 6» — the client's raw
+ *  shorthand, with a naked 6 where 18:00 belongs. Every relay (owner panel,
+ *  client panel) reads a term through THIS function, so a stored phrase is
+ *  always rendered in the canonical form («Среда, 11.11.2026 во 18:00») and
+ *  the two panels can never disagree about what was proposed. Translit first
+ *  (a Latin client phrase becomes Macedonian), then the day+clock resolution;
+ *  a day-less or unresolvable phrase keeps its own display form — that rule
+ *  belongs to normalizeOwnerTime and is NOT re-implemented here. */
+export function renderVisitTerm(raw: string, now: Date = new Date()): string {
+  const phrase = (raw ?? '').trim();
+  if (!phrase) return phrase;
+  return normalizeOwnerTime(normalizeTimePhrase(phrase), now);
+}
+
 /** THE OWNER'S DAY SURVIVES HIS NEXT SENTENCE (the [10:24] capture). The owner
  *  answers a day-only counter with his exact hour in a SEPARATE message
  *  («PETOK» → «OKOLU 5 MOZAM»), so the second verdict is a day-less clock.
@@ -852,15 +867,22 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
       : askQuestion('discovery.ask.service.any',
         'Дали Ве интересира купување на недвижност или претпочитате изнајмување?', recent));
   }
-  // THE TYPE QUESTION IS THE STOCK-AT-A-PLACE ASK'S OWN ANSWER (the [02:15] /
-  // [04:17] family): the client asked what is AVAILABLE at a place and has not
-  // said WHAT — the serve cannot pick a category without it (спални + цена vs
-  // м² + цена vs цена alone), so the type-specific pair is held back.
-  // ANYWHERE ELSE THE FUNNEL KEEPS ITS RESIDENTIAL SEQUENCE UNCHANGED: an area
-  // + budget search is already inside it, and a type question there re-asks
-  // what the client does not treat as missing (the [13:44] capture: «EDNA»
-  // answered it and the funnel re-asked — the loop class).
-  const typeHeld = !typeKnown && !!slots.inventoryPending;
+  // THE TYPE QUESTION (the [02:15] / [04:17] / [19:06] family): the client
+  // asked what is AVAILABLE at a place, or for «nesto interesno» and then the
+  // deal, and has not said WHAT — the serve cannot pick a category without it
+  // (спални + цена vs м² + цена vs цена alone), so the type-specific pair is
+  // held back. This used to fire only for the stock-at-a-place intake; the
+  // [19:06] capture proved the same hole anywhere the funnel stands.
+  // THE APARTMENT IS NEVER THE DEFAULT (the [19:06] capture: «MI TREBA NESTO
+  // INTERESNO KAJ CITY MOL» → «PA DA KUPAM BI SAKAL» was answered with «Колку
+  // спални соби би Ви одговарале во станот?» — a category the client never
+  // named). The type is ASKED whenever nothing names it, wherever the funnel
+  // stands: a bedroom count, a м² figure and the price wording are all
+  // category-specific, so none of them may be asked before the category is on
+  // file. The [13:44] loop this used to guard against is already protected by
+  // `typeKnown` — a client who answered «EDNA» supplied flat evidence, so the
+  // type question can never follow it.
+  const typeHeld = !typeKnown;
   if (serviceKnown && typeHeld) {
     // The same question the dual-service lane uses — «Кој тип недвижност Ве
     // интересира? Стан, куќа, деловен простор или плац?» — bank-backed, names
@@ -881,7 +903,12 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // го барате станот?» is a flat nobody said. It used to be TWO separate
   // pushes, so an unknown-type session got the neutral ask AND the flat one in
   // the same reply, the second naming the apartment the first had avoided.
-  if (serviceKnown && !typeHeld && !locationKnown) {
+  // THE AREA QUESTION IS TYPE-NEUTRAL, so an unknown type does not hold it
+  // back — only its CATEGORY-WORDED form does (a tournament «дел од градот
+  // го барате станот» is a flat nobody named). The neutral pool carries the
+  // wording that names no type; the category pools answer once the type is on
+  // file (the [19:06] contract).
+  if (serviceKnown && !locationKnown) {
     missing.push(typeKnown
       ? askQuestion(
         plac ? 'discovery.ask.location.plac'

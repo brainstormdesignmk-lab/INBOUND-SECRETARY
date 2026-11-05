@@ -100,7 +100,11 @@ function latest(list: string[]): string {
 
 test('[20:33] "drugo" on a drained pool asks the criteria-done choice, never a junk refill', async () => {
   const { handler, sessions, sent, offlineMap } = makeHandler();
-  await handler.handle('test', chat, 'KIRIJA DO 350E VO CENTAR');
+  // «STAN» is named on purpose (expectation fixed, not the product): since the
+  // [19:06] contract an unnamed type is ASKED first — the right answer there,
+  // but not the lane this test pivots in (see
+  // tests/type-unknown-ask-and-correction.test.ts).
+  await handler.handle('test', chat, 'STAN KIRIJA DO 350E VO CENTAR');
   assert.ok(latest(sent).includes('спални'), `the bedrooms ask must fire: ${latest(sent).slice(0, 160)}`);
 
   await handler.handle('test', chat, 'SPALNI BILO KOLKU');

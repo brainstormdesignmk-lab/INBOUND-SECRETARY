@@ -1,6 +1,6 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase, placeLooseKey } from '../data/properties';
-import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, DIGIT_MINUTES_RE, QUARTER_PAST_RE, QUARTER_TO_RE, HALF_TO_RE, TIME_RANGE_RE, visitClockHour } from '../visits/time';
+import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, DIGIT_MINUTES_RE, QUARTER_PAST_RE, QUARTER_TO_RE, HALF_TO_RE, TIME_RANGE_RE, ASSENT_HOUR_RE, visitClockHour } from '../visits/time';
 
 // Re-export: the handler's split-intake gates (day-only vs clock-completion)
 // live on this module's surface; the canonical implementation is visits/time.
@@ -8,7 +8,7 @@ export { hasClockHint };
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
 import { extFires } from './detectorExt';
-import { firstEbNumber } from './ebNumber';
+import { firstEbNumber, EB_NUMBER_SOURCE } from './ebNumber';
 // The recommendation grammar lives in its own module (the [11:39] family).
 // Imported here so the advice lanes consult ONE predicate for "the client asks
 // which flat to pick" instead of duplicating the word classes — and a choice
@@ -660,12 +660,45 @@ const PROPERTY_TYPE_WORD_RE =
 const FLAT_WORD_RE = /(?<![\p{L}])(?:стан(?:от|ов|а|и|ови|овите|че|чето|це|цеви|цевите)?|апартман\p{L}*|гарсоњер\p{L}*)(?![\p{L}])/iu;
 const FLAT_WORD_LATIN_RE = /(?<![a-z])(?:stan(?:ot|ov|a|i|ovi|ovite|ce|cevi|cevite)?|apartman[a-z]*|garsonjer[a-z]*)(?![a-z])/iu;
 
+// THE NEGATED CATEGORY IS NOT THE CATEGORY (the [19:07] capture): «SAKAM DUKJAN
+// DA ZEMAM , NE STAN» IS a business search — but `detectBusiness` vetoes itself
+// on ANY residential word and `detectFlat` read the same «NE STAN» as "the
+// client wants a flat", so the funnel kept asking about «станот» and the type
+// the client had just corrected was never on file. A category word behind a
+// CORRECTION negation («ne/не/namesto/наместо/без» + an optional want-verb) is
+// the category being REFUSED: strip that span before every category reader,
+// the same way the fee detectors strip a negated complaint (an «oваа политика
+// не ми е ок» is not approval either). The rule is symmetric on purpose —
+// «NE DUKJAN, STAN» releases the business category the same way.
+const NEGATED_CATEGORY_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:ne|не|namesto|наместо|bez|без)\\s+'
+  // The optional want-verb between the negation and the noun, including the
+  // dative clitic the spoken language puts there («не МИ треба стан»).
+  + '(?:(?:sakam|сакам|baram|барам|treba|треба|sum|сум|sme|сме|taka|така'
+  + '|mi|ми|ni|ни|ti|ти|vi|ви|go|го|ja|ја|mu|му)\\s+){0,2}'
+  + '(?:стан\\p{L}*|stan\\p{L}*|апартман\\p{L}*|apartman\\p{L}*|гарсоњер\\p{L}*|garsonjer\\p{L}*'
+  + '|куќ\\p{L}*|кук\\p{L}*|kukj\\p{L}*|kuka\\p{L}*|вил\\p{L}*|vila\\p{L}*'
+  + '|дуќан\\p{L}*|dukjan\\p{L}*|dukan\\p{L}*|локал\\p{L}*|lokal\\p{L}*'
+  + '|деловен\\p{L}*|deloven\\p{L}*|канцелари\\p{L}*|kancelari\\p{L}*|магацин\\p{L}*|magacin\\p{L}*'
+  + '|плац\\p{L}*|plac\\p{L}*|земјишт\\p{L}*|zemjist\\p{L}*|гараж\\p{L}*|garaz\\p{L}*)(?![\\p{L}\\p{N}])',
+  'giu');
+
+/** The message with every NEGATED category mention removed — the input every
+ *  category reader must use, so a correction («NE STAN») releases the category
+ *  it names instead of arming it. */
+export function stripNegatedCategoryWords(text: string): string {
+  return text.replace(NEGATED_CATEGORY_RE, ' ');
+}
+
 /** True when the message names a FLAT (стан/апартман/гарсоњера). A flat is a
  *  real category — it just has no flag, so the discovery funnel reads it here. */
 export function detectFlat(text: string): boolean {
-  const norm = normalizeMc(text);
-  return FLAT_WORD_RE.test(text) || FLAT_WORD_RE.test(norm)
-    || FLAT_WORD_LATIN_RE.test(text) || FLAT_WORD_LATIN_RE.test(norm);
+  // The negated span is stripped first: «SAKAM DUKJAN , NE STAN» names a flat
+  // only as the thing being REFUSED (the [19:07] capture).
+  const clean = stripNegatedCategoryWords(text);
+  const norm = normalizeMc(clean);
+  return FLAT_WORD_RE.test(clean) || FLAT_WORD_RE.test(norm)
+    || FLAT_WORD_LATIN_RE.test(clean) || FLAT_WORD_LATIN_RE.test(norm);
 }
 
 /** True when the message NAMES a property type (any of the feed's categories). */
@@ -3070,6 +3103,12 @@ export function detectVisitTime(text: string): string | undefined {
   // and the parser can never disagree about what names a clock.
   if (QUARTER_PAST_RE.test(text) || QUARTER_TO_RE.test(text) || HALF_TO_RE.test(text)) return visitTermClause(text).slice(0, 80);
   if (TIME_RANGE_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  // ASSENT + BARE HOUR («PA NEKA BIDE 5» = 17:00) — the [18:49] capture: the
+  // client answered the exact-hour ask («Во колку часот планирате да
+  // дојдете?») with a consent frame and a naked digit, and NO family read it
+  // as a clock, so the whole visit question was asked again. Same family as
+  // the hour word — the frame anchors the digit — one source in visits/time.
+  if (ASSENT_HOUR_RE.test(text)) return visitTermClause(text).slice(0, 80);
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.
@@ -3189,15 +3228,19 @@ const BUSINESS_NEED_RE = /(ми треба|барам|сакам|треба|по
 const RESIDENTIAL_WORD_RE = /(стан|стани|станче|куќ|кука|хоусе|стан|станце|апартмент|гаража|гараза|стамбен|стамбен)/i;
 
 export function detectBusiness(text: string): boolean {
+  // THE NEGATED SPAN IS STRIPPED FIRST (the [19:07] capture «SAKAM DUKJAN DA
+  // ZEMAM , NE STAN»): the residential word there is the category the client
+  // is REFUSING, so it must not veto the business word he just named.
+  const clean = stripNegatedCategoryWords(text);
   // An explicit residential word ("стан", "куќа") wins over EVERY business
   // term: "стан до кафе" and "стан со дуќан" are residential searches — the
   // business word is a landmark/feature, not the property type.
-  if (matchesBoth(RESIDENTIAL_WORD_RE, text)) return false;
-  if (matchesBoth(BUSINESS_STRONG_RE, text)) return true;
-  if (!matchesBoth(BUSINESS_WEAK_RE, text)) return false;
+  if (matchesBoth(RESIDENTIAL_WORD_RE, clean)) return false;
+  if (matchesBoth(BUSINESS_STRONG_RE, clean)) return true;
+  if (!matchesBoth(BUSINESS_WEAK_RE, clean)) return false;
   // Weak term (кафе/ресторан/салон) is business only WITH a need context:
   // "барам ресторан под кирија" = business; bare "кафе" = nothing.
-  return matchesBoth(BUSINESS_NEED_RE, text);
+  return matchesBoth(BUSINESS_NEED_RE, clean);
 }
 
 // House intent: куќа / кука / house / kukja / kuka / вила (both scripts). An
@@ -3217,8 +3260,11 @@ const APARTMENT_RE = /(стан|стани|станче|стан|станце|а
  * куќа buyer to стан — Lina then presented an apartment).
  */
 export function detectHouse(text: string): boolean | undefined {
-  const house = matchesBoth(HOUSE_RE, text);
-  const apartment = matchesBoth(APARTMENT_RE, text);
+  // Same correction rule as the flat/business readers: «NE KUKJA, STAN» names
+  // the flat, not a house being refused.
+  const clean = stripNegatedCategoryWords(text);
+  const house = matchesBoth(HOUSE_RE, clean);
+  const apartment = matchesBoth(APARTMENT_RE, clean);
   if (house && apartment) return false;
   if (!house && extFires('house', text)) return true;
   if (!house && !apartment) return undefined; // no property-type word
@@ -6502,14 +6548,31 @@ const TOTAL_COST_RE = new RegExp(
   + '|' + _mB + '(?:vkupno|вкупно)[^.!?\\n]{0,24}(?:ke|ќе)\\s+(?:me|ме|вк|me)',
   'iu');
 
+// THE HAVE-FAMILY (the [19:12] capture): «ZNACI KOLKU PARI TREBA DA IMAM SO
+// MENE ZA DA GO IZNAJMAM 57 ?» — the client asks how much CASH to have with
+// him on signing day. The cost family above knows «колку ќе ме кошта / што да
+// носам / со колку пари да дојдам», not «колку пари треба да имам». Both
+// shapes are anchored on the bring-with phrase («so mene / со мене»), so a
+// bare «kolku treba da imam» (a bedroom/area count) can never fire.
+const TOTAL_COST_BRING_RE = new RegExp(
+  _mB + '(?:kolku|колку)' + _TOTAL_COST_UE + '[^.!?\\n]{0,40}'
+  + '(?:pari|пари|denari|денари|evra|евра|kesh|кеш|cash)[^.!?\\n]{0,30}(?:so|со)\\s+(?:mene|мене)'
+  + '|' + _mB + '(?:treba|треба)\\s+da\\s+(?:imam|имам|nosam|носам)[^.!?\\n]{0,20}(?:so|со)\\s+(?:mene|мене)',
+  'iu');
+
 export function detectTotalCostAsk(text: string): boolean {
   // Amount-bearing messages route through extractRentMath (the math lane
   // owns stated numbers); this family is amount-free — the rent anchor
-  // comes from the property on the table.
-  if (/\d/.test(text)) return false;
+  // comes from the property on the table. An ЕВИДЕНТЕН БРОЈ is not an amount:
+  // the [19:12] client named the flat in the SAME sentence ("…ZA DA GO
+  // IZNAJMAM 57"), and the raw digit guard threw the whole question away — the
+  // reply then re-sold the visit fee instead of the money he asked for. The
+  // EB reader is the shared one (no second copy of the number grammar).
+  const noEb = text.replace(new RegExp(EB_NUMBER_SOURCE, 'giu'), ' ');
+  if (/\d/.test(noEb)) return false;
   if (detectFeePaymentAgreement(text)) return false;
   if (matchesBoth(new RegExp(VIEWING_NOUN_SRC, 'iu'), text)) return false;
-  return matchesBoth(TOTAL_COST_RE, text);
+  return matchesBoth(TOTAL_COST_RE, text) || matchesBoth(TOTAL_COST_BRING_RE, text);
 }
 
 // Provision who-pays: the client asks WHO pays the lawyer/notary/tax —

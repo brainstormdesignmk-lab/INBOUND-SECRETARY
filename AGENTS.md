@@ -1046,6 +1046,66 @@ wording), `tests/place-class-noun-veto.test.ts`,
 `tests/landmark-intake-discovery.test.ts` (the address identity and the echo
 that walks on after the pick).
 
+## 4k. THE TERM IS RENDERED, NEVER ECHOED (the [18:49]/[18:52] batch)
+
+The visit ping-pong produced two defects in one exchange:
+
+- **«PA NEKA BIDE 5» IS A CLOCK.** The client answered the exact-hour ask
+  («Во колку часот планирате да дојдете?») with a consent frame and a naked
+  digit. `CLOCK_RE` wants a preposition and `HOUR_WORD_RE` wants the hour noun,
+  so the whole term question came back. The family lives in
+  `visits/time.ASSENT_HOUR_RE` and is read by the detector, `hasClockHint`
+  (the merge gate) and `parseVisitDateTime` — one pattern, three readers. The
+  visit window decides AM/PM (5 → 17:00), and a money/room tail («neka bide 5
+  iljadi», «neka bide 5 spalni») is vetoed inside the regex.
+- **A STORED TERM IS SHOWN IN CANONICAL FORM.** The owner panel read
+  «Клиентот не е во можност за посета во Среда во 6» — the raw counter with a
+  naked hour, because the refused half used `mkTimePhrase` while the new half
+  used `normalizeOwnerTime`. `prompts.renderVisitTerm` is now the ONE renderer
+  for every term shown to a person (owner panel AND client panel): translit,
+  then the day+clock resolution; a day-less phrase keeps its own form (the
+  [10:24] rule). A relay never composes a term from a raw slot.
+  Pins: `tests/visit-assent-hour.test.ts`, `tests/visit-term-rendered.test.ts`.
+
+## 4l. THE CATEGORY IS NEVER THE DEFAULT (the [19:06]/[19:07] capture)
+
+«MI TREBA NESTO INTERESNO KAJ CITY MOL» → «PA DA KUPAM BI SAKAL» was answered
+with «Колку спални соби би Ви одговарале во станот?» — a flat nobody named —
+and the correction «SAKAM DUKJAN DA ZEMAM , NE STAN» was answered with the SAME
+bedroom question, because «NE STAN» armed the flat flag and vetoed
+`detectBusiness`.
+
+- **THE TYPE IS ASKED WHEREVER THE FUNNEL STANDS.** `typeHeld = !typeKnown` in
+  `buildDiscoveryAsk` (it used to be scoped to `slots.inventoryPending`).
+  Bedrooms, м² and the price wording are category-specific, so none of them may
+  be asked before the category is on file. The AREA question is type-NEUTRAL and
+  keeps firing — only its category-worded form is held back. The [13:44] loop is
+  still safe: a bare «EDNA» supplies `flatEvidence`, so `typeKnown` is true and
+  the type question can never follow it.
+- **A NEGATED CATEGORY IS NOT THE CATEGORY.**
+  `deterministic.stripNegatedCategoryWords` removes a category word behind a
+  correction negation («ne/не/namesto/наместо/без» + optional want-verb/clitic)
+  and every category reader (`detectFlat`, `detectBusiness`, `detectHouse`,
+  `detectPlac`) must read the stripped text. Symmetric on purpose: «NE SAKAM
+  DUKJAN, BARAM STAN» releases the business category the same way.
+  Pins: `tests/type-unknown-ask-and-correction.test.ts`.
+
+## 4m. A NAMED ЕВИДЕНТЕН БРОЈ IS NOT AN AMOUNT (the [19:12] capture)
+
+«ZNACI KOLKU PARI TREBA DA IMAM SO MENE ZA DA GO IZNAJMAM 57 ?» was answered
+with a visit-fee pitch. Three causes, all in the money lane:
+
+- `detectTotalCostAsk` bailed on ANY digit, so the Евидентен број in the same
+  sentence discarded the question. It now strips EB references with the shared
+  `EB_NUMBER_SOURCE` reader first — an EB is a LISTING, not a price.
+- The «колку пари треба да ИМАМ со мене» shape (the have-family) was missing
+  from the grammar; it is anchored on the bring-with phrase, so a count
+  question («колку спални треба да има станот») can never read as money.
+- The lane's anchor came from session subjects only. `firstEbNumber(text)` is
+  now read FIRST (still verified against the feed: rent + a real price), so the
+  flat the client names in the question is the subject of the arithmetic.
+  Pins: `tests/rent-cash-math-named-eb.test.ts`.
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.

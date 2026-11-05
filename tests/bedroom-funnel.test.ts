@@ -83,7 +83,12 @@ test('[13:44] bare "EDNA" answers the bedrooms ask and the funnel presents (LLM 
   s.slots.service = 'buy'; // captured earlier in the real funnel
   sessions.set(s);
 
-  await handler.handle('test', chat, 'AERODROM DO 89999');
+  // THE TYPE IS NAMED IN THE FIXTURE (expectation fixed, not the product):
+  // since the [19:06] contract the funnel ASKS the type when nothing names it
+  // (see tests/type-unknown-ask-and-correction.test.ts), so an artefact-free
+  // "AERODROM DO 89999" is now a type question — the right answer there, but
+  // not the lane this test is about. "STAN" keeps the flat funnel on file.
+  await handler.handle('test', chat, 'STAN AERODROM DO 89999');
   const ask = sent[sent.length - 1];
   assert.ok(ask.includes('спални'), `the bedrooms ask must fire: ${ask}`);
 
@@ -104,7 +109,7 @@ test('[13:44] bare digit "2" and bare "две" also answer the funnel (LLM down)
     const s = freshSession('test', chat);
     s.slots.service = 'buy';
     sessions.set(s);
-    await handler.handle('test', chat, 'AERODROM DO 89999');
+    await handler.handle('test', chat, 'STAN AERODROM DO 89999');
     await handler.handle('test', chat, answer);
     const after = sessions.get(chat);
     assert.equal(after?.slots.bedrooms, 3, `"${answer}" must capture 2 спални → 3-собен`);

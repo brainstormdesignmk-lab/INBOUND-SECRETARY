@@ -299,14 +299,22 @@ test('a LEARNED answer still records the place it answered about', async () => {
 
 test('buildDiscoveryAsk: a landmark anchor satisfies the location question', () => {
   // A CITY-LEVEL value (typically inferred, never said) does not — but the
-  // anchor already named the area, so the pair is asked, not the neighborhood.
-  // The residential sequence here is UNCHANGED by the [04:17] type rule: the
-  // type question belongs to the stock-at-a-place ask (`inventoryPending`), and
-  // an area + budget search is already inside this funnel.
+  // anchor already named the area, so the neighborhood is not re-asked.
+  // THE TYPE COMES FIRST (expectation fixed, not the product): the [19:06]
+  // capture answered a typed-anchor search with «Колку спални соби … во
+  // станот?» for a category the client never named. The type rule is no longer
+  // scoped to the stock-at-a-place intake — «спални» vs «м²» cannot be asked
+  // before the category is on file, wherever the funnel stands.
   const ask = buildDiscoveryAsk({ service: 'buy', location: 'Скопје', poiAnchor: 'Буњаковец', poiArea: 'Центар' } as SlotData);
   assert.ok(!/населба|naselba|дел од градот|локација во градот/iu.test(ask), `no neighborhood ask: ${ask}`);
-  assert.match(ask, /спалн|spaln/iu, `bedrooms asked: ${ask}`);
-  assert.match(ask, /цена|cenа/iu, `budget asked: ${ask}`);
+  assert.match(ask, /тип|стан, куќа|деловен простор или плац/iu, `the type is asked first: ${ask}`);
+  assert.ok(!/спалн|spaln/iu.test(ask), `no bedroom question before the type is known: ${ask}`);
+  // With the type ON FILE (the client said стан) the pair is asked, never the
+  // neighborhood.
+  const typed = buildDiscoveryAsk({ service: 'buy', location: 'Скопје', poiAnchor: 'Буњаковец', poiArea: 'Центар', flat: true } as SlotData);
+  assert.ok(!/населба|naselba|дел од градот|локација во градот/iu.test(typed), `no neighborhood ask: ${typed}`);
+  assert.match(typed, /спалн|spaln/iu, `bedrooms asked: ${typed}`);
+  assert.match(typed, /цена|cenа/iu, `budget asked: ${typed}`);
   // The stock-at-a-place funnel asks the TYPE instead — its pair is not owed
   // until the category is known (спални vs м²).
   const held = buildDiscoveryAsk({ service: 'buy', location: 'Скопје', poiAnchor: 'Буњаковец', poiArea: 'Центар', inventoryPending: true } as SlotData);

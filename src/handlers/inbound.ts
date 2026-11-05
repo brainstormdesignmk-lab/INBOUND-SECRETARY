@@ -14,7 +14,7 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, normalizeTimePhrase, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, detectAgentAttendanceAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -26,6 +26,7 @@ import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCand
 import { detectInfoFacets, buildInfoAnswer, isSuterenUnit, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE, INFO_NO_YEAR_KEY, INFO_NO_RENOVATION_KEY } from '../llm/infoAnswer';
 import { answerGlossary, detectGlossaryAsk } from '../llm/glossary';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
+import { firstEbNumber } from '../llm/ebNumber';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -54,7 +55,7 @@ import {
   mergeOwnerTerm,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
   buildOwnerAsk, buildOwnerFollowupAsk, buildOwnerAcceptFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay,
-  ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime,
+  ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime, renderVisitTerm,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
   LOCATE_NUMBER_PROMPT, LOCATE_REFINE_ASK, LOCATE_MORE_SPECS_ASK, LOCATE_SERVICE_ASK, buildLocateMatches, buildLocateSeenConfirm, pairBatchMeta,
@@ -7247,7 +7248,14 @@ export class InboundHandler {
       // Anchor = the SUBJECT property on the table (interest/current/presented),
       // NOT slots.lastPrice — lastPrice holds the PRICE VALUE, and getById()
       // looks up by Евидентен број (getById(1200) would miss EB 42 @ 1200).
-      const subject = session.slots.interestedPropertyId ?? session.slots.propertyId
+      // THE FLAT THE CLIENT NAMED IN THE QUESTION IS THE ANCHOR (the [19:12]
+      // capture: «…ZA DA GO IZNAJMAM 57 ?»). The session's own subjects were
+      // empty on that turn, so the math lane found no anchor, fell through, and
+      // the fee lane answered a money question with a fee pitch. The named
+      // Евидентен број is the SUBJECT of the sentence — read first, and still
+      // verified against the feed (rent + a real price) below.
+      const namedEb = firstEbNumber(text);
+      const subject = namedEb ?? session.slots.interestedPropertyId ?? session.slots.propertyId
         ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
         ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
       const anchor = subject !== undefined
@@ -11775,7 +11783,11 @@ ${contactReminder}`;
       const ownerAskText = acceptFollowup
         ? buildOwnerAcceptFollowupAsk(mkTimePhrase(wholeDaySeed!), askTime)
         : isFollowup
-        ? buildOwnerFollowupAsk(mkTimePhrase(priorAsk), mkTimePhrase(askTime))
+        // THE TERM IS RENDERED, NEVER ECHOED (the [18:52] capture): the owner
+        // read «Клиентот не е во можност за посета во Среда во 6» — the raw
+        // counter with a naked 6 where 18:00 belongs. Both halves of the
+        // sentence go through the ONE renderer (see renderVisitTerm).
+        ? buildOwnerFollowupAsk(renderVisitTerm(priorAsk), renderVisitTerm(askTime))
         : ownerLabels
           ? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen, relative: ownerLabels.relative, entered: ownerLabels.entered })
           : pickVariant('owner.ask', { recent: assistantTexts(session), vars: { eb: String(eb), time: askTime } })
@@ -11912,10 +11924,11 @@ ${contactReminder}`;
         session.state = 'visit_scheduling';
         // The relay must read proper Macedonian in BOTH scripts: the client
         // typed "UTRE VO 4" Latin, and mkTimePhrase alone only fixes known
-        // misspellings — it echoed "терминот во UTRE VO 4". normalizeTimePhrase
-        // first translits the Latin phrase ("утре во 4"), mkTimePhrase then
-        // applies the Cyrillic misspelling fixes on top.
-        const refusedTime = mkTimePhrase(normalizeTimePhrase(session.slots.visitTime ?? ''));
+        // misspellings — it echoed "терминот во UTRE VO 4".
+        // Same ONE renderer as the owner panel (renderVisitTerm: translit, then
+        // day+clock resolution): the client also reads the term canonically
+        // («Среда, 11.11.2026 во 18:00»), never «Среда во 6».
+        const refusedTime = renderVisitTerm(session.slots.visitTime ?? '');
         // Bank-served with the code-built line as fallback; the refusal is
         // relayed honestly — never a fabricated term the client could accept.
         const reply = `${priceRelay ? `${priceRelay} ` : ''}${pickVariant('owner.relay:counter.bare', { recent: assistantTexts(session), vars: { time: refusedTime } }) ?? OWNER_CANT_TIME_RELAY(refusedTime)}`;

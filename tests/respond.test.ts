@@ -614,11 +614,17 @@ test('buildDiscoveryAsk: an UNKNOWN type is ASKED, never assumed (the [04:17] ca
   assert.match(typed, TYPE_ASK, `the type question is owed: ${typed}`);
   assert.ok(!/спалн/iu.test(typed), `bedrooms asked before the type is known: ${typed}`);
   assert.ok(!/до која цена|цената на станот/iu.test(typed), `price asked before the type is known: ${typed}`);
-  // An ordinary area + budget search is NOT held: it is already inside the
-  // residential funnel and keeps the bedroom/budget pair (the [13:44] contract).
+  // An ordinary area + budget search with NO type named owes the TYPE too
+  // (expectation fixed, not the product): the [19:06] capture proved the
+  // stock-at-a-place scoping was the hole — an unknown type must never fall
+  // through to «колку спални соби … во станот?». The pair comes back the
+  // moment the type is on file (the `flat` case below).
   const plain = buildDiscoveryAsk({ ...place, service: 'buy' } as SlotData);
-  assert.match(plain, /спалн/iu, `the residential pair is unchanged: ${plain}`);
-  assert.ok(!TYPE_ASK.test(plain), `the type is NOT owed inside the residential funnel: ${plain}`);
+  assert.match(plain, TYPE_ASK, `the type is owed everywhere: ${plain}`);
+  assert.ok(!/спалн/iu.test(plain), `bedrooms asked before the type is known: ${plain}`);
+  const plainFlat = buildDiscoveryAsk({ ...place, service: 'buy', flat: true } as SlotData);
+  assert.match(plainFlat, /спалн/iu, `the residential pair is unchanged once the type is known: ${plainFlat}`);
+  assert.ok(!TYPE_ASK.test(plainFlat), `the type is known — never ask it: ${plainFlat}`);
   // …and its LOCATION ask is type-neutral when nothing names a type.
   // The CONTRACT is "ask WHERE", not one wording: `discovery.ask.location.any`
   // rotates seeds and one asks it as «Дали имате одредена локација во градот за
@@ -681,7 +687,12 @@ test('buildDiscoveryAsk: never re-asks known slots, never the generic buy/rent b
   // file already asserts above (locOnly): a flat is not a safe default, the
   // client may want a shop or a plot.
   const loc = buildDiscoveryAsk({ service: 'buy' } as SlotData);
-  assert.ok(!/стан|куќ|деловен|гарсоњер/iu.test(loc), loc);
+  // The type QUESTION enumerates the categories (it asks, it does not assume),
+  // so the ban is on the ASSUMING forms — the definite nouns and the
+  // category-specific questions — not on the words themselves.
+  const TYPE_ASK_LOC = /тип|стан, куќа|деловен простор или плац/iu;
+  assert.ok(!/станот|куќата|деловниот|гарсоњерата|спални/iu.test(loc), loc);
+  assert.match(loc, TYPE_ASK_LOC, `the type is asked before the category: ${loc}`);
   assert.ok(/(дел од градот|населба|локаци)/iu.test(loc), loc);
   assert.ok(!loc.includes('купување или за изнајмување'), loc);
   assert.ok(!loc.includes('Колку спални'), loc);

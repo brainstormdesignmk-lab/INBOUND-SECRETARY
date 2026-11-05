@@ -231,6 +231,19 @@ export const DAY_TRAILING_HOUR_RE =
     + '[^\\d]{0,20}(\\d{1,2})(?![\\d:.])(?!\\s*(?:евр|eur|evr|ден|mkd|kv|кв|м2|m2))',
     'iu');
 
+// ASSENT + BARE HOUR — «PA NEKA BIDE 5» (the [18:49] capture). The client
+// answered the exact-hour ask ("Во колку часот планирате да дојдете?") with a
+// consent frame and a naked digit; no family above knows it (CLOCK_RE wants a
+// preposition, HOUR_WORD_RE wants the hour noun), so the term read as NO TIME
+// at all and the funnel re-asked the whole visit question — a time the client
+// had just given. The frame («нека биде / нека е / ајде нека биде», optionally
+// after «па») anchors the digit as a CLOCK, exactly like the hour noun does.
+// The visit window decides AM/PM downstream (5 → 17:00, see visitClockHour),
+// and a money/room tail is vetoed so «neka bide 5 iljadi» or «neka bide 5
+// spalni» can never become an appointment.
+export const ASSENT_HOUR_RE =
+  /(?<![\p{L}\p{N}])(?:(?:pa|па)\s+)?(?:(?:ajde|ајде)\s+)?(?:neka|нека)\s+(?:bide|биде|e|е)\s+(?:(?:vo|во|na|на|okolu|околу)\s+)?(\d{1,2})(?![\d:.,])(?!\s*(?:евр|evr|eur|€|ден|den|илјад|iljad|хилјад|спалн|spaln|соби|sobi|%|кат|спрат|м2|m2|кв|kv))/iu;
+
 /** True when the phrase carries a PART-OF-DAY word (попладне, утрово,
  *  вечер…). A day+period term ("утре попладне") resolves to a concrete
  *  hour — specific enough for the owner; a bare day ("во понеделник")
@@ -321,6 +334,7 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
   const qt = t.match(QUARTER_TO_RE); // "без четврт пет" = 4:45
   const ht = t.match(HALF_TO_RE); // "пол 6" = 5:30
   const rg = t.match(TIME_RANGE_RE); // closed range → its FIRST clock
+  const ah = t.match(ASSENT_HOUR_RE); // «PA NEKA BIDE 5» — consent frame + digit
   const clock = hw ?? th ?? t.match(CLOCK_RE);
   if (hc !== undefined) {
     hour = hc * 60 + 30; // "пет и пол" = 5:30
@@ -346,6 +360,12 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
     // The capture may carry minutes («17:00»), so the HOUR is the part before
     // the separator.
     const h = Number(String(rg[1] ?? rg[2]).split(/[.:]/)[0]);
+    if (h >= 0 && h <= 23) hour = h * 60;
+  } else if (ah) {
+    // «PA NEKA BIDE 5»: the consent frame owns the digit as an hour (the
+    // [18:49] capture). Minutes are absent — the visit window shifts 1–8 PM
+    // exactly like every other bare clock.
+    const h = Number(ah[1]);
     if (h >= 0 && h <= 23) hour = h * 60;
   } else if (clock) {
     const h = Number(clock[1]);
@@ -518,6 +538,7 @@ export function hasClockHint(s: string): boolean {
   if (HALF_TO_RE.test(s)) return true; // «пол 6» = 5:30
   if (TIME_RANGE_RE.test(s)) return true; // «од 5 до 7» — a window, not a term
   if (DAY_TRAILING_HOUR_RE.test(s)) return true;
+  if (ASSENT_HOUR_RE.test(s)) return true; // «PA NEKA BIDE 5» (the [18:49] capture)
   return /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od|накај|nakaj)\s*\d{1,2}\b/i.test(s);
 }
 
