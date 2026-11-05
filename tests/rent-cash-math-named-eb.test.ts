@@ -99,9 +99,14 @@ test('[19:12] e2e: the named flat is the anchor — the client gets the arithmet
   const reply = await send('ZNACI KOLKU PARI TREBA DA IMAM SO MENE ZA DA GO IZNAJMAM 57 ?');
 
   // The arithmetic for EB 57's own rent (350 → 175 / 700 / 875), in the copy.
-  assert.match(reply, /350/u, `the rent is the anchor: ${reply}`);
-  assert.match(reply, /175/u, `the commission (50%) is computed: ${reply}`);
-  assert.match(reply, /875/u, `the total on signing day is computed: ${reply}`);
+  // EVERY figure carries its unit — a bare «350» is the same defect class as a
+  // naked hour (the [19:12] capture's own wording).
+  assert.match(reply, /350 евра/u, `the rent is the anchor, with its unit: ${reply}`);
+  assert.match(reply, /175 евра/u, `the commission (50%) is computed: ${reply}`);
+  assert.match(reply, /700 евра/u, `the owner payload is computed: ${reply}`);
+  assert.match(reply, /875 евра/u, `the total on signing day is computed: ${reply}`);
+  assert.ok(!/(?<![\d.])(?:350|175|700|875)(?! евра)/u.test(reply),
+    `a figure without its unit: ${reply}`);
   // It is the money lane, not the visit-fee ladder and not a bare card.
   assert.ok(!/300 денари|надомест/u.test(reply), `the visit fee was re-sold: ${reply}`);
   assert.ok(!/Евидентен број 57 е/u.test(reply), `a card re-serve instead of the answer: ${reply}`);

@@ -80,6 +80,11 @@ test('response bank: every entry is non-empty and placeholders live only where e
         for (const ph of ['r', 'c', 'd', 't']) {
           assert.equal(v.match(new RegExp(`\\{${ph}\\}`, 'g'))?.length ?? 0, 1, `${key}: {${ph}} in "${v}"`);
         }
+        // EVERY FIGURE CARRIES ITS UNIT (the [19:12] capture read «за кирија
+        // од 350» — a bare number where money belongs). Each placeholder must
+        // be followed by «евра» in the seed itself, so no rotation can serve a
+        // naked amount.
+        assert.ok(!/\{(?:r|c|d|t)\}(?! евра)/u.test(v), `${key}: a figure without its unit: "${v}"`);
       } else if (key === 'owner.relay:gone') {
         // Gone relay: {eb} names the property, {note} is the status note.
         assert.ok((v.match(/\{eb\}/g)?.length ?? 0) >= 1, `${key}: "${v}"`);
