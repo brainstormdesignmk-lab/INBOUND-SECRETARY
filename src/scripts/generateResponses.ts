@@ -907,7 +907,10 @@ const SPEC: GenerationKey[] = [
       // The 1.000-евра TIER is required by the instructions — only fabricated
       // amounts are banned: any 3-digit number NOT part of "1.000"/"1000",
       // and any 4+ digit run (prices like 185.000).
-      banned: [/(?<!1\.)(?<![\d.])\d{3}(?![\d.])/, /\d{4,}/],
+      // A CAPITAL AFTER A COMMA is a broken sentence, not emphasis («…, Вкупно
+      // треба да подготвите {t} евра») — the first regeneration served two of
+      // them. Banned at the source so no rotation can carry one.
+      banned: [/(?<!1\.)(?<![\d.])\d{3}(?![\d.])/, /\d{4,}/, /[,;:]\s+Вкупно\b/],
       question: false,
       placeholders: ['r', 'c', 'd', 't'],
     },
@@ -917,8 +920,9 @@ const SPEC: GenerationKey[] = [
       count: 3,
       instructions: 'Клиентот прашува колку би го чинела изнајмувањето — пресметка за кирија ОД 1.000 евра И ПОВЕЌЕ. Користи ги местата {r} (месечна кирија), {c} (провизија на агенцијата = ЕДЕНА ЦЕЛОСНА месечна кирија), {d} (депозит + прва кирија за сопственикот = двојно од киријата), {t} (ВКУПНО на денот на потписот = провизија + депозит + прва кирија). Секое место мора веднаш да биде следено од зборот «евра» — износот е паричен и никогаш не стои гол. Не смислувај износи — само вметни ги местата во природна реченица. Спомни дека правилото важи за кирија од 1.000 евра и повеќе. Без прашање на крајот.',
       required: [/{r}/, /{c}/, /{d}/, /{t}/, /целосна|100\s*%|1\.000/i],
-      // Same tier-allowance as the low tier (instructions REQUIRE 1.000).
-      banned: [/(?<!1\.)(?<![\d.])\d{3}(?![\d.])/, /\d{4,}/],
+      // Same tier-allowance as the low tier (instructions REQUIRE 1.000) and
+      // the same mid-sentence-capital ban.
+      banned: [/(?<!1\.)(?<![\d.])\d{3}(?![\d.])/, /\d{4,}/, /[,;:]\s+Вкупно\b/],
       question: false,
       placeholders: ['r', 'c', 'd', 't'],
     },
@@ -1277,9 +1281,7 @@ async function generateKey(llm: LlmClient, key: GenerationKey, attempt: number):
 
 /** Read the existing bank file (if any) so a quota-exhausted run that yields 0
  *  variants for a key never WIPES the variants already there — it keeps them. */
-function readExistingBank(outPath: string): Record<string, string[]> {
-  if (!fs.existsSync(outPath)) return {};
-  const src = fs.readFileSync(outPath, 'utf8');
+export function parseExistingBank(src: string): Record<string, string[]> {
   const bank: Record<string, string[]> = {};
   const re = /^\s{2}"([^"]+)": \[([\s\S]*?)\]\s*,?$/gm;
   let m: RegExpExecArray | null;
@@ -1295,13 +1297,94 @@ function readExistingBank(outPath: string): Record<string, string[]> {
   return bank;
 }
 
+/** The `//` block sitting directly above each key's array.
+ *
+ *  THE WRITER RE-SERIALISES THE WHOLE FILE from parsed data, so anything that
+ *  is not carried here is DESTROYED by every run — including a `--only` run
+ *  that was not supposed to touch the key. Several owner rules are documented
+ *  in exactly those blocks (the stock-at-a-place ask, the GONE relay ending
+ *  with the offer, the money figures carrying «евра»), and the first targeted
+ *  regeneration silently erased four of them. A generated file still has to
+ *  keep the notes that explain why its wording is what it is. */
+export function extractKeyComments(src: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const key = /^ {2}"([^"]+)": \[$/.exec(lines[i]);
+    if (!key) continue;
+    const block: string[] = [];
+    let j = i - 1;
+    while (j >= 0 && /^ {2}\/\//.test(lines[j])) {
+      block.unshift(lines[j]);
+      j--;
+    }
+    if (block.length > 0) out[key[1]] = block;
+  }
+  return out;
+}
+
+/** The `//` block above the generation-context export — the note explaining
+ *  that the map is generator provenance, not client-question provenance. It is
+ *  documentation owned by the file, so the writer carries it too (same defect
+ *  class as the per-key blocks). */
+export function extractContextHeaderComments(src: string): string[] {
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('export const RESPONSE_GENERATION_CONTEXT')) continue;
+    const block: string[] = [];
+    let j = i - 1;
+    while (j >= 0 && lines[j].startsWith('//')) {
+      block.unshift(lines[j]);
+      j--;
+    }
+    return block;
+  }
+  return [];
+}
+
+/** Serialise the bank file. Pure: the harness asserts that rendering a file
+ *  with its own parse + comments reproduces it BYTE FOR BYTE, which is what
+ *  guarantees a regeneration only moves the keys it actually regenerated. */
+export function renderBankFile(
+  bank: Record<string, string[]>,
+  generationContext: Record<string, { reference: string[]; instruction: string }>,
+  comments: Record<string, string[]> = {},
+  contextHeaderComments: string[] = [],
+): string {
+  const lines: string[] = [
+    '// GENERATED FILE — DO NOT EDIT BY HAND.',
+    '// Regenerate with: npm run responses:generate  (src/scripts/generateResponses.ts).',
+    '// Variants are DECORATIVE: the funnel logic stays code-built and deterministic.',
+    '// A human review pass is expected after each regeneration — see the script output.',
+    '',
+    'export const RESPONSE_BANK: Record<string, string[]> = {',
+  ];
+  for (const [key, arr] of Object.entries(bank)) {
+    for (const c of comments[key] ?? []) lines.push(c);
+    lines.push(`  ${JSON.stringify(key)}: [`);
+    for (const v of arr) lines.push(`    ${JSON.stringify(v)},`);
+    lines.push('  ],');
+  }
+  lines.push('};', '');
+  for (const c of contextHeaderComments) lines.push(c);
+  lines.push('export const RESPONSE_GENERATION_CONTEXT: Record<string, { reference: string[]; instruction: string }> = {');
+  for (const [key, context] of Object.entries(generationContext)) {
+    lines.push(`  ${JSON.stringify(key)}: ${JSON.stringify(context)},`);
+  }
+  lines.push('};', '');
+  return lines.join('\n');
+}
+
 function writeBank(
   bank: Record<string, string[]>,
   generationContext: Record<string, { reference: string[]; instruction: string }>,
 ): { outPath: string; kept: string[] } {
   const outDir = path.join(__dirname, '..', 'data');
   const outPath = path.join(outDir, 'responses.ts');
-  const existing = readExistingBank(outPath);
+  const src = fs.existsSync(outPath) ? fs.readFileSync(outPath, 'utf8') : '';
+  const existing = parseExistingBank(src);
+  const comments = extractKeyComments(src);
+  const contextHeaderComments = extractContextHeaderComments(src);
   // Start from the existing bank: a targeted (--only) or quota-partial run must
   // never drop the keys it did not regenerate.
   const merged: Record<string, string[]> = { ...existing };
@@ -1314,25 +1397,7 @@ function writeBank(
     }
     // keys with zero variants are omitted entirely — never an empty array
   }
-  const lines: string[] = [
-    '// GENERATED FILE — DO NOT EDIT BY HAND.',
-    '// Regenerate with: npm run responses:generate  (src/scripts/generateResponses.ts).',
-    '// Variants are DECORATIVE: the funnel logic stays code-built and deterministic.',
-    '// A human review pass is expected after each regeneration — see the script output.',
-    '',
-    'export const RESPONSE_BANK: Record<string, string[]> = {',
-  ];
-  for (const [key, arr] of Object.entries(merged)) {
-    lines.push(`  ${JSON.stringify(key)}: [`);
-    for (const v of arr) lines.push(`    ${JSON.stringify(v)},`);
-    lines.push('  ],');
-  }
-  lines.push('};', '', 'export const RESPONSE_GENERATION_CONTEXT: Record<string, { reference: string[]; instruction: string }> = {');
-  for (const [key, context] of Object.entries(generationContext)) {
-    lines.push(`  ${JSON.stringify(key)}: ${JSON.stringify(context)},`);
-  }
-  lines.push('};', '');
-  fs.writeFileSync(outPath, lines.join('\n'));
+  fs.writeFileSync(outPath, renderBankFile(merged, generationContext, comments, contextHeaderComments));
   return { outPath, kept };
 }
 
@@ -1416,7 +1481,11 @@ async function main(): Promise<void> {
   console.log(`\n[generateResponses] wrote ${totalAccepted} new variants to ${outPath}`);
 }
 
-main().catch(e => {
-  console.error('[generateResponses] fatal:', (e as Error).message);
-  process.exit(1);
-});
+// Guarded so the harness can import the pure parse/render helpers above
+// without starting a generation run.
+if (require.main === module) {
+  main().catch(e => {
+    console.error('[generateResponses] fatal:', (e as Error).message);
+    process.exit(1);
+  });
+}
