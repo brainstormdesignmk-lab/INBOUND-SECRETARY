@@ -46,12 +46,25 @@ export function extractMentionSignals(text: string): MentionSignals {
   // Price: currency-suffixed ("99.000 евра", "99000€", "36.000 ден") or a
   // 4–7-digit number AFTER "од/od" ("stan od 99000"). Currency-less bare
   // numbers never become price on their own — they collide with EBs.
-  const priceCur = norm.match(/(\d{1,3}(?:[.,]\d{3})+|\d{4,7})\s*(?:еврата|евра|еур|€|денари|ден)/);
+  //
+  // THE RENT LADDER (the [19:26] capture): the sale-only floor (4 digits,
+  // ≥1.000) made EVERY rental unbindable by price — «OVOJ ZA 350 EVRA KIRIJA»
+  // carried no signal at all, so the flat the client named never became the
+  // one under discussion and the next «каде е?» answered whichever card was
+  // last on the table. A 3-digit EURO figure is a monthly rent, never a fee:
+  // the agency's own 5 €/10 € stay below 100, and a 3-digit ДЕНАР figure is
+  // the visit fee itself (300/500 ден) — that one needs 5+ digits to be a
+  // price at all. «до N евра» is the client's CAP (a search criterion), not a
+  // reference to a card, so the up-to preposition vetoes the price arm.
+  const priceCur = norm.match(/(?:^|[\s(])(?:(до|do)\s+)?(\d{1,3}(?:[.,]\d{3})+|\d{3,7})\s*(еврата|евра|еур|€|денари|ден)(?=\s|$|[.,!?])/);
   const priceOd = norm.match(/(?:^|\s)од\s+(\d{4,7})(?:\s|$|[.,!?])/);
-  const priceStr = priceCur ? priceCur[1] : priceOd ? priceOd[1] : undefined;
+  const priceStr = priceCur && !priceCur[1]
+    ? priceCur[2]
+    : priceOd ? priceOd[1] : undefined;
   if (priceStr) {
     const p = parseInt(priceStr.replace(/[.,\s]/g, ''), 10);
-    if (Number.isFinite(p) && p >= 1000) s.price = p;
+    const denar = priceCur ? /ден/.test(priceCur[3] ?? '') : false;
+    if (Number.isFinite(p) && p >= (denar ? 10000 : 100)) s.price = p;
   }
 
   if (/гарсоњер|студио/.test(norm)) s.garsonjera = true;

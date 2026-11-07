@@ -326,16 +326,20 @@ test('visit protocol: arranged -> morning confirm (10:00 for afternoon) -> locat
   assert.equal(ownerMsgs.length, 1);
   assert.ok(ownerMsgs[0].includes('Ми треба потврда'), ownerMsgs[0]); // address confirm
   assert.ok(ownerMsgs[0].includes('google.com/maps'), ownerMsgs[0]); // maps link
-  assert.equal(clientMsgs.length, 0); // client gets NOTHING until owner confirms
+  // The client already has Turn 1 (the booking line the HANDLER sends inline),
+  // so the scheduler sends it nothing here.
+  assert.equal(clientMsgs.length, 0);
 
-  // Owner confirms the address -> Turn 1 fires to BOTH
+  // Owner confirms the address -> he is ACKED, the scheduler stays silent to
+  // the client. EXPECTATION FIXED (visit audit #1): this used to assert a
+  // SECOND «ДОГОВОРЕНА ПОСЕТА» to both — the duplicate-arranged defect.
   await sched.confirmAddress(apptId);
   assert.equal(ownerMsgs.length, 2);
-  assert.ok(ownerMsgs[1].includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53'), ownerMsgs[1]);
-  assert.ok(ownerMsgs[1].includes('17.08.2026'), ownerMsgs[1]);
-  assert.equal(clientMsgs.length, 1);
-  assert.ok(clientMsgs[0].includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53'), clientMsgs[0]);
-  assert.ok(operatorLogs.some(l => l.includes('ARRANGED VISIT')), operatorLogs.join('\n'));
+  assert.ok(/Ви благодарам — адресата/u.test(ownerMsgs[1]), ownerMsgs[1]);
+  assert.ok(!ownerMsgs[1].includes('ДОГОВОРЕНА ПОСЕТА'), ownerMsgs[1]);
+  assert.equal(clientMsgs.length, 0, clientMsgs.join(' | '));
+  assert.ok(operatorLogs.some(l => l.includes('TURN 1 ARRANGED')), operatorLogs.join('\n'));
+  assert.ok(operatorLogs.some(l => l.includes('TURN 0 ADDRESS CONFIRM')), operatorLogs.join('\n'));
   assert.ok(operatorLogs.some(l => l.includes('Петре (070111222)')), operatorLogs.join('\n'));
 
   // Turns 2+3 scheduled: confirm 10:00 (afternoon visit), location 14:00.
@@ -350,21 +354,24 @@ test('visit protocol: arranged -> morning confirm (10:00 for afternoon) -> locat
   clock = new Date(2026, 7, 17, 9, 0);
   await sched.tick();
   assert.equal(ownerMsgs.length, 2);
-  assert.equal(clientMsgs.length, 1);
+  assert.equal(clientMsgs.length, 0);
 
   // 10:00 -> morning confirmation + client followup + operator turn 2.
   clock = new Date(2026, 7, 17, 10, 0);
   await sched.tick();
   assert.equal(ownerMsgs.length, 3);
   assert.ok(ownerMsgs[2].includes('АГЕНТ ЗА КОНТАКТ 076247467'), ownerMsgs[2]);
-  assert.ok(clientMsgs[1].includes('АГЕНТ ЗА КОНТАКТ 076247467'), clientMsgs[1]);
-  assert.ok(clientMsgs[2].includes('2 часа пред посетата'), clientMsgs[2]); // followup
-  assert.ok(operatorLogs.some(l => l.includes('VISIT CONFIRMATION 2 TURN')), operatorLogs.join('\n'));
+  // Turn 2 names the agent and the term — never the street (audit #2).
+  assert.ok(!ownerMsgs[2].includes('Адреса'), ownerMsgs[2]);
+  assert.ok(clientMsgs[0].includes('АГЕНТ ЗА КОНТАКТ 076247467'), clientMsgs[0]);
+  assert.ok(!clientMsgs[0].includes('Адреса'), clientMsgs[0]);
+  assert.ok(clientMsgs[1].includes('2 часа пред посетата'), clientMsgs[1]); // followup
+  assert.ok(operatorLogs.some(l => l.includes('TURN 2 MORNING CONFIRM')), operatorLogs.join('\n'));
 
   // Idempotent: another tick at 10:00 sends nothing new.
   await sched.tick();
   assert.equal(ownerMsgs.length, 3);
-  assert.equal(clientMsgs.length, 3);
+  assert.equal(clientMsgs.length, 2);
 
   // 14:00 -> the EXACT location + maps link + operator turn 3.
   clock = new Date(2026, 7, 17, 14, 0);
@@ -376,12 +383,12 @@ test('visit protocol: arranged -> morning confirm (10:00 for afternoon) -> locat
   const locMsg = ownerMsgs[3];
   assert.ok(locMsg.includes('google.com/maps'), locMsg);
   assert.ok(locMsg.includes('Адреса: Бисер'), locMsg); // written address included
-  assert.ok(clientMsgs[3].includes('ЛОКАЦИЈА'), clientMsgs[3]);
-  assert.ok(operatorLogs.some(l => l.includes('3 TURN LOCATION SENT')), operatorLogs.join('\n'));
+  assert.ok(clientMsgs[2].includes('ЛОКАЦИЈА'), clientMsgs[2]);
+  assert.ok(operatorLogs.some(l => l.includes('TURN 3 LOCATION')), operatorLogs.join('\n'));
   db.close();
 });
 
-test('visit protocol: a vague time still sends turn 1 and tells the operator the rest needs manual handling', async () => {
+test('visit protocol: a vague time schedules nothing and tells the operator the rest needs manual handling', async () => {
   const db = new Db(':memory:');
   const events = new EventStore(db);
   const owners = new OwnerStore(db);
@@ -404,7 +411,7 @@ test('visit protocol: a vague time still sends turn 1 and tells the operator the
 });
 
 // --- e2e: the funnel ends in the visit protocol ------------------------------
-test('e2e: arranged visit fires ДОГОВОРЕНА ПОСЕТА to owner + client and the operator log', async () => {
+test('e2e: the arranged line goes to the client ONCE at booking, and the owner gets Turn 0', async () => {
   const cfg = loadConfig();
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
@@ -458,18 +465,25 @@ test('e2e: arranged visit fires ДОГОВОРЕНА ПОСЕТА to owner + cli
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'pending'); // visit confirmed
 
-  // Turn 0: address confirm sent to OWNER (not client yet)
+  // Turn 0: address confirm sent to OWNER (not client)
   assert.ok(ownerMsgs.some(m => m.includes('Ми треба потврда')), ownerMsgs.join('\n'));
   assert.ok(ownerMsgs.some(m => m.includes('google.com/maps')), ownerMsgs.join('\n'));
-  // Client does NOT have ДОГОВОРЕНА ПОСЕТА yet (waiting for owner address confirm)
+
+  // THE ARRANGED LINE IS SENT EXACTLY ONCE — by the handler at booking, in the
+  // booking format (`buildVisitConfirmation`). EXPECTATION FIXED (visit audit
+  // #1): this used to assert a scheduler-side re-send after the owner
+  // confirmed the address, i.e. two formats for one event.
+  const arranged = sent.filter(t => /Договорена посета на стан ЕБ 53/iu.test(t));
+  assert.equal(arranged.length, 1, sent.join('\n---\n'));
   assert.ok(!clientMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА')), clientMsgs.join('\n'));
 
-  // Owner confirms address -> Turn 1 fires to BOTH
+  // Owner confirms the address -> ACK only; the client hears nothing new.
   const apptId2 = new AppointmentStore(db).listByChat(chatId)[0].id;
   await sched.confirmAddress(apptId2);
-  assert.ok(clientMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53')), clientMsgs.join('\n'));
-  assert.ok(ownerMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 53')), ownerMsgs.join('\n'));
-  assert.ok(operatorLogs.some(l => l.includes('ARRANGED VISIT')), operatorLogs.join('\n'));
+  assert.ok(ownerMsgs.some(m => /Ви благодарам — адресата/u.test(m)), ownerMsgs.join('\n'));
+  assert.ok(!clientMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА')), clientMsgs.join('\n'));
+  assert.equal(sent.filter(t => /Договорена посета на стан ЕБ 53/iu.test(t)).length, 1, sent.join('\n---\n'));
+  assert.ok(operatorLogs.some(l => l.includes('TURN 1 ARRANGED')), operatorLogs.join('\n'));
   // turns exist for the timed protocol
   const turns = db.db.prepare(`SELECT turn FROM visit_turns`).all() as any[];
   assert.ok(turns.some(t => t.turn === 'confirm') && turns.some(t => t.turn === 'location'));
@@ -574,9 +588,11 @@ test('e2e regression: refused-time ping-pong counters СРЕДА ВО 6, and the
   const confirmed = await sched.confirmAddress(apptId, addrReply!.address);
   assert.equal(confirmed, true, 'confirmAddress must resolve the pending Turn-0');
 
-  // 6) After the correction: Turn 1 fires to BOTH, correction logged, and the
-  //    corrected address is stored on the appointment.
-  assert.ok(clientMsgs.some(m => m.includes('ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 78')), clientMsgs.join(' | '));
+  // 6) After the correction: the correction is logged, the owner is acked and
+  //    the corrected address is stored on the appointment. The client is NOT
+  //    sent a second arranged message (audit #1) — Turn 1 went out at booking.
+  assert.ok(!clientMsgs.some(m => /ДОГОВОРЕНА ПОСЕТА/u.test(m)), clientMsgs.join(' | '));
+  assert.ok(ownerMsgs.some(m => /корегираната адреса/u.test(m)), ownerMsgs.join(' | '));
   assert.ok(operatorLogs.some(l => l.includes('ADDRESS CORRECTED')), operatorLogs.join(' | '));
   const after = db.db.prepare(`SELECT corrected_address FROM appointments WHERE id = ?`).get(apptId) as { corrected_address: string | null };
   assert.equal(after.corrected_address, 'Vasil Stefanovski 16', JSON.stringify(after));

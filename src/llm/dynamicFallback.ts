@@ -57,6 +57,87 @@ const FORBIDDEN_FACTS: RegExp[] = [
   /(?<![\p{L}])(?:на|na|во|vo)\s+(?:\d{1,2}\.?|прв\p{L}*|втор\p{L}*|трет\p{L}*|четврт\p{L}*|петти\p{L}*|шести\p{L}*|приземје|поткровј\p{L}*|prv\p{L}*|vtor\p{L}*|tret\p{L}*|cetvrt\p{L}*)\s+(?:кат|kat)\p{L}*/iu,
 ];
 
+/** Serbian-only words. Whole-word, Cyrillic, so ordinary Macedonian is never
+ *  matched. Kept small on purpose: only words with no Macedonian meaning. */
+const SERBIAN_ONLY_RE = /(?<![\p{L}])(?:радо|радосн\p{L}*)(?![\p{L}])/iu;
+
+/** --- THE BORROWED COMMITMENT RULE (the [01:51] capture) -------------------
+ *
+ *  «KOMPLICIRANI STE» during term negotiation was answered by a generated
+ *  sentence that promised the owner would be asked about **четврток во 17:00**
+ *  — a term belonging to that one client's negotiation. The row was stored
+ *  (it passed every fact rule: a day and an hour are not an amount, an EB, an
+ *  area or a floor) and the fuzzy recall is state-agnostic, so ANY later client
+ *  whose wording scored 0.55 against «KOMPLICIRANI STE» could be told the
+ *  owner is being asked about Thursday 17:00. A stored sentence must be true
+ *  for any client; a calendar entry never is.
+ *
+ *  So: a day or a clock in a dynamic answer is a violation UNLESS the client's
+ *  own message names it (the echo rule — «дали може четврток во 17?» must
+ *  still be answered with «…за четврток во 17:00»). Comparison is by CANONICAL
+ *  value, not by spelling: the day maps to mon…sun/today/tomorrow in either
+ *  script, and the clock maps to an hour bucket where 6 and 18 are the same
+ *  hour (the visit-side reader has always resolved a bare hour that way, and
+ *  a client writing «во 6» means the afternoon).
+ */
+const DAY_FORMS: Array<{ key: string; re: RegExp }> = [
+  { key: 'mon', re: /(?<![\p{L}])(?:понеделник|ponedelnik|ponedelak|ponedelok)\p{L}*/giu },
+  { key: 'tue', re: /(?<![\p{L}])(?:вторник|vtornik|vtornok)\p{L}*/giu },
+  { key: 'wed', re: /(?<![\p{L}])(?:среда|sreda)\p{L}*/giu },
+  { key: 'thu', re: /(?<![\p{L}])(?:четврток|cetvrtok|chetvrtok|четврт[ао]к?)\p{L}*/giu },
+  { key: 'fri', re: /(?<![\p{L}])(?:петок|petok)\p{L}*/giu },
+  { key: 'sat', re: /(?<![\p{L}])(?:сабота|sabota)\p{L}*/giu },
+  { key: 'sun', re: /(?<![\p{L}])(?:недела|nedela)\p{L}*/giu },
+  { key: 'today', re: /(?<![\p{L}])(?:денес|denes|danas)\p{L}*/giu },
+  { key: 'tomorrow', re: /(?<![\p{L}])(?:утре|utre|утрешн\p{L}*)\p{L}*/giu },
+  { key: 'after', re: /(?<![\p{L}])(?:задутре|zadutre)\p{L}*/giu },
+];
+
+/** An explicit clock (17:00, 17.00 — and a date like 10.11, which is just as
+ *  case-bound) or a prepositioned hour («во 6», «околу 17 часот»). A unit
+ *  noun right after the number keeps it out: «во 5 минути», «на 5 кат»,
+ *  «за 3 дена» are durations and floors, not appointments. */
+const CLOCK_EXPLICIT_RE = /(?<![\p{L}\d:])(\d{1,2})[:.](\d{2})(?![\d])/gu;
+const CLOCK_WORD_RE = /(?<![\p{L}])(?:во|vo|околу|okolu|на|na|за|za)\s+(\d{1,2})(?![\p{L}\d])(?!\s*[-–—]\s*\d)(?!\s*(?:минути|минута|minuti|дена|дни|години|godini|месеци|meseci|реченици|реда|пати|pati|кат|kat|м2|м²|%))/giu;
+
+/** Hour bucket: 6 and 18 are the same appointment hour. */
+function hourBucket(h: number, m: string): string {
+  const bucket = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${bucket}:${m}`;
+}
+
+function commitmentsIn(text: string): { days: Set<string>; clocks: Set<string> } {
+  const days = new Set<string>();
+  const clocks = new Set<string>();
+  for (const { key, re } of DAY_FORMS) {
+    re.lastIndex = 0;
+    if (re.test(text)) days.add(key);
+  }
+  CLOCK_EXPLICIT_RE.lastIndex = 0;
+  for (const m of text.matchAll(CLOCK_EXPLICIT_RE)) {
+    const h = Number(m[1]);
+    if (h <= 24) clocks.add(hourBucket(h, m[2]));
+  }
+  CLOCK_WORD_RE.lastIndex = 0;
+  for (const m of text.matchAll(CLOCK_WORD_RE)) {
+    const h = Number(m[1]);
+    if (h <= 24) clocks.add(hourBucket(h, '00'));
+  }
+  return { days, clocks };
+}
+
+/** Does this text pin a day or an hour the client never named? THE single
+ *  reader for the [01:51] rule — the dynamic validator above and the
+ *  protocol-state prose guard in Responder.escalate both ask it, so a
+ *  tightening of the day/clock vocabulary cannot drift between them. */
+export function pinsBorrowedCommitment(answer: string, userMsg?: string): boolean {
+  const committed = commitmentsIn(answer);
+  if (committed.days.size === 0 && committed.clocks.size === 0) return false;
+  const fromClient = commitmentsIn(userMsg ?? '');
+  return [...committed.days].some(d => !fromClient.days.has(d))
+    || [...committed.clocks].some(c => !fromClient.clocks.has(c));
+}
+
 /** What may be echoed from session slots — client-established context only. */
 function knownFacts(session: ChatSession): string[] {
   const facts: string[] = [];
@@ -131,6 +212,10 @@ export function validateDynamicAnswer(answer: string, userMsg?: string, opts?: {
   // breach, not a wording choice — rejected at generation AND on recall, so
   // tightening this rule retroactively neutralises rows stored before it.
   if (revealsMachineIdentity(answer)) violations.push('exposes a machine identity or refuses an age');
+  // SERBIAN GUARD (the «Радо ќе ги проверам достапните» capture): Gemini answered
+  // in Serbian register. «Радо» is a Serbian word, not Macedonian. Rejected at
+  // generation AND on recall, so rows already stored in bank_dynamic stop serving.
+  if (SERBIAN_ONLY_RE.test(answer)) violations.push('uses a Serbian-only word (радо)');
   for (const re of FORBIDDEN_FACTS) if (re.test(answer)) { violations.push('names a concrete fact (EB/amount/address/rooms/area/year/floor)'); break; }
   // THE SERVICE QUESTION PRESUMES NO TYPE (the [21:20] capture): asking
   // «купување или изнајмување?» over «стан» claims a fact the client never
@@ -139,6 +224,13 @@ export function validateDynamicAnswer(answer: string, userMsg?: string, opts?: {
   if (!(opts?.typeKnown ?? typeEstablished({}, userMsg))
     && ASKS_SERVICE_RE.test(answer) && namesPropertyType(answer)) {
     violations.push('names a property type the client never mentioned (ask купување/изнајмување on недвижност)');
+  }
+  // THE BORROWED COMMITMENT (the [01:51] capture): a day or a clock the client
+  // never named is that client's calendar, not ours to store. Checked on
+  // generation, on recall, in the row audit AND (via the same predicate) on the
+  // protocol-state escalation prose — one rule, one reader.
+  if (pinsBorrowedCommitment(answer, userMsg)) {
+    violations.push('pins a day/hour the client never named (a stored answer must be true for any client)');
   }
   if (userMsg && FACTUAL_ASK_RE.test(userMsg) && GENERIC_PITCH_RE.test(answer)
     && !UNCERTAINTY_RE.test(answer)) {
@@ -196,6 +288,17 @@ export function shouldTryDynamic(session: ChatSession, text: string): boolean {
   if (detectPriceAsk(t) || detectAvailabilityAsk(t) || detectOwnerContact(t) || detectContactRequest(t)) return false;
   if (detectVisitInterest(t)) return false;
   return true;
+}
+
+/** THE PROTOCOL DOOR — may this turn be answered by generated prose at all?
+ *
+ *  `shouldTryDynamic` has always refused the visit/fee/contact ladder; the
+ *  ESCALATION door (`Responder.escalate`) did not ask, and that is how the
+ *  [01:51] capture banked a scheduling sentence. The visit ladder owns its own
+ *  counters, its own relay and its own term question — a model paraphrasing
+ *  them can promise a term nobody proposed. One predicate, both entries. */
+export function dynamicAllowedHere(session: ChatSession): boolean {
+  return !inProtocolState(session);
 }
 
 export interface DynamicResult {

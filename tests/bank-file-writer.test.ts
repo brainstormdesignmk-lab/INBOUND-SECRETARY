@@ -35,7 +35,26 @@ import {
   parseExistingBank, extractKeyComments, extractContextHeaderComments, renderBankFile,
 } from '../src/scripts/generateResponses';
 
-const ROOT = path.join(__dirname, '..');
+/** The REAL bank source lives in the repo root, which is NOT this file's
+ *  parent when the compiled harness runs the suite: `dist-test/tests` resolves
+ *  `..` to `dist-test/`, where no `src/` exists — so this test failed under
+ *  `npm run test:c` while passing under `npm test`, and the compiled run
+ *  reported it as a product failure. Every other source-reading test
+ *  (route-coverage, bank-code-source, bank-fleet, bank-dynamic-tui,
+ *  place-lookup-cache) already walks up to the package.json; this one had been
+ *  left behind. */
+function findProjectRoot(from: string): string {
+  let dir = from;
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(path.join(dir, 'src'))) return dir;
+    const parent = path.resolve(dir, '..');
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`cannot find project root from ${from}`);
+}
+
+const ROOT = findProjectRoot(__dirname);
 const BANK = path.join(ROOT, 'src', 'data', 'responses.ts');
 const src = fs.readFileSync(BANK, 'utf8');
 

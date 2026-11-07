@@ -21,6 +21,11 @@ export interface SlotData {
   business?: boolean;           // commercial property intent
   house?: boolean;              // куќа — a residential request that is NOT a стан
   budget?: string;
+  /** THE €/m² CEILING (the [02:09] capture): «STANCE VO AERODROM PO 1500E ZA
+   *  KVADRAT» caps the RATE. A money criterion of its own: the pool is filtered
+   *  by price ÷ м² across EVERY type, and the copy speaks «до 1.500 евра за м²»
+   *  — never a 1.500 € total the client never gave. */
+  sqmRate?: number;
   /** ALTERNATIVE BUDGET (the [20:08] capture): «MOZE SO EDNA DO 80000 ILI DVE
    *  DO 140000» — ONE card up to `single`, OR TWO cards whose TOTAL stays
    *  inside `pair`. slots.budget carries `single` (the STRICTER figure every
@@ -89,6 +94,11 @@ export interface SlotData {
   dualDrained?: boolean;
   dualEmptyKey?: string;
   dualEmptyTold?: string;
+  /** The empty leg is empty of UNSHOWN rows only — its stock EXISTS and was
+   *  already served (the [19:20] capture: the buy pair went out first, then
+   *  the paired serve called the segment «немам»). Decides «сè што имав» vs
+   *  «немам» in the dual opener. */
+  dualEmptyShown?: boolean;
   anywhere?: boolean;           // "било каде" — no location preference (satisfies location)
   sizeWaived?: boolean;        // "големината не ми е битна" — skip bedrooms question
   waiverAcked?: boolean;       // the banked discovery.waiver.ack intro was served for THIS waiver
@@ -104,6 +114,13 @@ export interface SlotData {
   plac?: boolean;              // "плац за градење" — land plot category
   yard?: boolean;              // "со двор/дворче/градина" — needs outdoor space (implies house)
   propertyId?: number;          // EB of the property currently discussed
+  /** THE FLAT THE CLIENT NAMED (the [19:27] capture): an EB, a price, a type
+   *  noun or a landmark mention — the mention binder writes it whenever it
+   *  binds ONE property. It outranks `presentedIds[last]` in the location
+   *  lanes (the batch tail answered «na koja adresa e?» about the OTHER card
+   *  after the client had already chosen one), while every un-named ask keeps
+   *  the established last-presented rule. */
+  askedEb?: number;
   interestedPropertyId?: number; // EB the client praised/anchored (funnel-arming)
   lastGhostEb?: number;         // last EB served the not-found pivot — where-is
                                  // follow-ups still NAME it (the where-stuck fix);

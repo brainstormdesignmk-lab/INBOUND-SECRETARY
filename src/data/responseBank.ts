@@ -146,8 +146,10 @@ export const FIXED_SEEDS: Record<string, string[]> = {
   // upward mirror of the cheaper intros. Direction wording only: the batch
   // itself is strictly pricier than the anchor, so no amount is named.
   'pricier.search.intro': [
-    'Разбира се — еве нешто поскапо со истите карактеристики, почнувајќи од најскапите што ги имам:',
-    'Тогас еве повисок селекциони опсег — исти критериуми, поголем буџет:',
+    // «Се разбира», never the Serbian calque «Разбира се» (the [00:26]
+    // capture read it as broken Macedonian). The idiom is impersonal.
+    'Се разбира — еве нешто поскапо со истите карактеристики, почнувајќи од најскапите што ги имам:',
+    'Тогаш еве повисок селекционен опсег — исти критериуми, поголем буџет:',
   ],
   // CHEAPER CHOICE (the [14:46] rule): pool A (cheaper + same characteristics
   // + same naselba) is empty — Lina ASKS which fallback the client wants
@@ -180,7 +182,42 @@ export const FIXED_SEEDS: Record<string, string[]> = {
     'Извинете за недоразбирањето — карактеристиките на предлог-списокот не беа вашите. Еве станови со истите карактеристики, а поевтини:',
     'Извинете за мешаницата — такви типови немаше да Ви покажувам тука. Еве станови со истите карактеристики, а поевтини:',
   ],
+  // THE AVAILABILITY ACK (the [23:41] capture) — the owner answered the FIRST
+  // half of the compound ask («DOSTAPNA E DA»): the flat is available, the term
+  // is still open. Two keys, because the two meanings differ: a term is on the
+  // table (ask whether it suits) or nobody named one (ask for it).
+  //
+  // OWNER-facing, so the pool MUST rotate: the owner is ONE human who re-reads
+  // the same pane on every viewing — a single fixed sentence makes the third
+  // appointment read like a script to the one person whose trust this line
+  // exists to earn. Hand-written (not generated): the wording is protocol, and
+  // every variant must keep «недвижноста» (feminine — the generic noun agrees
+  // for стан, куќа and плац alike) and end on the open question.
+  // {prop} fills as « (Евидентен број 54)» — or "" when the flat is unknown;
+  // {term} fills with the RENDERED term (renderVisitTerm), never the raw words.
+  'owner.availability.ack.term': [
+    'Одлично, значи недвижноста{prop} е достапна. Дали Ви одговара посета во {term}, или имате друг предлог?',
+    'Добро, недвижноста{prop} е слободна. Дали посета во {term} Ви одговара, или би предложиле друг термин?',
+    'Разбрав — недвижноста{prop} е достапна. Останува само терминот: дали {term} е во ред, или имате друг предлог?',
+    'Благодарам, значи недвижноста{prop} е достапна. Дали {term} Ви одговара за посетата, или да бараме друг термин?',
+  ],
+  // No term on the table at all (an «ok» with nothing to accept): confirm what
+  // he said and ask HIM for the term — never a fabricated clock.
+  'owner.availability.ack.noterm': [
+    'Одлично, значи недвижноста{prop} е достапна. Кој термин Ви одговара за посета?',
+    'Добро, недвижноста{prop} е слободна. Кој ден и во колку часот Ви одговараат за посета?',
+    'Разбрав, недвижноста{prop} е достапна. Кога би Ви одговарало да ја видите?',
+    'Благодарам — недвижноста{prop} е достапна. Предложете ми термин: кој ден Ви одговара?',
+  ],
 };
+
+/** THE SEED LAYER of a key — the generated bank, else the hand-written policy
+ *  seeds. ONE expression for pickVariant, the contract sweep and the tests: a
+ *  data-level check that read only RESPONSE_BANK would silently pass a policy
+ *  pool whose seeds live in FIXED_SEEDS. */
+export function seedVariants(key: string): string[] {
+  return RESPONSE_BANK[key] ?? FIXED_SEEDS[key] ?? [];
+}
 
 /**
  * ROTATING POOL CONTRACTS — the one MEANING every variant of a pool must
@@ -209,6 +246,14 @@ export const FIXED_SEEDS: Record<string, string[]> = {
  *    «денот на посетата», «денот на закажаното гледање», «на самиот ден» or
  *    «непосредно пред» — a random roll that serves a phrase outside the
  *    family must still answer the client's meeting-spot question honestly.
+ *  - owner.availability.ack.term / owner.availability.ack.noterm — the
+ *    OWNER earned the first half of the compound ask («достапна е»); every
+ *    variant confirms the AVAILABILITY (достапна/слободна), keeps the TERM as
+ *    the open question and ends on it. The term form additionally asks whether
+ *    the term SUITS him and invites another proposal — a variant that accepts
+ *    the term on his behalf would close a deal he never agreed to (the [23:41]
+ *    bug), so «одговара»/«во ред» + «друг предлог»/«друг термин» are required.
+ *    The no-term form asks WHICH term (кој/кога) and nothing else.
  *  - discovery.waiver.ack — the client waived a size requirement
  *    («небитно»). Every variant ACKNOWLEDGES the waived criterion by naming
  *    it («големината …», «квадратура …») before the cards — a variant that
@@ -216,6 +261,13 @@ export const FIXED_SEEDS: Record<string, string[]> = {
  *    така има најмногу избор» in place of any size acknowledgement).
  */
 export const POOL_CONTRACTS: Record<string, RegExp> = {
+  'owner.availability.ack.term':
+    /^(?=[\s\S]*(?:достапн|слободн))(?=[\s\S]*(?:одговара|во\s+ред))(?=[\s\S]*друг\s+(?:предлог|термин))(?=[\s\S]*\?\s*$)/iu,
+  // The no-term form must ASK FOR THE TERM — by name («кој термин»), by day
+  // («кој ден»), by clock («во колку часот») or by the wh-word («кога»). One
+  // of them is the question; a variant with none of them confirms and stops.
+  'owner.availability.ack.noterm':
+    /^(?=[\s\S]*(?:достапн|слободн))(?=[\s\S]*(?:термин|кога|кој\s+ден|колку\s+часот))(?=[\s\S]*\?\s*$)/iu,
   'discovery.waiver.ack': /големин[аата]|квадратур/iu,
   // THE EMPTY-SEARCH PAIRS. Both forms say the SAME two things — nothing fits
   // the criteria HERE — and then offer a way out (keep the criteria for later,
@@ -248,7 +300,9 @@ export function matchesPoolContract(key: string, text: string | undefined): bool
 export function poolContractViolations(key: string): string[] {
   const re = POOL_CONTRACTS[key];
   if (!re) return [];
-  return (RESPONSE_BANK[key] ?? []).filter(v => !re.test(v));
+  // BOTH seed layers: a documented contract must cover the hand-written policy
+  // pools too — those are the frozen ones an operator cannot reword by accident.
+  return seedVariants(key).filter(v => !re.test(v));
 }
 
 /** Pick a variant for a bank key, or undefined when the key has no variants yet.
@@ -256,7 +310,7 @@ export function poolContractViolations(key: string): string[] {
  *  variants are LIVE without rebuild; the seed layer is the boot fallback if
  *  the DB is corrupted. Repeat avoidance spans BOTH layers. */
 export function pickVariant(key: string, opts: PickOpts = {}): string | undefined {
-  const seed = RESPONSE_BANK[key] ?? FIXED_SEEDS[key] ?? [];
+  const seed = seedVariants(key);
   // Owner rule (2026-10-19): "имот" means land/a plot in this agency's usage —
   // every general property answer says "недвижност". Learned rows that predate
   // the rule must not keep serving the old vocabulary until the next relearn
@@ -274,11 +328,28 @@ export function pickVariant(key: string, opts: PickOpts = {}): string | undefine
   // much of that coverage the loop grew (see learnedRate).
   if (variants.length === 0) { learned?.metric(key, false); return undefined; }
   const recent = new Set((opts.recent ?? []).map(normalizeVariant));
-  const fresh = variants.filter(v => !recent.has(normalizeVariant(v.text)));
-  const pool = fresh.length > 0 ? fresh : variants;
+  // COMPARE THE FILLED TEXT, NOT THE TEMPLATE. `recent` holds what was SERVED
+  // («недвижноста (Евидентен број 54) е достапна», «Во Центар…»), while the
+  // template still carries {prop}/{term}/{location} — so comparing templates
+  // matched nothing and repeat avoidance was silently DEAD for every pool with
+  // a placeholder. The owner pane served the same availability ack twice in a
+  // row because of it. fillVars is pure (and idempotent for the „на Водно“
+  // rewrite), so filling the candidates costs nothing.
+  const served = variants.map(v => ({ ...v, text: fillVars(v.text, opts.vars) }));
+  // THE CONTRACT IS ENFORCED AT SERVE TIME, not just in the tests: a documented
+  // pool's variants rotate and LEARNED rows join them live, so a variant that
+  // drops the pool's one meaning (e.g. the availability ack's open term
+  // question) must never reach the screen. A pool whose every variant violates
+  // its contract is a data bug, not a reason to serve nothing — fall back to
+  // the whole pool and let the audits report it.
+  const contract = POOL_CONTRACTS[key];
+  const onContract = contract ? served.filter(v => contract.test(v.text)) : served;
+  const candidates = onContract.length > 0 ? onContract : served;
+  const fresh = candidates.filter(v => !recent.has(normalizeVariant(v.text)));
+  const pool = fresh.length > 0 ? fresh : candidates;
   const chosen = pool[Math.floor(Math.random() * pool.length)];
   learned?.metric(key, true, chosen.layer);
-  return fillVars(chosen.text, opts.vars);
+  return chosen.text;
 }
 
 /**

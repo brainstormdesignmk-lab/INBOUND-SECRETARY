@@ -24,7 +24,16 @@ export const SUTEREN_MEANING =
  *  basement and never "underground". */
 export const SUTEREN_DUG_IN = 'Делумно вкопан.';
 
-export type GlossaryAsk = 'suteren-meaning' | 'suteren-dug-in';
+/** PODRUM as the agency's listings use it: a technical basement dug into the
+ *  slope — NOT a basement in the classic sense (the #4 field line). */
+export const PODRUM_MEANING =
+  'Подрумот кај нас е технички простор — вкопан е во падината, но не е подрум во класична смисла.';
+
+export type GlossaryAsk = 'suteren-meaning' | 'suteren-dug-in' | 'podrum-meaning';
+
+// The podrum term. Probed on the normalized text ("podrum" → подрум).
+const PODRUM_RE = /подрум/iu;
+const PODRUM_BARE_CUE_RE = /(?:^|[\s,.!?])(?:значи|знаци|значат)(?=[\s?!.,]|$)/iu;
 
 // The term itself. Probed on the normalized (Cyrillic) text.
 const SUTEREN_RE = /сутерен/iu;
@@ -67,6 +76,10 @@ export function detectGlossaryAsk(text: string): GlossaryAsk | undefined {
   // A definition needs BOTH the scaffold and the term: "што значи тоа
   // сутерен?", "објасни ми што е сутерен", "не знам што е сутерен".
   if (SUTEREN_RE.test(t) && DEFINITION_CUE_RE.test(t)) return 'suteren-meaning';
+  // "ZNACI PODRUM?" / "шо значи подрум" — a definition of the term, not the
+  // feature probe "има ли подрум?" (already routed away above).
+  // Bare "ZNACI PODRUM?" (no question word) is also a definition ask.
+  if (PODRUM_RE.test(t) && (DEFINITION_CUE_RE.test(t) || PODRUM_BARE_CUE_RE.test(t))) return 'podrum-meaning';
   return undefined;
 }
 
@@ -89,6 +102,7 @@ export function answerGlossary(text: string, ctx: GlossaryContext = {}): string 
   switch (detectGlossaryAsk(text)) {
     case 'suteren-meaning': return SUTEREN_MEANING;
     case 'suteren-dug-in': return ctx.suteren === true ? SUTEREN_DUG_IN : undefined;
+    case 'podrum-meaning': return PODRUM_MEANING;
     default: return undefined;
   }
 }

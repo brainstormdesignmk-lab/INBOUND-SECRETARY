@@ -21,7 +21,7 @@
 
 import { pickVariant } from '../data/responseBank';
 
-export type PersonalAsk = 'name' | 'age' | 'compliment';
+export type PersonalAsk = 'name' | 'age' | 'compliment' | 'origin';
 
 const BOUNDARY = "(?:^|[\\s,.!?„“\"'(])";
 
@@ -58,6 +58,25 @@ const COMPLIMENT_RE = new RegExp(
   'iu',
 );
 
+/** A question about WHERE SHE IS FROM ("OD KOE SELO SI?" — the [22:52]
+ *  capture). The client was served an improvised biography ("Живеам и работам
+ *  тука во Скопје …") that read as an invitation to keep probing. The owner
+ *  ruled the wording: her origin is nobody's business, she says so plainly and
+ *  offers the help she IS there for.
+ *
+ *  Tight on purpose: the origin noun must be followed by the 2nd person «si»,
+ *  so a property question («од кое место е станот?») can never land here. */
+const ORIGIN_ASK_RE = new RegExp(
+  '(?:' + BOUNDARY + ')(?:' +
+    '(?:od|од)\\s+(?:koe|кое|koj|кој|kade|каде)\\s+(?:selo|село|mesto|место|grad|град|drzava|држава)\\s+(?:si|си)' +
+    '|(?:od|од)\\s+(?:kade|каде)\\s+(?:si|си)' +
+    '|(?:kade|каде)\\s+(?:si|си)\\s+(?:roden[ao]|роден[ао])' +
+    '|(?:ti|ти)\\s+(?:od|од)\\s+(?:kade|каде)\\s+(?:si|си)' +
+    '|(?:od|од)\\s+(?:koja|која)\\s+(?:drzava|држава|familija|фамилија)\\s+(?:si|си)' +
+  ')(?=[\\s?!.,]|$)',
+  'iu',
+);
+
 /** Property/agency vocabulary — a line naming one of these is business talk,
  *  never a compliment to the agent or a question about her years. */
 const BUSINESS_VETO_RE = /(?:stan|стан|kukj|куќ|imov|имот|nedviznost|недвижност|cena|цена|ceni|цени|zgrad|зград|proekt|проект|sopstvenik|сопственик|agent|аген|kvadrat|квадрат|спалн|spaln|poset|посет|ulic|улиц|naselb|населб|bulevar|булевар|mesto|место|grad|град)/iu;
@@ -77,6 +96,10 @@ export function revealsMachineIdentity(text: string): boolean {
 export function detectPersonalAsk(text: string): PersonalAsk | undefined {
   const flat = text.trim().replace(/\s+/g, ' ');
   if (!flat) return undefined;
+  // ORIGIN FIRST: the business veto lists «grad»/«mesto», and «OD KOE MESTO SI?»
+  // is her own origin, not a place question — the possessive «si» is what the
+  // veto cannot see. Every other origin noun is harmless here anyway.
+  if (ORIGIN_ASK_RE.test(flat)) return 'origin';
   if (BUSINESS_VETO_RE.test(flat)) return undefined;
   if (NAME_ASK_RE.test(flat)) return 'name';
   if (AGE_ASK_RE.test(flat)) return 'age';
@@ -95,11 +118,18 @@ const FALLBACK: Record<PersonalAsk, string> = {
   name: 'Јас сум Лина, од агенцијата Метрополис. Како можам да Ви помогнам?',
   age: 'Годините не ги кажувам — но со задоволство ќе Ви помогнам да најдете добра недвижност.',
   compliment: 'Ви благодарам, тоа е многу љубезно! Со задоволство продолжувам да Ви помагам.',
+  // The owner's own wording — no bank key on purpose: this line is a POLICY
+  // statement, and rotating it would soften a boundary exactly like rotating
+  // the fee ladder's rungs would.
+  origin: 'Од каде сум и што сум не би требало да Ве интересира, ниту сум должна да Ви објаснувам. '
+    + 'Тука сум за да Ви помогнам во изборот на недвижност. Повелете.',
 };
 
 /** The deterministic persona reply. Never mentions a machine identity, never
  *  states an age, and never turns into a property pitch the funnel did not
  *  ask for. */
 export function personalReply(ask: PersonalAsk, recent: string[] = []): string {
+  // The boundary line has ONE authorised wording (see FALLBACK.origin).
+  if (ask === 'origin') return FALLBACK.origin;
   return pickVariant(`personal.${ask}`, { recent }) ?? FALLBACK[ask];
 }

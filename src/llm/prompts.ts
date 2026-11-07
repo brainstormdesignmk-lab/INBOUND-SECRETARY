@@ -586,8 +586,45 @@ export function buildOwnerWholeDayRelay(refusedTime: string, day: string): strin
 
 export function buildOwnerAskAgain(eb: number, opts?: OwnerAskProps): string {
   const ptd = opts?.propertyTypeDef;
-  const dost = opts?.dostapen ?? 'достапен';
+  // THE SUBJECT DECIDES THE AGREEMENT (the [23:40] capture): with no
+  // propertyTypeDef the sentence names «недвижноста» — feminine — so the old
+  // masculine default produced «дали недвижноста е достапен». The TUI's re-ask
+  // passes no props at all, so this branch was wrong on EVERY owner re-ask.
+  // A caller that brings a definite noun still owns its own adjective.
+  const dost = ptd ? (opts?.dostapen ?? 'достапен') : 'достапна';
   return `Не разбрав. ${ptd ? `Дали ${ptd}` : `Евидентен број ${eb} — дали недвижноста`} е ${dost} и дали го прифаќате предложениот термин за посета?`;
+}
+
+/**
+ * THE AVAILABILITY ACK (the [23:41] capture): the owner answered the FIRST
+ * half of the compound ask («DOSTAPNA E DA») — the flat is available, the
+ * term is not answered yet. Lina confirms what he said and asks ONLY the term
+ * question; the client hears nothing and no visit is booked until the term is
+ * defined. The subject is «недвижноста» (feminine) for every property type —
+ * the generic noun keeps the agreement right for стан, куќа and плац alike.
+ *
+ * BANK-SERVED, two keys: `owner.availability.ack.term` when a term is on the
+ * table, `owner.availability.ack.noterm` when nobody named one. Both carry a
+ * POOL CONTRACT (confirms availability + ends on the term question), so a
+ * learned or reworded variant cannot drop the question and re-open this bug.
+ * `recent` is the OWNER pane's previous lines — never the client's history
+ * (see InboundHandler.ownerRecent). The code-built sentence is the fallback
+ * for a bank that has not loaded yet, never the primary.
+ */
+export function buildOwnerAvailabilityAck(eb?: number, term?: string, recent: string[] = []): string {
+  const prop = eb !== undefined ? ` (Евидентен број ${eb})` : '';
+  const shown = term ? renderVisitTerm(term) : '';
+  const banked = pickVariant(
+    shown ? 'owner.availability.ack.term' : 'owner.availability.ack.noterm',
+    { recent, vars: { prop, term: shown } },
+  );
+  if (banked) return banked;
+  if (!shown) {
+    return `Одлично, значи недвижноста${prop} е достапна. Кој термин Ви одговара за посета?`;
+  }
+  // The term question stays OPEN and ends on a question mark (the owner-answer
+  // contract: every reply to the owner carries the ask back).
+  return `Одлично, значи недвижноста${prop} е достапна. Дали Ви одговара посета во ${shown}, или имате друг предлог?`;
 }
 
 export const FEE_GRACEFUL_CLOSE =
@@ -794,6 +831,31 @@ function askQuestion(key: string, fallback: string, recent: string[]): string {
 // neighbourhood" and still ask the location question with neighbourhood variants.
 const CITY_LEVEL_LOCATIONS = /^(?:Скопје|Skopje|скопjе|skopje)$/iu;
 
+/** THE LOCATION CRITERION — one reader for the ask AND the serve.
+ *
+ *  `buildDiscoveryAsk` has always known that a CITY-LEVEL value («Скопје»,
+ *  usually inferred, never said) is not an answer to «во кој дел од градот?»;
+ *  the serve-side `slotsComplete()` read the raw slot. The two disagreed, and
+ *  that is exactly the shape of the [00:36] capture: the funnel asked «во која
+ *  населба или дел од градот?», the client answered only the TYPE («DUKJAN MI
+ *  TREBA»), and the serve counted the inferred «Скопје» as the area — a pair
+ *  went out for a neighbourhood nobody had named. A «било каде» waiver and a
+ *  resolved landmark anchor ARE location answers (the [16:11]/[23:47] rules),
+ *  so they stay here.
+ */
+export function locationCriterionKnown(slots: SlotData): boolean {
+  return (!!slots.location && !CITY_LEVEL_LOCATIONS.test(slots.location))
+    || !!slots.anywhere
+    || !!(slots.poiAnchor || slots.poiArea);
+}
+
+/** THE SERVICE CRITERION — same one reader. Only the CLIENT's own declaration
+ *  (or a dual deal) answers «купување или изнајмување?»; a market pinned from a
+ *  served row (`serviceInferred`, the [10:16] rule) does not. */
+export function serviceCriterionKnown(slots: SlotData): boolean {
+  return (!!slots.service && !slots.serviceInferred) || !!slots.dualService;
+}
+
 export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): string {
   const business = !!slots.business;
   const house = !!slots.house;
@@ -807,9 +869,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // and the funnel stalls instead of asking bedrooms + budget.
   // A CITY-LEVEL value ("Скопје", typically inferred, never said) is NOT a
   // location answer — unless the anchor already named the area.
-  const anchored = !!(slots.poiAnchor || slots.poiArea);
-  const locationKnown = (!!slots.location && !CITY_LEVEL_LOCATIONS.test(slots.location))
-    || anywhere || anchored;
+  const locationKnown = locationCriterionKnown(slots);
   // DUAL SERVICE IS AN ANSWERED SERVICE (the [23:10] capture: «MOZE DA GO
   // IZNAJMAM , A AKO IMA DOBRA CENA MOZE I DA KUPAM»). In dual mode
   // slots.service is deliberately retired (a single segment would pin every
@@ -822,8 +882,8 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // reading the pin as an answered criterion is what turned the next turn into
   // «колку спални соби…» for an apartment nobody named. Only HIS declaration
   // (or a dual deal) answers the market question.
-  const serviceKnown = (!!slots.service && !slots.serviceInferred) || dual;
-  const knownAny = !!(serviceKnown || locationKnown || slots.bedrooms || (slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined) || slots.sqm || slots.budget || anywhere);
+  const serviceKnown = serviceCriterionKnown(slots);
+  const knownAny = !!(serviceKnown || locationKnown || slots.bedrooms || (slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined) || slots.sqm || slots.budget || slots.sqmRate || anywhere);
   // The client opened with NO criteria at all ("zdravo") — Lina does NOT know
   // the property type, so she must never assume an apartment. Bank key
   // greeting.open (generated variants, validated to never mention a type)
@@ -941,7 +1001,10 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // A DUAL funnel already holds a per-service money answer when either leg is
   // on file — it asks for the missing one only, never for a single cap that
   // would silently govern both services.
-  if (serviceKnown && !typeHeld && locationKnown && !slots.budget && !slots.pricePriority
+  // A €/m² ceiling IS the money answer (the [02:09] capture): «PO 1500E ZA
+  // KVADRAT» already capped the rate, so asking «до која цена» would re-ask
+  // what the client just said.
+  if (serviceKnown && !typeHeld && locationKnown && !slots.budget && !slots.sqmRate && !slots.pricePriority
     && !(dual && (slots.rentBudget !== undefined || slots.buyBudget !== undefined))) {
     // RENT asks about the MONTHLY rent (месечна кирија), not a purchase price —
     // "колку е киријата?" is the client's question, and the budget slot is the
@@ -1041,8 +1104,12 @@ export function buildVisitConfirmation(eb: number, time: string, agentPhone: str
 export function waiverAck(budget: string | undefined, recent: string[] = []): string {
   const base = pickVariant('discovery.waiver.ack', { recent })
     ?? 'Во ред, големината не е проблем.';
+  // GRAMMAR (the [10:05] capture): the sentence read «За 300 евра Ви
+  // покажувај од најголемите прво» — an imperative dropped into a statement
+  // ("show" instead of "I show"). It states what SHE does, in the present:
+  // «Ви ги покажувам најголемите прво».
   return budget
-    ? `${base} За ${budget} евра Ви покажувај од најголемите прво.`
+    ? `${base} За ${budget} евра Ви ги покажувам најголемите прво.`
     : base;
 }
 

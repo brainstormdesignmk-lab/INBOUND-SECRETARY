@@ -23,6 +23,7 @@ import { registerRelayIngress } from './channels/relay';
 import { LandmarkService } from './geo/landmarks';
 import { OfflineMapStore } from './geo/offlineMap';
 import { VisitScheduler } from './visits/scheduler';
+import { OWNER_CHECK_STILL_WAITING } from './visits/messages';
 import { EventStore } from './store/events';
 import { OwnerStore } from './store/owners';
 import { EnrichmentStore } from './store/enrichment';
@@ -60,6 +61,18 @@ async function main(): Promise<void> {
   }
   const landmarks = new LandmarkService(db, { offlineMap });
 
+  /** ONE operator surface for the whole process: the events row (the TUI and
+   *  Hermes read it), the console, and the operator's Viber when configured.
+   *  A shared function so the visit protocol and the owner-check timeout can
+   *  never drift into two different "tell the operator" behaviours. */
+  const notifyOperator = async (text: string): Promise<void> => {
+    events.insert('operator_log', '', null, { text });
+    console.log(text);
+    if (cfg.viberOperatorId) {
+      await channels.send('viber', cfg.viberOperatorId, text);
+    }
+  };
+
   // The visit protocol: turns 2+3 (morning confirmation, exact location 2h
   // before) fired by the tick; turn 1 (arranged) is inline in confirmVisit.
   const visits = new VisitScheduler({
@@ -73,13 +86,7 @@ async function main(): Promise<void> {
       const phone = owners.get(eb)?.phone;
       return phone ? channels.send('viber', phone, text) : Promise.reject(new Error(`no owner phone for EB ${eb}`));
     },
-    notifyOperator: async (text) => {
-      events.insert('operator_log', '', null, { text });
-      console.log(text);
-      if (cfg.viberOperatorId) {
-        await channels.send('viber', cfg.viberOperatorId, text);
-      }
-    },
+    notifyOperator,
   });
 
   const enrichment = new EnrichmentStore(db);
@@ -102,6 +109,23 @@ async function main(): Promise<void> {
   const pipeline = new InboundHandler({
     cfg, db, sessions, classifier, responder, properties, appointments, escalations, meta, channels,
     landmarks, visits, enrichment, capture,
+    // THE CLIENT IS NEVER LEFT ON A SILENT PROMISE (visit audit #5): the owner
+    // check timed out, so the operator is told and the client hears a true
+    // status line instead of «ќе Ве известам штом потврдам» followed by nothing.
+    onOwnerCheckTimeout: async ({ chatId, eb, proposedTime, waitedMs }) => {
+      const mins = Math.max(1, Math.round(waitedMs / 60_000));
+      await notifyOperator(
+        `[ЛОГ ПОСЕТА ЕБ ${eb}] OWNER CHECK TIMEOUT — сопственикот не одговори ${mins} мин за терминот „${proposedTime}“. Проверката останува отворена; клиентот е известен дека се уште се проверува.`);
+      // Re-ping ONLY a chat that is still waiting on this check — a verdict that
+      // already landed must not draw a second, confusing status line.
+      const session = sessions.get(chatId);
+      if (!session || session.state !== 'owner_checking') return;
+      try {
+        await channels.send('viber', chatId, OWNER_CHECK_STILL_WAITING);
+      } catch (e) {
+        console.error('[visit] owner-timeout client re-ping failed:', (e as Error).message);
+      }
+    },
   });
 
   // Messages TO the owner (not questions): the sale congratulation. Same

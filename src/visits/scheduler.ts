@@ -1,17 +1,26 @@
 // VisitScheduler — the timed turns of the visit protocol.
 //
-// Turn 1 (arranged) is sent INLINE by the handler at confirmation; this
-// scheduler owns turns 2 and 3, fired by a periodic tick:
+// ONE EVENT = ONE MESSAGE. Turn 1 (the arranged line) is sent INLINE by the
+// handler at booking; this scheduler owns Turn 0 and turns 2+3:
+//   turn 'address_confirm' — Turn 0, to the OWNER, at arrange; then a 2-hour
+//                      reminder loop (capped) until he confirms. While it is
+//                      unresolved, turns 2 and 3 are HARD-BLOCKED: the client
+//                      must never be handed a street nobody confirmed.
 //   turn 'confirm'   — morning of the visit day: 09:00 (morning visit) or
 //                      10:00 (afternoon visit, window 10:00-12:00). Multiple
 //                      due visits are sent in visit-hour order (earliest
 //                      visit hour first), per the agency's rule.
 //   turn 'location'  — 2 hours before the visit: the EXACT location + maps
-//                      link (the only allowed disclosure of the address).
+//                      link (the only address disclosure to the client).
 // Every send is tracked per party (owner/client) in visit_turns, so a crash
 // or double tick can never double-send; failures are recorded for the
 // operator log. A free-text time that can't be resolved to a datetime marks
 // the timed turns skipped once and tells the operator to confirm manually.
+//
+// THE OWNER IS A RECIPIENT, NOT AN IMPLIED ONE. A failed owner send (no phone
+// on file, channel refusal) used to be swallowed while the turns stayed
+// scheduled — the owner heard nothing for the whole visit. Every failure now
+// escalates to the operator exactly once per turn (visit audit #4).
 
 import { Db } from '../store/db';
 import { EventStore } from '../store/events';
@@ -20,7 +29,23 @@ import { OwnerStore } from '../store/owners';
 import { PropertyService } from '../data/properties';
 import type { OfflineMapStore } from '../geo/offlineMap';
 import { parseVisitDateTime } from './time';
-import { buildArrangedVisit, buildMorningConfirm, CLIENT_LOCATION_FOLLOWUP, buildLocationMsg, mapsLinkFor, buildOperatorLog, buildAddressConfirm, ADDRESS_CONFIRM_BUMP, buildCancelledByClient, buildCancelledByOwner, Party } from './messages';
+import {
+  buildAddressConfirm, ADDRESS_CONFIRM_BUMP, buildAddressConfirmed,
+  buildMorningConfirm, CLIENT_LOCATION_FOLLOWUP, buildLocationMsg, mapsLinkFor,
+  buildOperatorLog,
+  buildAgentBrief, buildCancelledByClient, buildCancelledByOwner, Party,
+} from './messages';
+
+/** How often the owner is reminded that Turn 0 is still open. */
+const ADDRESS_CONFIRM_BUMP_EVERY_MS = 2 * 3600_000;
+/** Reminders per Turn 0 before the scheduler stops pinging the owner and asks
+ *  the operator to confirm the address by hand. A reminder loop is not a
+ *  harassment loop — and the client's turns stay blocked either way. */
+const ADDRESS_CONFIRM_MAX_BUMPS = 4;
+
+/** visit_turns.escalated bits — one warning per cause, per turn. */
+const ESC_DELIVERY_FAILED = 1;
+const ESC_STILL_UNCONFIRMED = 2;
 
 export type TurnName = 'address_confirm' | 'confirm' | 'location';
 
@@ -51,6 +76,11 @@ export interface SchedulerDeps {
   notifyOwner: (clientChatId: string, eb: number, text: string) => Promise<void>;
   /** The operator log: console + events + optional Viber message. */
   notifyOperator: (text: string) => Promise<void>;
+  /** The visiting agent as a RECIPIENT. Absent today (a Viber bot can only
+   *  write to a subscriber id; the agents table holds phone numbers), so the
+   *  scheduler falls back to the operator with a ready-to-forward
+   *  `[ЗА АГЕНТ …]` brief — never to the silent assumption that he knows. */
+  notifyAgent?: (agentPhone: string, text: string) => Promise<boolean>;
   now?: () => Date;
 }
 
@@ -62,6 +92,11 @@ interface TurnRow {
   status: 'pending' | 'sent' | 'skipped';
   owner_status: 'pending' | 'sent' | 'failed';
   client_status: 'pending' | 'sent' | 'failed';
+  /** Turn-0 reminders sent so far (the capped bump loop). */
+  bumps: number;
+  /** 1 once the operator has been told about this turn's failure — the
+   *  escalation must not repeat on every tick. */
+  escalated: number;
 }
 
 export class VisitScheduler {
@@ -96,9 +131,72 @@ export class VisitScheduler {
 
   private lookupTurn(appointmentId: number, turn: TurnName): TurnRow | undefined {
     return this.db.db.prepare(
-      `SELECT id, appointment_id, turn, scheduled_at, status, owner_status, client_status
+      `SELECT id, appointment_id, turn, scheduled_at, status, owner_status, client_status,
+              bumps, escalated
        FROM visit_turns WHERE appointment_id = ? AND turn = ?`
     ).get(appointmentId, turn) as TurnRow | undefined;
+  }
+
+  /** THE DISCLOSURE GATE. Turns 2 and 3 may only fire for an address the owner
+   *  actually CONFIRMED: a missing row (visits arranged before Turn 0 existed)
+   *  counts as confirmed, any other state does not. This is deliberately NOT
+   *  `status !== 'pending'` — a skipped/reminder-capped Turn 0 is an
+   *  UNCONFIRMED address, and the old test let that release the client's
+   *  morning confirm and exact location (visit audit #3). */
+  private addressConfirmed(appointmentId: number): boolean {
+    const t = this.lookupTurn(appointmentId, 'address_confirm');
+    return !t || t.status === 'sent';
+  }
+
+  /** Deliver to the owner; a refusal is a fact the operator must hear about,
+   *  never a console.error nobody reads. */
+  private async notifyOwnerSafe(clientChatId: string, eb: number, text: string): Promise<boolean> {
+    try {
+      await this.deps.notifyOwner(clientChatId, eb, text);
+      return true;
+    } catch (e) {
+      console.error('[visit] owner notify failed:', (e as Error).message);
+      return false;
+    }
+  }
+
+  /** Escalate a delivered-once operator warning for one turn. The flag lives
+   *  on the turn row so a restart (or a tick every minute) can never repeat it.
+   *  It is a BITMASK because one turn can deserve two different warnings (a
+   *  failed delivery AND a still-unconfirmed address after the reminder cap) —
+   *  a single flag silently swallowed the second one. */
+  private async escalateOnce(appointmentId: number, turn: TurnName, bit: number, text: string): Promise<void> {
+    const t = this.lookupTurn(appointmentId, turn);
+    if (!t || (t.escalated & bit)) return;
+    this.db.db.prepare(`UPDATE visit_turns SET escalated = escalated | ? WHERE appointment_id = ? AND turn = ?`)
+      .run(bit, appointmentId, turn);
+    await this.deps.notifyOperator(text);
+  }
+
+  /** The visiting agent's brief: direct when a channel exists, otherwise the
+   *  operator gets a complete forwardable copy. Either way the operator log
+   *  says which path delivered it. */
+  private async briefAgent(
+    eb: number,
+    when: Date,
+    agentPhone: string,
+    address: string,
+    mapsUrl: string,
+    client: Party,
+  ): Promise<void> {
+    const text = buildAgentBrief(eb, when, agentPhone || '—', address, mapsUrl, client);
+    let delivered = false;
+    if (this.deps.notifyAgent) {
+      try {
+        delivered = await this.deps.notifyAgent(agentPhone, text);
+      } catch (e) {
+        console.error('[visit] agent notify failed:', (e as Error).message);
+      }
+    }
+    if (!delivered) {
+      await this.deps.notifyOperator(
+        `[ЛОГ ПОСЕТА ЕБ ${eb}] АГЕНТ: нема директен канал — брифот е даден на операторот за препраќање\n${text}`);
+    }
   }
 
   private upsertTurn(appointmentId: number, turn: TurnName, scheduledAt: number, skipped: boolean): void {
@@ -110,23 +208,34 @@ export class VisitScheduler {
   }
 
   /**
-   * Turn 1 — called by the handler the moment the visit is confirmed: both
-   * parties get ДОГОВОРЕНА ПОСЕТА, the operator gets the ARRANGED log line,
-   * and turns 2+3 are scheduled (or marked skipped when the time is vague).
-   * The CONCRETE visit datetime is pinned on the appointment so the timed
-   * turns never re-parse free text against a later clock ("утре" drifts).
+   * Called by the handler the moment the visit is confirmed. Turn 1 (the
+   * arranged line) has ALREADY been sent to the client inline — this method
+   * only LOGS it, sends Turn 0 to the owner, and schedules turns 2+3 (or marks
+   * them skipped when the time is vague). The CONCRETE visit datetime is
+   * pinned on the appointment so the timed turns never re-parse free text
+   * against a later clock ("утре" drifts).
    */
   async arrange(input: ArrangeInput): Promise<void> {
     const visit = parseVisitDateTime(input.time, this.now);
     this.db.db.prepare(`UPDATE appointments SET visit_at = ? WHERE id = ?`)
       .run(visit ? visit.getTime() : null, input.appointmentId);
 
+    const client: Party = { name: input.clientName, phone: input.clientPhone };
+
     if (!visit) {
-      // Vague time — send Turn 1 directly (no address confirm possible)
-      const arranged = `ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ ${input.eb}; ${input.time}`;
-      const ownerOk = await this.sendBoth(input, arranged);
-      await this.deps.notifyOperator(buildOperatorLog(input.eb, 'arranged', input.owner,
-        { name: input.clientName, phone: input.clientPhone }, ownerOk));
+      // Vague time — no timed turns. The CLIENT already has Turn 1 (the handler
+      // sends the booking line before calling in), so a second arranged message
+      // here was the double-notification of visit audit #1. The OWNER gets the
+      // booking note: nothing else will reach him before the manual call.
+      const note = `Договорена е посета за Евидентен број ${input.eb}; точниот термин „${input.time}“ ќе биде потврден телефонски.`;
+      const ownerOk = await this.notifyOwnerSafe(input.chatId, input.eb, note);
+      await this.deps.notifyOperator(buildOperatorLog(input.eb, 'arranged',
+        input.owner, client, { owner: ownerOk ? 'OK' : 'FAIL', client: 'OK' },
+        { when: undefined, agentPhone: input.agentPhone }));
+      if (!ownerOk) {
+        await this.deps.notifyOperator(
+          `[ЛОГ ПОСЕТА ЕБ ${input.eb}] OWNER NOT REACHABLE — сопственикот не доби порака за посетата (нема телефон или каналот одби). Проверете го рачно.`);
+      }
       this.upsertTurn(input.appointmentId, 'confirm', 0, true);
       this.upsertTurn(input.appointmentId, 'location', 0, true);
       await this.deps.notifyOperator(
@@ -134,24 +243,36 @@ export class VisitScheduler {
       return;
     }
 
-    // Turn 0: send address confirmation to OWNER ONLY.
-    // The client does NOT get Turn 1 until the owner confirms the address.
+    // Turn 0: address confirmation to OWNER ONLY. Turn 1 already went to the
+    // client inline, so it is only LOGGED here (one event, one message).
     const prop = await this.deps.properties.getById(input.eb);
     const address = prop?.address ?? '';
     const mapsUrl = this.visitMapsLink(address, prop?.location);
     const addrConfirm = buildAddressConfirm(input.eb, visit, address, mapsUrl);
-    try {
-      await this.deps.notifyOwner(input.chatId, input.eb, addrConfirm);
-    } catch (e) {
-      console.error('[visit] owner address-confirm failed:', (e as Error).message);
-    }
-    await this.deps.notifyOperator(
-      `[ЛОГ ПОСЕТА ЕБ ${input.eb}] TURN 0 ADDRESS CONFIRM sent to owner — awaiting confirmation`);
+    const ownerOk = await this.notifyOwnerSafe(input.chatId, input.eb, addrConfirm);
 
-    // Schedule the 2-hour bump for address confirmation
-    const bumpAt = this.now.getTime() + 2 * 3600_000;
+    await this.deps.notifyOperator(buildOperatorLog(input.eb, 'arranged',
+      input.owner, client, { owner: '-//-', client: 'OK' },
+      { when: visit, agentPhone: input.agentPhone }));
+    await this.deps.notifyOperator(buildOperatorLog(input.eb, 'address_confirm',
+      input.owner, client, { owner: ownerOk ? 'OK' : 'FAIL', client: '-//-' },
+      { when: visit, address }));
+
+    // Schedule the reminder loop for address confirmation. The turn STAYS
+    // PENDING while the reminders go out: that is what keeps turns 2+3 blocked.
+    const bumpAt = this.now.getTime() + ADDRESS_CONFIRM_BUMP_EVERY_MS;
     this.upsertTurn(input.appointmentId, 'address_confirm', bumpAt, false);
-    // Turns 2+3 are scheduled but Turn 1 is BLOCKED until address_confirm completes.
+    if (!ownerOk) {
+      // The failure is a FACT on the row (not just a log line): the operator
+      // screen and the reminder loop both read it.
+      this.db.db.prepare(
+        `UPDATE visit_turns SET owner_status = 'failed' WHERE appointment_id = ? AND turn = 'address_confirm'`
+      ).run(input.appointmentId);
+      await this.escalateOnce(input.appointmentId, 'address_confirm', ESC_DELIVERY_FAILED,
+        `[ЛОГ ПОСЕТА ЕБ ${input.eb}] OWNER NOT REACHABLE — Turn 0 (адреса) не е доставен: нема телефон на сопственикот или каналот одби. Клиентот НЕМА да добие Turn 2/3 додека адресата не се потврди. Потврдете рачно.`);
+    }
+
+    // Turns 2+3 are scheduled; both stay blocked until addressConfirmed().
     const confirmAt = this.confirmTime(visit).getTime();
     const locationAt = visit.getTime() - 2 * 3600_000;
     const skipGraceMs = 30 * 60_000;
@@ -167,22 +288,31 @@ export class VisitScheduler {
    *  owner's answer to confirmAddress() instead of dropping it with
    *  'нема активна проверка'. */
   pendingAddressConfirm(clientChatId: string): number | null {
+    // ONLY A VISIT THAT HAS NOT HAPPENED YET can be awaiting an address. A
+    // Turn 0 that was never answered stays `pending` on purpose (a late answer
+    // is welcome), so without this bound an owner sentence WEEKS later would be
+    // routed into an expired appointment's address check.
     const row = this.db.db.prepare(
       `SELECT a.id
        FROM appointments a
        JOIN visit_turns t ON t.appointment_id = a.id AND t.turn = 'address_confirm'
        WHERE a.chat_id = ? AND t.status = 'pending'
+         AND (a.visit_at IS NULL OR a.visit_at + ? > ?)
        ORDER BY a.id DESC
        LIMIT 1`
-    ).get(clientChatId) as { id: number } | undefined;
+    ).get(clientChatId, 2 * 3600_000, this.now.getTime()) as { id: number } | undefined;
     return row?.id ?? null;
   }
 
-  /** Owner confirms or corrects the address. Called by the handler when
+  /** Owner confirms or corrects the address. Called by the handler / TUI when
    *  the owner replies to the Turn 0 address confirmation.
-   *  - If confirmed (no new address): sends Turn 1 to client.
-   *  - If corrected (new address provided): updates property, then sends Turn 1.
-   *  After Turn 1, turns 2+3 continue as normal. */
+   *  - If confirmed (no new address): the owner gets a short ACK.
+   *  - If corrected (new address provided): updates the appointment, queues the
+   *    correction for the app, and the owner gets the correction ack.
+   *  The CLIENT is deliberately NOT written to here: Turn 1 (the arranged
+   *  line) already went out at booking, and a second «ДОГОВОРЕНА ПОСЕТА» in a
+   *  different format was the double-notification of visit audit #1.
+   *  Resolving this turn is what UNBLOCKS turns 2+3. */
   async confirmAddress(appointmentId: number, newAddress?: string): Promise<boolean> {
     const t = this.lookupTurn(appointmentId, 'address_confirm');
     if (!t || t.status !== 'pending') return false;
@@ -236,31 +366,31 @@ export class VisitScheduler {
        WHERE appointment_id = ? AND turn = 'address_confirm'`
     ).run(Date.now(), appointmentId);
 
-    // Build the corrected address line and Google Maps link for Turn 1
+    // The FINAL address this visit will use (Turn 2 names no street, Turn 3
+    // discloses this one).
     const prop = await this.deps.properties.getById(eb);
     const finalAddress = newAddress || prop?.address || '';
     const mapsUrl = this.visitMapsLink(finalAddress, prop?.location);
-    const addrLine = finalAddress ? `\nАдреса: ${finalAddress}\n${mapsUrl}` : '';
-    const arranged = buildArrangedVisit(eb, visit, finalAddress);
+    const client: Party = { name: row.clientName, phone: row.clientPhone };
 
-    // Send Turn 1 to BOTH owner and client (owner already confirmed, client
-    // needs the arranged message with the confirmed/corrected address).
+    // The owner's ACK — the only new event on this turn.
     const owner = this.deps.owners.get(eb);
     const ownerParty: Party | undefined = owner && (owner.name || owner.phone)
       ? { name: owner.name || 'Сопственик', phone: owner.phone || '?' }
       : undefined;
-    try {
-      await this.deps.notifyClient(row.chatId, arranged);
-    } catch (e) {
-      console.error('[visit] client Turn 1 failed:', (e as Error).message);
+    const acked = await this.notifyOwnerSafe(row.chatId, eb, buildAddressConfirmed(eb, newAddress));
+    if (!acked) {
+      await this.escalateOnce(appointmentId, 'address_confirm', ESC_DELIVERY_FAILED,
+        `[ЛОГ ПОСЕТА ЕБ ${eb}] OWNER ACK FAILED — адресата е потврдена од сопственикот, но потврдата не му е доставена. Проверете рачно.`);
     }
-    try {
-      await this.deps.notifyOwner(row.chatId, eb, arranged);
-    } catch (e) {
-      console.error('[visit] owner Turn 1 failed:', (e as Error).message);
-    }
-    await this.deps.notifyOperator(buildOperatorLog(eb, 'arranged', ownerParty,
-      { name: row.clientName, phone: row.clientPhone }, { owner: 'OK', client: 'OK' }));
+    await this.deps.notifyOperator(buildOperatorLog(eb, 'address_confirm', ownerParty, client,
+      { owner: acked ? 'OK' : 'FAIL', client: '-//-' },
+      { when: visit, address: finalAddress, agentPhone: row.agentPhone ?? undefined,
+        note: newAddress ? 'АДРЕСА КОРИГИРАНА' : 'АДРЕСА ПОТВРДЕНА' }));
+
+    // The agent finally has the dossier (via the operator until he has a
+    // channel of his own) — the address he walks to is the FINAL one.
+    await this.briefAgent(eb, visit, row.agentPhone ?? '', finalAddress, mapsUrl, client);
     return true;
   }
 
@@ -360,9 +490,10 @@ export class VisitScheduler {
       // The arrange() skip handles the normal case; this catches stale rows
       // from before the fix or clock skew.
       const visitEnded = visit.getTime() + 2 * 3600_000 < this.now.getTime();
-      // Block confirm/location until address_confirm is completed.
-      const addrConfirmDone = !this.lookupTurn(row.id, 'address_confirm')
-        || this.lookupTurn(row.id, 'address_confirm')!.status !== 'pending';
+      // HARD BLOCK: turns 2+3 wait for a CONFIRMED address — not merely for a
+      // Turn 0 that stopped being 'pending' (a reminder cap or a skip is an
+      // unconfirmed address; releasing the client on it was visit audit #3).
+      const addrConfirmDone = this.addressConfirmed(row.id);
       for (const turn of ['address_confirm', 'confirm', 'location'] as TurnName[]) {
         const t = this.lookupTurn(row.id, turn);
         if (!t || t.status !== 'pending') continue;
@@ -370,6 +501,18 @@ export class VisitScheduler {
         if ((turn === 'confirm' || turn === 'location') && !addrConfirmDone) continue;
         // address_confirm uses its own scheduled_at (2h from arrange);
         // confirm and location are computed from the visit time.
+        // A MORNING confirmation that arrives after Turn 3 is due is stale:
+        // the location message supersedes it, and sending both would tell the
+        // client «утринска потврда» + «ќе бидете известени 2 часа пред» +
+        // «локација» one after another (visit audit #3's second half).
+        if (turn === 'confirm' && this.now.getTime() >= visit.getTime() - 2 * 3600_000) {
+          this.db.db.prepare(
+            `UPDATE visit_turns SET status = 'skipped' WHERE appointment_id = ? AND turn = ? AND status = 'pending'`
+          ).run(row.id, turn);
+          await this.escalateOnce(row.id, turn, ESC_DELIVERY_FAILED,
+            `[ЛОГ ПОСЕТА ЕБ ${row.propertyId}] TURN 2 SUPERSEDED — утринската потврда стана бесмислена (посетата е за помалку од 2 часа); Turn 3 го носи целиот термин.`);
+          continue;
+        }
         const at = turn === 'address_confirm' ? new Date(t.scheduled_at)
           : turn === 'confirm' ? this.confirmTime(visit)
           : new Date(visit.getTime() - 2 * 3600_000);
@@ -398,6 +541,13 @@ export class VisitScheduler {
   async forceTurn(appointmentId: number, turn: TurnName): Promise<boolean> {
     const t = this.lookupTurn(appointmentId, turn);
     if (!t || t.status !== 'pending') return false;
+    // Forcing a turn must not become a way around the disclosure gate: the
+    // operator can force Turn 2/3 only for a CONFIRMED address.
+    if (turn !== 'address_confirm' && !this.addressConfirmed(appointmentId)) {
+      await this.deps.notifyOperator(
+        `[ЛОГ ПОСЕТА] TURN ${turn === 'confirm' ? 2 : 3} NOT FORCED — адресата не е потврдена од сопственикот (ЕБ ${this.ebOf(appointmentId)}).`);
+      return false;
+    }
     const row = this.db.db.prepare(
       `SELECT id, chat_id as chatId, client_name as clientName, client_phone as clientPhone,
               property_id as propertyId, time, agent_phone as agentPhone, visit_at as visitAt,
@@ -422,57 +572,92 @@ export class VisitScheduler {
       ? { name: owner.name || 'Сопственик', phone: owner.phone || '?' }
       : undefined;
 
-    let text: string;
-    let followup = false;
-    let ownerOnly = false;
+    const client: Party = { name: row.clientName, phone: row.clientPhone };
+    const prop = await this.deps.properties.getById(eb);
+    const addr = row.correctedAddress || (prop?.address ?? '');
+    const mapsUrl = this.visitMapsLink(addr, prop?.location);
+
+    // ── Turn 0 reminder: OWNER ONLY, looped, and it NEVER marks the turn
+    // sent. Marking it sent is what used to release turns 2+3 on an address
+    // nobody confirmed (visit audit #3).
     if (d.turn === 'address_confirm') {
-      // Turn 0 bump: remind the owner to confirm the address
-      text = ADDRESS_CONFIRM_BUMP;
-      ownerOnly = true;
-    } else if (d.turn === 'confirm') {
-      const prop = await this.deps.properties.getById(eb);
-      const addr = row.correctedAddress || prop?.address;
-      text = buildMorningConfirm(eb, d.visit, row.agentPhone ?? '', addr);
-      followup = true;
-    } else {
-      const prop = await this.deps.properties.getById(eb);
-      // Use owner-corrected address if available; fall back to feed address
-      const addr = row.correctedAddress || (prop?.address ?? '');
-      text = buildLocationMsg(eb, d.visit, row.agentPhone ?? '', addr, this.visitMapsLink(addr, prop?.location));
+      const delivered = await this.notifyOwnerSafe(row.chatId, eb, ADDRESS_CONFIRM_BUMP);
+      const t = this.lookupTurn(row.id, 'address_confirm');
+      const bumps = (t?.bumps ?? 0) + 1;
+      const capped = bumps >= ADDRESS_CONFIRM_MAX_BUMPS;
+      // Capped reminders stop the OWNER pings but the turn stays PENDING: the
+      // owner may still answer hours later and confirmAddress() must accept it
+      // (a 'skipped' row would refuse the late answer AND silently mean
+      // "address unconfirmed" forever). The next ping is a day out, so the
+      // loop is quiet; the visit-end sweep retires the row.
+      const nextAt = capped
+        ? this.now.getTime() + 24 * 3600_000
+        : this.now.getTime() + ADDRESS_CONFIRM_BUMP_EVERY_MS;
+      this.db.db.prepare(
+        `UPDATE visit_turns SET bumps = ?, owner_status = ?, scheduled_at = ?
+         WHERE appointment_id = ? AND turn = 'address_confirm'`
+      ).run(bumps, delivered ? 'sent' : 'failed', nextAt, row.id);
+      await this.deps.notifyOperator(buildOperatorLog(eb, 'address_confirm', ownerParty, client,
+        { owner: delivered ? 'OK' : 'FAIL', client: '-//-' },
+        { when: d.visit, address: addr, note: `ПОТСЕТНИК ${bumps}/${ADDRESS_CONFIRM_MAX_BUMPS}` }));
+      if (!delivered) {
+        await this.escalateOnce(row.id, 'address_confirm', ESC_DELIVERY_FAILED,
+          `[ЛОГ ПОСЕТА ЕБ ${eb}] OWNER NOT REACHABLE — потсетникот за адресата не е доставен. Клиентот останува блокиран за Turn 2/3 додека адресата не се потврди.`);
+      }
+      if (capped) {
+        await this.escalateOnce(row.id, 'address_confirm', ESC_STILL_UNCONFIRMED,
+          `[ЛОГ ПОСЕТА ЕБ ${eb}] ADDRESS STILL UNCONFIRMED after ${ADDRESS_CONFIRM_MAX_BUMPS} reminders — сопственикот не одговори. Клиентот НЕ доби Turn 2 (утринска потврда) ни Turn 3 (локација). Потврдете ја адресата рачно или известете го клиентот.`);
+      }
+      return;
     }
 
-    let status;
-    if (ownerOnly) {
-      // Address-confirm bump goes to OWNER ONLY — the client is not involved
-      const out = { owner: 'OK' as 'OK' | 'FAIL', client: '-//-' as 'OK' | 'FAIL' | '-//-' };
-      try {
-        await this.deps.notifyOwner(row.chatId, eb, text);
-      } catch (e) {
-        out.owner = 'FAIL';
-        console.error('[visit] owner bump failed:', (e as Error).message);
-      }
-      status = out;
-    } else {
-      status = await this.sendBoth({
-        appointmentId: row.id, chatId: row.chatId, eb,
-        time: row.time, agentPhone: row.agentPhone ?? '',
-        clientName: row.clientName, clientPhone: row.clientPhone, owner: ownerParty,
-      }, text);
-    }
-    if (followup && status.client === 'OK') {
+    // ── Turn 2: morning confirmation, NO street (Turn 3 owns the disclosure).
+    const text = d.turn === 'confirm'
+      ? buildMorningConfirm(eb, d.visit, row.agentPhone ?? '')
+      : buildLocationMsg(eb, d.visit, row.agentPhone ?? '', addr, mapsUrl);
+
+    const status = await this.sendBoth({
+      appointmentId: row.id, chatId: row.chatId, eb,
+      time: row.time, agentPhone: row.agentPhone ?? '',
+      clientName: row.clientName, clientPhone: row.clientPhone, owner: ownerParty,
+    }, text);
+    if (d.turn === 'confirm' && status.client === 'OK') {
       await this.deps.notifyClient(row.chatId, CLIENT_LOCATION_FOLLOWUP);
     }
 
     this.db.db.prepare(
       `UPDATE visit_turns SET status = 'sent', owner_status = ?, client_status = ?, sent_at = ?
        WHERE appointment_id = ? AND turn = ?`
-    ).run(status.owner === 'OK' ? 'sent' : 'failed', status.client === 'OK' ? 'sent' : '-//-',
+    ).run(status.owner === 'OK' ? 'sent' : 'failed', status.client === 'OK' ? 'sent' : 'failed',
       Date.now(), row.id, d.turn);
 
-    const logTurn = d.turn === 'address_confirm' ? 'arranged' : d.turn === 'confirm' ? 'confirm' : 'location';
-    await this.deps.notifyOperator(buildOperatorLog(eb, logTurn, ownerParty,
-      { name: row.clientName, phone: row.clientPhone },
-      { owner: status.owner === 'OK' ? 'OK' : 'FAIL', client: status.client === 'OK' ? 'OK' : '-//-' }));
+    const detail = d.turn === 'confirm'
+      ? { when: d.visit, agentPhone: row.agentPhone ?? undefined }
+      : { when: d.visit, address: addr, agentPhone: row.agentPhone ?? undefined };
+    await this.deps.notifyOperator(buildOperatorLog(eb, d.turn, ownerParty, client,
+      { owner: status.owner === 'OK' ? 'OK' : 'FAIL', client: status.client === 'OK' ? 'OK' : '-//-' },
+      detail));
+
+    // Turn 3 carries the FINAL dossier to whoever walks the flat.
+    if (d.turn === 'location') {
+      await this.briefAgent(eb, d.visit, row.agentPhone ?? '', addr, mapsUrl, client);
+    }
+
+    if (status.owner !== 'OK') {
+      await this.escalateOnce(row.id, d.turn, ESC_DELIVERY_FAILED,
+        `[ЛОГ ПОСЕТА ЕБ ${eb}] OWNER TURN ${d.turn === 'confirm' ? 2 : 3} NOT DELIVERED — сопственикот не ја доби пораката. Проверете го рачно.`);
+    }
+    if (status.client !== 'OK') {
+      await this.escalateOnce(row.id, d.turn, ESC_DELIVERY_FAILED,
+        `[ЛОГ ПОСЕТА ЕБ ${eb}] CLIENT TURN ${d.turn === 'confirm' ? 2 : 3} NOT DELIVERED — клиентот не ја доби пораката. Јавете му се.`);
+    }
+  }
+
+  /** The appointment's EB — only for operator-facing messages. */
+  private ebOf(appointmentId: number): number | string {
+    const row = this.db.db.prepare(`SELECT property_id FROM appointments WHERE id = ?`)
+      .get(appointmentId) as { property_id: number } | undefined;
+    return row?.property_id ?? appointmentId;
   }
 
   /** Background loop for the server/TUI. */

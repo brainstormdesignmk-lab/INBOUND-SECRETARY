@@ -523,6 +523,9 @@ export class Classifier {
       service: slots.service, location, bedrooms: slots.bedrooms,
       sqm: slots.sqm, business: slots.business, house: slots.house,
       budget: slots.budget, anywhere: slots.anywhere,
+      // THE €/m² CEILING (the [02:09] capture) — dropped here, the rate never
+      // reached the session and the serve fell back to the total-budget read.
+      sqmRate: slots.sqmRate,
       need: slots.need, rejected: slots.rejected,
       // These three previously leaked only through the LLM-down recompute
       // path — the pure-deterministic path silently dropped them, so the
@@ -578,6 +581,7 @@ export class Classifier {
         business: slots.business ?? session.slots.business,
         house: slots.house ?? session.slots.house,
         budget: slots.budget ?? session.slots.budget,
+        sqmRate: slots.sqmRate ?? session.slots.sqmRate,
         anywhere: slots.anywhere || session.slots.anywhere,
         sizeWaived: slots.sizeWaived || session.slots.sizeWaived,
         pricePriority: slots.pricePriority || session.slots.pricePriority,

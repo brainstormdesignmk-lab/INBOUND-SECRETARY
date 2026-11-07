@@ -39,6 +39,22 @@ import { normalizeMc } from './normalize';
 // that") and a trailing word («1286E PO M2») is a rate.
 const UNIT_TAIL =
   '(?:м2|м²|m2|m²|кв\\.?\\s*м|kvadrat|квадрат|спалн|соби|sob|евра|евро|evra|evro|€|[eEеЕ](?!\\s*[\\p{L}\\p{N}])|денар|денари|den|%|кат|спрат|саат|час)';
+
+// A GLUED «E» IS ALWAYS THE CURRENCY (the [22:27] capture): «A GARSONJERATA ZA
+// 200E DALI E DOSTAPNA USTE ?» — the client typed 200 euros, and the reader
+// answered «200 не се наоѓа во моменталната понуда» (a price read as an
+// Евидентен број). UNIT_TAIL's «E» arm needs the letter to END the clause, so
+// a glued «200E» followed by more words slipped through: the lookahead read
+// the word after it as the currency's continuation. Two things are true at
+// once, and only the SPACING tells them apart:
+//   • «200E»/«350e»/«200EUR» — attached to the digits: a price, always;
+//   • «63 E TAA» — spaced: the Latin E is the COPULA («63 IS that») and the
+//     number is an Евидентен број (a pinned idiom, see UNIT_TAIL above).
+// So the glued arm is tested WITHOUT the «\\s*» prefix the other units allow.
+// The Cyrillic «е» is in the class because normalizeMc folds the client's Latin
+// typing into Cyrillic BEFORE this reader runs («200E» arrives as «200е») — a
+// Latin-only class would miss every real message.
+const GLUED_UNIT_TAIL = '(?:[eEеЕ](?![\\p{L}\\p{N}])|[eEеЕ][\\p{L}]+)';
 const CAP_HEAD =
   '(?:nad|над|do|до|pod|под|okolu|околу|preku|преку|poveke|повеќе|pomalo|помалку)';
 
@@ -46,7 +62,7 @@ const CAP_HEAD =
  *  firstEbNumber() rather than an own copy: a second regex drifts. */
 export const EB_NUMBER_SOURCE =
   `(?<![\\p{L}\\p{N}])(?<!\\d[.,])(?<!\\d\\s)(?<!(?:${CAP_HEAD})\\s*)`
-  + `\\b(\\d{2,3})\\b(?!\\s*[.,]\\d)(?!\\s+\\d{3})(?!\\s*${UNIT_TAIL})`;
+  + `\\b(\\d{2,3})\\b(?!\\s*[.,]\\d)(?!\\s+\\d{3})(?!\\s*${UNIT_TAIL})(?!${GLUED_UNIT_TAIL})`;
 
 /** Every EB-shaped number the client mentioned, in the order typed.
  *  NB: this is a TEXT read — it says "the client pointed at a listing", not

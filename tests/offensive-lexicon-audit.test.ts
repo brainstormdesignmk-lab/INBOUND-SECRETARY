@@ -74,6 +74,18 @@ test('ordinary client vocabulary never strikes', () => {
     'koga moze da se pogledne', 'sakam 2 spalni vo centar', 'koja e cenata?',
     'dali ima parking', 'sakam da prodadam stan', 'fakt e deka cenata e visoka',
     'analiza na lokacijata', 'kultura na ziveenje', 'dozvola za koristenje',
+    // «da go zemes» about a THING is an instruction, not an invitation: only a
+    // bare message that IS the idiom strikes (the S0v2 whole-message anchor).
+    'DA GO ZEMES KLUCOT OD SOPSTVENIKOT', 'ti da go zemes klucot',
+    'DA GO ZEMES DOKUMENTITE',
+    // the mother-curse guard must never read these as a curse: an ordinary
+    // «materijal» sentence, a pickup, and a client speaking about his mother or
+    // the owner's (the S0c3 row is letter-bounded for exactly this reason —
+    // unbounded «u mater» matched inside «U MATERIJALU E OPISANO»).
+    'U MATERIJALU E OPISANO', 'MATERIJAL ZA KUPATILO', 'materijalot e skap',
+    'PICKUP NA PARKING', 'pickup truck pred zgradata',
+    'MAJKA MI E SOPSTVENIK NA STANOT', 'majkata na klientot zivee vo VODNO',
+    'kupuvam materijal za renoviranje', 'majku mi ja prodava',
   ];
   const flagged: string[] = [];
   for (const t of legit) {
@@ -89,7 +101,16 @@ test('ordinary client vocabulary never strikes', () => {
 test('real insults still fire after the boundary sweep', () => {
   // severity 3 — sexual / heavy
   for (const t of ['fakj', 'fakji!', 'fakju', 'FAKJ TI MATER', 'FUCK YOU', 'fucking hell',
-    'picka ti mater', 'A DA TE POEBAM MALCE', 'масажа', 'erotski masazi', 'масажа и еротски услуги']) {
+    'picka ti mater', 'A DA TE POEBAM MALCE', 'масажа', 'erotski masazi', 'масажа и еротски услуги',
+    // the [09:54] capture — the objectless lewd «take it»
+    'TI DA GO ZEMES', 'ti da go zemes!', 'PA TI DA GO ZEMES',
+    // the [11:57] HARD CURSE: «MA IDI U PICKU MATER». The picka family lacked
+    // the accusative («u picku»), and the mother word had no severity-3 row, so
+    // the hardest thing a client can type was served the exhaustion line.
+    'MA IDI U PICKU MATER', 'ma idi u picku mater', 'ИДИ У ПИЧКУ МАТЕР',
+    'u picku materinu', 'PICKU MATER', 'picku ti majku', 'pickom', 'pickama',
+    'picketina', 'jebem ti majku', 'majku ti jebem', 'majcinu ti',
+    'idi u materinu', 'mars u materinu']) {
     const d = classifyOffensive(t);
     assert.equal(d.isOffensive, true, `${JSON.stringify(t)} must fire`);
     assert.equal(d.severity, 3, `${JSON.stringify(t)} severity: ${d.reason}`);

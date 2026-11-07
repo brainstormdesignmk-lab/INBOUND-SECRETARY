@@ -8,7 +8,17 @@ import { OwnerVerdict } from '../backoffice/ownerAgent';
 export interface LandmarkCandidate { id?: number; address?: string; location?: string; }
 export interface PriceChangeWork { id: number; eb: number; old_price: number | null; new_price: number; }
 export interface AddressChangeWork { id: number; eb: number; old_address: string | null; new_address: string; }
-export interface OwnerCheckWork { chat_id: string; eb: number | null; proposed_time: string; }
+export interface OwnerCheckWork {
+  chat_id: string;
+  eb: number | null;
+  proposed_time: string;
+  /** The ask Lina wants delivered, already composed and bank-served. Null when
+   *  the check was re-armed AFTER the owner spoke (nothing to send — he is
+   *  already answering that question). Send THIS, never your own wording. */
+  deliver_text: string | null;
+  owner_name?: string;
+  owner_phone?: string;
+}
 
 export interface HermesWork {
   landmarks: LandmarkCandidate[];
@@ -52,9 +62,28 @@ export function reportAddressResult(baseUrl: string, token: string, id: number, 
 
 export function answerOwner(
   baseUrl: string, token: string, chatId: string, eb: number, verdict: OwnerVerdict,
-): Promise<{ applied: boolean }> {
+  opts: { confirmTime?: string } = {},
+): Promise<{ applied: boolean; queued?: boolean }> {
   return request(baseUrl, token, `/hermes/v1/owners/${encodeURIComponent(chatId)}/answer`, {
     method: 'POST',
-    body: JSON.stringify({ eb, status: verdict.status, owner_time: verdict.ownerTime, price: verdict.price, note: verdict.note }),
+    body: JSON.stringify({
+      eb, status: verdict.status, owner_time: verdict.ownerTime, price: verdict.price, note: verdict.note,
+      // Consent must name its object: the term the caller is agreeing to.
+      confirm_time: opts.confirmTime,
+    }),
+  });
+}
+
+/** The owner's RAW message — Lina parses it, answers it, and returns the text to
+ *  deliver. `messageId` makes a retried webhook idempotent (the same sentence,
+ *  never a second turn of the conversation). This is the preferred call: it
+ *  keeps ONE owner grammar and ONE copy source in the appliance. */
+export function replyOwner(
+  baseUrl: string, token: string, chatId: string, text: string,
+  opts: { eb?: number; messageId?: string } = {},
+): Promise<{ effect: string; reply_text?: string; state?: string; replay?: boolean }> {
+  return request(baseUrl, token, `/hermes/v1/owners/${encodeURIComponent(chatId)}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ text, eb: opts.eb, message_id: opts.messageId }),
   });
 }

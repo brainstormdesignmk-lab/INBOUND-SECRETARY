@@ -486,6 +486,53 @@ export function buildSeenSlots(): RegExp {
  *   EN                              — “size doesn't matter“
  *   NEG  important                  — “не ми се битни спални“
  */
+/** THE PER-M² MARKER — the tail that turns a figure into a RATE.
+ *
+ *  The [02:09] capture: «STANCE VO AERODROM PO 1500E ZA KVADRAT ?» names
+ *  1.500 €/m², and the funnel read it as a TOTAL cap («нема станови до 1.500
+ *  евра во Аеродром») — then served a 1.250 €/m² flat, contradicting itself
+ *  in two turns. A rate is not a cap, and the difference is ONE marker.
+ *
+ *  Slots (word classes, not enumerations):
+ *   • the unit noun — квадрат/квадрати/квадратен метар/kvadrat/kvadraten
+ *     metar/m2/м2/м²/kvm/kv.m, with the glued «/m2» form;
+ *   • the governing preposition in either order — «ZA KVADRAT», «po kvadrat»,
+ *     «на квадрат», «евра по метар квадратен»;
+ *   • the euro marker may sit between the figure and the preposition
+ *     («1500 E ZA KVADRAT», «1.500 евра за м²»).
+ *
+ *  Deliberately NOT a match: «1500 evra», «do 1500 evra za stanot»,
+ *  «1500 evra za kirija» — no unit noun, so it stays a cap (or a rent). */
+export function buildSqmRateMarkerSlot(): RegExp {
+  const UNIT = or([
+    'квадрат', 'квадрати', 'квадратот', 'квадратен метар', 'квадратни метри',
+    'метар квадратен', 'метри квадратни', 'm2', 'м2', 'm²', 'м²', 'kvm', 'kv.m', 'kv. m',
+    'kvadrat', 'kvadrati', 'kvadraten metar', 'kvadratni metri', 'metar kvadraten',
+    'metri kvadratni', 'кв.м', 'кв. м',
+  ]);
+  const PREP = or(['по', 'po', 'за', 'za', 'на', 'na', 'околу', 'okolu']);
+  const CUR = '(?:евра|евро|евр|evra|evro|evr|eur|€|e)';
+  // THE CURRENCY IS REQUIRED (the widen-flow sweep): «deloven prostor od 500 м²»
+  // is an AREA, and a bare figure standing before «м²» is never €/m² — reading
+  // it as a rate turned a business size into a price criterion and the absence
+  // line into nonsense («деловни простори од 500 м² до 500 евра за м²»). So the
+  // marker is either
+  //   • a currency token, then an optional «/» or preposition, then the unit
+  //     («1500 E ZA KVADRAT», «1.500 евра за м²», «1200 €/m2»), or
+  //   • the glued slash form alone, where the money scan already consumed the
+  //     currency («1500e/m2» → tail «/m2»).
+  // …and a PREPOSITION without the currency («1500 za kvadrat» / the tail of
+  // «1000 evra po kvadrat», where the money scan already consumed «evra»). A
+  // BARE figure before the unit («od 500 м²») still never reads as a rate: that
+  // is an AREA, and it has no preposition to carry it.
+  return new RegExp(
+    `^(?:\\s*\\/\\s*(?:${UNIT})`
+    + `|\\s*[.,]?\\s*${CUR}(?![\\p{L}\\p{N}])\\s*(?:\\/|${PREP})?\\s*(?:${UNIT})`
+    + `|\\s*${PREP}\\s*(?:${UNIT}))`,
+    'iu',
+  );
+}
+
 export function buildSizeWaivedSlots(): RegExp {
   const NEG = or([...SIZE_WAIVED_NEG, ...SIZE_WAIVED_NEG]);
   const SUBJ = or([...SIZE_WAIVED_SUBJ, ...SIZE_WAIVED_SUBJ_L]);

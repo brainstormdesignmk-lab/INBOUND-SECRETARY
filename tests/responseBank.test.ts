@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { RESPONSE_BANK } from '../src/data/responses';
 import { INITIAL_GREETINGS, randomGreeting } from '../src/data/greetings';
-import { pickVariant, fallbackVariant, noMatchLine, exhaustedLine, normalizeVariant, setLearnedBank, POOL_CONTRACTS, matchesPoolContract, poolContractViolations } from '../src/data/responseBank';
+import { pickVariant, fallbackVariant, noMatchLine, exhaustedLine, normalizeVariant, setLearnedBank, POOL_CONTRACTS, matchesPoolContract, poolContractViolations, seedVariants, FIXED_SEEDS } from '../src/data/responseBank';
 import type { BankStore } from '../src/store/bank';
 
 // "имот" means land/a plot in this agency's usage — the general property noun
@@ -148,6 +148,25 @@ test('pickVariant: repeat avoidance is by normalized text (punctuation/case inse
   }
 });
 
+// THE FILLED TEXT IS WHAT THE LISTENER READ (the repeat-avoidance fix). A
+// template carries {location}; the served sentence carries «Центар». Comparing
+// the template against `recent` matched NOTHING, so every placeholder pool
+// could serve the same sentence twice in a row — the shape the owner pane hit
+// with the availability ack.
+test('pickVariant: repeat avoidance compares the FILLED text of a placeholder pool', () => {
+  const vars = { location: 'Центар' };
+  const first = pickVariant('no.match.location', { vars })!;
+  assert.ok(first.includes('Центар'), first);
+  for (let i = 0; i < 40; i++) {
+    const again = pickVariant('no.match.location', { recent: [first], vars })!;
+    assert.notEqual(normalizeVariant(again), normalizeVariant(first),
+      `the same filled sentence was served again: ${again}`);
+  }
+  // When every filled variant is recent, it still serves one (never undefined).
+  const all = RESPONSE_BANK['no.match.location'].map(v => v.split('{location}').join('Центар'));
+  assert.ok(all.includes(pickVariant('no.match.location', { recent: all, vars })!), 'full pool fallback');
+});
+
 test('fallbackVariant: bank-backed states return variants; unknown keys return undefined', () => {
   const v = fallbackVariant('owner_checking');
   assert.ok(v && RESPONSE_BANK['patience.line'].includes(v), v);
@@ -199,12 +218,53 @@ test('pool contracts: every seed variant of a documented pool satisfies its cont
     const bad = poolContractViolations(key);
     assert.deepEqual(bad, [], `${key}: ${bad.length} variants violate the contract`);
     // A served variant passes the served-text check; a foreign phrase does not.
-    const [v] = RESPONSE_BANK[key];
+    // seedVariants covers BOTH seed layers: a contract on a hand-written policy
+    // pool (owner.availability.ack.*) must be swept here too, not silently skip.
+    const [v] = seedVariants(key);
+    assert.ok(v, `${key} has no seed variants at all`);
     assert.equal(matchesPoolContract(key, v), true, v);
     assert.equal(matchesPoolContract(key, 'Здраво'), false, `an off-contract reply must fail ${key}`);
     // Unknown keys / empty text are nothing-to-assert, never false.
     assert.equal(matchesPoolContract('no.such.key', 'Здраво'), true);
     assert.equal(matchesPoolContract(key, undefined), true);
+  }
+});
+
+// THE CONTRACT IS A SERVE-TIME VETO, not just a test assertion: learned rows
+// join a pool LIVE, and one that drops the pool's meaning (here: the ack that
+// stops asking for the term) must never be served — that is the whole point of
+// banking the line and its contract together.
+test('pickVariant: a learned variant that violates the pool contract is never served', () => {
+  const bad = 'Одлично, значи недвижноста (Евидентен број 54) е достапна.';
+  const fake = {
+    variants: (key: string) => (key === 'owner.availability.ack.noterm' ? [bad] : []),
+    metric: () => {},
+  } as unknown as BankStore;
+  setLearnedBank(fake);
+  try {
+    for (let i = 0; i < 40; i++) {
+      const v = pickVariant('owner.availability.ack.noterm', { vars: { prop: ' (Евидентен број 54)', term: '' } })!;
+      assert.notEqual(normalizeVariant(v), normalizeVariant(bad), `off-contract learned variant served: ${v}`);
+      assert.equal(matchesPoolContract('owner.availability.ack.noterm', v), true, v);
+    }
+  } finally { setLearnedBank(undefined); }
+});
+
+test('owner availability ack: {prop} on every variant, {term} only in the term pool', () => {
+  // {prop} is the flat — « (Евидентен број 54)» or "" when it is unknown — and
+  // it must appear exactly once, or the ack confirms the availability of
+  // nothing in particular. {term} exists only where a term IS on the table: a
+  // leftover placeholder in the no-term pool would serve a literal «{term}».
+  for (const v of FIXED_SEEDS['owner.availability.ack.term']) {
+    assert.equal(v.match(/\{prop\}/g)?.length ?? 0, 1, `{prop}: ${v}`);
+    assert.equal(v.match(/\{term\}/g)?.length ?? 0, 1, `{term}: ${v}`);
+    // The OWNER is a peer, not a client: the ack says «недвижноста» (feminine).
+    assert.match(v, /недвижноста/iu, `the generic feminine subject: ${v}`);
+  }
+  for (const v of FIXED_SEEDS['owner.availability.ack.noterm']) {
+    assert.equal(v.match(/\{prop\}/g)?.length ?? 0, 1, `{prop}: ${v}`);
+    assert.ok(!v.includes('{term}'), `no term is on the table, so no term may be filled: ${v}`);
+    assert.match(v, /недвижноста/iu, `the generic feminine subject: ${v}`);
   }
 });
 

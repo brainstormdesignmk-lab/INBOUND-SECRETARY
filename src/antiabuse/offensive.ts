@@ -146,10 +146,17 @@ const MORPH_SEXUAL: LexiconEntry[] = [
     'iski', 'iska', 'isko', 'iste'], {
     category: 'sexual', severity: 3, confidence: 0.97,
     reason: 'kurva family, grammar-expanded (курва/курво/курви/курвата/курветино/курвиште…)' }),
-  morph('S0c2', 'pick', ['', 'a', 'i', 'e', 'ata', 'ite', 'eto',
+  // THE FULL CASE LADDER, not only the nominative/vocative stems: the [11:57]
+  // capture «MA IDI U PICKU MATER» is the ACCUSATIVE («у пичку» → picku) and
+  // went uncaught for want of that one ending, so the hard curse was served the
+  // neighborhood-exhaustion line. Listed: picku (acc sg — the cursed object),
+  // picko (voc), pickom (instr), pickama/pickami (dat/instr/loc pl),
+  // picketina/-o/-i (augmentative), pickiste (augmentative), pickica family.
+  morph('S0c2', 'pick', ['', 'a', 'i', 'e', 'u', 'o', 'om', 'ata', 'ite', 'eto',
+    'ama', 'ami', 'etina', 'etino', 'etini', 'etinite', 'ista', 'iste',
     'ice', 'ici', 'ica', 'icata', 'inja', 'inji'], {
     category: 'sexual', severity: 3, confidence: 0.97,
-    reason: 'picka family, grammar-expanded (пичка/пички/пичке/пичката/пичките)' }),
+    reason: 'picka family, grammar-expanded, full case ladder (пичка/пички/пичке/пичку/пичко/пичком/пичкама/пичкетина/пичкица…)' }),
   morph('S0d5', 'kurc', ['', 'ac', 'u', 'ov', 'e', 'i', 'ina',
     'inata', 'injata', 'inja', 'evi', 'evite'], {
     category: 'sexual', severity: 3, confidence: 0.95,
@@ -201,6 +208,36 @@ const LEXICON: LexiconEntry[] = [
     excludeAfter: ['se', 'si', 'ime', 'ite', 'aat', 'eme', 'ot', 'ata'],
     reason: 'gradi (letter-bounded so "izgradi"=built stays clean; reflexive forms excluded)' },
   { id: 'S0c', category: 'sexual', severity: 3, confidence: 0.98, stems: ['picka'], reason: 'picka (picka/pichka/pi4ka/пичка all normalize here)' },
+  // THE MOTHER CURSE — the hardest thing a client can type at this agent, and
+  // the one the [11:57] capture proved was only half-covered: «MA IDI U PICKU
+  // MATER» reached the funnel because the picka family had no accusative, and
+  // the mother-word itself («mater/majku/majcinu») had no severity-3 row at all
+  // — H12/H13 only knew «jebem ti» and «materina» as severity-2 heavy insults.
+  // The family is ENUMERATED rather than stemmed: every listed form is a
+  // multi-word curse with no innocent reading in a property chat, while the
+  // bare words («majka ti e sopstvenik?», «materijal za kupatilo») stay out by
+  // construction — a false strike on ordinary copy is the worse defect.
+  { id: 'S0c3', category: 'sexual', severity: 3, confidence: 0.97, boundary: true, stems: [
+      // u picku (mater/materinu) — every word order the field writes
+      'idi u picku mater', 'ma idi u picku mater', 'ajde u picku mater',
+      'ajde bre u picku mater', 'u picku mater', 'u picku materinu',
+      'picku materinu', 'picku mater', 'picku ti mater', 'picku ti majku',
+      'u picku ti mater', 'mater ti picku', 'mater picku',
+      'picko materina', 'picke materine', 'lepe picke materine', 'tri lepe',
+      // u mater / u materinu — the same curse with the object elided
+      'idi u mater', 'idi u materinu', 'odi u materinu', 'odise u materinu',
+      'mars u materinu', 'posi u materinu', 'u materinu', 'u mater',
+      // the mother word as the OBJECT of the curse verb
+      'jebem ti mater', 'jebem ti majku', 'ebem ti mater', 'ebem ti majku',
+      'jebem ti majcinu', 'ebem ti majcinu', 'jebem ti majkata',
+      'majku ti jebem', 'mater ti jebem', 'majku ti ebem', 'mater ti ebem',
+      'majcinu ti', 'majku ti',
+    ],
+    // LETTER-BOUNDED: the short curses («u mater», «u materinu», «tri lepe»)
+    // must be whole phrases — unbounded «u mater» matched inside «U MATERIJALU
+    // E OPISANO» (a legit sentence about the listing's material). Every real
+    // curse is its own phrase, so the guard costs nothing.
+    reason: 'mother curse (idi u picku mater / jebem ti majku / u materinu family — the [11:57] capture)' },
   { id: 'S0d', category: 'sexual', severity: 3, confidence: 0.98, stems: [
       'kur', 'kuro', 'kura', 'kurac', 'kurov', 'kurot', 'kurovot', 'kurovi', 'kurovite',
       // Definite/possessive inflections the boundary guard rejects when embedded —
@@ -318,6 +355,19 @@ const LEXICON: LexiconEntry[] = [
     ],
     exclude: ['cigar', 'dozvoleno', 'zabran', 'smee', 'balkon', 'ventilac', 'pusac'],
     reason: 'oral-sex (pusenje/pusi mi family — smoking contexts excluded)' },
+  // BARE «TI DA GO ZEMES» — the [09:54] capture: the lewd "you should take
+  // it" (an oral invitation with the object ELLIPTED) reached the funnel as an
+  // ordinary sentence and the client was asked for his name and phone. The
+  // existing oral family above (S0v) all name their object (usta/go…), so the
+  // objectless idiom had no row.
+  // WHOLE-MESSAGE ANCHOR: «da go zemes» also means "you should take it" about
+  // the KEY, the documents, the call — an innocent instruction at the door.
+  // The lewd use is the standalone jab, so this row fires only when the
+  // message IS the idiom (an optional vocative/insistence prefix and a
+  // "malce" tail allowed), never when a noun follows the verb.
+  { id: 'S0v2', category: 'sexual', severity: 3, confidence: 0.9, stems: [],
+    pattern: /^(?:(?:ti|vie|pa|ama|ajde|ajde de|more|bre)\s+)*(?:ne\s+)?(?:da\s+)?(?:mi\s+)?go\s+(?:zemes|zemis|zemete|zemime|zemi)(?:\s+(?:malce|malku|sega|vednas|cel)?)?$/u,
+    reason: 'bare «TI DA GO ZEMES» (take it) — the whole message is the idiom, so «da go zemes klucot» stays clean' },
   { id: 'S0w', category: 'sexual', severity: 3, confidence: 0.9, stems: ['pusenje', 'pusi', 'pusis', 'pusam', 'pusas'],
     boundary: true,
     requireRegex: /(gratis|darmo|besplat|so toa|kaj tebe|za tebe|sakam da mi|sakam da ti|da mi pus|da ti pus)/,
@@ -352,6 +402,19 @@ const LEXICON: LexiconEntry[] = [
     pattern: /(?:^| )koga (?:ti|te|vi|mu) (?:go |ga |gi |ja )?(?:vlag(?:a|as|at|e)|vlez(?:e|ese|uva|uvas)|vliz(?:e|uva))(?: |$)/u,
     exclude: ['parite', 'pari vo', 'invest', 'vloz'],
     reason: 'crude innuendo (koga ti/te vlaga — "when it enters you"; the [17:18] miss)' },
+  // "NE NE SAKAM DA MI POPUSIS MALCE" — the [22:53] capture: a direct sexual
+  // demand was served a fresh card pair (an ordinary question).
+  // The verb is the 2nd-person of «попуши» (suck), and ONLY the directed
+  // frame is listed: «попуст» (discount) and «пуши» (smoking) are ordinary
+  // words in a property chat, so the bare stem never appears on its own —
+  // the clitic «mi»/«da mi go» is what pins the sense, and the smoking
+  // contexts («цигара», «вап») are excluded outright.
+  { id: 'S0d4', category: 'sexual', severity: 3, confidence: 0.95, boundary: true,
+    stems: ['da mi popusis', 'mi popusis', 'da mi popusi', 'mi popusi', 'popusis mi',
+      'popusi mi', 'da mi go popusis', 'mi go popusis', 'da mi popusite', 'popusi mi go',
+      'da mi go popusi', 'mi go popusi'],
+    exclude: ['cigara', 'cigari', 'cigare', 'pushi', 'pusi cigar', 'vap', 'nargila'],
+    reason: 'vulgar sexual demand (da mi popusis — the [22:53] capture)' },
   ...MORPH_SEXUAL,
 
   // ---------- VIOLENCE (severity 3) ----------
@@ -443,6 +506,23 @@ const LEXICON: LexiconEntry[] = [
       'si ti normalna', 'si ti normalen', 'dali si ti normalna', 'dali si normalen',
       'normalna li si', 'normalen li si'],
     reason: 'dali si ti normalna (are you normal — directed 2nd-person only)' },
+
+  // "GLUPERDO" — the [20:54] capture: «PRASUVAM ZA GARSONJERA KAJ KATOLICKA
+  // GLUPERDO» was served as an ordinary question about a flat. A direct jab at
+  // the agent. The bare «glup» stem is deliberately NOT here: «glupo e» (it is
+  // silly) is an opinion about the situation and «glupak/glupa» already has its
+  // own bounded row, so only the -erd- insult is new.
+  { id: 'H21', category: 'heavy_insult', severity: 2, confidence: 0.9, stems: ['gluperd'],
+    reason: 'gluperdo (blockhead — the -erd- form only, so «glupo e» stays clean)' },
+  // "LOPOVI STE SITE" — the [21:00] capture: «STO DA RAZGLEDAM , LOPOVI STE
+  // SITE» reached the funnel as an ordinary question. Directed SECOND-PERSON
+  // forms only (the M8/H20 precedent): a client saying «SOPSTVENIKOT E LOPOV»
+  // is accusing the OWNER — a complaint the answer should meet with sympathy,
+  // never with a strike. Only «you are thieves» is the jab.
+  { id: 'H22', category: 'heavy_insult', severity: 2, confidence: 0.9, boundary: true,
+    stems: ['lopovi ste', 'ste lopovi', 'lopovi ste site', 'site ste lopovi', 'site lopovi',
+      'si lopov', 'lopov si', 'ti si lopov', 'si lopovka', 'lopovka si'],
+    reason: 'lopovi ste site (you are all thieves — directed 2nd-person only)' },
 
   ...MORPH_HEAVY,
 

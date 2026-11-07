@@ -827,6 +827,17 @@ test('fee arithmetic: the detector owns «po stan» and the «dvata … 1000» s
   assert.equal(detectFeePerPropertyAsk('dvata stana se po 130000 evra'), false);
 });
 
+test('the AMOUNTLESS per-unit question «PO 500 ZA SEKOJ STAN ?» is fee traffic (replay of the field burst)', () => {
+  // No currency word and no viewing verb: the per-unit amount arm needed both,
+  // so the question fell through to the price-negotiation lane. A bare per-unit
+  // question with a fee-sized figure is the fee's own arithmetic.
+  assert.equal(detectFeePerPropertyAsk('PO 500 ZA SEKOJ STAN ?'), true);
+  assert.equal(detectFeePerPropertyAsk('PO 500 ZA SEKOJ STAN'), true);
+  // A budget or a price keeps its own lane — no per-unit marker, or no fee band:
+  assert.equal(detectFeePerPropertyAsk('do 1000 evra za stan'), false);
+  assert.equal(detectFeePerPropertyAsk('za 500 stan'), false);
+});
+
 test('[02:43] the BARE sum «za dva stana toa se 1000 za gledanje samo» is arithmetic — and a nag', () => {
   // No currency word, so the amount probe used to find nothing: the whole turn
   // fell through to the exhausted-search line (about Студентски Дом!) with the

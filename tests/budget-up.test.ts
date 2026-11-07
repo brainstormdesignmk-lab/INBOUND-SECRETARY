@@ -76,6 +76,9 @@ test('bank: the upward intro key exists and names no amount', () => {
   for (const v of seeds) {
     assert.ok(!/\d/.test(v), `seed must not name an amount: ${v}`);
     assert.ok(/поскап|поголем буџет/i.test(v), `seed must name the upward direction: ${v}`);
+    // Macedonian is impersonal here: «Се разбира». The Serbian calque
+    // «Разбира се» shipped once and the [00:26] capture read it as broken.
+    assert.ok(!/Разбира се/i.test(v), `seed must say «Се разбира», not «Разбира се»: ${v}`);
   }
 });
 

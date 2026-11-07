@@ -17,6 +17,7 @@
 import '../src/compat/node16';
 
 import { RESPONSE_BANK } from '../src/data/responses';
+import { FIXED_SEEDS } from '../src/data/responseBank';
 import { BankStore } from '../src/store/bank';
 import { Db } from '../src/store/db';
 import { loadConfig } from '../src/config';
@@ -54,6 +55,14 @@ const seedBad = auditSet(
   Object.keys(RESPONSE_BANK),
   'SEED',
 );
+// THE HAND-WRITTEN POLICY SEEDS ARE BANK MATERIAL TOO. FIXED_SEEDS holds the
+// frozen copy a model must never author (persona, money clarification, owner
+// availability ack…) and pickVariant serves it exactly like the generated
+// layer. Sweeping only RESPONSE_BANK left that half outside the P1 contracts
+// and the P5 offensive sweep — a hand-written line could carry an unsanctioned
+// amount or trip a lexicon stem and the audit would still print ✓.
+const fixedKeys = Object.keys(FIXED_SEEDS);
+const fixedBad = auditSet(k => FIXED_SEEDS[k] ?? [], fixedKeys, 'SEED/fixed');
 const learnedKeys = bank.learnedKeys().filter(k => k.startsWith('learn.'));
 const learnedBad = auditSet(k => bank.variants(k), learnedKeys, 'LEARNED');
 
@@ -84,24 +93,30 @@ const seedOffensive = auditOffensive(
   Object.values(RESPONSE_BANK).flat().filter((v): v is string => typeof v === 'string'),
   'SEED',
 );
+const fixedOffensive = auditOffensive(Object.values(FIXED_SEEDS).flat(), 'SEED/fixed');
 const learnedOffensive = auditOffensive(
   learnedKeys.flatMap(k => bank.variants(k)),
   'LEARNED',
 );
 
+const contractBad = seedBad + fixedBad + learnedBad;
+const offensiveBad = seedOffensive + fixedOffensive + learnedOffensive;
+
 if (json) {
   // JSON consumers want silence on stdout — re-run compactly.
   const compact = {
     seedViolations: seedBad,
+    fixedSeedViolations: fixedBad,
     learnedViolations: learnedBad,
-    offensiveFalsePositives: seedOffensive + learnedOffensive,
+    offensiveFalsePositives: offensiveBad,
     learnedKeysChecked: learnedKeys.length,
   };
   console.error(JSON.stringify(compact));
-  process.exit(seedBad + learnedBad + seedOffensive + learnedOffensive > 0 ? 1 : 0);
+  process.exit(contractBad + offensiveBad > 0 ? 1 : 0);
 }
 
-const total = Object.values(RESPONSE_BANK).reduce((a, v) => a + v.length, 0);
-console.log(`\n${seedOffensive + learnedOffensive === 0 ? '✓' : '✗'} offensive sweep: ${seedOffensive + learnedOffensive} lexicon false positives across ${total} seed variants (the classifier must never strike on the agency's own copy)`);
-console.log(`${seedBad + learnedBad + seedOffensive + learnedOffensive === 0 ? '✓' : '✗'} seed audit: ${seedBad + learnedBad} contract violations · ${seedOffensive + learnedOffensive} offensive false positives, across ${Object.keys(RESPONSE_BANK).length} seed keys / ${total} seed variants, ${learnedKeys.length} learned keys`);
-process.exit(seedBad + learnedBad + seedOffensive + learnedOffensive > 0 ? 1 : 0);
+const total = Object.values(RESPONSE_BANK).reduce((a, v) => a + v.length, 0)
+  + Object.values(FIXED_SEEDS).reduce((a, v) => a + v.length, 0);
+console.log(`\n${offensiveBad === 0 ? '✓' : '✗'} offensive sweep: ${offensiveBad} lexicon false positives across ${total} seed variants (the classifier must never strike on the agency's own copy)`);
+console.log(`${contractBad + offensiveBad === 0 ? '✓' : '✗'} seed audit: ${contractBad} contract violations · ${offensiveBad} offensive false positives, across ${Object.keys(RESPONSE_BANK).length + fixedKeys.length} seed keys / ${total} seed variants, ${learnedKeys.length} learned keys`);
+process.exit(contractBad + offensiveBad > 0 ? 1 : 0);

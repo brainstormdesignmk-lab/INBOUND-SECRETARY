@@ -27,6 +27,10 @@ export interface Event {
   business?: boolean;       // деловен простор / канцеларија / локал
   house?: boolean;          // куќа — a residential request that is NOT a стан
   budget?: string;
+  /** THE €/m² CEILING (the [02:09] capture): «PO 1500E ZA KVADRAT» caps the
+   *  RATE, not the sum. A money criterion of its own — never folded into
+   *  `budget`, or the funnel claims «нема до 1.500 евра» over 1.250 €/m² rows. */
+  sqmRate?: number;
   anywhere?: boolean;       // "било каде" — no location preference (satisfies location)
   sizeWaived?: boolean;    // "големината не ми е битна" — skip bedrooms question
   pricePriority?: boolean; // "што поевтино" — sort by price, skip budget question

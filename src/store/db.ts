@@ -161,12 +161,14 @@ export class Db {
       CREATE TABLE IF NOT EXISTS visit_turns (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
         appointment_id INTEGER NOT NULL,
-        turn           TEXT NOT NULL,             -- 'confirm' | 'location'
+        turn           TEXT NOT NULL,             -- 'address_confirm' | 'confirm' | 'location'
         scheduled_at   INTEGER NOT NULL,
         status         TEXT NOT NULL DEFAULT 'pending', -- pending|sent|skipped
         owner_status   TEXT NOT NULL DEFAULT 'pending', -- pending|sent|failed
         client_status  TEXT NOT NULL DEFAULT 'pending', -- pending|sent|failed
         sent_at        INTEGER,
+        bumps          INTEGER NOT NULL DEFAULT 0, -- Turn-0 reminders sent (capped loop)
+        escalated      INTEGER NOT NULL DEFAULT 0, -- bitmask: 1=delivery failed, 2=still unconfirmed
         UNIQUE(appointment_id, turn)
       );
       -- v5: persistent blocklist (3-strike protocol, ANA parity) — a chat that
@@ -279,6 +281,16 @@ export class Db {
     // v5: owner-corrected address (overrides feed address for turns 2+3).
     if (!cols.some(c => c.name === 'corrected_address')) {
       this.db.exec(`ALTER TABLE appointments ADD COLUMN corrected_address TEXT`);
+    }
+    // v8: the Turn-0 reminder loop is capped and every failure escalates
+    // EXACTLY ONCE — both facts must survive a restart, so they live on the
+    // turn row instead of in process memory.
+    const vtCols = this.db.prepare(`PRAGMA table_info(visit_turns)`).all() as Array<{ name: string }>;
+    if (!vtCols.some(c => c.name === 'bumps')) {
+      this.db.exec(`ALTER TABLE visit_turns ADD COLUMN bumps INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!vtCols.some(c => c.name === 'escalated')) {
+      this.db.exec(`ALTER TABLE visit_turns ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0`);
     }
     // v7: geo re-resolve queue — properties with bad geocoding that need
     // re-resolution when the Google scraper or a better geocoder runs.

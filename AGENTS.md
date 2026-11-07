@@ -342,6 +342,79 @@ price answers (84 distinct messages) found two defects in one area:
 - NO figure is ever read as a fraction of a stored/asked budget — the sweep pins
   verbatim reads for every captured shape, so a new shape goes in that file.
 
+## 2e. TWO MARKETS IN ONE SEARCH — rent AND buy, one card each (the [19:19] batch)
+
+«DO 150000 ZA KUPUVANJE» then «DO 350 ZA IZNAJMUVANJE» are TWO caps, not a
+correction: the second used to overwrite the first, so the funnel listed sale
+flats inside the buy cap and the rent ask then had to be answered by the LLM
+(the rows were in the DB the whole time).
+
+- `slots.dualService` + `slots.rentBudget` + `slots.buyBudget` carry the pair;
+  every serve is ONE rent card and ONE buy card, each under ITS OWN cap, in the
+  pinned area. `slots.budget` is never shared across the two markets.
+- A later message that NAMES one market («ZA IZNAJMUVANJE ?») NARROWS the
+  search to that leg, hands that leg's own cap over as `slots.budget` and
+  retires `dualService` — deterministic, from the DB, never an LLM round trip
+  (the source stamp is asserted: an in-DB answer must not be `gemini:*`).
+- `captureDualBudgets` is a PURE-DELIVERY reader, and the purity test reads the
+  MESSAGE (`extractSlots(text)` + `areaNamed(text)`), NEVER the event: the
+  classifier's `SEARCH_REQUESTED` event echoes the session's armed criteria
+  (budget, service, bedrooms, garsonjera), so an event-side test swallowed
+  «SPALNI BILO KOLKU» (a waiver with no money) and lost the waiver, and a
+  message-side test that missed the feed-resolved AREA (extractSlots carries no
+  location) swallowed «KIRIJA DO 350E VO CENTAR» and lost the whole search
+  geography — the discovery re-asked the area the client had just named and the
+  pricier/elsewhere pivots ranked the entire city (the [20:33] regression, a
+  деловен простор served inside a Центар rent funnel).
+- Pinned in `tests/dual-rent-buy-serve.test.ts` (one test per captured turn,
+  including the place+budget message) and `tests/drugo-pivot.test.ts` (the
+  drained-pool pivot keeps the area).
+
+## 2f. A YES IS NEVER A WHY — and the arrange VERB is not a contract NOUN
+
+The [19:34] capture: after two nags the client conceded — «STOM TAKA RABOTITE
+DOGOVORI TOA E TOA» ("since that's how you work, arrange it, that's it"). The
+why-family word inside that sentence made BOTH fee.why legs (fast + FSM) serve a
+FOURTH explanation, and the legitimate contact ask never ran.
+
+- Consent outranks the explanation lane everywhere a why-word gates a serve:
+  `detectFeeWhy(text) && !detectFeePaymentAgreement(text)`. The same veto sits
+  in the router mirror so the predicted intent matches the executor
+  (tests/route-coverage.test.ts fails a tag with no calibration row).
+- `detectFeePaymentAgreement` reads the concessive yes — a concession clause
+  («штом/кога така работите» … договори/«тоа е тоа»), an agreeing opener plus
+  the arranging imperative («ок, договори»), and the bare imperative on the deal
+  («договори го», «ќе се договориме»). A VISIT COMMAND IS EXCLUDED
+  (`VISIT_COMMAND_OBJECT_RE`): «DOGOVORI MI DA GO VIDAM 70» stays the visit lane,
+  which owns the fee-first ordering.
+- `ARRANGE_VERB_RE` is the shared verb reader, and the documents lane consults
+  it: «договори тоа» is not a «договор». Before that, the consent turn was
+  answered with the ID-papers lecture (`DOCUMENTS_ASK`), because the two share
+  the stem. Only an explicit paperwork token («…, кои документи ми требаат?»)
+  keeps the documents lane.
+- **A VISIT REQUEST IS NOT MERE INTEREST — the fee-agreement gate asks
+  `detectVisitRequest`, never `detectVisitInterest`.** «70 BI SAKAL DA GO
+  POSETAM» after the disclosure IS the yes (the [19:32] capture), but «PA VIDI
+  STO E SO NEGO / ZAINTERESIRAN SUM» only says he is interested: the broad
+  predicate (which also fires on the grammar's bare «види» and on the typo
+  fallbacks) turned that tail into consent and jumped to the contact ask. Both
+  contracts are pinned — `tests/dual-rent-buy-serve.test.ts` and the older
+  `tests/tui-captures-mining.test.ts` — and the split between them is exactly
+  the REQUEST verb/noun family: the poseta verbs, «(би) го видам/погледнам/
+  разгледам», the arrange imperatives, the viewing-noun asks.
+- **«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» IS ANSWERED ON BOTH SIDES, AND ONLY THE STILL-OPEN
+  QUESTION IS REPEATED (the [19:36] capture).** Client and owner both asked it
+  mid ping-pong and both heard the funnel's next line instead — the client the
+  patience line, the owner the term re-asked — which reads as a bot that
+  ignores people. `AGENCY_IDENTITY_ANSWER` names Метрополис and the interrupted
+  question follows; the OWNER's leg is `ownerQuestionReply` (a question from
+  the owner is answered, never parsed as a verdict). Repeat the LAST assistant
+  turn's own question only: `lastAskedQuestion` over the whole history re-asked
+  a term the client had already given («MOZAM VO VTORNIK VO 6» →
+  owner_checking), so when that turn asked nothing the state's standing line
+  (`patience.line`) says where the deal really stands.
+  Pins: `tests/dual-rent-buy-serve.test.ts`, `tests/owner-relay.test.ts`.
+
 ## 3. TUI rendering: one emulator, two harnesses
 
 `src/tui/terminal.ts` is the ONLY screen model. Both render checks use it:
@@ -403,6 +476,22 @@ lexicon stem that matches ordinary client words is an appliance defect:
 - `tests/offensive-lexicon-audit.test.ts` sweeps the whole bank + curated client
   vocabulary; `npm run bank:audit-seeds` sweeps seeds + learned variants. Add the
   new word to the curated lists when you add a guard.
+- A FAMILY IS THE WHOLE CASE LADDER, NOT THE NOMINATIVE. The [11:57] capture
+  «MA IDI U PICKU MATER» — the hardest thing a client can type — was served the
+  neighbourhood-exhaustion line: the `pick` morphology row listed `picka/picki/
+  picke` but not the ACCUSATIVE `picku` (the object of «у пичку»), and the mother
+  word had no severity-3 row at all (`jebem ti`/`materina` were severity-2 heavy
+  insults). The pick family now carries `picku/picko/pickom/pickama/pickami/
+  picketina/pickiste`, and `S0c3` enumerates the mother-curse phrases
+  (`idi u picku mater`, `u picku materinu`, `jebem ti majku`, `majcinu ti`,
+  `idi u materinu`, …). When a row is a NOUN FAMILY, add the case ladder; when it
+  is a CURSE IDIOM, enumerate the phrases — a single short phrase is too easy to
+  embed, so `S0c3` is `boundary: true` against exactly that (unbounded «u mater»
+  fired inside «U MATERIJALU E OPISANO»).
+- SEVERITY DOES NOT CHANGE THE OUTCOME (every offence is a strike, one rung at a
+  time), so a missing row is not cosmetic — it is a curse answered as business
+  copy. The e2e pin lives in `tests/stuck.test.ts` (the insult-protocol block):
+  a curse mid-funnel must leave `state` untouched and serve the rebuff.
 
 ## 4b. Property identity: the mention binder and "last shown"
 
@@ -451,6 +540,32 @@ SAME question again (the [23:47]/[23:48] capture: "во кој дел од гр�
   `anywhere` silently skips the location ask.
 - With `anywhere` true the location AND bedrooms questions are skipped and the
   presentation is city-wide, ordered from the most popular neighbourhoods.
+
+## 4c-bis. A banked answer may never borrow a term
+
+The learned bank stores sentences, and `retrieveDynamic()` is a fuzzy,
+STATE-AGNOSTIC match — so a stored sentence has to be true for ANY client. A
+calendar entry never is. The [01:51] capture: «KOMPLICIRANI STE» during term
+negotiation was answered by generated prose promising the owner would be asked
+about «четврток во 17:00», the row was banked, and any later complaint scoring
+0.55 against that phrasing could be told about someone else's Thursday.
+
+- `pinsBorrowedCommitment(answer, userMsg)` in `src/llm/dynamicFallback.ts` is
+  the ONE reader: a day (`понеделник…недела`, `денес`, `утре`, Latin + inflected)
+  or a clock (`17:00`, `10.11`, `во 6`, `околу 17 часот`) in the answer is a
+  violation UNLESS the client's own message names it. Comparison is canonical:
+  the day maps to mon…sun, the hour to a bucket where `6` ≡ `18:00` (a client
+  writing «во 6» means the afternoon). Durations, units and floors are not
+  appointments (`во 5 минути`, `на 5 кат`, `за 3 дена`).
+- It runs at generation, on recall AND in the nightly row audit — so a row
+  stored before the rule stops serving instead of being purged by hand.
+- The live half is closed too: `Responder.escalate()` refuses prose that pins a
+  borrowed term while `inProtocolState(session)`, and the escalation door now
+  asks `dynamicAllowedHere()` — the visit/fee/contact ladder is answered by its
+  own copy, never by a paraphrase (a paraphrase is exactly how the term was
+  invented). Echoing a time the CLIENT named stays legal.
+- Pinned in `tests/dynamic-borrowed-time.test.ts` (including the e2e that a
+  `visit_scheduling` turn can never serve the promised term).
 
 ## 4d. One gate for the advice lanes — deny by default
 
@@ -665,6 +780,123 @@ The visit ping-pong ran four defects in one session; each is now a rule:
   bake a date into the record: a term that already names its day passes through
   untouched. When adding a relay, ask: does this string name a DAY, or only an
   hour?
+- **A GREETING FROM THE OWNER IS GREETED BACK, NOT CALLED «НЕ РАЗБРАВ» (the
+  [23:40] capture).** He opened the chat with «ZDRAVO» and heard «Не разбрав.
+  Евидентен број 54 — дали недвижноста е достапен…». A courtesy is not an
+  unintelligible answer: the same seam (`ownerQuestionReply`) now answers it
+  with «Здраво!» + the pending ask, and the client still hears nothing. The
+  greeting arm must run BEFORE the verdict guard — «DOBRO VECER» carries
+  «вечер», which the owner parser reads as a vague clock, so the guard ate the
+  greeting. A greeting whitelist is a WHOLE-DAY list: the evening forms
+  («добро вечер», «добро попладне», «добро ноќ», `dobro vece[r]`) are part of it,
+  or the same defect returns after 18:00.
+- **A CLAUSE IS NEVER A NAME — and a question is answered even while the
+  contact is being collected (the [02:31] regression, found by a whole-suite
+  run that a single-file run did not reproduce).** After the visit agreement
+  the chat sits in `contact_collection`; the client wrote «ako nema lift» and
+  `detectContact` mined the first two words as the person «Ako Nema», stored
+  it, and asked for a phone — the appointment carried a name nobody has and
+  the client's question died. Two rules: `detectContact` refuses a sentence
+  (a `?`, a conditional/question word, a wanting/availability verb, a
+  property/feature noun, or more than three content words), while the phone it
+  carries still counts; and a FEATURE ask in `contact_collection` is ANSWERED
+  (`FEATURE_OWNER_CHECK`) with the pending contact ask appended, so the turn
+  ends on the question the funnel still needs. Pins:
+  `tests/deterministic.test.ts` (the detector) and `tests/fee-serve-routing.ts`
+  («ako nema lift» after the visit agreement).
+- **A FEMININE SUBJECT TAKES A FEMININE ADJECTIVE — and the sentence's subject
+  DECIDES it.** `buildOwnerAskAgain` names «недвижноста» whenever no
+  `propertyTypeDef` is passed (which is every TUI re-ask), yet defaulted to the
+  masculine «достапен»: «дали недвижноста е достапен». The gender comes from the
+  branch that builds the subject, never from a default: the feminine is the
+  fallback, and a caller that brings its own definite noun («станот», «плацот»)
+  brings its own adjective.
+- **A QUESTION FROM THE OWNER IS ANSWERED, NEVER PARSED (the [09:57]/[10:02]
+  capture).** A stranger being asked for a viewing checks the request first:
+  «TOA E DENES TAKA ?», «DALI PRASUVATE ZA DENES ?». Without a guard the day
+  word inside them parsed as a COUNTER («Денес») and one was RELAYED to the
+  client as a refusal plus a fictitious alternative the owner never gave — a
+  fabricated term is the worst output this channel can produce. Rule: in
+  `owner_checking`/`time_confirm`, when the text is a QUESTION (`isOwnerQuestion`)
+  and carries no proposal (`detectOwnerVerdict` returns undefined for it), the
+  OWNER gets an answer built from the session — the term actually asked for
+  (dated, and a «is that today?» answered by FACT, never by echoing his word),
+  the flat, and the client's own ask again — and the CLIENT hears NOTHING until
+  the owner gives a term or declines. A proposing question («MOZE VO SABOTA ?»)
+  is still a verdict. Pins: `tests/owner-relay.test.ts` (the [09:57] test).
+- **THE AVAILABILITY HALF IS NOT THE TERM HALF (the [23:41] capture).** The
+  owner ask is COMPOUND — «дали е достапна… и дали го прифаќате терминот за
+  посета?» — and «DOSTAPNA E DA» answers only the first half. Parsed as a full
+  «ok» it closed the deal: the client got «Договорена посета … Вторник,
+  10.11.2026 во 17:30», the Turn-0 address confirmation went to the owner, and
+  the owner had never agreed to that term. Rules:
+  - `isOwnerAvailabilityOnly` (an availability STEM — достап/dostap, слобод/
+    slobod — plus no term acceptance, no clock, no day, no day-part) is NOT a
+    verdict: `detectOwnerVerdict` returns undefined for it. The bare «да» in
+    «DOSTAPNA E DA» echoes the availability yes/no; it is not consent to the
+    term.
+  - The owner is ANSWERED by the same seam (`ownerQuestionReply` →
+    `buildOwnerAvailabilityAck`) — a POOL, not one sentence:
+    `owner.availability.ack.term` (a term is on the table: confirm the
+    availability, ask whether it suits, invite another proposal) and
+    `owner.availability.ack.noterm` (nobody named one: ask which term). Seeds
+    are HAND-WRITTEN in `FIXED_SEEDS` (`{prop}` = the flat, `{term}` = the
+    RENDERED term), and both keys carry a `POOL_CONTRACTS` entry, so a learned
+    or reworded variant can never drop the availability or the open question
+    and re-open this bug. The code-built sentence is only the empty-bank
+    fallback. The pending check stays open; nothing reaches the client, no
+    agent is assigned, no appointment is finalized. THE CHAT WITH THE OWNER IS
+    NOT FINISHED UNTIL A TIME AND DATE ARE DEFINED.
+  - THE OWNER PANE HAS ITS OWN REPEAT MEMORY (`InboundHandler.ownerRecent`,
+    bounded, per chat). Every OWNER-facing pool — `owner.ask`,
+    `vague.time.owner`, `owner.availability.ack.*` — draws `recent` from it.
+    `assistantTexts(session)` is the CLIENT's history: filling an owner pool
+    from it suppressed variants the owner never read and repeated ones he did.
+    The owner is one human re-reading the same pane at every viewing, so a
+    fixed sentence is a script; four availability answers in a row use four
+    different variants (`tests/owner-relay.test.ts`, the rotation test).
+  - `npm run bank:audit-seeds` sweeps BOTH seed layers now (generated
+    `RESPONSE_BANK` and hand-written `FIXED_SEEDS`) for the P1 contracts and
+    the P5 offensive false positives — frozen policy copy served by
+    `pickVariant` was previously outside the audit.
+  - CONSENT MUST NAME ITS OBJECT (the [23:41] rule, at the VERDICT level). `ok`
+    means "agrees to the term on the table"; there is no room for a bare `ok`.
+    `applyOwnerVerdict` no longer falls back to `session.slots.visitTime` (the
+    CLIENT's proposal) when the verdict carries no term — an ambiguous `ok`
+    takes the AVAILABILITY lane (ack + term question, nothing booked). A
+    producer that means "yes to 17:30" says 17:30: the TUI shortcut
+    `/owner <eb> ok` stamps the pending term (`DeferredOwnerAgent.simulate`),
+    and the API accepts `confirm_time` and refuses (409) a term that is not the
+    one asked. One apply per verdict object (`appliedVerdicts`, identity keyed)
+    so a transport that resolves the check AND asks for the reply text cannot
+    answer the same half-answer twice.
+  - THE OWNER CHANNEL IS TRANSPORT, NOT A SECOND BRAIN
+    (`POST /hermes/v1/owners/:chatId/reply`). A channel that holds the owner's
+    conversation relays his RAW message; Lina answers through the same seam as
+    the operator pane (`ownerMessage` → `detectOwnerVerdict` /
+    `ownerQuestionReply`) and returns `reply_text` to deliver. No parser and no
+    copywriter on the other machine: two grammars diverge invisibly, and a
+    second copywriter stops the owner pool from rotating. `message_id` makes
+    the seam idempotent (`meta`-backed), so a retried webhook answers with the
+    SAME sentence instead of taking a second turn.
+  - `GET /hermes/v1/work` carries `deliver_text` (Lina's already-composed ask)
+    plus the owner's name/phone; `deliver_text: null` means the check was
+    re-armed AFTER the owner spoke, so there is nothing to send.
+    `owner_check_requested` means WAITING — it is settled when the check is
+    answered or superseded, so the queue never lists closed checks or answered
+    local checks. A verdict with no pending check is a 409 and writes NO
+    `owner_check_result` event (a stray event used to sit in the bus forever).
+  - A NEGATED availability («NE E DOSTAPNA», «не е слободна») is a REFUSAL and
+    can never set `agree` — the agreement family matches the bare predicate
+    inside the negation, so it used to LOCK the visit on the exact opposite
+    answer. It parses as a bare counter (the client is asked for another term).
+  - The `ok` branch refuses to confirm with NO term on the table at all (an
+    empty `ownerTime` + no `visitTime`): it asks HIM for the term instead of
+    sending a «Договорена посета …» with a blank term.
+  - A QUESTION is still a question («DALI E SLOBODNA ?» keeps the [09:57]
+    lane) — the availability ack is for a STATEMENT only.
+  Pins: `tests/owner-relay.test.ts` (the [23:41] and [09:57 sibling] tests),
+  `tests/hermesApi.test.ts` (the transport seam, idempotency, `confirm_time`).
 
 ## 4i. THE SERVICE QUESTION PRESUMES NO PROPERTY TYPE (the [21:20] capture)
 
@@ -1106,6 +1338,44 @@ with a visit-fee pitch. Three causes, all in the money lane:
   flat the client names in the question is the subject of the arithmetic.
   Pins: `tests/rent-cash-math-named-eb.test.ts`.
 
+## 4n. A RECALL CAN NAME TWO LISTINGS, AND A PRICE IS NEVER AN ЕВИДЕНТЕН БРОЈ (the [22:26] capture)
+
+One chat, six turns, one root cause per turn:
+
+- «IMAVTE EDNA GARSONJERA … OKOLU 200E ILI KUKJA … ZA 250» names TWO
+  descriptions. `extractSlots` merges them (one set of flags, the LAST price),
+  so the serve answered with the куќа alone. `splitRecallCategories` splits on
+  the client's own «или/ili», keeps each half's category AND price, and the
+  recall lane serves one locked row per half — each half's category is a LOCK
+  (a гарсоњера half never comes back as a three-room flat that costs the same).
+  A half we do not hold is NAMED as missing.
+- A GLUED CURRENCY IS A PRICE: «200E» in `ebNumber.ts` (`GLUED_UNIT_TAIL`, no
+  «\s*» prefix) — «200E DALI E DOSTAPNA» was read as Евидентен број 200 and
+  answered «200 не се наоѓа во моменталната понуда». The SPACED «63 E TAA»
+  copula keeps its number.
+- An availability ask about a flat ON THE TABLE (`AVAILABILITY_TABLE`) is the
+  ack + the owner question for THAT flat, never a fresh criteria grill. It
+  stands down on an EB, a room count, a plural type noun or an inventory ask —
+  those are searches with their own lanes.
+- TWO FLATS ON THE TABLE → the availability ack NAMES its Евидентен број
+  (`availabilityReply`); a bare «сè уште е достапна» belongs to no flat, and the
+  client then has to ask «KOJ BROJ E?».
+- «KOJ BROJ E?» is the which-property family (`detectWhichPropertyAsk`), and
+  the info ask BY PRONOUN («KAZI MI INFORMACII ZA NEJZE») is the describe lane:
+  the card plus the confirm question «Дали ова е недвижноста што ја баравте?».
+  The pronoun's GENDER picks the row (`pickByReferentGender`).
+- «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E ?» is a CHALLENGE, not a
+  deferral: `detectDefer` refuses any second-person contact verb (its subject
+  is HER), and `detectContactMechanicsChallenge` answers with the number she
+  holds + the mechanism.
+- HER ORIGIN IS A BOUNDARY (`personal.ts` kind `origin`): «OD KOE SELO SI?» gets
+  the owner's one wording — «Од каде сум и што сум не би требало да Ве
+  интересира … Тука сум за да Ви помогнам во изборот на недвижност. Повелете.»
+- The sexual-demand family («da mi popusis…») is a severity-3 row; the bare
+  verb is never listed (попуст/пуши are ordinary words), and smoking contexts
+  are excluded.
+  Pins: `tests/capture-2226-bunjakovec.test.ts`.
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.
@@ -1139,3 +1409,33 @@ with a visit-fee pitch. Three causes, all in the money lane:
   silent landmark-quality bug once — do not reintroduce one.
 - Long copy, prices and counts are data: quota numbers, fees and the commission
   tier live in the bank/constraints, never hardcoded in a handler.
+
+## 4o. THE BATCH IS COMPARED, NEVER RE-SERVED (the [09:41]–[09:51] batch)
+
+Over ONE pair of cards (EB 91, ad «Маџар Маало»; EB 74, ad «Дебар Маало») the
+client asked three questions and got the same pair back twice:
+
+- **«KOJ OD NIV E VO MADJAR MAALO?» IS A COMPARISON.** No lane owned a question
+  that DISCRIMINATES the offered rows by place, so the recall path read the place
+  as a new search and re-served both. `detectWhichOfBatchPlace` (data/properties)
+  is the ONE detector: which-word + batch reference (`od niv/ovie/tie`) + a place
+  phrase — a bare search («koj stan e vo centar?») and a nearest-ask are excluded
+  by construction. The answer is PER ROW from each row's OWN words: the flat that
+  IS there is named (and becomes `slots.propertyId`), every other row is said
+  where it really stands via `adArea(p)` — the area the ad itself names, never the
+  feed's municipality. This matters because «Маџар Маало» canonicalises to
+  «Центар», and `inArea`'s naselba leg would then match EVERY Центар row.
+  `isAdDefinedArea` decides which of the two legs is honest.
+- **A SINGULAR DISTANCE ASK IS ABOUT THE FLAT UNDER DISCUSSION.** «NA KOLKAVO
+  RASTOJANIE **E** OD …» (one flat) after a two-card serve answered BOTH rows and
+  stamped the nearest onto the slots, so the discussed flat lost its anchor. The
+  batch arm is now gated by `distanceAskIsPlural` — the PLURAL form
+  («… **SE** OD …», «dvata/ovie») keeps the per-row comparison, the singular one
+  falls through to the single-flat arm, which NAMES the EB when several cards
+  have been shown.
+- **THE COMMISSION ASK IS NEVER A FUNNEL POSITION.** «KOLKU VI E PROVIZIJATA ?»
+  in `property_locate` was skipped by the state gate and the cards were served
+  again. `SIMPLE_DETECTORS`'s PROVISION_ASK row now allows EVERY client-side
+  state — and the ROUTING_ORDER mirror carries the executor's own list, because a
+  narrower gate there predicts FALLTHROUGH for a turn the lane really serves.
+Pins: `tests/capture-0941-batch.test.ts`, `tests/route-coverage.test.ts`.

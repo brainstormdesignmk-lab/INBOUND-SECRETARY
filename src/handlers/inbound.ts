@@ -14,11 +14,12 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey } from '../data/properties';
-import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, detectAgentAttendanceAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, detectVisitInterest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude } from '../llm/deterministic';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace } from '../data/properties';
+import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
+  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, detectOwnerVerdict,
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
-import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera } from '../llm/deterministic';
+import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
 import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
@@ -54,7 +55,7 @@ import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   mergeOwnerTerm,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
-  buildOwnerAsk, buildOwnerFollowupAsk, buildOwnerAcceptFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay,
+  buildOwnerAsk, buildOwnerFollowupAsk, buildOwnerAcceptFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay, buildOwnerAvailabilityAck,
   ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime, renderVisitTerm,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
@@ -64,7 +65,7 @@ import {
   buildLocateLandmarkPriceProbe, buildDescribeIntro,
   AVAILABILITY_ACK, AVAILABILITY_ACK_FEM, buildPriceRelay, buildFeeAsk, buildFeePerProperty, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
-  buildDiscoveryAsk,
+  buildDiscoveryAsk, locationCriterionKnown, serviceCriterionKnown,
   buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   PROPERTY_QUERY_CLOSERS_ALL, conversationalDetails,
   buildExactAddressAnswer, displayPlaceName, displayAreaName,
@@ -97,6 +98,13 @@ const LANDMARK_NEAR_M = 1000;
 // for the [19:44] capture («IMAVTE EDNA KUKJA VO SKOPJE SEVER ZA 130 000» →
 // «Колку спални соби…»). Only a NUMBER NOUN marks an EB.
 const EB_NAMED_RE = /(?<![\p{L}\p{N}])(?:евидентен\s*)?(?:број|broj|еб|eb)\s*[:.]?\s*\d{1,5}(?!\d)/iu;
+/** «ТАМУ» — THE PLACE THE CHAT IS ALREADY AT (the [20:47] capture).
+ *  «IMAVTE EDNA GARSONJERA TAMU SO KIRIJA OD 200 EVRA» points back at the place
+ *  bound one turn earlier (Католичка): no second place name, no кај/до/близу,
+ *  just the adverb. Every lane that reads a place from the MESSAGE alone missed
+ *  it — the recall had no anchor, so the criteria funnel asked him how many
+ *  bedrooms he wants in a flat he had already seen. One reader, both lanes. */
+const ANCHOR_WORD_RE = /(?<![\p{L}\p{N}])(?:таму|тамо|там|tamu|tamo|tam)(?![\p{L}\p{N}])/iu;
 // «дали се продава УШТЕ?» — the trailing-adverb word order puts «уште» AFTER
 // the verb, which detectAvailabilityAsk's strict arms do not read (the [20:11]
 // capture: «dali se prodava uste ?» was answered with the same card again).
@@ -790,6 +798,15 @@ function gonePredicate(note?: string): string {
   return 'веќе не е достапна';
 }
 
+/** THE MARKET-IS-ALIVE LINE — the owner's own wording (the [21:02] capture,
+ *  dictated verbatim): «PAZAROT SO NEDVIZNOSTI E ZIVA MATERIJA, KADE STO
+ *  SOSTOJBITE SE MENUVAAT PREKU NOKJ. TREBA BRZA REAKCIJA ZA DA SE OBEZBEDI
+ *  TOA STO E POTREBNO.» Used when a client reacts to a sale he just heard
+ *  about — it explains the news without an excuse and without a promise, and
+ *  every use is followed by the alternatives question. */
+const MARKET_IS_ALIVE =
+  'Пазарот со недвижности е жива материја — состојбите се менуваат преку ноќ, па потребна е брза реакција за да се обезбеди тоа што е потребно.';
+
 /**
  * TYPED-CATEGORY EMPTY (the [09:29] business capture) — the answer for a
  * деловен простор / куќа / плац search with NOTHING in its own category
@@ -934,6 +951,13 @@ function bedsPhrase(rooms: number[]): string {
 function noStockSubject(slots: ChatSession['slots']): string | undefined {
   const monthly = slots.service === 'rent' ? ' месечно' : '';
   const money = (raw?: string): string => {
+    // THE RATE SPEAKS AS A RATE (the [02:09] capture): a €/m² ceiling in the
+    // sentence as a total is how «нема станови до 1.500 евра во Аеродром»
+    // went out to a client who had said «PO 1500E ZA KVADRAT» — and a 1.250
+    // €/m² card followed it. The unit rides the figure, always.
+    if (slots.sqmRate !== undefined && slots.sqmRate > 0) {
+      return ` до ${slots.sqmRate.toLocaleString('mk-MK')} евра за м²`;
+    }
     const n = Number(String(raw ?? '').replace(/[^\d]/g, ''));
     return Number.isFinite(n) && n > 0 ? ` до ${n.toLocaleString('mk-MK')} евра${monthly}` : '';
   };
@@ -1000,7 +1024,8 @@ function noStockLine(slots: ChatSession['slots'], fresh: boolean): string | unde
   if (slots.dualService) return undefined;
   const subject = noStockSubject(slots);
   if (!subject) return undefined;
-  const hasMoney = /\d/.test(String(slots.budget ?? '').replace(/[^\d]/g, ''))
+  const hasMoney = slots.sqmRate !== undefined
+    || /\d/.test(String(slots.budget ?? '').replace(/[^\d]/g, ''))
     || Object.values(slots.categoryBudgets ?? {}).some(v => /\d/.test(String(v).replace(/[^\d]/g, '')));
   const exits: string[] = [];
   if (slots.location && !slots.anywhere) exits.push('да барам во друга населба');
@@ -1058,6 +1083,28 @@ function pickDescribed(text: string, ebs: number[]): number | undefined {
   }
   return undefined;
 }
+
+/** A PRONOUN PICK («КАЖИ МИ ИНФОРМАЦИИ ЗА НЕЈЗЕ» — the [22:30] capture): the
+ *  client refers to the flat he just named by its GENDER, which is a real
+ *  signal in Macedonian — «нејзе/неа/таа» can only be the куќа, гарсоњера or
+ *  плац on the table, «него/тој» the стан or деловен простор. Exactly one row
+ *  of that gender → that row. No pronoun, both genders present in the words, or
+ *  several rows of that gender → no pick (the whole table is described). */
+function pickByReferentGender(text: string, rows: Property[]): number | undefined {
+  const flat = text.replace(/\s+/g, ' ');
+  const fem = /(?<![\p{L}])(?:нејзе|нејзината|нејзиниот|неа|таа|оваа|nejze|nejzinata|nea|taa|ovaa)(?![\p{L}])/iu.test(flat);
+  const masc = /(?<![\p{L}])(?:него|неговиот|тој|овој|nego|negoviot|toj|ovoj)(?![\p{L}])/iu.test(flat);
+  if (fem === masc) return undefined;
+  const isFem = (p: Property): boolean => ownerPropertyLabels(p).dostapen === 'достапна';
+  const want = rows.filter(p => isFem(p) === fem);
+  return want.length === 1 ? want[0].eb : undefined;
+}
+
+/** The confirm question of a ONE-CARD info answer (the [22:30] owner rule): the
+ *  card is what he asked for, and the flat he means has to be CONFIRMED before
+ *  the funnel moves — otherwise «дали е достапна» and «дај ми инфо» both end on
+ *  a description the client never acknowledged. */
+const INFO_CARD_CONFIRM = 'Дали ова е недвижноста што ја баравте? Ако е, кажете ми и продолжувам понатаму.';
 
 /** THE STOREY as a sentence fragment — the row's own `floor`, never read off
  *  the ad prose (both are offered to the client, but only the column is a
@@ -1202,6 +1249,12 @@ export interface HandlerDeps {
   /** Visit-protocol scheduler (turns 2+3). Optional: without it the arranged
    *  message is skipped and only the client confirmation goes out. */
   visits?: VisitScheduler;
+  /** THE OWNER SILENCE HANDLER. A deferred owner check that outlives
+   *  `ownerCheckTimeoutMinutes` used to clear its poll and log one console
+   *  line: the client sat in owner_checking forever and nobody was told. The
+   *  entry point owns the operator channel, so it receives the timeout and
+   *  decides (operator escalation + honest client re-ping). */
+  onOwnerCheckTimeout?: (info: import('../backoffice/ownerAgent').OwnerCheckTimeout) => void | Promise<void>;
   /** Enrichment queue — stores LLM-backed responses for the midnight cron
    *  that generates bank variants. Optional: without it, the queue is silent. */
   enrichment?: import('../store/enrichment').EnrichmentStore;
@@ -1239,6 +1292,22 @@ function protocolRoundFor(session: ChatSession, eb: number): number {
     session.slots.addressProtocolIndex = 0;
   }
   return session.slots.addressProtocolIndex ?? 0;
+}
+
+/** What happened to an owner's message that arrived through a TRANSPORT (the
+ *  `/hermes/v1/owners/:chatId/reply` route) rather than the operator pane. The
+ *  transport needs to know whether it owes the owner an answer, and the audit
+ *  needs to know whether the funnel moved, waited, or refused the message. */
+export interface OwnerMessageResult {
+  effect: 'answered' | 'verdict_applied' | 'verdict_relayed' | 'address_confirmed' | 'no_pending' | 'unknown_chat' | 'wrong_property';
+  /** The text to deliver BACK to the owner (the ack, the answer to his question,
+   *  the exact-hour re-ask). Absent when nothing should be sent (a verdict was
+   *  applied and the conversation moves to the client). */
+  replyText?: string;
+  state?: string;
+  /** True when this is a REPLAY of an earlier delivery with the same
+   *  messageId — the same `replyText`, and no second turn of the conversation. */
+  replay?: boolean;
 }
 
 export class InboundHandler {
@@ -1353,7 +1422,8 @@ export class InboundHandler {
     this.visits = deps.visits;
     this.ownerAgent = deps.cfg.ownerAgentMode === 'local'
       ? new LocalOwnerAgent(this.owners, this.events)
-      : new DeferredOwnerAgent(this.owners, this.events, deps.cfg.ownerCheckTimeoutMinutes * 60_000, deps.cfg.ownerBusPollMs);
+      : new DeferredOwnerAgent(this.owners, this.events, deps.cfg.ownerCheckTimeoutMinutes * 60_000,
+        deps.cfg.ownerBusPollMs, deps.onOwnerCheckTimeout);
   }
 
   private get cfg(): AppConfig {
@@ -1370,9 +1440,13 @@ export class InboundHandler {
   }
 
   // Per-chat serialized queue: preserves order inside one chat, parallel across chats.
-  private enqueue(chatId: string, fn: () => Promise<void>): Promise<void> {
+  /** Serialize a chat's turns. The callback may RETURN A VALUE (the owner seams
+   *  return the text they served — see applyOwnerVerdict); the chain only needs
+   *  to know when the turn finished, so the result is dropped deliberately. */
+  private enqueue(chatId: string, fn: () => Promise<unknown>): Promise<void> {
     const prev = this.chains.get(chatId) ?? Promise.resolve();
-    const next = prev.then(fn).catch(e => console.error('[pipeline]', chatId, (e as Error).message));
+    const next = prev.then(fn).then(() => undefined)
+      .catch(e => console.error('[pipeline]', chatId, (e as Error).message));
     this.chains.set(chatId, next);
     return next;
   }
@@ -1467,6 +1541,28 @@ export class InboundHandler {
     return undefined;
   }
 
+  /** THE AREA A FLAT STANDS IN, READ AS A NAME FOR THAT FLAT (§4b).
+   *
+   *  The client points at ONE of the offered rows by the place its card says
+   *  («OVOJ NA VODNO …», «тој во Маџар Маало»), and only that row's own words
+   *  (feed naselba or ad text — `inArea`) may bind it. A phrase that is not a
+   *  place at all (a property noun, the city itself) scopes nothing, and an
+   *  area SEVERAL of the offered flats share cannot say which one he means:
+   *  both cases return undefined so the caller keeps its own behaviour. */
+  private areaMention(text: string, rows: Property[]): Property | undefined {
+    if (rows.length < 2) return undefined;
+    const NOT_A_PLACE = /^(?:skopje|скопје|gradot|градот|stanot|станот|stan|стан|nedviznosta|недвижноста|kukjata|куќата|objektot|објектот|zgradata|зградата)$/u;
+    const phrases = extractPlacePhrases(text).filter(p => p.length >= 4 && !NOT_A_PLACE.test(p));
+    if (phrases.length === 0) return undefined;
+    // Same ad-defined rule as the batch-place lane: an area the ADS define
+    // («Маџар Маало», inside Центар) must not match every row of its
+    // municipality through the naselba leg.
+    const hits = rows.filter(p => phrases.some(ph => isAdDefinedArea(rows, ph)
+      ? textNamesPlace(adText(p), ph)
+      : inArea(p, ph)));
+    return hits.length === 1 ? hits[0] : undefined;
+  }
+
   private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean; offerAtPlace?: boolean }): Promise<{ prop?: Property; clarify?: string; fromFeed?: boolean; clarifyEbs?: number[]; clarifyAnchor?: { name: string; lat: number; lon: number } } | undefined> {
     const ebSet = new Set<number>();
     for (const eb of [
@@ -1556,9 +1652,19 @@ export class InboundHandler {
         .find(h => !!h);
       if (hit) poi = { name: hit.name, lat: hit.lat, lon: hit.lon };
     }
+    // «ТАМУ» IS THE PLACE WE WERE JUST TALKING ABOUT (the [20:47] capture):
+    // «IMAVTE EDNA GARSONJERA TAMU SO KIRIJA OD 200 EVRA» arrives one turn after
+    // Католичка was bound, and the client says THERE — no second place name, no
+    // preposition, just the anchor the session already holds. Reading it as a
+    // fresh search asked him how many bedrooms he wants in a flat he had
+    // already seen, at a price he had already quoted.
+    if (!poi && ANCHOR_WORD_RE.test(text) && typeof session.slots.poiAnchor === 'string') {
+      const held = this.landmarks?.findPlace(session.slots.poiAnchor);
+      if (held) poi = { name: held.name, lat: held.lat, lon: held.lon };
+    }
     const offerAtPlace = opts?.offerAtPlace === true
-      && OFFER_ASK_RE.test(text) && LANDMARK_PREP_RE.test(text) && !!poi;
-    if (discussed.length === 0 && !(sig.descriptor && (pointsAtOne || offerAtPlace))) return undefined;
+      && OFFER_ASK_RE.test(text) && (LANDMARK_PREP_RE.test(text) || ANCHOR_WORD_RE.test(text)) && !!poi;
+    if (discussed.length === 0 && !((sig.descriptor && pointsAtOne) || offerAtPlace)) return undefined;
 
     const cands: MentionCandidate[] = discussed.map(p => {
       const c: MentionCandidate = {
@@ -1577,7 +1683,26 @@ export class InboundHandler {
       return c;
     });
     let match = discussed.length > 0 ? resolveMention(text, cands, { poi }) : undefined;
-    if (!match && sig.descriptor) {
+    // THE AREA A FLAT STANDS IN IS A WAY TO NAME IT (§4b: "a client names a
+    // property by ANYTHING — type noun, price, m², landmark, EB — never only by
+    // EB"). The [10:09] capture: over the pair EB 76 (Центар) + EB 79 (Водно)
+    // the client wrote «OVOJ NA VODNO STO E NA KOJA ULICA E ?» — he pointed at
+    // the flat whose CARD says Водно, and the resolver had no signal for it (the
+    // descriptor family only reads кај/до/преку/спроти/блиску), so the lane
+    // answered for whichever card was last on the table: the WRONG one, with
+    // another property's landmark and map pin.
+    // The rows' own words decide (inArea: the feed naselba AND the ad text, so
+    // a micro-area like «Маџар Маало» is findable too). ONLY one matching row
+    // binds: an area two of the offered flats share says nothing about which
+    // one he means, and a guess is worse than the existing behaviour.
+    if (!match) {
+      const areaRow = this.areaMention(text, discussed);
+      if (areaRow) match = { kind: 'unique', eb: areaRow.eb, signals: sig };
+    }
+    // THE FEED PASS ALSO SERVES THE «ТАМУ» RECALL: it has no descriptor word to
+    // narrow by (the place came from the session), and skipping it here would
+    // return the turn to the funnel after the anchor was correctly read.
+    if (!match && (sig.descriptor || offerAtPlace)) {
       // THE HINT NAMES SOMETHING SHE HAS NOT SHOWN (the [01:20] capture): the
       // client points at «овој кај СЈО» while the cards on the table are two
       // other flats. Reading only the presented set binds nothing, and the
@@ -1724,6 +1849,12 @@ export class InboundHandler {
     if (!match) return undefined;
     if (match.kind === 'unique' && match.eb !== undefined) {
       // `all` — the feed-wide hint may name a property this chat never saw.
+      // A NAME IS A CHOICE (the [19:27] capture): the flat the client names
+      // becomes the one he ASKED about, so the next bare «каде е?»/«што има во
+      // близина?» answers it — the address lane's own last-presented rule
+      // answered a different card from the batch. askedEb is that memory; the
+      // feed/batch order still owns every un-named ask.
+      if (match.eb !== session.slots.askedEb) session.slots.askedEb = match.eb;
       return { prop: all.find(p => p.eb === match.eb) };
     }
     // Ambiguous → ONE clarify naming the options (never a silent guess,
@@ -1864,7 +1995,18 @@ export class InboundHandler {
       || (session.slots.currentBatch ?? []).includes(p.eb);
     const alreadyNamed = assistantTexts(session)
       .some(t => new RegExp(`Евидентен број ${p.eb}(?!\\d)`).test(t));
-    return !namedInText && !wasShown && !alreadyNamed
+    // TWO FLATS ON THE TABLE, ONE ACK (the [22:27] capture): the client pointed
+    // at the гарсоњера «за 200Е» while a куќа stood beside it in the same batch.
+    // «Би требало сè уште да е достапна…» then belongs to no flat in particular,
+    // and the very next question («KOJ BROJ E?») showed he had no number to hold
+    // on to. Whenever another flat is still on the table the ack NAMES its own
+    // Евидентен број — the client must never have to ask which one she means.
+    const othersOnTable = [...new Set([
+      ...(session.slots.currentBatch ?? []),
+      ...(session.slots.presentedIds ?? []),
+    ])].filter(eb => eb !== p.eb && eb !== p.id);
+    const ambiguous = othersOnTable.length > 0;
+    return (!namedInText && !wasShown && !alreadyNamed) || ambiguous
       ? `${boundFlatIdentity(p)}\n\n${ack}`
       : ack;
   }
@@ -1940,6 +2082,40 @@ export class InboundHandler {
     return line
       .replace(/^Тоа се наоѓа/u, `Евидентен број ${eb} се наоѓа`)
       .replace(/^Недвижноста/u, `Недвижноста со Евидентен број ${eb}`);
+  }
+
+  /** THE ADMISSION (the [02:12] capture): the client is holding a card we
+   *  served against a «нема» we said. The turn owes three things — an
+   *  apology, the ROW'S OWN FACTS (so the contradiction is settled with data,
+   *  not with a tone shift), and the next step. Nothing is invented: the row
+   *  comes from the batch under discussion and the rate from the client's own
+   *  threshold; when neither exists this returns undefined and the normal
+   *  lanes keep the turn. */
+  private async contradictionCorrection(session: ChatSession): Promise<string | undefined> {
+    const ids = [...new Set([...(session.slots.currentBatch ?? []),
+      ...(session.slots.presentedIds ?? []).slice(-4)])];
+    if (ids.length === 0) return undefined;
+    const rows = (await Promise.all(ids.map(id => this.deps.properties.getById(id).catch(() => undefined))))
+      .filter((p): p is Property => !!p);
+    if (rows.length === 0) return undefined;
+    const rate = session.slots.sqmRate;
+    const fits = rate === undefined
+      ? []
+      : rows.filter(p => { const per = pricePerM2(p); return per !== undefined && per <= rate; });
+    const row = fits[0] ?? rows[rows.length - 1]!;
+    const per = pricePerM2(row);
+    const money = (n: number): string => n.toLocaleString('mk-MK');
+    const where = row.location ? ` во ${displayAreaName(row.location)}` : '';
+    const facts = row.price !== undefined
+      ? `Недвижноста под Евидентен број ${row.eb}${where} чини ${money(row.price)} евра${per !== undefined ? `, односно ${money(per)} евра за м²` : ''}`
+      : `Недвижноста под Евидентен број ${row.eb}${where}`;
+    const inside = rate !== undefined && per !== undefined
+      ? ` — внатре во границата од ${money(rate)} евра за м² што ја наведовте`
+      : '';
+    const next = rate !== undefined
+      ? `Дали да Ви ги покажам сите опции до ${money(rate)} евра за м², или да продолжиме со посета?`
+      : 'Дали да продолжам со посетата, или да Ви покажам уште опции?';
+    return `Извинете, во право сте — тоа беше моја грешка. ${facts}${inside}. ${next}`;
   }
 
   private whereIsReply(p: Property, session: ChatSession, place?: string): string {
@@ -2140,6 +2316,27 @@ export class InboundHandler {
   // gone, so we defer honestly instead of branding it a ghost.
   private feedHealthy(): boolean {
     return this.deps.properties.healthy;
+  }
+
+  /** THE QUESTION THAT WAS PENDING — the last one Lina actually asked, read
+   *  back from her own recent turns. Used by the identity lane (and the owner
+   *  question lane) so an interruption is answered AND the conversation picks
+   *  up exactly where it stopped: «Која агенција сте вие?» mid-scheduling must
+   *  not cost the client the question he was about to answer. Scans a short
+   *  window (a patience line with no «?» sits between the ask and the
+   *  interruption), and returns the last interrogative SENTENCE, never a whole
+   *  card batch. */
+  private lastAskedQuestion(session: ChatSession, maxBack = 6): string | undefined {
+    const texts = assistantTexts(session);
+    for (let i = texts.length - 1; i >= Math.max(0, texts.length - maxBack); i--) {
+      const t = (texts[i] ?? '').trim();
+      if (!t.includes('?')) continue;
+      const parts = t.split(/(?<=[.?!])\s+/u).map(s => s.trim()).filter(Boolean);
+      for (let j = parts.length - 1; j >= 0; j--) {
+        if (parts[j].includes('?')) return parts[j];
+      }
+    }
+    return undefined;
   }
 
   private whereIsNoContext(session: ChatSession, userText: string): string {
@@ -3445,6 +3642,37 @@ export class InboundHandler {
       return;
     }
 
+    // ── «КОЈА АГЕНЦИЈА СТЕ ВИЕ?» — ANSWER IT, THEN CONTINUE (the [19:36]
+    // capture) ───────────────────────────────────────────────────────────────
+    // Mid-funnel the client asked who he was dealing with and heard the
+    // patience line (state owner_checking); on the owner side the same question
+    // heard the term re-asked. Both read as a machine that ignores people. The
+    // identity answer is ONE fact, and then the OPEN question is repeated (or,
+    // when the last turn asked nothing, the state's standing line) — the
+    // ping-pong continues exactly where it was interrupted.
+    if (detectAgencyIdentityAsk(text)) {
+      // REPEAT WHAT IS STILL PENDING, NOT WHAT WAS ALREADY ANSWERED: the last
+      // QUESTION anywhere in the history may be a term the client has since
+      // given («MOZAM VO VTORNIK VO 6» → owner_checking), and repeating it asks
+      // him for it twice. Only the LAST assistant turn's own question is still
+      // open; when it asked nothing, the state's standing line says where the
+      // deal actually stands (the owner is being checked).
+      const lastAssistant = assistantTexts(session).at(-1) ?? '';
+      const pending = lastAssistant.includes('?') ? this.lastAskedQuestion(session, 1) : undefined;
+      const standing = (session.state === 'owner_checking' || session.state === 'time_confirm')
+        ? pickVariant('patience.line', { recent: assistantTexts(session) })
+          ?? PATIENCE_LINE
+        : undefined;
+      const tail = pending ?? standing;
+      const reply = tail ? `${AGENCY_IDENTITY_ANSWER} ${tail}` : AGENCY_IDENTITY_ANSWER;
+      routeLog(chatId, text, 'AGENCY_IDENTITY');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, reply, 'deterministic:identity');
+      return;
+    }
+
     // BUSINESS-SPACE BUDGET — the explicit deterministic route for a COMMERCIAL
     // price question in the intake states ("kolku cini deloven prostor vo
     // Centar?", "koja e cenata za lokal?"). Lina cannot quote a number she does
@@ -3581,6 +3809,13 @@ export class InboundHandler {
         // THE ONLY CARD OF THE LAST BATCH answers a demonstrative that names
         // no number; the presentation-order tail answers everything else.
         ?? (pointsAtOneCard ? lastServeCard : undefined)
+        // THE FLAT HE NAMED LAST OUTRANKS THE BATCH TAIL (the [19:27] capture):
+        // «ovoj za 350 evra kirija bi go videl» then «na koja adresa e?» was
+        // answered about the OTHER card of the pair — the client's own choice
+        // is what «овој» means now.
+        ?? (session.slots.askedEb !== undefined
+          ? await this.deps.properties.getByEb(session.slots.askedEb).catch(() => undefined)
+          : undefined)
         ?? lastPresented
         ?? (session.slots.propertyId
           ? await this.deps.properties.getByEb(session.slots.propertyId)
@@ -3780,6 +4015,30 @@ export class InboundHandler {
           return;
         }
       }
+      // REACTING TO THE SALE ITSELF (the [21:02]/[21:03] capture): «KAKO BE
+      // PRODADEN .» then «TAMAN MISLEV DEKA SUM NASOL STANCE» are not a new
+      // search and not a yes/no — they are the client absorbing the news of a
+      // flat he had just found. The location-confirm lane used to swallow them
+      // (the property's area was on file) and answer «Точно, Станот … се наоѓа
+      // на Водно. Дали сакате да организираме посета?» — offering a VISIT for
+      // a flat the owner had just sold. The owner dictated the answer: the
+      // market is alive, stock turns overnight, so a fast reaction is what
+      // secures anything; then the same alternatives question, re-armed so a
+      // «да» serves the pair.
+      const SALE_REACTION_RE =
+        /(?<![\p{L}\p{N}])(?:како|kako)\b[^.!?\n]{0,20}(?:продад|prodad)|(?<![\p{L}\p{N}])(?:таман|taman|штотуку|stotu)[^.!?\n]{0,30}(?:најдов|najdov|најде|najde|најдено|najdeno)|(?<![\p{L}\p{N}])(?:не|ne)\s+(?:може|moze)\b[^.!?\n]{0,20}(?:продад|prodad)/iu;
+      if (SALE_REACTION_RE.test(text)) {
+        const answer = `${MARKET_IS_ALIVE} Дали би сакале да Ви понудам нешто друго со слични карактеристики?`;
+        // The offer is re-armed: this answer asks the SAME question the gone
+        // relay asked, so a «да» must serve the pair exactly as it would there.
+        session.slots.goneAlternativesEb = goneEb;
+        session.slots.soldEb = goneEb;
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer);
+        return;
+      }
       // NO (or a new search / criteria change): fall through to the normal
       // lanes — the funnel continues, the offer is already consumed.
     }
@@ -3962,7 +4221,17 @@ export class InboundHandler {
         const discussedEb = anchorProp?.eb ?? session.slots.propertyId
           ?? session.slots.interestedPropertyId;
         const batchOwnsSubject = discussedEb === undefined || batchEbs.includes(discussedEb);
-        if (batchEbs.length >= 2 && batchOwnsSubject) {
+        // ONE FLAT ASKED, ONE FLAT ANSWERED (the [09:48] capture): «NA KOLKAVO
+        // RASTOJANIE E OD ZELEZNICKA STANICA ?» arrived one turn after «KOLKU
+        // DOAGJA PO KVADRAT CENATA NA 91 ?», and the batch arm answered BOTH
+        // rows (91 and 74) — then stamped the nearest of them onto the slots,
+        // so the flat he was discussing lost its anchor. A SINGULAR ask is
+        // answered by the single-flat arm below (which NAMES the EB when more
+        // than one card has been shown); the PLURAL form
+        // («NA KOLKAVO RASTOJANIE SE DO …», «KOLKU SE OD …», «dvata/ovie»)
+        // is the comparison and keeps the per-row answer.
+        const singularAsk = discussedEb !== undefined && !distanceAskIsPlural(text);
+        if (batchEbs.length >= 2 && batchOwnsSubject && !singularAsk) {
           const rows = (await Promise.all(batchEbs.map(eb =>
             this.deps.properties.getByEb(eb).catch(() => undefined))))
             .filter((p): p is Property => !!p);
@@ -4044,6 +4313,69 @@ export class InboundHandler {
         }
       }
       // No place / no anchor / map miss → the chains below keep the turn.
+    }
+
+    // ── WHICH OF THE OFFERED FLATS IS AT THAT PLACE (the [09:44] capture) ────
+    // Over the pair EB 91 (its ad says «Маџар Маало») + EB 74 («Дебар Маало»)
+    // the client asked «KOJ OD NIV E VO MADJAR MAALO?» and heard the SAME PAIR
+    // back — twice. No lane owned a question that DISCRIMINATES the batch by
+    // place, so the recall path read the place as a new search and re-served
+    // both. The answer is per row, from each row's OWN words (`inArea` / the
+    // ad's own area): the flat that IS there is named, and every other row is
+    // said where it really stands — never re-served as if it were the answer.
+    const batchPlacePhrase = detectWhichOfBatchPlace(text);
+    if (batchPlacePhrase && propertyOnTable(session)) {
+      const batchIds = [...new Set(session.slots.currentBatch?.length
+        ? session.slots.currentBatch
+        : (session.slots.presentedIds ?? []))].slice(-4);
+      const batchRows = (await Promise.all(batchIds.map(id =>
+        this.deps.properties.getById(id).catch(() => undefined))))
+        .filter((p): p is Property => !!p);
+      if (batchRows.length >= 2) {
+        // The place as a NAME, not as the client's lower-case run: «Маџар
+        // Маало», «Дебар Маало» — the same shape the cards use.
+        const cap = (s: string): string => s.replace(/(^|\s)(\p{L})/gu,
+          (_m, sp: string, c: string) => sp + c.toUpperCase());
+        const placeLabel = cap(batchPlacePhrase);
+        const rowArea = (p: Property): string => {
+          const own = adArea(p) ?? feedArea(p);
+          return own ? `во ${cap(displayAreaName(own))}` : 'на друга локација';
+        };
+        const ebOf = (p: Property): string => `Евидентен број ${p.eb}`;
+        // AN AD-DEFINED PLACE IS THE ADS' (never the municipality's):
+        // «Маџар Маало» canonicalises to «Центар», and `inArea`'s naselba leg
+        // would then match EVERY Центар row — the whole answer becomes «both
+        // are there», which is the bug this lane exists to kill. When the ads
+        // name the place (isAdDefinedArea), only the rows whose own text says
+        // it are in it.
+        const inPlace = isAdDefinedArea(batchRows, batchPlacePhrase)
+          ? batchRows.filter(p => textNamesPlace(adText(p), batchPlacePhrase))
+          : batchRows.filter(p => inArea(p, batchPlacePhrase));
+        const elsewhere = batchRows.filter(p => !inPlace.includes(p));
+        let answer: string;
+        if (inPlace.length === 1) {
+          const hit = inPlace[0]!;
+          answer = `Во ${placeLabel} е ${ebOf(hit)}.`
+            + elsewhere.map(p => ` ${ebOf(p)} е ${rowArea(p)}, не во ${placeLabel}.`).join('')
+            + ` Дали да продолжам со недвижноста под Евидентен број ${hit.eb}?`;
+          // The flat that IS there is the subject from here on — a «да» then
+          // continues on it, not on the pair.
+          session.slots.propertyId = hit.eb;
+          session.slots.interestedPropertyId = hit.eb;
+        } else if (inPlace.length > 1) {
+          answer = `Во ${placeLabel} се: ${inPlace.map(p => ebOf(p)).join(' и ')}. Дали да Ви кажам повеќе за една од нив?`;
+        } else {
+          answer = `Ниту една од понудените недвижности не е во ${placeLabel} — `
+            + batchRows.map(p => `${ebOf(p)} е ${rowArea(p)}`).join(', ')
+            + `. Дали да проверам што има во ${placeLabel}?`;
+        }
+        routeLog(chatId, text, 'WHICH_OF_BATCH_PLACE');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
     }
 
     // ── MARKET MEMORY — a recall of an OLD agency listing ([02:00]:
@@ -4975,6 +5307,23 @@ export class InboundHandler {
     //      the extract also catches bare areas) and fall to the feed-verified
     //      location.confirm answer.
     //   3. Neither → untouched: fall through to the exact stack as before.
+    // THE CAUGHT CONTRADICTION OWNS THE TURN (the [02:12] capture): «PA KAKO
+    // NEMA … KOGA OVOJ E EDEN OD NIV?» quotes a card we served against a «нема»
+    // we said. It carries an area word, so the POI/confirm lane answered it —
+    // «Да, директно до Аеродром. Точната адреса се открива на денот на
+    // посетата» — to a client who had caught a real mistake. Admission + the
+    // row's own facts + the next step, before any lane reads the geography.
+    if (detectStockContradiction(text)) {
+      const correction = await this.contradictionCorrection(session);
+      if (correction) {
+        routeLog(chatId, text, 'STOCK_CONTRADICTION');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: correction }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, correction, 'deterministic');
+        return;
+      }
+    }
     if (isPoiConfirmQuestion(text)
         // A VISIT-WINDOW TERM IS NEVER A PLACE QUESTION (the [04:05] capture).
         // «NE MI ODGOVARA PETOK VOOPSTO. DA OSTAVIME ZA PONEDNIK VO 6 MOZE?»
@@ -5093,6 +5442,42 @@ export class InboundHandler {
       }
       // No map hit, no neighborhood reading, no confirm form → fall through
       // untouched (LLM handles it with full context).
+    }
+
+    // THE COMPETENCE CHALLENGE (the [22:28] capture): «KAKO KE GO KONTAKTIRAS
+    // AKO NE ZNAES KOJ BROJ E ?» — the client doubts she can reach the owner
+    // because she supposedly does not know which flat he means. detectDefer used
+    // to claim the turn (its «ќе … контактираш» grammar arm) and answered with
+    // «Ќе почекаме соодветен момент. Можам да ги запишам Вашите барања…» — a
+    // deferral line for a client who was testing whether she can even call.
+    // She DOES know the number: it is on the card she just served. She says it,
+    // and explains the mechanism in one breath.
+    if (detectContactMechanicsChallenge(text)
+        && !detectFeeWhy(text) && !detectFeeNag(text) && !detectFeeComplaint(text)
+        && !detectProvisionAsk(text) && !detectProvisionWho(text)) {
+      const anchorEb = session.slots.interestedPropertyId ?? session.slots.propertyId
+        ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+      const anchor = anchorEb != null
+        ? await this.deps.properties.getById(anchorEb).catch(() => undefined)
+        : undefined;
+      if (anchor) {
+        session.slots.interestedPropertyId = anchor.eb;
+        if (session.slots.propertyId == null) session.slots.propertyId = anchor.eb;
+      }
+      const answer = anchor
+        ? `Бројот го знам — тоа е ${boundFlatIdentity(anchor)}. `
+          + 'Сопственикот го контактирам преку тој Евидентен број: му кажувам точно за која недвижност станува збор, '
+          + 'го прашувам дали е сè уште слободна и дали му одговара терминот за посета. '
+          + 'Дали да го контактирам сега?'
+        : 'Бројот на недвижноста го имам пред да го контактирам сопственикот — и посетата и договорот се водат по Евидентниот број од нашата евиденција, '
+          + 'па ништо не се губи. Кажете ми која недвижност Ве интересира и веднаш продолжувам.';
+      routeLog(chatId, text, 'CONTACT_MECHANICS');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, answer, 'deterministic');
+      return;
     }
 
     // WHICH PROPERTY / PROPERTY CHOICE (the [00:06]–[00:08] live burst).
@@ -5488,15 +5873,32 @@ export class InboundHandler {
     // contact ask straight away — never a second fee.
     if (session.slots.feeDisclosed && !session.slots.viewingFeeAgreed
       && ['closing', 'presentation', 'property_query', 'property_locate'].includes(session.state)
-      && detectAgreement(text)
+      // THE REPEATED VISIT REQUEST IS THE AGREEMENT (the [19:32] capture): once
+      // the fee was DISCLOSED, «70 BI SAKAL DA GO POSETAM» is the client saying
+      // he still wants the viewing — the owner's own reading. It used to
+      // re-disclose the same fee (a client hears the same money twice) or, on
+      // the description lane, hear the card again while the fee question died.
+      && (detectAgreement(text) || detectVisitRequest(text))
       && !detectCheaperSearch(text) && !detectVisitTimingQuestion(text)
+      // A LOCATION QUESTION IS NOT THE AGREEMENT (the [19:27] capture): «DOBRO
+      // TOGAS KAZI MI STO IMA VO BLIZINA POZNATO?» carries «добро» and, with the
+      // fee disclosed, was read as consent — the client asked what is around the
+      // flat and got the contact ask. The «добро» opens the sentence; the
+      // question is what he wants answered.
+      && !detectSurroundingsAsk(text) && !detectWhereIs(text)
+      && !detectExactAddressAsk(text) && !isDistanceQuestion(text)
       && !detectAvailabilityAsk(text) && !detectFeeWhy(text)
       && !detectFeeComplaint(text) && !detectFeeChargePushback(text)
       && !detectProvisionResistance(text) && !detectFeePaymentAgreement(text)
       // A PRICE RE-CHECK carries the «да» of «да проверам» ("samo da proveram,
       // taa cena od oglasot e ushte?" — the CROSS pin): it is not consent, and
       // the freshness lane owns it. Same for a plain price ask and a remark.
-      && !detectPriceFreshness(text) && !detectPriceAsk(text) && !detectRemark(text)) {
+      && !detectPriceFreshness(text) && !detectPriceAsk(text) && !detectRemark(text)
+      // A PER-M² RATE QUESTION IS NOT CONSENT (the [replay #6] capture): «PA DA
+      // RECEME 1500 1600 EVRA ZA KVADRAT» carries the yes-particle «па да», but
+      // the client is asking the price per square metre he chose. It is a price
+      // question with a rate in it, so it must not open contact collection.
+      && detectSqmRate(text) === undefined) {
       session.slots.viewingFeeAgreed = true;
       session.slots.feeDisclosed = undefined;
       session.slots.ownerContactPending = false;
@@ -6272,6 +6674,35 @@ export class InboundHandler {
     // undefined for these, and if it ever DOES match (e.g. "kade sto ima
     // drugo vo blizina"), the dedicated nearby path must win anyway.
     if (!skipInterceptors && detectNearbyAsk(text)) {
+      // A PLACE-ANCHORED STOCK ASK IS A SEARCH AT THAT PLACE, NOT A QUESTION
+      // ABOUT THE FLAT ON THE TABLE (the [00:39] capture): «NESTO OKOLU
+      // BUNJAKOVEC IMA ?» was answered «Недвижноста се наоѓа во населбата
+      // Центар. Точната адреса …» — the where-is line for the anchored EB 56,
+      // a flat the client had not asked about. The place-wish grammar now reads
+      // the named place (the ask verb «има» no longer rides the tail), so the
+      // turn belongs to the place lane: the anchor lands and the funnel asks or
+      // serves around THAT place, closest first. An EB, or a descriptor that
+      // binds a property, still owns the nearby answer below.
+      const placeStockAsk = !!this.placesWish(text)[0]
+        && (detectInventoryAsk(text) || /(?<![\p{L}])(?:nesto|нешто|sto|што|ima|има|imate|имате)(?![\p{L}])/iu.test(text))
+        && !/\b(?:na|на)\s+\d{1,4}\b/i.test(text)
+        && !this.namedOnTableEb(session, text);
+      if (placeStockAsk) {
+        // The place lane owns the turn: the named place is the anchor, the
+        // flat that happened to be anchored is not the subject any more.
+        const place = this.placesWish(text)[0];
+        session.slots.poiAnchor = place.name;
+        session.slots.poiArea = undefined; // re-derived from the new anchor
+        session.slots.poiWidenScope = undefined;
+        session.slots.propertyId = undefined;
+        session.slots.interestedPropertyId = undefined;
+        session.slots.location = undefined; // the anchor IS the location
+        if (session.state === 'property_query' || session.state === 'property_locate') {
+          session.state = 'discovery';
+        }
+        this.deps.sessions.set(session);
+      }
+      if (!placeStockAsk) {
       routeLog(chatId, text, 'NEARBY_ASK');
       // EB-anchored nearby asks ("sto drugo ima vo blizina na 78?") MUST
       // resolve the NAMED property — falling back to shown[last] served a
@@ -6292,6 +6723,13 @@ export class InboundHandler {
           ?? (ebInText
           ? await this.deps.properties.getByEb(ebInText).catch(() => undefined)
           : undefined)
+        // THE FLAT HE NAMED LAST OUTRANKS THE BATCH TAIL (the [19:27] capture):
+        // after «ovoj za 350 evra kirija bi go videl» the client asked «sto ima
+        // vo blizina poznato?» and heard the OTHER card's landmark (EB 63 for
+        // EB 70) — presentation order is not a choice the client made.
+        ?? (session.slots.askedEb !== undefined
+          ? await this.deps.properties.getByEb(session.slots.askedEb).catch(() => undefined)
+          : undefined)
         ?? shown[shown.length - 1]
         ?? (session.slots.propertyId
           ? await this.deps.properties.getByEb(session.slots.propertyId)
@@ -6310,6 +6748,7 @@ export class InboundHandler {
         this.deps.sessions.set(session);
         await this.sendRaw(session, answer);
         return;
+      }
       }
     }
 
@@ -6372,6 +6811,13 @@ export class InboundHandler {
       const cur = mbNear?.prop
           ?? (ebInText
           ? await this.deps.properties.getByEb(ebInText).catch(() => undefined)
+          : undefined)
+        // THE FLAT HE NAMED LAST OUTRANKS THE BATCH TAIL (the [19:27] capture):
+        // after «ovoj za 350 evra kirija bi go videl» the client asked «sto ima
+        // vo blizina poznato?» and heard the OTHER card's landmark — the same
+        // tail-before-choice order the address lane had.
+        ?? (session.slots.askedEb !== undefined
+          ? await this.deps.properties.getByEb(session.slots.askedEb).catch(() => undefined)
           : undefined)
         ?? shown[shown.length - 1]
         ?? (session.slots.propertyId
@@ -6663,7 +7109,15 @@ export class InboundHandler {
         // place — intercepting it here answered an availability question
         // nobody asked and dropped the service/location slots on the floor.
         const SERVICE_MARK_RE = /(?:izdava|izdavam|izdavanje|prodava|prodazba|prodavam|издава|издавам|издавање|продава|продажба|продавам|kirija|кирија)/iu;
-        const offerMb = SERVICE_MARK_RE.test(text)
+        // …BUT «СО КИРИЈА ОД 200 ЕВРА» IS NOT «ЗА ИЗДАВАЊЕ» (the [20:47]
+        // capture): the same word appears when the client QUOTES THE PRICE of
+        // the flat he saw, and the skip above then threw the recall away and
+        // asked him for bedrooms. A have-ask verb («имавте/имате») plus a
+        // category word is the recall shape; a bare «… ЗА ИЗДАВАЊЕ кај X» stays
+        // the guided search it was.
+        const OFFER_VERB_RE = /(?<![\p{L}\p{N}])(?:imate|imavte|imase|имате|имавте|имаше)(?![\p{L}\p{N}])/iu;
+        const priceRecall = OFFER_VERB_RE.test(text) && detectPropertyTypeWord(text) !== undefined;
+        const offerMb = SERVICE_MARK_RE.test(text) && !priceRecall
           ? undefined
           : await this.bindMention(text, session, { offerAtPlace: true });
         if (offerMb?.clarify) {
@@ -6761,7 +7215,14 @@ export class InboundHandler {
       const recallSlots = extractSlots(text);
       const recallPrice = recallSlots.budget
         ? Number(recallSlots.budget.replace(/[^\d]/g, '')) : undefined;
-      const recallPlace = this.placeWish(text);
+      // …and «ТАМУ» is the anchor on file (the [20:47] capture): the listing he
+      // describes is the one at the place the chat already holds, so the recall
+      // is anchored even though this sentence names no place of its own.
+      const heldAnchor = ANCHOR_WORD_RE.test(text) && typeof session.slots.poiAnchor === 'string'
+        ? this.landmarks?.findPlace(session.slots.poiAnchor)
+        : undefined;
+      const recallPlace = this.placeWish(text)
+        ?? (heldAnchor ? { name: heldAnchor.name, lat: heldAnchor.lat, lon: heldAnchor.lon } : undefined);
       const recallArea = recallSlots.location
         ?? (recallPlace
           ? await this.areaAtPlace({ lat: recallPlace.lat, lon: recallPlace.lon, name: recallPlace.name }).catch(() => undefined)
@@ -6804,6 +7265,86 @@ export class InboundHandler {
       if ((selfDescribing || !propertyOnTable(session))
           && anchoredRecall
           && (recallPrice !== undefined ? noSizeGiven : sizedAtPlace)) {
+        // TWO LISTINGS IN ONE RECALL (the [22:26] capture) — SERVE BOTH.
+        // «IMAVTE EDNA GARSONJERA TAMU SO KIRIJA OKOLU 200E ILI KUKJA IMASE ZA
+        // 250»: extractSlots merges the halves into one set of flags and keeps
+        // ONE price (the last), so the answer served the house and silently
+        // dropped the гарсоњера he described first. Each half is its own
+        // description — its own category and its own remembered price — so each
+        // half gets its own card, and both are registered on the table: the
+        // next turn («A GARSONJERATA ZA 200E DALI E DOSTAPNA USTE ?») points at
+        // ONE of them by the price he remembers.
+        const recallParts = splitRecallCategories(text);
+        if (recallParts.length >= 2) {
+          const svc = recallSlots.service ?? session.slots.service;
+          const dualDeal = svc === 'rent' ? ' за издавање' : svc === 'buy' ? ' за продажба' : '';
+          const nearDist = (p: Property): number => (recallPlace
+            && typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0)
+            ? distM(recallPlace.lat, recallPlace.lon, p.lat, p.lon)
+            : Number.POSITIVE_INFINITY;
+          const picks: Property[] = [];
+          const found: string[] = [];
+          const missing: string[] = [];
+          for (const part of recallParts) {
+            const noun = part.plac ? 'плац'
+              : part.business ? 'деловен простор'
+                : part.house ? 'куќа'
+                  : part.garsonjera ? 'гарсоњера' : 'стан';
+            const described = `${noun}${dualDeal}${part.price !== undefined
+              ? ` околу ${part.price.toLocaleString('mk-MK')} евра` : ''}`;
+            const rows = await this.deps.properties.closestMatches({
+              location: recallArea,
+              price: part.price,
+              bedrooms: part.bedrooms,
+              house: part.house, business: part.business, plac: part.plac,
+              service: svc,
+            });
+            // THE HALF'S OWN CATEGORY IS A LOCK: a гарсоњера half may never
+            // come back as a three-room flat that merely costs the same.
+            const typed = part.garsonjera
+              ? rows.filter(p => p.studio === true || isStudio(p as unknown as MentionCandidate)
+                || /гарсоњер|garsonjer|студио|studio/iu.test(adText(p)))
+              : rows;
+            const pool2 = typed.length > 0 ? typed : rows;
+            const near = recallPlace ? pool2.filter(p => nearDist(p) <= LANDMARK_NEAR_M) : [];
+            const best = (near.length > 0 ? near : pool2)[0];
+            if (best && !picks.some(p => p.eb === best.eb)) {
+              picks.push(best);
+              found.push(described);
+            } else {
+              // A half we do not hold is NAMED as missing — a serve that drops
+              // half the question reads as «she did not listen».
+              missing.push(described);
+            }
+          }
+          if (picks.length > 0) {
+            session.slots.location = recallArea;
+            if (recallPlace) {
+              session.slots.poiAnchor = recallPlace.name;
+              if (recallArea) session.slots.poiArea = recallArea;
+            }
+            if (recallSlots.service) session.slots.service = recallSlots.service;
+            session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...picks.map(p => p.id)])];
+            session.slots.currentBatch = picks.map(p => p.id);
+            session.state = 'property_locate';
+            const placeName = recallPlace ? displayPlaceName(recallPlace.name) : undefined;
+            const dualAreaLabel = recallArea ? displayAreaName(recallArea) : undefined;
+            const where = placeName
+              ? ` кај ${placeName}${dualAreaLabel ? ` (${dualAreaLabel})` : ''}`
+              : dualAreaLabel ? ` во ${dualAreaLabel}` : '';
+            const lead = `Да, имаме ${found.join(' и ')}${where}:`
+              + (missing.length > 0
+                ? `\n\n${missing.join(' и ')} со тие карактеристики моментално немам.`
+                : '');
+            const answer = `${lead}\n\n${buildLocateMatches(picks, session.history.length)}`;
+            routeLog(chatId, text, 'SEEN_LISTING_RECALL');
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, answer);
+            return;
+          }
+        }
         const kind = recallSlots.plac === true ? 'плац'
           : recallSlots.business === true ? 'деловен простор'
             : recallSlots.house === true ? 'куќа'
@@ -6954,6 +7495,12 @@ export class InboundHandler {
       const named = pickDescribed(text, onTableEbs)
         ?? pickByDetail(text, table)
         ?? pickByNumber(text, table)
+        // A PRONOUN IS A PICK TOO (the [22:30] capture): «КАЖИ МИ ИНФОРМАЦИИ
+        // ЗА НЕЈЗЕ» — «нејзе» is feminine, so it can only be the гарсоњера he
+        // just named. Without this the whole table was described (or, worse,
+        // the turn fell through to the availability ack and he got «сè уште е
+        // достапна» instead of the card).
+        ?? pickByReferentGender(text, table)
         ?? (infoByNumber ? inferPropertyId(text) : undefined);
       const rows = named !== undefined ? table.filter(p => p.eb === named) : table;
       if (named !== undefined && rows.length === 0) {
@@ -6966,7 +7513,11 @@ export class InboundHandler {
           house: rows[0].house, business: rows[0].business,
           plac: rows[0].plac, garsonjera: rows[0].studio === true,
         });
-        const answer = `${intro}\n\n${rows.map(p => buildPropertyCard(p)).join('\n\n')}`;
+        // ONE CARD IS ASKED TO BE CONFIRMED (the [22:30] owner rule): the card is
+        // the answer, and the flat has to be acknowledged as the one he meant
+        // before the funnel moves on.
+        const answer = `${intro}\n\n${rows.map(p => buildPropertyCard(p)).join('\n\n')}`
+          + (rows.length === 1 ? `\n\n${INFO_CARD_CONFIRM}` : '');
         session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...rows.map(p => p.eb)])];
         // An EB named here is the property UNDER DISCUSSION from now on. It is
         // not an expression of interest — «што можеш да ми кажеш за 51?» asks
@@ -7010,6 +7561,80 @@ export class InboundHandler {
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
           this.deps.sessions.set(session);
           await this.sendRaw(session, answer);
+          return;
+        }
+      }
+    }
+
+    // 0-c2) AN AVAILABILITY ASK ABOUT A FLAT ON THE TABLE (the [22:27] capture).
+    // «A GARSONJERATA ZA 200E DALI E DOSTAPNA USTE ?» — two flats had just been
+    // described (гарсоњера ~200 and a куќа 250) and the client asked whether the
+    // GARSONJERA is still free. The message carries no criterion, yet the
+    // classifier read it as DETAILS_PROVIDED and the discovery funnel asked for
+    // bedrooms and a budget — over flats he was already looking at, with the
+    // remembered price naming exactly ONE of them. The availability answer
+    // belongs to that flat: the ack + the owner question, with the Евидентен
+    // број named (the table holds two), never a fresh questionnaire.
+    // NARROW ON PURPOSE: it fires only when the ask resolves to a flat ALREADY
+    // ON THE TABLE — a fresh «dali imate dostapni do 200?» is a search and keeps
+    // the funnel.
+    {
+      const tableEbs = [...new Set([
+        ...(session.slots.currentBatch ?? []),
+        ...(session.slots.presentedIds ?? []),
+      ])];
+      // …and it must be about ONE FLAT, never a fresh search. «DALI IMA
+      // TROSOBNI NA PRODAZBA TAMU ?» / «A KAZI MI TROSOBNI STANOVI OKOLU
+      // KATOLICKA DALI IMATE ?» carry the availability grammar too, and reading
+      // them as «is THIS one still free» answered a stock search with «сè уште е
+      // на располагање». Three things identify the search instead: an EB in the
+      // message, a ROOM COUNT / plural type noun, or an inventory ask. Those keep
+      // their own lanes (the typed serve, and the existing EB availability
+      // branch which owns «DALI USTE E NA PRODAZBA 78 ?»).
+      const askSlots = extractSlots(text);
+      const pluralType = /(?<![\p{L}])(?:stanovi|станови|kuki|куќи|garsonjeri|гарсоњери|placa|плацеви|lokali|локали|prostori|простори|stanoviте|становите)(?![\p{L}])/iu.test(text);
+      if (tableEbs.length > 0
+          && detectAvailabilityAsk(text)
+          && !detectFeeWhy(text) && !detectFeeNag(text) && !detectFeeComplaint(text)
+          && !detectFeeSurprise(text) && !detectProvisionAsk(text) && !detectProvisionWho(text)
+          && inferPropertyId(text) === undefined
+          && askSlots.bedrooms === undefined
+          && !pluralType
+          && !detectInventoryAsk(text) && !detectAreaHaveAsk(text)
+          && !session.slots.viewingFeeAgreed) {
+        const mb = await this.bindMention(text, session);
+        if (await this.sendIfClarify(mb, text, session)) return;
+        const tableRows = (await Promise.all(tableEbs
+          .map(eb => this.deps.properties.getById(eb).catch(() => undefined))))
+          .filter((p): p is Property => !!p);
+        const slotEb = session.slots.interestedPropertyId ?? session.slots.propertyId;
+        const target = mb?.prop
+          ?? (slotEb != null ? tableRows.find(p => p.eb === slotEb) : undefined)
+          ?? (tableRows.length === 1 ? tableRows[0] : undefined);
+        if (target) {
+          routeLog(chatId, text, 'AVAILABILITY_TABLE');
+          session.state = 'closing';
+          session.slots.interestedPropertyId = target.eb;
+          // The ask NAMED the flat, so the discussion anchor moves with it — the
+          // same re-anchor the event-seam mention bind performs (a stale slot EB
+          // must never outlive an ask about another flat).
+          session.slots.propertyId = target.eb;
+          session.slots.ownerContactPending = true;
+          if (!session.slots.nearbyLandmarks?.length) {
+            const near = this.landmarks.nearbyLandmarks(target);
+            if (near.length > 0) {
+              session.slots.nearbyLandmarks = near.map(n => n.landmark);
+              session.slots.nearbyLandmarkCoords = near.map(n => ({ lat: n.lat, lon: n.lon }));
+              session.slots.nearbyLandmarkEb = target.eb;
+              session.slots.landmarkIndex = 0;
+              session.slots.lastLandmark = undefined;
+            }
+          }
+          const answer = this.availabilityReply(target, session, text);
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
           return;
         }
       }
@@ -7145,6 +7770,39 @@ export class InboundHandler {
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, answer);
+        return;
+      }
+    }
+
+    // A FEATURE CONDITION WHILE THE CONTACT IS OPEN (the [02:31] regression):
+    // «ako nema lift» is about the FLAT. The contact intake mined the clause for
+    // a person («Ako Nema» — now blocked in detectContact), and the client's
+    // question died unanswered while Lina asked for a phone. Answer it (the
+    // owner will be asked) and keep the contact ask standing: one answer, then
+    // the funnel question. Sits after every money lane, so a fee objection in
+    // the same state still owns its rung.
+    if (session.state === 'contact_collection' && detectFeatureAsk(text)) {
+      const maybeContact = detectContact(text);
+      if (!maybeContact.phone && !maybeContact.name) {
+        const needName = !session.slots.name;
+        const needPhone = !session.slots.phone;
+        const askKey = needName && needPhone ? 'contact.ask.name.phone' : needName ? 'contact.ask.name' : 'contact.ask.phone';
+        const contactAsk = pickVariant(askKey, { recent: assistantTexts(session) })
+          ?? buildContactAsk(session.slots, assistantTexts(session));
+        const featureReply = (needName || needPhone) ? `${FEATURE_OWNER_CHECK} ${contactAsk}` : FEATURE_OWNER_CHECK;
+        routeLog(chatId, text, 'FEATURE_ASK:contact');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: featureReply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) {
+          try {
+            this.deps.enrichment.insert({
+              chatId, state: session.state, eventType: 'FEATURE_ASK',
+              userMsg: text, replyText: featureReply, replySource: 'deterministic', bankKey: 'feature.after.show',
+            });
+          } catch { /* advisory */ }
+        }
+        await this.sendRaw(session, featureReply, 'deterministic:feature');
         return;
       }
     }
@@ -7347,7 +8005,13 @@ export class InboundHandler {
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
-      if (detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(session.state)) {
+      // A YES IS NEVER A WHY (the [19:34] capture): «STOM TAKA RABOTITE
+      // DOGOVORI TOA E TOA» — the client concedes the practice and orders the
+      // arrangement — carries a why-family word and was served a FOURTH
+      // explanation. Consent traffic belongs to the agreement lane
+      // (contact collection), so the why leg stands down on it.
+      if (detectFeeWhy(text) && !detectFeePaymentAgreement(text)
+        && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(session.state)) {
         reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? 'Разбирам. Надоместот за разгледување е симболичен и служи како филтер за сериозни клиенти.';
         bankKey = 'fee.why';
         routeLog(chatId, text, 'FEE_WHY:fast');
@@ -7722,7 +8386,9 @@ export class InboundHandler {
     // fsmRequired guard: when the FSM forces the full path, the fee.why FSM
     // legs already own the serve — no double-talk.
     const feeRulesQ = detectFeeRules(text);
-    const feeWhyFast = !feeRulesQ && detectFeeWhy(text);
+    // Consent outranks the why lane here too — same contract as the fast leg
+    // above: a client who already said yes is moved on, never re-lectured.
+    const feeWhyFast = !feeRulesQ && !detectFeePaymentAgreement(text) && detectFeeWhy(text);
     const feeTotalCost = !feeRulesQ && !feeWhyFast && detectFeeTotalCost(text);
     if (!fsmRequired(text) && (feeRulesQ || feeWhyFast || feeTotalCost)) {
       const beforeWhy = session.state;
@@ -7875,7 +8541,7 @@ export class InboundHandler {
     let dualEngaged = false;
     let categoryEngaged = false;
     if (!resultSetQuestion) {
-      dualEngaged = this.captureDualBudgets(session, text, ev);
+      dualEngaged = await this.captureDualBudgets(session, text, ev);
       // PER-CATEGORY MONEY (the [19:14] capture): «DVOSOBEN MOZE DO 90000 I
       // TROSOBEN DO 150000» names TWO room categories with a cap EACH. A dual
       // rent/buy search keeps its own pairing; otherwise the pair is banked
@@ -8321,8 +8987,9 @@ export class InboundHandler {
       } else if (stockAskWithType) {
         // The market AND the category are known — what is still owed is the
         // category's own criteria (спални + цена / м² + цена), asked BEFORE any
-        // pair is put in front of him.
-        reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+        // pair is put in front of him — and when the criteria are already all
+        // in, the pair itself (never the «ги забележав» spec sheet).
+        reply = this.criteriaAsk(session) ?? await this.discoveryServe(session);
       } else {
         reply = pickVariant('both.ask.type', { recent: assistantTexts(session) })
           ?? 'Каква недвижност имате на ум? Ве интересира стан, куќа, деловен простор или можеби плац?';
@@ -8403,7 +9070,7 @@ export class InboundHandler {
       session.slots.areaExhausted = undefined;
       session.state = 'discovery';
       next = 'discovery';
-      const ask = buildDiscoveryAsk(session.slots, assistantTexts(session));
+      const ask = this.criteriaAsk(session) ?? await this.discoveryServe(session);
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
@@ -8552,9 +9219,17 @@ export class InboundHandler {
     // ("edna spalna", "garsonjera") KEEP the pinned area — they narrow the
     // current context, they don't abandon it. A text naming a new area keeps
     // the lock too (applySlots already set the new one).
+    // A SEGMENT IS NOT A BARE BUDGET (the [19:19] capture): «DO 350 ZA
+    // IZNAJMUVANJE» arrived as a pure money event, this rule read it as an
+    // area-agnostic correction and unlocked the pinned «Центар» — the rent leg
+    // of a dual search then ranked the WHOLE city («… врз најпопуларните
+    // локации») instead of the neighbourhood the client had chosen, and the
+    // dual pair lost its geography. A message that NAMES the market (or is a
+    // dual budget delivery) is a refinement of the CURRENT search, exactly like
+    // a size/type refinement: it keeps the pinned area.
     if ((before === 'presentation' || before === 'property_query' || before === 'property_locate')
       && (ev.type === 'SEARCH_REQUESTED' || ev.type === 'DETAILS_PROVIDED')
-      && ev.budget && !ev.bedrooms && !ev.sqm && !ev.location
+      && ev.budget && !ev.service && !dualEngaged && !ev.bedrooms && !ev.sqm && !ev.location
       && !ev.house && !ev.business && !ev.garsonjera && !ev.plac && !ev.yard) {
       session.slots.location = undefined;
       session.slots.anywhere = true;
@@ -8592,7 +9267,13 @@ export class InboundHandler {
     // Fee-why can appear in ANY state after the fee was disclosed (closing)
     // or even mid-property-viewing ("nikoj ne naplakja za poseti" in
     // property_query). Widen the check so the pivot always fires.
-    const feeWhyQuestion = detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before);
+    // AN AGREEMENT IS NOT A WHY (the [19:34] capture): «STOM TAKA RABOTITE
+    // DOGOVORI TOA E TOA» concedes the practice — the classifier already read
+    // it as FEE_AGREED. Treating it as explanation traffic both served the
+    // fee.why bank AGAIN and forced next='closing', so the agreement lane never
+    // ran (contact collection). Consent must leave the why lane free to move on.
+    const feeWhyQuestion = detectFeeWhy(text) && !detectFeePaymentAgreement(text)
+      && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before);
     // Fee-rules dismissal is NOT a refusal either — same rung-protection as
     // the why-question (the [12:40] family).
     const feeRulesQuestion = detectFeeRules(text) && !feeWhyQuestion;
@@ -9483,7 +10164,7 @@ export class InboundHandler {
     const criteriaSignals = [
       !!ev.bedrooms || !!es.bedrooms,
       !!ev.sqm || !!es.sqm,
-      !!ev.budget || !!es.budget,
+      !!ev.budget || !!es.budget || !!es.sqmRate,
       !!es.garsonjera,
       !!es.sizeWaived,        // "a nesto pogolem da vidime" — size-direction pivot
       es.house !== undefined || !!es.business,  // TYPE pivot ("a kuka so dvor", "deloven prostor imas?")
@@ -9520,7 +10201,11 @@ export class InboundHandler {
         session.slots.bedroomsAlt = undefined;
       }
       if (!ev.sqm && es.sqm) session.slots.sqm = es.sqm;
-      if (!ev.budget && es.budget) session.slots.budget = es.budget;
+      // A rate pivot («a po 1200 za kvadrat?») is the money criterion here.
+      if (!ev.sqmRate && es.sqmRate) {
+        session.slots.sqmRate = es.sqmRate;
+        session.slots.budget = undefined;
+      } else if (!ev.budget && es.budget) session.slots.budget = es.budget;
       if (es.garsonjera) session.slots.garsonjera = true;
       if (es.sizeWaived) session.slots.sizeWaived = true;
       if (es.house !== undefined) session.slots.house = es.house;
@@ -10071,7 +10756,7 @@ ${contactReminder}`;
       // next, then that category's own criteria.
       session.state = 'discovery';
       next = 'discovery';
-      reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+      reply = this.criteriaAsk(session) ?? await this.discoveryServe(session);
       bankKey = session.slots.inventoryPending ? 'both.ask.type' : 'discovery.ask.service.any';
     } else if (next === 'closing'
         && detectPropertyInterest(text)
@@ -10298,7 +10983,18 @@ ${contactReminder}`;
       if (ebTiming != null) session.slots.interestedPropertyId = ebTiming;
       session.slots.ownerContactPending = true;
 
-    } else if (next === 'closing'
+    } else if ((next === 'closing'
+          // A VISIT COMMAND OWNS ITS TURN, whatever the classifier called it
+          // (the [19:26] capture): «OVOJ ZA 350 EVRA KIRIJA BI GO VIDEL» carries
+          // criteria (a price and a segment), so the event landed as
+          // SEARCH_REQUESTED, `next` became presentation, and this gate — gated
+          // on next === 'closing' — never ran. The search leg then answered the
+          // named rental with «нема гарсоњери до 350», the flat never became the
+          // subject, and the next «каде е?» answered a different card. The
+          // deterministic intent wins over the classifier's transition; the
+          // state guards below still keep every non-funnel state out.
+          || (detectVisitInterest(text)
+            && ['idle', 'intent', 'discovery', 'presentation', 'property_query', 'property_locate'].includes(before)))
         && (ev.type === 'INTERESTED' || detectVisitInterest(text))
         && before !== 'closing'
         && !session.slots.viewingFeeAgreed
@@ -10333,6 +11029,12 @@ ${contactReminder}`;
         ?? props.find(p => p.eb === ev.propertyId)
         ?? props[0];
       if (visitTarget) session.slots.interestedPropertyId = visitTarget.eb;
+      // THE FLAT HE NAMED IS THE SUBJECT FROM HERE ON: «ovoj za 350 evra kirija
+      // bi go videl» must make THAT rental the one under discussion, so the
+      // next «kade e?»/«sto ima vo blizina?» answers about it — the [19:27]
+      // capture answered the surroundings ask with a flat from an earlier batch.
+      // Only a MENTION moves the pointer (never the batch fallback).
+      if (mb?.prop) session.slots.propertyId = mb.prop.eb;
       else if (session.slots.propertyId) session.slots.interestedPropertyId = session.slots.propertyId;
       else if (ev.propertyId) session.slots.interestedPropertyId = ev.propertyId;
       session.state = 'closing';
@@ -10389,7 +11091,8 @@ ${contactReminder}`;
       // traffic; the rules frame deserves the rules answer).
       reply = pickVariant('fee.rules', { recent: assistantTexts(session) }) ?? buildFeeRules();
       bankKey = 'fee.rules';
-    } else if (detectFeeWhy(text) && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)) {
+    } else if (detectFeeWhy(text) && !detectFeePaymentAgreement(text)
+        && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(before)) {
       // "Зошто наплаќате?" / "Никој не наплаќа за посета" / "Како тоа да платам?"
       // — the client QUESTIONS the fee, they don't REFUSE it. Always answer
       // with the agency rationale (fee.why) and stay at closing. The pivot
@@ -10696,6 +11399,16 @@ ${contactReminder}`;
         // pivot the search to X, never answer "Не, станот 41 се наоѓа во
         // Ѓорче Петров" about a property the client just asked to leave.
         && !detectAreaHaveAsk(text)
+        // AN AVAILABILITY ASK IS ABOUT THE CARD, NEVER ABOUT ITS AREA (the
+        // [20:58] capture): «DALI E SLOBODNA VO MOMENTOV ?» carries the
+        // preposition «во» and the word «моментов», so detectLocationConfirm
+        // read it as a place confirmation and answered «Точно, Станот … се
+        // наоѓа во Центар. Дали сакате да организираме посета?» — a location
+        // restatement for a client asking whether the flat is still free, and
+        // a visit offer on a flat nobody had checked. The availability lane
+        // owns the turn (it answers «би требало да е …» and asks to confirm
+        // with the owner); «во моментов» is never a neighbourhood.
+        && !detectAvailabilityAsk(text)
         // "koja adresa ima 88. ?" (V16K11 live) — an EXACT-address ask, not a
         // neighborhood confirmation; it must ride the address ladder (turn 1
         // landmark → privacy protocol), never the neighborhood-only confirm.
@@ -10747,6 +11460,12 @@ ${contactReminder}`;
       if (confProp?.location) {
         // Strip "(населба)" feed disambiguator — internal, not spoken language
         const actualLoc = confProp.location.replace(/\s*\([^)]*\)\s*$/, '');
+        // A SOLD FLAT IS NEVER OFFERED FOR A VISIT (the [21:03] capture): the
+        // owner reported EB 79 sold, and the next turn — the client asking how
+        // that could be — was answered with «… се наоѓа на Водно. Дали сакате
+        // да организираме посета?», a visit offer on a flat that no longer
+        // exists. The area can still be confirmed; the invitation may not.
+        const soldOnFile = session.slots.soldEb === confProp.eb;
         const namedLoc = session.slots.location;
         const agree = locMatches(namedLoc, confProp.location) || locMatches(actualLoc, namedLoc);
         const confType = confProp.house ? 'Куќата' : confProp.business ? 'Деловниот простор' : 'Станот';
@@ -10754,9 +11473,15 @@ ${contactReminder}`;
         const prep = locPrep(actualLoc);
         // Anchor the context: the discussion is about this property's area now
         session.slots.location = actualLoc;
-        reply = agree
-          ? `Точно, ${confType} со Евидентен број ${confProp.eb} се наоѓа ${prep} ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`
-          : `Не, ${confType} со Евидентен број ${confProp.eb} всушност се наоѓа ${prep} ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`;
+        // A sold flat needs NO area restatement: the client is absorbing the
+        // loss, not asking where it was. The market line plus the alternatives
+        // question is the whole answer (the owner's dictated shape).
+        reply = soldOnFile
+          ? `${MARKET_IS_ALIVE} Дали би сакале да Ви понудам нешто друго со слични карактеристики?`
+          : agree
+            ? `Точно, ${confType} со Евидентен број ${confProp.eb} се наоѓа ${prep} ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`
+            : `Не, ${confType} со Евидентен број ${confProp.eb} всушност се наоѓа ${prep} ${actualLoc}. Дали сакате да организираме посета за да го погледнете?`;
+        if (soldOnFile) session.slots.goneAlternativesEb = confProp.eb;
         bankKey = 'location.confirm';
         // A confirmation is not a transition — stay in the current state
         session.state = before;
@@ -10840,7 +11565,7 @@ ${contactReminder}`;
           reply = placeProse.text;
           bankKey = PLACE_TEMPLATE_KEY;
         } else {
-          reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+          reply = this.criteriaAsk(session) ?? await this.discoveryServe(session);
         }
       } else if (typeNamedNoCriteria(session.slots, typedAnswer)) {
         // THE TYPE WAS JUST NAMED AND THE SIZE IS STILL UNKNOWN (the [10:16]
@@ -10852,7 +11577,7 @@ ${contactReminder}`;
         // plot), and the no-match claim belongs to a search that HAS criteria.
         session.state = 'discovery';
         next = 'discovery';
-        reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+        reply = this.criteriaAsk(session) ?? await this.discoveryServe(session);
       } else {
         // WHICH TRUTH — EVERY CATEGORY (the [03:45] rule, now every type):
         // a search that STARTS here (a fresh funnel, a move to another area or
@@ -11212,7 +11937,7 @@ ${contactReminder}`;
         // category's own questions instead of claiming a failed search.
         session.state = 'discovery';
         next = 'discovery';
-        reply = buildDiscoveryAsk(session.slots, assistantTexts(session));
+        reply = this.criteriaAsk(session) ?? await this.discoveryServe(session);
       } else if (props.length === 0) {
         // CRITERIA-DONE PIVOT (the [20:33] fix): the refined pool is empty
         // AFTER rows were already served and no EB anchor owns the turn —
@@ -11447,7 +12172,8 @@ ${contactReminder}`;
         // or a house, м² + цена for commercial space or a plot) and asks only
         // what is still missing, so the serve inherits every future type rule.
         if (anchorPlace && !this.slotsComplete(session)) {
-          const ask = buildDiscoveryAsk(session.slots, assistantTexts(session));
+          // Nothing owed appends NOTHING — the cards are already the answer.
+          const ask = this.criteriaAsk(session);
           if (ask) reply = `${reply}\n\n${ask}`;
         }
       }
@@ -11714,23 +12440,247 @@ ${contactReminder}`;
     return true;
   }
 
+  /** THE OWNER IS A HUMAN TOO (the [09:57]/[10:02] capture) — ANSWER HIM.
+   *
+   *  The owner is a stranger being asked for a viewing by an agent he has never
+   *  met, so he checks the request before he gives a verdict: «TOA E DENES TAKA
+   *  ?» (is that today?) and «DALI PRASUVATE ZA DENES ?» (are you asking about
+   *  today?). Those two messages were parsed as counter-proposals and one of
+   *  them was RELAYED to the client as a refusal + a fictitious alternative.
+   *
+   *  The owner's own rule: every question of the owner gets an answer, and the
+   *  client hears NOTHING until the time frame is given or declined. This
+   *  builds that answer from the session — the term actually asked for (named
+   *  with its date, so a «is that today?» is answered by fact, not by echo),
+   *  the flat, and the client's own contact when he asks who is coming. It
+   *  returns undefined for anything that is not an owner question, so a real
+   *  verdict always stays with detectOwnerVerdict / applyOwnerVerdict.
+   */
+  ownerQuestionReply(chatId: string, text: string): string | undefined {
+    const answer = this.ownerQuestionReplyRaw(chatId, text);
+    // The served line joins the owner pane's ring AFTER it is built, so the
+    // pools below avoid what he has ALREADY read — never the line being served.
+    if (answer) this.rememberOwnerLine(chatId, answer);
+    return answer;
+  }
+
+  private ownerQuestionReplyRaw(chatId: string, text: string): string | undefined {
+    const session = this.deps.sessions.get(chatId);
+    if (!session) return undefined;
+    if (session.state !== 'owner_checking' && session.state !== 'time_confirm') return undefined;
+    // A GREETING IS NOT A VERDICT, AND IT IS NEVER «НЕ РАЗБРАВ» (the [23:40]
+    // capture): the owner opened the chat with «ZDRAVO» and heard «Не разбрав.
+    // Евидентен број 54 — дали недвижноста е достапен…». He is a stranger being
+    // contacted by an agent he has never met — the polite first move is HIS, and
+    // the reply is to answer it (greet back) and put the ask again. Handled here,
+    // ahead of the question gate, so every owner entry point (TUI pane, plain
+    // text channel) shares the one copy.
+    const greetingOnly = GREETING_ONLY_RE.test(text.trim());
+    // THE AVAILABILITY HALF IS ANSWERED, NOT TAKEN FOR CONSENT (the [23:41]
+    // capture). «DOSTAPNA E DA» answers the first half of the compound ask and
+    // nothing else; read as a full «ok» it booked the client into a term the
+    // owner never agreed to. The owner gets the ack + the term question here
+    // and the check stays pending — THE CHAT WITH THE OWNER IS NOT FINISHED
+    // UNTIL A TIME AND DATE ARE DEFINED.
+    // …and only a STATEMENT is an availability answer: «DALI E SLOBODNA ?» is
+    // the owner ASKING, so it keeps the question lane below (answering a
+    // question with «значи е достапна» would answer what he asked with his own
+    // assertion).
+    const availabilityOnly = !isOwnerQuestion(text) && isOwnerAvailabilityOnly(text);
+    if (!isOwnerQuestion(text) && !greetingOnly && !availabilityOnly) return undefined;
+    const term = session.slots.ownerAskTime ?? session.slots.visitTime ?? '';
+    const shownTerm = term ? normalizeOwnerTime(term) : '';
+    const eb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    const prop = eb !== undefined ? ` (Евидентен број ${eb})` : '';
+    const askAgain = !shownTerm
+      ? `Прашав дали е достапна недвижноста${prop} за посета. Дали е слободна, и кој термин Ви одговара?`
+      : `Прашав дали Ви одговара посета во ${shownTerm}${prop}. Дали е слободен тој термин?`;
+    // A PURE GREETING IS NEVER A VERDICT — not even when it carries a time word:
+    // «DOBRO VECER» holds «вечер», which the owner parser reads as a vague clock
+    // («вечер» = this evening), so the verdict guard below swallowed the greeting
+    // and the TUI fell to «Не разбрав» anyway. «ZDRAVO, MOZE VO SABOTA ?» is not
+    // greeted here — it fails the greeting whitelist and stays a proposal.
+    if (greetingOnly) return `Здраво! ${askAgain}`;
+    // A QUESTION THAT PROPOSES IS A VERDICT: «MOZE VO SABOTA ?» / «PETOK VO 6 ?»
+    // are the owner answering with an alternative — never answered here.
+    if (detectOwnerVerdict(text, session.slots.visitTime ?? '')) return undefined;
+    // «IS THAT TODAY?» — answered with the fact, never by echoing his word.
+    if (/(?<![\p{L}])(?:denes|deneska|dnes|today|денес|денеска)(?![\p{L}])/iu.test(text) && shownTerm) {
+      const at = parseVisitDateTime(term);
+      const now = new Date();
+      const sameDay = !!at && at.getFullYear() === now.getFullYear()
+        && at.getMonth() === now.getMonth() && at.getDate() === now.getDate();
+      return `${sameDay ? 'Да, за денес' : 'Не, не е за денес'} — прашав дали Ви одговара посета во ${shownTerm}${prop}. Дали е слободен тој термин?`;
+    }
+    // ANY OTHER QUESTION: say what was asked, then ask for the verdict — the
+    // owner can always follow up, and nothing reaches the client until he
+    // confirms or declines.
+    // THE OWNER IS A HUMAN TOO — ANSWER WHAT HE ASKED (the [19:36] capture): an
+    // unknown agent asks a stranger for a viewing; «КОЈА АГЕНЦИЈА СТЕ ВИЕ?» is
+    // due diligence, and answering it with the term question reads as a robot
+    // (and makes the owner trust the request less). Name the agency, then repeat
+    // the ask so his answer still lands on the funnel.
+    if (detectAgencyIdentityAsk(text)) return `${AGENCY_IDENTITY_ANSWER} ${askAgain}`;
+    // HIS GREETING IS ANSWERED, THEN THE ASK — never «Не разбрав».
+    if (greetingOnly) return `Здраво! ${askAgain}`;
+    // AVAILABILITY CONFIRMED, TERM STILL OPEN: confirm what he said and ask
+    // ONLY for the term — a plain repeat of the compound ask would let the
+    // same partial answer through a second time.
+    if (availabilityOnly) return buildOwnerAvailabilityAck(eb, term, this.recentOwnerLines(chatId));
+    return askAgain;
+  }
+
+  /** THE OWNER'S MESSAGE AS TEXT (the transport seam).
+   *
+   *  A channel that holds the owner's conversation (Hermes on machine B, a bot
+   *  on another number) must NOT parse it: a second parser is a second grammar,
+   *  and the divergence stays invisible until a client is booked into a term the
+   *  owner never gave (the [23:41] class). It relays the raw words; Lina decides
+   *  — the same `detectOwnerVerdict` / `ownerQuestionReply` seam the operator
+   *  pane uses, so every parser fix and the pooled ack apply on every channel.
+   *
+   *  `messageId` makes the seam IDEMPOTENT: transports retry on 5xx, and a
+   *  retried webhook must answer with the same sentence instead of taking a
+   *  second turn of the conversation (the record is durable — `meta`).
+   */
+  async ownerMessage(chatId: string, text: string, opts: { eb?: number; messageId?: string } = {}): Promise<OwnerMessageResult> {
+    const session = this.deps.sessions.get(chatId);
+    if (!session) return { effect: 'unknown_chat' };
+    const liveEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    // A transport that names the flat must name THE flat: an owner answer about
+    // another property would move this funnel on a stranger's word.
+    if (opts.eb !== undefined && liveEb !== undefined && opts.eb !== liveEb) {
+      return { effect: 'wrong_property', state: session.state };
+    }
+    const key = opts.messageId ? `owner.reply:${chatId}:${opts.messageId}` : undefined;
+    if (key) {
+      const prior = this.deps.meta.getText(key);
+      if (prior) {
+        try { return { ...(JSON.parse(prior) as OwnerMessageResult), replay: true }; } catch { /* unreadable — recompute */ }
+      }
+    }
+    const result = await this.ownerMessageOnce(session, liveEb, text);
+    if (key) this.deps.meta.setText(key, JSON.stringify(result));
+    return result;
+  }
+
+  private async ownerMessageOnce(session: ChatSession, liveEb: number | undefined, text: string): Promise<OwnerMessageResult> {
+    // TURN 0 OWNS THE OWNER'S NEXT SENTENCE. The visit is already booked, so
+    // the only open question to him is «дали адресата е точна?» — his answer
+    // must reach the scheduler's confirmAddress(). It used to fall through to
+    // the verdict lane, where «да, точна е» read as an `ok` for a term already
+    // agreed: the address check stayed pending forever (client never got
+    // Turn 2/3) and a CORRECTION was dropped entirely (visit audit #5).
+    if (liveEb !== undefined && this.visits) {
+      const pendingAddr = this.visits.pendingAddressConfirm(session.chatId);
+      if (pendingAddr != null) {
+        const addr = detectOwnerAddressReply(text);
+        if (addr) {
+          const applied = await this.visits.confirmAddress(
+            pendingAddr, addr.status === 'correct' ? addr.address : undefined);
+          if (applied) {
+            // The ACK is delivered by the scheduler on the SAME channel the
+            // Turn-0 ask used (notifyOwner), so no replyText here — a transport
+            // delivering it too would tell the owner twice.
+            return { effect: 'address_confirmed', state: this.deps.sessions.get(session.chatId)?.state ?? session.state };
+          }
+        }
+      }
+    }
+    const proposed = session.slots.visitTime ?? '';
+    // A PROPOSAL IS A VERDICT («MOZE VO SABOTA ?»): the funnel owns the relay.
+    const verdict = detectOwnerVerdict(text, proposed);
+    if (verdict) {
+      if (liveEb === undefined) return { effect: 'wrong_property', state: session.state };
+      // Resolve the pending check FIRST (the agent's own queued apply is then a
+      // no-op — see appliedVerdicts), so this seam can apply the verdict itself,
+      // in order, and hand the owner-facing copy back to the transport: the
+      // availability ack and the exact-hour re-ask exist on no other channel.
+      const applied = this.ownerAnswer(session.chatId, liveEb, verdict);
+      if (!applied && !this.ownerFollowup(session.chatId, liveEb, verdict)) {
+        return { effect: 'no_pending', state: session.state };
+      }
+      const served = await this.applyOwnerVerdict(session.chatId, liveEb, verdict);
+      return {
+        effect: applied ? 'verdict_applied' : 'verdict_relayed',
+        replyText: served,
+        state: this.deps.sessions.get(session.chatId)?.state ?? session.state,
+      };
+    }
+    // Everything else is HIS message, answered by the one answer seam (greeting,
+    // «is it today?», the agency question, the availability half).
+    const reply = this.ownerQuestionReply(session.chatId, text);
+    return reply
+      ? { effect: 'answered', replyText: reply, state: this.deps.sessions.get(session.chatId)?.state ?? session.state }
+      : { effect: 'no_pending', state: session.state };
+  }
+
   /** How many times Lina has asked ONE chat to turn a clockless owner answer
    *  into an exact hour (the re-ask budget — see applyOwnerVerdict). Ephemeral:
    *  a verdict that carries a clock clears it. */
   private ownerClockAsks = new Map<string, number>();
 
-  /** RE-ARM THE OWNER CHECK (the [13:20] capture). When Lina asks the owner for
-   *  the exact clock, the answer must arrive through the normal verdict seam;
-   *  the old serve left NO pending check, so the owner's reply was dropped with
-   *  «нема активна проверка за овој клиент». Only a DEFERRED agent has an owner
-   *  to ask — a local agent answers from the owners table and needs no re-ask. */
-  private armOwnerClockCheck(session: ChatSession, eb: number): void {
+  /** THE OWNER PANE'S LAST LINES, per chat — the repeat-avoidance memory for
+   *  OWNER-facing bank pools (`owner.ask`, `vague.time.owner`,
+   *  `owner.availability.ack.*`). The client's session history is the WRONG
+   *  list here: it holds what the CLIENT read, so filling `recent` from it
+   *  suppressed variants the owner never saw and repeated ones he did. The
+   *  owner is ONE human re-reading the same pane on every viewing, so the ring
+   *  is per CHAT, ephemeral and bounded (the same shape as ownerClockAsks). */
+  private ownerRecent = new Map<string, string[]>();
+  /** Verdicts already applied through any seam — identity-keyed, so the queued
+   *  duplicate a transport's answer() produces is skipped without state flags. */
+  private appliedVerdicts = new WeakSet<OwnerVerdict>();
+  private static readonly OWNER_RECENT_MAX = 4;
+  private rememberOwnerLine(chatId: string, text: string): void {
+    if (!text) return;
+    const ring = [...(this.ownerRecent.get(chatId) ?? []), text].slice(-InboundHandler.OWNER_RECENT_MAX);
+    this.ownerRecent.set(chatId, ring);
+  }
+  private recentOwnerLines(chatId: string): string[] {
+    return this.ownerRecent.get(chatId) ?? [];
+  }
+
+  /** RE-ARM THE OWNER CHECK (the [13:20] capture). Whenever the session stays in
+   *  `owner_checking` and Lina has just said something to the owner, a pending
+   *  check must exist again: the old serve left NONE, so his next sentence was
+   *  dropped with «нема активна проверка за овој клиент» (and a verdict that
+   *  ARRIVED as a verdict — `available`, `ok` without a term — consumed the
+   *  pending one while the funnel still waits). Only a DEFERRED agent has an
+   *  owner to ask; a local agent answers from the owners table.
+   *
+   *  `askText` rides the new request event so a remote deliverer (/hermes/v1/work)
+   *  sends Lina's own sentence — the exact-hour re-ask and the availability ack
+   *  are owner-facing lines that today only existed in the operator pane. */
+  private armOwnerCheck(session: ChatSession, eb: number, askText?: string): void {
     const agent = this.ownerAgent as unknown as { pendingEb?: (c: string) => number | null };
     if (typeof agent.pendingEb !== 'function') return;
     const proposed = session.slots.visitTime ?? '';
-    void this.ownerAgent.check(session.chatId, eb, proposed)
+    void this.ownerAgent.check(session.chatId, eb, proposed, askText)
       .then(v => this.enqueue(session.chatId, () => this.applyOwnerVerdict(session.chatId, eb, v)))
       .catch(e => console.error('[owner] clock re-check failed:', (e as Error).message));
+  }
+
+  /** THE OWNER CONFIRMED AVAILABILITY AND THE TERM IS STILL OPEN (the [23:41]
+   *  contract): serve the pooled ack on HIS channel, keep the check open (re-arm
+   *  it — the verdict path consumed the pending one), and hand the text back so a
+   *  transport (the /hermes/v1 reply route) delivers it. The client hears nothing
+   *  except a price the owner dictated: that fact is unconditional, not tied to
+   *  the term. */
+  private async serveOwnerTermAsk(session: ChatSession, eb: number, priceRelay = ''): Promise<string> {
+    session.state = 'owner_checking';
+    const asked = session.slots.ownerAskTime ?? session.slots.visitTime ?? '';
+    const ack = buildOwnerAvailabilityAck(eb, asked, this.recentOwnerLines(session.chatId));
+    this.rememberOwnerLine(session.chatId, ack);
+    this.onOwnerAsk?.(session.chatId, eb, ack);
+    this.deps.sessions.set(session);
+    this.armOwnerCheck(session, eb, ack);
+    if (priceRelay) {
+      pushHistory(session, { role: 'assistant', text: priceRelay }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, priceRelay);
+    }
+    return ack;
   }
 
   private async runOwnerCheck(session: ChatSession, eb: number, proposedTime: string): Promise<void> {
@@ -11790,14 +12740,18 @@ ${contactReminder}`;
         ? buildOwnerFollowupAsk(renderVisitTerm(priorAsk), renderVisitTerm(askTime))
         : ownerLabels
           ? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen, relative: ownerLabels.relative, entered: ownerLabels.entered })
-          : pickVariant('owner.ask', { recent: assistantTexts(session), vars: { eb: String(eb), time: askTime } })
+          : pickVariant('owner.ask', { recent: this.recentOwnerLines(session.chatId), vars: { eb: String(eb), time: askTime } })
             ?? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime });
       // OWNER-ASK INTAKE (judge layer 1): the owner ask logs the CLIENT's raw
       // proposed term — a question forwarded as a term (20:26 "VO NEDELA
       // RABOTITE ?") is detectable only against the raw words, not the relay.
       if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'OWNER_ASK', userMsg: session.slots.visitTime ?? proposedTime, replyText: ownerAskText, replySource: 'owner-relay', bankKey: 'owner.ask' }); } catch { /* ignore */ } }
       this.onOwnerAsk?.(session.chatId, eb, ownerAskText);
-      const verdict = await this.ownerAgent.check(session.chatId, eb, proposedTime);
+      this.rememberOwnerLine(session.chatId, ownerAskText);
+      // The composed ask rides the check so a REMOTE deliverer sends Lina's own
+      // sentence (the bank-served owner.ask / follow-up), never a re-composition
+      // of its own — one copy source for the owner channel.
+      const verdict = await this.ownerAgent.check(session.chatId, eb, proposedTime, ownerAskText);
       this.enqueue(session.chatId, () => this.applyOwnerVerdict(session.chatId, eb, verdict));
     } catch (e) {
       console.error('[owner] check failed:', (e as Error).message);
@@ -11848,9 +12802,16 @@ ${contactReminder}`;
     return at ? formatVisitDate(at) : term;
   }
 
-  private async applyOwnerVerdict(chatId: string, eb: number, verdict: OwnerVerdict): Promise<void> {
+  private async applyOwnerVerdict(chatId: string, eb: number, verdict: OwnerVerdict): Promise<string | undefined> {
     const session = this.deps.sessions.get(chatId);
-    if (!session || session.state !== 'owner_checking') return; // stale/reset — drop
+    if (!session || session.state !== 'owner_checking') return undefined; // stale/reset — drop
+    // ONE APPLY PER VERDICT OBJECT. A verdict can arrive twice on purpose: the
+    // transport resolves the pending check (which queues the agent's own apply)
+    // and then applies it here to get the owner-facing text back. Guarding on
+    // the object — not on the state alone — keeps the ack path (which STAYS in
+    // owner_checking and re-arms) from answering the same half-answer twice.
+    if (this.appliedVerdicts.has(verdict)) return undefined;
+    this.appliedVerdicts.add(verdict);
     // Any verdict RESOLVES the open whole-day offer (a fixed counter binds an
     // exact term; ok/gone close the visit) — the acceptance follow-up must not
     // fire from a stale seed on a later ping (see ownerCounterWholeDay).
@@ -11894,7 +12855,24 @@ ${contactReminder}`;
       priceRelay = buildPriceRelay(eb, verdict.price, old);
     }
 
+    // THE AVAILABILITY HALF, EXPLICIT (the [23:41] rule): the owner confirmed the
+    // flat is free and the term is still open. Serve the pooled ack + term
+    // question on HIS channel, keep the check open, and put nothing on the
+    // client's phone. The status exists so a producer that parses owner text
+    // OUTSIDE this repo has an honest shape for a half-answer instead of being
+    // forced to send `ok` (agreed) or `counter` (refused).
+    if (verdict.status === 'available') return this.serveOwnerTermAsk(session, eb, priceRelay);
+
     if (verdict.status === 'ok') {
+      // CONSENT MUST NAME ITS OBJECT (the [23:41] rule at the CONTRACT level):
+      // `ok` means "agrees to the term on the table". With NO term from the
+      // owner the verdict is AMBIGUOUS, and the safe reading is the availability
+      // one — confirm, keep asking for the term, book nothing. This used to fall
+      // back to `session.slots.visitTime` (the CLIENT's own proposal) and
+      // finalize a visit the owner never agreed to: exactly the [23:41] field
+      // incident, reachable by ANY producer that sent a bare `ok`. The TUI
+      // shortcut now stamps the term it means; a remote parser has `available`.
+      if (!ownerTerm.trim()) return this.serveOwnerTermAsk(session, eb, priceRelay);
       session.state = 'pending';
       session.slots.ownerCounterTime = undefined; // agreed — nothing left to refuse
       session.slots.ownerClockDay = undefined;
@@ -11936,7 +12914,7 @@ ${contactReminder}`;
         pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, reply);
-        return;
+        return undefined;
       }
       // Vague owner time: "попладне", "после 5" etc. — ask owner for exact
       // clock instead of relaying a vague time to the client.
@@ -11975,7 +12953,7 @@ ${contactReminder}`;
         pushHistory(session, { role: 'assistant', text: dayRelay }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, dayRelay);
-        return;
+        return undefined;
       }
       // THE VISIT WINDOW APPLIES TO THE OWNER'S PROPOSAL TOO: viewings are made
       // 09:00–21:00, so a counter outside it («во 8 наутро», «во 22:00») is not
@@ -11992,7 +12970,7 @@ ${contactReminder}`;
         pushHistory(session, { role: 'assistant', text: fullReply }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, fullReply);
-        return;
+        return undefined;
       }
       // THE OWNER'S TERM IS THE AUTHORITY (the [13:20] capture): «POSLE 6» /
       // «Цетврток после 6» NAMES a clock, and parseVisitDateTime resolves it to
@@ -12014,7 +12992,7 @@ ${contactReminder}`;
         if (asked < 1) {
           this.ownerClockAsks.set(session.chatId, asked + 1);
           session.state = 'owner_checking'; // stay in owner_checking, re-ask
-          const vagueAsk = pickVariant('vague.time.owner', { recent: assistantTexts(session) })
+          const vagueAsk = pickVariant('vague.time.owner', { recent: this.recentOwnerLines(session.chatId) })
             ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го пренесам терминот на клиентот.';
           // Remember HIS day: the exact hour arrives in his NEXT message, and
           // that day-less clock must complete THIS day (see ownerClockDay).
@@ -12023,13 +13001,39 @@ ${contactReminder}`;
           // The OWNER hears the ask on his own channel; the client already has
           // the ACK and must never read owner-facing copy.
           this.onOwnerAsk?.(session.chatId, eb, vagueAsk);
+          this.rememberOwnerLine(session.chatId, vagueAsk);
           this.logOwnerExchange(session, eb, verdict, vagueAsk);
           this.deps.sessions.set(session);
-          this.armOwnerClockCheck(session, eb);
-          return;
+          this.armOwnerCheck(session, eb, vagueAsk);
+          return vagueAsk;
         }
       } else {
         this.ownerClockAsks.delete(session.chatId);
+      }
+      // A COUNTER THAT IS NOT AN ALTERNATIVE IS NOT A COUNTER (the [10:02]
+      // capture): the relay read «Сопственикот не е во можност за посета во
+      // Петок, 06.11.2026 во 17:00. Има друг предлог: Петок, 06.11.2026.» —
+      // the SAME day, handed back with no hour. Nothing new reached the client,
+      // but he was told the owner had refused his own day. When the owner's
+      // word names the day already on the table and carries no clock, there is
+      // no alternative to accept: relay the honest refusal, keep HIS day, and
+      // ask the client for a time on it.
+      const refusedDay = extractDayWord(normalizeOwnerTime(session.slots.visitTime ?? ''));
+      const counterDay = extractDayWord(normalizeOwnerTime(ownerTerm));
+      if (refusedDay && counterDay && refusedDay === counterDay && !hasClockHint(ownerTerm)) {
+        session.state = 'visit_scheduling';
+        // His day still stands while the client proposes an hour on it — the
+        // same day-carry the whole-day counter uses.
+        const keepDay = mkTimePhrase(ownerTerm);
+        session.slots.visitTime = keepDay || session.slots.visitTime;
+        session.slots.ownerClockDay = keepDay || undefined;
+        const refusedTime = renderVisitTerm(session.slots.visitTime ?? '');
+        const reply = `${priceRelay ? `${priceRelay} ` : ''}${pickVariant('owner.relay:counter.bare', { recent: assistantTexts(session), vars: { time: refusedTime } }) ?? OWNER_CANT_TIME_RELAY(refusedTime)}`;
+        this.logOwnerExchange(session, eb, { ...verdict, ownerTime: undefined }, reply);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, reply);
+        return undefined;
       }
       session.state = 'time_confirm';
       session.slots.ownerClockDay = undefined; // bound into the term below
@@ -12068,7 +13072,7 @@ ${contactReminder}`;
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, reply);
-      return;
+      return undefined;
     }
 
     // gone (sold / rented / under option)
@@ -12806,24 +13810,57 @@ ${contactReminder}`;
    * service would pin every serve to one segment and a single budget would
    * govern both), slots.dualService drives the paired rent/buy serve, and
    * applySlots is skipped for this pure delivery.
-   * Pure deliveries only: a type/size/area word makes the event a full
-   * search, whose service applies through applySlots as before. */
-  private captureDualBudgets(session: ChatSession, text: string, ev: Event): boolean {
+   * Pure deliveries only: a type/size/area word makes it a full
+   * search, whose service applies through applySlots as before.
+   *
+   * THE MESSAGE DECIDES, NOT THE EVENT (the [19:19] capture): the classifier's
+   * SEARCH_REQUESTED event ECHOES the session's armed criteria (bedrooms,
+   * house, sqm…), so «DO 350 ZA IZNAJMUVANJE» arriving after «DVOSOBEN STAN ILI
+   * GARSONJERA» looked like a full search, this guard bailed, and the rent
+   * budget REPLACED the buy one — the client's two-market request collapsed to
+   * whichever budget spoke last, and the serve listed sale flats only. The
+   * purity test reads the message's own slots: only the words of THIS turn can
+   * turn a delivery into a search. */
+  private async captureDualBudgets(session: ChatSession, text: string, ev: Event): Promise<boolean> {
+    const own = extractSlots(text);
     // Pure money deliveries only: type/size/area words make it a full search.
-    if (!ev.budget || ev.bedrooms || ev.sqm || ev.house !== undefined
-      || ev.business || ev.plac || ev.yard || ev.location || ev.anywhere) return false;
+    // THE MESSAGE'S OWN BUDGET, never the event's (the [20:33] regression): the
+    // SEARCH_REQUESTED event ECHOES the session's armed criteria — budget,
+    // service, bedrooms, garsonjera — so «SPALNI BILO KOLKU» (a WAIVER, no
+    // money at all) looked like a money delivery, the turn was swallowed here,
+    // and the waiver never reached applySlots (the funnel then served the
+    // anchor's own room count as if the client had asked for it).
+    if (!own.budget) return false;
+    if (own.bedrooms !== undefined || own.bedroomsMin !== undefined || own.bedroomsMax !== undefined
+      || own.sqm !== undefined || own.house !== undefined || own.business || own.plac
+      || own.garsonjera || own.yard || own.location || own.anywhere
+      || own.sizeWaived || own.pricePriority || own.sqmRate
+      || (own as { poiAnchor?: string }).poiAnchor
+      || detectCountBudget(text) || detectCategoryBudgets(text)) return false;
+    // A PLACE IN THE MESSAGE IS A FULL SEARCH (the [20:33] regression):
+    // `extractSlots` carries NO location — it is resolved against the feed —
+    // so the text-side guard above never sees «… VO CENTAR». «KIRIJA DO 350E
+    // VO CENTAR» was read as a PURE money delivery, the whole turn skipped
+    // applySlots, and the pinned area never landed: the discovery re-asked the
+    // part of town the client had just named and every later pricier/elsewhere
+    // pivot lost the geography (EB 61 in Аеродром inside a Центар funnel). The
+    // EVENT must not be used for this — it inherits the session's own slots —
+    // the message's words are read on their own, with the same reader the
+    // classifier uses.
+    if (await this.areaNamed(text)) return false;
     // The classifier's event can DROP the money-word's service noun — the
     // [12:33] archive: «za kupuvanje do 2000000» left service unknown while
     // the raw text plainly names the buy leg. The message's own words are
     // the anchor when the event is poor.
-    const svc: Service | undefined = ev.service
-      ?? (extractSlots(text).service)
+    const svc: Service | undefined = own.service
       ?? (/((kupuvanj)|(kupuvanе)|(купувањ)|(kupuvam)|(купувам)|(kupam)|(купам)|(kupi\b)|(купи\b)|(prodazb)|(продажб)|(prodav)|(продав))/iu.test(text)
         ? 'buy'
         : /((kirij)|(кириј)|(iznajm)|(изнајм)|(najmam)|(најмам)|(naстам)|(наjм)|(izdav)|(издав)|(rent(?:am|iram|irav|ira|irat|im)?\b)|(\brent\b))/iu.test(text)
           ? 'rent' : undefined);
+    // A budget with NO market word is not a per-service delivery: it belongs
+    // to the leg already on file (applySlots / the search lanes own it).
     if (!svc) return false;
-    const budget = String(ev.budget);
+    const budget = String(own.budget);
     if (svc === 'rent') session.slots.rentBudget = budget;
     else session.slots.buyBudget = budget;
     const otherBudget = svc === 'rent' ? session.slots.buyBudget : session.slots.rentBudget;
@@ -13028,6 +14065,24 @@ ${contactReminder}`;
       session.slots.bothServices = undefined;
       // HIS OWN WORD — the [10:16] inferred-market flag is spent.
       session.slots.serviceInferred = undefined;
+      // A NAMED MARKET NARROWS A DUAL SEARCH (the [19:20] capture): «ZA
+      // IZNAJMUVANJE ?» after both budgets were banked means RENT ONLY. The
+      // dual flag used to survive every later declaration, so the presentation
+      // kept pairing one rental with one flat for sale — the client's explicit
+      // rent ask was answered with a 99.000 € sale card. Retiring the pair
+      // hands the search the leg's OWN cap (a dual funnel keeps no single
+      // budget, so without this the narrowed leg has no money frame).
+      if (session.slots.dualService) {
+        const legBudget = ev.service === 'rent' ? session.slots.rentBudget : session.slots.buyBudget;
+        session.slots.dualService = undefined;
+        session.slots.rentBudget = undefined;
+        session.slots.buyBudget = undefined;
+        session.slots.dualEmptyLeg = undefined;
+        session.slots.dualDrained = undefined;
+        session.slots.dualEmptyKey = undefined;
+        session.slots.dualEmptyTold = undefined;
+        if (legBudget !== undefined) session.slots.budget = legBudget;
+      }
     }
     // Clients type Latin ("centar", "kapistec"); canonicalize to Cyrillic so
     // replies and the deterministic no-match lines read naturally.
@@ -13112,6 +14167,21 @@ ${contactReminder}`;
     if (ev.business !== undefined) session.slots.business = ev.business;
     if (ev.house !== undefined) session.slots.house = ev.house;
     if (ev.budget) session.slots.budget = ev.budget;
+    // THE €/m² CEILING (the [02:09] capture): «PO 1500E ZA KVADRAT» is a RATE
+    // — it lands in its own slot and never as a 1.500 € sum, so the funnel
+    // cannot answer «нема станови до 1.500 евра» while holding 1.250 €/m²
+    // rows. It is a MONEY criterion: a later total cap supersedes the rate
+    // (the client moved off the rate axis) and vice versa, because a search
+    // has ONE money frame at a time.
+    if (ev.sqmRate) {
+      session.slots.sqmRate = ev.sqmRate;
+      if (ev.budget === undefined) {
+        session.slots.budget = undefined;
+        session.slots.categoryBudgets = undefined;
+      }
+    } else if (ev.budget) {
+      session.slots.sqmRate = undefined;
+    }
     if (ev.anywhere) session.slots.anywhere = true;
     if (ev.sizeWaived) session.slots.sizeWaived = true;
     // A FRESH bedroom/sqm criterion retires the size waiver ("nebitno"): the
@@ -13377,7 +14447,60 @@ ${contactReminder}`;
     const servedWord = leg === 'buy'
       ? `изнајмување${money(slots.rentBudget)}`
       : `купување${money(slots.buyBudget)}`;
-    return `Во моментов немам ${cat} ${emptyWord}${area}. Еве што имам за ${servedWord}:`;
+    // A leg emptied by PRESENTATION, not by stock: «сè што имав», never «немам».
+    return slots.dualEmptyShown
+      ? `Тоа е сè што имав ${emptyWord}${area}. Еве што имам за ${servedWord}:`
+      : `Во моментов немам ${cat} ${emptyWord}${area}. Еве што имам за ${servedWord}:`;
+  }
+
+  /** THE FUNNEL'S ASK — or NOTHING.
+   *
+   *  `buildDiscoveryAsk` has a zero-missing branch whose text is «Во ред, ги
+   *  забележав Вашите критериуми.» — a spec sheet with no property and no
+   *  question (the [00:37] capture: the type answer completed the criteria and
+   *  that line was the whole reply). A criterion the funnel owes nothing for
+   *  must become a SERVE (`discoveryServe`) or an honest no-stock line, never
+   *  an acknowledgement. Callers that APPEND the ask (a card reply) append
+   *  nothing here — the cards already answer. Callers that SEND it serve. */
+  private criteriaAsk(session: ChatSession): string | undefined {
+    const ask = buildDiscoveryAsk(session.slots, assistantTexts(session));
+    return ask.includes('?') ? ask : undefined;
+  }
+
+  /** The pair the now-complete criteria buy, or the honest no-stock line.
+   *
+   *  Used where `criteriaAsk` came back empty: the funnel holds service, type,
+   *  size and money, so the missing thing is not a question — it is the answer.
+   *  The pool comes from `loadProps` in its presentation branch (area lock, the
+   *  place anchor's nearest-first order, presentedIds exclusion), so the serve
+   *  obeys every geography rule the presentation does. Nothing in stock still
+   *  says so out loud and offers the pivot — the protocol's own line. */
+  private async discoveryServe(session: ChatSession): Promise<string> {
+    const stateBefore = session.state;
+    let batch: Property[] = [];
+    try {
+      // loadProps reads the STATE it is in; the criteria serve is the
+      // presentation pool, so ask for it with that state and restore after.
+      session.state = 'presentation';
+      batch = (await this.loadProps(session, true, false, true)).slice(0, 2);
+    } finally {
+      session.state = stateBefore;
+    }
+    if (batch.length === 0) {
+      return noMatchLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
+        ?? NO_MATCH_LINE(session.slots.location);
+    }
+    // Deduped: the pool helper may already have recorded the batch (the
+    // presentation branch does), and a twice-listed Евидентен број makes
+    // `presentedIds` read as two serves of one flat.
+    session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...batch.map(p => p.id)])];
+    session.slots.currentBatch = batch.map(p => p.id);
+    session.slots.areaExhausted = false;
+    await this.landmarks.enrich(batch);
+    return buildPropertyCards(batch, 'presentation', session.history.length, assistantTexts(session), {
+      anywhere: session.slots.anywhere,
+      budget: session.slots.budget,
+    });
   }
 
   private slotsComplete(s: ChatSession): boolean {
@@ -13396,13 +14519,16 @@ ${contactReminder}`;
     // (the ask counted the anchor, this did not), which stranded the turn in
     // discovery with nothing left to ask: the criteria were all in, and the
     // answer was «ги забележав Вашите критериуми» — spec sheet, no property.
-    const loc = !!s.slots.location || !!s.slots.anywhere || !!s.slots.poiAnchor;
+    // ONE READER for both sides (the [00:36] capture): the ask and the serve
+    // must agree on what answers the location and the market question — a
+    // city-level «Скопје» and a market pinned off a served row answer neither.
+    const loc = locationCriterionKnown(s.slots);
     if (s.slots.business) {
       // Dual-service funnel (the [12:33] capture): the service and budget
       // criteria are satisfied by the PAIRED budgets — slots.service/'
       // slots.budget are deliberately retired in that mode.
-      return (!!s.slots.service || !!s.slots.dualService) && loc && !!s.slots.sqm
-        && (!!s.slots.budget || !!s.slots.dualService);
+      return serviceCriterionKnown(s.slots) && loc && !!s.slots.sqm
+        && (!!s.slots.budget || !!s.slots.dualService || !!s.slots.sqmRate);
     }
     if (s.slots.dualService) {
       // Dual-service funnel without a type: the service criterion is satisfied
@@ -13416,8 +14542,9 @@ ${contactReminder}`;
     // "garsonjera mi treba do 250" must PRESENT, not loop "Колку спални…").
     // Same for plac ("плац за градење" names the type outright) and yard
     // ("со двор" — the outdoor need replaces any спални spec).
-    return !!s.slots.service && loc && (!!s.slots.bedrooms || (s.slots.bedroomsMin !== undefined && s.slots.bedroomsMax !== undefined)
-      || !!s.slots.anywhere || !!s.slots.sizeWaived || !!s.slots.garsonjera || !!s.slots.plac || !!s.slots.yard) && !!s.slots.budget;
+    return serviceCriterionKnown(s.slots) && loc && (!!s.slots.bedrooms || (s.slots.bedroomsMin !== undefined && s.slots.bedroomsMax !== undefined)
+      || !!s.slots.anywhere || !!s.slots.sizeWaived || !!s.slots.garsonjera || !!s.slots.plac || !!s.slots.yard)
+      && (!!s.slots.budget || !!s.slots.sqmRate);
   }
 
   private async loadProps(session: ChatSession, areaRequested = false, seeOffers = false, ignoreShown = false): Promise<Property[]> {
@@ -13493,6 +14620,9 @@ ${contactReminder}`;
         yard: session.slots.yard,
         service: session.slots.service,
         budget: session.slots.budget,
+        // THE RATE (the [02:09] capture): a €/m² ceiling filters and ranks
+        // ACROSS TYPES — «PO 1500E ZA KVADRAT» is not a 1.500 € flat.
+        rate: session.slots.sqmRate,
         exclude: shown,
         // see-offers ("помало нешто"): SMALLEST м² first, going up — Lina
         // answers the "what do you have?" question with the smallest offer,
@@ -13540,6 +14670,7 @@ ${contactReminder}`;
           yard: session.slots.yard,
           service: session.slots.service,
           budget: session.slots.budget,
+          rate: session.slots.sqmRate,
           exclude: shown,
           sortBySqm: seeOffers,
           sortBySqmDesc: sqmDesc,
@@ -13573,7 +14704,7 @@ ${contactReminder}`;
       // pass above ran without service/budget (both are retired in this mode),
       // so the pool is the interleaved union of two typed passes.
       if (session.slots.dualService) {
-        const dualPass = (service: Service | undefined, budget: string | undefined) =>
+        const dualPass = (service: Service | undefined, budget: string | undefined, ignoreShown = false) =>
           this.deps.properties.candidates({
             location: searchLocation,
             bedrooms: session.slots.bedrooms,
@@ -13586,7 +14717,7 @@ ${contactReminder}`;
             yard: session.slots.yard,
             service,
             budget,
-            exclude: shown,
+            exclude: ignoreShown ? [] : shown,
             sortBySqm: seeOffers,
             sortByPopularity: !!session.slots.anywhere && !session.slots.location,
           });
@@ -13643,6 +14774,21 @@ ${contactReminder}`;
         session.slots.dualEmptyKey = session.slots.dualEmptyLeg
           ? `${session.slots.dualEmptyLeg}|${session.slots.sqm ?? '-'}`
           : undefined;
+        // «НЕМАМ» vs «ГИ ПОКАЖАВ СИТЕ» (the [19:20] capture): an empty leg is
+        // empty of UNSHOWN rows. When the segment HAS stock under its own cap
+        // and every row of it was already served (the buy pair went out on the
+        // previous turn), the honest sentence is «Тоа е сè што имав за
+        // купување до 150.000» — claiming «немам стан за купување» over two
+        // cards the client is looking at is false. Ignoring `shown` is the only
+        // way to tell the two apart, and it costs one query for the empty leg
+        // only.
+        session.slots.dualEmptyShown = false;
+        if (session.slots.dualEmptyLeg && session.slots.dualEmptyLeg !== 'both' && shown.length > 0) {
+          const emptySvc: Service = session.slots.dualEmptyLeg === 'buy' ? 'buy' : 'rent';
+          const emptyCap = emptySvc === 'buy' ? session.slots.buyBudget : session.slots.rentBudget;
+          const hadStock = await dualPass(emptySvc, emptyCap, true);
+          session.slots.dualEmptyShown = hadStock.length > 0;
+        }
       }
       // Studio-relax: the area has NO garsonjera at all — falling back to the
       // plain no-match loses the "give him what he wants" instruction. Retry

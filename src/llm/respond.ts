@@ -4,7 +4,16 @@ import { ChatSession, assistantTexts } from '../fsm/session';
 import { Property } from '../data/properties';
 import { State, isFeeAllowed } from '../fsm/machine';
 import { fallbackVariant, pickVariant, retrieveVariant, getLearnedBank } from '../data/responseBank';
-import { dynamicAnswer, generateDynamic, type DynamicResult } from './dynamicFallback';
+import {
+  dynamicAnswer, dynamicAllowedHere, generateDynamic, inProtocolState, pinsBorrowedCommitment,
+  type DynamicResult,
+} from './dynamicFallback';
+
+/** Thrown when a protocol-state answer pins a day/hour the client never named:
+ *  the turn degrades to the LLM-less fallback instead of promising a term.
+ *  A typed veto rather than an inline branch so the degrade path stays ONE
+ *  place (the catch below), not two copies that can drift. */
+class ProtocolCommitmentVeto extends Error {}
 import { arbitrateMoney } from './moneyArbitration';
 import { llmArbitrateKey } from './arbiterLlm';
 import type { BankStore } from '../store/bank';
@@ -310,7 +319,11 @@ export class Responder {
     // 2) GENERATE: one constrained Gemini call (no facts, P1 baseline +
     //    hygiene validated) — clean answers serve AND store immediately.
     // 3) undefined → the pre-existing escalation path, unchanged.
-    const bank = getLearnedBank();
+    // THE PROTOCOL DOOR (the [01:51] capture): the visit/fee/contact ladder is
+    // answered by its own copy — a model paraphrasing it invented a term the
+    // owner was never asked about, then that sentence was banked. Same refusal
+    // the `shouldTryDynamic` gate makes at the handler seam, asked here too.
+    const bank = dynamicAllowedHere(session) ? getLearnedBank() : undefined;
     if (bank) {
       const dyn = await dynamicAnswer(this.escalationLlm, session, userText, bank);
       if (dyn) {
@@ -345,6 +358,15 @@ export class Responder {
         onProvider: p => { provider = p; },
       });
       const ms = Date.now() - t0;
+      // THE BORROWED TERM (the [01:51] capture): inside the visit/fee/contact
+      // ladder the protocol owns terms. Free prose there invented «четврток во
+      // 17:00» — a term nobody had proposed — and the same sentence was then
+      // banked. The bank half is closed in dynamicFallback; this closes the
+      // LIVE half, with the same predicate, so prose can still answer a
+      // protocol-state question but can never name a term the client did not.
+      if (inProtocolState(session) && pinsBorrowedCommitment(text, userText)) {
+        throw new ProtocolCommitmentVeto('pinned a term the client never named');
+      }
       console.log(`[timing] respond ${ms}ms → ${provider ?? 'llm'}`);
       return {
         text: guardText(session.state, text, this.cfg.publicSiteUrl, assistantTexts(session)),
@@ -353,7 +375,11 @@ export class Responder {
       };
     } catch (e) {
       const ms = Date.now() - t0;
-      console.error(`[respond] LLM failed (${ms}ms):`, (e as Error).message);
+      if (e instanceof ProtocolCommitmentVeto) {
+        console.warn(`[respond] protocol-state prose pinned a term the client never named (${ms}ms) — serving the protocol fallback`);
+      } else {
+        console.error(`[respond] LLM failed (${ms}ms):`, (e as Error).message);
+      }
       // LLM-less fallback: property data is code-built (never invented), so the
       // bot still presents REAL offers when every LLM is down.
       if ((session.state === 'property_query' || session.state === 'presentation') && properties.length > 0) {

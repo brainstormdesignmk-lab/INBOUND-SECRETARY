@@ -12,6 +12,7 @@
 // ordering constraint fails a test instead of shipping silently.
 
 import { classifyOffensive } from '../antiabuse/offensive';
+import { detectWhichOfBatchPlace } from '../data/properties';
 import { recordRouteDrift } from '../store/routeDrift';
 import {
   detectExactAddressAsk, detectWhereIs, detectSurroundingsAsk, detectOwnerContact,
@@ -25,6 +26,7 @@ import {
   detectBusinessBudgetAsk,
   detectPriceEval, adviceLaneAdmits,
   detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk,
+  detectFeePaymentAgreement,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -58,6 +60,8 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectNearestOfShown(t) },
   { intent: 'NEAREST_OF_BATCH', note: '«OVA BESE BLISKU» ([20:17]) — a DEICTIC closeness remark about the batch just listed. No interrogative and no place of its own, so it sits AFTER NEAREST_OF_SHOWN (which owns the explicit «koj e najblisku do …» ranking) and BEFORE the funnel: the classifier read it as a description of an unknown listing and asked which neighbourhood/price it was',
     fires: t => detectCloseRemarkToBatch(t) },
+  { intent: 'WHICH_OF_BATCH_PLACE', note: '«KOJ OD NIV E VO MADJAR MAALO?» ([09:44]) — which of the flats ALREADY OFFERED stands in the place the client names. A comparison between the rows on the table, so it sits after NEAREST_OF_SHOWN/NEAREST_OF_BATCH (the rankings it must not steal) and before MARKET_MEMORY and every search branch: the recall path read the place as a NEW search and re-served the same pair it was asked about',
+    fires: t => !!detectWhichOfBatchPlace(t) },
   { intent: 'MARKET_MEMORY', note: '„ИМАШЕчЕ ЕДНА КУчА ПРЕД НЕКОЕ ВРЕМЕ КАЈ ВАС… ОКОЛУ 400 ЕВРА КИРИЈА” ([02:00]) — a recall of an OLD agency listing. Sits BEFORE MARKET_PRICE: the rent noun + the ask shape make the market mirror claim the row, while the market arm does not capture it (landmark ≠ feed area, singular noun, rent-only guard) — the turn then fell to the discovery funnel. The archive ack owns it: the old offer is not in the feed, so no figure is quoted as live, and the recollected type/segment/amount land in slots for the follow-up search',
     fires: t => detectMarketMemoryAsk(t) },
   { intent: 'MARKET_PRICE', note: '"KAKO SE DVIZAT CENIVE ZA STANOVI VO AERODROM?" ([16:57]) — the €/m² range for a CATEGORY in an AREA, answered from the feed\'s own rows. Sits after WHERE_IS/DISTANCE (which own their questions) and before every property-price branch, which would otherwise quote the single flat on the table',
@@ -99,11 +103,17 @@ export const ROUTING_ORDER: RouteRule[] = [
   // bare WHY claim BEFORE provision.ask reads the same charge-money wording (the
   // [09:0x] V16K11 transcript —nikon ne zema pari za poseta belongs to the fee
   // REASONS, never the rules-of-work script).
-  { intent: 'FEE_WHY', note: 'bare why-claim about the charge — must beat provision.ask',
-    fires: (t) => detectFeeWhy(t) && !detectProvisionAsk(t) },
-  { intent: 'PROVISION_ASK', note: 'fee question — broad state gate',
+  // A YES IS NEVER A WHY (the [19:34] capture): «STOM TAKA RABOTITE DOGOVORI
+  // TOA E TOA» agrees to the fee and must be predicted as consent traffic, not
+  // as an explanation request — the executor's why legs stand down on
+  // detectFeePaymentAgreement, and the mirror has to say the same.
+  { intent: 'FEE_WHY', note: 'bare why-claim about the charge — never fee consent (must beat provision.ask)',
+    fires: (t) => detectFeeWhy(t) && !detectProvisionAsk(t) && !detectFeePaymentAgreement(t) },
+  { intent: 'PROVISION_ASK', note: 'fee question — EVERY client-side state (the [09:51] capture: «KOLKU VI E PROVIZIJATA ?» in property_locate was skipped by the old gate and the card pair was re-served). The mirror must carry the executor\'s own list: a narrower gate here predicts FALLTHROUGH for a turn the lane really serves',
     fires: (t, s) => detectProvisionAsk(t) &&
-      ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'].includes(s) },
+      ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle',
+        'contact_collection', 'property_locate', 'visit_scheduling', 'owner_checking',
+        'time_confirm', 'pending'].includes(s) },
   { intent: 'ESCALATION', note: 'manager request — no state gate, always honored',
     fires: t => detectEscalation(t) },
   { intent: 'DOCUMENTS_ASK', note: 'documents info — broad gate',
@@ -207,6 +217,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   DISTANCE: M('DISTANCE', 'how far the discussed flat is from X'),
   DISTANCE_BATCH: P('the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat’s number came back)'),
   INFO_ASK_FLOORS: P('one floor question naming TWO flats («na koj sprat e 94 ? a na koj 90 ?») — one clause per Евидентен број (the [11:38] capture: only the bound flat was answered)'),
+  WHICH_OF_BATCH_PLACE: M('WHICH_OF_BATCH_PLACE', 'which of the offered flats stands in the place the client names — answered per row, from each row\'s own words'),
   NEAREST_OF_SHOWN: M('NEAREST_OF_SHOWN', 'which of the offered flats is nearest to X'),
   NEAREST_OF_BATCH: M('NEAREST_OF_BATCH', '«ova bese blisku» — the one nearest of the batch, with its measured distance'),
   MARKET_MEMORY: M('MARKET_MEMORY', 'a recollected OLD agency listing (имаше/беше … кај вас + noun + amount) — honest archive ack, beats MARKET_PRICE'),
@@ -215,11 +226,15 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   PROPERTY_DESCRIPTION: M('PROPERTY_DESCRIPTION', 'remembered-property flow'),
   SEEN_LISTING_RECALL: M('SEEN_LISTING_RECALL', 'a recalled listing («имавте една куќа накај Скопје Север, околу 130 000 беше») served from the bank by category+area+price in helpful mode — never the criteria ask ([18:41] capture)'),
   DESCRIBE_TABLE: P('“опиши ми ги?” — the flats she just offered, answered from the bank rows'),
+  AVAILABILITY_TABLE: P('an availability ask that points at ONE flat already on the table by its type/price («GARSONJERATA ZA 200E DALI E DOSTAPNA?») — the ack + the owner question for THAT flat, never a fresh criteria grill ([22:27] capture)'),
+  CONTACT_MECHANICS: P('the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» — the number she holds + the mechanism, never the DEFER line ([22:28] capture)'),
+  STOCK_CONTRADICTION: P('the client quotes a card she served against a «нема» she said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?») — admission + the row\'s own facts + the next step, never a location line ([02:12] capture)'),
   PICK_DESCRIBED: P('a pick among the flats she just described → the availability answer'),
   LOCATE_CONTINUE: P('bare «не» while choosing among described flats — the hunt continues'),
   LOCATE_WIDEN: P('«да» to the other-neighbourhoods question — the area lock is released'),
   LOCATE_REJECT_PLACE: P('«не е таа» after the only flat at a NAMED place — the place lock holds, other areas only after the ask'),
   CONTACT_AFTER_FEE: P('the fee question answered with a name + phone — consent and the visit-time ask'),
+  AGENCY_IDENTITY: P('«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (client OR owner): the agency is named and the interrupted question repeated — never the pending-traffic line ([19:36] capture)'),
   'NEGOTIATE:fast': M('NEGOTIATE', 'commercial-state price pushback'),
   PRICE_EVAL_CHEAP: M('PRICE_EVAL_CHEAP', 'positive price remark beats the fee ladder'),
   'PROVISION_PUSH:fast': M('PROVISION_ASK', 'fee pushback resolves through the provision lane'),
@@ -349,7 +364,7 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
     intent: 'FEE_WHY',
     bankKey: 'fee.why',
     fallback: 'Надоместот за посета е филтер на агенцијата со кој ги препознаваме вистинските клиенти. Дали се согласувате со овој услов?',
-    detect: t => detectFeeWhy(t) && !detectProvisionAsk(t),
+    detect: t => detectFeeWhy(t) && !detectProvisionAsk(t) && !detectFeePaymentAgreement(t),
     allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle'],
   },
   {
@@ -357,7 +372,14 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
     bankKey: 'provision.ask',
     fallback: 'Условите зависат дали барате купување или изнајмување. Купувачот не плаќа провизија (0%), единствен трошок е 500 денари за посета; за изнајмување надоместот е 300 денари, а провизијата 50% од киријата. Дали Ве интересира купување или изнајмување?',
     detect: detectProvisionAsk,
-    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
+    // THE COMMISSION IS NOT A FUNNEL POSITION (the [09:51] capture): the client
+    // was in property_locate (holding the pair EB 91/74) and asked «KOLKU VI E
+    // PROVIZIJATA ?» — the state gate skipped this lane, the pair was re-served
+    // and the money question went unanswered. A commission question is
+    // informational and legitimate in EVERY client-side state, the visit ones
+    // included (that is exactly when the money starts to matter).
+    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle',
+      'contact_collection', 'property_locate', 'visit_scheduling', 'owner_checking', 'time_confirm', 'pending'],
   },
   {
     intent: 'ESCALATION',

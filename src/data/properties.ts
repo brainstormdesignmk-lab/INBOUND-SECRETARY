@@ -1040,6 +1040,50 @@ export function extractPlacePhrases(text: string): string[] {
   return [...new Set(out)];
 }
 
+/** «КОЈ ОД НИВ Е ВО МАЏАР МААЛО?» — WHICH OF THE OFFERED FLATS IS AT THAT PLACE.
+ *
+ *  The [09:44] capture: over the pair EB 91 (ad: «Маџар Маало») + EB 74 (ad:
+ *  «Дебар Маало») the client asked which of them was in Маџар Маало, and got
+ *  the same pair back — twice — because no lane owned a question that
+ *  DISCRIMINATES the batch by place. It is a comparison between the rows on
+ *  the table, and every row is answered by its OWN words (`inArea`).
+ *
+ *  Grammar: an interrogative which-word PLUS the batch reference
+ *  («od niv / od ovie / od tie»), PLUS a place phrase after a place
+ *  preposition. The batch reference is what keeps a search («koj stan e vo
+ *  centar?») and a nearest-ask («koj e najblisku do …») out: this lane only
+ *  ever answers about the rows it was shown. Returns the place phrase the
+ *  client named, or undefined. */
+export function detectWhichOfBatchPlace(text: string): string | undefined {
+  const toks = placeTokens(text);
+  const WHICH = new Set(['koj', 'koja', 'koe', 'koi', 'кој', 'која', 'кое', 'кои']);
+  if (!toks.some(t => WHICH.has(t))) return undefined;
+  const BATCH = new Set(['niv', 'ovie', 'ovye', 'ovive', 'tie', 'нив', 'овие', 'тие', 'овиве']);
+  const batchRef = toks.some((t, i) => (t === 'od' || t === 'од') && BATCH.has(toks[i + 1] ?? ''));
+  if (!batchRef) return undefined;
+  const TYPE_WORD = /^(?:stan|станот|стан|kuka|куќа|куќата|garsonjera|гарсоњера|apartman|апартман|lokal|локал|dukjan|дуќан)$/u;
+  const phrase = extractPlacePhrases(text)
+    .find(p => p.length >= 4 && !p.split(/\s+/u).some(w => TYPE_WORD.test(w)));
+  return phrase;
+}
+
+/** The AREA a card NAMES IN ITS OWN AD — «Маџар Маало» out of "Трисобен стан
+ *  во Маџар Маало, две спални". The feed's naselba is often the whole
+ *  municipality («Центар»), and that is not what the client reads on the card
+ *  or quotes back, so a comparison between two cards must speak the ad's own
+ *  place when it has one. Only a phrase that ENDS at a neighbourhood word
+ *  (маало/населба/реон/центар/четврт) counts — "во близина на …" (a landmark)
+ *  and "стан во кој …" are not areas. Undefined when the ad names none. */
+export function adArea(p: Property): string | undefined {
+  const MARK = /^(?:маало|населба|реон|центар|четврт)$/u;
+  for (const ph of extractPlacePhrases(adText(p))) {
+    const toks = ph.split(/\s+/u);
+    const at = toks.findIndex(t => MARK.test(t));
+    if (at > 0) return toks.slice(0, at + 1).join(' ');
+  }
+  return undefined;
+}
+
 // ── NUMBERED SUB-AREAS: Карпош I / II / III / IV ─────────────────────────────
 /**
  * A numbered neighborhood is ITS OWN area with its own rows and its own price —
@@ -1619,6 +1663,12 @@ export class PropertyService {
     bedroomsMin?: number; bedroomsMax?: number; // bedroom RANGE ([09:17]): exact-category pool, both ends REQUIRED
     sortBySqmDesc?: boolean; // "nebitno" (size waived): BIGGEST м² first — the money buys space
     sortByPopularity?: boolean; // "било каде" — most popular neighborhoods first
+    /** €/m² CEILING (the [02:09] capture): «PO 1500E ZA KVADRAT». A rate is a
+     *  PRICE PER SIZE, so it ranks and filters across EVERY type — a 1.250 €/m²
+     *  flat, house or shop all satisfy it. A row whose area is unknown cannot
+     *  be shown to fit a rate and stays out; the caller's no-stock/pivot ladder
+     *  owns that honest answer. */
+    rate?: number;
   }): Promise<Property[]> {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
@@ -1648,7 +1698,12 @@ export class PropertyService {
         : opts.house === true
           ? (opts.yard ? p.house === true && (p.features?.some(f => /двор|градин/i.test(f)) ?? false) : p.house === true)
           : true)
-      .filter(p => opts.garsonjera ? !p.business && !p.house && isSmallUnit(p) : true)      .filter(p => max === undefined || p.price === undefined || p.price <= max);
+      .filter(p => opts.garsonjera ? !p.business && !p.house && isSmallUnit(p) : true)      .filter(p => max === undefined || p.price === undefined || p.price <= max)
+      // THE RATE FILTER (the [02:09] capture) — price ÷ м², never the sum.
+      .filter(p => opts.rate === undefined ? true : (() => {
+        const per = pricePerM2(p);
+        return per !== undefined && per <= opts.rate;
+      })());
     // Bedroom filter: try exact match first; if no results in the TARGET
     // LOCATION, fall back to >= so the client sees alternatives (bigger/smaller)
     // instead of nothing. The fallback must happen BEFORE the location filter
@@ -1696,13 +1751,23 @@ export class PropertyService {
     const pool = this.locked(opts.location ? sameArea : finalBase,
       opts.house !== undefined || opts.business !== undefined || !!opts.plac);
     return pool
-      .map(p => ({ p, inLoc: inLoc(p), dist: p.price !== undefined ? Math.abs(p.price - (max ?? 0)) : 0, rank: popularityRank(p.location) }))
+      .map(p => ({ p, inLoc: inLoc(p), dist: p.price !== undefined ? Math.abs(p.price - (max ?? 0)) : 0, rank: popularityRank(p.location), per: pricePerM2(p) }))
+      // THE RATE LADDER (the [02:09] capture): with a €/m² ceiling the pool is
+      // ranked by the RATE — the unit closest to the client's own ceiling first
+      // (his rate buys the most), then price as the tiebreak. Ranking by the
+      // absolute price would put a 60.000 € studio ahead of the 1.400 €/m² flat
+      // he asked for.
       // sortBySqm: "помало нешто" mid-discovery — SMALLEST м² first, going up
       // (undefined-sqm rows last, then by price like the default).
       // sortByPopularity: "било каде" — most popular neighborhoods FIRST
       // (Центар, Капиштец, Карпош, Аеродром, Кисела Вода, Влае, Ѓорче Петров,
       // then the rest), within each neighborhood by price.
-      .sort((a, b) => opts.sortBySqmDesc
+      .sort((a, b) => opts.rate !== undefined
+        ? (Number(b.inLoc) - Number(a.inLoc))
+          || ((b.per ?? 0) - (a.per ?? 0))
+          || (a.dist - b.dist)
+          || (a.p.eb - b.p.eb)
+        : opts.sortBySqmDesc
         ? (Number(b.inLoc) - Number(a.inLoc))
           || ((sqmOfRow(b.p) ?? -1) - (sqmOfRow(a.p) ?? -1))
           || (a.dist - b.dist)

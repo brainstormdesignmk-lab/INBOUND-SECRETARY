@@ -25,6 +25,7 @@ import { buildOwnerAskAgain } from '../llm/prompts';
 import { LandmarkService } from '../geo/landmarks';
 import { OfflineMapStore } from '../geo/offlineMap';
 import { VisitScheduler } from '../visits/scheduler';
+import { OWNER_CHECK_STILL_WAITING } from '../visits/messages';
 import { EventStore } from '../store/events';
 import { OwnerStore } from '../store/owners';
 import { EnrichmentStore } from '../store/enrichment';
@@ -91,7 +92,10 @@ export class TuiApp {
   private typing: { chatId: string; until: number } | null = null;
   private ownerTyping: {
     chatId: string; until: number;
-    eb: number; action: 'ok' | 'sold' | 'rented' | 'counter' | 'price'; ownerTime?: string;
+    // `available` = the owner answered the availability half only («DOSTAPNA E
+    // DA»): the funnel serves the ack and keeps waiting for the term, it is NOT
+    // a verdict on the term.
+    eb: number; action: 'ok' | 'available' | 'sold' | 'rented' | 'counter' | 'price'; ownerTime?: string;
     /** A PARSED plain-text verdict (the owner channel) — applied as-is when the
      *  window closes; the /owner shortcuts carry an ACTION instead. */
     verdict?: OwnerVerdict;
@@ -261,6 +265,23 @@ export class TuiApp {
       // layer is independent of this policy: fallthroughs are worth recording
       // even in exam mode — they are classification gaps, not bank fuel.
       brainMode: () => this.brainMode,
+      // THE CLIENT IS NEVER LEFT ON A SILENT PROMISE: the deferred owner check
+      // timed out. The TUI is where an operator can actually do something
+      // about it, so the timeout lands in the owner pane AND on the client
+      // conversation (with the same honest line production sends).
+      onOwnerCheckTimeout: async ({ chatId, eb, proposedTime, waitedMs }) => {
+        const mins = Math.max(1, Math.round(waitedMs / 60_000));
+        const log = `[ЛОГ ПОСЕТА ЕБ ${eb}] OWNER CHECK TIMEOUT — сопственикот не одговори ${mins} мин за терминот „${proposedTime}“.`;
+        this.appendOwnerMsg(chatId, { role: 'system', text: log, at: Date.now() });
+        this.renderAll();
+        const session = this.sessions.get(chatId);
+        if (!session || session.state !== 'owner_checking') return;
+        try {
+          await this.channel.send(chatId, OWNER_CHECK_STILL_WAITING);
+        } catch (e) {
+          console.error('[owner] timeout re-ping failed:', (e as Error).message);
+        }
+      },
     });
 
     // The owner ping-pong: when the client proposes a visit time, Lina asks the
@@ -676,11 +697,11 @@ export class TuiApp {
     const ownerMatch = text.match(/^\/owner\s+(\d+)\s+(ok|sold|rented|counter|price)(?:\s+(.+))?$/i);
     if (ownerMatch) {
       const eb = parseInt(ownerMatch[1], 10);
-      const action = ownerMatch[2].toLowerCase() as 'ok' | 'sold' | 'rented' | 'counter' | 'price';
+      const action = ownerMatch[2].toLowerCase() as 'ok' | 'available' | 'sold' | 'rented' | 'counter' | 'price';
       const ownerTime = ownerMatch[3] ?? undefined;
       const agent = this.pipeline.ownerAgent as unknown as {
         pendingEb?: (chatId: string) => number | null;
-        simulate?: (chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string) => boolean;
+        simulate?: (chatId: string, eb: number, action: 'ok' | 'available' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string) => boolean;
       };
       const pending = agent.pendingEb?.(lead.chatId) ?? null;
       if (pending !== eb) {
@@ -930,6 +951,18 @@ export class TuiApp {
       if (liveSession && liveEb !== undefined
         && (liveSession.state === 'owner_checking' || liveSession.state === 'time_confirm')) {
         const late = detectOwnerVerdict(text, liveSession.slots.visitTime ?? '');
+        // A QUESTION IS NOT A LATE VERDICT (the [10:02] capture): the owner
+        // asked «DALI PRASUVATE ZA DENES ?» and heard «нема активна проверка
+        // за овој клиент». He is answered — and the client hears nothing.
+        if (!late) {
+          const answer = this.pipeline.ownerQuestionReply(lead.chatId, text);
+          if (answer) {
+            this.appendOwnerMsg(lead.chatId, { role: 'user', text, at: Date.now() });
+            this.appendOwnerMsg(lead.chatId, { role: 'assistant', text: answer, at: Date.now() });
+            this.renderAll();
+            return;
+          }
+        }
         if (late && this.pipeline.ownerFollowup(lead.chatId, liveEb, late)) {
           this.appendOwnerMsg(lead.chatId, { role: 'user', text, at: Date.now() });
           this.appendOwnerMsg(lead.chatId, {
@@ -949,8 +982,17 @@ export class TuiApp {
     const proposed = this.sessions.get(lead.chatId)?.slots.visitTime ?? '';
     const verdict = detectOwnerVerdict(text, proposed);
     if (!verdict) {
-      // didn't understand the owner — Lina repeats the question
-      this.appendOwnerMsg(lead.chatId, { role: 'assistant', text: buildOwnerAskAgain(pending), at: Date.now() });
+      // THE OWNER IS A HUMAN TOO (the [09:57] capture): «TOA E DENES TAKA ?»
+      // is the owner checking the request, not a counter-proposal — a stranger
+      // being asked for a viewing by an agent he has never met asks exactly
+      // this. Answer HIS question first; only a message that is not a question
+      // falls back to repeating the ask.
+      const answer = this.pipeline.ownerQuestionReply(lead.chatId, text);
+      this.appendOwnerMsg(lead.chatId, {
+        role: 'assistant',
+        text: answer ?? buildOwnerAskAgain(pending),
+        at: Date.now(),
+      });
       this.renderAll();
       return;
     }
@@ -990,8 +1032,8 @@ export class TuiApp {
       role: 'system',
       text: applied
         ? reply.status === 'correct'
-          ? `адресата коригирана: „${reply.address}“ — потврдата е испратена до клиентот`
-          : 'адресата потврдена — потврдата е испратена до клиентот'
+          ? `адресата коригирана: „${reply.address}“ — клиентот веќе ја има договорената посета; Turn 2/3 се одблокирани`
+          : 'адресата потврдена — клиентот веќе ја има договорената посета; Turn 2/3 се одблокирани'
         : 'одговорот не е примен (нема активна адресна потврда)',
       at: Date.now(),
     });
@@ -1011,7 +1053,7 @@ export class TuiApp {
     if (this.ownerTimer) { clearTimeout(this.ownerTimer); this.ownerTimer = null; }
     this.ownerTyping = null;
     const agent = this.pipeline.ownerAgent as unknown as {
-      simulate?: (chatId: string, eb: number, action: 'ok' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string) => boolean;
+      simulate?: (chatId: string, eb: number, action: 'ok' | 'available' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string) => boolean;
     };
     // A PARSED verdict (the plain-text owner channel) applies as-is; the /owner
     // shortcuts still write the owners table through simulate.

@@ -13,7 +13,9 @@ import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { mkTimePhrase } from '../src/data/properties';
-import { detectOwnerVerdict, detectWorkdaysQuestion, detectVisitTime } from '../src/llm/deterministic';
+import { detectOwnerVerdict, detectWorkdaysQuestion, detectVisitTime, isOwnerAvailabilityOnly } from '../src/llm/deterministic';
+import { buildOwnerAskAgain, buildOwnerAvailabilityAck } from '../src/llm/prompts';
+import { matchesPoolContract, FIXED_SEEDS } from '../src/data/responseBank';
 import { hasClockHint } from '../src/visits/time';
 
 class FailingLlm implements LlmClient {
@@ -142,6 +144,33 @@ test('whole-day sweep round 2: obligation anchor, whenever idioms, inflected day
   const okTrap = detectOwnerVerdict('ne e mozno togas. vo petk cel den sum sloboden bilo koe vreme.', 'Утре во 18:00');
   assert.equal(okTrap?.status, 'counter');
   assert.equal(okTrap?.canAcceptWholeDay, true);
+});
+
+test('open-start clock: «SLOBODEN SUM OD 6» is a fixed 18:00, never an open day', async () => {
+  // THE [00:31] CAPTURE: the owner refused, then offered Wednesday «from 6».
+  // «од» was not a clock prefix for the OWNER parser (visits/time.CLOCK_RE has
+  // always accepted it), so the message read as a bare day + a refusal and
+  // the whole-day branch told the client «Среда — било кое време му одговара»,
+  // dropping the hour the owner had named.
+  const v = detectOwnerVerdict('NEMA DA MOZAM . SLOBODEN SUM OD 6 VO SREDA AKO ODGOVARA', 'Понеделник во 17:00');
+  assert.ok(v, 'owner text must parse');
+  assert.equal(v.status, 'counter');
+  assert.equal(v.canAcceptWholeDay, undefined, `a named hour is a FIXED counter: ${JSON.stringify(v)}`);
+  assert.match(v.ownerTime ?? '', /сред/iu, `the owner's day survives: ${JSON.stringify(v)}`);
+  assert.match(v.ownerTime ?? '', /18:00/, `the VISIT WINDOW resolves «од 6» to 18:00: ${JSON.stringify(v)}`);
+
+  // e2e: the client's relay carries the day AND the 24h clock, never the
+  // open-day wording.
+  const { handler, sessions, sent, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  handler.ownerAnswer('relay', 78, v);
+  await new Promise(r => setTimeout(r, 50));
+  const s = sessions.get('relay')!;
+  assert.equal(s.state, 'time_confirm', `a fixed counter goes to acceptance, got ${s.state}`);
+  const relay = sent[sent.length - 1];
+  assert.match(relay, /18:00/, `the relay must keep the owner's hour: ${relay}`);
+  assert.match(relay, /сред/iu, `the relay must carry the owner's day: ${relay}`);
+  assert.ok(!/било кое време/iu.test(relay), `never the open-day wording: ${relay}`);
 });
 
 test('fixed counters and refusals never gain the whole-day flag', () => {
@@ -481,4 +510,243 @@ test('[01:07] guard: different-day completion after a whole-day counter is still
   const ask = asks[asks.length - 1];
   assert.match(ask, /не е во можност за посета во .*\. Има друг предлог: .*Среда.*15:30\./u, `refusal wording for a counter of the counter: ${ask}`);
   assert.ok(!/прифати/u.test(ask), `the acceptance wording must not fire off-own-day: ${ask}`);
+});
+
+// THE OWNER IS A HUMAN TOO (the [09:57]/[10:02] burst).
+//
+// The owner had never met this agent, so before giving a term he checked the
+// request: «TOA E DENES TAKA ?» and, after the re-ask, «DALI PRASUVATE ZA
+// DENES ?». Both were parsed as counter-proposals («Денес»), the first was
+// relayed to the client as «Сопственикот не е во можност за посета во Петок,
+// 06.11.2026 во 17:00. Има друг предлог: Петок, 06.11.2026» — a refusal and a
+// fictitious alternative the owner never gave — and the second was answered
+// with «нема активна проверка за овој клиент».
+test('[09:57] an owner QUESTION is answered to the owner and never relayed', async () => {
+  const { handler, sessions, sent, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  const s0 = sessions.get('relay')!;
+  assert.equal(s0.state, 'owner_checking');
+  const before = sent.length;
+
+  // A bare day-word inside a QUESTION is not a counter-proposal.
+  assert.equal(detectOwnerVerdict('TOA E DENES TAKA ?', s0.slots.visitTime ?? ''), undefined,
+    'a question must never parse as a counter');
+  assert.equal(detectOwnerVerdict('DALI PRASUVATE ZA DENES ?', s0.slots.visitTime ?? ''), undefined);
+  // …while a real proposal still does, question mark and all.
+  const proposal = detectOwnerVerdict('MOZE VO SABOTA ?', s0.slots.visitTime ?? '');
+  assert.equal(proposal?.status, 'counter', `an offered day is still a counter: ${JSON.stringify(proposal)}`);
+
+  for (const q of ['TOA E DENES TAKA ?', 'DALI PRASUVATE ZA DENES ?', 'DALI E SLOBODNA ?']) {
+    const answer = handler.ownerQuestionReply('relay', q);
+    assert.ok(answer, `the owner's question must be answered: ${q}`);
+    assert.match(answer, /\?$/u, `and answered WITH a question back: ${answer}`);
+    // It must speak the TERM actually asked for, not echo his day-word.
+    assert.match(answer, /посета во /u, `the term must be named: ${answer}`);
+    assert.match(answer, /Евидентен број 78/u, `the flat must be named: ${answer}`);
+    assert.equal(sessions.get('relay')!.state, 'owner_checking', 'the pending check stays alive');
+  }
+  // A «is that today?» is answered by FACT: the asked term is tomorrow, so the
+  // answer is a «no» that restates the real term (never «Да, за денес»).
+  const today = handler.ownerQuestionReply('relay', 'TOA E DENES TAKA ?')!;
+  assert.match(today, /Не, не е за денес/u, today);
+  // THE CLIENT HEARS NOTHING until the owner gives a term or declines.
+  assert.equal(sent.length, before, `no relay during owner questions: ${JSON.stringify(sent.slice(before))}`);
+
+  // A PROPOSAL is never swallowed by the question lane.
+  assert.equal(handler.ownerQuestionReply('relay', 'MOZE VO SABOTA ?'), undefined,
+    'a proposing question belongs to the verdict seam');
+
+  // The pending check is still the one the owner answers.
+  handler.ownerAnswer('relay', 78, { status: 'ok', ownerTime: 'Сабота, 07.11.2026 во 18:00' });
+  await new Promise(r => setTimeout(r, 50));
+  assert.ok(sent.length > before, 'the real verdict still reaches the client');
+});
+
+// THE AVAILABILITY HALF IS NOT THE TERM HALF (the [23:41] capture).
+// «DOSTAPNA E DA» answers only «дали е достапна…»; read as a full «ok» it
+// booked the client into «Договорена посета … Вторник 10.11.2026 во 17:30»
+// and fired the Turn-0 address confirmation — for a term the owner never
+// agreed to. THE CHAT WITH THE OWNER IS NOT FINISHED UNTIL A TIME AND DATE
+// ARE DEFINED, so the partial answer is answered (ack + term question) and
+// nothing reaches the client.
+test('[23:41] an availability answer is answered, never taken for the term', async () => {
+  const { handler, sessions, sent, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  const s0 = sessions.get('relay')!;
+  const proposed = s0.slots.visitTime ?? '';
+  assert.ok(proposed, 'setup must leave a proposed term on the table');
+  const before = sent.length;
+
+  // The field text — and every masculine/feminine spelling of it.
+  for (const avail of ['DOSTAPNA E DA', 'DA DOSTAPNA E', 'DOSTAPEN E', 'DA, SLOBODNA E', 'STANOT E SLOBODEN']) {
+    assert.equal(isOwnerAvailabilityOnly(avail), true, `availability-only: ${avail}`);
+    assert.equal(detectOwnerVerdict(avail, proposed), undefined,
+      `availability must never resolve the owner check: ${avail}`);
+  }
+  // A message that ALSO answers the term is a verdict, not an availability report.
+  for (const full of ['DA', 'OK', 'MOZE', 'DA, SE SOGLASUVAM', 'DOSTAPNA E, SE SOGLASUVAM']) {
+    assert.equal(detectOwnerVerdict(full, proposed)?.status, 'ok', `term consent still closes: ${full}`);
+  }
+
+  // The owner's channel: availability ack + ONLY the term question.
+  // The ack is a POOL, so the assertions are CONTRACT-level (a wording pin
+  // would fail on the next variant the picker serves). A term IS on the table
+  // here (the setup proposed one), so the term pool answers.
+  const answer = handler.ownerQuestionReply('relay', 'DOSTAPNA E DA');
+  assert.ok(answer, 'the owner must be answered');
+  assert.equal(matchesPoolContract('owner.availability.ack.term', answer), true, `the ack contract: ${answer}`);
+  assert.doesNotMatch(answer!, /(?<!\p{L})(?:достапен|слободен)(?!\p{L})/iu, `never the masculine form: ${answer}`);
+  assert.match(answer!, /Евидентен број 78/u, `the flat is named: ${answer}`);
+  assert.ok(answer!.trim().endsWith('?'), `and it ends on the ask: ${answer}`);
+
+  // THE DEAL IS NOT CLOSED: no client message, no agent, still owner_checking.
+  assert.equal(sent.length, before, `the client hears nothing: ${JSON.stringify(sent.slice(before))}`);
+  const s1 = sessions.get('relay')!;
+  assert.equal(s1.state, 'owner_checking', `the check stays open, got ${s1.state}`);
+  assert.equal(s1.slots.agentPhone, undefined, 'no agent is assigned before the term is defined');
+
+  // …and the term answer still closes it in one step (the funnel is not stuck).
+  handler.ownerAnswer('relay', 78, { status: 'ok', ownerTime: proposed });
+  await new Promise(r => setTimeout(r, 50));
+  assert.ok(sent.length > before, 'the confirmed term reaches the client');
+  assert.match(sent[sent.length - 1], /Договорена посета/u, sent[sent.length - 1]);
+  assert.equal(sessions.get('relay')!.slots.agentPhone !== undefined, true, 'the agent is assigned at the close');
+
+  // THE ACK COPY ITSELF: bank-served from TWO pools, so the assertions are
+  // CONTRACT-level (the repo rule: never "the sentence I saw last week" — the
+  // variants rotate). Each pool's contract lives in responseBank.ts and pins
+  // the one meaning a variant may never lose: availability confirmed, the term
+  // still the open question, the reply ending on the ask.
+  const noTerm = buildOwnerAvailabilityAck(54);
+  assert.equal(matchesPoolContract('owner.availability.ack.noterm', noTerm), true, noTerm);
+  assert.match(noTerm, /недвижноста \(Евидентен број 54\)/u, `the flat is named: ${noTerm}`);
+  assert.ok(noTerm.trim().endsWith('?'), `and it ends on the ask: ${noTerm}`);
+  // …the feminine subject holds in EVERY variant ({prop} aside): «достапен»
+  // reading as «недвижноста е достапен» is the [23:40] class of defect.
+  for (const v of FIXED_SEEDS['owner.availability.ack.noterm']) {
+    assert.doesNotMatch(v, /(?<!\p{L})(?:достапен|слободен)(?!\p{L})/iu, `masculine predicate: ${v}`);
+  }
+  // A TERM ON THE TABLE → the term pool, with the RENDERED term as data.
+  const withTerm = buildOwnerAvailabilityAck(54, 'вторник 5 ипол');
+  assert.equal(matchesPoolContract('owner.availability.ack.term', withTerm), true, withTerm);
+  assert.match(withTerm, /Вторник/u, `the term is rendered, not echoed: ${withTerm}`);
+  assert.ok(withTerm.trim().endsWith('?'), withTerm);
+  for (const v of FIXED_SEEDS['owner.availability.ack.term']) {
+    assert.doesNotMatch(v, /(?<!\p{L})(?:достапен|слободен)(?!\p{L})/iu, `masculine predicate: ${v}`);
+  }
+});
+
+// CONSENT MUST NAME ITS OBJECT (the [23:41] rule at the VERDICT level). A bare
+// `ok` used to be read as "agrees to the term" and the handler then adopted the
+// CLIENT's proposal on its own — the exact ambiguity that made a lenient parser
+// book a visit the owner never agreed to. Rules: a bare `ok` is the
+// AVAILABILITY lane (confirm, keep asking, book nothing); the operator shortcut
+// `/owner <eb> ok` stamps the term it means, so it still closes in one step.
+test('[23:41] a bare ok is availability only; the /owner ok shortcut names the term', async () => {
+  const { handler, sessions, sent, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  assert.ok(sessions.get('relay')!.slots.visitTime, 'setup leaves a proposed term');
+  const before = sent.length;
+
+  // (1) A producer that names no term — the ambiguous shape.
+  handler.ownerAnswer('relay', 78, { status: 'ok' });
+  await new Promise(r => setTimeout(r, 60));
+  assert.equal(sessions.get('relay')!.state, 'owner_checking', 'no booking without a term');
+  assert.equal(sent.length, before, `the client hears nothing: ${JSON.stringify(sent.slice(before))}`);
+
+  // (2) The operator shortcut means "yes to the term you asked him about".
+  const agent = handler.ownerAgent as unknown as {
+    simulate?: (c: string, e: number, a: 'ok') => boolean;
+  };
+  assert.equal(agent.simulate?.('relay', 78, 'ok'), true, 'the shortcut still applies');
+  await new Promise(r => setTimeout(r, 60));
+  assert.equal(sessions.get('relay')!.state, 'pending', 'the stamped term closes the deal');
+  assert.ok(sent.length > before, 'the confirmed term reaches the client');
+  assert.match(sent[sent.length - 1], /Договорена посета/u, sent[sent.length - 1]);
+});
+
+// THE OWNER PANE ROTATES (the reason the ack is a POOL and not one string).
+// The owner is ONE human who re-reads this pane at every viewing: serving him
+// the same sentence each time reads as a script. The ack is picked against the
+// OWNER pane's lines — never the client's history — so four availability
+// answers in a row use four different variants.
+test('[23:41] the owner hears a different availability ack each time', async () => {
+  const { handler, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  const seen: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const ack = handler.ownerQuestionReply('relay', 'DOSTAPNA E DA');
+    assert.ok(ack, `the owner is answered every time (#${i})`);
+    seen.push(ack!);
+  }
+  assert.equal(new Set(seen).size, seen.length,
+    `the same ack repeated inside one pane: ${JSON.stringify(seen)}`);
+  for (const a of seen) {
+    assert.equal(matchesPoolContract('owner.availability.ack.term', a), true, a);
+    assert.match(a, /Евидентен број 78/u, a);
+  }
+});
+
+// THE NEGATED AVAILABILITY IS A REFUSAL (the same family, swept): the agreement
+// predicate matches the bare word inside «NE E DOSTAPNA», so the visit used to
+// be LOCKED on a refusal — the deal closed on the exact opposite answer.
+test('[09:57 sibling] a negated availability never agrees and never locks a visit', async () => {
+  const { handler, sessions, sent, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  const proposed = sessions.get('relay')!.slots.visitTime ?? '';
+  const before = sent.length;
+
+  for (const no of ['NE E DOSTAPNA', 'ne e dostapna', 'NE E SLOBODNA']) {
+    const v = detectOwnerVerdict(no, proposed);
+    assert.ok(v, `the refusal must parse: ${no}`);
+    assert.notEqual(v!.status, 'ok', `a refusal is never «ok»: ${no} → ${JSON.stringify(v)}`);
+    assert.equal(v!.ownerTime, undefined, `no term is accepted from a refusal: ${no}`);
+  }
+
+  handler.ownerAnswer('relay', 78, detectOwnerVerdict('NE E DOSTAPNA', proposed)!);
+  await new Promise(r => setTimeout(r, 50));
+  const s = sessions.get('relay')!;
+  assert.notEqual(s.state, 'pending', `a refusal must not close the deal, got ${s.state}`);
+  assert.equal(s.slots.agentPhone, undefined, 'no agent is assigned on a refusal');
+  assert.match(sent[sent.length - 1], /\?$/u, `the client is asked for another term: ${sent[sent.length - 1]}`);
+  assert.ok(!/Договорена посета/u.test(sent.slice(before).join('\n')), 'never a booked visit on a refusal');
+});
+
+// THE OWNER'S GREETING IS ANSWERED, NOT CALLED «НЕ РАЗБРАВ» (the [23:40]
+// capture). A stranger being contacted by an agent opens with «ZDRAVO» — the
+// pending-check seam had no arm for a courtesy, so it fell to
+// `buildOwnerAskAgain`, which answered «Не разбрав. Евидентен број 54 — дали
+// недвижноста е достапен…»: a rebuff for saying hello, and a masculine
+// adjective on a feminine noun. Both are pinned here.
+test('[23:40] the owner\'s greeting is greeted back and the ask repeated — never «Не разбрав», and the noun agrees', async () => {
+  const { handler, sessions, sent, send } = await makeHandler();
+  await reachOwnerChecking(send);
+  const before = sent.length;
+
+  for (const hello of ['ZDRAVO', 'Zdravo!', 'DOBAR DEN', 'DOBRO VECER', 'Добро вечер', 'POZDRAV']) {
+    const answer = handler.ownerQuestionReply('relay', hello);
+    assert.ok(answer, `the owner's greeting must be answered: ${hello}`);
+    assert.doesNotMatch(answer!, /Не разбрав/u, `never «Не разбрав» for a greeting (${hello}): ${answer}`);
+    assert.match(answer!, /Здраво|Добар ден|Добро вечер|Поздрав/u, `it greets him back (${hello}): ${answer}`);
+    assert.match(answer!, /посета во /u, `then repeats the ask (${hello}): ${answer}`);
+    assert.match(answer!, /Евидентен број 78/u, `naming the flat (${hello}): ${answer}`);
+  }
+  assert.equal(sessions.get('relay')!.state, 'owner_checking', 'the pending check stays alive');
+  assert.equal(sent.length, before, `the client hears nothing: ${JSON.stringify(sent.slice(before))}`);
+
+  // A greeting that PROPOSES is still a verdict, and an unclear message still
+  // gets the re-ask (the copy is the same function).
+  assert.equal(handler.ownerQuestionReply('relay', 'ZDRAVO, MOZE VO SABOTA ?'), undefined,
+    'a greeting that carries a proposal belongs to the verdict seam');
+  assert.equal(handler.ownerQuestionReply('relay', 'GFHFGH'), undefined,
+    'gibberish is not a greeting — the seam keeps its own fallback');
+
+  // GRAMMAR: the re-ask's subject is «недвижноста» (feminine); the old
+  // masculine default produced «недвижноста е достапен».
+  const reAsk = buildOwnerAskAgain(54);
+  assert.match(reAsk, /недвижноста е достапна/u, `feminine agreement: ${reAsk}`);
+  assert.doesNotMatch(reAsk, /недвижноста е достапен(?![а-ш])/u, reAsk);
+  // …while a caller that brings its own definite noun keeps its own adjective.
+  assert.match(buildOwnerAskAgain(54, { eb: 54, proposedTime: '', propertyTypeDef: 'куќата', dostapen: 'достапна' }), /куќата е достапна/u);
+  assert.match(buildOwnerAskAgain(54, { eb: 54, proposedTime: '', propertyTypeDef: 'плацот', dostapen: 'достапен' }), /плацот е достапен/u);
 });

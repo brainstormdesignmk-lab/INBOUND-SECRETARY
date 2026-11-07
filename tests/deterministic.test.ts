@@ -1308,6 +1308,18 @@ test('detectContact: name+phone intake without any LLM', () => {
   // no number in the message — the name only (the number comes from the Viber id)
   assert.deepEqual(detectContact('GORAN MOZE NA OVOJ BROJ'), { name: 'Goran', phone: undefined });
   assert.deepEqual(detectContact('zdravo, kako si?'), { name: undefined, phone: undefined });
+  // A CLAUSE IS NEVER A NAME (the [02:31] regression): «ako nema lift» — a
+  // feature CONDITION about the flat — was mined as the client «Ako Nema» and
+  // stored on the appointment, so Lina asked a man for a phone he never
+  // offered. A question word, a conditional or a property/feature noun means
+  // the message is a sentence, not an intake.
+  assert.deepEqual(detectContact('ako nema lift'), { name: undefined, phone: undefined });
+  assert.deepEqual(detectContact('dali ima lift ?'), { name: undefined, phone: undefined });
+  assert.deepEqual(detectContact('AKO E NA POSLEDEN SPAT'), { name: undefined, phone: undefined });
+  assert.deepEqual(detectContact('ako nema lift 070 123 456'),
+    { name: undefined, phone: '070123456' }, 'the phone still counts — the funnel asks for the name again');
+  assert.deepEqual(detectContact('PETAR PETROVSKI 070 123 456'),
+    { name: 'Petar Petrovski', phone: '070123456' });
 });
 
 test('detectLocation: Latin and Cyrillic spellings match feed neighborhoods', () => {

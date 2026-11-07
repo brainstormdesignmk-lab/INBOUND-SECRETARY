@@ -145,4 +145,12 @@ test('lost-reply sweep: the candidate list is finite and reviewed', () => {
 // generalised no-stock sentence needs a block there (the rooms + the fresh
 // switch computed before the assignment), so the parser now sees it as its own
 // writer. Same shape as the @10807→@10816 pair read on the 28th pass.
-const REVIEWED = 29;
+// 30th read 2026-11-06: one pair joined the list with the [19:19]–[19:36]
+// batch, READ and benign: @12182→@12272 — @12182 is the LLM-responder arm of
+// the `dispatchSimple` else (`reply = r.text`, `bankKey` unset); @12272 is the
+// MONEY QUESTION + FEE lane's price prepend, gated on `bankKey` being
+// `fee.ask.rent|buy` AND a price/rent ask in the same message — it EXTENDS the
+// fee reply with the figure the client asked for and can never run on the
+// responder arm's key. The adjacency appeared because the new discovery/type
+// asks above pushed the pair down; no new fall-through was introduced.
+const REVIEWED = 30;

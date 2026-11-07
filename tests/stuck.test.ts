@@ -4523,11 +4523,45 @@ test('[19:29→19:35] capture: the client counters inside time_confirm — the o
   assert.ok(!sent.some(m => m.includes('Договорена посета')), 'the stale term never got confirmed');
 
   // The owner accepts the negotiated term → confirmed at 17:00, never 19:00.
-  handler.ownerAnswer(chatId, 78, { status: 'ok' });
+  // CONSENT MUST NAME ITS OBJECT (the [23:41] rule at the verdict level): a
+  // bare `ok` is now the AVAILABILITY lane (confirm, keep asking for the term)
+  // and books nothing, because an `ok` with no term is ambiguous. The owner is
+  // agreeing to the term Lina re-asked, so the verdict echoes THAT term — the
+  // expectation moved to the contract, the funnel behaviour did not.
+  handler.ownerAnswer(chatId, 78, { status: 'ok', ownerTime: sessions.get(chatId)!.slots.visitTime! });
   await new Promise(r => setTimeout(r, 60));
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'pending');
   const confirmed = [...sent].reverse().find(m => m.includes('Договорена посета'))!;
   assert.match(confirmed, /во 17:00/u, `confirmed at the negotiated term: ${confirmed}`);
   assert.ok(!confirmed.includes('во 19:00'), `the stale counter never became the booking: ${confirmed}`);
+});
+
+test('insult protocol: [11:57] «MA IDI U PICKU MATER» is a hard curse — strike 1, funnel untouched', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'viber-picku-mater';
+  const send = async (m: string) => { await handler.handle('viber', chatId, m); return sessions.get(chatId)!; };
+
+  // The client was mid-funnel and answered the fee disclosure with the hardest
+  // curse in the language. It reached the funnel because the picka family had
+  // no ACCUSATIVE («u picku») and the mother word had no severity-3 row at all,
+  // so the turn was answered with the neighborhood-exhaustion line.
+  let s = await send('mi treba stan pod kirija');
+  assert.equal(s.state, 'discovery');
+  s = await send('MA IDI U PICKU MATER');
+  assert.equal(s.strikes, 1, 'the mother curse is an offense');
+  assert.equal(s.state, 'discovery', 'the funnel does not advance on a curse');
+  const reply = sent.at(-1)!;
+  assert.ok(/професионалн|Господине|ве молам/i.test(reply), reply);
+  assert.ok(!/Евидентен број|населба|недвижност|опции/i.test(reply),
+    `never funnel copy in place of the rebuff: ${reply}`);
+
+  // The rest of the family fires the same way — the accusative forms and the
+  // elided-object spelling included (each is its own listed phrase).
+  for (const curse of ['u picku materinu', 'jebem ti majku', 'ИДИ У ПИЧКУ МАТЕР']) {
+    const alt = 'viber-curse-' + curse.length;
+    const sendAlt = async (m: string) => { await handler.handle('viber', alt, m); return sessions.get(alt)!; };
+    const a = await sendAlt(curse);
+    assert.equal(a.strikes, 1, `${curse} must strike`);
+  }
 });

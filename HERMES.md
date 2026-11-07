@@ -104,12 +104,27 @@ change, the same commands (`npm run hermes`, `npm run hermes:landmarks`).
 - `registerHermesApi` mounts the API (`src/hermes/api.ts`):
   - `GET  /hermes/v1/work` — one pull: landmark candidates (feed addresses
     without a precise row), pending price changes, pending owner checks,
-    upcoming visits.
+    upcoming visits. A pending check carries `deliver_text` (Lina's composed
+    ask), the owner's `owner_name`/`owner_phone` and `proposed_time`;
+    `deliver_text: null` means the check was re-armed AFTER the owner spoke —
+    do not send anything for it. `owner_check_requested` is settled when the
+    check is answered, so it only ever lists WAITING checks.
   - `POST /hermes/v1/landmarks` — Hermes' named landmarks, written as
     `source='hermes'`; the STREET is re-rejected here (defense in depth).
   - `POST /hermes/v1/prices/:id/result` — ok/fail → resolves/keeps the row.
-  - `POST /hermes/v1/owners/:chatId/answer` — Hermes' owner verdict. Written to
-    the events bus AND fast-pathed to `ownerAnswer`.
+  - `POST /hermes/v1/owners/:chatId/answer` — a PARSED owner verdict. Written
+    to the events bus AND fast-pathed to `ownerAnswer` when the check is still
+    pending locally; a verdict with no pending check is a `409` and writes NO
+    event. An `ok` with no `term` is the AVAILABILITY lane (Lina asks the owner
+    for the time) — it never books the client's own proposal. When Hermes means
+    "yes to the term you asked", it sends that term back as `term`/`confirm_time`;
+    a term that is not the one asked is refused (`409`).
+  - `POST /hermes/v1/owners/:chatId/reply` — the owner's RAW message text
+    (`{ text, message_id }`). Lina parses it, applies it and answers through the
+    same seam as the operator pane, returning `{ status, reply_text,
+    owner_checks }` — send `reply_text` to the owner verbatim. This is the route
+    a channel integration should use: no grammar and no copywriter on machine B.
+    `message_id` is idempotent (a retry returns the same `reply_text`).
   - `GET  /hermes/v1/visits` — monitoring.
 - Every route requires `x-admin-token: <HERMES_TOKEN>`; with no token set the
   API is disabled (503) — never unauthenticated. `HERMES_TOKEN` must therefore
@@ -131,7 +146,13 @@ HERMES_LLM_MODEL=deepseek-ai/deepseek-r1
 ```
 
 - `src/hermes/client.ts` — `pullWork` / `pushLandmarks` / `reportPriceResult` /
-  `answerOwner`, all `x-admin-token`-authed.
+  `answerOwner` / `replyOwner`, all `x-admin-token`-authed.
+- **Owner conversation on machine B is a transport, not a second brain.** If
+  Hermes holds a real WhatsApp/Viber thread with an owner, relay his message
+  with `replyOwner({ chatId, text, messageId })` and send the returned
+  `reply_text` (or drop it when `null`, so Lina's own send is not duplicated).
+  Only a channel that must emit the verdict itself should use the
+  `answer` route, and then it must send the TERM back with an `ok`.
 - `hermesLandmarks.ts` + `hermes.ts` auto-detect REMOTE mode from
   `LINA_API_URL`; local mode (no URL) still reads `data/lina.db` directly.
   In REMOTE mode no local DB is created or touched.
@@ -147,3 +168,11 @@ HERMES_LLM_MODEL=deepseek-ai/deepseek-r1
    Hermes scripts with a scratch DB on Lina first, then flip production.
 3. Owner answers from the API (e.g. via curl) resolve pending checks through
    the bus poll — watch the TUI funnel move from `owner_checking` to `pending`.
+   Relay an owner message instead of parsing it:
+
+   ```bash
+   curl -X POST "$LINA_API_URL/hermes/v1/owners/<chatId>/reply" \
+     -H "x-admin-token: $HERMES_TOKEN" -H 'content-type: application/json' \
+     -d '{"text":"DOBRO E ZA VO VTORNIK 17:30","message_id":"wamid.1"}'
+   # → {"status":"ok","reply_text":"<send this to the owner>","owner_checks":[…]}
+   ```
