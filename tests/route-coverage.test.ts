@@ -63,7 +63,13 @@ test('every mirrored row points at an intent ROUTING_ORDER actually contains', (
 test('the pending backlog is explicit and finite (migration fuel, not a graveyard)', () => {
   const pending = Object.entries(ROUTE_LANES).filter(([, r]) => !r || !r.intent);
   assert.ok(pending.length > 0, 'the backlog must exist until the migration ends (keep it honest)');
-  assert.ok(pending.length < 60, `backlog too large to be honest: ${pending.length}`);
+  // THE CEILING MOVED WITH A REAL LANE, NOT WITH INFLATION: the place ring
+  // (PLACE_RING_ASK / PLACE_RING_ROW, the [04:05] capture) used to log to the
+  // enrichment table ONLY, so the calibration registry never saw the lane at
+  // all — registering both arms is what pushed the count from 59 to 61. The
+  // ceiling tracks the lanes that exist; it must keep FALLING as the migration
+  // lands rows, so do not raise it again for a lane that is not new.
+  assert.ok(pending.length < 62, `backlog too large to be honest: ${pending.length}`);
 });
 
 // R1 part 2 — the three lanes that moved from dispatchSimple into the mirror.

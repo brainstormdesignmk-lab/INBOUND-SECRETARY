@@ -198,6 +198,16 @@ const MORPH_HEAVY: LexiconEntry[] = [
   morph('H6b', 'magar', ['e', 'eto', 'inja', 'ci', 'cinja', 'ce', 'ceto', 'inji'], {
     category: 'heavy_insult', severity: 2, confidence: 0.9,
     reason: 'magare family, grammar-expanded (магаре/магарето/магарци…)' }),
+  // muda/mudi (balls) — VULGAR, ADDRESSED AT THE AGENT (the [04:41] capture):
+  // «DAJ NESTO EFTINO AJDE I NEMRCI MUDA» was answered with the opening
+  // «Дали планирате купување или барате опција за изнајмување?» — the lexicon
+  // had no row for the word at all, so a ball-busting client got the funnel.
+  // The root is CLOSED by an ending set (never a prefix scan): «mudar» (wise),
+  // «mudrost» and «nemudro» stay clean, because only these surface forms are a
+  // whole word.
+  morph('H17', 'mud', ['a', 'i', 'o', 'ata', 'ite', 'eto', 'inja', 'inji', 'injata'], {
+    category: 'heavy_insult', severity: 2, confidence: 0.9,
+    reason: 'muda family, grammar-expanded (муда/муди/мудата — vulgar, aimed at the agent)' }),
 ];
 
 const LEXICON: LexiconEntry[] = [

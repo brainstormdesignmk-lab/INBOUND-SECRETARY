@@ -377,7 +377,7 @@ export class BankStore {
   /** Recall: best-matching stored dynamic answer for a client message.
    *  Exact/containment first (strongest signal), then trigram similarity —
    *  the same two-stage shape as retrieve(). */
-  retrieveDynamic(userMsg: string, minScore = 0.55): { key: string; answer: string } | undefined {
+  retrieveDynamic(userMsg: string, minScore = 0.55): { key: string; answer: string; msg: string } | undefined {
     const msg = userMsg.trim();
     if (msg.length < 4) return undefined;
     const rows = this.db.db.prepare(`SELECT key, msg, answer FROM bank_dynamic WHERE processed = 0`).all() as
@@ -386,7 +386,7 @@ export class BankStore {
     const low = foldScript(msg);
     for (const r of rows) {
       const m = foldScript(r.msg);
-      if (m === low || (m.length >= 8 && (low.includes(m) || m.includes(low)))) return { key: r.key, answer: r.answer };
+      if (m === low || (m.length >= 8 && (low.includes(m) || m.includes(low)))) return { key: r.key, answer: r.answer, msg: r.msg };
     }
     const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
     const tg = (s: string): Set<string> => {
@@ -396,15 +396,15 @@ export class BankStore {
     };
     const a = tg(foldScript(msg));
     if (a.size === 0) return undefined;
-    let best: { key: string; answer: string; score: number } | undefined;
+    let best: { key: string; answer: string; msg: string; score: number } | undefined;
     for (const r of rows) {
       const b = tg(foldScript(r.msg));
       let inter = 0;
       for (const t of a) if (b.has(t)) inter++;
       const score = inter / (a.size + b.size - inter);
-      if (!best || score > best.score) best = { key: r.key, answer: r.answer, score };
+      if (!best || score > best.score) best = { key: r.key, answer: r.answer, msg: r.msg, score };
     }
-    return best && best.score >= minScore ? { key: best.key, answer: best.answer } : undefined;
+    return best && best.score >= minScore ? { key: best.key, answer: best.answer, msg: best.msg } : undefined;
   }
 
   /** EXACT-ONLY recall of a stored dynamic answer — used at the TOP of the
@@ -412,7 +412,7 @@ export class BankStore {
    *  retrieveDynamic(): no trigram fuzz, so a stored answer can never hijack a
    *  reworded question, and an optional state scope keeps a `closing` answer
    *  out of `presentation`. Returns the row's state so the caller can audit. */
-  retrieveDynamicExact(userMsg: string, state?: string): { key: string; state: string; answer: string } | undefined {
+  retrieveDynamicExact(userMsg: string, state?: string): { key: string; state: string; msg: string; answer: string } | undefined {
     const msg = userMsg.trim();
     if (msg.length < 4) return undefined;
     const rows = state
@@ -422,7 +422,11 @@ export class BankStore {
     for (const r of rows as Array<{ key: string; state: string; msg: string; answer: string }>) {
       const m = foldScript(r.msg);
       if (!m) continue;
-      if (phraseMatch(low, m)) return { key: r.key, state: r.state, answer: r.answer };
+      // `msg` travels with the hit: the recall caller validates the answer
+      // against the row's OWN question (the borrowed-place rule), and the
+      // containment match can be a shorter stored phrase inside a longer
+      // message, so the caller cannot reconstruct it from the input.
+      if (phraseMatch(low, m)) return { key: r.key, state: r.state, msg: r.msg, answer: r.answer };
     }
     return undefined;
   }
@@ -442,6 +446,15 @@ export class BankStore {
       if (phraseMatch(low, m)) return { key: r.key, msg: r.msg };
     }
     return undefined;
+  }
+
+  /** PENDING dynamic rows WITH their answers, oldest first — the nightly digest
+   *  judges one ROW at a time (a group's first answer can be the broken one)
+   *  and needs the id to remove a serviceable-but-poisoned capture. */
+  dynamicPendingRows(): Array<{ id: number; key: string; state: string; msg: string; answer: string }> {
+    return this.db.db.prepare(
+      `SELECT id, key, state, msg, answer FROM bank_dynamic WHERE processed = 0 ORDER BY id ASC`
+    ).all() as Array<{ id: number; key: string; state: string; msg: string; answer: string }>;
   }
 
   /** Dynamic groups for the nightly digest: key, state, msgs, first answer. */

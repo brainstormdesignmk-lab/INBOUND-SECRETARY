@@ -53,6 +53,20 @@ test('suggested key: real keys survive, dynamic groups become a learn slug', () 
   assert.equal(review.suggestKey(staged), 'learn.staged');
 });
 
+test('#35: a Cyrillic question yields an ASCII learn key the push accepts', () => {
+  // The review screen suggested «learn.здраво-како-иде» and `push` then refused
+  // it (KEY_RE is ASCII): the operator was offered an unbankable target for
+  // every client who typed in Cyrillic. The slug is transliterated, like the
+  // cron's own learned keys.
+  const slug = learnKeySlug('ЗДРАВО КАКО ИДЕ ?');
+  assert.equal(slug, 'learn.zdravo-ide');
+  assert.equal(validateBankKey(slug), null, 'the suggested key must be pushable');
+  // ONE SENTENCE, ONE KEY: the script must not decide which words are stop
+  // words. Latin keeps the key it has always produced (no renames in the field).
+  assert.equal(learnKeySlug('ZDRAVO KAKO IDE ?'), 'learn.zdravo-ide');
+  assert.equal(learnKeySlug('ЗДРАВО КАКО ИДЕ ?'), learnKeySlug('ZDRAVO KAKO IDE ?'));
+});
+
 test('a frozen seed-backed enrichment turn can be edited under an explicit learn key', () => {
   const { review, en, bank } = setup();
   const item = review.list('enrichment')[0];

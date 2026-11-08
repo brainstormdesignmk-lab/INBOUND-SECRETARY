@@ -19,6 +19,7 @@
  */
 
 import { KNOWN_NEIGHBORHOODS } from './deterministic';
+import { placeLooseKey } from '../data/properties';
 
 /** The slot the place occupies in a template. Kept as a literal in
  *  `BankStore` too (it must not import this module — see the cycle note there). */
@@ -35,15 +36,59 @@ export const PLACE_PROMOTE_AFTER = 3;
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Words-only comparison form — the district check must survive case,
- *  punctuation and the feed's own «(населба)» tag. */
-function loose(s: string): string {
-  return (s ?? '')
-    .toLowerCase()
+/** Words-only, SCRIPT-FOLDED comparison form — a place check must survive
+ *  case, punctuation, the feed's own «(населба)» tag and the script the turn
+ *  was typed in («Центар» / «CENTAR», «Лисиче» / «Lisice» are one place each).
+ *  `placeLooseKey` is the repo's canonical place-identity key (the matcher's
+ *  own table, which knows that Latin «c» may be ч), so no second
+ *  transliteration exists here to drift. */
+export function placeWordKey(s: string): string {
+  const words = (s ?? '')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  return words ? placeLooseKey(words) : '';
+}
+
+/** The scan list, computed once: longest key first, so «Ново Лисиче» consumes
+ *  its span before the bare «Лисиче» can claim it (sibling settlements are
+ *  distinct places — the rule `locMatches` states). */
+const SCANNED_AREAS = KNOWN_NEIGHBORHOODS
+  .filter(area => !area.includes('(') && area.length >= 5)
+  .map(area => ({ area, key: placeWordKey(area) }))
+  .filter(entry => entry.key.length > 0)
+  .sort((a, b) => b.key.length - a.key.length);
+
+/**
+ * The FEED AREAS a sentence names, or [] when it names none.
+ *
+ * ONE READER for two rules that must never disagree: the district guard below
+ * (a district-bound sentence is never a {place} template) and the dynamic
+ * answer contract (an answer may name only a place the CLIENT named — the
+ * #29/#30 rows: «A NESTO MALKU POSKAPO ?» answered «…во Центар…», and «KOJ E
+ * TOJ STAN ?» answered «…тој стан во Аеродром…», both stored and both servable
+ * to a client who never said the area; a place that appears only in the ANSWER
+ * was invisible to the old message-vs-message comparison).
+ *
+ * Areas shorter than five characters («Бег», «Хром», «Влае») are skipped: as
+ * whole words they collide with ordinary Macedonian («бег»), and the old
+ * district guard made the same call for the same reason. A multi-word area is
+ * matched as a phrase, so «Ново Лисиче» never fires on «Лисиче» alone.
+ */
+export function feedAreasIn(text: string): string[] {
+  let hay = ` ${placeWordKey(text)} `;
+  if (!hay.trim()) return [];
+  const found: string[] = [];
+  for (const { area, key } of SCANNED_AREAS) {
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(key)}(?![\\p{L}\\p{N}])`, 'gu');
+    if (!re.test(hay)) continue;
+    found.push(area);
+    // Consume the span: a shorter sibling («Лисиче») must not re-match inside
+    // the longer area («Ново Лисиче») that already claimed these words.
+    hay = hay.replace(re, ' § ');
+  }
+  return found;
 }
 
 /**
@@ -58,11 +103,7 @@ export function placeTemplateFrom(answer: string, forms: Array<string | undefine
   const text = (answer ?? '').trim();
   if (!text) return undefined;
   // THE DISTRICT GUARD — a district-bound sentence is not a place template.
-  const low = ` ${loose(text)} `;
-  for (const area of KNOWN_NEIGHBORHOODS) {
-    if (area.includes('(') || area.length < 5) continue;
-    if (low.includes(` ${loose(area)} `)) return undefined;
-  }
+  if (feedAreasIn(text).length > 0) return undefined;
   const candidates = [...new Set(forms.map(f => (f ?? '').trim()).filter(f => f.length >= 3))]
     .sort((a, b) => b.length - a.length);
   for (const form of candidates) {

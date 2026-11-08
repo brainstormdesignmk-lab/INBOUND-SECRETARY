@@ -86,6 +86,9 @@ test('ordinary client vocabulary never strikes', () => {
     'PICKUP NA PARKING', 'pickup truck pred zgradata',
     'MAJKA MI E SOPSTVENIK NA STANOT', 'majkata na klientot zivee vo VODNO',
     'kupuvam materijal za renoviranje', 'majku mi ja prodava',
+    // the [04:41] muda row is letter-bounded by a CLOSED ending set — the wise-
+    // man and prudence words are one letter away and must stay clean.
+    'MUDAR COVEK', 'mudar sovet', 'mudrost', 'nemudro', 'mudro reshenie',
   ];
   const flagged: string[] = [];
   for (const t of legit) {
@@ -114,6 +117,13 @@ test('real insults still fire after the boundary sweep', () => {
     const d = classifyOffensive(t);
     assert.equal(d.isOffensive, true, `${JSON.stringify(t)} must fire`);
     assert.equal(d.severity, 3, `${JSON.stringify(t)} severity: ${d.reason}`);
+  }
+  // severity 2 — the [04:41] capture: «DAJ NESTO EFTINO AJDE I NEMRCI MUDA»
+  // reached the funnel because no row knew the word (vulgar, aimed at the agent).
+  for (const t of ['DAJ NESTO EFTINO AJDE I NEMRCI MUDA', 'nemrci muda', 'муда', 'nemrci mi muda', 'MUDATA TI']) {
+    const d = classifyOffensive(t);
+    assert.equal(d.isOffensive, true, `${JSON.stringify(t)} must fire`);
+    assert.equal(d.severity, 2, `${JSON.stringify(t)} severity: ${d.reason}`);
   }
   // severity 1 — the mild dismissals keep their own row ('begaj'/'nosi se')
   for (const t of ['begaj od tuka', 'nosi se!', 'gubi se']) {

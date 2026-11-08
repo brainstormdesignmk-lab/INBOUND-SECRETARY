@@ -19,7 +19,10 @@ import { validateDynamicAnswer } from '../src/llm/dynamicFallback';
 
 const Q = 'kade ima reptil tamu ?';
 const OLD = 'Ова не е во моите записи. Ќе проверам кај сопственикот и ќе Ви кажам.';
-const NEW = 'Тоа е во близина на Центар. Ќе го проверам кај сопственикот и ќе Ви кажам.';
+// The corrected prose names NO place of its own: the gate now refuses an area
+// the trigger never named (a stored answer must be true for any client), and
+// the fixture's old «во близина на Центар» would be exactly such a borrow.
+const NEW = 'Тоа ќе го проверам кај сопственикот веднаш и ќе Ви кажам.';
 
 function seed(db: Db): BankStore {
   const bank = new BankStore(db);

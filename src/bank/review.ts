@@ -31,6 +31,7 @@ import { siblingQuestions } from './provenance';
 import { routeTupleOf, unknownBucket, isMoneyVocab } from '../llm/moneyArbitration';
 import { isCodeConstant } from './codeSource';
 import { examplesFromImportNote, sourceIdFromImportNote, markImportDecision } from './fleet';
+import { translitToLatin } from '../geo/offlineMap';
 
 export type ReviewCategory = 'enrichment' | 'dynamic' | 'staged' | 'active';
 export const REVIEW_CATEGORIES: ReviewCategory[] = ['enrichment', 'dynamic', 'staged', 'active'];
@@ -95,14 +96,24 @@ function pushedQuestion(note: string | null): { category: 'enrichment' | 'dynami
 }
 
 /** Slug for a learned key, identical to the cron's own naming so a push from
- *  the review UI and a cron-created key land in the same namespace. */
+ *  the review UI and a cron-created key land in the same namespace.
+ *
+ *  TRANSLITERATED (the #35 capture): a bank key is an ASCII identifier
+ *  (`KEY_RE`), so a Cyrillic question used to suggest `learn.здраво-како-иде`
+ *  — a key the push then refused with "key must be letters/digits/._-". The
+ *  review screen offered an unbankable target for every client who typed in
+ *  Cyrillic. Every learned key in the field is ASCII on purpose (phrases typed
+ *  in Latin are the common case), so the slug is transliterated, never trusted
+ *  as-is. */
 export function learnKeySlug(msg: string): string {
-  const words = (msg || '')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+  // THE SCRIPT MUST NOT CHANGE THE KEY: the stop list is Latin, so filtering
+  // before transliteration dropped «kako» from «ZDRAVO KAKO IDE» but kept
+  // «како» from «ЗДРАВО КАКО ИДЕ» — the same sentence named two different keys.
+  const words = translitToLatin((msg || '').toLowerCase())
+    .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length > 2 && !STOP.has(w));
-  const slug = words.slice(0, 3).join('-').replace(/\s+/g, '-') || 'misc';
+  const slug = words.slice(0, 3).join('-') || 'misc';
   return `learn.${slug}`;
 }
 

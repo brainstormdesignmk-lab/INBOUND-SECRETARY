@@ -3,11 +3,13 @@
  * bank-dynamic-audit — purge stored dynamic prose that breaks today's contracts.
  *
  * Every rule `validateDynamicAnswer` enforces is enforced on RECALL too, so a
- * stale row can never serve. It can still POISON the loop, though: the nightly
- * digest folds `bank_dynamic` rows into `bank_variants` + `bank_examples`, and
- * a presumption that is refused at serve time would be re-learned as prose
- * under a real bank key. The rows therefore have to go — that is what this
- * sweep is for.
+ * stale row can never serve. It could still POISON the loop, though: the
+ * nightly digest folds `bank_dynamic` rows into `bank_variants` + `bank_examples`,
+ * and a presumption that is refused at serve time would be re-learned as prose
+ * under a real bank key. The digest now runs the same predicate per row before
+ * folding (refused rows are deleted there, counted as `refused`), so this
+ * sweep is the operator's on-demand view of the same rule — it lists the rows
+ * and purges them without waiting for the nightly run.
  *
  * It checks exactly what serves: `dynamicRowViolations(row)` is the same
  * predicate as generation and recall (property type the client never named,

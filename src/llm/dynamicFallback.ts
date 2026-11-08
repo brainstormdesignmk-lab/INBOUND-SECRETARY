@@ -24,9 +24,10 @@ import { violationsFor } from './bankConstraints';
 import { replyIsClean } from './enrichQuality';
 import {
   detectAvailabilityAsk, detectContactRequest, detectInventoryAsk, detectOwnerContact, detectPriceAsk,
-  detectProvisionAsk, detectProvisionWho, detectVisitInterest, extractPoiWish, fsmRequired, isFeeFrame, isFeeTraffic,
+  detectProvisionAsk, detectProvisionWho, detectVisitInterest, extractInventoryPlace, extractPoiWish,
+  fsmRequired, isDistanceQuestion, isFeeFrame, isFeeTraffic,
 } from './deterministic';
-import { placeTemplateFrom } from './placeTemplate';
+import { feedAreasIn, placeTemplateFrom, placeWordKey } from './placeTemplate';
 import { isPersonalAsk, revealsMachineIdentity } from './personal';
 import type { LlmClient } from './types';
 import type { ChatSession } from '../fsm/session';
@@ -55,6 +56,14 @@ const FORBIDDEN_FACTS: RegExp[] = [
   /(?:изград\p{L}*|градена|реновир\p{L}*|renovir\p{L}*|izgrad\p{L}*)[^.?!]{0,25}\b(?:18|19|20)\d{2}\b/iu,
   /\b(?:18|19|20)\d{2}\s*(?:година|godina)\b/iu,
   /(?<![\p{L}])(?:на|na|во|vo)\s+(?:\d{1,2}\.?|прв\p{L}*|втор\p{L}*|трет\p{L}*|четврт\p{L}*|петти\p{L}*|шести\p{L}*|приземје|поткровј\p{L}*|prv\p{L}*|vtor\p{L}*|tret\p{L}*|cetvrt\p{L}*)\s+(?:кат|kat)\p{L}*/iu,
+  // A DISTANCE IS PROPERTY DATA (the [20:19] capture): «КОЛКУ ИМА ОД ГРАДСКА ДО
+  // СТАНОТ?» was answered by generated prose («на само 410 метри од Градска
+  // болница») and STORED, because no rule forbade a metre figure. The row then
+  // answers a later distance question about a different flat with that 410 m —
+  // a fabricated measurement, and one that contradicted the lane's own 980 m
+  // for the same property. Metres and kilometres are measured from the row's
+  // coordinates, never written by a model.
+  /(?<![\p{L}\p{N}])\d[\d.,]*\s*(?:мет(?:ри|ар|ра|ров|рови)|километ\p{L}*|км|km|m)(?![\p{L}\p{N}])/iu,
 ];
 
 /** Serbian-only words. Whole-word, Cyrillic, so ordinary Macedonian is never
@@ -204,8 +213,66 @@ export function typeEstablished(
  *  factual question, because that is how the bank stored a wrong answer.
  *  `typeKnown` says whether the client has established the property TYPE — the
  *  service question may only presume it when he has. */
-export function validateDynamicAnswer(answer: string, userMsg?: string, opts?: { typeKnown?: boolean }): string[] {
+/** The places a SESSION has already established — the only context a live
+ *  answer may lean on. One reader for both recall doors and generation. */
+export function sessionPlaces(session: ChatSession): string[] {
+  return [session.slots.location, session.slots.poiAnchor]
+    .filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+}
+
+/**
+ * The feed areas an answer names that NEITHER the client's message NOR the
+ * session established (the #29/#30 rows). Compared canonically, so the
+ * stored/typed spelling («Центар», «CENTAR», «Центар (населба)») never matters.
+ * A stored place name may be a longer feed spelling of the area the client
+ * used («Центар (населба)» for «центар»), never the other way round: «Лисиче»
+ * does not authorise «Ново Лисиче».
+ */
+function borrowedAreas(answer: string, userMsg?: string, allowed?: string[]): string[] {
+  const said = feedAreasIn(answer);
+  if (said.length === 0) return [];
+  const known = [...feedAreasIn(userMsg ?? ''), ...(allowed ?? [])]
+    .map(placeWordKey)
+    .filter(Boolean);
+  return said.filter(area => {
+    const key = placeWordKey(area);
+    return !known.some(k => k === key || k.includes(key));
+  });
+}
+
+export function validateDynamicAnswer(
+  answer: string,
+  userMsg?: string,
+  opts?: { typeKnown?: boolean; storedMsg?: string; allowedPlaces?: string[] },
+): string[] {
   const violations = violationsFor(answer, 'dynamic.fallback');
+  // THE BORROWED PLACE (the [20:18]/[20:28] pair, and the [20:29] exact door):
+  // a stored sentence names its own place («во тој дел околу Градска болница
+  // имаме…»), so handing it to a client who asked about a DIFFERENT place
+  // states a location he never mentioned — the same defect class as the
+  // borrowed calendar entry below. The row's own question is the reference, so
+  // the rule costs nothing when extraction finds no place on either side.
+  // ONE PREDICATE, BOTH DOORS: the exact/containment recall runs first and used
+  // to skip this check entirely, so the guard lives here rather than in the
+  // fuzzy recall caller.
+  if (opts?.storedMsg) {
+    const rowPlace = placeOf(opts.storedMsg);
+    const nowPlace = userMsg ? placeOf(userMsg) : undefined;
+    if (rowPlace && nowPlace && rowPlace !== nowPlace) {
+      violations.push('names a place the client did not ask about (borrowed place from the stored row)');
+    }
+  }
+  // THE BORROWED AREA (the #29/#30 rows): the rule above compares two
+  // MESSAGES, so an area that lives only in the ANSWER was invisible — the
+  // sentence was stored and could reach any client whose phrasing scored near
+  // its trigger. An answer may name an area only because the client named it
+  // or the session established it; `allowedPlaces` is that session context for
+  // the live turn, and the row audit passes none, which is what makes such a
+  // row unbankable.
+  const borrowed = borrowedAreas(answer, userMsg, opts?.allowedPlaces);
+  if (borrowed.length > 0) {
+    violations.push(`names a place the client did not ask about (borrowed area: ${borrowed.join(', ')})`);
+  }
   if (!replyIsClean(answer)) violations.push('fails reply hygiene (replyIsClean)');
   // PERSONA GUARD (the [08:38] capture): the stored age answer said „Јас сум
   // дигитален асистент, па немам години“. A machine identity is a policy
@@ -287,6 +354,10 @@ export function shouldTryDynamic(session: ChatSession, text: string): boolean {
   if (isFeeTraffic(t) || isFeeFrame(t) || detectProvisionAsk(t) || detectProvisionWho(t)) return false;
   if (detectPriceAsk(t) || detectAvailabilityAsk(t) || detectOwnerContact(t) || detectContactRequest(t)) return false;
   if (detectVisitInterest(t)) return false;
+  // A DISTANCE IS MEASURED, NEVER GENERATED: the lane reads the row's own
+  // coordinates and the map. Reaching a model here is what stored the 410 m
+  // sentence in the first place.
+  if (isDistanceQuestion(t)) return false;
   return true;
 }
 
@@ -316,17 +387,29 @@ export function dynamicRowViolations(row: { msg: string; answer: string }): stri
   return validateDynamicAnswer(row.answer, row.msg, { typeKnown: typeEstablished({}, row.msg) });
 }
 
+/** THE PLACE a message is about, read with the funnel's own extractors — no map,
+ *  no new vocabulary. Two shapes are place-bound in practice: a stock ask at a
+ *  place («ШТО ИМА КАЈ ГРАДСКА БОЛНИЦА») and a proximity wish («станови околу
+ *  Капитол Мол»). */
+function placeOf(msg: string): string | undefined {
+  const p = extractInventoryPlace(msg) ?? extractPoiWish(msg);
+  if (!p) return undefined;
+  const folded = p.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return folded || undefined;
+}
+
 /** RECALL: a stored, previously-validated answer for this question shape. */
 export function recallDynamic(
-  bank: { retrieveDynamic: (m: string) => { key: string; answer: string } | undefined },
+  bank: { retrieveDynamic: (m: string) => { key: string; answer: string; msg?: string } | undefined },
   userMsg: string,
   typeKnown?: boolean,
+  allowedPlaces?: string[],
 ): DynamicResult | undefined {
   const hit = bank.retrieveDynamic(userMsg);
   if (!hit) return undefined;
-  // Re-validate on recall: a contract change or hygiene tightening applies
-  // retroactively — stale rows degrade to the normal path instead of serving.
-  if (validateDynamicAnswer(hit.answer, userMsg, { typeKnown }).length > 0) return undefined;
+  // THE BORROWED PLACE is enforced by `validateDynamicAnswer` (it owns the rule
+  // for BOTH recall doors) — the row's own question travels with the check.
+  if (validateDynamicAnswer(hit.answer, userMsg, { typeKnown, storedMsg: hit.msg, allowedPlaces }).length > 0) return undefined;
   return { text: hit.answer, source: 'dynamic-recall', key: hit.key };
 }
 
@@ -361,7 +444,7 @@ export async function generateDynamic(
             'ТВРДИ ПРАВИЛА (одговорите што ги кршат се отфрлаат):\n' +
             '- НИКОГАШ не наведувај и не измислувај: цена, достапност, адреса, Евидентен број, квадратура или друг податок за имотот. Цените и достапноста се на сопственикот и се проверуваат со јавување — кажи дека ќе провериш кај сопственикот ако те прашаат.\n' +
             '- Ако клиентот бара податок што го немаш (година на градба, година на реновирање, кат, ориентација…), кажи јасно дека податокот не е во твоите записи и дека ќе провериш кај сопственикот. НЕ одговарај на фактолошко прашање со општа презентација или понуда за посета.\n' +
-            '- Користи САМО дадениот познат контекст. Не измислувај населби, згради или знаменитости.\n' +
+            '- Користи САМО дадениот познат контекст. Не именувај населба, зграда или знаменитост што клиентот НЕ ја навел (ни во пораката, ни во познатиот контекст) и не измислувај нови.\n' +
             '- Без ветувања, гаранции, попусти или конкретни обврски.\n' +
             '- Ако клиентот НЕ кажал каков вид недвижност бара, НИКОГАШ не именувај стан, куќа, локал, плац или гарсоњера. Прашај само „дали Ве интересира купување или изнајмување на недвижност?“ — видот се прашува потоа, откако ќе се знае услугата.\n' +
             `- Максимум 420 знаци. Само македонски — без англиски зборови освен имиња на места.\n\n${factBlock}`,
@@ -379,7 +462,21 @@ export async function generateDynamic(
     });
     const answer = res.trim();
     const typeKnown = typeEstablished(session.slots, userMsg);
-    if (!answer || validateDynamicAnswer(answer, userMsg, { typeKnown }).length > 0) return undefined;
+    // THE LIVE ANSWER may lean on what the session already established (an
+    // answer that mentions «Центар» because the client picked Центар two turns
+    // ago is correct copy).
+    if (!answer || validateDynamicAnswer(answer, userMsg, { typeKnown, allowedPlaces: sessionPlaces(session) }).length > 0) return undefined;
+    // BANK COPY STANDS ON THE TRIGGER ALONE. A stored row is served to a
+    // DIFFERENT client and is audited against its own question only
+    // (`dynamicRowViolations`), so a sentence that needed the session's area to
+    // be true is served this once and NOT stored — the #29/#30 defect, where
+    // «…во Центар…» / «…во Аеродром…» was banked under a question that named
+    // no area at all.
+    const bankable = validateDynamicAnswer(answer, userMsg, { typeKnown }).length === 0;
+    // Count the call against the session budget only once it SUCCEEDED — a
+    // dirty answer or a quota error teaches us nothing and must not spend it.
+    session.slots.generatedAnswers = (session.slots.generatedAnswers ?? 0) + 1;
+    if (!bankable) return { text: answer, source: 'dynamic' };
     const key = dynamicSlug(session.state, userMsg);
     // A — A STOCK-AT-A-PLACE ANSWER IS STORED TWICE (the [22:58] capture round):
     // verbatim, for the phrasing it was taught, AND as a {place} template plus
@@ -394,9 +491,6 @@ export async function generateDynamic(
       : undefined;
     store.addDynamic(key, session.state, userMsg, answer,
       template && anchor ? { template, place: anchor } : undefined);
-    // Count the call against the session budget only once it SUCCEEDED — a
-    // dirty answer or a quota error teaches us nothing and must not spend it.
-    session.slots.generatedAnswers = (session.slots.generatedAnswers ?? 0) + 1;
     return { text: answer, source: 'dynamic', key };
   } catch {
     // Quota, network, timeout — degrade to the pre-existing path silently.
@@ -414,11 +508,11 @@ export async function dynamicAnswer(
   session: ChatSession,
   userMsg: string,
   store: {
-    retrieveDynamic: (m: string) => { key: string; answer: string } | undefined;
+    retrieveDynamic: (m: string) => { key: string; answer: string; msg?: string } | undefined;
     addDynamic: (key: string, state: string, msg: string, answer: string, meta?: { template?: string; place?: string }) => boolean;
   },
 ): Promise<DynamicResult | undefined> {
-  const recalled = recallDynamic(store, userMsg, typeEstablished(session.slots, userMsg));
+  const recalled = recallDynamic(store, userMsg, typeEstablished(session.slots, userMsg), sessionPlaces(session));
   if (recalled) return recalled;
   return generateDynamic(llm, session, userMsg, store);
 }

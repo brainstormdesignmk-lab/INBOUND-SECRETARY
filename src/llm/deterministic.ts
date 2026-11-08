@@ -2136,6 +2136,13 @@ export function detectBedrooms(text: string): number | undefined {
     && !/спалн|spaln|соб|sob/iu.test(text)
     && !detectBudget(text)
     && !/\d+\s*(?:м2|м²|m2)/iu.test(text)
+    // A MEASURE IS NOT A COUNT (the [04:05] capture): «STO TI E TOA NA 1.4KM ?»
+    // asked about the property 1,4 km away, and the bare 1 read as «една
+    // спална» — the session's room criterion silently moved from трисобен to
+    // двособен mid-conversation. A decimal («1.4», «1,4») and any figure glued
+    // to a distance/area unit are measurements; a bedroom answer never is.
+    && !/\d\s*[.,]\s*\d/u.test(text)
+    && !/\d+\s*(?:km|км|kilometri|километри|metri|метри|metar|метар)\b/iu.test(text)
     // "dve najmalku ili tri" (23:57 transcript): a MINIMUM range runs 4–7
     // words, past the 1–3 budget that guards bare noun-less answers against
     // full sentences. A quantifier-marked range is still a short funnel
@@ -2435,6 +2442,59 @@ export function detectSqmRate(text: string): number | undefined {
     if (best === undefined || m.amount > best) best = m.amount;
   }
   return best;
+}
+
+/** THE FLAT BEHIND THE RING'S DISTANCE (the [04:05] capture).
+ *
+ *  The 1 km ring answers «немам ништо во 1 km од ТЦ Скопјанка — најблиску што
+ *  имам е на 1,4 km» and then asks the widen question. The client's natural
+ *  reaction is to ask WHICH flat that is — «STO TI E TOA NA 1.4KM ?», «KOJ STAN
+ *  SE NAOGJA NA 1.4KM OD SKOPJANKA ?», «KOJ E TOJ STAN ?» — and the old turn
+ *  repeated the same paragraph three times, then hallucinated («точните детали
+ *  … ги немам») over a row it had just measured. This predicate owns that ask:
+ *  a WHICH/WHAT word plus either a DEICTIC (тоа/тој/тој стан) or the very
+ *  DISTANCE the ring quoted. A bare where-word alone is not enough — «NA KOJA
+ *  ULICA E ?» is the address ladder, not the identity of the nearest row. */
+export function detectRingNearestAsk(text: string): boolean {
+  const W = '(?:^|[\\s,.;:!?„“"(])';
+  const E = '(?:[\\s,.;:!?„“")]|$)';
+  const askWord = new RegExp(`${W}(?:sto|shto|sho|koj|koja|koe|kade|што|шо|кој|која|кое|каде)${E}`, 'iu');
+  if (!askWord.test(text)) return false;
+  // THE DEICTIC — he points at the thing the last turn described.
+  const deictic = new RegExp(`${W}(?:toa|toj|tie|тоа|тој|тие|toj\\s+stan|тој\\s+стан)${E}`, 'iu');
+  if (deictic.test(text)) return true;
+  // …or he repeats the DISTANCE as the name of the row: «на 1,4 км», «на 1400
+  // метри». Only a figure with a distance unit counts — a bare number here is
+  // an Евидентен број, not a measurement.
+  return new RegExp(`${W}(?:na|на)?\\s*\\d+(?:[.,]\\d+)?\\s*(?:km|км|kilometri|километри|metri|метри|metar|метар)(?![\\p{L}\\p{N}])`, 'iu').test(text);
+}
+
+/** A CHECK-THEN-ARRANGE TURN (the [04:28] capture): «AJDE PROVERI DALI SE
+ *  PRODAVA USTE PA KE SE DOGOVORIME». He is not asking whether the flat exists —
+ *  he is telling us to check it and says the arrangement follows. That is
+ *  consent to proceed, so the turn takes his details instead of asking «дали
+ *  сакате да го исконтактирам сопственикот?» — a question he had just
+ *  answered. Both halves are required: a CHECK (proveri / dali se prodava /
+ *  dali e dostapen) and a PROCEED clause (pa ke se dogovorime / da se vidime /
+ *  da zakazime). «DALI E USTE DOSTAPEN ?» alone stays a plain availability
+ *  question — nothing is agreed by asking. */
+export function detectProceedAfterCheck(text: string): boolean {
+  const W = '(?:^|[\\s,.;:!?„“"(])';
+  const E = '(?:[\\s,.;:!?„“")]|$)';
+  const check = new RegExp(
+    `${W}(?:prover\\p{L}*|провер\\p{L}*|dali\\s+(?:se\\s+)?(?:prodava|izdava|dostap\\p{L}*|slobod\\p{L}*)|дали\\s+(?:се\\s+)?(?:продава|издава|достап\\p{L}*|слобод\\p{L}*))`,
+    'iu');
+  if (!check.test(text)) return false;
+  // THE COPULA IS IN BOTH SCRIPTS: /i folds ќ/Ќ but NOT Latin «s» to Cyrillic
+  // «с», so «ПА ЌЕ СЕ ДОГОВОРИМЕ» matched nothing while «pa ke se dogovorime»
+  // did — the Cyrillic capture sentence is the one that matters.
+  const proceed = new RegExp(
+    `${W}(?:pa|па|PA|ПА)\\s+(?:(?:ke|ќе|kje)\\s+)?(?:se|се)\\s+(?:dogovor\\p{L}*|договор\\p{L}*|vid\\p{L}*|вид\\p{L}*|slusame|слушаме)`
+    + `|${W}(?:ke|ќе|kje)\\s+(?:se|се)\\s+(?:dogovor\\p{L}*|договор\\p{L}*|vid\\p{L}*|вид\\p{L}*|slusame|слушаме)`
+    + `|${W}(?:pa|па)\\s+(?:da|да)\\s+(?:se|се)\\s+(?:dogovor\\p{L}*|договор\\p{L}*|vid\\p{L}*|вид\\p{L}*|slusame|слушаме)`
+    + `|${W}(?:ke|ќе|kje)\\s+(?:zakaz\\p{L}*|закаж\\p{L}*|dojd\\p{L}*|дојд\\p{L}*)`,
+    'iu');
+  return proceed.test(text);
 }
 
 /** THE PURCHASE MAGNITUDE (the [20:11] sweep of the captured price answers):
@@ -4867,6 +4927,35 @@ export function isOwnerQuestion(text: string): boolean {
 const OWNER_MODAL_RE =
   /(?<![\p{L}])(?:moze|mozam|mozeme|mozat|може|можам|можеме|можат|ke mozam|ќе можам|bi mozel|би можел)(?![\p{L}])/iu;
 
+/** A NEGATED-BEFORE WINDOW IS AN ALTERNATIVE (the [04:36] capture).
+ *
+ *  «NE MOZAM PRED 5» does not mean "no" — it means FROM 5 ON, and the owner
+ *  typed it as his whole answer. The parser kept the refusal (`counter`) and
+ *  DROPPED the hour, so the client read a bare «сопственикот не е во можност»
+ *  with no alternative to accept, and the chat stalled on a question the owner
+ *  had already answered. «ne mozam do 17:00» / «не можам пред 17» are the same
+ *  sentence, so the bound is read in both scripts and both spellings.
+ *  Returns the hour as the owner said it ("5", "17:30"), never a guess. */
+export function detectOwnerNotBefore(text: string): string | undefined {
+  const m = text.match(/(?<![\p{L}\p{N}])(?:pred|пред|do|до|before|until|до\s+)\s*(\d{1,2})(?:[:.](\d{2}))?(?![:\d])/iu);
+  if (!m) return undefined;
+  const hour = parseInt(m[1], 10);
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23) return undefined;
+  return m[2] ? `${hour}:${m[2]}` : String(hour);
+}
+
+/** THE OWNER IS AT WORK — a REASON, not a time (the [04:36] capture).
+ *
+ *  «NA RABOTA SUM» was parsed as nothing, so the owner read «Не разбрав.
+ *  Евидентен број 91 — дали недвижноста е достапна и дали го прифаќате
+ *  предложениот термин за посета?» — a stranger asking for a favour got treated
+ *  as a broken parser — and the check then closed on him. The reason is
+ *  answered in his own words (he works during the day, so an evening term is
+ *  what he needs) and the check stays open. */
+export function isOwnerWorkReason(text: string): boolean {
+  return /(?<![\p{L}])(?:na\s+rabota|на\s+работа|sum\s+na\s+rabota|сум\s+на\s+работа|na\s+rabotno\s+vreme|на\s+работно\s+време|preku\s+den\s+sum|преку\s+ден\s+сум)(?![\p{L}])/iu.test(text);
+}
+
 export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVerdict | undefined {
   const t = text.toLowerCase();
   const price = extractOwnerPrice(text);
@@ -4955,6 +5044,13 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
     // Key present ONLY when true — an explicit `undefined` breaks deepEqual
     // verdict comparisons and reads as set-but-empty in the relay.
     return isWholeDay ? { ...v, canAcceptWholeDay: true } : v;
+  }
+  // …AND A NEGATED BOUND IS THAT ALTERNATIVE (the [04:36] capture): «NE MOZAM
+  // PRED 5» = from 5 on. Read before the bare-refusal fallback so the hour the
+  // owner gave reaches the client instead of a dead-end «не е во можност».
+  const notBefore = detectOwnerNotBefore(text);
+  if (disagree && !timeStr && notBefore) {
+    return withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(`posle ${notBefore}`) });
   }
   // WHOLE-DAY counter: refusal + a later day with no clock — the dropped-day
   // bug made Lina relay "не може во тој термин" and re-ask from zero while
@@ -7932,7 +8028,12 @@ export function isDistanceQuestion(text: string): boolean {
   // zero-gap message could match — «NAA KOLKU METRI E 69 DO RAMPA ?» ([01:27])
   // was answered with a property card while «NA KOLKAVO RASTOJANIE …» worked.
   // The gap is inside one class now, and the unit keeps its own boundary.
-  if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}[^.?!\\n]{0,20}(?<![\\p{L}])(?:minuti|минути|metri|метри|km|км)(?![\\p{L}])`, 'iu'), text)) return true;
+  // THE UNIT IS INFLECTED (the [04:46] capture): «48 NA KOLKU METRA E DO SITI
+  // MOL?» is the plural/genitive «метра» — the list knew only «metri/метри» and
+  // the message fell out of this lane entirely, so the POI-confirm arm answered
+  // it with a different place's distance. metar/metra/metri and their Cyrillic
+  // spellings are one family.
+  if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}[^.?!\\n]{0,20}(?<![\\p{L}])(?:minut\\p{L}*|минут\\p{L}*|met(?:ar|ra|ri|rov|rovi)|мет(?:ар|ра|ри|ров|рови)|km|км)(?![\\p{L}])`, 'iu'), text)) return true;
   // „…peske?“ / „walking?“ — a walking ask is a distance ask when it asks at all.
   if (matchesBoth(new RegExp(`${W}(?:peske|пешке|peshki|пешки|walk(?:ing)?)${E}`, 'iu'), text)
     && (text.includes('?') || matchesBoth(/(?:kolku|колку)/iu, text))) return true;
@@ -7960,7 +8061,13 @@ export function extractDistancePlace(text: string): string | undefined {
     const cut = s.replace(/(?<![\p{L}])(?:prasam|prasav|prasame|prasaj|прашам|прашав|прашаме|прашај|pitanje|прашање|ask(?:ing)?)(?![\p{L}])\s*$/iu, '').trim();
     return cut || s;
   };
-  const dest = trimAsk(scanDistanceTail(text, PLACE_TO_RE, undefined));
+  // BOTH ARMS USE THE SUBJECT STOP LIST (the [20:29] capture). «КОЛКУ ИМА ОД
+  // ГРАДСКА ДО НЕГО ?» — «до него» is the FLAT under discussion, and the DO
+  // tail was read as a place: the fuzzy lookup turned the pronoun into «Ernst &
+  // Young» and the client was told a consultancy was 980 m from the flat. With
+  // the stop list on the destination arm too, the rejected tail falls through
+  // to the FROM arm, which holds the only real place in the sentence.
+  const dest = trimAsk(scanDistanceTail(text, PLACE_TO_RE, DISTANCE_SUBJECT_WORDS));
   if (dest !== undefined) return dest;
   // FROM-form ([16:11]): the property is the SUBJECT, the landmark follows
   // „од“. A property noun there („od stanot“) is the subject, not a place.
@@ -7979,6 +8086,21 @@ export function extractDistancePlace(text: string): string | undefined {
  *  «блиску до» arm matched INSIDE «najblisku») and was answered with the last
  *  flat's nearby landmark — „Тоа се наоѓа во близина на УДГС Здравко Цветковски“
  *  — a landmark nobody had asked about, for a flat the client had not chosen. */
+/** The place in a BARE distance follow-up — «A DO LEPTOKARIJA ?» after a
+ *  measurement (the [04:46] capture).
+ *
+ *  The first sentence carries the cue («NA KOLKU METRA E DO SITI MOL?»); the
+ *  second one is only the destination, so `isDistanceQuestion` is false for it
+ *  and the flat's card was re-served instead of the second measurement. The
+ *  caller gates this on having JUST measured something, so ordinary «a do …»
+ *  traffic (a cap, a day) is untouched. A digit tail is a cap, never a place. */
+export function extractBareDistancePlace(text: string): string | undefined {
+  const m = text.match(/^\s*(?:a|а|i|и|paks?|пак|сега|sega)?\s*(?:do|до|od|од)\s+([\p{L}][\p{L}.'’ -]{1,40}?)\s*\??\s*$/iu);
+  if (!m) return undefined;
+  const place = m[1].trim();
+  return /^\d/u.test(place) ? undefined : place;
+}
+
 export function detectNearestOfShown(text: string): boolean {
   // «KOI STANOVI …» is the PLURAL which-ask and was missing (the [04:02]
   // capture): without «koi/кои» the ranking lane never fired on the exact
@@ -8080,6 +8202,13 @@ const DISTANCE_SUBJECT_WORDS = new Set([
   'imot', 'imotot', 'имотот',
   'mesto', 'mestoto', 'место', 'местото',
   'nego', 'nea', 'него', 'неа', 'mene', 'мене', 'tebe', 'тебе', 'nas', 'нас', 'vas', 'вас',
+  // The GENITIVE/PLURAL forms a client actually types («ДО СТАНОВ», «ДО
+  // СТАНОВИТЕ») and the possessive pronouns («ДО НЕГОВИОТ СТАН» is still the
+  // flat). A bare stem would swallow the accusative already listed, so every
+  // surface form is spelled out — the same rule as the lexicon stems.
+  'stanov', 'станов', 'stanovite', 'становите', 'stanovive', 'становиве',
+  'negoviot', 'неговиот', 'negovata', 'неговата', 'negovite', 'неговите',
+  'negovo', 'негово', 'nivniot', 'нивниот', 'nivnata', 'нивната', 'nivnite', 'нивните',
 ]);
 
 /** Walk a preposition's tails from the LAST one backwards and return the first
@@ -8099,6 +8228,12 @@ function scanDistanceTail(text: string, re: RegExp, stop: Set<string> | undefine
 function pickDistancePlace(tails: RegExpMatchArray[], stop: Set<string> | undefined): string | undefined {
   for (let i = tails.length - 1; i >= 0; i--) {
     let place = (tails[i][1] ?? '').trim().replace(/[.?!,:;]+$/u, '').trim();
+    // A TAIL ENDS AT THE NEXT PREPOSITION (the [20:29] capture): «од ГРАДСКА
+    // ДО НЕГО» captured «ГРАДСКА ДО НЕГО» as ONE tail, because the capture runs
+    // to the end of the clause — so when the destination is rejected as the
+    // flat, the FROM arm would hand the map a phrase nobody typed. Cutting at
+    // the next od/do keeps the place the client actually named.
+    place = place.split(/\s+(?:do|od|до|од)\s+/iu)[0]!.trim();
     // Drop trailing scaffold words („do centar li e“ → „centar“)
     let words = place.split(/\s+/);
     while (words.length > 1
@@ -8722,6 +8857,19 @@ const EXTREME_EXPENSIVE_RE = /(?<![\p{L}\p{N}])najskap\p{L}*|(?<![\p{L}\p{N}])н
 // search ladder, which needs no threshold.
 const EXTREME_CHEAPER_RE = /(?<![\p{L}\p{N}])(?:po(?:e|е)?(?:v|f)tin\p{L}*|по(?:е)?(?:в|ф)тин\p{L}*)/iu;
 const EXTREME_DEARER_RE = /(?<![\p{L}\p{N}])(?:po(?:s|ш)kap\p{L}*|по(?:с|ш)кап\p{L}*)/iu;
+
+/** Does the MESSAGE itself name an end of the price range („најевтиниот“,
+ *  „najskapite“, „поевтини од …“)?
+ *
+ *  `extractPriceExtremeQuery` answers „cheapest“ for ANY stock ask — it is the
+ *  lane's default, not evidence that the client ranked anything. A caller that
+ *  must tell a RANKING from a bare inventory ask («што имате за под кирија?»)
+ *  has to read the words, and this is the one place the four families are
+ *  spelled out. */
+export function namesPriceExtreme(text: string): boolean {
+  return EXTREME_CHEAP_RE.test(text) || EXTREME_EXPENSIVE_RE.test(text)
+    || EXTREME_CHEAPER_RE.test(text) || EXTREME_DEARER_RE.test(text);
+}
 // LOW/HIGH PRICE — the same ends said with „цена“ instead of the евтин/скап
 // adjective („која е најниската цена?“, „najvisoka cena“).
 const EXTREME_LOW_PRICE_RE =

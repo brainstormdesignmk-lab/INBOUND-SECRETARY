@@ -185,6 +185,29 @@ test('generate: clean LLM answer is served AND stored; recall hits next time', a
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// THE #29/#30 DEFECT, GENERATION HALF. An answer that names an area only the
+// SESSION established («Ќе ги проверам… во Аеродром…») is fine copy for THIS
+// client and poison as bank copy: any later client whose wording scores near
+// the trigger would be told about an area he never mentioned. So the live turn
+// keeps the answer and the store does not.
+test('[23:09] an area only the session knew is served once, never banked', async () => {
+  const { bank, dir } = fresh();
+  try {
+    const answer = 'Ќе ги проверам достапните станови за купување во Аеродром со малку повисок буџет. До која максимална сума би сакале да ја прошириме потрагата?';
+    const q = 'A NESTO MALKU POSKAPO ?';
+    // fakeSession() established Аеродром: the live turn is answered correctly.
+    const res = await dynamicAnswer(new ScriptedLlm(answer), fakeSession(), q, bank);
+    assert.ok(res, 'the live turn still gets the answer — the session named the area');
+    assert.equal(bank.dynamicRowCount(), 0, 'but it is not bank copy: it needs the session context');
+
+    // A client who never named an area is not even served it.
+    const bare = fakeSession();
+    bare.slots = { service: 'buy' };
+    assert.equal(await dynamicAnswer(new ScriptedLlm(answer), bare, q, bank), undefined,
+      'a sentence naming an area the client never mentioned must not serve');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 // A — THE PLACE TEMPLATE IS STORED BESIDE THE PROSE (the [22:58] round).
 // A stock-at-a-place answer is true only for the place it names, so the store
 // keeps the {place} form + the anchor too: same place in other words needs no

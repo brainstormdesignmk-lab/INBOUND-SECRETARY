@@ -104,7 +104,8 @@ export function main(argv: string[], ctx?: BankCliCtx): number | undefined {
     const r = digestDynamic(bank, db);
     console.log(
       `[digest] ${r.groups} dynamic group(s): +${r.examples} retrieval examples, ` +
-      `${r.staged} answer variant(s) staged for review, ${r.purged} purged, ${r.marked} serve row(s) marked`,
+      `${r.staged} answer variant(s) staged for review, ${r.purged} purged, ` +
+      `${r.refused} refused (contract) and deleted, ${r.marked} serve row(s) marked`,
     );
     return 0;
   }

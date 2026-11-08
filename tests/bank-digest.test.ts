@@ -60,6 +60,33 @@ test('digest: folds groups into examples + staged variants, purges the tail, mar
   }
 });
 
+test('digest: a row that breaks a serve-time contract never reaches the bank', () => {
+  // The [23:09] rows #27/#29/#30 (an area that exists only in the ANSWER).
+  // Recall re-validates, so such a row cannot SERVE — but this fold was the
+  // other way out: its phrasing became a retrieval example and its prose a
+  // staged variant under a real key, copy no serve-time validator ever sees.
+  // The digest must refuse it with the same predicate and delete it, and the
+  // clean sibling phrasings must still fold.
+  const { bank, db, dir } = fresh();
+  try {
+    const key = 'dynamic:presentation:nesto-malku-poskapo';
+    const borrowed = 'Ќе ги проверам достапните станови за купување во Центар со малку повисок буџет. До која максимална сума би сакале да ја прошириме потрагата?';
+    bank.addDynamic(key, 'presentation', 'A NESTO MALKU POSKAPO ?', borrowed);
+    bank.addDynamic('dynamic:idle:a', 'idle', 'moze dogovori mi', CLEAN);
+
+    const r = digestDynamic(bank, db);
+    assert.equal(r.refused, 1, 'the borrowed-area row is refused');
+    assert.equal(r.groups, 1, 'and it is not counted as a foldable group');
+    assert.equal(bank.dynamicRowCount(), 1, 'it is deleted, not re-judged every night');
+    assert.equal(bank.retrieveDynamic('A NESTO MALKU POSKAPO ?'), undefined, 'it can never serve');
+    assert.equal(bank.retrieveExact('A NESTO MALKU POSKAPO ?'), undefined, 'nor become a trigger');
+    assert.equal(bank.stagedVariants(key).length, 0, 'nor be staged as bank copy');
+    assert.equal(bank.stagedVariants('dynamic:idle:a').length, 1, 'while the clean row still folds');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('bind-file: applies good lines, refuses a dead key, leaves refusals pending, exits 1', () => {
   const { bank, db, dir } = fresh();
   try {

@@ -42,6 +42,7 @@ import * as path from 'path';
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
 import { EnrichmentStore } from '../store/enrichment';
+import { learnKeySlug as sharedLearnKeySlug } from '../bank/review';
 import { BankStore, FROZEN_BANK_KEYS, DATA_DRIVEN_KEYS, MAX_VARIANTS_PER_KEY, isExcludedFromEnrichment } from '../store/bank';
 import { createLlmStrict } from '../llm/factory';
 import { RESPONSE_BANK } from '../data/responses';
@@ -162,16 +163,11 @@ function deduplicate(newVariants: string[], existing: string[]): string[] {
   });
 }
 
-/** slug for a learned key from the sample user messages. */
+/** slug for a learned key from the sample user messages — THE SAME function the
+ *  review UI uses (this file used to carry a private copy, so the cron and the
+ *  operator could name the same question twice, and neither transliterated). */
 function learnKeySlug(msgs: string[]): string {
-  const stop = new Set(['dali', 'ili', 'za', 'na', 'vo', 'od', 'do', 'kako', 'sto', 'shto', 'kade', 'moze', 'mozam', 'imas', 'imate', 'li']);
-  const words = msgs.join(' ')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 2 && !stop.has(w));
-  const slug = words.slice(0, 3).join('-').replace(/\s+/g, '-') || 'misc';
-  return `learn.${slug}`;
+  return sharedLearnKeySlug(msgs.join(' '));
 }
 
 // --- Main ---

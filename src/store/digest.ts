@@ -16,6 +16,7 @@
 import { Db } from './db';
 import { BankStore } from './bank';
 import { EnrichmentStore } from './enrichment';
+import { dynamicRowViolations } from '../llm/dynamicFallback';
 
 export interface DigestResult {
   /** Dynamic groups (dynamicSlug folds near-duplicates into one group). */
@@ -26,6 +27,9 @@ export interface DigestResult {
   staged: number;
   /** FIFO rows dropped to keep the dynamic store a fresh signal. */
   purged: number;
+  /** Rows REFUSED — they break a serve-time contract, so they can never serve
+   *  and are deleted instead of being folded into the bank. */
+  refused: number;
   /** Serve rows marked processed (advisory: skipped if the table is absent). */
   marked: number;
 }
@@ -35,12 +39,36 @@ export interface DigestResult {
  * Trigger side: client messages become retrieval examples. Answer side: the
  * stored answer becomes ONE staged variant (a human promotes it). FIFO purge
  * keeps the store from becoming an archive.
+ *
+ * THE CONTRACT GATE: recall re-validates every stored row, so a row that
+ * breaks today's rules can never SERVE — but this fold was the way it could
+ * still REACH the bank: its phrasing became a retrieval example and its prose
+ * became a staged variant under a real key, i.e. copy that no serve-time
+ * validator ever sees again. So the digest judges every row with the SAME
+ * predicate (`dynamicRowViolations`), folds only clean rows, and deletes the
+ * refused ones: an unservable row has no rescue value, and leaving it would
+ * re-teach the same defect on the next run.
+ *
+ * Groups are counted on the CLEAN rows only: one dirty answer must not stop its
+ * sibling phrasings from being bound, and a key whose every row is refused is
+ * not a group at all.
  */
 export function digestDynamic(bank: BankStore, db: Db, keep = 400): DigestResult {
-  const groups = bank.dynamicGroups();
+  const groups = new Map<string, { key: string; state: string; msgs: string[]; answer: string }>();
+  let refused = 0;
+  for (const row of bank.dynamicPendingRows()) {
+    if (dynamicRowViolations(row).length > 0) {
+      bank.deleteDynamic(row.id);
+      refused++;
+      continue;
+    }
+    let g = groups.get(row.key);
+    if (!g) { g = { key: row.key, state: row.state, msgs: [], answer: row.answer }; groups.set(row.key, g); }
+    g.msgs.push(row.msg);
+  }
   let examples = 0;
   let staged = 0;
-  for (const g of groups) {
+  for (const g of groups.values()) {
     for (const m of g.msgs) {
       if (bank.addExample(g.key, m)) examples++;
     }
@@ -52,7 +80,7 @@ export function digestDynamic(bank: BankStore, db: Db, keep = 400): DigestResult
   try {
     marked = new EnrichmentStore(db).markDynamicProcessed();
   } catch { /* table absent on a fresh DB — nothing to mark */ }
-  return { groups: groups.length, examples, staged, purged, marked };
+  return { groups: groups.size, examples, staged, purged, refused, marked };
 }
 
 export interface BindEntry {

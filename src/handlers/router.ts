@@ -283,6 +283,8 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'OWNER_HOLD:fast': P('owner unreachable continuation'),
   POI_CONFIRM: P('POI confirm question (landmark near?)'),
   PLACE_PIVOT: P('same search at a different named place (“a neshto kaj X?”)'),
+  PLACE_RING_ASK: P('the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question'),
+  PLACE_RING_ROW: P('the identity of the flat the place ring measured (“koj e toj stan na 1,4 km?”)'),
   'PRICE_ASK:fast': P('direct price ask on the shown flat'),
   PRICE_AVG_NASELBA: P('average price in the named naselba'),
   'PRICE_EVAL_EXPENSIVE': P('negative price remark about the flat on the table'),

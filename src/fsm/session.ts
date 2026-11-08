@@ -270,6 +270,17 @@ export interface SlotData {
   /** The measured distance to the nearest in-criteria row on the last anchored
    *  load — the ask states it instead of saying «далеку». */
   poiNearestM?: number;
+  /** WHICH row that distance belongs to (the [04:05] capture): the ring line
+   *  says «најблиску што имам е на 1,4 km», and the client's next question is
+   *  «кој е тој стан?». Without the row id the only answer was the same
+   *  paragraph again. */
+  poiNearestId?: number;
+  /** The flat whose distance was LAST measured for a named place (the [04:46]
+   *  capture). «48 NA KOLKU METRA E DO SITI MOL?» measures EB 48; the next
+   *  sentence is only the destination («A DO LEPTOKARIJA?»), so the measurement
+   *  lane needs to know which flat to measure from — otherwise the follow-up is
+   *  answered with the card again. */
+  lastDistanceEb?: number;
   /** The AREA the landmark anchor gave the locate funnel (Broz Cafe → Центар).
    *  While slots.location still equals it, later details ("околу 200.000 беше")
    *  keep ranking from that landmark; a NEW neighborhood in the message means
