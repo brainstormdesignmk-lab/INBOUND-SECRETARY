@@ -33,7 +33,7 @@ import { InboundHandler } from '../src/handlers/inbound';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore } from '../src/geo/offlineMap';
 import { LlmClient } from '../src/llm/types';
-import { detectSqmRate, detectStockContradiction, extractSlots } from '../src/llm/deterministic';
+import { detectBudget, detectSqmRate, detectStockContradiction, extractSlots } from '../src/llm/deterministic';
 
 const cfg = loadConfig();
 
@@ -94,6 +94,12 @@ test('[02:09] a per-m² figure is a rate, never a total cap', () => {
     ['do 1200 evra/m²', 1200],
     ['околу 1.500 € за квадрат', 1500],
     ['1500 evra za kvadraten metar', 1500],
+    // A BAND IS A BAND (the [02:14] capture): two figures, one rate marker. The
+    // old digit run swallowed the space and read 15.001.600 €/m² — a cap no
+    // flat can meet, so the pool emptied. The ceiling of the band is the cap.
+    ['PA DA RECEME 1500 1600 EVRA ZA KVADRAT', 1600],
+    ['1500 1600 evra za kvadrat', 1600],
+    ['околу 1.400 1.600 € за квадрат', 1600],
     // NOT a rate — these keep their ordinary money reading.
     ['1500 evra za stanot', undefined],
     ['DAJ MI STAN DO 1500 EVRA', undefined],
@@ -129,6 +135,31 @@ test('[02:09] e2e: the rate filters and ranks ACROSS TYPES, and never asks the t
   const s = sessions.get(chatId)!;
   assert.equal(s.slots.sqmRate, 1500, `the rate is on file: ${JSON.stringify(s.slots)}`);
   assert.equal(s.slots.budget, undefined, 'the rate never became a 1.500 € sum');
+});
+
+test('[02:14] two figures never glue into one: a money range survives the scan', () => {
+  // The regression this pins: «1500 1600» came back as 15.001.600.
+  assert.equal(detectBudget('PA DA RECEME 1500 1600 EVRA ZA KVADRAT'), '1600');
+  assert.equal(detectBudget('DAJ MI STAN OKOLU 60 000 70 000'), '70000');
+  // …while a genuine THOUSANDS group (exactly three digits after the space) is
+  // still ONE number — the fix must not break «100 000» / «1 500 000».
+  assert.equal(detectBudget('100 000'), '100000');
+  assert.equal(detectBudget('OKOLU 1 500 000 EVRA'), '1500000');
+  assert.equal(detectSqmRate('PA DA RECEME 1500 1600 EVRA ZA KVADRAT'), 1600);
+});
+
+test('[02:14] e2e: a capped rate filters the pool and speaks in €/m²', async () => {
+  const { say, sessions, chatId } = makeHandler(ROWS, 'rate-cap-1800');
+  await say('ZDRAVO');
+  await say('STANCE VO AERODROM DO 1800E PO KVADRAT ?');
+  await say('DA KUPAM NORMALNO');
+  const answer = await say('BILO KOLKU');
+  // 1.250 and 1.900 €/m² are both inside/outside 1.800: only the first serves.
+  assert.match(answer, /Евидентен број 53/u, `the 1.250 €/m² flat must serve: ${answer}`);
+  assert.doesNotMatch(answer, /Евидентен број 65/u, `1.900 €/m² is over the 1.800 cap: ${answer}`);
+  const s = sessions.get(chatId)!;
+  assert.equal(s.slots.sqmRate, 1800, `the cap is a RATE, on file: ${JSON.stringify(s.slots)}`);
+  assert.equal(s.slots.budget, undefined, 'a per-m² figure is never a 1.800 € total');
 });
 
 test('[02:09] the rate also answers a HOUSE ask (not an apartment-only metric)', async () => {

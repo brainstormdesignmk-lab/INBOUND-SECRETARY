@@ -26,7 +26,7 @@ import {
   detectBusinessBudgetAsk,
   detectPriceEval, adviceLaneAdmits,
   detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk,
-  detectFeePaymentAgreement,
+  detectFeePaymentAgreement, detectArrangementRecall,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -90,6 +90,8 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'VISIT_CANCEL', note: 'cancellation only meaningful in visit states',
     fires: (t, s) => detectVisitCancellation(t) &&
       ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(s) },
+  { intent: 'VISIT_RECALL', note: '«ZA KOJ STAN TI KAZAV DA DOGOVORIS PREESKA ?» ([01:2x]) — which flat the ARRANGEMENT was for. A flat noun plus an arranging verb made the classifier read it as a visit ORDER and the fee-agreement lane opened contact collection; the lane answers from the appointment itself. No state gate: the client may ask in closing, in contact collection or next day',
+    fires: t => detectArrangementRecall(t) },
   // State-gated informational intents (the tail of the chain):
   { intent: 'OFFTOPIC', note: 'small talk redirect — not while owner handshake pending',
     fires: (t, s) => detectOfftopic(t) && !['owner_checking', 'pending'].includes(s) },
@@ -301,6 +303,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   WHERE_LANDMARK: P('каде + named landmark place'),
   'WHICH_PROPERTY:fast': P('which EB are you talking about'),
   'VISIT_CANCEL:WHICH': P('a cancel that names no arranged visit — asks which Евидентен број instead of guessing'),
+  VISIT_RECALL: M('VISIT_RECALL', 'which flat the arrangement was for — answered from the appointment, never contact collection'),
 };
 
 // --- simple deterministic dispatch table -------------------------------------

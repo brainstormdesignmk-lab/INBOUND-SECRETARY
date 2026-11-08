@@ -102,11 +102,21 @@ const GRACEFUL_POOL: string[] = RESPONSE_BANK['fee.graceful.close'] ?? [];
 const PERSUADE_POOL_RENT: string[] = RESPONSE_BANK['fee.persuade.1.rent'] ?? [];
 const WHY_POOL: string[] = RESPONSE_BANK['fee.why'] ?? [];
 
-const inAskPool = (r: string) => ASK_POOL_BUY.includes(r.trim());
-const inPersuadePool = (r: string) => PERSUADE_POOL_BUY.includes(r.trim());
-const inRentPersuadePool = (r: string) => PERSUADE_POOL_RENT.includes(r.trim());
-const inRulePool = (r: string) => RULE_POOL.includes(r.trim());
-const inDecidePool = (r: string) => DECIDE_POOL.includes(r.trim());
+/** THE VISIT SUBJECT IS A CODE-BUILT PREFIX (the [01:2x] contract: a visit
+ *  question must name the flat it is about). Every fee.ask series now opens
+ *  with «Посетата е за станот со Евидентен број 78 (Капиштец).»; the bank copy
+ *  underneath is unchanged, so the pool comparison reads the copy under the
+ *  prefix. The prefix is a PROGRAM line with the live ЕБ in it — pinning a
+ *  whole string with one client's flat in it is exactly the false failure the
+ *  contract-level rule forbids. */
+const bankCopy = (r: string): string => r.trim()
+  .replace(/^Посетата е за (?:станот|куќата|деловниот простор) со Евидентен број \d+(?: \([^)]*\))?\.\n\n/u, '')
+  .trim();
+const inAskPool = (r: string) => ASK_POOL_BUY.includes(bankCopy(r));
+const inPersuadePool = (r: string) => PERSUADE_POOL_BUY.includes(bankCopy(r));
+const inRentPersuadePool = (r: string) => PERSUADE_POOL_RENT.includes(bankCopy(r));
+const inRulePool = (r: string) => RULE_POOL.includes(bankCopy(r));
+const inDecidePool = (r: string) => DECIDE_POOL.includes(bankCopy(r));
 // The graceful close is a POOL whose variants do not share one closing word
 // (two are "Благодарам"-only) — assert membership, plus the contract that the
 // bye protocol asks nothing. Pinning wording made the check depend on which
@@ -564,16 +574,16 @@ for (const c of SERVICE_CASES) {
     await send(`ZAINTERESIRAN SUM ZA EVIDENTEN BROJ ${c.eb}`);
     let { s, reply } = await send('SAKAM VIZITA DA SE DOGOVORI');
     assert.equal(s.state, 'closing');
-    assert.ok(c.askPool.includes(reply.trim()), `the disclosure comes first: ${reply.slice(0, 90)}`);
+    assert.ok(c.askPool.includes(bankCopy(reply)), `the disclosure comes first: ${reply.slice(0, 90)}`);
     assert.equal(s.slots.feeRejections, undefined, 'the disclosure is not a rung');
 
     // [22:02] the accusation with the trailing why → rung 1 (one persuasion,
     // never a second disclosure)
     ({ s, reply } = await send('PARI ZA POSETA ZEMATE ? ZOSTO?'));
     assert.equal(s.slots.feeRejections, 1, 'the accusation burns exactly one rung');
-    assert.ok(c.persuadePool.includes(reply.trim()), `rung 1 is the persuasion: ${reply.slice(0, 90)}`);
+    assert.ok(c.persuadePool.includes(bankCopy(reply)), `rung 1 is the persuasion: ${reply.slice(0, 90)}`);
     assert.ok(reply.includes(c.fee), `it names the sanctioned fee (${c.fee}): ${reply.slice(0, 90)}`);
-    assert.ok(!c.askPool.includes(reply.trim()), `never a re-disclosure: ${reply.slice(0, 90)}`);
+    assert.ok(!c.askPool.includes(bankCopy(reply)), `never a re-disclosure: ${reply.slice(0, 90)}`);
 
     // [22:03] hesitation + "every agency does visits for free" → rung 2 = the
     // agency rule (amount-free: the fee was already disclosed)
@@ -603,7 +613,7 @@ for (const c of SERVICE_CASES) {
     await send('SAKAM VIZITA DA SE DOGOVORI');
     let { s, reply } = await send('PARI ZA POSETA ZEMATE ? ZOSTO?');   // rung 1
     assert.equal(s.slots.feeRejections, 1);
-    assert.ok(c.persuadePool.includes(reply.trim()), reply.slice(0, 90));
+    assert.ok(c.persuadePool.includes(bankCopy(reply)), reply.slice(0, 90));
 
     // The client accepts MID-LADDER: the fee is settled and the workflow moves
     // on to contact collection — never another rung.
@@ -631,7 +641,7 @@ test('e2e: a bare hesitation burns rung 1 (never the fee.ask re-disclosure)', as
   const send = makeSender(ROWS, 'hesitation-buy');
   await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
   const { reply: disclosed } = await send('SAKAM VIZITA DA SE DOGOVORI');
-  assert.ok(ASK_POOL_BUY.includes(disclosed.trim()), disclosed.slice(0, 90));
+  assert.ok(ASK_POOL_BUY.includes(bankCopy(disclosed)), disclosed.slice(0, 90));
 
   // "NEZNAM" used to be answered with ANOTHER fee disclosure (the exact
   // re-disclosure the owner flagged) without advancing. Now it is resistance #1.

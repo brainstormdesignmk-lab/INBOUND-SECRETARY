@@ -153,4 +153,13 @@ test('lost-reply sweep: the candidate list is finite and reviewed', () => {
 // fee reply with the figure the client asked for and can never run on the
 // responder arm's key. The adjacency appeared because the new discovery/type
 // asks above pushed the pair down; no new fall-through was introduced.
-const REVIEWED = 30;
+// 31st read 2026-11-08: @12509→@12539, READ and benign — the new VISIT
+// SUBJECT prepend (the [01:2x] contract: a fee/visit question must name the
+// flat it is about). @12509 is the MONEY QUESTION + FEE lane's price lead
+// (gated on a price/rent ask in the message); @12539 is the subject block,
+// gated on `bankKey` being `fee.ask.rent|buy` AND the reply not already naming
+// an Евидентен број — so it EXTENDS the fee reply rather than overwriting a
+// different lane's answer. Both are append-to-`reply` writers, the same shape
+// as the money lead read on the 26th–30th passes, and neither can run on the
+// LLM-responder arm's key.
+const REVIEWED = 31;

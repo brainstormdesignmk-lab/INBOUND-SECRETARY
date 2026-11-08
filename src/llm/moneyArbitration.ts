@@ -58,6 +58,13 @@ export interface MoneyArbiterCtx {
   propertyOnTable: boolean;
   /** slots.viewingFeeAgreed — the fee is agreed; the ladder rungs are closed. */
   feeAgreed: boolean;
+  /** The fee was ALREADY put to this client (a fee.ask served, or a rung burned).
+   *  It scopes the options-ask veto below: a jab that rides a shopping ask is a
+   *  repeat, not a first question, so it must not climb another rung — but a
+   *  client who has never been told the fee and asks «PARI ZA POSETA / NESTO
+   *  NOVO A ?» is asking ABOUT the money he just met, and the ladder owns it.
+   *  Optional so every old ctx literal keeps the pre-existing reading. */
+  feeTold?: boolean;
   /** Pre-resolved BankStore.neverServes() vetoes — false means the key family
    *  may serve. A blocked lane cannot claim (the serve-time veto moves DOWN
    *  into the arbiter, below the valence axiom, per hard invariant 3). */
@@ -213,7 +220,8 @@ export function arbitrateMoney(text: string, ctx: MoneyArbiterCtx): MoneyVerdict
   }
   if ((ctx.state === 'closing' || ctx.state === 'presentation')
     && !ctx.feeAgreed && !ctx.feeBlocked
-    && detectFeeNag(text) && !detectMoreOptions(text)) {
+    && detectFeeNag(text)
+    && (!detectMoreOptions(text) || !ctx.feeTold)) {
     claims.push({ lane: 'nag', strength: 6, evidence: ['referent:visit-fee', 'act:complain', `state:${ctx.state}`] });
   }
   // THE FEE-WHY EXPLANATION CLAIM (the [01:23] transcript): the WHY/EXISTENCE
@@ -238,7 +246,7 @@ export function arbitrateMoney(text: string, ctx: MoneyArbiterCtx): MoneyVerdict
   if ((ctx.state === 'closing' || ctx.state === 'presentation')
     && !ctx.feeAgreed && !ctx.feeBlocked
     && nonQuestion && noSteal
-    && detectFeeAnaphoricRefusal(text) && !detectMoreOptions(text)) {
+    && detectFeeAnaphoricRefusal(text) && (!detectMoreOptions(text) || !ctx.feeTold)) {
     claims.push({ lane: 'nag', strength: 6, evidence: ['referent:visit-fee(anaphoric)', 'act:refuse', `state:${ctx.state}`] });
   }
 

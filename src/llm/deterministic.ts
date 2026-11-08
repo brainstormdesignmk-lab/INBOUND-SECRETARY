@@ -706,7 +706,7 @@ export function extractInventoryPlace(text: string): string | undefined {
 // (the [02:15] capture), and each type then gets its OWN characteristics
 // questions (спални + цена for стан/куќа, м² + цена for дуќан/плац).
 const PROPERTY_TYPE_WORD_RE =
-  /(?<![\p{L}])(?:стан\p{L}*|stan\p{L}*|апартман\p{L}*|apartman\p{L}*|гарсоњер\p{L}*|garsonjer\p{L}*|куќ\p{L}*|кук\p{L}*|kukj\p{L}*|kuka\p{L}*|вил\p{L}*|vila\p{L}*|дуќан\p{L}*|dukjan\p{L}*|dukan\p{L}*|локал\p{L}*|lokal\p{L}*|деловен\p{L}*|deloven\p{L}*|канцелари\p{L}*|kancelari\p{L}*|магацин\p{L}*|magacin\p{L}*|плац\p{L}*|plac\p{L}*|земјишт\p{L}*|zemjist\p{L}*|гараж\p{L}*|garaz\p{L}*)/iu;
+  /(?<![\p{L}])(?:стан\p{L}*|stan\p{L}*|stn\p{L}*|апартман\p{L}*|apartman\p{L}*|гарсоњер\p{L}*|garsonjer\p{L}*|куќ\p{L}*|кук\p{L}*|kukj\p{L}*|kuka\p{L}*|вил\p{L}*|vila\p{L}*|дуќан\p{L}*|dukjan\p{L}*|dukan\p{L}*|локал\p{L}*|lokal\p{L}*|деловен\p{L}*|deloven\p{L}*|канцелари\p{L}*|kancelari\p{L}*|магацин\p{L}*|magacin\p{L}*|плац\p{L}*|plac\p{L}*|земјишт\p{L}*|zemjist\p{L}*|гараж\p{L}*|garaz\p{L}*)/iu;
 
 // THE FLAT WORD — the one category with no flag of its own. `house`/`business`/
 // `plac` carry booleans; a flat carried NOTHING, so a funnel that did not know
@@ -726,7 +726,9 @@ const PROPERTY_TYPE_WORD_RE =
 // own questions (the exact order the owner fixed). A plural of «стан» is a
 // flat the same way the singular is, so the endings carry it.
 const FLAT_WORD_RE = /(?<![\p{L}])(?:стан(?:от|ов|а|и|ови|овите|че|чето|це|цеви|цевите)?|апартман\p{L}*|гарсоњер\p{L}*)(?![\p{L}])/iu;
-const FLAT_WORD_LATIN_RE = /(?<![a-z])(?:stan(?:ot|ov|a|i|ovi|ovite|ce|cevi|cevite)?|apartman[a-z]*|garsonjer[a-z]*)(?![a-z])/iu;
+// `stn` is the client's own shorthand for стан ("STN MI TREBA", the [00:34] capture);
+// the boundary guards keep it from matching inside a longer word.
+const FLAT_WORD_LATIN_RE = /(?<![a-z])(?:stan(?:ot|ov|a|i|ovi|ovite|ce|cevi|cevite)?|stn(?:a|i|o|ot)?|apartman[a-z]*|garsonjer[a-z]*)(?![a-z])/iu;
 
 // THE NEGATED CATEGORY IS NOT THE CATEGORY (the [19:07] capture): «SAKAM DUKJAN
 // DA ZEMAM , NE STAN» IS a business search — but `detectBusiness` vetoes itself
@@ -1626,6 +1628,33 @@ export function detectExitCheck(text: string): boolean {
   return _exitCheckSlotsRe.test(flat);
 }
 
+/** True when the client asks WHICH FLAT an arrangement/visit was for — a
+ *  RECALL question about something already agreed, never consent and never a
+ *  new search.
+ *
+ *  The [01:2x] capture: «ZA KOJ STAN TI KAZAV DA DOGOVORIS PREESKA ?» (for
+ *  which flat did I tell you to arrange yesterday?) carries a flat noun and an
+ *  arrangement verb, so `detectVisitRequest` read it as a visit order and the
+ *  fee-agreement lane opened CONTACT COLLECTION — asking a client who was
+ *  checking his own booking for his phone number. The answer he needs is the
+ *  Евидентен број of the visit already arranged.
+ *
+ *  THREE PARTS, all required: a FLAT object, a WHICH word, and the arranging
+ *  verb family (договори/закажи/резервирај/термин). «DOGOVORI GO 69» has no
+ *  WHICH word (that is a command), and «ZA KOJ STAN E?» has no arranging verb
+ *  (that is the where-is lane). */
+export function detectArrangementRecall(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat) return false;
+  // BOTH SCRIPTS for every noun: the capture is typed in Latin, but the same
+  // question arrives in Cyrillic («ЗА КОЈ СТАН ТИ КАЖАВ ДА ДОГОВОРИШ?») and a
+  // Latin-only stem silently answered it with the contact ask again.
+  const flatNoun = /(?<![\p{L}\p{N}])(?:stan\p{L}*|стан\p{L}*|апартман\p{L}*|apartman\p{L}*|гарсоњер\p{L}*|garso\p{L}*|недвижност\p{L}*|nedviznost\p{L}*)(?![\p{L}\p{N}])/iu;
+  const which = /(?<![\p{L}\p{N}])(?:za\s+koj|за\s+кој|koj|кој|koja|која|koe|кое)(?![\p{L}\p{N}])/iu;
+  const arranging = /(?:договор\p{L}*|dogovor\p{L}*|закаж\p{L}*|заказ\p{L}*|zakaz\p{L}*|резервир\p{L}*|rezervir\p{L}*|термин\p{L}*|termin\p{L}*)/iu;
+  return flatNoun.test(flat) && which.test(flat) && arranging.test(flat);
+}
+
 /** True when the client asks WHEN a visit could happen ("KOGA BI MOZELO DA
  *  SE POSETI", "koga moze poseta?") — a timing QUESTION, not a visit command.
  *  The [19:56] bug: the closing catch-all read the visit noun as visit
@@ -2340,7 +2369,16 @@ function collectMoneyMentions(text: string): MoneyMention[] {
   // го нема во нашата понуда» to a client naming his price. Latin ONLY and
   // clause-final: the Cyrillic «е» is the copula («DA, 63 E TAA» = "63 IS
   // that"), and a trailing word («1286E PO M2») is a rate, never a cap.
-  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d[\d\s.,]*)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(евра|евро|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}]))?/giu;
+  // TWO FIGURES ARE TWO FIGURES (the [02:14] capture: «PA DA RECEME 1500 1600
+  // EVRA ZA KVADRAT»). The old digit run was `\d[\d\s.,]*`, so the whitespace
+  // between a RANGE was swallowed and the two rates came back as ONE amount —
+  // 15.001.600 €/m², a cap no flat can meet, so the pool emptied and the turn
+  // denied stock the client had just been shown. A group separated by a space
+  // is only ever a THOUSANDS group (exactly three digits: «100 000», «1 500
+  // 000»); anything else ends the number and the next figure is read on its
+  // own («1500 1600» → 1500 and 1600). The separators are still stripped below,
+  // so the parse of a genuine grouped number is unchanged.
+  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d+)?)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(евра|евро|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}]))?/giu;
   const out: MoneyMention[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(cleaned)) !== null) {
@@ -2386,11 +2424,17 @@ export function detectBudget(text: string): string | undefined {
 export function detectSqmRate(text: string): number | undefined {
   const mentions = collectMoneyMentions(text);
   if (mentions.length === 0) return undefined;
+  // A BAND NAMES ITS CEILING (the [02:14] capture): «1500 1600 EVRA ZA
+  // KVADRAT» is a RANGE, and a cap taken from the lower end would refuse the
+  // very rows the client named. Every figure that carries the per-m² marker
+  // counts; the largest is the one he is asking up to.
+  let best: number | undefined;
   for (const m of mentions) {
     const tail = text.slice(m.end, m.end + 24);
-    if (SQM_RATE_TAIL_RE.test(tail)) return m.amount;
+    if (!SQM_RATE_TAIL_RE.test(tail)) continue;
+    if (best === undefined || m.amount > best) best = m.amount;
   }
-  return undefined;
+  return best;
 }
 
 /** THE PURCHASE MAGNITUDE (the [20:11] sweep of the captured price answers):
@@ -3563,6 +3607,12 @@ export function detectSqm(text: string): number | undefined {
   return n !== undefined && n >= 10 && n <= 5000 ? n : undefined;
 }
 
+// A BARE AFFIRMATIVE ANSWER to a closed question — the whole message is one
+// word (plus punctuation) and nothing else. It is deliberately NOT a token of
+// AGREE_PHRASES: «нормално» inside a sentence («ова не е нормално») is not a
+// yes, and the negated form must stay a complaint.
+const BARE_YES_RE = /^\s*(?:normalno|нормално|sekako|секако|vazi|важи|taka\s+e|така\s+е|tocno|точно|definitivno|дефинитивно)\s*[.!?,]*$/iu;
+
 // Agreement/contact-intent phrases — the escape hatch from the exhausted
 // dead-end ("добро", "контактирај ме" after every option was shown).
 const AGREE_PHRASES = ['во ред', 'vo red', 'се согласувам', 'se soglasuvam', 'se saglasuvam', // the nonstandard |o| spelling rides the corpus ([13:28] capture)
@@ -3763,6 +3813,15 @@ export function detectAgreement(text: string): boolean {
   // Whole-message ONLY (an elongated token inside a sentence is never a yes).
   if (/^(?:moz?e{2,}|мож[еe]{2,}|da{2,}|да{2,}|ok{2,}|dobro+)\s*[.!?]*$/iu.test(low)
     || /^(?:moz?e{2,}|мож[еe]{2,}|da{2,}|да{2,}|ok{2,}|dobro+)\s*[.!?]*$/iu.test(norm)) return true;
+  // A BARE AFFIRMATIVE ANSWER — «NORMALNO», «секако», «важи», «така е» — is a
+  // yes to the closed question the bot just asked. Whole-message ONLY, exactly
+  // like the stretched forms above: the same words inside a sentence are not a
+  // yes, and the negated form («NE E NORMALNO», «ова реално не е нормално») is
+  // a complaint, not consent. Without this arm every pending confirm was
+  // thrown away in silence and the OLD anchor served (the [00:47] capture:
+  // «A KAJ CITY MALL?» → «NORMALNO» answered «немам … во непосредна близина на
+  // ТЦ Лептокарија» — he moved the search and got the place he had left).
+  if (BARE_YES_RE.test(low) || BARE_YES_RE.test(norm)) return true;
   return tokens.some(t => AGREE_WORDS.has(t)
     && !(mozeIsCriteria && (t === 'moze' || t === 'може'))
     && !(daIsVerbPhrase && (t === 'da' || t === 'да'))
@@ -7867,8 +7926,13 @@ export function isDistanceQuestion(text: string): boolean {
     // this function whether the message is a distance question).
     return /(?<![\p{L}])(?:od|do|од|до)(?![\p{L}])\s+[\p{L}][\p{L}.'’ -]{2,40}/iu.test(text);
   }
-  // „kolku minuti / metri“ — the unit IS the distance ask.
-  if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}(?:[^.?!\\n]{0,20})${W}(?:minuti|минути|metri|метри|km|км)${E}`, 'iu'), text)) return true;
+  // „kolku minuti / metri“ — the unit IS the distance ask. THE SEPARATOR IS
+  // ONE SEPARATOR: the old pattern ended `kolku${E}` and then required `${W}`
+  // before the unit, so BOTH had to consume the same space and only a
+  // zero-gap message could match — «NAA KOLKU METRI E 69 DO RAMPA ?» ([01:27])
+  // was answered with a property card while «NA KOLKAVO RASTOJANIE …» worked.
+  // The gap is inside one class now, and the unit keeps its own boundary.
+  if (matchesBoth(new RegExp(`${W}(?:kolku|колку)${E}[^.?!\\n]{0,20}(?<![\\p{L}])(?:minuti|минути|metri|метри|km|км)(?![\\p{L}])`, 'iu'), text)) return true;
   // „…peske?“ / „walking?“ — a walking ask is a distance ask when it asks at all.
   if (matchesBoth(new RegExp(`${W}(?:peske|пешке|peshki|пешки|walk(?:ing)?)${E}`, 'iu'), text)
     && (text.includes('?') || matchesBoth(/(?:kolku|колку)/iu, text))) return true;
@@ -8473,14 +8537,17 @@ const MARKET_PRICE_WORD_RE = new RegExp(
 const MARKET_SQM_UNIT_RE =
   /(?<![\p{L}\p{N}])(?:po|za|na|vo|по|за|на|во)\s*(?:kvadrat\p{L}*|квадрат\p{L}*|m2|м2|m²|м²|kvm|квм|metar|метар)(?![\p{L}\p{N}])/iu;
 // Type PLURAL — the category the client asks about, in the plural/definite.
+// `stn` is the client's own shorthand for стан (the [00:34]/[01:16] captures:
+// «STN MI TREBA», «KOLKU IDAT TAMU STNOVITE») — the same family as the flat
+// word, so the plural must know it too.
 const MARKET_TYPE_PLURAL_RE =
-  /(?<![\p{L}\p{N}])(?:stanovi|станови|stanovite|становите|kukji|куќи|kukjite|куќите|lokali|локали|lokalite|локалите|garazhi|гаражи|garsoњeri|гарсоњери|apartmani|апартмани)(?![\p{L}\p{N}])/iu;
+  /(?<![\p{L}\p{N}])(?:stanovi|станови|stanovite|становите|stnovi|стнови|stnovite|стновите|kukji|куќи|kukjite|куќите|lokali|локали|lokalite|локалите|garazhi|гаражи|garsoњeri|гарсоњери|apartmani|апартмани)(?![\p{L}\p{N}])/iu;
 // Movement of prices — „se dvizat“, „odat“, „se menuvaat“, „rastat“, „padat“.
 // The KAKO scaffold is optional but FUSED-tolerant: Viber typing runs the
 // words together — „KAKOODAT“ / „какоодат“ ([17:34]) is „како одат“, and a
 // space-only rule would miss it.
 const MARKET_MOVE_RE =
-  /(?<![\p{L}\p{N}])(?:kako|како)?\s*(?:se|се)?\s*(?:dvi[zž]\p{L}*|дви[жз]\p{L}*|odat|одат|menuv\p{L}*|менув\p{L}*|krenuv\p{L}*|кренув\p{L}*|rast\p{L}*|раст\p{L}*|pad\p{L}*|пад\p{L}*)(?![\p{L}\p{N}])/iu;
+  /(?<![\p{L}\p{N}])(?:kako|како)?\s*(?:se|се)?\s*(?:dvi[zž]\p{L}*|дви[жз]\p{L}*|odat|одат|idat|идат|menuv\p{L}*|менув\p{L}*|krenuv\p{L}*|кренув\p{L}*|rast\p{L}*|раст\p{L}*|pad\p{L}*|пад\p{L}*)(?![\p{L}\p{N}])/iu;
 // Question scaffold over the definite plural: „kakvi se cenite“, „kako cenite“.
 const MARKET_PRICE_SCAFFOLD_RE =
   /(?:kakvi|какви|kakva|каква|kakvo|какво|kako|како|koja|која|koi|кои|kolku|колку|dali|дали)\s+(?:se|се|e|е|gi|ги|ni|ни)?\s*(?:cenite|цените|cenive|цениве|cene|цене|ceni|цени)(?![\p{L}\p{N}])/iu;
@@ -8522,13 +8589,22 @@ export function detectMarketPriceAsk(text: string): boolean {
   if (firstEbNumber(text) !== undefined) return false;
   const priceWord = matchesBoth(MARKET_PRICE_WORD_RE, text);
   const rentWord = matchesBoth(MARKET_RENT_WORD_RE, text);
-  if (!priceWord && !rentWord) return false;
+  // «КОЛКУ ИДАТ СТАНОВИТЕ» / «КОЛКУ ИДАТ ПО КВАДРАТ ТАМУ» — the MOVEMENT verb is
+  // the price idiom itself („how much do they GO for“); there is no цена word
+  // in the message at all. Requiring a price noun made both [01:16] variants
+  // miss the band lane and fall into the funnel, which asked for bedrooms and
+  // budget instead of quoting Аеродром's €/m². The verb alone is not enough
+  // („како одат работите?“ would qualify), so it needs the CATEGORY in the
+  // plural beside it — the same evidence the price-noun path demands.
+  const moveWord = matchesBoth(MARKET_MOVE_RE, text);
+  const typePluralWord = matchesBoth(MARKET_TYPE_PLURAL_RE, text);
+  if (!priceWord && !rentWord && !(moveWord && typePluralWord)) return false;
   if (!matchesBoth(MARKET_ASK_SHAPE_RE, text)) return false;
   if (matchesBoth(MARKET_PRICE_REFERENCE_RE, text)) return false;
   if (rentWord) return true;
   return matchesBoth(MARKET_SQM_UNIT_RE, text)
-    || matchesBoth(MARKET_TYPE_PLURAL_RE, text)
-    || matchesBoth(MARKET_MOVE_RE, text)
+    || typePluralWord
+    || moveWord
     || matchesBoth(MARKET_PRICE_SCAFFOLD_RE, text)
     || (priceWord && matchesBoth(MARKET_SERVICE_PHRASE_RE, text));
 }
