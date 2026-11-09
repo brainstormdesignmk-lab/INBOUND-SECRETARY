@@ -117,7 +117,9 @@ test('21:23 flow: availability ack → "DA SAKAM" → VISIT FEE (not contact ask
   const ack = sent[sent.length - 1] ?? '';
   // Stems, not masculine endings: "имотот е достапен" is now "недвижноста е
   // достапна" — the contract is the availability claim, not its gender.
-  assert.ok(/достап|активн|баз|евиденц|слободн|располага/iu.test(ack), `availability ack expected, got: ${ack}`);
+  // „слобод" as a stem: the masculine pool rotates „слободен" (which the
+  // „слободн" stem never matched) alongside „достапен/активен".
+  assert.ok(/достап|активн|баз|евиденц|слобод|располага/iu.test(ack), `availability ack expected, got: ${ack}`);
   assert.ok(!FORBIDDEN_CONNECT.test(ack), `connect-phrasing leaked: ${ack}`);
   assert.equal(s.slots.ownerContactPending, true, 'ack must arm the owner-contact gate');
 
@@ -187,8 +189,12 @@ test('availability ack agrees with the ROW gender (an EB ask is a masculine fram
   const chatId = 'gender-masc';
   await handler.handle('test', chatId, 'DALI USTE E NA PRODAZBA 78?');
   const ack = sent[sent.length - 1] ?? '';
-  assert.ok(/достапен(?![\p{L}])/iu.test(ack), `masculine ack for a стан row, got: ${ack}`);
-  assert.ok(!/достапна(?![\p{L}])/iu.test(ack), ack);
+  // The masculine pool rotates («достапен / слободен / активен / на располагање»),
+  // so the contract is MASCULINE agreement, never the one word the code-built
+  // fallback happens to use.
+  assert.ok(/(?:достапен|слободен|активен)(?![\p{L}])|на\s+располагање/iu.test(ack),
+    `masculine ack for a стан row, got: ${ack}`);
+  assert.ok(!/(?:достапна|слободна|активна)(?![\p{L}])/iu.test(ack), ack);
   assert.ok(!FORBIDDEN_CONNECT.test(ack), ack);
 });
 

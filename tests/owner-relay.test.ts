@@ -420,7 +420,10 @@ test('[00:49→01:07] EB 47 transcript replay: the wrong-day owner asks are impo
     // with стан/деловен masculine, never the feminine bank pool (bug 1).
     await send('EVIDENTEN BROJ 47 DALI USTE E NA PRODAZBA?');
     const ack = sent[sent.length - 1];
-    assert.ok(/достапен|продаден| евиденти|внесен/u.test(ack), `masculine ack required: ${ack}`);
+    // The masculine pool rotates («достапен / слободен / активен / се води /
+    // фигурира»), so the contract is a masculine availability CLAIM — pinning
+    // «достапен» alone failed on the «активен во нашиот систем» variant.
+    assert.ok(/достап|продаден|слобод|актив|располага|фигурира|води|база|понуда|систем|евиденц/u.test(ack), `masculine ack required: ${ack}`);
     assert.ok(!/достапна|слободна|активна/u.test(ack), `feminine agreement must not leak: ${ack}`);
     await send('DA');
     await send('DA, SE SOGLASUVAM');

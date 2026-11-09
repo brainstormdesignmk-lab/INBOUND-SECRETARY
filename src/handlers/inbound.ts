@@ -64,7 +64,8 @@ import {
   buildLocateLandmarkIntro, buildLocateLandmarkEntry, buildLocateLandmarkFallback, LOCATE_LANDMARK_PRICE_PROBE, buildAboveBudgetNote,
   locateNoun,  buildLocateFirstAsk, buildLocateServiceAsk, buildLocateMoreSpecsAsk,
   buildLocateLandmarkPriceProbe, buildDescribeIntro,
-  AVAILABILITY_ACK, AVAILABILITY_ACK_FEM, buildPriceRelay, buildFeeAsk, buildFeePerProperty, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
+  AVAILABILITY_ACK, AVAILABILITY_ACK_FEM, AVAILABILITY_CLAIM, AVAILABILITY_CLAIM_FEM,
+  buildPriceRelay, buildFeeAsk, buildFeePerProperty, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildDiscoveryAsk, locationCriterionKnown, serviceCriterionKnown,
   buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
@@ -2113,9 +2114,22 @@ export class InboundHandler {
    *  did not give it himself (an ask that carries the EB, a card already
    *  presented, or an earlier turn that named it keeps the short ack). */
   private availabilityReply(p: Property, session: ChatSession, text: string): string {
-    const ack = ownerPropertyLabels(p).dostapen === 'достапна'
+    // A specific flat is now under discussion, so the two-way «поскапо тука или
+    // иста цена во друга населба?» offer is stale: if it survives, a later bare
+    // «да» is read as the answer to THAT question instead of the availability
+    // question — the [08:55] capture got «ги искористивме сите понуди на
+    // Водно» for the «да» that agreed to the owner check. Every ack serve
+    // retires it (this is the one seam all ack serves pass through).
+    session.slots.moreChoicePending = undefined;
+    session.slots.cheaperChoicePending = undefined;
+    // THE GENDER PICKS THE POOL (the [08:55] capture): a стан/плац/деловен
+    // простор is masculine, and the feminine pool above could never serve it —
+    // the handler fell back to ONE code-built sentence, so two availability asks
+    // in a row were answered with the identical text. Both pools rotate now.
+    const fem = ownerPropertyLabels(p).dostapen === 'достапна';
+    const ack = fem
       ? pickVariant('availability.ack', { recent: assistantTexts(session) }) ?? AVAILABILITY_ACK_FEM
-      : AVAILABILITY_ACK;
+      : pickVariant('availability.ack.masc', { recent: assistantTexts(session) }) ?? AVAILABILITY_ACK;
     const namedInText = inferPropertyId(text) !== undefined;
     const wasShown = (session.slots.presentedIds ?? []).includes(p.eb)
       || (session.slots.currentBatch ?? []).includes(p.eb);
@@ -7978,12 +7992,30 @@ export class InboundHandler {
           }
           const ack = this.availabilityReply(target, session, text);
           const svc = session.slots.service ?? target.service ?? 'buy';
-          const answer = arranging
-            ? `${ack}\n\n${pickVariant(svc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) }) ?? buildFeeAsk(svc)}`
-            : ack;
+          const feeLine = pickVariant(svc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
+            ?? buildFeeAsk(svc);
+          // THE ARROW (the [08:55] capture): «ПА ВИДИ ПРАШАЈ ДАЛИ Е СЛОБОДЕН»
+          // orders the check itself — the ack's «Дали сакате да го
+          // исконтактирам сопственикот?» is the question he just answered, and
+          // answering it with the ack again was the verbatim repeat he heard. The
+          // owner check is what the fee gate protects, so the fee is disclosed
+          // now (the same serve the FSM's confirm-arrow arm makes).
+          const arrow = detectSendToOwnerAsk(text);
+          const claim = ownerPropertyLabels(target).dostapen === 'достапна'
+            ? AVAILABILITY_CLAIM_FEM : AVAILABILITY_CLAIM;
+          const answer = arrow
+            ? feeLine
+            : arranging
+              // CHECK-THEN-ARRANGE: the availability answer + the fee question,
+              // never the ack's own consent question (he already gave it).
+              ? `${claim}. ${feeLine}`
+              : ack;
           // The fee is TOLD on this turn, so the client's next «да» is the
           // agreement — the same memory every fee.ask serve sets.
-          if (arranging) session.slots.feeDisclosed = true;
+          if (arranging || arrow) session.slots.feeDisclosed = true;
+          // The arrow consumed the pending owner contact: the check it ordered
+          // is the contact, and the fee is now the open question.
+          if (arrow) session.slots.ownerContactPending = false;
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
           this.deps.sessions.set(session);
@@ -10157,7 +10189,15 @@ export class InboundHandler {
     // budget cap lifts by consent, never silently); other-naselba wording
     // serves the same-price batch city-wide. The junk refill (over-budget,
     // off-type, off-area rows without the client's choice) never fires again.
-    if (session.slots.moreChoicePending) {
+    if (session.slots.moreChoicePending
+        // THE AVAILABILITY QUESTION OWNS A BARE «ДА» (the [08:55] capture):
+        // the ack just asked «Дали сакате да го исконтактирам сопственикот?»,
+        // and this lane read the same «да» as the answer to the older
+        // «поскапо тука или иста цена во друга населба?» — then found nothing
+        // pricier in Водно and served «ги искористивме сите понуди на Водно». A
+        // pending offer never outranks the question the client is answering
+        // (same guard shape as the pendingVisitConfirm lane below).
+        && !session.slots.ownerContactPending) {
       // IMPORTANT: a PRICIER word wins before the widen check. The widen
       // detector's budget-up escape makes detectExplicitWiden("DA POSKAPO")
       // true (an upward ask IS a relaxation), so an elsewhere-first order
@@ -12355,14 +12395,26 @@ ${contactReminder}`;
       // BUT: if the client says "DOBRO KE PLATAM" (I'll pay), that's a fee
       // payment agreement — skip this block and let it reach the fee agreement
       // path below.
-      next = 'closing';
-      session.state = 'closing';
-      session.slots.ownerContactPending = false;
       const service = session.slots.service ?? props[0]?.service ?? 'buy';
-      const fee = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
-        ?? buildFeeAsk(service);
-      reply = fee;
-      bankKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+      // THE FEE WAS ALREADY TOLD (the [08:55] capture): the availability turn
+      // disclosed it together with the check-then-arrange answer, so this «да»
+      // IS the fee agreement — answering it with the fee again is the re-serve
+      // defect. Close the gate and ask for name and phone instead.
+      const feeDone = !!session.slots.feeDisclosed;
+      session.slots.ownerContactPending = false;
+      if (feeDone) session.slots.viewingFeeAgreed = true;
+      next = feeDone ? 'contact_collection' : 'closing';
+      session.state = next;
+      const needName = !session.slots.name;
+      const needPhone = !session.slots.phone;
+      const contactKey = needName && needPhone ? 'contact.ask.name.phone'
+        : needName ? 'contact.ask.name' : 'contact.ask.phone';
+      const feeKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+      bankKey = feeDone ? contactKey : feeKey;
+      reply = feeDone
+        ? (pickVariant(contactKey, { recent: assistantTexts(session) })
+          ?? buildContactAsk(session.slots, assistantTexts(session)))
+        : (pickVariant(feeKey, { recent: assistantTexts(session) }) ?? buildFeeAsk(service));
     } else if (next === 'closing' && before === 'closing'
         && detectAgreement(text)
         && !session.slots.ownerContactPending

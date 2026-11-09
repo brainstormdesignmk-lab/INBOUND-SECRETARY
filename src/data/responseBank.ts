@@ -269,6 +269,14 @@ export const POOL_CONTRACTS: Record<string, RegExp> = {
   'owner.availability.ack.noterm':
     /^(?=[\s\S]*(?:достапн|слободн))(?=[\s\S]*(?:термин|кога|кој\s+ден|колку\s+часот))(?=[\s\S]*\?\s*$)/iu,
   'discovery.waiver.ack': /големин[аата]|квадратур/iu,
+  // THE MASCULINE AVAILABILITY ACK (the [08:55] capture): a стан/плац/деловен
+  // простор agrees in the masculine, so a variant must carry MASCULINE
+  // agreement («достапен/слободен/активен/располага» — never «достапна»), ask
+  // the owner-contact question, mention no fee and no figure, and end on the
+  // question. Enforced on every serve, not only in the tests, so a learned row
+  // that drops the question can never reach the screen.
+  'availability.ack.masc':
+    /^(?![\s\S]*(?:достапна|слободна|активна|евидентирана|надомест|денар|провизи|поврзам|\d))(?=[\s\S]*(?:достапен|слободен|активен|располага|фигурира|база))(?=[\s\S]*(?:исконтактирам|контактирам|стапам|слушам))(?=[\s\S]*\?\s*$)/iu,
   // THE EMPTY-SEARCH PAIRS. Both forms say the SAME two things — nothing fits
   // the criteria HERE — and then offer a way out (keep the criteria for later,
   // or look in another part of town). The place form is the one that names the

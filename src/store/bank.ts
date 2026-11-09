@@ -100,6 +100,7 @@ export const FROZEN_BANK_KEYS = new Set([
 export const DATA_DRIVEN_KEYS = new Set([
   'price.ask',          // price is read from the property row
   'availability.ack',   // availability comes from owner verdict / DB flag
+  'availability.ack.masc', // the masculine twin (стан/плац/деловен простор)
   'address.exact',      // address privacy protocol
   'queued.confirm',     // queue position is live data
   'vague.time.owner',   // the owner's proposed time is live data

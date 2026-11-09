@@ -7808,6 +7808,17 @@ export function isPlaceSearchPivot(text: string): boolean {
 }
 
 export function isPoiConfirmQuestion(text: string): boolean {
+  // A PROPERTY-STATE QUESTION IS NOT A PLACE QUESTION (the [08:55] capture):
+  // «ОВОЈ НА ВОДНО СЛОБОДЕН Е ?» names the flat by its area and asks whether it
+  // is free — and this lane, which claims any message with a place word and a
+  // trailing «?», answered «Точно, Станот со Евидентен број 79 се наоѓа на
+  // Водно» twice: a location sentence for a question about availability, so the
+  // client never got the ack, the owner check or the fee. An availability
+  // adjective beside a flat is the STATE lane's traffic — exactly like
+  // isFeeTraffic standing the place lanes down on money. Genuine place asks
+  // («da ne e vo karpos ?», «овај кај Црногорска амбасада е?») carry no
+  // availability word and keep their answer.
+  if (detectAvailabilityAsk(text)) return false;
   // A PLACE NAMED AS A NEW SEARCH LOCATION is not a confirm — the trailing «?»
   // alone used to claim it (see isPlaceSearchPivot).
   if (isPlaceSearchPivot(text)) return false;

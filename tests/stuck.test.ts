@@ -1988,7 +1988,10 @@ test('availability ask: "ve kontaktiram ... broj 53 \n dali e seuste dostapen?" 
   assert.equal(s.slots.interestedPropertyId, 53);
   // availability ack anchor (bank-backed — pickVariant rotates, so the anchor
   // must cover every legitimate ack wording: available/in-database/free)
-  assert.ok(/(?:достап|постои|баз|слободн|активн|располагање|евидентиран)/i.test(sent[0]), sent[0]);
+  // Stems, not the masculine ending: the masculine pool rotates «слободен /
+  // активен / достапен / во евиденција», and «слободн»/«активн»/«евидентиран»
+  // never match those forms.
+  assert.ok(/(?:достап|постои|баз|слобод|актив|располагање|евиденц)/i.test(sent[0]), sent[0]);
   assert.ok(sent[0].includes('?'), sent[0]); // must be a QUESTION (permission ask)
   assert.ok(!sent[0].includes('500 денари'), sent[0]); // fee NOT yet disclosed
   assert.ok(!sent[0].includes('Станот под Евидентен'), sent[0]); // never the card
@@ -2781,7 +2784,7 @@ test('the [19:28] bug: EB named in line 1, digit-less availability ask in line 2
   s = await send('DALI SEUSTE E DOSTAPEN?');
   const reply = sent[sent.length - 1];
   assert.ok(!reply.includes('Дали го знаете Евидентен број'), `EB question must not fire: ${reply.substring(0, 160)}`);
-  assert.ok(/(?:достап|постои|баз|слободн|активн|располагање|евидентиран|поврзам|исконтактирам|стапам)/i.test(reply), `availability ack expected: ${reply.substring(0, 160)}`);
+  assert.ok(/(?:достап|постои|баз|слобод|актив|располага|фигурира|исконтактирам|стапам|слушам)/i.test(reply), `availability ack expected: ${reply.substring(0, 160)}`);
   assert.equal(s.state, 'closing');
 });
 
@@ -2812,7 +2815,7 @@ test('the [20:02] bug: a 3-line paste with the EB inside must NEVER ask for the 
   assert.equal(s.slots.propertyId, 53, `EB must be captured: ${JSON.stringify(s.slots)}`);
   assert.ok(!sent.some(t => t.includes('Дали го знаете Евидентен број')),
     `EB question must not fire: ${JSON.stringify(sent)}`);
-  assert.ok(/(?:достап|постои|баз|слободн|активн|располагање|евидентиран|поврзам|исконтактирам|стапам)/i.test(sent[sent.length - 1] ?? ''),
+  assert.ok(/(?:достап|постои|баз|слобод|актив|располага|фигурира|исконтактирам|стапам|слушам)/i.test(sent[sent.length - 1] ?? ''),
     `availability ack expected: ${sent[sent.length - 1]?.substring(0, 160)}`);
   assert.equal(s.state, 'closing');
 });

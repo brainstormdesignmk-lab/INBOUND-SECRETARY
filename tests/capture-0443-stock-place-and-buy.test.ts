@@ -191,7 +191,9 @@ test('[04:47] «KAJ DRZAVNA» is the hospital, and the recall serves the flat th
   assert.ok(!ebsIn(recall.reply).includes(42), 'a business premise is not an apartment');
 
   const availability = await send('DALI SE PRODAVA USTE?');
-  assert.match(availability.reply, /достапен|достапна/u, availability.reply);
+  // The ack pools rotate; the contract is the availability CLAIM („достапен /
+  // слободен / активен / на располагање / во базата"), never one adjective.
+  assert.match(availability.reply, /достап|слобод|активн|располага|база/u, availability.reply);
   assert.equal(availability.session.slots.propertyId, 66);
   assert.equal(availability.session.slots.service, 'buy');
 });

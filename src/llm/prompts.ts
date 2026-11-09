@@ -47,6 +47,16 @@ export const AVAILABILITY_ACK =
 export const AVAILABILITY_ACK_FEM =
   'Би требало да е сеуште достапна. Дали сакате да го исконтактирам сопственикот за да ги потврдиме моменталната достапност и цената?';
 
+/** The CLAIM half alone, for the check-then-arrange turn (the [07:06]/
+ *  [08:55] captures): the client has already said he wants the visit (or ordered
+ *  the check), so answering with the ack's own «Дали сакате да го
+ *  исконтактирам сопственикот?» asks him to give the same consent twice. The
+ *  availability answer still stands — the fee question follows it. */
+export const AVAILABILITY_CLAIM =
+  'Би требало да е сеуште достапен';
+export const AVAILABILITY_CLAIM_FEM =
+  'Би требало да е сеуште достапна';
+
 /** The owner dictated a NEW price — relayed to the client (code-built, exact). */
 export function buildPriceRelay(eb: number, newPrice: number, oldPrice?: number): string {
   const np = newPrice.toLocaleString('mk-MK');
