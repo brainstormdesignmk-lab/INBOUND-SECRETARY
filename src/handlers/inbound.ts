@@ -15,7 +15,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace } from '../data/properties';
-import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
+import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -93,6 +93,21 @@ const NON_TEXT_REPLY = 'Ве молам, испратете ми текстуа�
 // naselba, or another one) instead of deciding for the client.
 const AREA_DERIVE_M = 1500;
 const LANDMARK_NEAR_M = 1000;
+// LANDMARK_REF_M: the radius inside which a row may be read as THE property the
+// client just named by its place — «станот СПРОТИ Димитар Миладинов» points at
+// the building across the street, not at everything within a walk. A 1 km ring
+// bound three rows for that school (69 m, 303 m, 324 m — the last two in other
+// districts), which is a which-one question about flats the client never meant;
+// 150 m keeps the one across the street and lets the wider ring serve only as
+// the named alternatives (the [12:22]/[12:24] capture).
+const LANDMARK_REF_M = 150;
+// …and ONLY «спроти/наспроти» may claim that ring. «СПРОТИ X» means the building
+// FACING X — one address; «кај/близу/околу X» means the vicinity, where a batch
+// of nearby flats is the honest answer and «кое од нив?» the honest question
+// (the [20:24]/[22:03] Broz Cafe captures: 95 at 123 m, 77 at 303 m are BOTH
+// «кај Броз кафе» and the client is owed the choice). Distance alone cannot
+// separate the two cases — the predicate is what the client SAID.
+const LANDMARK_OPPOSITE_RE = /(?:спроти|наспроти|sproti|nasproti)/iu;
 // An EXPLICIT Евидентен број in the text («број 61», «еб 130», «евидентен број 61»).
 // The seen-listing recall lane yields to the number funnel when the client names
 // one — but it must NOT read a PRICE as one: inferPropertyId() takes the
@@ -1602,7 +1617,7 @@ export class InboundHandler {
     return hits.length === 1 ? hits[0] : undefined;
   }
 
-  private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean; offerAtPlace?: boolean }): Promise<{ prop?: Property; clarify?: string; fromFeed?: boolean; clarifyEbs?: number[]; clarifyAnchor?: { name: string; lat: number; lon: number } } | undefined> {
+  private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean; offerAtPlace?: boolean; namedAtPlace?: boolean }): Promise<{ prop?: Property; clarify?: string; fromFeed?: boolean; clarifyEbs?: number[]; clarifyAnchor?: { name: string; lat: number; lon: number } } | undefined> {
     const ebSet = new Set<number>();
     for (const eb of [
       ...(session.slots.presentedIds ?? []),
@@ -1703,7 +1718,16 @@ export class InboundHandler {
     }
     const offerAtPlace = opts?.offerAtPlace === true
       && OFFER_ASK_RE.test(text) && (LANDMARK_PREP_RE.test(text) || ANCHOR_WORD_RE.test(text)) && !!poi;
-    if (discussed.length === 0 && !((sig.descriptor && pointsAtOne) || offerAtPlace)) return undefined;
+    // «ГО БАРАМ СТАНОТ СПРОТИ X» IS A ONE-PROPERTY READING TOO (the [12:24]
+    // capture): the client names the flat by the place it faces and asks to find
+    // it — no availability word, no demonstrative, no have-verb, so neither
+    // pointsAtOne nor offerAtPlace stood up and the cold path returned before
+    // the feed was read. The funnel then asked for bedrooms and a budget about a
+    // flat the agency can locate from the map. A resolved landmark + a property
+    // descriptor IS the one-place reading (the caller opts in only for the
+    // search shapes it owns).
+    const namedAtPlace = opts?.namedAtPlace === true && !!sig.descriptor && !!poi;
+    if (discussed.length === 0 && !((sig.descriptor && pointsAtOne) || offerAtPlace || namedAtPlace)) return undefined;
 
     const cands: MentionCandidate[] = discussed.map(p => {
       const c: MentionCandidate = {
@@ -1741,7 +1765,7 @@ export class InboundHandler {
     // THE FEED PASS ALSO SERVES THE «ТАМУ» RECALL: it has no descriptor word to
     // narrow by (the place came from the session), and skipping it here would
     // return the turn to the funnel after the anchor was correctly read.
-    if (!match && (sig.descriptor || offerAtPlace)) {
+    if (!match && (sig.descriptor || offerAtPlace || namedAtPlace)) {
       // THE HINT NAMES SOMETHING SHE HAS NOT SHOWN (the [01:20] capture): the
       // client points at «овој кај СЈО» while the cards on the table are two
       // other flats. Reading only the presented set binds nothing, and the
@@ -1808,7 +1832,20 @@ export class InboundHandler {
       const placedCands = placed.length > 0
         ? placed
         : (poi && mapped ? [] : typedCands);
-      const feedHit = resolveMention(text, placedCands, { poi });
+      // THE FLAT AT THE PLACE OUTRANKS THE ROWS MERELY NEAR IT (the [12:22]
+      // capture): «станот спроти Димитар Миладинов» — the school's own building
+      // is 69 m away, the next mapped row 303 m and another 324 m (both other
+      // districts). The resolver scores every row in the 600 m descriptor ring
+      // equally by map evidence, so the three-way tie became an ambiguous
+      // «which of these three?» about flats the client never meant. When at
+      // least one row stands inside LANDMARK_REF_M, ONLY those rows are the
+      // reading: one across the street binds; two studios at one embassy still
+      // ask WHICH one (the [09:59] contract).
+      const atPlace = poi && LANDMARK_OPPOSITE_RE.test(text)
+        ? placedCands.filter(c => c.lat !== undefined && c.lon !== undefined
+          && distM(poi.lat, poi.lon, c.lat, c.lon) <= LANDMARK_REF_M)
+        : [];
+      const feedHit = resolveMention(text, atPlace.length > 0 ? atPlace : placedCands, { poi });
       if (feedHit?.kind === 'unique' && feedHit.eb !== undefined) match = feedHit;
       if (feedHit?.kind === 'ambiguous' && (feedHit.candidates ?? []).length > 1) {
         // Several feed rows sit near the place the client named (two Центар
@@ -4696,7 +4733,14 @@ export class InboundHandler {
     // во Аеродром“ IS the market question, and the declared service simply
     // selects the segment (rent) for the measurement. Before this, the rent
     // wording fell into the funnel and asked „на кој дел од градот?“.
-    if (detectMarketPriceAsk(text)
+    // THE BARE LEVEL FOLLOW-UP IS THE SAME QUESTION (the [12:33] capture):
+    // «КОЛКУ ОДАТ КАЖИ МИ ПРВО» names no area, no category and no price noun —
+    // the scope is the one on screen, so the sentence only asks it to be
+    // quoted. Without this arm the client who had just answered «ПРОДАЖБА ДА»
+    // got the bedrooms+budget grill instead of the level he asked for twice.
+    const marketLevelFollowUp = detectMarketLevelFollowUp(text)
+      && !!(session.slots.poiAnchor || session.slots.location);
+    if ((detectMarketPriceAsk(text) || marketLevelFollowUp)
       && !detectBothServices(text)
       && inferPropertyId(text) === undefined) {
       const feedLocs = await this.areaLocs(text);
@@ -4713,9 +4757,23 @@ export class InboundHandler {
       // detectLocation() returns only the bare family name („Карпош“) for
       // „KARPOS 2“ — which would measure all of I–IV under one label.
       const numbered = numberedAreasNamed(text, feedLocs);
-      const areaRaw = cityAsk ? undefined
+      const namedArea = cityAsk ? undefined
         : numbered.length > 0 ? numbered.join(', ')
-          : ((await this.areaNamed(text)) ?? session.slots.location);
+          : await this.areaNamed(text);
+      // A CITY ASK INHERITS NOTHING (the [17:34] pin): «цените во Скопје» must
+      // not be narrowed by the area or the place the funnel happened to hold.
+      const areaRaw = cityAsk ? undefined : namedArea ?? session.slots.location;
+      // THE PLACE HE NAMED IS THE SCOPE (the [12:31] capture): «КОЛКУОДАТ СЕГА
+      // СТАНОВИТЕ ОКОЛУ БУНЈАКОВЕЦ ?» — Буњаковец is not one of the feed's
+      // naselba values (the rows there are filed under «Центар»), so the only
+      // honest answer to «околу Буњаковец» is the band MEASURED AROUND THE
+      // PLACE, not the whole district's. The map place therefore outranks the
+      // inferred area when the message (or the chat, for the bare follow-up)
+      // names one; an explicitly named AREA with no place keeps the old lane.
+      const namedPlace = cityAsk ? undefined : this.placeWish(text);
+      const marketPlace = cityAsk ? undefined
+        : namedPlace ?? (!namedArea ? this.resolvePlace(session.slots.poiAnchor) : undefined);
+      const placeLabel = marketPlace ? displayPlaceName(marketPlace.name) : undefined;
       const pluralType = hasMarketTypePlural(text);
       const anchoredEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
       // A RENT noun alone („колку му е киријата?“, „kolku mu e renta?“) is a
@@ -4723,7 +4781,7 @@ export class InboundHandler {
       // message NAMES an area or the category in the plural. Without this the
       // rent word sent the shown flat's price question into a city band.
       const rentOnlyAsk = isMarketRentWordAsk(text);
-      const areaInMessage = cityAsk || numbered.length > 0 || (await this.areaNamed(text)) !== undefined;
+      const areaInMessage = cityAsk || numbered.length > 0 || namedArea !== undefined;
       if (areaInMessage || pluralType || (anchoredEb === undefined && !rentOnlyAsk)) {
         const slots = extractSlots(text);
         const isLand = !!slots.plac;
@@ -4739,6 +4797,13 @@ export class InboundHandler {
         const topicRows = (await this.deps.properties.getAll()).filter(p =>
           typeOk(p) && typeof p.price === 'number' && p.price > 0);
         const allRows = topicRows.filter(p => typeof p.sqm === 'number' && p.sqm > 0);
+        // THE ROWS AROUND THE NAMED PLACE — the landmark scope of the band (the
+        // same one-kilometre honesty ring every «во близина на» claim uses).
+        const placeRows = marketPlace
+          ? allRows.filter(p => typeof p.lat === 'number' && typeof p.lon === 'number'
+            && p.lat !== 0 && p.lon !== 0
+            && distM(marketPlace.lat, marketPlace.lon, p.lat, p.lon) <= LANDMARK_NEAR_M)
+          : [];
         // rowsInArea(): a numbered sub-area is matched EXACTLY (digits, roman
         // and ordinal words all normalize), so „Карпош II“ can never absorb
         // „Карпош III“ rows; everything else keeps the fuzzy place matcher.
@@ -4758,8 +4823,10 @@ export class InboundHandler {
         // (Аеродром rent = one row; Карпош = one row). The caller says so
         // instead of dressing a single offer up as a market range.
         type BandInfo = { text: string; n: number; lo: number; hi: number; unit: string };
-        const bandFor = (area: string | undefined): BandInfo | undefined => {
-          const rows = (area ? inArea(area) : allRows).filter(p => p.service === segment);
+        /** The band over a given row set — the place scope and the area scope
+         *  share one measurement (and one honesty rule) through this seam. */
+        const bandOf = (pool: Property[]): BandInfo | undefined => {
+          const rows = pool.filter(p => p.service === segment);
           // €/m² is computed by pricePerM2() — a SALE row without м² contributes
           // NO value (never price/1), so one bad row cannot stretch the band.
           const values = (segment === 'rent'
@@ -4791,6 +4858,8 @@ export class InboundHandler {
             : `цените варираат од ${fmt(lo)} до ${fmt(hi)} евра за м²`;
           return { text, n: values.length, lo, hi, unit: 'евра за м²' };
         };
+        const bandFor = (area?: string): BandInfo | undefined =>
+          bandOf(area ? inArea(area) : allRows);
         // The sentence a band becomes in an area (one row is stated AS one row).
         const bandSentence = (label: string, b: BandInfo): string =>
           b.n === 1
@@ -4843,14 +4912,16 @@ export class InboundHandler {
         // segment (the band it will fall back to). Without this the empty
         // sub-area left the segment to guess „rent“ and the family band the
         // reply was about to quote came back empty.
-        const scopeRows = areaNames.length > 0
-          ? areaNames.flatMap(a => {
-            const own = inArea(a);
-            if (own.length > 0) return own;
-            const base = familyBaseOf(a);
-            return base ? inArea(base) : [];
-          })
-          : allRows;
+        const scopeRows = placeRows.length > 0
+          ? placeRows
+          : areaNames.length > 0
+            ? areaNames.flatMap(a => {
+              const own = inArea(a);
+              if (own.length > 0) return own;
+              const base = familyBaseOf(a);
+              return base ? inArea(base) : [];
+            })
+            : allRows;
         // The service the MESSAGE declares wins („цените за изнајмување…“),
         // then the funnel's own segment, then whatever the scope holds.
         const segmentSource = scopeRows.length > 0 ? scopeRows : allRows;
@@ -4878,8 +4949,14 @@ export class InboundHandler {
           lines.push(cap(tail));
           answer = lines.join('\n');
         } else {
-          const label = areaNames[0] ?? (cityAsk ? 'Скопје' : undefined);
-          const band = bandFor(areaNames[0]);
+          // THE PLACE BAND WINS when the client asked around a landmark: the
+          // label names the place AND says the ring is its surroundings, so the
+          // district's whole spread is never presented as that corner's price.
+          const placeBand = marketPlace ? bandOf(placeRows) : undefined;
+          const label = placeBand && placeLabel
+            ? `${placeLabel} и околината`
+            : areaNames[0] ?? (cityAsk ? 'Скопје' : undefined);
+          const band = placeBand ?? bandFor(areaNames[0]);
           if (!band) {
             // Honest no-data: never invent a band, and never promise offers in
             // an area that holds none (a numbered sub-area with no rows).
@@ -4920,6 +4997,11 @@ export class InboundHandler {
           ? areaNames.some(name => bandFor(name) !== undefined)
           : bandFor(undefined) !== undefined;
         if (areaRaw && anyBand) session.slots.location = areaRaw;
+        // Keep the place so the bare follow-up («КОЛКУ ОДАТ?») measures the SAME
+        // scope — but only when it actually produced the band (a place with no
+        // rows must not strand the funnel on an empty anchor).
+        if (marketPlace && marketPlace === namedPlace
+          && bandOf(placeRows) !== undefined) session.slots.poiAnchor = marketPlace.name;
         routeLog(chatId, text, 'MARKET_PRICE');
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
@@ -7426,6 +7508,73 @@ export class InboundHandler {
           this.deps.sessions.set(session);
           await this.sendRaw(session, answer);
           return;
+        }
+        // THE FLAT HE IS LOOKING FOR, NAMED BY ITS PLACE (the [12:24] capture):
+        // «ГО БАРАМ СТАНОТ СПРОТИ ДИМИТАР МИЛАДИНОВ». The client is not
+        // recalling a listing (no «имавте», no price), not asking whether it is
+        // still free, and has no number — he is SEARCHING for the one flat he
+        // can describe by the building it faces. The locate funnel answered with
+        // «Колку спални соби… / До која цена…» — a criteria grill about a flat
+        // the map had already placed. Helpful mode: bind the row AT the place
+        // and serve it with the one question that matters (is this the one?);
+        // nothing of that category there → the guided funnel keeps the turn
+        // (it asks for the details the map cannot give).
+        const SEARCH_BY_PLACE_RE =
+          /(?:го\s+барам|baram|барам|го\s+најдам|go\s+najdam|го\s+најди|каде\s+(?:е|се\s+наоѓа)|kade\s+(?:e|se\s+naogja)|има\s+ли|ima\s+li|сакам\s+да\s+го\s+(?:видам|најдам)|sakam\s+da\s+go\s+(?:vidam|najdam)|ми\s+треба|mi\s+treba)/iu;
+        // …and the place must be a LANDMARK the sentence points at: a search
+        // over a NEIGHBOURHOOD («МИ ТРЕБА СТАНОТ ВО ЦЕНТАР») belongs to the
+        // funnel/serve lanes, and binding the nearest Центар row to it would
+        // answer a district search with one ad. The anchor word is required and
+        // the feed's own area table must not own the resolved name.
+        const PLACE_ANCHOR_RE = /(?:спроти|наспроти|близу|во\s+близина\s+на|кај|sproti|nasproti|blizu|kaj)/iu;
+        const wantsPlaceSearch = !offerMb?.prop && SEARCH_BY_PLACE_RE.test(text)
+          && PLACE_ANCHOR_RE.test(text);
+        const searchPlace = wantsPlaceSearch ? this.placeWish(text) : undefined;
+        const searchPlaceIsArea = searchPlace
+          ? await this.areaNamed(searchPlace.name).catch(() => undefined) : undefined;
+        if (wantsPlaceSearch && searchPlace && !searchPlaceIsArea) {
+          const namedMb = await this.bindMention(text, session, { namedAtPlace: true });
+          if (namedMb?.clarify) {
+            session.state = 'property_locate';
+            await this.sendIfClarify(namedMb, text, session);
+            return;
+          }
+          if (namedMb?.prop) {
+            const p = namedMb.prop;
+            const place = this.placeWish(text)
+              ?? (session.slots.poiAnchor ? this.resolvePlace(session.slots.poiAnchor) : undefined);
+            const areaLabel = session.slots.location
+              ?? (place ? await this.areaAtPlace({ lat: place.lat, lon: place.lon, name: place.name }).catch(() => undefined) : undefined);
+            session.state = 'property_locate';
+            if (place) session.slots.poiAnchor = place.name;
+            if (areaLabel) session.slots.location = areaLabel;
+            session.slots.currentBatch = [p.id];
+            session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), p.id])];
+            // The pre-resolve the follow-ups need (address / where-is / surroundings).
+            if (!session.slots.nearbyLandmarks?.length) {
+              const nearby = this.landmarks.nearbyLandmarks(p);
+              if (nearby.length > 0) {
+                session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
+                session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+                session.slots.nearbyLandmarkEb = p.eb;
+                session.slots.landmarkIndex = 0;
+                session.slots.lastLandmark = undefined;
+              }
+            }
+            const typeSlots = {
+              house: session.slots.house === true, business: session.slots.business === true,
+              plac: session.slots.plac === true, garsonjera: slots.garsonjera === true
+                || p.studio === true,
+              service: slots.service ?? session.slots.service,
+            };
+            const answer = `${buildLocateLandmarkEntry(place?.name ?? '', areaLabel, typeSlots, 1)}\n\n${buildLocateMatches([p], session.history.length)}`;
+            routeLog(chatId, text, 'PROPERTY_DESCRIPTION');
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, answer);
+            return;
+          }
         }
         // No service declared — route to property_locate for guided search
         // extractSlots doesn't resolve feed neighborhoods — use detectLocation

@@ -1022,6 +1022,16 @@ const CHARGE_MONEY_RE = new RegExp(
   'iu');
 
 export function detectAvailabilityAsk(text: string): boolean {
+  // THE «ПРОДАЌБА» SLIP (the [12:22] capture): the client typed «ДАЛИ ВИ Е
+  // УШТЕ НА ПРОДАЌБА СТАНОТ…» — «ќ» for «ж» is the phone-keyboard slip in the
+  // same family as «продава/продажба» (both are the sale noun to the client),
+  // and every availability arm below is written with the correct «продажба»,
+  // so the flat he named got «дали сакате да купите или да изнајмите?». The
+  // reading is folded ONCE here, where the whole family shares it, instead of
+  // hand-adding the slip to a dozen alternations. Only the sale NOUN is folded:
+  // «плаќа/ќе» are ordinary words and stay untouched.
+  text = text.replace(/(?<![\p{L}])прода[ќк]б\p{L}*/giu, (m) => m.replace(/[ќк]/giu, 'ж'))
+    .replace(/(?<![\p{L}])proda[kj]b\p{L}*/giu, 'prodazba');
   // FEE-CONTEXT VETO (the [09:25] transcript): "zematr provizija za poseta?"
   // asks about the viewing FEE (provision.ask owns it), but the земат verb
   // arm of the sweep regexes read "зематр…?" as "is it taken?". A
@@ -3338,14 +3348,22 @@ export function detectEyeCatch(text: string): boolean {
 // client who had never seen any property. The forward pattern ALSO requires
 // the definite article (станот/stanot/куќата…) — bare "стан во X" is a general
 // search that belongs to discovery, never to the locate funnel.
+// THE PROXIMITY ANCHOR SET IS THE MAP'S OWN VOCABULARY: кај/во/околу PLUS
+// спроти/наспроти/близу (the [12:22]/[12:24] capture «СТАНОТ СПРОТИ ДИМИТАР
+// МИЛАДИНОВ»). «Спроти» is how a Skopje client names the building across the
+// street — every other landmark seam (extractMentionSignals' descriptor tail,
+// hasProximityAnchor, extractPoiWishCandidates) already reads it, so this
+// grammar was the one place that could not: a flat named by the school it
+// faces fell through to «купување или изнајмување?». «до» is deliberately NOT
+// added — «станот до 100.000» is a budget, not a place.
 const PROPERTY_DESC_RE =
-  /(?<![\p{L}\p{N}])(?:гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a|е|и)|стан(?:от)|stan(?:ot)|куќ(?:ата)|kuk(?:ata|i)|локалот|lokalot|vilata|deloven(?:\s+prostor)?)(?![\p{L}\p{N}])(?:\s+(?:кај|кaj|kaj|во|vo|near|close|околу|okolu))/iu;
+  /(?<![\p{L}\p{N}])(?:гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a|е|и)|стан(?:от)|stan(?:ot)|куќ(?:ата)|kuk(?:ata|i)|локалот|lokalot|vilata|deloven(?:\s+prostor)?)(?![\p{L}\p{N}])(?:\s+(?:кај|кaj|kaj|во|vo|near|close|околу|okolu|спроти|sproti|наспроти|nasproti|близу|blizu))/iu;
 // Reversed word order: location preposition + property type — "кај crnogorska е
 // станот", "во aerodrom е тој стан". The client puts the neighborhood first
 // and the property type after the copula. Bare type allowed here — the
 // fronted preposition phrase supplies the specificity ("во карпош е тој стан").
 const PROPERTY_DESC_REV_RE =
-  /(?<![\p{L}\p{N}])(?:кај|кaj|kaj|во|vo|near|close|околу|okolu)(?![\p{L}\p{N}])\s+[^.!?\n]{2,30}\s+(?:е|е\s+ли)?\s*(?<![\p{L}\p{N}])(?:стан(?:от)?|stan(?:ot)?|куќ(?:ата|а)|kuk(?:ata|a)?|гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a)?|lokal(?:ot|a)?|vila|vilata)(?![\p{L}\p{N}])/iu;
+  /(?<![\p{L}\p{N}])(?:кај|кaj|kaj|во|vo|near|close|околу|okolu|спроти|sproti|наспроти|nasproti|близу|blizu)(?![\p{L}\p{N}])\s+[^.!?\n]{2,30}\s+(?:е|е\s+ли)?\s*(?<![\p{L}\p{N}])(?:стан(?:от)?|stan(?:ot)?|куќ(?:ата|а)|kuk(?:ata|a)?|гарсоњер(?:ата|та|а)|garsonjer(?:ata|ta|a)?|lokal(?:ot|a)?|vila|vilata)(?![\p{L}\p{N}])/iu;
 /** True when the client describes a specific property they remember. */
 export function detectPropertyDescription(text: string): boolean {
   // The same class on the remembered-property lane: a request verb + a place
@@ -6556,6 +6574,14 @@ const NAG_NEGATION_RE = /(?:^|[^\p{L}])(?:не|нема|немам|неможа�
 const NAG_PAY_STEM_RE = /(?:плат|плаќ|прифаќ|прифат|дад|дава|подмир|покрив)\p{L}*/iu;
 const NAG_CHARGE_STEM_RE = /(?:зема|наплаќ|наплат|бара|дава|плаќ)\p{L}*/iu;
 const NAG_UNIVERSAL_RE = /(?:никој|ниту еден|сите|другите|други агенции|друга агенција|секаде|на друго место|кај другите|само вие|само ви|само кај вас)/iu;
+// A universal claim whose ONLY fee referent is the charge verb is resistance
+// when it is PERSONAL: «НИКОЈ НЕ МИ НАПЛАТИЛ ДО СЕГА» — no one has ever charged
+// ME (the [12:27] capture). The bare generic («NIKOJ NE NAPLAKJA» — nobody
+// charges) is the market ARGUMENT about the practice, which the fee.why
+// rationale answers while the funnel stays at the question (the [22:26] pin).
+// The first-person clitic / the personal-experience word is what separates the
+// two; a visit or fee noun still makes either one a nag through the arms above.
+const NAG_PERSONAL_CLAIM_RE = /(?<![\p{L}])(?:ми|ме|мене|никогаш|nikogas|до\s*сега|do\s*sega)(?![\p{L}])/iu;
 // The VALUE predicate is a WORD CLASS (grammar.ts, buildFeeValueComplaintSlots):
 // the dialects a capture surfaces (скупо/купо, бесмислица, апсурд, срамота,
 // нема смисла, изнудување…) are entries there, never new logic here. Two
@@ -6888,8 +6914,17 @@ export function detectFeeNag(text: string, opts: FeeNagOptions = {}): boolean {
     && NAG_CHARGE_QUESTION_RE.test(cyr.replace(NAG_CHARGE_QUESTION_LEAD_RE, ''))) return true;
 
   // 3) UNIVERSAL/COMPARATIVE — "nobody charges", "other agencies are free",
-  //    "only you".
-  if (universal && (hasVisit || hasFeeObject)) return true;
+  //    "only you". The charge verb is a FEE REFERENT on its own here (the
+  //    [12:27] capture: «НИКОЈ НЕ МИ НАПЛАТИЛ ДО СЕГА» — no посета noun, no
+  //    amount, just the perfective charge verb; the universal arm demanded one
+  //    of the two nouns, the turn fell to the fee.why explanation and the ladder
+  //    SKIPPED a rung, so the client's fourth resistance was answered as rung 2).
+  //    «Наплатил/наплатиле» is the same money traffic as «наплаќа»: in this
+  //    funnel the only thing anyone charges for IS the fee — but only as a
+  //    PERSONAL claim (NAG_PERSONAL_CLAIM_RE): the generic «nikoj ne naplakja»
+  //    is the why-family argument the [22:26] pin answers with the rationale.
+  if (universal && (hasVisit || hasFeeObject
+    || (NAG_CHARGE_STEM_RE.test(cyr) && NAG_PERSONAL_CLAIM_RE.test(cyr)))) return true;
 
   // 4) VALUE COMPLAINT about fee traffic; a bare amount is not a complaint.
   if (valueComplaint && feeValueReferent) return true;
@@ -8780,8 +8815,14 @@ const MARKET_TYPE_PLURAL_RE =
 // The KAKO scaffold is optional but FUSED-tolerant: Viber typing runs the
 // words together — „KAKOODAT“ / „какоодат“ ([17:34]) is „како одат“, and a
 // space-only rule would miss it.
+// …and the KOLKU scaffold fuses too: «КОЛКУОДАТ СЕГА СТАНОВИТЕ ОКОЛУ
+// БУНЈАКОВЕЦ ?» (the [12:31] capture) is «колку одат» run together by Viber
+// typing. The optional ask-word prefix used to know only «како», so the
+// movement verb never matched (its lookbehind saw «КУ» as a letter) and the
+// level question fell into the buy-or-rent funnel. Both ask-words now sit in
+// the same optional prefix.
 const MARKET_MOVE_RE =
-  /(?<![\p{L}\p{N}])(?:kako|како)?\s*(?:se|се)?\s*(?:dvi[zž]\p{L}*|дви[жз]\p{L}*|odat|одат|idat|идат|menuv\p{L}*|менув\p{L}*|krenuv\p{L}*|кренув\p{L}*|rast\p{L}*|раст\p{L}*|pad\p{L}*|пад\p{L}*)(?![\p{L}\p{N}])/iu;
+  /(?<![\p{L}\p{N}])(?:kako|како|kolku|колку)?\s*(?:se|се)?\s*(?:dvi[zž]\p{L}*|дви[жз]\p{L}*|odat|одат|idat|идат|menuv\p{L}*|менув\p{L}*|krenuv\p{L}*|кренув\p{L}*|rast\p{L}*|раст\p{L}*|pad\p{L}*|пад\p{L}*)(?![\p{L}\p{N}])/iu;
 // Question scaffold over the definite plural: „kakvi se cenite“, „kako cenite“.
 const MARKET_PRICE_SCAFFOLD_RE =
   /(?:kakvi|какви|kakva|каква|kakvo|какво|kako|како|koja|која|koi|кои|kolku|колку|dali|дали)\s+(?:se|се|e|е|gi|ги|ni|ни)?\s*(?:cenite|цените|cenive|цениве|cene|цене|ceni|цени)(?![\p{L}\p{N}])/iu;
@@ -8841,6 +8882,40 @@ export function detectMarketPriceAsk(text: string): boolean {
     || moveWord
     || matchesBoth(MARKET_PRICE_SCAFFOLD_RE, text)
     || (priceWord && matchesBoth(MARKET_SERVICE_PHRASE_RE, text));
+}
+
+// THE BARE LEVEL FOLLOW-UP (the [12:33] capture): after the funnel asked
+// «купување или изнајмување?» the client typed «КОЛКУ ОДАТ КАЖИ МИ ПРВО» —
+// the movement idiom with NO category, NO area and NO price noun, because the
+// place and the category are already the chat's own question. The price-word /
+// type-plural arms above cannot see it, so the turn went to the dynamic brain
+// and the level was never quoted. The shape is grammar, not a phrase list: an
+// ASK word fused or spaced onto the movement verb, and NOTHING ELSE in the
+// message that could be a different subject («КОЛКУ ОДАТ РАБОТИТЕ» is a
+// greeting, not a market question — «работите» is the different subject).
+const MARKET_LEVEL_FILLER = new Set([
+  'kazi', 'кажи', 'mi', 'ми', 'prvo', 'прво', 'sega', 'сега', 'denes', 'денес',
+  'veke', 'веќе', 'vekje', 'tamu', 'таму', 'znaci', 'значи', 'momentalno', 'моментално',
+  'pak', 'пак', 'ova', 'ова', 'ovde', 'овде', 'gi', 'ги', 'se', 'се',
+  'cenite', 'цените', 'cenive', 'цениве',
+]);
+
+/** True when the client asks the price LEVEL with the movement idiom alone —
+ *  «КОЛКУ ОДАТ КАЖИ МИ ПРВО», «KOLKU ODAT», «КАКО ОДАТ СЕГА?». The caller owns
+ *  the context gate (the session must already hold a place or an area): the
+ *  sentence itself names no scope, it continues the one on screen. */
+export function detectMarketLevelFollowUp(text: string): boolean {
+  if (firstEbNumber(text) !== undefined) return false;
+  if (matchesBoth(MARKET_PRICE_WORD_RE, text) || matchesBoth(MARKET_TYPE_PLURAL_RE, text)) return false;
+  if (!matchesBoth(MARKET_MOVE_RE, text)) return false;
+  if (!matchesBoth(MARKET_ASK_SHAPE_RE, text)) return false;
+  const rest = normalizeMc(text).toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/).filter(Boolean)
+    .filter(w => !/^(?:kolku|колку|kako|како|odat|одат|idat|идат|dvizat|движат)$/u.test(w))
+    .filter(w => !MARKET_LEVEL_FILLER.has(w));
+  // Nothing but ask/movement words and filler — no second subject can ride in.
+  return rest.every(w => w.length <= 4);
 }
 
 /** True when the ONLY price word is the rent noun („кирија/renta“): „колку му
