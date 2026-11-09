@@ -145,7 +145,11 @@ test('[20:58] e2e: «SLOBODEN LI E VO MOMENTOV?» is the availability ack',
       // The ack pools rotate (feminine for the гарсоњера, masculine when the row
       // is a стан) and the variants do not all open with „Би требало/сè уште" —
       // the contract is the availability CLAIM plus the owner question below.
-      assert.match(reply, /достап|слобод|активн|располага|фигурира|база/iu,
+      // The alternation must cover the MASCULINE claim too: «активен» does not
+      // contain «активн», so the masculine variant (a стан row) never matched and
+      // the test failed on the CORRECT ack. The contract is the claim, not the
+      // adjective's gender (the ack pools rotate by the row's type).
+      assert.match(reply, /достап|слобод|актив|располага|фигурира|база/iu,
         `${ask}: the availability ack is the answer: ${reply}`);
       assert.match(reply, /сопственик/u, `${ask}: the owner-confirm question is owed: ${reply}`);
       // The two lanes this turn used to fall into.

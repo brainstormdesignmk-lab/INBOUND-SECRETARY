@@ -8015,9 +8015,11 @@ export function extractWhereLandmarkPlace(text: string): string | undefined {
   let words = place.split(/\s+/);
   while (words.length > 1
     && POI_CONFIRM_TAIL_WORDS.has((words[words.length - 1] ?? '').toLowerCase())) {
-    words = words.slice(0, -1);
+      words = words.slice(0, -1);
   }
   place = words.join(' ');
+  // «КАДЕ ИМА?» ends in a verb, not a place — the same guard as the area lane.
+  if (PLACE_TAIL_PREDICATE_RE.test(place)) return undefined;
   return place.length >= 3 ? place : undefined;
 }
 
@@ -8027,8 +8029,34 @@ export function extractWhereLandmarkPlace(text: string): string | undefined {
  *  with the PROPERTY's landmark: «се наоѓа во близина на Општина Бутел» — a
  *  different district, 2 km away. The question is about the PLACE, so it needs
  *  its own recogniser. */
+/** The word a question's tail makes when it is a PREDICATE, not a place name.
+ *  «ВО КОЈА НАСЕЛБА ИМА?» and «КАДЕ ИМА?» end in a verb; the old extractors
+ *  handed that verb to the map as a landmark (the [19:46] capture bound «ИМА»
+ *  to «Image Plus» and answered a two-bedroom request with a quarter of town). */
+const PLACE_TAIL_PREDICATE_RE =
+  /^(?:има|имал|имала|имаме|имате|имаат|ima|imal|imala|imame|imate|imaat|нема|немате|nema|nemate|може|можам|можете|moze|mozam|mozete|морам|moram|би|bi|да|da|ќе|ke|ли|li|е|e|се|se|и|i|а|a|или|ili|знам|znam)(?![\p{L}\p{N}])/iu;
+
+/** «ВО КОЈА НАСЕЛБА ИМА?» — WHICH neighbourhood holds what the client asked
+ *  for. After «нема двособни до 300 евра месечно во Центар» this is the client
+ *  accepting another quarter, so the funnel owes him the pair plus the names
+ *  of the neighbourhoods that DO have it — never a landmark's geography. */
+export function detectWhichAreaHas(text: string): boolean {
+  if (isFeeTraffic(text)) return false;
+  return matchesBoth(WHICH_AREA_HAS_RE, text) || matchesBoth(WHICH_AREA_HAS_REV_RE, text);
+}
+
+const WHICH_AREA_HAS_RE =
+  /(?<![\p{L}\p{N}])(?:во|vo)\s+(?:која|кои|кој|koja|koi|koj)\s+(?:населба|населби|naselba|naselbi|дел|делови|del|delovi|реон|reoni)\s*,?\s*(?:има|имате|има\s+ли|ima|imate|ima\s+li)(?![\p{L}\p{N}])/iu;
+
+const WHICH_AREA_HAS_REV_RE =
+  /(?<![\p{L}\p{N}])(?:има|имате|има\s+ли|ima|imate|ima\s+li)\s+(?:во|vo)\s+(?:која|кои|koja|koi)\s+(?:населба|населби|naselba|naselbi)(?![\p{L}\p{N}])/iu;
+
 export function isAreaOfPlaceQuestion(text: string): boolean {
   if (isFeeTraffic(text)) return false;
+  // AN AVAILABILITY ASK IS NOT A PLACE ASK (the [19:46] capture): the client
+  // asks which neighbourhood has the STOCK, and the which-area lane serves it.
+  // Reading it as geography is what bound the verb «има» as a place name.
+  if (detectWhichAreaHas(text)) return false;
   // MARKET COMPARISON, not geography: «во која населба се најевтини становите»
   // asks about PRICES per neighbourhood and is owned by the aggregate lane.
   // Reading it as a place question made the map answer «го немам тоа место».
@@ -8061,6 +8089,9 @@ export function extractAreaOfPlaceQuestion(text: string): string | undefined {
     return undefined;
   }
   if (/^(?:ev|eb|ев|еб)\s*(?:br|бр|broj|број)?\.?\s*\d{1,3}\b/iu.test(tail)) return undefined;
+  // A PREDICATE IS NOT A PLACE (see PLACE_TAIL_PREDICATE_RE): the tail of «во
+  // која населба има?» is the verb itself.
+  if (PLACE_TAIL_PREDICATE_RE.test(tail)) return undefined;
   return tail.length >= 3 ? tail : undefined;
 }
 
@@ -8766,7 +8797,11 @@ const AREA_HAVE_ASK_REV_RE =
 
 /** True when the client asks "ima (li) nesto [vo X]?" — anything in an area. */
 export function detectAreaHaveAsk(text: string): boolean {
-  return matchesBoth(AREA_HAVE_ASK_RE, text) || matchesBoth(AREA_HAVE_ASK_REV_RE, text);
+  // «во која населба има?» is the same probe with the area LEFT OPEN — it is an
+  // area-availability ask too, so every guard that excludes the probe excludes
+  // this shape as well.
+  return matchesBoth(AREA_HAVE_ASK_RE, text) || matchesBoth(AREA_HAVE_ASK_REV_RE, text)
+    || detectWhichAreaHas(text);
 }
 
 // ── MARKET PRICE LEVELS — „kako se dvizat cenive za stanovi vo AERODROM?“ ─────

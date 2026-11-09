@@ -69,7 +69,12 @@ test('the pending backlog is explicit and finite (migration fuel, not a graveyar
   // all — registering both arms is what pushed the count from 59 to 61. The
   // ceiling tracks the lanes that exist; it must keep FALLING as the migration
   // lands rows, so do not raise it again for a lane that is not new.
-  assert.ok(pending.length < 62, `backlog too large to be honest: ${pending.length}`);
+  // The ceiling tracks the lanes that EXIST: AREA_HAVE_SEARCH is a new lane
+  // (the [19:46] capture — «а во која населба има?» had no owner, so the place
+  // lane answered it with a landmark), so the ceiling moves by exactly that one
+  // row. It must keep falling as those lanes are mirrored; never raise it for a
+  // row that is not a new lane.
+  assert.ok(pending.length < 63, `backlog too large to be honest: ${pending.length}`);
 });
 
 // R1 part 2 — the three lanes that moved from dispatchSimple into the mirror.

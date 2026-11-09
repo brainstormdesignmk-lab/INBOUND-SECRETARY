@@ -302,6 +302,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   SOFT_REFUSAL: P('soft refusal (“nedokazani parevsy…”)'),
   WAITING: P('agent is reaching out, waiting ack'),
   AREA_OF_PLACE: P('„во која населба е X“ — the place\'s own map quarter'),
+  AREA_HAVE_SEARCH: P('„а во која населба има?“ — the area-availability ask: the criteria are released and the pair is served, with the neighbourhoods that hold it named ([19:46] capture)'),
   WHERE_LANDMARK: P('каде + named landmark place'),
   'WHICH_PROPERTY:fast': P('which EB are you talking about'),
   'VISIT_CANCEL:WHICH': P('a cancel that names no arranged visit — asks which Евидентен број instead of guessing'),
