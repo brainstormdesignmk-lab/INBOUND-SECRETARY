@@ -124,12 +124,13 @@ test('[04:36] the owner channel survives a bare counter: «NA RABOTA SUM» is an
   const { handler, sessions, send, chatId } = makeHandler();
   await reachOwnerChecking(send);
 
-  // A bare refusal moves the funnel to visit_scheduling (client asked for a new
-  // time). The owner's reason must still be ANSWERED, and the check must be
-  // open again for his follow-up — this is the sentence that used to die with
-  // «нема активна проверка за овој клиент».
+  // EXPECTATION UPDATED (the [00:11] rule): a bare refusal no longer sends the
+  // CLIENT back for another time — the OWNER is asked for a term of his own, so
+  // the chat STAYS in owner_checking. The owner's reason must still be
+  // ANSWERED, and the check must be open for his follow-up — this is the
+  // sentence that used to die with «нема активна проверка за овој клиент».
   await handler.ownerMessage(chatId, 'NE MOZAM');
-  assert.equal(sessions.get(chatId)!.state, 'visit_scheduling', 'bare counter asks the client for a time');
+  assert.equal(sessions.get(chatId)!.state, 'owner_checking', 'the owner is asked for HIS term');
 
   const reason = await handler.ownerMessage(chatId, 'NA RABOTA SUM');
   assert.equal(reason.effect, 'answered', `the reason is answered: ${JSON.stringify(reason)}`);

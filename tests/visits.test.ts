@@ -667,11 +667,14 @@ test('[01:17]/[01:20] the client answering Lina\'s relay is parsed, never the re
   s = sessions.get(chatId)!;
   const funnelStates = ['visit_scheduling', 'owner_checking', 'time_confirm'];
   assert.ok(funnelStates.includes(s.state), `the relay re-arms the funnel: ${s.state}`);
-  // The refusal relay is a ROTATING pool: the contract in responseBank.ts
-  // (POOL_CONTRACTS) pins the ask-for-another-term meaning, whatever variant
-  // is served this run.
-  assert.equal(matchesPoolContract('owner.relay:counter.bare', sent[sent.length - 1]),
-    true, `Lina asks the client for a new term: ${sent[sent.length - 1]?.slice(0, 90)}`);
+  // EXPECTATION UPDATED (the [00:11] rule): a bare owner counter no longer
+  // asks the CLIENT for another time. Lina asks the OWNER for a term of his
+  // own and gives the client the honest holding line — the client is asked for
+  // a new term only after a second bare refusal (the bounded fallback).
+  assert.match(sent[sent.length - 1] ?? '', /Ќе го прашам/iu,
+    `Lina tells the client the owner is being asked: ${sent[sent.length - 1]?.slice(0, 90)}`);
+  assert.ok(!/термин би Ви одговарал/iu.test(sent[sent.length - 1] ?? ''),
+    `never the old client-side re-ask: ${sent[sent.length - 1]?.slice(0, 90)}`);
   // The refused term is DISPLAYED in Macedonian AND in canonical form: the
   // client typed "UTRE VO 4" Latin, and the relay used to echo it as a bare
   // phrase. Since the [18:52] contract ONE renderer (renderVisitTerm) renders

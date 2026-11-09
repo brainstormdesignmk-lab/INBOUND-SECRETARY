@@ -584,6 +584,26 @@ export function buildOwnerWholeDayRelay(refusedTime: string, day: string): strin
   return `Сопственикот не е во можност за посета во ${refusedTime}. Има друг предлог: ${day} — било кое време му одговара. Во колку часот би сакале да дојдете?`;
 }
 
+/**
+ * THE OWNER CAN'T DO THE CLIENT'S TERM AND NAMED NO ALTERNATIVE (the [00:11]
+ * field rule). The owner holds the calendar, so the term is HIS to name: Lina
+ * asks HIM for the day and hour that suit him and transports that term to the
+ * client. Asking the client for "another time" instead (the old relay) made
+ * both sides propose blind — the client re-guessed while the one person who
+ * knows when the flat can be shown was never asked.
+ */
+export function buildOwnerAlternativeTimeAsk(refusedTime: string): string {
+  return `Клиентот предложи посета во ${refusedTime}, но тој термин не Ви одговара. Кој ден и час Ви одговараат Вам? Ќе му го пренесам Вашиот предлог.`;
+}
+
+/** The CLIENT-facing half of the same exchange: the honest holding line while
+ *  the owner is being asked for HIS term. It states whose schedule the term
+ *  belongs to and promises the owner's proposal — it never asks the client to
+ *  produce another time (see buildOwnerAlternativeTimeAsk). */
+export function buildOwnerAlternativeTimeHold(refusedTime: string): string {
+  return `Сопственикот не е слободен во ${refusedTime}. Ќе го прашам кој ден и час му одговараат и веднаш ќе Ви го пренесам неговиот предлог.`;
+}
+
 export function buildOwnerAskAgain(eb: number, opts?: OwnerAskProps): string {
   const ptd = opts?.propertyTypeDef;
   // THE SUBJECT DECIDES THE AGREEMENT (the [23:40] capture): with no

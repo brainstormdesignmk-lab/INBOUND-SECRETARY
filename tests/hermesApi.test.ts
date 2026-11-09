@@ -371,7 +371,12 @@ test('hermes API /reply: a proposal is a verdict — the funnel relays it, the o
     assert.equal(r.body.effect, 'verdict_applied', JSON.stringify(r.body));
     await settle();
     assert.ok(env.sent.length > before, 'the client is told about the owner\'s answer');
-    assert.ok(['time_confirm', 'visit_scheduling'].includes(env.sessions.get(chatId)!.state),
+    // EXPECTATION UPDATED (the [00:11] rule): a bare counter keeps the chat in
+    // owner_checking — Lina may not relay a term nobody proposed, so she asks
+    // the OWNER for the day/hour that suits him and gives the client the
+    // holding line. The invariant this test owns is unchanged: the client hears
+    // the owner's answer and the funnel is still live.
+    assert.ok(['time_confirm', 'visit_scheduling', 'owner_checking'].includes(env.sessions.get(chatId)!.state),
       env.sessions.get(chatId)!.state);
   } finally {
     await env.close();

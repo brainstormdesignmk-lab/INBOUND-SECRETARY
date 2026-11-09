@@ -1195,7 +1195,12 @@ test('owner refusal "denes nema da mozam" is a COUNTER — the visit is never co
   assert.ok(/Утре во 16:00|(?:Недела|Понеделник|Вторник|Среда|Четврток|Петок|Сабота), \d{2}\.\d{2}\.\d{4} во 16:00/u.test(sent[sent.length - 1]), sent[sent.length - 1]);
 });
 
-test('owner BARE refusal (no alternative time): no fabricated "по договор" term — client is asked for another time, owner re-asked with it', async () => {
+// EXPECTATIONS UPDATED (the [00:11] rule): a bare owner refusal no longer asks
+// the CLIENT for another time. The OWNER is asked for a term of his own and the
+// client hears the holding line; the invariants this test owns are unchanged —
+// no fabricated «по договор» term, nothing booked at the refused time, and the
+// owner is re-asked with whatever the client proposes next.
+test('owner BARE refusal (no alternative time): no fabricated "по договор" term — the OWNER is asked for his term', async () => {
   const { handler, sessions, sent } = makeHandler();
   const ownerAsks: string[] = [];
   handler.onOwnerAsk = (_chatId, eb, q) => { ownerAsks.push(`${eb}: ${q}`); };
@@ -1215,27 +1220,28 @@ test('owner BARE refusal (no alternative time): no fabricated "по догово
   await new Promise(r => setTimeout(r, 50)); // let the enqueued verdict land
   s = sessions.get(chatId)!;
   const relay = sent[sent.length - 1];
-  assert.equal(s.state, 'visit_scheduling');       // NOT time_confirm — nothing to accept
+  assert.equal(s.state, 'owner_checking');       // NOT time_confirm — nothing to accept
+  // The OWNER is asked for his own day and hour (a second ask on his channel).
+  assert.equal(ownerAsks.length, 2, JSON.stringify(ownerAsks));
+  assert.match(ownerAsks[1], /Кој ден и час Ви одговараат/iu, ownerAsks[1]);
   // Refusal invariant (bank variants paraphrase: не може / не му одговара /
-  // спречен / зафатен / не е во можност …) — the refusal must be relayed.
+  // спречен / зафатен / не е во можност …) — the client hears WHY.
   assert.ok(/(?:не\s+може|нема\s+можност|не\s+е\s+во\s+можност|не\s+му\s+одговара|спречен|зафатен|не\s+е\s+слободен|не\s+е\s+изведлив|не\s+можам\s+да\s+го\s+потврдам)/iu.test(relay), relay);
-  // Asks for another time — the invariant is a question carrying a time-word
-  // ("Кој ДРУГ термин…?", "кое друго време…?", "Кога…?", "…друго време кое Ви
-  // одговара?").
-  assert.ok(/(?:термин|време|кога|час)[^\n]*\?/u.test(relay), relay);
+  // …and NO question back at him: the calendar is not his to fix.
+  assert.ok(!/\?/u.test(relay), `no client-side re-ask: ${relay}`);
   assert.ok(!relay.includes('по договор'), relay); // no fabricated term
   assert.ok(!relay.includes('Договорена посета'), relay); // never closed at the refused time
 
   // the client proposes ANOTHER time -> the owner is re-asked with it
   s = await send('MOZAM VO 19:00');
   assert.equal(s.state, 'owner_checking');
-  assert.equal(ownerAsks.length, 2);
-  assert.ok(ownerAsks[1].includes('19:00'), ownerAsks[1]);
+  assert.equal(ownerAsks.length, 3);
+  assert.ok(ownerAsks[2].includes('19:00'), ownerAsks[2]);
   // SECOND OWNER TURN (the [00:23] contract): the re-ask names BOTH the term
   // the client cannot do and the new proposal — it is no longer a repeat of
   // the first-time intro and no longer drops the refused term.
-  assert.match(ownerAsks[1], /^\d+: Клиентот не е во можност за посета во .*18:00.*Има друг предлог: .*19:00.*\?$/u, ownerAsks[1]);
-  assert.ok(!/Дали е сè уште достапна|Ве контактирам во врска/u.test(ownerAsks[1]), ownerAsks[1]);
+  assert.match(ownerAsks[2], /^\d+: Клиентот не е во можност за посета во .*18:00.*Има друг предлог: .*19:00.*\?$/u, ownerAsks[2]);
+  assert.ok(!/Дали е сè уште достапна|Ве контактирам во врска/u.test(ownerAsks[2]), ownerAsks[2]);
 });
 
 test('TUI /owner counter WITHOUT a time = bare refusal: same honest path, never "по договор"', async () => {
@@ -1258,8 +1264,12 @@ test('TUI /owner counter WITHOUT a time = bare refusal: same honest path, never 
   await new Promise(r => setTimeout(r, 50));
   s = sessions.get(chatId)!;
   const relay = sent[sent.length - 1];
-  assert.equal(s.state, 'visit_scheduling');
+  // The [00:11] rule: the owner is asked for his term, so the check stays open
+  // and the client hears the holding line — never another time request.
+  assert.equal(s.state, 'owner_checking');
   assert.ok(/(?:не\s+може|нема\s+можност|не\s+е\s+во\s+можност|не\s+му\s+одговара|спречен|зафатен|не\s+е\s+слободен|не\s+е\s+изведлив|не\s+можам\s+да\s+го\s+потврдам)/iu.test(relay), relay);
+  assert.match(relay, /Ќе го прашам/iu, relay);
+  assert.ok(!/\?/u.test(relay), `no client-side re-ask: ${relay}`);
   assert.ok(!relay.includes('по договор'), relay);
   assert.ok(!relay.includes('Договорена посета'), relay);
 });

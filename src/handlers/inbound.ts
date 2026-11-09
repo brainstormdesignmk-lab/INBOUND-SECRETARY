@@ -17,7 +17,7 @@ import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -56,6 +56,7 @@ import {
   mergeOwnerTerm,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
   buildOwnerAsk, buildOwnerFollowupAsk, buildOwnerAcceptFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay, buildOwnerAvailabilityAck,
+  buildOwnerAlternativeTimeAsk, buildOwnerAlternativeTimeHold,
   ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime, renderVisitTerm,
   PROPERTY_NOT_FOUND_LINE, FEED_UNAVAILABLE_LINE, NO_MORE_ALTERNATIVES_LINE,
   LAST_INFO_PREFIX, DIRECTION_PIVOT_LINE, LOCATE_FIRST_ASK, LOCATE_DETAILS_ASK,
@@ -8452,14 +8453,14 @@ export class InboundHandler {
           session.slots.ownerContactPending = true;
           if (session.state !== 'closing') session.state = 'closing';
         }
-        const liked = pickVariant('property.liked', { recent: assistantTexts(session) })
-          ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
+        const praised = this.praiseReply(session, text);
+        const liked = praised.reply;
         routeLog(chatId, text, 'ENTHUSIASM:fast');
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: liked }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
-        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'ENTHUSIASM_FAST', userMsg: text, replyText: liked, replySource: 'deterministic', bankKey: 'property.liked' }); } catch { /* ignore */ } }
-        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-enthusiasm) state=${session.state} src=deterministic bank=property.liked`);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'ENTHUSIASM_FAST', userMsg: text, replyText: liked, replySource: 'deterministic', bankKey: praised.bankKey }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-enthusiasm) state=${session.state} src=deterministic bank=${praised.bankKey}`);
         await this.sendRaw(session, liked, 'deterministic:fast');
         return;
       }
@@ -10390,6 +10391,16 @@ export class InboundHandler {
             + `${buildLocateMatchLine(row)}\n\n`
             + 'Сакате ли да Ви ја опишам подетално, или да закажеме посета?';
           session.slots.propertyId = row.eb;
+          // THE RING ROW IS THE TABLE (the [23:25] capture): this answer presents
+          // ONE flat, so the next «ОПИШЕТЕ МИ ЈА» is about IT. Only propertyId
+          // moved before, and the describe lane reads the DESCRIBED table first
+          // — the flat named here (EB 77) was ignored and the client was read
+          // the card of EB 54, a flat from a batch two turns earlier. The row
+          // becomes the described/presented table AND the asked record the
+          // address and describe lanes chain to.
+          session.slots.askedEb = row.eb;
+          session.slots.describedEbs = [row.eb];
+          session.slots.currentBatch = [row.id];
           session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), row.id])];
           routeLog(chatId, text, 'PLACE_RING_ROW');
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -11255,9 +11266,7 @@ ${contactReminder}`;
           session.slots.ownerContactPending = true;
           session.state = 'closing';
         }
-        reply = pickVariant('property.liked', { recent: assistantTexts(session) })
-          ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
-        bankKey = 'property.liked';
+        ({ reply, bankKey } = this.praiseReply(session, text));
       }
 
     } else if (next === 'closing'
@@ -11320,9 +11329,7 @@ ${contactReminder}`;
           session.slots.ownerContactPending = true;
           session.state = 'closing';
         }
-        reply = pickVariant('property.liked', { recent: assistantTexts(session) })
-          ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?';
-        bankKey = 'property.liked';
+        ({ reply, bankKey } = this.praiseReply(session, text));
       }
 
     } else if (before === 'closing' && next === 'closing'
@@ -13107,6 +13114,30 @@ ${contactReminder}`;
    *  a verdict that carries a clock clears it. */
   private ownerClockAsks = new Map<string, number>();
 
+  /** How many times Lina has asked ONE chat's OWNER for a term of his own
+   *  after a bare refusal (see applyOwnerVerdict: the [00:11] field rule).
+   *  One ask is the contract; a settled term (or a fresh client proposal)
+   *  clears it. Ephemeral, per chat — same shape as ownerClockAsks. */
+  private ownerAltTimeAsks = new Map<string, number>();
+
+  /** WHAT A POSITIVE EVALUATION OF THE FLAT EARNS (the [23:2x] field rule,
+   *  owner-dictated). CLEAR praise ("одличен избор", "ми се допаѓа") answers
+   *  property.liked. The UNDERSTATED positive ("ОВОЈ НЕ Е ЛОШ") praises without
+   *  choosing, and the owner's answer is the recommendation close: every
+   *  property has its clientele, it has to be seen live, shall I arrange a
+   *  visit? Saying "excellent choice" to a client who chose nothing (and the
+   *  place-ring paragraph the mis-read sent instead) is the defect. */
+  private praiseReply(session: ChatSession, text: string): { reply: string; bankKey: string } {
+    if (detectUnderstatedPositive(text)) {
+      return { reply: buildRecommendClose(assistantTexts(session)), bankKey: 'recommend.close' };
+    }
+    return {
+      reply: pickVariant('property.liked', { recent: assistantTexts(session) })
+        ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?',
+      bankKey: 'property.liked',
+    };
+  }
+
   /** THE OWNER PANE'S LAST LINES, per chat — the repeat-avoidance memory for
    *  OWNER-facing bank pools (`owner.ask`, `vague.time.owner`,
    *  `owner.availability.ack.*`). The client's session history is the WRONG
@@ -13207,6 +13238,7 @@ ${contactReminder}`;
       session.slots.ownerCounterTime = undefined; // consumed by the refused term above
       session.slots.ownerClockDay = undefined; // a new exchange starts from zero
       session.slots.ownerAskTime = askTime;
+      this.ownerAltTimeAsks.delete(session.chatId); // a fresh client proposal
       this.deps.sessions.set(session);
       // The ping-pong starts HERE: Lina asks the owner whether the property is
       // available right now and whether he accepts the client's proposed time.
@@ -13363,6 +13395,7 @@ ${contactReminder}`;
       session.state = 'pending';
       session.slots.ownerCounterTime = undefined; // agreed — nothing left to refuse
       session.slots.ownerClockDay = undefined;
+      this.ownerAltTimeAsks.delete(session.chatId); // the term is settled
       // A day-less acceptance («moze okolu 5») keeps the day on the table — the
       // hook is the MERGE, not a display rewrite: the appointment keeps the
       // client's own term shape (the [20:31] contract stores «UTRE POPLADNE
@@ -13383,10 +13416,16 @@ ${contactReminder}`;
       // Bare counter = the owner can't do the proposed time, NO alternative
       // given. There is no term for the client to accept — routing to
       // time_confirm fabricated "по договор со сопственикот" (and accepting
-      // it fell back to the REFUSED time). Ask the client for another time;
-      // the new proposal re-asks the owner.
+      // it fell back to the REFUSED time).
+      // THE OWNER — NOT THE CLIENT — IS ASKED FOR THE NEXT TERM (the [00:11]
+      // field rule, owner-dictated): the owner holds the calendar, so when his
+      // answer carries no alternative, Lina asks HIM which day and hour suit
+      // him and transports that term to the client. The old relay sent «тој е
+      // зафатен во … Кој друг термин би Ви одговарал?» to the CLIENT: both
+      // sides then proposed blind, and the person who actually knows when the
+      // flat can be shown was never asked. The client hears only the honest
+      // holding line meanwhile.
       if (!verdict.ownerTime) {
-        session.state = 'visit_scheduling';
         // The relay must read proper Macedonian in BOTH scripts: the client
         // typed "UTRE VO 4" Latin, and mkTimePhrase alone only fixes known
         // misspellings — it echoed "терминот во UTRE VO 4".
@@ -13394,6 +13433,30 @@ ${contactReminder}`;
         // day+clock resolution): the client also reads the term canonically
         // («Среда, 11.11.2026 во 18:00»), never «Среда во 6».
         const refusedTime = renderVisitTerm(session.slots.visitTime ?? '');
+        const altAsks = this.ownerAltTimeAsks.get(session.chatId) ?? 0;
+        // ONE owner re-ask is the contract (same budget shape as the
+        // exact-clock ask). An owner who answers the question with ANOTHER
+        // bare refusal has no term of his own to give: relaying the honest
+        // refusal to the client is then the only answer that moves the
+        // funnel, and a third loop would ping a human forever.
+        if (altAsks < 1) {
+          this.ownerAltTimeAsks.set(session.chatId, altAsks + 1);
+          session.state = 'owner_checking'; // stay: the term is still open
+          const ask = buildOwnerAlternativeTimeAsk(refusedTime);
+          // The OWNER hears the ask on his channel; the check is re-armed so
+          // his answer is not dropped with «нема активна проверка».
+          this.onOwnerAsk?.(session.chatId, eb, ask);
+          this.rememberOwnerLine(session.chatId, ask);
+          const hold = `${priceRelay ? `${priceRelay} ` : ''}${buildOwnerAlternativeTimeHold(refusedTime)}`;
+          this.logOwnerExchange(session, eb, verdict, hold);
+          pushHistory(session, { role: 'assistant', text: hold }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          this.armOwnerCheck(session, eb, ask);
+          await this.sendRaw(session, hold);
+          return ask;
+        }
+        this.ownerAltTimeAsks.delete(session.chatId);
+        session.state = 'visit_scheduling';
         // Bank-served with the code-built line as fallback; the refusal is
         // relayed honestly — never a fabricated term the client could accept.
         const reply = `${priceRelay ? `${priceRelay} ` : ''}${pickVariant('owner.relay:counter.bare', { recent: assistantTexts(session), vars: { time: refusedTime } }) ?? OWNER_CANT_TIME_RELAY(refusedTime)}`;
@@ -13496,6 +13559,9 @@ ${contactReminder}`;
         }
       } else {
         this.ownerClockAsks.delete(session.chatId);
+        // The owner produced a term of his own — the bare-refusal budget is
+        // spent and a LATER refusal starts a fresh exchange.
+        this.ownerAltTimeAsks.delete(session.chatId);
       }
       // A COUNTER THAT IS NOT AN ALTERNATIVE IS NOT A COUNTER (the [10:02]
       // capture): the relay read «Сопственикот не е во можност за посета во

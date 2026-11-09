@@ -29,7 +29,7 @@ interface Row { phrase: string; verdict: 'COVERED' | 'GAP' | 'CROSS'; target: bo
 const STOP = new Set([
   'ми', 'ти', 'му', 'и', 'м', 'е', 'је', 'да', 'не', 'за', 'од', 'на', 'во', 'со', 'ке', 'ќе', 'би', 'ли',
   'dali', 'kolku', 'stan', 'stanot', 'stanov', 'stanovi', 'imot', 'imotot', 'cena', 'cenata', 'cenua',
-  'evra', 'evro', 'evr', 'denari', 'den', 'mkd', 'kilata', 'kila', 'kirija', 'kirijata', 'kupam',
+  'evra', 'evro', 'evr', 'denari', 'den', 'mkd', 'kirija', 'kirijata', 'kupam',
   'kupuvam', 'sakam', 'baram', 'treba', 'trebat', 'mozam', 'mozete', 'moze', 'samo', 'uste', 'sega',
   'togash', 'ovoj', 'ovaa', 'ovie', 'toj', 'taa', 'tie', 'edna', 'eden', 'dve', 'tri', 'goo', 've',
   'vas', 'vama', 'nema', 'ima', 'kade', 'kadee', 'shto', 'sto', 'zoshto', 'zoska', 'kako', 'koe',
@@ -42,9 +42,31 @@ const STOP = new Set([
 const wordify = (s: string): string[] =>
   normalizeMc(s.toLowerCase()).split(/[^@\p{L}\p{N}]+/u).filter(w => w.length > 0);
 
+// THE STOP LIST IS AUTHORED IN LATIN, THE WORDS ARRIVE FOLDED (the [23:2x]
+// field case): wordify() runs every token through normalizeMc, so `ovoj`
+// arrives as `овој` and a raw STOP.has() lookup MISSES every Latin entry. The
+// rejection family's literal "ovoj ne" was therefore "a content phrase" and
+// emitted as a substring match — it fired inside «ОВОЈ НЕ Е ЛОШ» (an
+// understated POSITIVE), vetoed the praise lane and dropped the client's turn
+// into the place-ring re-serve. Fold the list once and test both spellings.
+// ONE TOKEN IS NOT A FILLER, AND THE FOLD PROVED IT (the regen audit):
+//   'kila'/'kilata' — "кила" is the price SLANG for thousands ("20-30 кила
+//     помалку", "10 кила подолу"), the cheaper family's own comparative. As
+//     stop words they could not form the COLLOCATION, so the two idioms the
+//     old (buggy, Latin-only) list had accidentally allowed vanished and
+//     "ИМА ЛИ НЕШТО КИЛА ПОДОЛУ" reached NO lane at all. The stem floor still
+//     refuses "кил" (<4 chars), so the only effect is the collocation.
+//   'zoska' STAYS: the audit checked the failure the other way round — stems
+//     are emitted as EXACT surfaces, so a "зоск" stem never matched "зоска"
+//     in the first place. A why-question typed with a misspelled why-word is
+//     the base lane's job (fee-why needs its fee noun); the corpus row itself
+//     is covered verbatim by its literal.
+const STOP_FOLDED = new Set([...STOP].map(w => normalizeMc(w.toLowerCase())));
+const isStop = (w: string): boolean => STOP.has(w) || STOP_FOLDED.has(w);
+
 /** Stem: drop trailing Macedonian suffix vowels/Clitics, floor 4 chars. */
 function stemOf(w: string): string | undefined {
-  if (STOP.has(w) || /^\d+$/.test(w) || w.length < 4) return undefined;
+  if (isStop(w) || /^\d+$/.test(w) || w.length < 4) return undefined;
   const stem = w.replace(/(?:ата|ето|ита|ота|ува|те|то|та|ата|ото|и|а|о|е|у|ј)+$/u, '');
   if (stem.length < 4) return undefined;
   return stem;
@@ -63,10 +85,27 @@ function loadCorpora(): Map<string, Row[]> {
 
 interface Proposal {
   id: string; stems: string[]; idioms: string[]; literals: string[];
+  bareLiterals: string[];      // whole-message-only literals (no content word)
   excludes: string[];          // rival-vocabulary regex sources
   rawIdioms?: string;          // pre-escaped regex source, emitted verbatim
   fixed: number; stillGap: string[];
 }
+
+// A literal with NO content word is not a phrase, it is a BARE ANSWER ("ovoj
+// ne", "ne ovoj"): every token of it is a function word the client also types
+// inside ordinary sentences. Emitted as a substring match it claims fragments
+// of innocent messages — the [23:2x] field case: the rejection literal "ovoj
+// ne" fired on «ОВОЈ НЕ Е ЛОШ» (an UNDERSTATED POSITIVE), so the praise lane
+// was vetoed and the client's turn fell to the place-ring re-serve. Such a
+// literal must match the WHOLE message (same rule the base detectors use for
+// bare yes/no answers), never a fragment.
+const isBareLiteral = (words: string[]): boolean =>
+  words.filter(w => !isStop(w)).length === 0;
+
+/** Whole-message alternative: the folded text must BE the literal (punctuation
+ *  and spacing tolerated), not merely contain it. */
+const wholeMessage = (alt: string): string =>
+  `^\\s*(?:${alt})\\s*[.!?…,;:]*\\s*$`;
 
 function propose(corpora: Map<string, Row[]>): Proposal[] {
   // Negative corpus: for each family, the folded tokens of every OTHER
@@ -103,12 +142,14 @@ function propose(corpora: Map<string, Row[]>): Proposal[] {
     const idioms = new Set<string>();
     let rawIdioms: string | undefined;
     const literals: string[] = [];
+    const bareLiterals: string[] = [];
     const rivals = rivalTokens.get(f.id)!;
 
     for (const phrase of mineFrom) {
       if (phrase === gaps[0]) { /* gaps still drive reporting below */ }
-      literals.push(phrase);
       const words = wordify(phrase);
+      if (isBareLiteral(words)) bareLiterals.push(phrase);
+      else literals.push(phrase);
       // Negative-corpus exclusion at STEM level: a stripped stem must never
       // collide with a rival WORD (слободн vs слободен) — fold the stem back
       // onto every rival token via prefix/containment, not just equality.
@@ -132,7 +173,7 @@ function propose(corpora: Map<string, Row[]>): Proposal[] {
       for (let n = 2; n <= Math.min(3, words.length); n++) {
         for (let i = 0; i + n <= words.length; i++) {
           const gram = words.slice(i, i + n);
-          if (gram.every(w => !STOP.has(w) && w.length >= 3 && !rivals.has(w))) idioms.add(gram.join(' '));
+          if (gram.every(w => !isStop(w) && w.length >= 3 && !rivals.has(w))) idioms.add(gram.join(' '));
         }
       }
     }
@@ -155,7 +196,10 @@ function propose(corpora: Map<string, Row[]>): Proposal[] {
       ...idioms,
       ...literals.map(l => normalizeMc(l.toLowerCase())),
     ];
-    const extRe = (all.length || rawIdioms) ? new RegExp([...all.map(a => bound(esc(a))), ...(rawIdioms ? [bound(rawIdioms)] : [])].join('|'), 'iu') : null;
+    const bareAlts = bareLiterals.map(l => wholeMessage(esc(normalizeMc(l.toLowerCase()))));
+    const extRe = (all.length || rawIdioms || bareAlts.length)
+      ? new RegExp([...all.map(a => bound(esc(a))), ...(rawIdioms ? [bound(rawIdioms)] : []), ...bareAlts].join('|'), 'iu')
+      : null;
     const exclRe = excludes.length ? new RegExp(excludes.join('|'), 'iu') : null;
     const fires = (p: string) => {
       if (!extRe) return false;
@@ -181,7 +225,7 @@ function propose(corpora: Map<string, Row[]>): Proposal[] {
 
     proposals.push({
       id: f.id,
-      stems: [...stems], idioms: [...idioms], literals, excludes, rawIdioms,
+      stems: [...stems], idioms: [...idioms], literals, bareLiterals, excludes, rawIdioms,
       fixed: fixedGaps, stillGap: stillGap,
     });
   }
@@ -205,13 +249,16 @@ function emitDetectorExt(proposals: Proposal[]): void {
   lines.push('');
   lines.push('export const FAMILY_EXT: Record<string, FamilyExt> = {');
   for (const p of proposals) {
-    if (p.stems.length === 0 && p.literals.length === 0 && !p.rawIdioms) {
+    if (p.stems.length === 0 && p.literals.length === 0 && p.bareLiterals.length === 0 && !p.rawIdioms) {
       lines.push(`  // ${p.id}: no GAPs — no extension needed`);
       continue;
     }
     const stemSrc = p.stems.map(s => bound(esc(s))).join('|');
     const idiomSrc = p.rawIdioms ? bound(p.rawIdioms) : p.idioms.map(s => bound(esc(s))).join('|');
-    const litSrc = p.literals.map(l => bound(esc(normalizeMc(l.toLowerCase())))).join('|');
+    const litSrc = [
+      ...p.literals.map(l => bound(esc(normalizeMc(l.toLowerCase())))),
+      ...p.bareLiterals.map(l => wholeMessage(esc(normalizeMc(l.toLowerCase())))),
+    ].join('|');
     lines.push(`  '${p.id}': {`);
     lines.push(`    stems: ${stemSrc ? `/(${stemSrc})/iu` : 'null'},`);
     lines.push(`    idioms: ${idiomSrc ? `/(${idiomSrc})/iu` : 'null'},`);

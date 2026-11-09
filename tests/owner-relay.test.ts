@@ -96,6 +96,47 @@ test('whole-day counter: owner offers a day with any hour → relay carries the 
   assert.ok(!/не може во тој термин(?!.*сабот)/iu.test(relay), `never the dropped-day refusal: ${relay}`);
 });
 
+// ── The [00:11] field rule: the OWNER holds the calendar ────────────────────
+// The transcript: the client proposed Tuesday 17:00, the owner answered «НЕ
+// МОЖАМ ВО ВТОРНИК. ЦЕЛ ДЕН СУМ ЗАУЗЕТ» (a bare counter, no alternative), and
+// Lina told the CLIENT «Проверив со сопственикот, но тој е зафатен во Вторник…
+// Кој друг термин би Ви одговарал?» — asking the person who cannot know when
+// the flat can be shown, while the owner was never asked for a term of his own.
+// Both sides matter equally: the owner is asked for HIS day and hour, and that
+// term is transported to the client.
+test('[00:11] bare owner counter: the OWNER is asked for his term, the client is never re-asked', async () => {
+  const { handler, sessions, sent, send } = await makeHandler();
+  const asks: string[] = [];
+  handler.onOwnerAsk = (_c, _eb, q) => asks.push(q);
+  await reachOwnerChecking(send);
+  assert.equal(asks.length, 1, `the first availability ask expected: ${JSON.stringify(asks)}`);
+
+  handler.ownerAnswer('relay', 78, detectOwnerVerdict('НЕ МОЖАМ ВО ВТОРНИК. ЦЕЛ ДЕН СУМ ЗАУЗЕТ', 'Утре попладне после 6')!);
+  await new Promise(r => setTimeout(r, 50));
+  const s = sessions.get('relay')!;
+  // The term is still unsettled, so the check stays open for his answer…
+  assert.equal(s.state, 'owner_checking', `the owner check must stay armed: ${s.state}`);
+  // …which is HIS to give: the ask names the client's term and asks the owner.
+  const ownerAsk = asks[asks.length - 1] ?? '';
+  assert.match(ownerAsk, /Кој ден и час Ви одговараат/iu, `the owner must be asked for his term: ${ownerAsk}`);
+  assert.match(ownerAsk, /не Ви одговара/iu, `and told which term it is about: ${ownerAsk}`);
+  // The client hears the honest holding line — never a request to produce
+  // another time, and never a fabricated owner proposal.
+  const hold = sent[sent.length - 1] ?? '';
+  assert.match(hold, /Сопственикот не е слободен во/iu, `the client hears why: ${hold}`);
+  assert.match(hold, /Ќе го прашам/iu, `and who is being asked: ${hold}`);
+  assert.ok(!/[?]/.test(hold), `no question back to the client: ${hold}`);
+  assert.ok(!/термин би Ви одговарал/iu.test(hold), `never the old re-ask: ${hold}`);
+
+  // The owner's own term arrives → the SAME counter relay transports it.
+  handler.ownerAnswer('relay', 78, detectOwnerVerdict('среда во 11', s.slots.visitTime ?? '')!);
+  await new Promise(r => setTimeout(r, 50));
+  const relay = sent[sent.length - 1] ?? '';
+  assert.match(relay, /Има друг предлог: Среда, \d{2}\.\d{2}\.\d{4} во 11:00/u,
+    `the owner's term reaches the client: ${relay}`);
+  assert.equal(sessions.get('relay')!.state, 'time_confirm');
+});
+
 test('workdays question never reaches the owner — answered from the bank, then scheduling continues', async () => {
   const { handler, sessions, sent, send } = await makeHandler();
   await reachOwnerChecking(send);
@@ -708,7 +749,14 @@ test('[09:57 sibling] a negated availability never agrees and never locks a visi
   const s = sessions.get('relay')!;
   assert.notEqual(s.state, 'pending', `a refusal must not close the deal, got ${s.state}`);
   assert.equal(s.slots.agentPhone, undefined, 'no agent is assigned on a refusal');
-  assert.match(sent[sent.length - 1], /\?$/u, `the client is asked for another term: ${sent[sent.length - 1]}`);
+  // EXPECTATION UPDATED (the [00:11] rule): a bare refusal no longer re-asks
+  // the CLIENT — the OWNER is asked for a term of his own and the client hears
+  // the holding line (no question). The invariant that matters here is intact:
+  // nothing is booked and no term is accepted from a refusal.
+  assert.match(sent[sent.length - 1], /Ќе го прашам/iu,
+    `the client hears that the owner is being asked: ${sent[sent.length - 1]}`);
+  assert.ok(!/термин би Ви одговарал/iu.test(sent[sent.length - 1] ?? ''),
+    `never the old client-side re-ask: ${sent[sent.length - 1]}`);
   assert.ok(!/Договорена посета/u.test(sent.slice(before).join('\n')), 'never a booked visit on a refusal');
 });
 

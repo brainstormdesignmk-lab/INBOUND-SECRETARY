@@ -3260,6 +3260,18 @@ export function detectPositiveEval(text: string): boolean {
   return matchesBoth(POSITIVE_EVAL_RE, text) || detectEnthusiasm(text);
 }
 
+/** The UNDERSTATED positive ("ОВОЈ НЕ Е ЛОШ") — the negated-bad idiom with no
+ *  enthusiasm word of its own. It is approval without a pick, so the owner's
+ *  answer is the recommendation close (every property has its clientele → it
+ *  must be seen live → shall I arrange a visit?), never «Одличен избор!» about
+ *  a flat the client has not chosen. Kept separate from detectPositiveEval so
+ *  the CLEAR praise (одличен/прекрасен/ми се допаѓа) keeps property.liked. */
+export function detectUnderstatedPositive(text: string): boolean {
+  if (detectRejection(text)) return false;
+  if (detectEnthusiasm(text)) return false;
+  return matchesBoth(POSITIVE_EVAL_RE, text);
+}
+
 // "MI FATI OKO 94" / "ми фати окото" — the property CAUGHT THE CLIENT'S EYE
 // (they saw the ad on the site). Written Cyrillic-only: matchesBoth() folds
 // Latin input through normalizeMc, so "mi fati oko" resolves to "ми фати око".
