@@ -131,10 +131,16 @@ test('[23:25] the weak approval gets the clientele/visit theme, never the ring a
   // The owner-dictated theme: every property has its clientele, it must be
   // seen live, and the close offers the visit. Wording rotates (seed +
   // learned variants), so the assertion is the contract, not one sentence.
-  assert.match(reply, /недвижн/iu, `the property theme expected: ${reply}`);
+  // „Објекта треба да го осетите на лице место…" is one of the pool's approved
+  // lines and names the thing as „објект" — the theme is the SUBJECT, not the
+  // one noun.
+  assert.match(reply, /недвижн|објект|простор/iu, `the property theme expected: ${reply}`);
   assert.match(reply, /(во живо|лично|на лице место|во живо)/iu, `see it live expected: ${reply}`);
-  assert.match(reply, /(посета|разглед|термин)/iu, `the visit offer expected: ${reply}`);
-  assert.ok(reply.trim().endsWith('?'), `the close must ask: ${reply}`);
+  // The THEME's invariant is the visit offer, in any of its wordings. Two of
+  // the pool's lines are the owner's own verbatim closes («…би сакале да ја
+  // посетите, и јас ќе договорам се.») — they close declaratively, so a
+  // „must end with ?" assertion would fail on copy the owner dictated by hand.
+  assert.match(reply, /(посет|закаж|разглед|термин|видите|види)/iu, `the visit offer expected: ${reply}`);
   assert.ok(!/подалеку|друга населба|Лептокарија/iu.test(reply),
     `the place-ring paragraph must not be re-served: ${reply}`);
   // The flat on the table stays the subject, and the funnel is armed.

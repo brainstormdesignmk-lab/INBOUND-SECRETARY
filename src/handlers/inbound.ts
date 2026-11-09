@@ -7927,10 +7927,20 @@ export class InboundHandler {
         // Маџар Маало branch served EB 61, «DALI GO IMATE USTE ?» answered for an
         // EB 43 from two turns earlier — the slot EB still pointed at a flat the
         // conversation had left. An availability question follows the batch he
-        // just read, so the CURRENT BATCH's last card comes first; the slot EB
-        // is the fallback (it is the flat under discussion when no batch is on
-        // the table), and an EB he names himself still wins through mb.
-        const batchTail = (session.slots.currentBatch ?? []).slice(-1)[0];
+        // just read; the slot EB is the fallback (it is the flat under
+        // discussion when no batch is on the table), and an EB he names himself
+        // still wins through mb.
+        //
+        // AND "THE LAST CARD" IS THE LAST PRESENTED, not the feed's tail (the
+        // [07:06] capture, the AGENTS §4b rule): the client asked about the
+        // гарсоњера at Црногорска амбасада, the single EB 63 card had just gone
+        // out, and «ПРОВЕРИ ДАЛИ ЈА ИМА УШТЕ» was answered for EB 47 — the tail
+        // of currentBatch's FEED order, a flat from a different building. Cards
+        // are appended to presentedIds as they are sent, so its tail is what he
+        // is looking at; currentBatch's tail is only the fallback for sessions
+        // presented before that record was kept.
+        const lastPresented = (session.slots.presentedIds ?? []).slice(-1)[0];
+        const batchTail = lastPresented ?? (session.slots.currentBatch ?? []).slice(-1)[0];
         const target = mb?.prop
           ?? (batchTail !== undefined ? tableRows.find(p => p.eb === batchTail) : undefined)
           // …and the last PRESENTED card is the last resort: tableRows is built
@@ -7940,7 +7950,15 @@ export class InboundHandler {
           ?? tableRows[tableRows.length - 1]
           ?? (slotEb != null ? tableRows.find(p => p.eb === slotEb) : undefined);
         if (target) {
-          routeLog(chatId, text, 'AVAILABILITY_TABLE');
+          // CHECK-THEN-ARRANGE (the [07:06] capture): «…И АКО Е ДОСТАПНА БИ
+          // САКАЛ ДА ЈА ПОСЕТАМ» asks the check AND names what follows. The
+          // branch answered the availability ack alone, whose own tail is «Дали
+          // сакате да го исконтактирам сопственикот…?» — the consent he had
+          // just given — so the visit never started. The confirmation stands and
+          // the visit fee is disclosed on the same turn: asking «shall I?» again
+          // is the re-ask defect the [04:28] capture burned.
+          const arranging = detectProceedAfterCheck(text);
+          routeLog(chatId, text, arranging ? 'AVAILABILITY_PROCEED' : 'AVAILABILITY_TABLE');
           session.state = 'closing';
           session.slots.interestedPropertyId = target.eb;
           // The ask NAMED the flat, so the discussion anchor moves with it — the
@@ -7958,7 +7976,14 @@ export class InboundHandler {
               session.slots.lastLandmark = undefined;
             }
           }
-          const answer = this.availabilityReply(target, session, text);
+          const ack = this.availabilityReply(target, session, text);
+          const svc = session.slots.service ?? target.service ?? 'buy';
+          const answer = arranging
+            ? `${ack}\n\n${pickVariant(svc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) }) ?? buildFeeAsk(svc)}`
+            : ack;
+          // The fee is TOLD on this turn, so the client's next «да» is the
+          // agreement — the same memory every fee.ask serve sets.
+          if (arranging) session.slots.feeDisclosed = true;
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
           this.deps.sessions.set(session);

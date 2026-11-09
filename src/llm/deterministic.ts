@@ -2494,7 +2494,28 @@ export function detectProceedAfterCheck(text: string): boolean {
     + `|${W}(?:pa|па)\\s+(?:da|да)\\s+(?:se|се)\\s+(?:dogovor\\p{L}*|договор\\p{L}*|vid\\p{L}*|вид\\p{L}*|slusame|слушаме)`
     + `|${W}(?:ke|ќе|kje)\\s+(?:zakaz\\p{L}*|закаж\\p{L}*|dojd\\p{L}*|дојд\\p{L}*)`,
     'iu');
-  return proceed.test(text);
+  // THE CONDITIONAL VIEWING IS THE ARRANGE HALF (the [07:06] capture):
+  // «ПРОВЕРИ ДАЛИ ЈА ИМА УШТЕ, И АКО Е ДОСТАПНА БИ САКАЛ ДА ЈА ПОСЕТАМ» —
+  // the same check-then-arrange turn as [04:28], phrased as a wish instead of
+  // «па ќе се договориме». Only the visit REQUEST counts, never the availability
+  // grammar (the CHECK itself), or «ДАЛИ Е СЕУШТЕ ДОСТАПЕН?» would become its
+  // own consent — the reason detectArrangeClause is narrower than
+  // detectVisitRequest, which owns the availability arms too.
+  return proceed.test(text) || detectArrangeClause(text);
+}
+
+/** THE ARRANGE HALF of a check-then-arrange turn: what the client wants to
+ *  happen once the check clears — the visit request families WITHOUT the
+ *  availability grammar (`дали е достапен?`, `се продава ли уште?`), which is
+ *  the check and never the consent to it. */
+const ARRANGE_DESIRE_RE =
+  /(?<![\p{L}\p{N}])(?:sakam|sakame|bi\s+sakal|bi\s+sakala|posakuvam|сакам|сакаме|би\s+сакал|би\s+сакала|посакувам)(?![\p{L}\p{N}])[^.!?\n]{0,60}?(?:poset|pogledn|razgled|vidam|vidime|посет|погледн|разглед|видам|видиме)/iu;
+
+export function detectArrangeClause(text: string): boolean {
+  if (matchesBoth(VISIT_NEGATION_RE, text)) return false;
+  if (ARRANGE_DESIRE_RE.test(text)) return true;
+  if (matchesBoth(VISIT_VIEWING_NOUN_RE, text)) return true;
+  return matchesBoth(VISIT_POSET_VERB_RE, text);
 }
 
 /** THE PURCHASE MAGNITUDE (the [20:11] sweep of the captured price answers):
@@ -3008,7 +3029,12 @@ const VISIT_INTEREST_RE =
 const VISIT_VIEWING_NOUN_RE =
   /(?<![\p{L}\p{N}])(?:оглед|ogled|разгледувањ\p{L}*|razgleduvan\p{L}*|обиколк\p{L}*|obikolk\p{L}*|тура|tura|гледање|gledanje|прошетам|prosetam|во\s+живо|vo\s+zivo|на\s+лице\s+место|na\s+lice\s+mesto|термин\s+за\s+(?:глед|оглед|разглед)|termin\s+za\s+(?:gled|ogled|razgled))(?![\p{L}\p{N}])/iu;
 
-const VISIT_NEGATION_RE = /(не\s+(сакам|сакаме|би сакал|би сакала|посакувам|организира)|(?:не|ne)\s+(?:bi|ke|ке|go|ja|ја|го)?\s*(?:poset|посет))/i;
+// THE CONTRACTED FORM CARRIES TWO CLITICS: «не би ја посетил» is a refusal, but
+// the old guard allowed only ONE («не би посетил», «не го посетам»), so the
+// «би + ја» shape slipped through and detectArrangeClause read it as a visit
+// request — the same over-read in detectVisitRequest, fixed for both. The
+// clitics stay optional and separate, so a plain «не посетам» still refuses.
+const VISIT_NEGATION_RE = /(не\s+(сакам|сакаме|би\s+сакал|би\s+сакала|посакувам|организира)|(?:не|ne)\s+(?:bi|би|ke|ке)?\s*(?:go|ja|ја|го)?\s*(?:poset|посет))/i;
 
 // Grammar-built slot regex — catches reversed word orders and missing person
 // forms ("кога може да се види?" — 3rd person, "да видам кога може?" —
