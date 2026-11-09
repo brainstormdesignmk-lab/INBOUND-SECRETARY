@@ -218,9 +218,21 @@ export function arbitrateMoney(text: string, ctx: MoneyArbiterCtx): MoneyVerdict
     && !ctx.feeAgreed && !ctx.propertyOnTable) {
     claims.push({ lane: 'clarify', strength: 6, evidence: ['topic:money', 'target:unresolved', `state:${ctx.state}`] });
   }
-  if ((ctx.state === 'closing' || ctx.state === 'presentation')
+  // THE CHARGE QUESTION ARRIVES BEFORE THE CLOSING STATE TOO (the [10:19]
+  // field capture): «КЕ МИ НАПЛАТИТЕ ЗА ДА ГО ВИДАМ ?» was typed while the
+  // client was still identifying the flat on the site (property_locate), so
+  // the nag claim had no standing — the classifier read the future-tense
+  // charge verb as agreement and the funnel jumped straight to contact
+  // collection. A nag is nag traffic in ANY funnel state when it carries its
+  // OWN fee/visit referent (charge verb + viewing word/fee noun); the bare
+  // hesitation family («НЕ ЗНАМ …») is passed feeContext:false there because
+  // in property_locate that sentence is an ANSWER to the identify question
+  // («НЕ ЗНАМ НИШТО ПОВЕЌЕ ОД ОВА ШТО ВИ ГО КАЖАВ»), never fee resistance.
+  const nagInFeeStates = ctx.state === 'closing' || ctx.state === 'presentation';
+  const nagInLocate = ctx.state === 'property_locate';
+  if ((nagInFeeStates || nagInLocate)
     && !ctx.feeAgreed && !ctx.feeBlocked
-    && detectFeeNag(text)
+    && detectFeeNag(text, { feeContext: nagInFeeStates })
     && (!detectMoreOptions(text) || !ctx.feeTold)) {
     claims.push({ lane: 'nag', strength: 6, evidence: ['referent:visit-fee', 'act:complain', `state:${ctx.state}`] });
   }

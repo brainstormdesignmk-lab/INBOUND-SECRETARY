@@ -325,6 +325,13 @@ export interface SlotData {
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
   addressProtocolEb?: number;     // WHICH property (Евидентен број) the protocol round count belongs to — the counter is PER PROPERTY: round 2 of EB 50 must never serve for EB 76
   lastPrice?: string;            // last price answered to the client (for "та цена" resolution)
+  /** The OWNER's own strike counter — the same 3-strike insult protocol the
+   *  client runs, kept SEPARATE: a rude owner must never ban the client's
+   *  chat, and the client's strikes must never silence the owner. */
+  ownerStrikes?: number;
+  /** Strike 3 on the owner side: his pane stops getting answers (the operator
+   *  is alerted and takes over). Cleared with the rest of the slots. */
+  ownerMuted?: boolean;
   /** Generated (LLM) answers served in THIS session — the budget that stops a
    *  chatty client buying one Gemini call per message. Cleared with the rest of
    *  the slots on resetToIdle, so every new funnel gets a fresh allowance. */

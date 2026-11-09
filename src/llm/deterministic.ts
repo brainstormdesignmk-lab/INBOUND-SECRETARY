@@ -2004,6 +2004,23 @@ export function detectBedroomsRange(text: string): { min: number; max: number } 
     if (RANGE_NON_BEDS_RE.test(t)) return undefined;
     if (RANGE_MINIMUM_RE.test(t)) return undefined;
     const tokens = t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+    // CONNECTOR PROXIMITY (the [10:11] field capture): a bare "и"/"i" is a
+    // COORDINATOR only when it brushes a number end ("i so edna i so dve",
+    // "dve i tri spalni"). In the multi-line client message the sentence-
+    // initial «И» of «…НА САЈТ И БИ САКАЛ ДА ГО ПОСЕТАМ» happened to sit
+    // between a «ЕДЕН» and the «2 СПАЛНИ» of a DIFFERENT sentence, and the
+    // whole turn read as a 2…3-room band: the locate lane then had no exact
+    // room count, asked m²/price instead of serving the 3-room flat the
+    // client had just described, and later padded its pairs with a гарсоњера.
+    // «или/ili» and the ", а" arm are unambiguous coordinators and keep the
+    // old behaviour unchecked.
+    if (!/(?:ili|или)/iu.test(t) && !/[,;]\s*(?:a|а)(?![\p{L}\p{N}])/iu.test(t)) {
+      const endAt = tokens.map(rangeEndToken);
+      const brushesEnd = (i: number): boolean => endAt[i - 1] !== undefined
+        || (['so', 'со'].includes(tokens[i + 1]) ? endAt[i + 2] : endAt[i + 1]) !== undefined;
+      const bareAnds = tokens.map((w, i) => (w === 'и' || w === 'i' ? i : -1)).filter(i => i >= 0);
+      if (!bareAnds.some(brushesEnd)) return undefined;
+    }
     const nums = tokens.map(rangeEndToken).filter((n): n is number => n !== undefined);
     if (nums.length < 2) return undefined;
     // Both ends must DIFFER and stay in the 1–5 спални band — "i toa i toa"
@@ -6043,9 +6060,21 @@ export function detectWaitingAck(text: string): boolean {
   return !/(?:посет|poset|термин|termin|сопственик|sopstvenik|соглас|saglas|плат|plat|напла|napla|провизи|provizi|стан|куќ|куќа|имот|деловен|гарсоњер|локал|цена|евр|ден|спалн|куп|изнајм|kirij|prodad|izdad|центар|karpos|карпош|аеродром|aerodrom|kisela|кисела|водно|vodno|улица|ulica|адрес|adres|локаци|lokaci|број|broj)/iu.test(normalizeMc(text));
 }
 
+// NOUN + HAVE (the [10:15] field capture): «АДРЕСА ИМАШ ?» — the client asks
+// whether we HAVE the address. Every address arm above keys on the definite
+// forms (адресата/улицата/локацијата) or on a which-word ("која адреса има"), so
+// the bare noun + 2nd-person verb slipped through, the dynamic brain answered
+// with the privacy speech, and the nearby protocol (landmark + map link) never
+// ran. Only the SECOND person (имаш/имате/imas/imate) counts: a 3rd-person
+// «станот има адреса» is an assertion about the flat, not a demand. Both word
+// orders are covered because Latin typing puts the verb first («imas adresa?»).
+const ADDRESS_HAVE_RE =
+  /(?<![\p{L}\p{N}])(?:адрес(?:а|ата|у)|adres(?:a|ata|u)|улиц(?:а|ата|у)|ulic(?:a|ata|u)|локациј(?:а|ата|у)|lokacij(?:a|ata|u))\s+(?:имаш|имате|imas|imate|imaš)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:имаш|имате|imas|imate|imaš)\s+(?:(?:ли|li)\s+)?(?:адрес(?:а|ата|у)|adres(?:a|ata|u)|улиц(?:а|ата|у)|ulic(?:a|ata|u)|локациј(?:а|ата|у)|lokacij(?:a|ata|u))(?![\p{L}\p{N}])/iu;
+
 export function detectExactAddressAsk(text: string): boolean {
   // Main regex check (raw + normalized so Cyrillic-only branches cover Latin)
   if (matchesBoth(EXACT_ADDRESS_RE, text)) return true;
+  if (matchesBoth(ADDRESS_HAVE_RE, text)) return true;
 
   // ===== SECONDARY CHECK: Missing patterns not caught by EXACT_ADDRESS_RE =====
   const lower = text.toLowerCase();
@@ -6506,6 +6535,15 @@ const PROVISION_RE =
 // how-much/why question ("колку е за посета?", "зошто наплаќате?") and fee
 // doubt without a resistance verb ("не знам дали да платам").
 const NAG_VISIT_RE = new RegExp(VIEWING_NOUN_SRC, 'iu');
+// THE VIEWING VERB FAMILY (the [10:19] field capture): the shared viewing
+// NOUNS (посета/гледање/влез) are not how a client asks the charge question —
+// «КЕ МИ НАПЛАТИТЕ ЗА ДА ГО ВИДАМ ?» names the visit with the VERB «видам».
+// Without it the nag predicate saw a charge verb with NO object, the turn fell
+// through the ladder, the classifier read the future-tense verb as consent
+// and the funnel jumped straight to contact collection. The verbs are safe as
+// a fee referent: the nag arms still need an object / charge frame, so
+// «ГЛЕДАВ ЕДЕН СТАН…» (a recall answer) never fires.
+const NAG_VIEW_VERB_RE = /(?:вида|виде|види|vid|гледа|gleda|погледн|pogledn)\p{L}*/iu;
 // Money NOUNS only — a bare amount ("60.000 евра") is a property price, never
 // a fee object; "baram stan do 60000 evra" must not read as fee resistance.
 const NAG_FEE_OBJECT_RE = /(?:пари|парите|надомест\p{L}*|такс\p{L}*|провизи\p{L}*|комиси\p{L}*|цената|цена)/iu;
@@ -6780,7 +6818,19 @@ export function cheapLaneConflict(text: string): string | undefined {
   return undefined;
 }
 
-export function detectFeeNag(text: string): boolean {
+export interface FeeNagOptions {
+  /** FALSE when the caller is OUTSIDE a fee context (e.g. the locate lane
+   *  still identifying a flat). Only the bare-hesitation arm (5) is skipped by
+   *  it: «НЕ ЗНАМ НИШТО ПОВЕЌЕ ОД ОВА ШТО ВИ ГО КАЖАВ» answering the identify
+   *  question is an answer, not fee resistance — while a nag that carries its
+   *  OWN fee/visit referent («ќе ми наплатите за да го видам?») is fee traffic
+   *  in any funnel state. Defaults to TRUE so every existing caller keeps the
+   *  closing/presentation reading it always had. */
+  feeContext?: boolean;
+}
+
+export function detectFeeNag(text: string, opts: FeeNagOptions = {}): boolean {
+  const feeContext = opts.feeContext !== false;
   const flat = text.replace(/\n/g, ' ');
   // VALENCE VETO: praising the price is not resisting the fee. The fee is never
   // "cheap" — this is the one-directional signal that separates the two topics.
@@ -6792,7 +6842,7 @@ export function detectFeeNag(text: string): boolean {
   // "PARI ZA POSETA" shape with no charge verb at all).
   if (detectFeeChargePushback(flat)) return true;
   const cyr = normalizeMc(flat);
-  const hasVisit = NAG_VISIT_RE.test(cyr);
+  const hasVisit = NAG_VISIT_RE.test(cyr) || NAG_VIEW_VERB_RE.test(cyr);
   const hasFeeObject = NAG_FEE_OBJECT_RE.test(cyr);
   const negated = NAG_NEGATION_RE.test(cyr);
   const universal = NAG_UNIVERSAL_RE.test(cyr);
@@ -6899,7 +6949,7 @@ export function detectFeeNag(text: string): boolean {
   //    дали можам"): a timing word, a day word or a concrete time means the
   //    client is answering the visit question, and that turn belongs to the
   //    scheduler — it must never burn a fee rung.
-  if (NAG_HESITATION_RE.test(cyr) && !TIMING_INTENT_RE.test(cyr)
+  if (feeContext && NAG_HESITATION_RE.test(cyr) && !TIMING_INTENT_RE.test(cyr)
     && !WHERE_WORD_IN_HESITATION_RE.test(cyr)
     && !hasDayWord(flat) && detectVisitTime(flat) === undefined) return true;
 

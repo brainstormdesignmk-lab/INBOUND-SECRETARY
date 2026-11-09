@@ -8,6 +8,9 @@ export type EventType =
   | 'customer_reengage'
   | 'price_changed'
   | 'landmark_requested'
+  /** The OWNER relayed an insult — logged on every rung so a human can step in
+   *  (the client-side strike protocol never involves the owner). */
+  | 'owner_offense'
   | 'operator_log';
 
 export interface EventRow {

@@ -39,7 +39,7 @@ import { PriceChangeStore } from '../store/priceChanges';
 import { AddressChangeStore } from '../store/addressChanges';
 import { BlocklistStore } from '../store/blocklist';
 import { ChannelRegistry } from '../channels/types';
-import { applyStrike, OFFENSE_WARNINGS, detectOffensive } from '../antiabuse/strikes';
+import { applyStrike, applyStrikeDecay, OFFENSE_WARNINGS, detectOffensive, STRIKE_1_RESPONSES, STRIKE_2_RESPONSES } from '../antiabuse/strikes';
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extractDetailsLandmark, resolveSearchCenter, FEED_LANDMARK_MAX_M, type PropertyRow, type Center } from '../geo/landmarks';
@@ -1338,7 +1338,7 @@ function protocolRoundFor(session: ChatSession, eb: number): number {
  *  transport needs to know whether it owes the owner an answer, and the audit
  *  needs to know whether the funnel moved, waited, or refused the message. */
 export interface OwnerMessageResult {
-  effect: 'answered' | 'verdict_applied' | 'verdict_relayed' | 'address_confirmed' | 'no_pending' | 'unknown_chat' | 'wrong_property';
+  effect: 'answered' | 'verdict_applied' | 'verdict_relayed' | 'address_confirmed' | 'no_pending' | 'unknown_chat' | 'wrong_property' | 'offended';
   /** The text to deliver BACK to the owner (the ack, the answer to his question,
    *  the exact-hour re-ask). Absent when nothing should be sent (a verdict was
    *  applied and the conversation moves to the client). */
@@ -11166,7 +11166,19 @@ export class InboundHandler {
           reply = exhaustedLine(session.slots.location, assistantTexts(session)) ?? LOCATE_REFINE_ASK;
           bankKey = 'exhausted.location';
         } else {
-          const matches = (inArea.length > 0 ? inArea : pool).slice(0, 2);
+          // THE ROOM COUNT IS A CATEGORY, NOT A TIE-BREAKER (the [10:12]
+          // field capture): the client said «2 СПАЛНИ» (→ трисобен) and the
+          // pair still padded a двособен / a гарсоњера into the second slot —
+          // closestMatches ranks rooms but never filters, so a wrong-room row
+          // rode price proximity into the serve. The [13:28] owner rule is the
+          // contract here too: when the client described a room count, the
+          // slots hold ONLY same-room matches; a wrong-room flat is shown only
+          // when the bank holds literally nothing of the right count.
+          const ordered = inArea.length > 0 ? inArea : pool;
+          const roomLocked = session.slots.bedrooms !== undefined
+            ? ordered.filter(p => p.bedrooms === session.slots.bedrooms)
+            : ordered;
+          const matches = (roomLocked.length > 0 ? roomLocked : ordered).slice(0, 2);
           reply = matches.length > 0 ? present(matches) : LOCATE_REFINE_ASK;
         }
       } else if (!reply) {
@@ -13136,6 +13148,51 @@ ${contactReminder}`;
   }
 
   private async ownerMessageOnce(session: ChatSession, liveEb: number | undefined, text: string): Promise<OwnerMessageResult> {
+    // THE OWNER GETS THE SAME INSULT PROTOCOL AS THE CLIENT (the [10:24] field
+    // capture): «МА КАКВО ВЧЕРА . ПУШИ КУРАЦ» matched no verdict shape, so the
+    // turn fell to the answer seam and the availability/term question went
+    // straight back to him — a slap read as a slow answer, which is exactly how
+    // the client-side lane used to fail. The agency's tone rule binds BOTH
+    // sides of the relay: strike 1 professional rebuff, strike 2 final
+    // warning, strike 3 ends the exchange. The counter is the owner's OWN
+    // (slots.ownerStrikes, same decay state machine) — a rude owner never
+    // spends the client's strikes and never bans the client's chat; at strike 3
+    // the operator is alerted and takes the conversation over.
+    if (session.slots.ownerMuted) return { effect: 'offended', state: session.state };
+    const ownerOffense = detectOffensive(text);
+    if (ownerOffense.isOffensive) {
+      const strikes = applyStrikeDecay(session.slots.ownerStrikes ?? 0, true);
+      session.slots.ownerStrikes = strikes;
+      if (strikes >= 3) {
+        session.slots.ownerMuted = true;
+        this.events.insert('owner_offense', session.chatId, liveEb ?? null, {
+          strikes, text: text.slice(0, 400), outcome: 'muted',
+        });
+        console.log(`[EVENT] OWNER_OFFENSE ${JSON.stringify({ chatId: session.chatId, eb: liveEb, strikes, outcome: 'muted' })}`);
+        this.deps.sessions.set(session);
+        return { effect: 'offended', replyText: 'Разговорот е завршен.', state: session.state };
+      }
+      const pool = strikes === 1 ? STRIKE_1_RESPONSES : STRIKE_2_RESPONSES;
+      const recent = this.recentOwnerLines(session.chatId);
+      const replyText = pool.find(line => !recent.includes(line)) ?? pool[0];
+      this.rememberOwnerLine(session.chatId, replyText);
+      this.events.insert('owner_offense', session.chatId, liveEb ?? null, {
+        strikes, text: text.slice(0, 400), outcome: strikes === 1 ? 'warn' : 'warn_final',
+      });
+      console.log(`[EVENT] OWNER_OFFENSE ${JSON.stringify({ chatId: session.chatId, eb: liveEb, strikes, outcome: strikes === 1 ? 'warn' : 'warn_final' })}`);
+      // NO RE-ASK of the pending question in the same turn: repeating it is
+      // what told the owner the insult had not been read.
+      this.deps.sessions.set(session);
+      return { effect: 'offended', replyText, state: session.state };
+    }
+    // A clean owner reply decays strike 1 exactly like the client's protocol.
+    // Persisted HERE: the owner seam's later writes happen inside awaits, and
+    // a counter left in the local object would be reloaded from the DB on the
+    // next owner message (the strike would climb from 1 to 2 on a decayed run).
+    if ((session.slots.ownerStrikes ?? 0) === 1) {
+      session.slots.ownerStrikes = 0;
+      this.deps.sessions.set(session);
+    }
     // TURN 0 OWNS THE OWNER'S NEXT SENTENCE. The visit is already booked, so
     // the only open question to him is «дали адресата е точна?» — his answer
     // must reach the scheduler's confirmAddress(). It used to fall through to
