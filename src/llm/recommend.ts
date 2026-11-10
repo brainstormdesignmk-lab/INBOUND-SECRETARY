@@ -97,11 +97,28 @@ export function detectRecommendAsk(text: string): boolean {
  *  served whenever the ask is about worth rather than about feel. No
  *  interrogative anchor: „shto e isplatlivo?", „iskreno, vrednost" and
  *  „koe e podobra vrednost" are the same request in different moods. */
-const VALUE_CLASSES: RegExp[] = [
+/** The ASSESSMENT words — «isplati», «vrednost», «best value». They judge the
+ *  options on a price yardstick however the sentence is shaped. */
+const VALUE_ASSESS_CLASSES: RegExp[] = [
   /(?:isplati|исплати|isplatl|исплатлив|vrednost|вредност|vredno|вредно)/iu,
-  /(?:(?:cena|цена)\p{L}*[^.\n]{0,15}(?:m2|м2|м²|kvadrat|квадрат)|(?:m2|м²|m2|м²|kvadrat|квадрат)[^.\n]{0,15}(?:cena|цена)|(?:po|za|за|по)\s*(?:m2|m²|м2|м²|kvadrat|квадрат))/iu,
   /(?:best\s+value|value\s+for\s+money|worth\s+it|per\s+square\s+met(?:er|re))/iu,
 ];
+
+/** The RATE phrases — «cena po kvadrat», «цена за м2». They are a YARDSTICK
+ *  only beside an assessment/choice shape; a bare «po kvadrat» is the ordinary
+ *  €/м² QUESTION (the INFO block's pricePerSqm facet) and belongs to the flat
+ *  the client is pointing at. The preposition must be its own word: the fused
+ *  typo «ПОКВАДРАТ» (the [22:11] capture) is the noun, never «по квадрат». */
+const VALUE_RATE_CLASSES: RegExp[] = [
+  /(?:(?:cena|цена)\p{L}*[^.\n]{0,15}(?:m2|м2|м²|kvadrat|квадрат)|(?:m2|м²|m2|м²|kvadrat|квадрат)[^.\n]{0,15}(?:cena|цена)|(?:po|za|за|по)\s+(?:m2|m²|м2|м²|kvadrat|квадрат))/iu,
+];
+
+/** A RATE QUESTION ABOUT ONE FLAT — «КОЛКУ Е ТОА ПОКВАДРАТ» / «kolku e toa po
+ *  kvadrat». The «тоа/тој/овој» is the flat Lina just quoted, so the answer is
+ *  ONE rate, never a ranking of the batch (the [22:11] capture: the recommend
+ *  block ranked both flats and appended its closing instead of the number). */
+const SINGLE_RATE_ANAPHOR_RE =
+  /(?:kolku|колку)(?![\p{L}\p{N}])[^?!\n]{0,30}?(?:toa|тоа|toj|тој|ovoj|овој|ovaa|оваа)/iu;
 
 /** The CHEAPER-COMPARATIVE class — „poevtino", „najevtino", „podobra cena".
  *  It is a value word only when the client is JUDGING what he already saw.
@@ -124,8 +141,12 @@ const VALUE_SEARCH_RE =
  *  for the same reason as detectRecommendAsk: Latin input folds to Cyrillic. */
 export function detectValueAsk(text: string): boolean {
   const forms = [text, normalizeMc(text)];
+  const singleRate = forms.some(f => SINGLE_RATE_ANAPHOR_RE.test(f));
   return forms.some(f =>
-    VALUE_CLASSES.some(re => re.test(f))
+    VALUE_ASSESS_CLASSES.some(re => re.test(f))
+    // A rate phrase is a yardstick only when the client is NOT asking the rate
+    // of the one flat the sentence points at.
+    || (!singleRate && VALUE_RATE_CLASSES.some(re => re.test(f)))
     // „poevtino" counts only as a JUDGMENT, never as a stock request —
     // otherwise a cheaper search would be answered with the visit close
     // instead of the cheaper pool (the [14:46] capture).

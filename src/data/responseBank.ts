@@ -120,8 +120,12 @@ export const FIXED_SEEDS: Record<string, string[]> = {
   // Owner-confirmed policy: an agency agent accompanies the client at a viewing.
   // Learned, reviewed variants may join this seed without touching the frozen
   // fee disclosure key or its funnel behavior.
+  // Owner-confirmed division of work (the [22:08] capture): the AGENTS carry
+  // the presentations and accompany the client; the assistant's own work is
+  // office-based. The question «ТИ ЌЕ ДОЈДЕШ СО МЕНЕ?» is about WHO comes, so
+  // the copy names both halves and never a fee amount.
   'learn.agent-accompanies-viewing': [
-    'Да, агент на Метрополис ќе Ве придружува при разгледувањето на избраната недвижност. Кога ќе одлучите, ќе продолжиме со организирање на посетата — дали Ви одговара?',
+    'Посетите и презентациите на недвижностите ги вршат нашите агенти — агент на Метрополис ќе Ве придружува при разгледувањето на избраната недвижност. Мојата работа е канцелариска: ја правам организацијата и врската со сопствениците. Кога ќе одлучите, ќе договориме термин — дали Ви одговара?',
   ],
   // SMALLER-BY-RATE (the [00:12] Kisela Voda burst): the intro names the
   // anchor's €/м² as the reference ({rate}); the empty line keeps the funnel

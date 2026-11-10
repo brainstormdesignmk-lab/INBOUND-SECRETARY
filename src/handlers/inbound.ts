@@ -1581,6 +1581,20 @@ export class InboundHandler {
    *  The named EB is scanned in the CURRENT message first, then in the recent
    *  client turns — «54 NE E LOSA» then «ima lift?» is the same conversation
    *  about 54 until a newer number (or a new search) shifts it. */
+  /** THE FLAT LINA LAST QUOTED A PRICE FOR (the [22:11] capture).
+   *
+   *  The client asks «КОЛКУ Е ТОА ПОКВАДРАТ» — «тоа» is the flat named in the
+   *  ANSWER he just read («Станот со Евидентен број 69 чини 99.000 евра»), not
+   *  the tail of the served batch. Only the LAST assistant turn qualifies (the
+   *  anaphor points at what she just said), and only its PRICE-QUOTE shape, so
+   *  a card list (which also carries Евидентен број) never becomes an anchor.
+   *  Returns undefined when that turn quoted no price. */
+  private lastQuotedEb(session: ChatSession): number | undefined {
+    const last = assistantTexts(session).at(-1) ?? '';
+    const m = /Евидентен број\s+(\d{1,6})\s+чини\b/u.exec(last);
+    return m ? Number(m[1]) : undefined;
+  }
+
   private namedOnTableEb(session: ChatSession, ...texts: Array<string | undefined>): number | undefined {
     const onTable = new Set<number>([
       ...(session.slots.presentedIds ?? []),
@@ -3861,7 +3875,18 @@ export class InboundHandler {
     // disclosure/visit-consent protocol. Handle before the broad visit detector
     // so a question about who attends cannot be interpreted as a request to
     // schedule and routed to frozen fee.ask.buy.
-    if (detectAgentAttendanceAsk(text)) {
+    // THE «WITH ME?» IS THE VIEWING WHEN A FLAT IS ON THE TABLE (the [22:08]
+    // capture): the client had just been told the visit would be arranged and
+    // asked «ТИ ЌЕ ДОЈДЕШ СО МЕНЕ?» — no viewing noun, so the detector failed
+    // and the fee-disclosure lane below answered a question about WHO COMES
+    // with «300 денари». A flat on the table, or a last reply about a visit,
+    // is the context that makes the bare question a viewing question.
+    const attendanceContext =
+      session.slots.propertyId != null
+      || session.slots.interestedPropertyId != null
+      || (session.slots.presentedIds?.length ?? 0) > 0
+      || /(?:посет|разглед|презентац|термин)/iu.test(assistantTexts(session).at(-1) ?? '');
+    if (detectAgentAttendanceAsk(text, { propertyContext: attendanceContext })) {
       const reply = pickVariant(AGENT_ATTENDS_VIEWING_KEY, { recent: assistantTexts(session) })
         ?? AGENT_ATTENDS_VIEWING_ANSWER;
       routeLog(chatId, text, 'AGENT_ATTENDANCE_ASK');
@@ -6639,6 +6664,14 @@ export class InboundHandler {
         // again — re-rendering it is exactly the loop the smaller-by-rate
         // lane above owns.
         && !detectSmallerPerM2Ask(text)
+        // CASH-AT-SIGNING IS NOT A PRICE FACET (the [22:26] capture):
+        // «КОЛКУ ПАРИ ТРЕБА ДА НОСАМ НА ПОТПИС ЗА ДА ГА ИЗНАЈМАМ 59» carries
+        // «колку пари», so the price facet claimed it and the client was told
+        // the rent («киријата изнесува 950 евра») instead of the total he must
+        // bring. That total is arithmetic the money lane below owns
+        // (rent.math: commission + deposit + first rent), and it can only
+        // reach it if the INFO block stands down here.
+        && !detectTotalCostAsk(text)
         // A COLD ask that NAMES its EB is still an info ask: the [00:00]
         // transcript "ZDRAVO DALI KUKJATA 55 IMA DVORCE?" was turned into the
         // discovery/service question because no property was on the table yet,
@@ -6648,6 +6681,12 @@ export class InboundHandler {
         && (session.slots.propertyId || session.slots.interestedPropertyId
           || session.slots.presentedIds?.length
           || inferPropertyId(text) !== undefined
+          // THE FLAT SHE JUST QUOTED IS A BINDING SIGNAL TOO (the [22:11]
+          // capture): after «Станот со Евидентен број 69 чини 99.000 евра» the
+          // client's «КОЛКУ Е ТОА ПОКВАДРАТ» had no slot and no number of its
+          // own, so the whole INFO block was skipped and the turn fell to a
+          // closing line — the rate he asked for was never computed.
+          || this.lastQuotedEb(session) !== undefined
           // The BUILDING-YEAR question is answerable with no unit on the table:
           // the honest "немам податок — ќе го прашам сопственикот" line is a
           // general answer about every property, not a property-specific fact.
@@ -6726,13 +6765,30 @@ export class InboundHandler {
         // No binding signal in the message ("kolku e ?") → the legacy slot
         // chain (current → interested → presented[last]) — the mention layer
         // must never STARVE the ask that the FSM price path already served.
+        // THE FLAT LINA JUST QUOTED OWNS «ТОА» (the [22:11] capture): after
+        // «Станот со Евидентен број 69 чини 99.000 евра» the client's «КОЛКУ Е
+        // ТОА ПОКВАДРАТ» is about THAT flat — so the quote outranks the legacy
+        // slot chain and the mention layer's history fallback (which point at
+        // the tail of the served batch). Two things still outrank it: an
+        // Евидентен број named IN THIS MESSAGE (the client changed the subject)
+        // and an ordinal pick («PRVIOT» is choosing, not pointing back).
+        const quotedEb = this.lastQuotedEb(session);
+        const namedEbHere = inferPropertyId(text);
+        const mentionProp = mbInfo?.prop;
         const infoProp = (namedOnTable !== undefined
             ? await this.deps.properties.getByEb(namedOnTable).catch(() => undefined)
             : undefined)
-          ?? mbInfo?.prop
+          ?? (namedEbHere !== undefined ? mentionProp : undefined)
           ?? (ordinalEb !== undefined
             ? await this.deps.properties.getByEb(ordinalEb).catch(() => undefined)
             : undefined)
+          ?? (quotedEb !== undefined
+            ? await this.deps.properties.getByEb(quotedEb).catch(() => undefined)
+            : undefined)
+          ?? (namedEbHere !== undefined
+            ? await this.deps.properties.getByEb(namedEbHere).catch(() => undefined)
+            : undefined)
+          ?? mentionProp
           ?? (session.slots.propertyId
             ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
             : undefined)

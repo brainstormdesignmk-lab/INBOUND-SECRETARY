@@ -3115,12 +3115,21 @@ export function detectVisitRequest(text: string): boolean {
 /** The client asks whether an agency agent will accompany them to a viewing.
  * This is a distinct informational question, not visit-interest/fee consent:
  * answer it without disclosing or advancing the fee protocol. */
-export function detectAgentAttendanceAsk(text: string): boolean {
+export function detectAgentAttendanceAsk(text: string, opts: { propertyContext?: boolean } = {}): boolean {
   const folded = normalizeMc(text);
   const asksAccompaniment = /(?:со\s+мене|ме\s+придруж\p{L}*|ќе\s+ме\s+придруж\p{L}*|ке\s+ме\s+придруж\p{L}*)/iu.test(folded);
   const futurePresence = /(?:ке|ќе)\s+(?:дојд\p{L}*|присуствува\p{L}*|бид\p{L}*|придруж\p{L}*)/iu.test(folded);
   const person = /(?:ти|вие|агент\p{L}*|агенц\p{L}*)/iu.test(folded);
-  const viewing = /(?:посет\p{L}*|разглед\p{L}*|стан\p{L}*|недвижност\p{L}*)/iu.test(folded);
+  // THE VIEWING NOUN IS OPTIONAL WHEN THE CONVERSATION IS ALREADY THE VIEWING
+  // (the [22:08] capture): «ТИ ЌЕ ДОЈДЕШ СО МЕНЕ?» names no property, no
+  // viewing word — the client asks the AGENT about the visit he was just told
+  // would be arranged, and the missing noun made the detector fail, so the
+  // turn fell into the fee disclosure and was answered with «300 денари».
+  // The caller passes propertyContext when a flat is on the table or the last
+  // reply was about a visit, so the bare «with me?» reads as the viewing it
+  // is; outside such a context the noun is still required.
+  const viewing = /(?:посет\p{L}*|разглед\p{L}*|стан\p{L}*|недвижност\p{L}*)/iu.test(folded)
+    || opts.propertyContext === true;
   const question = /\?|(?:^|\s)(?:дали|ке|ќе)(?=\s|$)/iu.test(folded);
   return asksAccompaniment && futurePresence && person && viewing && question;
 }
@@ -3155,8 +3164,14 @@ export const AGENCY_IDENTITY_ANSWER = 'Ние сме агенцијата за �
 export const FEATURE_OWNER_CHECK =
   'Ќе го прашам сопственикот за овој детал и ќе Ве известам веднаш штом добијам одговор.';
 
+// THE OWNER'S OWN DIVISION OF WORK (the [22:08] capture): «ZA POSETI NA
+// NEDVIZNOSTI SO KLIENTI SE ZADOLZENI AGENTI KOI GI VRSAT PREZENTACIITE.
+// MOJATA RABOTA E KANCELARISKA.» The copy states BOTH halves — agents run the
+// presentations and accompany the client, the assistant's work is office-based
+// (organisation, coordination with the owners) — and never a fee amount: the
+// question is who comes, not what it costs.
 export const AGENT_ATTENDS_VIEWING_ANSWER =
-  'Да, агент на Метрополис ќе Ве придружува при разгледувањето на избраната недвижност. Кога ќе одлучите, ќе продолжиме со организирање на посетата — дали Ви одговара?';
+  'Посетите и презентациите на недвижностите ги вршат нашите агенти — агент на Метрополис ќе Ве придружува при разгледувањето на избраната недвижност. Мојата работа е канцелариска: ја правам организацијата и врската со сопствениците. Кога ќе одлучите, ќе договориме термин — дали Ви одговара?';
 
 export const AGENT_ATTENDS_VIEWING_KEY = 'learn.agent-accompanies-viewing';
 
@@ -6529,8 +6544,15 @@ export function detectNegotiate(text: string): boolean {
 }
 
 // Provision / commission ask.
+// THE COMMISSION NOUN (or the agency-fee phrase) IS REQUIRED. The old list also
+// carried a bare «колку е …» arm, which is not commission vocabulary at all:
+// every how-MUCH question in the language matched it — «КОЛКУ Е ТОА ПОКВАДРАТ»
+// (the [22:11] capture) was read as a commission ask, so the INFO block's own
+// veto (`!detectProvisionAsk`) skipped the rate answer and the turn fell to a
+// closing line. A bare «колку е?» after a commission disclosure is context, and
+// the caller already owns that context; the detector only reads the noun.
 const PROVISION_RE =
-  /(?:провизи[јjа]+|provizija|provizion|provizia|commission|агенциск[аои]\s+(?:надомест|цена|трошок|услуга)|агенциск[аои]а?т?а?\s+услуга|[аa]генck[аa]а?т?[аa]?\s+(?:услуга|usluga)|agencka[аaтt]*\s+(?:услуга|usluga)|колку\s+(?:е|е\s+провизијата|чиња)|(?:дали|dali)\s+(?:има|постои|ќе\s+плаќам)\s+провизиј)/iu;
+  /(?:провизи[јjа]+|provizija|provizion|provizia|commission|агенциск[аои]\s+(?:надомест|цена|трошок|услуга)|агенциск[аои]а?т?а?\s+услуга|[аa]генck[аa]а?т?[аa]?\s+(?:услуга|usluga)|agencka[аaтt]*\s+(?:услуга|usluga)|(?:дали|dali)\s+(?:има|постои|ќе\s+плаќам)\s+провизиј)/iu;
 
 /** True when the client asks about provision/commission. */
 // ── THE FEE-NAG GRAMMAR (visit fee, 300 and 500) ────────────────────────────
@@ -6571,7 +6593,12 @@ const NAG_FEE_OBJECT_RE = /(?:пари|парите|надомест\p{L}*|та�
 // Latin typing "nekjam" (normalizeMc → некјам) were not particles anywhere, so
 // "NEKJAM DA PLATAM" never reached the negated-pay arm and burned no rung.
 const NAG_NEGATION_RE = /(?:^|[^\p{L}])(?:не|нема|немам|неможам|никогаш|ниту|неќ\p{L}*|нејќ\p{L}*|некј\p{L}*)(?=$|[^\p{L}])/iu;
-const NAG_PAY_STEM_RE = /(?:плат|плаќ|прифаќ|прифат|дад|дава|подмир|покрив)\p{L}*/iu;
+// «PLACKAM»/«NE PLACKAM» is how the field types ПЛАЌАМ (the [23:2x] rent batch);
+// normalizeMc reads ck as ц+к (it MUST — «katolicka» is the town's landmark), so
+// the pay verb arrives as «плацкам» and the whole family (negated payment, fee
+// traffic, the refusals) stared at a non-word. The alias lives HERE, on the one
+// lexeme, so no place name is ever folded into nonsense.
+const NAG_PAY_STEM_RE = /(?:плат|плаќ|плацк|прифаќ|прифат|дад|дава|подмир|покрив)\p{L}*/iu;
 const NAG_CHARGE_STEM_RE = /(?:зема|наплаќ|наплат|бара|дава|плаќ)\p{L}*/iu;
 const NAG_UNIVERSAL_RE = /(?:никој|ниту еден|сите|другите|други агенции|друга агенција|секаде|на друго место|кај другите|само вие|само ви|само кај вас)/iu;
 // A universal claim whose ONLY fee referent is the charge verb is resistance
@@ -6864,6 +6891,18 @@ export function detectFeeNag(text: string, opts: FeeNagOptions = {}): boolean {
   // Positive consent is never resistance; negated pay is never consent (the
   // detector already refuses negations, so this only screens real agreement).
   if (detectFeePaymentAgreement(flat)) return false;
+  // A CASH-AT-SIGNING QUESTION IS NOT RESISTANCE (the [22:26] capture):
+  // «КОЛКУ ПАРИ ТРЕБА ДА НОСАМ НА ПОТПИС ЗА ДА ГА ИЗНАЈМАМ 59» asks for the
+  // arithmetic of a named flat, and the ЕВИДЕНТЕН БРОЈ (59) read as a
+  // fee-sized amount while the word «пари» satisfied the money-noun arm — so
+  // the ladder answered a money question with rung 1's persuasion and the
+  // commission/first-rent figures he asked for were never computed. The
+  // money-OBJECT question has its own lane (rent.math / detectTotalCostAsk),
+  // which is exactly what a nag must never steal. The predicate itself
+  // refuses viewing/fee objects («…за посета»), so a fee question still
+  // climbs. detectTotalCostAsk is digital-amount-free, so a message stating a
+  // rent («kirijata e 1200 … kolku ke me kosta») stays with extractRentMath.
+  if (detectTotalCostAsk(flat)) return false;
   // The fixed-phrase accusation family stays the first gate (it owns the
   // "PARI ZA POSETA" shape with no charge verb at all).
   if (detectFeeChargePushback(flat)) return true;
@@ -6958,9 +6997,14 @@ export function detectFeeNag(text: string, opts: FeeNagOptions = {}): boolean {
   //     be FEE-SIZED (the same ≤2.000 ден / ≤100 евр ceiling every other fee
   //     arm uses) — a property price keeps its own lane — and the message must
   //     either challenge "symbolic" or call the amount MONEY ("se pari").
+  //    The MONEY word must sit BESIDE its amount («500DEN SE PARI», «PARI 500
+  //    DENARI»), never merely somewhere in the message: the [22:26] capture
+  //    «КОЛКУ ПАРИ ТРЕБА ДА НОСАМ НА ПОТПИС … 59» carries «пари» and a
+  //    fee-sized ЕВИДЕНТЕН БРОЈ far apart, and the bare anywhere-in-the-text
+  //    «пари» arm read a cash-at-signing question as an attack on the fee.
   if (FEE_SIZED_RE.test(cyr) && counterOfferFeeSized(cyr)
     && (/(?:која|каква|koja|kakva)\s+(?:е\s+|e\s+)?симболичн|симболичн\p{L}*\s+(?:цена|cena)/iu.test(cyr)
-      || /(?:^|[^\p{L}])пари(?=$|[^\p{L}])/iu.test(cyr))) return true;
+      || /(?:\d[\d\s.,]*\s*(?:ден|den|евр|evr|eur|€|мкд|mkd)\p{L}*[^.!?\n]{0,12}(?:пари|pari))|(?:(?:пари|pari)[^.!?\n]{0,12}\d[\d\s.,]*\s*(?:ден|den|евр|evr|eur|€|мкд|mkd))/iu.test(cyr))) return true;
 
   // 4e) DEMAND TO CHANGE THE RULES — "PROMENETE GI PRAVILATA" (the [10:25]
   //     transcript). Resistance, not explanation: the client rejects the
@@ -7065,6 +7109,14 @@ export function isFeeTraffic(text: string): boolean {
   // "ne znam kade e stanot" is a WHERE-IS question, not fee traffic.
   if (!money && !visit) return false;
   if (money && visit) return true;
+  // A PAY VERB BESIDE A VIEWING NOUN is fee traffic even without a fee-object
+  // noun (the [11:07] rent capture): «КОЛКУ Е КИРИЈАТА И ШТО ПЛАЌАМ ЗА
+  // ПОСЕТА?» asks the rent AND what the VIEWING costs. The money arm missed it
+  // («плаќам» is a verb, not an object), so the INFO price facet owned the turn
+  // and answered only the rent — the fee half of the question went unmentioned.
+  // The viewing noun keeps this away from property money («колку плаќам за
+  // станот») and the pay verb keeps it away from a bare place question.
+  if (visit && NAG_PAY_STEM_RE.test(cyr)) return true;
   return detectFeeNag(flat);
 }
 

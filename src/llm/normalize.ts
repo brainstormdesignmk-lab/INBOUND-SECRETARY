@@ -21,6 +21,11 @@ const DIGRAPHS: Array<[string, string]> = [
   ['dzh', 'џ'], ['dž', 'џ'],
   ['gj', 'ѓ'], ['dj', 'ѓ'],
   ['kj', 'ќ'],
+  // «ck» IS NOT A ќ DIGRAPH — deliberately: Macedonian Latin types ќ as kj AND
+  // as a bare к (KATOLICKA, the town's own landmark, is ц+к, not ќ+к). Folding
+  // ck→ќ turned every «katolicka» into «католиќка» and lost the place; the ONE
+  // lexeme that needs the other reading (плаќа → «placka/plackam») carries its
+  // own alias in NAG_PAY_STEM_RE, where the neighbourhood cannot be hit.
   ['lj', 'љ'], ['nj', 'њ'],
   ['zh', 'ж'], ['sh', 'ш'], ['ch', 'ч'],
 ];
