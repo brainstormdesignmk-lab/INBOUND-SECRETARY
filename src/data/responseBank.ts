@@ -340,17 +340,28 @@ export function pickVariant(key: string, opts: PickOpts = {}): string | undefine
   // much of that coverage the loop grew (see learnedRate).
   if (variants.length === 0) { learned?.metric(key, false); return undefined; }
   const recent = new Set((opts.recent ?? []).map(normalizeVariant));
-  // THE SERVED TEXT IS OFTEN A COMPOSITE: a pool variant is frequently the
-  // LAST BLOCK of a reply (the availability ack follows the flat's identity
-  // card), and history only ever holds the composite. An exact-set test then
-  // matched nothing and repeat avoidance was dead for every prefixed serve —
-  // the [08:55] thread served the identical ack twice and the pool test caught
-  // it as a real repeat defect. A candidate counts as served when a recent
-  // reply EQUALS it or ENDS WITH it (the prefix is the card, the ack the tail).
+  // THE SERVED TEXT IS ALMOST NEVER THE VARIANT ALONE: callers wrap it in a
+  // composite reply — a card PREPENDED to it (the availability ack after the
+  // flat's identity line), a footer APPENDED to it, or a relay clause inlined
+  // before it on the same line — and history only ever holds the composite. An
+  // exact-set test matched none of them, so repeat avoidance was dead for every
+  // wrapped serve: the [08:55] thread served the identical ack twice, and the
+  // audit of the 136 serve sites found appends on both sides. A candidate now
+  // counts as served when ANY recent reply EQUALS it or CONTAINS it as a
+  // whole-token span (never a fragment of a longer word), so the wrapping shape
+  // no longer decides whether the client hears the same sentence twice.
+  const wordBoundary = /[\p{L}\p{N}]/u;
   const recentlyServed = (filled: string) => {
     const t = normalizeVariant(filled);
     if (!t) return false;
-    for (const r of recent) if (r === t || r.endsWith(t)) return true;
+    for (const r of recent) {
+      if (r === t) return true;
+      for (let at = r.indexOf(t); at !== -1; at = r.indexOf(t, at + 1)) {
+        const before = at > 0 ? r[at - 1] : '';
+        const after = r[at + t.length] ?? '';
+        if (!wordBoundary.test(before) && !wordBoundary.test(after)) return true;
+      }
+    }
     return false;
   };
   // COMPARE THE FILLED TEXT, NOT THE TEMPLATE. `recent` holds what was SERVED
