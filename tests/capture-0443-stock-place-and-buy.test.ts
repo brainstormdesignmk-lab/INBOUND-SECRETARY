@@ -192,8 +192,11 @@ test('[04:47] «KAJ DRZAVNA» is the hospital, and the recall serves the flat th
 
   const availability = await send('DALI SE PRODAVA USTE?');
   // The ack pools rotate; the contract is the availability CLAIM („достапен /
-  // слободен / активен / на располагање / во базата"), never one adjective.
-  assert.match(availability.reply, /достап|слобод|активн|располага|база/u, availability.reply);
+  // слободен / активен / на располагање / во базата"), never one adjective —
+  // and the STEM must cover every inflection the pool ships: the rotation
+  // served «активен» (the full adjective) while this regex only carried
+  // «активн», so a legitimate variant read as a failure.
+  assert.match(availability.reply, /достап|слобод|актив|располага|база/u, availability.reply);
   assert.equal(availability.session.slots.propertyId, 66);
   assert.equal(availability.session.slots.service, 'buy');
 });

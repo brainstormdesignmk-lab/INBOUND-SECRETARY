@@ -380,6 +380,44 @@ export function buildLocateLandmarkPriceProbe(slots: Parameters<typeof locateNou
   return `Ако се сеќавате и по која цена беше ${nounForms(slots).def}, кажете ми — веднаш ќе го најдеме.`;
 }
 
+/** THE BUSINESS PROTOCOL CARD (the [20:59]/[21:05] captures): a business space
+ *  is sold on its MONEY PER SQUARE METRE, so the offer line carries it — the
+ *  client comparing two деловни простори must not have to do the division
+ *  himself. A row whose feed has no surface cannot quote a rate; the line says
+ *  the price and leaves the rate out instead of inventing one. */
+export function buildBusinessOfferLine(p: Property): string {
+  const where = p.location ? `, во ${displayAreaName(p.location)}` : '';
+  const size = p.size ? `, ${p.size}` : '';
+  const price = p.price !== undefined ? `, ${p.price.toLocaleString('mk-MK')} евра` : '';
+  const rate = p.price !== undefined && p.sqm && p.sqm > 0
+    ? ` (${Math.round(p.price / p.sqm).toLocaleString('mk-MK')} €/м²)` : '';
+  return `Евидентен број ${p.eb} — деловен простор${where}${size}${price}${rate}.`;
+}
+
+/** The PAIR intro for business spaces standing at the places the client named.
+ *  A GENERAL business ask is an offer of options — never the seen-property
+ *  «дали ова е … што го видовте?», which presumes he already picked a unit. */
+export function buildBusinessNearIntro(places: string[], count: number): string {
+  const where = places.length === 1
+    ? `во близина на ${places[0]}`
+    : `во близина на ${places.slice(0, 2).join(' и на ')}`;
+  return count > 1
+    ? `Да, имаме деловни простори ${where}. Еве ги двата најблиску:`
+    : `Да, имаме деловен простор ${where}:`;
+}
+
+/** NOTHING of the category stands at the places he named: say it plainly and
+ *  hand him alternatives, so the turn still moves the search (the operator's
+ *  rule for an empty landmark serve). */
+export function buildBusinessNoneNear(places: string[], rows: Property[]): string {
+  const where = places.length === 1
+    ? places[0]
+    : places.slice(0, 2).join(' и на ');
+  const head = `Во близина на ${where} моментално немам деловен простор за издавање.`;
+  if (rows.length === 0) return `${head} Сакате ли да ги забележам Вашите критериуми и да Ве известам штом излезе нешто соодветно?`;
+  return `${head} Еве што имаме во друга населба — со цена по квадрат, за да споредите:`;
+}
+
 /** The client asked to DESCRIBE the flat(s) she just offered («опиши ми ги?»,
  *  the [10:00] capture). The records she reads from ARE the bank's own rows, so
  *  «деталите не ги имам во записите» is never a true answer — this intro leads

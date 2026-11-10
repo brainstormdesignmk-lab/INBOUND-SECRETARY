@@ -109,6 +109,15 @@ const FILLER_BRIDGE = new Set([
 const TRAILING_ASK_WORD = new Set([
   'ima', 'има', 'imate', 'имате', 'imas', 'имаш', 'imame', 'имаме',
   'li', 'ли', 'e', 'е', 'i', 'и', 'da', 'да',
+  // THE REMAINDER OF THE QUESTION, not the place (the [20:51]/[21:05] captures):
+  // «КОЌА ТУКА ИСТО ОКОЛУ УНИВЕРЗАЛНА БЕШЊ?» captured «УНИВЕРЗАЛНА БЕШЊ» and
+  // «НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО?» captured «АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО»
+  // — the trailing question words rode into the tail, the map lookup failed
+  // and the place the client NAMED never anchored the search. A closed set
+  // again: no place name ends in «нешто/слично/беше/може».
+  'нешто', 'neshto', 'nesto', 'слично', 'slicno', 'слични', 'slicni',
+  'сличен', 'slicen', 'беше', 'bese', 'beshe', 'бешњ', 'beshnj', 'besnje',
+  'може', 'moze', 'исто', 'isto',
 ]);
 
 // THE TAIL FLOOR IS THREE LETTERS, not four: an INSTITUTION is often an
@@ -305,7 +314,14 @@ export function extractPoiListCandidates(text: string): string[] {
       afterPlace = true;
       continue;
     }
-    const bare = piece.replace(/[^\p{L}\p{N} .'\-]/gu, '').replace(/\s+/g, ' ').trim();
+    // THE SECOND PLACE OF A LIST KEEPS ITS QUESTION TAIL too (the [20:59]
+    // capture): «ОКОЛУ КАТОЛИЧКА И БЕВЕРЛИ ХИЛС МОЖЕ» split into «КАТОЛИЧКА» and
+    // «БЕВЕРЛИ ХИЛС МОЖЕ» — the bare path had no trailing-word trim, so the map
+    // got «Беверли Хилс Може», failed, and only ONE of the two places the client
+    // named could anchor the search.
+    const bparts = piece.replace(/[^\p{L}\p{N} .'\-]/gu, '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    while (bparts.length > 1 && TRAILING_ASK_WORD.has(bparts[bparts.length - 1].toLowerCase())) bparts.pop();
+    const bare = bparts.join(' ');
     const words = bare.split(' ').filter(Boolean);
     if (afterPlace && words.length >= 1 && words.length <= 4
       && bare.length >= 4 && !/\d/.test(bare)) {
@@ -1689,6 +1705,70 @@ export function detectExitCheck(text: string): boolean {
   if (/(?:плат|plakj|plat|надомест|nadomest|кириј|kirij|посет|poset)/iu.test(flat)) return false;
   if (_exitOfferVetoRe.test(flat)) return false;
   return _exitCheckSlotsRe.test(flat);
+}
+
+/** True when the client asks about the arrangement THIS CONVERSATION is making
+ *  — «ЗА КОЈА НЕДВИЖНОСТ ПЛАНИРАШ ДА МИ ЗАКАЖЕШ ?» (the [20:54] capture).
+ *
+ *  The SAME grammar as the recall, opposite time: the question is PRESENT or
+ *  FUTURE («планираш», «ќе закажеш», «сакаш да закажеш»), so it asks about the
+ *  offer she just made — not about a visit that happened in an earlier chat.
+ *  Answering it from the appointments table resurrected a stale booking from
+ *  another conversation («Договорената посета е за станот со Евидентен број
+ *  79 (Четврток …)» in a chat that had booked nothing). The live session is
+ *  the only honest source; with nothing arranged the answer says so.
+ *
+ *  A PAST marker («прееска», «вчера», «минатиот пат») is the recall lane's, so
+ *  this detector refuses it outright. */
+export function detectArrangementPlanning(text: string): boolean {
+  if (detectArrangementRecall(text) === false) return false;
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (/(?:прееска|preeska|вчера|vchera|vcera|минатиот|minatiot|претходно|pretходно)/iu.test(flat)) {
+    return false;
+  }
+  // Present/future planning words, both scripts and both inflections.
+  return /(?:планира\p{L}*|planira\p{L}*|ќе\s+закаж\p{L}*|ke\s+zakaz\p{L}*|сака\p{L}*\s+да\s+закаж\p{L}*|saka\p{L}*\s+da\s+zakaz\p{L}*|ќе\s+договор\p{L}*|ke\s+dogovor\p{L}*)/iu.test(flat);
+}
+
+/** True when the client asks for MORE OF THE SAME, near (or instead of) what
+ *  he has just been shown — «НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО ?» (the [21:05]
+ *  capture). The word «слично» is the client's own "similar to the offer", so
+ *  the turn is a SEARCH pivot, never a which-side-of-X question about the
+ *  property on the table — the surroundings lane read «накај» as a side word
+ *  and answered with the location of a CENTRAL property (a landmark and a maps
+ *  pin for a client asking about Аеродром). */
+export function detectSimilarAsk(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat) return false;
+  // TWO SHAPES, both the client's own words: the bare «нешто слично / налик»
+  // and an existence verb plus a similarity adjective within one clause
+  // («имате ли слични станови»). A BARE «слична цена» is not this lane — the
+  // similarity word needs the offer frame around it.
+  return /(?:нешто\s+слично|neshto\s+slicno|nesto\s+slicno|налик|nalik)/iu.test(flat)
+    || /(?:има\p{L}*|ima\p{L}*)\s+[^.!?\n]{0,24}(?:сличн\p{L}*|slicn\p{L}*)/iu.test(flat);
+}
+
+/** True when the client HELPS us find a listing he saw but cannot identify —
+ *  «НЕ И ГО ПАМТАМ БРОЈОТ, АМА ЗНАМ ДЕКА ИМАШЕ ДОБРА ЦЕНА» (the [20:51]
+ *  capture). The number is unknown on purpose: the sentence is not a search
+ *  opening and not praise of a card — it is the client answering "which one
+ *  do you mean?" with what he DOES remember. The lane must use the context it
+ *  already holds (category + the place he named) to FIND that listing, never
+ *  offer a visit for a property nobody has identified and never ask the money
+ *  clarify question about a viewing fee.
+ *
+ *  Both scripts, latinised spellings, and the negated-clitic word orders
+ *  («бројот не го памтам»). */
+export function detectNumberUnknownRecall(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat) return false;
+  // THE CLITIC CLUSTER IS TWO DEEP: «не И ГО памтам бројот» carries the dative
+  // «и» before the accusative «го», and a one-clitic pattern missed the exact
+  // field sentence.
+  const forget = /(?:не|ne)\s+(?:(?:го|go|и|i|ja|ја|ми|mi|му|mu)\s+){0,2}(?:памт\p{L}*|pamt\p{L}*|се\s+сек\p{L}*|se\s+sek\p{L}*|текнува|teknuva|знам|znam)/iu;
+  const unknown = /(?:не\s+го\s+знам|не\s+и\s+го\s+знам|не\s+ми\s+текнува|ne\s+go\s+znam|ne\s+mi\s+teknuva|не\s+знам\s+(?:точно\s+)?(?:кој|koja|која)|ne\s+znam\s+(?:tochno\s+)?(?:koj|koja))/iu;
+  const number = /(?:бро\p{L}*|bro\p{L}*|eb|движност\p{L}*|dviznost)/iu;
+  return (forget.test(flat) || unknown.test(flat)) && number.test(flat);
 }
 
 /** True when the client asks WHICH FLAT an arrangement/visit was for — a
@@ -6850,6 +6930,14 @@ export function detectPriceEval(text: string): PriceEval | undefined {
   // every caller (router mirror, moneyArbitration, arbiterLlm, routeHealth)
   // agrees — a valence axis only exists for a property that is ON THE TABLE.
   if (isStockSearch(text)) return undefined;
+  // A REMEMBERED PRICE IS NOT A VERDICT ON THE CARD (the [20:51] sibling, found
+  // on the FLAT probe): «NE I GO PAMTAM BROJOT , AMA ZNAM DEKA IMASE DOBRA
+  // CENA» describes a listing the client cannot name, and the cheap lane
+  // answered «Токму затоа и Ви ја предложив — односот цена и квалитет е многу
+  // добар», praising a card he never evaluated (then asked if they continue
+  // with the viewing). The valence axis only exists for a property ON THE TABLE
+  // and a remark ABOUT it; the recall lane owns this turn.
+  if (detectNumberUnknownRecall(text)) return undefined;
   const t = normalizeMc(text);
   if (hasFeeReferent(t)) return undefined;
   if (COMPARATIVE_CHEAPER_RE.test(t)) return undefined;

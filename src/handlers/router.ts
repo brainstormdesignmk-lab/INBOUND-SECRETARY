@@ -27,6 +27,8 @@ import {
   detectPriceEval, adviceLaneAdmits,
   detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk,
   detectFeePaymentAgreement, detectArrangementRecall, detectToldYouNag,
+  detectNumberUnknownRecall, detectSimilarAsk, detectBusiness,
+  extractPoiWishCandidates,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -43,6 +45,22 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => classifyOffensive(t).isOffensive },
   { intent: 'WORKDAYS_QUESTION', note: 'agency-hours question ("VO NEDELA RABOTITE?") — answered from the bank, never forwarded to the owner as a proposed term; must beat the visit-time capture (the day token inside it used to reach the owner)',
     fires: t => detectWorkdaysQuestion(t) },
+  // The [20:51]–[21:05] batch added two executors the mirror did not know, and
+  // the shadow router said so out loud: the Аеродром ask was predicted
+  // SURROUNDINGS while the executor served BUSINESS_PLACE_SERVE — a drift pair
+  // that blames the lane which was right (the same defect R3 fixed for
+  // NEARBY_ASK/SEEN_LISTING_RECALL). Their position is the executor's own: the
+  // serves sit at inbound.ts ~5.5k, ABOVE the cheap-price lane (~6.1k) and the
+  // surroundings block — so the value remark inside a number-forget («… ЗНАМ
+  // ДЕКА ИМАШЕ ДОБРА ЦЕНА») is predicted SEEN_RECALL_HELP here, exactly as it
+  // is served, instead of PRICE_EVAL_CHEAP.
+  { intent: 'SEEN_RECALL_HELP', note: '«НЕ И ГО ПАМТАМ БРОЈОТ, АМА ЗНАМ ДЕКА ИМАШЕ ДОБРА ЦЕНА» ([20:51]) — the client cannot name the listing he saw, so the turn FINDS it from what the chat already holds (the category and the place he named) and closes on the seen-property question, never a visit offer. The executor also requires a place anchor and a category slot, which the mirror cannot see; the text predicate is the shared signal, so a number-forget with no context may be predicted here while the executor falls through — the same blindness the TOLD_YOU_RECALL row documents',
+    fires: (t, s) => detectNumberUnknownRecall(t)
+      && !['pending', 'queued', 'owner_checking', 'time_confirm', 'visit_scheduling',
+        'contact_collection', 'property_locate'].includes(s) },
+  { intent: 'BUSINESS_PLACE_SERVE', note: 'business traffic near the places the client names ([20:59] pair, [21:05] «НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО ?») — the €/м² pair by distance, or an honest «нема» there plus rated alternatives. Two text shapes: a similarity ask («нешто слично/налик»), which is a SEARCH pivot the surroundings lane used to answer with a CENTRE landmark, and a business noun with a proximity place. The executor additionally requires the business slot on the session — invisible to the mirror — so a RESIDENTIAL similarity ask is predicted here while the executor serves it elsewhere; the row still earns its place, because the shape the capture proved (business traffic, whose slot the mirror cannot read) was being claimed by SURROUNDINGS',
+    fires: t => detectSimilarAsk(t)
+      || (detectBusiness(t) && extractPoiWishCandidates(t, { withCriteria: true }).length > 0) },
   { intent: 'PRICE_EVAL_CHEAP', note: 'a POSITIVE price remark about the flat on the table ("MNOGU EFTINA CENA E TOA") — valence, not money talk. The fee is never called cheap, so this lane must beat the fee ladder; gated to states where a price is on the table and to non-questions, so it cannot steal a price ask or a search',
     fires: (t, s) => detectPriceEval(t) === 'cheap' && !/\?/.test(t)
       && ['property_query', 'presentation', 'closing'].includes(s) },
@@ -312,6 +330,8 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'WHICH_PROPERTY:fast': P('which EB are you talking about'),
   'VISIT_CANCEL:WHICH': P('a cancel that names no arranged visit — asks which Евидентен број instead of guessing'),
   VISIT_RECALL: M('VISIT_RECALL', 'which flat the arrangement was for — answered from the appointment, never contact collection'),
+  SEEN_RECALL_HELP: M('SEEN_RECALL_HELP', 'the listing he saw but cannot name — found from the held category + place, closed with the seen-property question'),
+  BUSINESS_PLACE_SERVE: M('BUSINESS_PLACE_SERVE', 'business spaces at the named places by rate+distance (or an honest «нема» plus alternatives)'),
 };
 
 // --- simple deterministic dispatch table -------------------------------------

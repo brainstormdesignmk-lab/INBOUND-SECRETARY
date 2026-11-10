@@ -61,7 +61,7 @@ export interface Property {
    *  never a size. */
   yardSqm?: number;
   size?: string;           // povrsina_m2
-  business?: boolean;      // деловен простор/канцеларија/локал — feed marks them by having NO bedroom type
+  business?: boolean;      // деловен простор/канцеларија/локал — the structured tip_na_nedviznina column, or (legacy rows) no bedroom type at all
   house?: boolean;         // куќа — the feed marks houses only in the opis text ("Се продава куќа…")
   plac?: boolean;          // плац/земјиште — land plot rows (no bedrooms, opis/address name the land)
   /** The feed's STUDIO category ("Гарсоњера") — a KNOWN one-room home that
@@ -193,9 +193,20 @@ function isStudio(r: Record<string, unknown>): boolean {
   return /гарсоњер|garsonjer|студио|studio/i.test(str(r.tip_na_sobi));
 }
 
-/** A property is COMMERCIAL when it has NO bedroom type — the feed marks
- *  деловен простор/канцеларија/локал exactly this way ("Нема податок"/empty). */
+/** A property is COMMERCIAL either by its STRUCTURED type column
+ *  (`tip_na_nedviznina` = "Деловен простор") or, legacy, by having NO bedroom
+ *  type — the feed used to mark деловен простор/канцеларија/локал that way
+ *  ("Нема податок"/empty).
+ *  THE TYPE COLUMN WINS (the [20:58] business capture): EB 42 КАЈ КАТОЛИЧКА
+ *  (126 м², 1.000 €) carries tip_na_nedviznina "Деловен простор" but a
+ *  tip_na_sobi of "3-собен" (the agency fills the room field with the layout),
+ *  so the bedroom-only rule mapped it as a 3-bedroom FLAT: it vanished from
+ *  the business pool (the client's pair near Католичка came back as EB 59 +
+ *  EB 57) and could be served to a family looking for three rooms. */
 function isBusiness(r: Record<string, unknown>): boolean {
+  if (/деловен|deloven|канцелари|kancelari|локал|lokal|дуќан|dukjan|office/i.test(str(r.tip_na_nedviznina))) {
+    return true;
+  }
   const tip = str(r.tip_na_sobi).toLowerCase().replace(/\s+/g, ' ');
   return tip === '' || tip === 'нема податок' || tip === 'нема' || tip === 'не е наведено';
 }
