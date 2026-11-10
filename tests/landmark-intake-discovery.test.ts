@@ -504,10 +504,14 @@ test('[18:34] «STAN KAJ CITY MALL» is a location answer — intake and service
   assert.ok(!/населба|дел од градот|локација во градот/iu.test(sent[1]),
     `the area is never re-asked: ${sent[1]}`);
 
+  // The money answer to a COMBINED ask (bedrooms + price) answers the PRICE
+  // only, so the funnel keeps its bedrooms question; the size waiver follows
+  // the dismissal below (the [23:51] single-question rule).
   await handler.handle('test', chatId, 'DO 400 EVRA');
   await handler.handle('test', chatId, 'NEBITNO ZA SPALNI');
   const serve = sent[sent.length - 1];
   assert.match(serve, /Евидентен број 48[\s\S]*од Скопје Сити Мол/, `the flat is served near the mall: ${serve}`);
+  assert.doesNotMatch(serve, /Моментално во системот нема/u, `the pair is on the table, never «нема во системот»: ${serve}`);
   // ONE PLACE, SAID ONCE PER CARD: the landmark sentence and the anchor
   // sentence may not name the same mall twice (two spellings read as two
   // different places). The anchor line — with the measured distance — stays.

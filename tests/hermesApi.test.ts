@@ -185,6 +185,9 @@ test('hermes API: owner answer via the events BUS resolves the pending check (cr
     assert.equal(ans.body.applied, true);
     await new Promise(r => setTimeout(r, 80));
     s = env.sessions.get(chatId)!;
+    // THE OWNER'S OK CONFIRMS THE CLIENT'S OWN TERM («околу 16» — his words,
+    // and the owner's «утре попладне» is a day-only yes to that day), so the
+    // one-step close stands: nothing is re-asked that the client already said.
     assert.equal(s.state, 'pending'); // visit confirmed
 
     // The CROSS-PROCESS path: another process writes the result event directly

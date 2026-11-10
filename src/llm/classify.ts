@@ -522,6 +522,10 @@ export class Classifier {
     let ev = buildEvent(session.state, {
       service: slots.service, location, bedrooms: slots.bedrooms,
       sqm: slots.sqm, business: slots.business, house: slots.house,
+      // EITHER RESIDENTIAL TYPE (the [23:49]/[23:50] capture): the whitelist
+      // dropped it, so «за живеење» never reached the session and the funnel
+      // asked the category again.
+      residential: slots.residential,
       budget: slots.budget, anywhere: slots.anywhere,
       // THE €/m² CEILING (the [02:09] capture) — dropped here, the rate never
       // reached the session and the serve fell back to the total-budget read.
@@ -580,6 +584,7 @@ export class Classifier {
         sqm: slots.sqm ?? session.slots.sqm,
         business: slots.business ?? session.slots.business,
         house: slots.house ?? session.slots.house,
+        residential: slots.residential ?? session.slots.residential,
         budget: slots.budget ?? session.slots.budget,
         sqmRate: slots.sqmRate ?? session.slots.sqmRate,
         anywhere: slots.anywhere || session.slots.anywhere,
@@ -1150,7 +1155,7 @@ export class Classifier {
       }
       const ev = buildEvent(session.state, {
         service: s.service, location: loc, bedrooms: s.bedrooms,
-        sqm: s.sqm, business: s.business, house: s.house,
+        sqm: s.sqm, business: s.business, house: s.house, residential: s.residential,
         budget: s.budget, anywhere: s.anywhere, need: s.need, rejected: s.rejected,
         plac: s.plac, yard: s.yard,
       });
@@ -1317,11 +1322,12 @@ export class Classifier {
       if (ev.sqm === undefined && slots.sqm) ev.sqm = slots.sqm;
       if (ev.business === undefined && slots.business !== undefined) ev.business = slots.business;
       if (ev.house === undefined && slots.house !== undefined) ev.house = slots.house;
+      if (ev.residential === undefined && slots.residential) ev.residential = true;
       if (ev.budget === undefined && slots.budget) ev.budget = slots.budget;
       if (ev.anywhere === undefined && slots.anywhere) ev.anywhere = true;
       const det = buildEvent(session.state, {
         service: ev.service, location: ev.location, bedrooms: ev.bedrooms,
-        sqm: ev.sqm, business: ev.business, house: ev.house, budget: ev.budget,
+        sqm: ev.sqm, business: ev.business, house: ev.house, residential: ev.residential, budget: ev.budget,
         anywhere: ev.anywhere, need: slots.need, rejected: slots.rejected,
         sizeWaived: ev.sizeWaived || undefined, pricePriority: ev.pricePriority || undefined,
         garsonjera: ev.garsonjera || undefined,
@@ -1362,6 +1368,7 @@ export class Classifier {
           sqm: ev.sqm ?? session.slots.sqm,
           business: ev.business ?? session.slots.business,
           house: ev.house ?? session.slots.house,
+          residential: ev.residential ?? session.slots.residential,
           budget: ev.budget ?? session.slots.budget,
           anywhere: ev.anywhere || session.slots.anywhere || undefined,
           sizeWaived: ev.sizeWaived || session.slots.sizeWaived || undefined,

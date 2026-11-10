@@ -20,6 +20,11 @@ export interface SlotData {
   sqm?: number;                 // commercial (деловен простор) — size instead of bedrooms
   business?: boolean;           // commercial property intent
   house?: boolean;              // куќа — a residential request that is NOT a стан
+  /** EITHER RESIDENTIAL TYPE (the [23:49]/[23:50] capture): «за живеење» or
+   *  «стан или куќа» — a flat OR a house will do. It answers the category
+   *  question without pinning one, so the pool keeps both types and the copy
+   *  never says «станот»; a later single type retires it. */
+  residential?: boolean;
   budget?: string;
   /** THE €/m² CEILING (the [02:09] capture): «STANCE VO AERODROM PO 1500E ZA
    *  KVADRAT» caps the RATE. A money criterion of its own: the pool is filtered

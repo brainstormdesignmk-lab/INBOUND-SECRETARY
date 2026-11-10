@@ -17,7 +17,7 @@ import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -67,7 +67,8 @@ import {
   AVAILABILITY_ACK, AVAILABILITY_ACK_FEM, AVAILABILITY_CLAIM, AVAILABILITY_CLAIM_FEM,
   buildPriceRelay, buildFeeAsk, buildFeePerProperty, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
-  buildDiscoveryAsk, locationCriterionKnown, serviceCriterionKnown,
+  buildDiscoveryAsk, discoveryAskCriteria, locationCriterionKnown, serviceCriterionKnown,
+  type DiscoveryCriterion,
   buildPropertyCard, buildPropertyCards, pickCloser, waiverAck, PRESENTATION_CLOSERS_ALL,
   PROPERTY_QUERY_CLOSERS_ALL, conversationalDetails,
   buildExactAddressAnswer, displayPlaceName, displayAreaName,
@@ -2377,6 +2378,27 @@ export class InboundHandler {
     if (process.env.DBG_WHEREIS) console.error('[whereis] propRow=', JSON.stringify(propRow), 'center=', JSON.stringify(resolveSearchCenter(propRow)));
     const center = resolveSearchCenter(propRow);
 
+    // A STREET QUESTION NEEDS A STREET (the [10:00] capture): «НА КОЈА УЛИЦА
+    // Е ОВОЈ ВО НОВО ЛИСИЧЕ ?» — a flat the feed records in Ново Лисиче — was
+    // answered «Тоа се наоѓа во близина на ТЦ Мавровка» and pinned the MALL's
+    // coordinates, a place from the middle of town instead of the flat. The
+    // row's geo_source is `osm_street_anchor`: its address («КАЈ БРАНКА») never
+    // resolved to a building, so every landmark of the rotation is measured
+    // from a STREET CENTROID, not from the flat — naming one as the address
+    // answers a question the data cannot support. The street ask on such a row
+    // gets what the feed actually holds: the neighbourhood, the privacy
+    // protocol and the owner confirmation, never a landmark pin in place of
+    // the street.
+    const streetAsk = /(?:улица|ulica|adresa|адреса)/iu.test(place ?? '');
+    const geoWeak = p.geo_source === 'osm_street_anchor' || p.geo_source === 'osm_low_confidence';
+    if (streetAsk && geoWeak && p.location) {
+      const loc = p.location.replace(/\s*\(населба\)\s*$/u, '');
+      session.slots.landmarkIndex = (session.slots.landmarkIndex ?? 0) + 1;
+      return this.attributeWhereLine(
+        `Евидентен број ${p.eb} се води во населбата ${loc}. Точната улица и број ги потврдувам со сопственикот пред посетата.`,
+        p.eb, session);
+    }
+
     // Pre-resolve the top-3 rotation slots ONCE per property. The client asks
     // "каде е?" → L1, "што уште има во близина?" → L2, … then privacy protocol.
     // SELF-HEAL (21:51 bug): the slots are tagged with the EB they were
@@ -2770,6 +2792,37 @@ export class InboundHandler {
    *  another place: the ask is «истите критериуми?», never the bedrooms/budget
    *  grill he has already answered (the [18:51] capture). Undefined when no
    *  size and no budget is stored. */
+  /** THE POOL'S TYPE FILTER (the [23:49]/[23:50] capture): a residential
+   *  funnel («за живеење», «стан или куќа») keeps BOTH types — the house at
+   *  250 € in the named neighbourhood belongs in the same batch as the flats,
+   *  ranked by the money and the place. A named single type keeps its boolean
+   *  reading, so nothing else changes. */
+  private poolHouse(slots: ChatSession['slots']): boolean | 'both' | undefined {
+    return slots.residential ? 'both' : slots.house;
+  }
+
+  /** «Ми ги кажавте …» — the notebook read back to a client who says he already
+   *  told us (the [23:50] capture). It names the PLACES he gave (the landmarks
+   *  ARE his geography), the area, and otherwise the criteria on file — never a
+   *  question, so the caller appends the one that is still missing. Undefined
+   *  when the notebook holds nothing: a client who gave nothing has nothing to
+   *  be read back to him, and the ordinary funnel owns that turn. */
+  private toldYouRecallLine(session: ChatSession): string | undefined {
+    const names = [
+      ...(session.slots.poiPlaces ?? []).map(p => displayPlaceName(p.name)),
+      ...(session.slots.poiAnchor ? [displayPlaceName(session.slots.poiAnchor)] : []),
+    ].filter((n, i, all) => all.indexOf(n) === i);
+    const area = session.slots.location ? displayAreaName(session.slots.location) : undefined;
+    const said = names.length > 0
+      ? `Ми ги кажавте ориентирите ${names.join(' и ')}${area ? ` — ${area}` : ''}.`
+      : area ? `Ми кажавте ${area}.`
+      : (session.slots.service || session.slots.house !== undefined || session.slots.residential
+        || session.slots.bedrooms !== undefined || session.slots.budget || session.slots.sqm)
+        ? 'Веќе ги имам Вашите критериуми.'
+        : undefined;
+    return said ? `Извинете, во право сте — вратив се во разговорот. ${said}` : undefined;
+  }
+
   private criteriaPhrase(session: ChatSession): string | undefined {
     const bedsOfRooms = (rooms: number): string => {
       const beds = rooms - 1;
@@ -6620,6 +6673,60 @@ export class InboundHandler {
       if (servedGolem) return;
     }
 
+    // TWO FLATS NAMED, NO FACET — DESCRIBE BOTH (the [10:58] capture):
+    // «РАЗГЛЕДУВАВ СТАНОВИ НА ВАШАТА СТРАНИЦА И САКАМ ДА ПРАШАМ ЗА СТАН СО
+    // ЕВИДЕНТЕН БРОЈ 82 И 75» named two numbers and asked nothing specific. The
+    // property_query lane bound ONE of them (82) and described it; the second
+    // flat was silently dropped and the client had to type «А 75 ?». A message
+    // that names several Евидентен броеви asks about ALL of them, so each gets
+    // its own identity line from the feed's own columns — never a brain round,
+    // never a card batch.
+    if (!detectAvailabilityAsk(text) && !detectExactAddressAsk(text)
+      && !isFeeTraffic(text) && !detectPriceAsk(text) && !detectBudget(text)) {
+      const facetsNow = detectInfoFacets(text);
+      if (!facetsNow) {
+        const calledEbs = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
+        if (calledEbs.length >= 2) {
+          const calledRows = (await Promise.all(calledEbs.map(eb =>
+            this.deps.properties.getByEb(eb).catch(() => undefined))))
+            .filter((p): p is Property => !!p);
+          if (calledRows.length >= 2) {
+            const lines = calledRows.map(p => {
+              const bits = [`Евидентен број ${p.eb} — ${ownerPropertyLabels(p).type}`];
+              if (p.location) bits.push(`во ${displayAreaName(p.location)}`);
+              if (p.sqm !== undefined) bits.push(`${p.sqm} м²`);
+              if (p.bedrooms !== undefined) {
+                const beds = roomsFromBedrooms(p.bedrooms);
+                if (beds > 0) bits.push(beds === 1 ? 'една спална' : `${beds} спални`);
+              }
+              if (p.price !== undefined) {
+                bits.push(`${p.price.toLocaleString('mk-MK')} евра${p.service === 'rent' ? ' месечно' : ''}`);
+              }
+              const rate = pricePerM2(p);
+              if (rate !== undefined) bits.push(`${rate.toLocaleString('mk-MK')} евра за м²`);
+              return bits.join(', ');
+            });
+            const answer = `Еве ги и двата:\n${lines.map(l => `• ${l}`).join('\n')}\nЗа кој од нив сакате повеќе детали?`;
+            // THE PAIR IS NOW ON THE TABLE: the follow-ups («споредба … за
+            // двата стана», «А 75 ?») refer to these two flats, and the market
+            // they are in is known from the feed — without banking it the next
+            // turn was asked «купување или изнајмување?» again.
+            session.slots.describedEbs = calledRows.map(p => p.eb);
+            const services = [...new Set(calledRows.map(p => p.service).filter(Boolean))];
+            if (services.length === 1 && !session.slots.service) {
+              session.slots.service = services[0] as ChatSession['slots']['service'];
+            }
+            routeLog(chatId, text, 'INFO_ASK_PAIR_IDENTITY');
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, answer, 'deterministic');
+            return;
+          }
+        }
+      }
+    }
+
     // INFO-ASK (scope C) — "kolku e garsonjerata?", "a 63 kolku kvadrati",
     // "dali 76 ima lift?" — the public-add becomes quotable, same contract as
     // the where-is family: the property is bound by MENTION (EB, price, type,
@@ -6680,6 +6787,12 @@ export class InboundHandler {
         // gate accepts that case too.
         && (session.slots.propertyId || session.slots.interestedPropertyId
           || session.slots.presentedIds?.length
+          // THE DESCRIBED PAIR IS A BINDING SIGNAL (the [10:58] capture): the
+          // two flats were just summarised by Евидентен број, so «споредба на
+          // цена по квадрат за двата» is about them — the INFO block used to
+          // skip the turn (no slot, no number in the text) and the comparison
+          // fell through to the service ask.
+          || (session.slots.describedEbs?.length ?? 0) > 0
           || inferPropertyId(text) !== undefined
           // THE FLAT SHE JUST QUOTED IS A BINDING SIGNAL TOO (the [22:11]
           // capture): after «Станот со Евидентен број 69 чини 99.000 евра» the
@@ -6705,16 +6818,49 @@ export class InboundHandler {
         // single countable fact, every named flat gets its own clause, in the
         // order the client asked. Only the PLAIN floor facet takes this path:
         // a mixed ask keeps the ordinary single-facet answer.
-        if (infoFacets.floor && !infoFacets.price && !infoFacets.pricePerSqm
-          && !infoFacets.sqm && !infoFacets.rooms && !infoFacets.totalFloors
-          && !infoFacets.lastFloor && !infoFacets.yearBuilt && !infoFacets.renovation
-          && !infoFacets.features?.length) {
+        //
+        // THE PAIR ON THE TABLE IS A REFERENT TOO (the [10:58] capture):
+        // «НАПРАВИ МИ СПОРЕДБА НА ЦЕНА ПО КВАДРАТ ЗА ДВАТА СТАНА» names no
+        // number at all, but «двата»/«споредба» point at the two flats just
+        // described — the rate was quoted for ONE of them (75, 2.026 €/м²) and
+        // the other (82) was dropped. The same two-clause rule now covers
+        // EVERY facet: each flat of the pair gets its own answer, in the order
+        // the client met them, and a facet the feed cannot answer for one of
+        // them never hides the other.
+        {
+          const plainFloorAsk = infoFacets.floor && !infoFacets.price && !infoFacets.pricePerSqm
+            && !infoFacets.sqm && !infoFacets.rooms && !infoFacets.totalFloors
+            && !infoFacets.lastFloor && !infoFacets.yearBuilt && !infoFacets.renovation
+            && !infoFacets.features?.length;
           const namedEbs = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
-          if (namedEbs.length >= 2) {
-            const rows = (await Promise.all(namedEbs.map(eb =>
+          const pairAsked = /(?<![\p{L}\p{N}])(?:двата|двете|овие\s+(?:два|две)|двете\s+стана|the\s+two|both)/iu.test(text)
+            || detectComparison(text);
+          const pairEbs = namedEbs.length >= 2
+            ? namedEbs
+            : pairAsked
+              ? [...new Set([...(session.slots.describedEbs ?? []),
+                ...(session.slots.currentBatch ?? []),
+                ...(session.slots.presentedIds ?? [])])].slice(-2)
+              : [];
+          if (pairEbs.length >= 2) {
+            const rows = (await Promise.all(pairEbs.map(eb =>
               this.deps.properties.getByEb(eb).catch(() => undefined))))
               .filter((p): p is Property => !!p);
-            if (rows.length >= 2) {
+            if (rows.length === pairEbs.length && !plainFloorAsk) {
+              // Every clause of buildInfoAnswer names its own Евидентен број,
+              // so the pair reads as two answers, not one muddled sentence.
+              const clauses = rows.map(p => buildInfoAnswer(p, infoFacets));
+              if (clauses.every(c => !!c)) {
+                const answer = clauses.join(' ');
+                routeLog(chatId, text, 'INFO_ASK_PAIR');
+                pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+                pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+                this.deps.sessions.set(session);
+                await this.sendRaw(session, answer, 'deterministic');
+                return;
+              }
+            }
+            if (rows.length >= 2 && plainFloorAsk) {
               const phraseOf = (p: Property): string => {
                 const s = buildInfoAnswer(p, { floor: true }) ?? '';
                 return /^Се наоѓа\s/u.test(s)
@@ -7116,6 +7262,46 @@ export class InboundHandler {
       this.deps.sessions.set(session);
       await this.sendRaw(session, answer);
       return;
+    }
+
+    // «ПА ТИ КАЖАВ КАДЕ» — GO BACK AND READ THE CHAT (the [23:48]–[23:50]
+    // capture). The client is not answering the last question: he is telling us
+    // the funnel forgot what he already gave — and the [23:50] run answered it
+    // with «во кој дел од градот?», the very question the two landmarks he had
+    // named already answered. The turn owes a RECALL: the places and the area
+    // exactly as they stand in the notebook, then the one criterion that is
+    // genuinely missing (or the batch, when nothing is).
+    // A property ON THE TABLE keeps its own lanes: «ти кажав» about a shown flat
+    // is a where-is / visit topic, not a discovery nag; a schedule question
+    // belongs to the visit protocol. Only the funnel states read the notebook.
+    // A COMPLAINT THAT CARRIES AN ANSWER IS AN ANSWER (the [23:5x] widen flow:
+    // «pa ti kazav 2» IS the bedroom count, «ти кажав 300 евра» IS the budget).
+    // The lane only reads the notebook back when the message added nothing the
+    // funnel can use — a digit is a criterion, so it belongs to the funnel.
+    const funnelState = session.state === 'idle' || session.state === 'discovery';
+    const carriedCriterion = /\d/u.test(text);
+    if (funnelState && !carriedCriterion && !propertyOnTable(session) && detectToldYouNag(text)) {
+      const recall = this.toldYouRecallLine(session);
+      if (recall) {
+        routeLog(chatId, text, 'TOLD_YOU_RECALL');
+        const reply = `${recall} ${this.criteriaAsk(session) ?? await this.discoveryServe(session)}`;
+        session.state = 'discovery';
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment) {
+          try {
+            this.deps.enrichment.insert({
+              chatId: session.chatId, state: 'discovery', eventType: 'TOLD_YOU_RECALL',
+              userMsg: text, replyText: reply, replySource: 'deterministic',
+              bankKey: 'discovery.recall',
+            });
+          } catch { /* advisory */ }
+        }
+        this.detGaveUp = false;
+        await this.sendRaw(session, reply, 'deterministic:told-you');
+        return;
+      }
     }
 
     // "каде е X?" — a question about a PLACE's whereabouts ("каде е Палома
@@ -9203,7 +9389,7 @@ export class InboundHandler {
       // cap), so only the service/location/type words are applied this turn.
       await this.applySlots(session, categoryEngaged
         ? { ...slotsEvent, bedrooms: undefined, bedroomsMin: undefined, bedroomsMax: undefined, budget: undefined } as Event
-        : slotsEvent);
+        : slotsEvent, text);
     }
     // ALTERNATIVE BUDGET (the [20:08] capture): «MOZE SO EDNA DO 80000 ILI DVE
     // DO 140000» is ONE flat up to 80.000 OR TWO whose total stays inside
@@ -9276,12 +9462,21 @@ export class InboundHandler {
         for (let i = session.history.length - 1; i >= 0; i--) {
           const h = session.history[i];
           if (h.role !== 'user') continue;
+          // EITHER RESIDENTIAL TYPE IS NOT "APARTMENTS ONLY" (the [23:50]
+          // capture): «СТАН ИЛИ КУЌА» makes detectHouse return false (both
+          // words present), so the memory wrote house=false — the pool then
+          // dropped the 250 € house in the very area the client named and the
+          // serve promised flats only. The union flag is read FIRST, from the
+          // same predicate applySlots uses, so the chat's own words mean the
+          // same thing here as they did when they arrived.
+          const residential = detectResidentialNeed(h.text);
           const house = detectHouse(h.text);
           const business = detectBusiness(h.text) === true;
           const plac = detectPlac(h.text);
           const yard = detectYardNeed(h.text);
-          if (house === undefined && !business && !plac && !yard) continue;
-          if (business) session.slots.business = true;
+          if (house === undefined && !business && !plac && !yard && !residential) continue;
+          if (residential && !business && !plac && !yard) { session.slots.residential = true; session.slots.house = undefined; }
+          else if (business) session.slots.business = true;
           else if (plac) session.slots.plac = true;
           else if (yard) session.slots.yard = true;
           else session.slots.house = house === true;
@@ -10131,7 +10326,7 @@ export class InboundHandler {
         bedroomsMax: session.slots.bedroomsMax,
         sqm: session.slots.sqm,
         business: session.slots.business,
-        house: session.slots.house,
+        house: this.poolHouse(session.slots),
         service: session.slots.service,
         budget: session.slots.budget,
       });
@@ -10216,7 +10411,7 @@ export class InboundHandler {
           bedroomsMax: session.slots.bedroomsMax,
           sqm: session.slots.sqm,
           business: session.slots.business,
-          house: session.slots.house,
+          house: this.poolHouse(session.slots),
           service: session.slots.service,
           budget: session.slots.budget,
           sortBySqmDesc: mixedTypes || !!session.slots.sizeWaived,
@@ -10500,7 +10695,7 @@ export class InboundHandler {
           bedroomsMax: session.slots.bedroomsMax,
           sqm: session.slots.sqm,
           business: this.businessPoolLock(session.slots) ?? undefined,
-          house: session.slots.house,
+          house: this.poolHouse(session.slots),
           garsonjera: session.slots.garsonjera,
           plac: session.slots.plac,
           yard: session.slots.yard,
@@ -12752,14 +12947,25 @@ ${contactReminder}`;
           // had a card on the table in this geography → the system sentence
           // names it (the owner's «Моментално во системот нема …»), every type
           // alike. A category that WAS served keeps the ladder's drained line.
+          // A BATCH ON THE TABLE IS NOT AN EMPTY SYSTEM (the [22:0x] repeat
+          // dismissal): a size-waived search carries no room TIER, so
+          // `rooms === undefined` read as «the category never had a card» and
+          // the turn answered «Моментално во системот нема станови до 400
+          // евра» with the pair still on the screen. The notebook knows the
+          // difference — cards of this search have been shown, so the honest
+          // sentence is the drained one, never a claim about the system.
           const rooms = requestedRooms(session.slots);
+          const shownHere = (session.slots.presentedIds?.length ?? 0) > 0;
           const noStock = noStockLine(session.slots,
-            rooms === undefined || !servedTierHere(session.slots, rooms));
+            !shownHere && (rooms === undefined || !servedTierHere(session.slots, rooms)));
           reply = !this.deps.properties.healthy
             ? FEED_UNAVAILABLE_LINE
             : (session.slots.propertyId != null
               ? PROPERTY_NOT_FOUND_LINE(session.slots.propertyId)
-              : noStock ?? NO_MATCH_LINE(session.slots.location));
+              : noStock ?? (shownHere
+                ? exhaustedLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
+                  ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location)
+                : NO_MATCH_LINE(session.slots.location)));
         }
       } else {
         // The 19:34 fix: the relaxed-intro is TYPE-AWARE. Garsonjera asks get
@@ -12876,10 +13082,33 @@ ${contactReminder}`;
         // (the vote-derived «Центар» must never answer for «ТЦ Лептокарија»).
         const anchoredSearch = !!anchorPlace && (!session.slots.location
           || (!!session.slots.poiArea && session.slots.location === session.slots.poiArea));
+        // THE OPENER MAY ONLY PROMISE WHAT EVERY CARD DELIVERS (the [23:51]
+        // capture): an anchored batch drew «Еве ги најблиските опции до
+        // Универзална Сала» over a pair whose second card was a Карпош flat
+        // 2,1 km away — an ALTERNATIVE riding the near-stock queue. A row past
+        // the honest radius carries no anchor (placePairQueue only anchors
+        // what really stands inside the ring), so the claim is checked on the
+        // anchors: when a card has none, the ordinary presentation opener
+        // introduces the batch and each card states only its own distance.
+        // A CARD IS «NEAR THE PLACE» when the pair queue drew it inside a named
+        // place's ring, or when IT LIES INSIDE THAT RING itself (a single-anchor
+        // search carries no pair anchors), or when its own address/naselba names
+        // the place (identity, not geometry — the [13:29] rule).
+        const placeOfCard = (p: Property): number | undefined => {
+          const drawn = session.slots.pairAnchorOf?.[String(p.id)]
+            ?? session.slots.pairAlsoNearOf?.[String(p.id)]?.[0];
+          if (drawn) return 0;
+          if (!anchorPlace) return undefined;
+          if (textNamesPlace(adText(p), session.slots.poiAnchor as string)) return 0;
+          return typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0
+            ? distM(anchorPlace.lat, anchorPlace.lon, p.lat, p.lon) : undefined;
+        };
+        const everyCardAnchored = !!anchorPlace
+          && props.every(p => { const d = placeOfCard(p); return d !== undefined && d <= LANDMARK_NEAR_M; });
         if (!prefix && pair.opener) {
           prefix = pair.opener;
           session.slots.areaExhausted = false;
-        } else if (!prefix && anchoredSearch && !session.slots.poiAnchorTooFar) {
+        } else if (!prefix && anchoredSearch && everyCardAnchored && !session.slots.poiAnchorTooFar) {
           // The widen the client picked is NAMED, so a far card is never read
           // as «близу до X»: «во истата населба» / «во друга населба».
           const widenWhere = session.slots.poiWidenScope === 'area' ? 'во истата населба '
@@ -13774,6 +14003,38 @@ ${contactReminder}`;
       // incident, reachable by ANY producer that sent a bare `ok`. The TUI
       // shortcut now stamps the term it means; a remote parser has `available`.
       if (!ownerTerm.trim()) return this.serveOwnerTermAsk(session, eb, priceRelay);
+      // HIS YES TO THE CLIENT'S OWN TERM IS THE MEETING OF MINDS — book it in
+      // one step (the pinned [00:49]/[23:41] contract). But a yes that names a
+      // DIFFERENT clock is an OFFER of his own, not consent to the client's: the
+      // [10:00] capture booked «ДОГОВОРЕНА ПОСЕТА … 17:30» off the owner's word
+      // alone, after an idle chat whose client had never defined a date or time
+      // and had moved on to houses. Consent must name ITS object, on BOTH sides
+      // (the [23:41] rule), so the term is compared before it can become an
+      // appointment — and the client closes what he did not name.
+      const clientTermRendered = renderVisitTerm(session.slots.visitTime ?? '');
+      const ownerTermRendered = renderVisitTerm(ownerTerm);
+      // A DAY-ONLY YES («утре попладне») confirms the client's day and keeps HIS
+      // clock — the renderer makes his term a longer prefix of the same day, so
+      // the prefix test is that agreement, never a looser match.
+      const agreedToClientTerm = !!clientTermRendered
+        && (ownerTermRendered === clientTermRendered || clientTermRendered.startsWith(ownerTermRendered));
+      if (!agreedToClientTerm) {
+        // THE OWNER'S TERM OPENS THE OFFER — THE CLIENT CLOSES IT: relay the
+        // term as an ask, park the chat in time_confirm, and let the client's
+        // own yes run the booking seam (the same shape the fixed-counter path
+        // already uses). Nothing is arranged before he answers.
+        const okTerm = normalizeOwnerTime(ownerTerm);
+        session.state = 'time_confirm';
+        session.slots.ownerTime = ownerTerm;
+        const okAsk = `${priceRelay ? `${priceRelay} ` : ''}`
+          + `Сопственикот е слободен за посета на Евидентен број ${eb}${okTerm ? ` — ${okTerm}` : ''}. `
+          + 'Дали да ја потврдам посетата за тој термин?';
+        this.logOwnerExchange(session, eb, { ...verdict, ownerTime: ownerTerm }, okAsk);
+        pushHistory(session, { role: 'assistant', text: okAsk }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, okAsk);
+        return;
+      }
       session.state = 'pending';
       session.slots.ownerCounterTime = undefined; // agreed — nothing left to refuse
       session.slots.ownerClockDay = undefined;
@@ -14480,7 +14741,7 @@ ${contactReminder}`;
       bedroomsMax: session.slots.bedroomsMax,
       sqm: session.slots.sqm,
       business: this.businessPoolLock(session.slots),
-      house: session.slots.house,
+      house: this.poolHouse(session.slots),
       garsonjera: session.slots.garsonjera,
       plac: session.slots.plac,
       yard: session.slots.yard,
@@ -14703,7 +14964,7 @@ ${contactReminder}`;
       bedrooms: session.slots.bedrooms,
       sqm: session.slots.sqm,
       business: session.slots.business,
-      house: session.slots.house,
+      house: this.poolHouse(session.slots),
       garsonjera: session.slots.garsonjera,
       plac: session.slots.plac,
       service: session.slots.service,
@@ -14994,7 +15255,30 @@ ${contactReminder}`;
     return true;
   }
 
-  private async applySlots(session: ChatSession, ev: Event): Promise<void> {
+  /** The criteria the LAST outbound turn asked about — empty when that turn did
+   *  not ask at all (it does not end with a question, so there is nothing to
+   *  answer). Read from the same builder that produced the copy, never from its
+   *  wording: the bank rotates the sentences and a wording without the axis
+   *  word («На која локација во градот …?») is still the AREA question. */
+  private pendingAskCriteria(session: ChatSession): DiscoveryCriterion[] {
+    const last = [...session.history].reverse().find(h => h.role === 'assistant')?.text ?? '';
+    if (!/\?\s*$/u.test(last.trim())) return [];
+    return discoveryAskCriteria(session.slots, assistantTexts(session));
+  }
+
+  /** `rawText` is the client's own words for THIS message (the caller has them);
+   *  a few rules read the message against the question it answers — see the
+   *  dismissal block below. */
+  private async applySlots(session: ChatSession, ev: Event, rawText = ''): Promise<void> {
+    // THE QUESTION THE CLIENT IS LOOKING AT, READ BEFORE THIS TURN IS APPLIED
+    // (the [23:51] rule). The criteria are the ones the ask was BUILT from, so
+    // they must be read from the slots as they stand BEFORE this message lands:
+    // the turn banks its budget at the top of this method, and reading the
+    // criteria afterwards hid `budget` from a COMBINED ask («1. Колку спални
+    // соби? 2. До која цена…?») — the money answer then looked like the answer
+    // to a size-only question and waived the rooms the funnel had just asked
+    // about, draining a pool that was still full.
+    const askedCriteria = this.pendingAskCriteria(session);
     if (ev.service) {
       session.slots.service = ev.service;
       session.slots.bothServices = undefined;
@@ -15140,6 +15424,18 @@ ${contactReminder}`;
     if (ev.sqm) session.slots.sqm = ev.sqm;
     if (ev.business !== undefined) session.slots.business = ev.business;
     if (ev.house !== undefined) session.slots.house = ev.house;
+    // EITHER RESIDENTIAL TYPE (the [23:49]/[23:50] capture): «за живеење» and
+    // «стан или куќа» are category ANSWERS — a flat or a house will do. The
+    // flag owns the pool and the wording, so a later single type (куќа/стан)
+    // retires it; business and plac retire it too, because they are the
+    // categories the client just ruled out by asking for a home.
+    if (ev.residential) {
+      session.slots.residential = true;
+      session.slots.house = undefined;
+      session.slots.business = undefined;
+      session.slots.plac = undefined;
+    }
+    if (ev.house !== undefined || ev.business || ev.plac) session.slots.residential = undefined;
     if (ev.budget) session.slots.budget = ev.budget;
     // THE €/m² CEILING (the [02:09] capture): «PO 1500E ZA KVADRAT» is a RATE
     // — it lands in its own slot and never as a 1.500 € sum, so the funnel
@@ -15156,8 +15452,71 @@ ${contactReminder}`;
     } else if (ev.budget) {
       session.slots.sqmRate = undefined;
     }
-    if (ev.anywhere) session.slots.anywhere = true;
+    // THE DISMISSAL IS READ AGAINST THE QUESTION THAT WAS ASKED (the [23:51]
+    // capture): «НЕБИТНО» answered «колку спални соби?» and the funnel heard the
+    // AREA waive — the batch went city-wide (anywhere=true) and the two
+    // landmarks the client had named were replaced by «најпопуларните населби».
+    // A bare dismissal means "whatever you asked"; the QUESTION is the
+    // criterion. Only an EXPLICIT «било каде»/«секаде» is an area release
+    // regardless of the ask.
+    // Only the QUESTION counts as evidence of what the client released: a bare
+    // dismissal in front of a QUESTION answers that question, and the axis that
+    // question was about is the one it waives. An explicit «било каде/секаде»
+    // stays an area release whatever was asked (its own adverb names the axis).
+    // WHICH QUESTION — from the funnel's own criteria, never from its copy:
+    // the ask is bank-rotated, and a wording without «населба/дел од градот»
+    // («На која локација во градот …?») read as a SIZE question, so an AREA
+    // dismissal waived the rooms and the funnel asked for the населба again.
+    // The criteria come from the same builder that produced the copy, and the
+    // dismissal itself adds no criterion, so the list is exactly what the
+    // client was looking at.
+    // …and only when the last turn really ASKED (it ends with a question). The
+    // criteria are read from the slots the dismissal leaves untouched, so they
+    // are the ones that produced the copy — but on a FIRST message there is no
+    // asked question at all, and reading its own fresh budget as an answer to a
+    // bedrooms ask waived the size before the funnel had asked anything.
+    const askedBedrooms = askedCriteria.includes('bedrooms');
+    const askedArea = askedCriteria.includes('area');
+    const bareDismissal = detectBareCriterionDismissal(rawText);
+    if (ev.anywhere && bareDismissal) {
+      // «НЕБИТНО» AFTER A BATCH IS NOT AN AREA RELEASE (the [23:51] capture):
+      // the last thing on the table was the pair, not a question about the
+      // area, yet the bare dismissal armed `anywhere` — the search left the
+      // Центар the client had named by landmark, the opener still promised
+      // «најблиските опции до Универзална Сала» and a Карпош card rode it.
+      // The area is released only when the AREA was the question.
+      if (askedArea && !askedBedrooms) session.slots.anywhere = true;
+      else session.slots.sizeWaived = true;
+    } else if (ev.anywhere) {
+      session.slots.anywhere = true;
+    }
     if (ev.sizeWaived) session.slots.sizeWaived = true;
+    // A MONEY ANSWER TO THE SIZE QUESTION WAIVES THE SIZE (the [23:51]
+    // capture): «БИТНО Е ДА Е ДО 300 ЕВРА» replied to «колку спални соби?» with
+    // the budget and no room count. He named what MATTERS and said nothing about
+    // rooms, so the funnel owes him the batch inside his money — ranked — not a
+    // third «колку спални соби?». Only when the question really was the size
+    // one; a budget answer to a budget question stays a budget answer.
+    // …UNLESS the same line answered the size with a counted PAIR (the [09:46]
+    // capture: «MOZE SO EDNA DO 100 000 ILI SO DVE DO 150 000» names one and two
+    // bedrooms under their own caps). Those counts ARE the size answer, so the
+    // money in them can never be read as a size waiver — that reading took the
+    // pair off the room axis and the funnel asked «колку спални?» again.
+    // …AND ONLY WHEN THE SIZE WAS THE WHOLE QUESTION. A COMBINED ask («1. Колку
+    // спални соби…? 2. …до која цена…?») puts two criteria on the table, and the
+    // money answers the SECOND one — reading it as a size waiver served a batch
+    // while the bedrooms question was still open, so the client's real size
+    // answer then found the pool drained («Ги прегледавме сите…» for a house he
+    // could see). The waiver belongs to the single-criterion ask of the [23:51]
+    // capture; every other case keeps the funnel's own two-answer discipline.
+    const countsNameRooms = (!!detectCountBudget(rawText) && this.countBudgetNamesRooms(session, rawText))
+      || (detectBareBedroomCount(rawText) !== undefined && this.sizeAxisOpen(session));
+    const sizeWasWholeAsk = askedBedrooms && askedCriteria.length === 1;
+    if (!ev.sizeWaived && !countsNameRooms && sizeWasWholeAsk && ev.bedrooms === undefined
+      && ev.bedroomsMin === undefined && ev.bedroomsMax === undefined
+      && (ev.budget || ev.sqmRate || ev.pricePriority)) {
+      session.slots.sizeWaived = true;
+    }
     // A FRESH bedroom/sqm criterion retires the size waiver ("nebitno"): the
     // client named a size after all, so the biggest-first ordering must not
     // ride along with a search the waiver no longer governs (21:40 contract:
@@ -15581,7 +15940,7 @@ ${contactReminder}`;
         bedroomsMax: session.slots.bedroomsMax,
         sqm: session.slots.sqm,
         business: session.slots.business,
-        house: session.slots.house,
+        house: this.poolHouse(session.slots),
         // "garsonjera mi treba" — the STUDIO category is the criterion: filter
         // to small units (≤ 35 м²), never by a fabricated спални number. When
         // the small pool would be empty, keep the broad pool (the feed has few
@@ -15638,7 +15997,7 @@ ${contactReminder}`;
           bedroomsMax: session.slots.bedroomsMax,
           sqm: session.slots.sqm,
           business: session.slots.business,
-          house: session.slots.house,
+          house: this.poolHouse(session.slots),
           garsonjera: session.slots.garsonjera,
           plac: session.slots.plac,
           yard: session.slots.yard,
@@ -15659,7 +16018,7 @@ ${contactReminder}`;
           bedroomsMax: session.slots.bedroomsMax,
           sqm: session.slots.sqm,
           business: session.slots.business,
-          house: session.slots.house,
+          house: this.poolHouse(session.slots),
           plac: session.slots.plac,
           yard: session.slots.yard,
           service: session.slots.service,
@@ -15686,7 +16045,7 @@ ${contactReminder}`;
             bedroomsMax: session.slots.bedroomsMax,
             sqm: session.slots.sqm,
             business: session.slots.business,
-            house: session.slots.house,
+            house: this.poolHouse(session.slots),
             plac: session.slots.plac,
             yard: session.slots.yard,
             service,
@@ -15779,7 +16138,7 @@ ${contactReminder}`;
             location: session.slots.location,
             bedrooms: 2, // feed convention: 2 rooms = 1 спална
             business: session.slots.business,
-            house: session.slots.house,
+            house: this.poolHouse(session.slots),
             service: session.slots.service,
             budget: session.slots.budget,
             exclude: shown,
@@ -15791,7 +16150,7 @@ ${contactReminder}`;
               location: session.slots.location,
               sqm: session.slots.sqm,
               business: session.slots.business,
-              house: session.slots.house,
+              house: this.poolHouse(session.slots),
               service: session.slots.service,
               budget: session.slots.budget,
               exclude: shown,
@@ -15864,7 +16223,7 @@ ${contactReminder}`;
           bedroomsMax: session.slots.bedroomsMax,
           sqm: session.slots.sqm,
           business: session.slots.business,
-          house: session.slots.house,
+          house: this.poolHouse(session.slots),
           garsonjera: session.slots.garsonjera,
           plac: session.slots.plac,
           yard: session.slots.yard,
@@ -16057,7 +16416,7 @@ ${contactReminder}`;
       // PLACE named later is a new search in exactly that sense (the [16:11]
       // follow-on): without the anchor here, «VO BLIZINA NA KATOLICKA» re-ranked
       // the pool nearest-first but the stale queue kept serving the OLD order.
-      const ladderKey = `${session.slots.anywhere ? '*' : session.slots.location ?? '-'}|${session.slots.service ?? '-'}|${session.slots.dualService ? `dual${session.slots.rentBudget}-${session.slots.buyBudget}` : session.slots.budget ?? '-'}|${session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined ? `alt${session.slots.bedroomsMin}-${session.slots.bedroomsMax}` : `b${session.slots.bedrooms ?? '-'}`}|${session.slots.poiAnchor ?? '-'}|${(session.slots.poiPlaces ?? []).map(p => p.name).join('+') || '-'}`;
+      const ladderKey = `${session.slots.anywhere ? '*' : session.slots.location ?? '-'}|${session.slots.service ?? '-'}|${session.slots.dualService ? `dual${session.slots.rentBudget}-${session.slots.buyBudget}` : session.slots.budget ?? '-'}|${session.slots.bedroomsAlt && session.slots.bedroomsMin !== undefined && session.slots.bedroomsMax !== undefined ? `alt${session.slots.bedroomsMin}-${session.slots.bedroomsMax}` : `b${session.slots.bedrooms ?? '-'}`}|${session.slots.poiAnchor ?? '-'}|${(session.slots.poiPlaces ?? []).map(p => p.name).join('+') || '-'}|${session.slots.residential ? 'both' : session.slots.house === true ? 'house' : session.slots.house === false ? 'flat' : '-'}${session.slots.business ? '/biz' : ''}${session.slots.plac ? '/plac' : ''}${session.slots.yard ? '/yard' : ''}${session.slots.garsonjera ? '/studio' : ''}`;
       let queue = session.slots.ladderQueue ?? [];
       if (session.slots.ladderKey !== ladderKey || queue.length === 0) {
         const multiPlaces = session.slots.poiPlaces ?? [];

@@ -141,3 +141,43 @@ test('[04:36] the owner channel survives a bare counter: «NA RABOTA SUM» is an
   const term = await handler.ownerMessage(chatId, 'MOZAM POSLE 6');
   assert.notEqual(term.effect, 'no_pending', `the term must land: ${JSON.stringify(term)}`);
 });
+
+test('[10:00] the owner\'s «да» OPENS the offer — the CLIENT confirms before any «ДОГОВОРЕНА ПОСЕТА»', async () => {
+  // THE FIELD INCIDENT (the [23:52] → [10:00] chat): the client's last message
+  // was «А КУЌИ ?» and the answer was «нема куќи до 300 евра»; the next thing
+  // he heard was «ДОГОВОРЕНА ПОСЕТА НА ЕВИДЕНТЕН БРОЈ 54; 10.11.2026; 17:30;
+  // АГЕНТ ЗА КОНТАКТ …». The owner's `ok` was calling confirmVisit directly, so
+  // HIS yes booked the visit — with a clock the CLIENT had never defined, on a
+  // flat the client had only asked about. THE TERM IS THE OBJECT CONSENT MUST
+  // NAME: an `ok` that repeats the client's own term is the meeting of minds
+  // and books in one step (the pinned [00:49]/[23:41] contract); an `ok` that
+  // carries the OWNER's clock is an offer, and the client closes it.
+  // (A parser that prints a differing clock as `counter` already asks him —
+  // this is the same rule at the CONTRACT level, for the producers that send
+  // the verdict object directly, which is how the field booking happened.)
+  const { handler, sessions, sent, send, chatId } = makeHandler();
+  await reachOwnerChecking(send);
+  // The setup left the CLIENT's own term on the table (stored verbatim, as he
+  // typed it — the slot carries the client's shape, the renderer names it).
+  assert.equal(sessions.get(chatId)!.slots.visitTime, 'UTRE VO 4');
+
+  const before = sent.length;
+  assert.equal(handler.ownerAnswer(chatId, 91, { status: 'ok', ownerTime: 'Утре во 5' }), true,
+    'the verdict must land');
+  await new Promise(r => setTimeout(r, 50));
+
+  const lines = sent.slice(before);
+  assert.ok(!lines.some(l => /договорена посета/iu.test(l)),
+    `nothing is arranged before the client says yes: ${lines.join(' | ')}`);
+  const ask = lines[lines.length - 1] ?? '';
+  assert.match(ask, /Евидентен број 91/u, `the ask names the property: ${ask}`);
+  assert.match(ask, /\?$/u, `and is a question the client can answer: ${ask}`);
+  assert.equal(sessions.get(chatId)!.state, 'time_confirm', 'the chat waits for the CLIENT, not for the owner');
+  assert.equal(sessions.get(chatId)!.slots.ownerTime !== undefined, true, 'the owner term is kept for the booking');
+
+  // The client's own yes books it — and only now does «ДОГОВОРЕНА ПОСЕТА» go out.
+  await send('DA');
+  const booked = sent[sent.length - 1] ?? '';
+  assert.match(booked, /договорена посета/iu, `the confirmation follows the CLIENT's yes: ${booked}`);
+  assert.equal(sessions.get(chatId)!.state, 'pending', `booked state: ${sessions.get(chatId)!.state}`);
+});

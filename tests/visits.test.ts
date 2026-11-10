@@ -463,6 +463,10 @@ test('e2e: the arranged line goes to the client ONCE at booking, and the owner g
   handler.ownerAnswer(chatId, 53, detectOwnerVerdict('da, moze', s.slots.visitTime ?? '')!);
   await new Promise(r => setTimeout(r, 50));
   s = sessions.get(chatId)!;
+  // The owner's «da, moze» strips to HIS agreement to the term the CLIENT put
+  // on the table (both render to the same day+clock), so the booking closes in
+  // one step — the offer-and-confirm shape belongs to a term the client never
+  // named (tests/capture-0436-owner-constraint.test.ts, the [10:00] rule).
   assert.equal(s.state, 'pending'); // visit confirmed
 
   // Turn 0: address confirm sent to OWNER (not client)

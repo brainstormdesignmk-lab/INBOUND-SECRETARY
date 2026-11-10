@@ -340,6 +340,19 @@ export function pickVariant(key: string, opts: PickOpts = {}): string | undefine
   // much of that coverage the loop grew (see learnedRate).
   if (variants.length === 0) { learned?.metric(key, false); return undefined; }
   const recent = new Set((opts.recent ?? []).map(normalizeVariant));
+  // THE SERVED TEXT IS OFTEN A COMPOSITE: a pool variant is frequently the
+  // LAST BLOCK of a reply (the availability ack follows the flat's identity
+  // card), and history only ever holds the composite. An exact-set test then
+  // matched nothing and repeat avoidance was dead for every prefixed serve —
+  // the [08:55] thread served the identical ack twice and the pool test caught
+  // it as a real repeat defect. A candidate counts as served when a recent
+  // reply EQUALS it or ENDS WITH it (the prefix is the card, the ack the tail).
+  const recentlyServed = (filled: string) => {
+    const t = normalizeVariant(filled);
+    if (!t) return false;
+    for (const r of recent) if (r === t || r.endsWith(t)) return true;
+    return false;
+  };
   // COMPARE THE FILLED TEXT, NOT THE TEMPLATE. `recent` holds what was SERVED
   // («недвижноста (Евидентен број 54) е достапна», «Во Центар…»), while the
   // template still carries {prop}/{term}/{location} — so comparing templates
@@ -357,7 +370,7 @@ export function pickVariant(key: string, opts: PickOpts = {}): string | undefine
   const contract = POOL_CONTRACTS[key];
   const onContract = contract ? served.filter(v => contract.test(v.text)) : served;
   const candidates = onContract.length > 0 ? onContract : served;
-  const fresh = candidates.filter(v => !recent.has(normalizeVariant(v.text)));
+  const fresh = candidates.filter(v => !recentlyServed(v.text));
   const pool = fresh.length > 0 ? fresh : candidates;
   const chosen = pool[Math.floor(Math.random() * pool.length)];
   learned?.metric(key, true, chosen.layer);

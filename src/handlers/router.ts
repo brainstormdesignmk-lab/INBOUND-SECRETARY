@@ -26,7 +26,7 @@ import {
   detectBusinessBudgetAsk,
   detectPriceEval, adviceLaneAdmits,
   detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk,
-  detectFeePaymentAgreement, detectArrangementRecall,
+  detectFeePaymentAgreement, detectArrangementRecall, detectToldYouNag,
 } from '../llm/deterministic';
 
 export interface RouteRule {
@@ -60,6 +60,8 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectNearestOfShown(t) },
   { intent: 'NEAREST_OF_BATCH', note: '«OVA BESE BLISKU» ([20:17]) — a DEICTIC closeness remark about the batch just listed. No interrogative and no place of its own, so it sits AFTER NEAREST_OF_SHOWN (which owns the explicit «koj e najblisku do …» ranking) and BEFORE the funnel: the classifier read it as a description of an unknown listing and asked which neighbourhood/price it was',
     fires: t => detectCloseRemarkToBatch(t) },
+  { intent: 'TOLD_YOU_RECALL', note: '«ПА ТИ КАЖАВ КАДЕ» ([23:48]) — the client says he already gave the criteria, so the turn reads the notebook back (places + area) and asks only what is missing. The executor runs it in the funnel states, after OWNER_CONTACT/PROXY_CONTACT (a contact capture inside the complaint keeps its lane) and before the where-is/location-nag branches, which is exactly where this row sits; the executor also requires NO property on the table (a shown flat makes «ти кажав» a where-is/visit topic) — a fact the mirror cannot see, so the state gate is the mirror\'s share',
+    fires: (t, s) => detectToldYouNag(t) && ['idle', 'discovery'].includes(s) },
   { intent: 'WHICH_OF_BATCH_PLACE', note: '«KOJ OD NIV E VO MADJAR MAALO?» ([09:44]) — which of the flats ALREADY OFFERED stands in the place the client names. A comparison between the rows on the table, so it sits after NEAREST_OF_SHOWN/NEAREST_OF_BATCH (the rankings it must not steal) and before MARKET_MEMORY and every search branch: the recall path read the place as a NEW search and re-served the same pair it was asked about',
     fires: t => !!detectWhichOfBatchPlace(t) },
   { intent: 'MARKET_MEMORY', note: '„ИМАШЕчЕ ЕДНА КУчА ПРЕД НЕКОЕ ВРЕМЕ КАЈ ВАС… ОКОЛУ 400 ЕВРА КИРИЈА” ([02:00]) — a recall of an OLD agency listing. Sits BEFORE MARKET_PRICE: the rent noun + the ask shape make the market mirror claim the row, while the market arm does not capture it (landmark ≠ feed area, singular noun, rent-only guard) — the turn then fell to the discovery funnel. The archive ack owns it: the old offer is not in the feed, so no figure is quoted as live, and the recollected type/segment/amount land in slots for the follow-up search',
@@ -219,6 +221,8 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   DISTANCE: M('DISTANCE', 'how far the discussed flat is from X'),
   DISTANCE_BATCH: P('the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat’s number came back)'),
   INFO_ASK_FLOORS: P('one floor question naming TWO flats («na koj sprat e 94 ? a na koj 90 ?») — one clause per Евидентен број (the [11:38] capture: only the bound flat was answered)'),
+  INFO_ASK_PAIR_IDENTITY: P('SEVERAL flats named in one ask («za stan so evidenten broj 82 i 75») — every named Евидентен број gets its own card, never only the first (the [10:58] capture: 82 described and 75 dropped)'),
+  INFO_ASK_PAIR: P('a facet ask over the TWO flats on the table («sporedba na cena po kvadrat za dvata stana», «na koj sprat e 94 ? a na koj 90 ?») — one answer per flat; the pair-on-table referent («dvata») makes the batch without re-naming the EBs'),
   WHICH_OF_BATCH_PLACE: M('WHICH_OF_BATCH_PLACE', 'which of the offered flats stands in the place the client names — answered per row, from each row\'s own words'),
   NEAREST_OF_SHOWN: M('NEAREST_OF_SHOWN', 'which of the offered flats is nearest to X'),
   NEAREST_OF_BATCH: M('NEAREST_OF_BATCH', '«ova bese blisku» — the one nearest of the batch, with its measured distance'),
@@ -277,6 +281,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'INVESTMENT_OPINION:fast': P('investment-advice ask'),
   LANDMARK_LADDER: P('location-nag ladder rung'),
   LOCATION_NAG: P('location question refused again'),
+  TOLD_YOU_RECALL: M('TOLD_YOU_RECALL', '«па ти кажав каде» — the notebook read back (places/area on file, then only the missing criterion)'),
   MONEY_CLARIFY: P('money-without-target clarification'),
   NEARBY_ASK: M('NEARBY_ASK', 'what is near the building — the interceptor runs before every funnel branch'),
   NEARBY_THREAD: P('what-else-is-near (rotation → protocol → lifecycle)'),

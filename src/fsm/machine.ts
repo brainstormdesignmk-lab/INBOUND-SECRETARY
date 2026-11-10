@@ -26,6 +26,10 @@ export interface Event {
   sqm?: number;             // commercial space — size instead of bedrooms
   business?: boolean;       // деловен простор / канцеларија / локал
   house?: boolean;          // куќа — a residential request that is NOT a стан
+  /** EITHER RESIDENTIAL TYPE (the [23:49]/[23:50] capture): «за живеење» /
+   *  «стан или куќа» — a flat OR a house will do. Answers the category without
+   *  pinning one; a later single type retires it. */
+  residential?: boolean;
   budget?: string;
   /** THE €/m² CEILING (the [02:09] capture): «PO 1500E ZA KVADRAT» caps the
    *  RATE, not the sum. A money criterion of its own — never folded into

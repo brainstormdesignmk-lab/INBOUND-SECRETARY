@@ -886,7 +886,18 @@ export function serviceCriterionKnown(slots: SlotData): boolean {
   return (!!slots.service && !slots.serviceInferred) || !!slots.dualService;
 }
 
-export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): string {
+/** WHICH CRITERION AN ASK IS ABOUT — the funnel's own axis names, in the order
+ *  the ask builder pushes them. A caller that must read a DISMISSAL
+ *  («НЕБИТНО») needs the axis, not the sentence: the bank rotates the wording,
+ *  so matching the copy («населб|дел од градот|каде») missed the variant
+ *  «На која локација во градот …?» and served the size waiver to an AREA
+ *  dismissal — the funnel then re-asked the area ([23:48], and the pty funnel
+ *  failed only on the rotations whose wording happened to miss the tokens). */
+export type DiscoveryCriterion = 'service' | 'type' | 'area' | 'sqm' | 'bedrooms' | 'budget';
+
+export interface DiscoveryAsk { text: string; criteria: DiscoveryCriterion[] }
+
+function buildDiscoveryAskDetailed(slots: SlotData, recent: string[] = []): DiscoveryAsk {
   const business = !!slots.business;
   const house = !!slots.house;
   const plac = !!slots.plac;    // "плац за градење" — land plot (the 22:53 sweep)
@@ -922,8 +933,12 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // must get the плац intro, never the type-neutral greeting and never the
   // house intro (the [20:15] ask class, the discovery sibling).
   if (!business && !house && !plac && !yard && !knownAny) {
-    return pickVariant('greeting.open', { recent })
-      ?? 'Повелете. Дали Ве интересира купување или изнајмување на недвижност?';
+    // The opener asks the MARKET, so that is the criterion it is about.
+    return {
+      text: pickVariant('greeting.open', { recent })
+        ?? 'Повелете. Дали Ве интересира купување или изнајмување на недвижност?',
+      criteria: ['service'],
+    };
   }
   // THE TYPE IS UNKNOWN ONLY WHEN NOTHING NAMES IT — and then it is ASKED,
   // never assumed (the [04:17] capture: «ZDRAVO. STO IMATE VO BUNJAKOVEC?» got
@@ -937,11 +952,19 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // While the type is unknown the funnel asks the TYPE and HOLDS BACK the
   // type-specific questions: «колку спални» is a question a дуќан never has, and
   // a price cap is worded differently for a плац.
+  // EITHER RESIDENTIAL TYPE IS AN ANSWERED CATEGORY (the [23:49]/[23:50]
+  // capture): «ЗА ЖИВЕЕЊЕ МИ Е» and «СТАН ИЛИ КУЌА» say «a home», which is
+  // MORE than «nothing» and mostly less than «стан» — the funnel must stop
+  // asking «каков вид на недвижност?» and must never word its next question
+  // «станот». The wording goes NEUTRAL (any) on that branch below.
+  const residential = !!slots.residential;
   const flatEvidence = !!slots.flat || !!slots.garsonjera || slots.house === false
     || slots.bedrooms !== undefined || slots.bedroomsMin !== undefined || slots.bedroomsMax !== undefined;
-  const typeKnown = business || house || plac || yard || flatEvidence;
+  const typeKnown = business || house || plac || yard || flatEvidence || residential;
   const missing: string[] = [];
+  const criteria: DiscoveryCriterion[] = [];
   if (!serviceKnown) {
+    criteria.push('service');
     missing.push(typeKnown
       ? askQuestion(
         plac ? 'discovery.ask.service.plac'
@@ -974,6 +997,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // type question can never follow it.
   const typeHeld = !typeKnown;
   if (serviceKnown && typeHeld) {
+    criteria.push('type');
     // The same question the dual-service lane uses — «Кој тип недвижност Ве
     // интересира? Стан, куќа, деловен простор или плац?» — bank-backed, names
     // every category the feed sells.
@@ -999,7 +1023,8 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   // wording that names no type; the category pools answer once the type is on
   // file (the [19:06] contract).
   if (serviceKnown && !locationKnown) {
-    missing.push(typeKnown
+    criteria.push('area');
+    missing.push(typeKnown && !residential
       ? askQuestion(
         plac ? 'discovery.ask.location.plac'
           : business ? 'discovery.ask.location.business' : house ? 'discovery.ask.location.house' : 'discovery.ask.location.stan',
@@ -1012,6 +1037,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
         'Во кој дел од градот ја барате недвижноста?', recent));
   }
   if (serviceKnown && !typeHeld && locationKnown && business && !slots.sqm) {
+    criteria.push('sqm');
     missing.push(askQuestion('discovery.ask.sqm.business', 'Која површина (во м²) ја барате?', recent));
   }
   // "garsonjera" IS the size answer — a studio has no separate спална, so the
@@ -1023,10 +1049,17 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
   if (serviceKnown && !typeHeld && locationKnown && !business && !slots.bedrooms
     && !(slots.bedroomsMin !== undefined && slots.bedroomsMax !== undefined)
     && !anywhere && !slots.sizeWaived && !slots.garsonjera && !sizeWaivedCategory) {
-    missing.push(askQuestion(
-      house ? 'discovery.ask.bedrooms.house' : 'discovery.ask.bedrooms.stan',
-      house ? 'Колку спални соби би сакале да има куќата?' : 'Колку спални соби би сакале да има станот?',
-      recent));
+    criteria.push('bedrooms');
+    // NEUTRAL WORDING FOR THE RESIDENTIAL FAMILY (the [23:50] capture): a
+    // client who said «стан или куќа» is not committed to either, so
+    // «…соби …во станот?» would name a type he did not choose.
+    missing.push(residential
+      ? askQuestion('discovery.ask.bedrooms.any',
+        'Колку спални соби би сакале да има недвижноста?', recent)
+      : askQuestion(
+        house ? 'discovery.ask.bedrooms.house' : 'discovery.ask.bedrooms.stan',
+        house ? 'Колку спални соби би сакале да има куќата?' : 'Колку спални соби би сакале да има станот?',
+        recent));
   }
   // A DUAL funnel already holds a per-service money answer when either leg is
   // on file — it asks for the missing one only, never for a single cap that
@@ -1044,6 +1077,7 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
     // land-plot funnel names the wrong category (the same failure family as
     // the [09:29] business capture). Bank key is optional; the code line is
     // the fallback when the bank has no plac variants yet.
+    criteria.push('budget');
     missing.push(askQuestion(
       business ? 'discovery.ask.budget.business'
         : plac ? 'discovery.ask.budget.plac'
@@ -1078,11 +1112,25 @@ export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): strin
           : 'Здраво! За да Ви најдам најсоодветна куќа, ве молам кажете ми неколку детали.')
     : undefined;
   const intro = introRaw && recent.length > 0 ? dropLeadingGreeting(introRaw) : introRaw;
-  if (missing.length === 0) return intro ?? 'Во ред, ги забележав Вашите критериуми.';
+  if (missing.length === 0) {
+    return { text: intro ?? 'Во ред, ги забележав Вашите критериуми.', criteria: [] };
+  }
   const questions = missing.length === 1
     ? missing[0]
     : missing.map((q, i) => `${i + 1}. ${q}`).join('\n');
-  return intro ? `${intro}\n${questions}` : questions;
+  return { text: intro ? `${intro}\n${questions}` : questions, criteria };
+}
+
+/** The funnel's ask, as copy (every existing caller). */
+export function buildDiscoveryAsk(slots: SlotData, recent: string[] = []): string {
+  return buildDiscoveryAskDetailed(slots, recent).text;
+}
+
+/** The criteria the ask is ABOUT — the read a dismissal needs (see
+ *  DiscoveryCriterion). Same call, so the answer can never drift from the copy
+ *  the client actually received. */
+export function discoveryAskCriteria(slots: SlotData, recent: string[] = []): DiscoveryCriterion[] {
+  return buildDiscoveryAskDetailed(slots, recent).criteria;
 }
 
 /** The criteria questions the funnel still OWES this session, or undefined

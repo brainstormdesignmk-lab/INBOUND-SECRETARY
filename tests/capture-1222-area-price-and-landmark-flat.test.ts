@@ -189,7 +189,11 @@ test('[12:22] the availability ask binds the flat ACROSS the school, not the nea
     `the sale question is answered, not re-asked: ${reply}`);
   assert.equal(s.state, 'closing', `the availability answer is the visit funnel: ${s.state}`);
   assert.equal(s.slots.interestedPropertyId, 69);
-  assert.ok(/достап|слободн|продажб|активн/iu.test(reply), `availability copy expected: ${reply}`);
+  // EXPECTATION FIXED (the bank rotates variants): the stem `активн` never
+  // matches the shipped «Сè уште се води како активен во нашата евиденција»
+  // (the «е» breaks the stem), so the full-suite run failed on that variant
+  // while the short one passed. Stems take inflections (AGENTS.md §4c).
+  assert.ok(/достап|слободн|продажб|актив/iu.test(reply), `availability copy expected: ${reply}`);
 
   offlineMap.close();
 });

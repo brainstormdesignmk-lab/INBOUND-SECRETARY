@@ -11,10 +11,16 @@ import { identityKey } from '../geo/offlineMap';
 //   stored / google_cached          — trusted (real geocode)
 //   osm_building / osm_interpolated — trusted (exact/interpolated building)
 //   osm_low_confidence              — NEVER trusted (neighborhood centroid etc.)
+//   osm_street_anchor               — NEVER trusted (STREET centroid: the
+//                                     address resolved to the middle of a
+//                                     street, not to the building — the
+//                                     EB 85 class, whose «КАЈ БРАНКА» address
+//                                     landed near the town centre while the
+//                                     feed records it in Ново Лисиче)
 export type GeoSource =
   | 'stored' | 'google_cached'
   | 'osm_building' | 'osm_interpolated'
-  | 'osm_low_confidence';
+  | 'osm_street_anchor' | 'osm_low_confidence';
 
 // v2: THE IDENTITY IS "evidenten_broj" (EB). The feed's "id" is a UUID and
 // must NOT be used for lookups — it only builds deep links.
@@ -359,7 +365,11 @@ export function cleanMacedonian(text: string): string {
   });
 }
 
-const GEO_SOURCES = new Set(['stored', 'google_cached', 'osm_building', 'osm_interpolated', 'osm_low_confidence']);
+// The feed's FULL vocabulary. 'osm_street_anchor' used to be missing here, so
+// the value was dropped on import and the row's street-centroid point then
+// passed for a trusted, building-level geocode (the resolver only distrusted
+// the explicit 'osm_low_confidence').
+const GEO_SOURCES = new Set(['stored', 'google_cached', 'osm_building', 'osm_interpolated', 'osm_street_anchor', 'osm_low_confidence']);
 
 /** A storey number from the feed: 3, "3", "3 кат", "приземје" → 0, and the
  *  payload's "Не е наведено" / empty / null → undefined. Shared by `kat`
@@ -1658,7 +1668,11 @@ export class PropertyService {
    * request is never answered with a Маџари property to fill a slot.
    */
   async candidates(opts: {
-    location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean;
+    location?: string; bedrooms?: number; sqm?: number; business?: boolean;
+    /** true = houses only, false = a flat (non-house) only, 'both' = EITHER
+     *  RESIDENTIAL TYPE — a house or a flat, never a дуќан/плац (the [23:49]
+     *  «за живеење» / [23:50] «стан или куќа» answer). */
+    house?: boolean | 'both';
     garsonjera?: boolean; plac?: boolean; yard?: boolean; service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
     bedroomsMin?: number; bedroomsMax?: number; // bedroom RANGE ([09:17]): exact-category pool, both ends REQUIRED
     sortBySqmDesc?: boolean; // "nebitno" (size waived): BIGGEST м² first — the money buys space
@@ -1697,6 +1711,10 @@ export class PropertyService {
       .filter(p => opts.plac ? p.plac === true
         : opts.house === true
           ? (opts.yard ? p.house === true && (p.features?.some(f => /двор|градин/i.test(f)) ?? false) : p.house === true)
+          // EITHER RESIDENTIAL TYPE IS STILL «A HOME TO LIVE IN»: a client who
+          // says «за живеење» / «стан или куќа» is never served a дуќан or a
+          // плац — those are not weaker matches, they are the wrong answer.
+          : opts.house === 'both' ? (p.business !== true && p.plac !== true)
           : true)
       .filter(p => opts.garsonjera ? !p.business && !p.house && isSmallUnit(p) : true)      .filter(p => max === undefined || p.price === undefined || p.price <= max)
       // THE RATE FILTER (the [02:09] capture) — price ÷ м², never the sum.

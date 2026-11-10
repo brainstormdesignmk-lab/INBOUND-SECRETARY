@@ -348,6 +348,13 @@ export interface DetectedSlots {
   garsonjera?: boolean;    // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
   plac?: boolean;          // "плац за градење" — land plot category (NOT a струкен објект)
   yard?: boolean;          // "со двор/дворче/градина" — needs outdoor space (implies a house)
+  /** EITHER RESIDENTIAL TYPE (the [23:47]–[23:51] capture): «СТАН ИЛИ КУЌА»
+   *  and «ЗА ЖИВЕЕЊЕ МИ Е» both answer the category question with the WHOLE
+   *  residential family — a flat or a house, ranked together by the money and
+   *  the named place. It is NOT `house: false` (a flat-only search): that read
+   *  served apartments to a client who had just said he would live there, and
+   *  dropped the 250 € house in the same neighbourhood entirely. */
+  residential?: boolean;
 }
 
 // Latin spellings included — Macedonian clients type in Latin more often than Cyrillic.
@@ -372,7 +379,13 @@ const BUY_RE = /(купува|купам|купи|купн|куп|продажб
 // funnel re-asked „купување или изнајмување?“ about a house the client had
 // just called a rental. The inflected family is explicit now: rentanje /
 // rentanję / renta / rentira (both -je endings, the Latin digraph included).
-const RENT_RE = /(изнајмува|изнајмам|изнајми|изнајм|кирија|под кирија|кирја|под кирја|крија|под крија|издава|издад|\brent\b|rentanj|rentira|\brenta\b|iznajmuvam|iznajmam|iznajmi|iznajm|iznajmuvanje|iznajmuvanjе|kirija|pod kirija|krija|pod krija|izdava|izdad)/i;
+// «РЕНТАЊЕ» IS THE CASE THE LATIN-ONLY FAMILY MISSED (the [23:48] capture):
+// «ЗА РЕНТАЊЕ СУМ ЗАИНТЕРЕСИРАН» carried the market answer in Cyrillic and the
+// RENT family listed only the Latin `rentanj` — normalizeMc passes Cyrillic
+// through untouched, so the funnel asked «купување или изнајмување?» twice
+// more about a rental the client had already declared. The stems are spelled
+// per vowel so «рентген» (an X-ray, not a lease) can never match.
+const RENT_RE = /(изнајмува|изнајмам|изнајми|изнајм|кирија|под кирија|кирја|под кирја|крија|под крија|издава|издад|рента(?!бил)|ренти|ренте|ренто|рентањ|\brent\b|rentanj|rentira|renta(?!bil)|renti|\brenta\b|iznajmuvam|iznajmam|iznajmi|iznajm|iznajmuvanje|iznajmuvanjе|kirija|pod kirija|krija|pod krija|izdava|izdad)/i;
 
 const BED_NUM_RE = /(\d+)[-\s]*(?:спални|спална|соби|соба|спа|собен|собни|sob|sobi|soben|sobni|spalni|spalna)/i;
 // Bedroom-specific words (need +1 to convert to room count)
@@ -769,6 +782,46 @@ export function detectFlat(text: string): boolean {
   const norm = normalizeMc(clean);
   return FLAT_WORD_RE.test(clean) || FLAT_WORD_RE.test(norm)
     || FLAT_WORD_LATIN_RE.test(clean) || FLAT_WORD_LATIN_RE.test(norm);
+}
+
+// ── EITHER RESIDENTIAL TYPE ──────────────────────────────────────────────────
+// THE CATEGORY ANSWER IS OFTEN THE WHOLE FAMILY (the [23:47]–[23:51] capture):
+//   [23:49] ЗА ЖИВЕЕЊЕ МИ Е          → he will LIVE there
+//   [23:50] СТАН ИЛИ КУЌА …          → a flat OR a house will do
+// both answered «which type?» with «a home», and the funnel heard `flat` (the
+// flat word, or nothing), so it asked «колку спални соби…» and then served
+// apartments only — a house at 250 € in the same neighbourhood never appeared.
+// LIVING IS THE LABEL: a place to live is not a дуќан and not a плац, and it
+// cannot be narrowed to стан without the client saying so.
+// The living words are clause-anchored («за живеење», «да живеам», «за дом»,
+// «живеалиште»), so «каде живееш?» (a question about Lina) and «живот» never arm
+// a category; the union words need BOTH category nouns, un-negated, in one
+// message — «NE KUKJA, STAN» is a correction, not a union.
+const RESIDENTIAL_LIVING_RE = /(?<![\p{L}])(?:за\s+живеењ\p{L}*|живеењ\p{L}*|живеалишт\p{L}*|да\s+живеам\p{L}*|да\s+живеем\p{L}*|за\s+живот\p{L}*|za\s+ziveenj\p{L}*|ziveenj\p{L}*|zivealist\p{L}*|da\s+ziveam\p{L}*|da\s+ziveeme?\p{L}*|za\s+zhivot\p{L}*)(?![\p{L}])/iu;
+
+/** True when the client means «a place to LIVE» — flats and houses alike —
+ *  without pinning one: either a living clause («за живеење», «да живеам»), or
+ *  BOTH station and house words in one un-negated message («стан или куќа»). */
+export function detectResidentialNeed(text: string): boolean {
+  // A CORRECTION IS NEVER A UNION: «NE GARSONJERI I KUKJI» names the types in
+  // order to REFUSE them, and reading the two nouns as "either will do" armed
+  // the residential pool (then the house correction was lost). The negated-span
+  // reader owns that message, exactly as it does for detectHouse/detectFlat.
+  if (detectNegatedType(text)) return false;
+  // A RECOLLECTION OF OLD LISTINGS IS TWO LISTINGS, not a wish for either: the
+  // market-memory lane splits «гарсоњера … или куќа …» into its own halves and
+  // merges their categories, so the union read here would erase the second
+  // half's house/price (the [22:26] recall split).
+  if (detectSeenListingRecall(text)) return false;
+  const clean = stripNegatedCategoryWords(text);
+  const norm = normalizeMc(clean);
+  if (RESIDENTIAL_LIVING_RE.test(clean) || RESIDENTIAL_LIVING_RE.test(norm)) return true;
+  // The union: both words survive the negation strip. HOUSE_RE/APARTMENT_RE are
+  // the same readers detectHouse uses, so the scripts agree by construction.
+  const house = HOUSE_RE.test(clean) || HOUSE_RE.test(norm);
+  const flat = FLAT_WORD_RE.test(clean) || FLAT_WORD_RE.test(norm)
+    || FLAT_WORD_LATIN_RE.test(clean) || FLAT_WORD_LATIN_RE.test(norm);
+  return house && flat;
 }
 
 /** True when the message NAMES a property type (any of the feed's categories). */
@@ -2795,6 +2848,50 @@ const ANYWHERE_OTHER_CRITERION_RE = /(?:колку|цена|цени|ценат�
 const _anywhereSlotsRe = buildAnywhereSlots();
 const _anywhereBareRe = buildAnywhereBareSlots();
 
+/** True when the message is a BARE dismissal («НЕБИТНО», «BILO KOJA», «SEEDNO»)
+ *  with no criterion of its own — the shape that means "whatever you ASKED,
+ *  I don't care". The caller supplies the question (the [23:51] capture: the
+ *  same «НЕБИТНО» answered a BEDROOMS question and released the AREA, so the
+ *  presentation went city-wide and dropped the landmarks the client had just
+ *  named). Bare ≠ explicit: «било каде»/«секаде» name the area and stay
+ *  anywhere no matter what was asked. */
+export function detectBareCriterionDismissal(text: string): boolean {
+  return _anywhereBareRe.test(text) || _anywhereBareRe.test(normalizeMc(text))
+    || fuzzyHasToken(text, ANYWHERE_TYPO_TOKENS);
+}
+
+/** «ПА ТИ КАЖАВ КАДЕ» — the client says he ALREADY gave it (the [23:50]
+ *  capture). This is not an answer to the question on the table: it is a
+ *  complaint that the funnel forgot what he said, and answering it with the
+ *  same question again («во кој дел од градот?» after he had named two
+ *  landmarks) is the loop the owner called out.
+ *
+ *  The grammar is the SAYING VERB IN THE PAST plus a person/«веќе» marker, in
+ *  either script (normalizeMc turns Latin into Cyrillic, but a spelling it maps
+ *  onto «каз-»/«напис-» — the common Latin transliteration of «каж-»/«напиш-» —
+ *  must fire on its own, so both stems are enumerated). A NEGATED saying
+ *  («не ти кажав», «I didn't tell you») is the opposite claim and stays out. */
+const TOLD_YOU_VERB = '(?:каж|каз)(?:ав|авме|авте)|рек(?:ов|овме)|напиш(?:ав|авме)|напис(?:ав|авме)|пиш(?:ав|авме)';
+const TOLD_YOU_RE = new RegExp(
+  '(?:^|[^\\p{L}])(?:(?:па|pa)\\s+)?(?:'
+  // a PERSON marker + the verb: «(па) ти кажав», «веќе ти кажав», «ти веќе реков»
+  + '(?:ти|ве|ви|ti|ve|vi)\\s+(?:(?:веќе|веќе|vekje|veke)\\s+)?'
+  + '|(?:(?:веќе|веќе|vekje|veke)\\s+(?:(?:ти|ве|ви|ti|ve|vi)\\s+)?)'
+  + ')'
+  + TOLD_YOU_VERB
+  + '(?=$|[^\\p{L}])',
+  'iu');
+/** The negated claim is the opposite one — never a recall complaint. */
+const NOT_TOLD_YOU_RE = new RegExp(
+  `(?:^|[^\\p{L}])(?:не|ne)\\s+(?:(?:ти|ве|ви|ti|ve|vi)\\s+)?(?:${TOLD_YOU_VERB})(?=$|[^\\p{L}])`, 'iu');
+
+export function detectToldYouNag(text: string): boolean {
+  if (NOT_TOLD_YOU_RE.test(text)) return false;
+  const cyr = normalizeMc(text);
+  if (NOT_TOLD_YOU_RE.test(cyr)) return false;
+  return TOLD_YOU_RE.test(text) || TOLD_YOU_RE.test(cyr);
+}
+
 /** True when the client says "anywhere" — no location preference. */
 export function detectAnywhere(text: string): boolean {
   if (matchesBoth(_anywhereSlotsRe, text)) return true;
@@ -2814,8 +2911,7 @@ export function detectAnywhere(text: string): boolean {
   // The grammar, then the ONE-KEY TYPO class (fuzzyHasToken, edit distance 1):
   // "nebitnno", "seadno" are the same answer, and a capture should not be
   // needed to teach each misspelling.
-  const dismissed = _anywhereBareRe.test(text) || _anywhereBareRe.test(normalizeMc(text))
-    || fuzzyHasToken(text, ANYWHERE_TYPO_TOKENS);
+  const dismissed = detectBareCriterionDismissal(text);
   const cyr = normalizeMc(text);
   return dismissed
     && !ANYWHERE_OTHER_CRITERION_RE.test(text)
@@ -3701,7 +3797,7 @@ export function detectBusiness(text: string): boolean {
 // "kukuca" (22:53 sweep corpus) is a Latin-typed куќа with a doubled k;
 // normalizeMc maps it to "кукуца", which CONTAINS no "кука" — the word is
 // added verbatim so Latin house typos keep their category.
-const HOUSE_RE = /(куќ|кука|кукуца|хоусе|куќа|кука|вила|вила)/i;
+const HOUSE_RE = /(куќ|кукја|кукји|кука|кукуца|хоусе|вила)/i;
 const APARTMENT_RE = /(стан|стани|станче|стан|станце|апартмент|апартман)/i;
 
 /**
@@ -9479,16 +9575,20 @@ export function fsmRequired(text: string): boolean {
 }
 
 export function buildEvent(state: State, slots: DetectedSlots): Event {
-  const { service, location, bedrooms, sqm, business, house, budget, anywhere, need, rejected, sizeWaived, pricePriority, garsonjera, plac, yard, bedroomsMin, bedroomsMax, sqmRate } = slots;
+  const { service, location, bedrooms, sqm, business, house, residential, budget, anywhere, need, rejected, sizeWaived, pricePriority, garsonjera, plac, yard, bedroomsMin, bedroomsMax, sqmRate } = slots;
   const has = !!(service || location || bedrooms || budget || sqmRate || sqm || anywhere || sizeWaived || pricePriority || garsonjera || plac || yard || (bedroomsMin && bedroomsMax));
-  const hasType = !!(plac || yard || house || business);
+  // EITHER RESIDENTIAL TYPE counts as a direction (the [23:49]/[23:50] capture):
+  // «за живеење» and «стан или куќа» answer the category question — they must
+  // never be dropped as «no type» (that made the turn a STAY and the funnel
+  // asked the type again).
+  const hasType = !!(plac || yard || house || business || residential);
   // A rejection is honored ONLY when the message carries NO new direction —
   // "не барам стан, барам куќа" names a new type, which wins over the denial.
   // Checked BEFORE the STAY guard so a pure denial ("не барам стан", nothing
   // extracted) still becomes REJECTED instead of dead-ending as STAY.
   if (rejected && !hasType && !need
     && ['idle', 'intent', 'discovery', 'property_locate', 'property_query', 'presentation', 'closing'].includes(state)) {
-    return { type: 'REJECTED', service, location, bedrooms, sqm, business, house, budget, plac, yard };
+    return { type: 'REJECTED', service, location, bedrooms, sqm, business, house, residential, budget, plac, yard };
   }
   // house/business/plac/yard count as a direction even with no other detail —
   // "не барам стан, барам куќа" must become a house request, not STAY.
@@ -9511,19 +9611,19 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
   const complete = service && (location || anywhere)
     && bedroomsOk && budgetOk;
   if (complete) {
-    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, bedroomsMin, bedroomsMax, sqm, business, house, budget, sqmRate, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
+    return { type: 'SEARCH_REQUESTED', service, location, bedrooms, bedroomsMin, bedroomsMax, sqm, business, house, residential, budget, sqmRate, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
   }
   if (service && !location && !bedrooms && !budget && !sqmRate && !sqm && !anywhere && !sizeWaived && !pricePriority && !garsonjera && !plac && !yard) {
-    return { type: 'INTENT_DECLARED', service, business, house, plac, yard };
+    return { type: 'INTENT_DECLARED', service, business, house, residential, plac, yard };
   }
   // A bare need ("ми треба стан", "MI TREBA STANCE") with NOTHING extracted:
   // INTENT_DECLARED with no service — routes idle -> discovery, where the
   // intent question is asked instead of dead-ending in idle. When any detail
   // WAS extracted (location, bedrooms…), normal DETAILS_PROVIDED applies.
   if (need && !has) {
-    return { type: 'INTENT_DECLARED', service: undefined, business, house, plac, yard };
+    return { type: 'INTENT_DECLARED', service: undefined, business, house, residential, plac, yard };
   }
-  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, bedroomsMin, bedroomsMax, sqm, business, house, budget, sqmRate, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
+  return { type: 'DETAILS_PROVIDED', service, location, bedrooms, bedroomsMin, bedroomsMax, sqm, business, house, residential, budget, sqmRate, anywhere, sizeWaived, pricePriority, garsonjera, plac, yard };
 }
 
 
@@ -9589,8 +9689,17 @@ export function extractSlots(text: string): DetectedSlots {
   // house is set ONLY when the message actually names a property type (true =
   // куќа, false = explicit стан). A type-less detail message ("DVE SPALNI…")
   // leaves it undefined so the session's established куќа survives.
+  // EITHER RESIDENTIAL TYPE FIRST, a named type second (the [23:49]/[23:50]
+  // capture): «ЗА ЖИВЕЕЊЕ МИ Е» / «СТАН ИЛИ КУЌА» answer the category with the
+  // whole family. detectHouse collapses the union to FALSE ("an explicit
+  // стан"), which made the funnel ask «колку спални… во станот» and pool flats
+  // only, so the 250 € house in the same neighbourhood was never offered.
+  // A NAMED single type still wins (house true/false with no union, no living
+  // clause), and business/plac are never residential.
+  const residential = detectResidentialNeed(text);
   const house = detectHouse(text);
-  if (house !== undefined) out.house = house;
+  if (residential && !out.business && !detectPlac(text) && !detectYardNeed(text)) out.residential = true;
+  else if (house !== undefined) out.house = house;
   const beds = detectBedrooms(text);
   if (beds) out.bedrooms = beds;
   // Bedroom RANGE ([09:17]): "edna ili dve" — a flexible answer the single

@@ -45,7 +45,7 @@ import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LandmarkService } from '../src/geo/landmarks';
 import { LlmClient } from '../src/llm/types';
-import { seedVariants, poolContractViolations } from '../src/data/responseBank';
+import { seedVariants, poolContractViolations, pickVariant } from '../src/data/responseBank';
 import {
   isPoiConfirmQuestion, detectAvailabilityAsk, detectSendToOwnerAsk,
 } from '../src/llm/deterministic';
@@ -152,6 +152,20 @@ test('[08:55] the masculine ack pool exists, rotates, and honours its contract',
   // vocabulary would make those assertions flaky instead of failing honestly.
   const CLAIM = /(?:достап|слобод|актив|располага|фигурира|води|база|понуда|систем|евиденц)/iu;
   for (const v of pool) assert.match(v, CLAIM, `outside the claim family: ${v}`);
+
+  // ROTATION AGAINST A COMPOSITE (deterministic — no reliance on the draw):
+  // the ack is served as the TAIL of a reply whose head is the flat's identity
+  // card, and history only ever holds that composite. The freshness test must
+  // recognise the variant inside it, or the pool serves the same sentence again
+  // (the [08:55] field repeat) — the exact-set comparison missed every prefixed
+  // serve, so this loop covers EVERY variant, not one lucky pair.
+  for (const v of pool) {
+    const served = `Евидентен број 79 · двособен стан, 35 м² · 300 евра месечно · Водно\n\n${v}`;
+    for (let i = 0; i < 12; i++) {
+      const again = pickVariant('availability.ack.masc', { recent: [served] });
+      assert.notEqual(again, v, `the composite serve must retire its own variant: ${v}`);
+    }
+  }
 });
 
 // ── 3. the field replay, through the real handler ────────────────────────────
