@@ -89,3 +89,32 @@ test('detectMarketPriceAsk: a named flat is the property lane, never a band', ()
     assert.equal(detectMarketPriceAsk(t), true, `the band lane lost a question: ${t}`);
   }
 });
+
+// A CLOCK IS NOT A LISTING (the [05:23] field capture): the client had just
+// been asked which term suits him and answered «ПЕТОК ПРЕТПЛАДНЕ НАКАЈ 10» —
+// Friday, around ten in the morning. The reader took the 10 as an Евидентен
+// број and the turn answered «10 моментално го нема во нашата понуда» (with
+// the alternatives pivot) to a client proposing a viewing time. Two shapes
+// carry the clock: an APPROXIMATION word before the number («накај/кон/
+// приближно», the sibling of «околу») and a DAY or DAY-PART word in the same
+// clause («в сабота во 10», «претпладне 10»).
+test('a day/time frame makes the number a clock, never an EB', () => {
+  for (const t of [
+    'ПЕТОК ПРЕТПЛАДНЕ НАКАЈ 10',
+    'petok pretspladne nakaj 10',
+    'ПРЕТПЛАДНЕ 10',
+    'В САБОТА ВО 10',
+    'УТРЕ НАКАЈ 11',
+    'ПЕТОК НАКАЈ 10 ЧАСОТ',
+  ]) {
+    assert.equal(ebNumbersInText(t).includes(10) || ebNumbersInText(t).includes(11), false,
+      `a clock frame must never name a flat: ${t} → ${JSON.stringify(ebNumbersInText(t))}`);
+    assert.equal(inferPropertyId(t), undefined, `inferPropertyId must not read the clock: ${t}`);
+  }
+  // THE OTHER DIRECTION STAYS: a day word beside a REAL flat reference does not
+  // swallow it — «В САБОТА САКАМ ДА ГО ВИДАМ СТАНОТ 50» names EB 50 on Saturday.
+  assert.deepEqual(ebNumbersInText('В САБОТА САКАМ ДА ГО ВИДАМ СТАНОТ 50'), [50]);
+  assert.equal(inferPropertyId('В САБОТА САКАМ ДА ГО ВИДАМ СТАНОТ 50'), 50);
+  // …and a bare number with no frame keeps its EB reading.
+  assert.equal(inferPropertyId('ЗАИНТЕРЕСИРАНА СУМ ЗА 78'), 78);
+});

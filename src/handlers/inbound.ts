@@ -11550,7 +11550,19 @@ export class InboundHandler {
     // DB matches code-built — the LLM must never invent them. "не е тој" pulls
     // the next closest batch; only when every match was shown do we ask for
     // more details.
-    if (next === 'property_locate') {
+    // A WISH TO SEE RELEASES THE LOCATE FUNNEL (the [05:13] capture): «Куќата
+    // под Евидентен број 50 … 250 евра месечно» was on screen and the client
+    // wrote «КУЌАВА САКАМ ДА ЈА ВИДАМ». This block owns `next ===
+    // 'property_locate'`, so its collector asked him for населба/квадрати/цена
+    // of the flat he was READING («Во ред, ќе се обидам да го најдам») and the
+    // visit gate below never ran. With a flat already bound, the wish to see is
+    // the money lane's (fee → contact → owner): this funnel stands down and the
+    // chain reaches that gate.
+    const locateHandsOffToVisit = detectVisitInterest(text)
+      && (session.slots.propertyId !== undefined
+        || session.slots.interestedPropertyId !== undefined
+        || (session.slots.currentBatch?.length ?? 0) > 0);
+    if (next === 'property_locate' && !locateHandsOffToVisit) {
       const price = session.slots.budget ? Number(session.slots.budget.replace(/[^\d]/g, '')) : undefined;
       // ROOM COUNT rides with every locate serve (the [19:42] capture):
       // "PAMTAM SAMO DEKA CENATA MU BESE OKOLU 115 ILJADI I DEKA IMASE DVE
@@ -12212,7 +12224,19 @@ ${contactReminder}`;
         && !detectFeeChargePushback(text) // the charge ACCUSATION is resistance, never a fresh visit interest (the [00:27] re-disclosure)
         && !detectFeeFirstTime(text)       // "prv pat slusam" asks for the RULE, not a second disclosure
         && !detectExhaustedFollowUp(text)
-        && (before === 'property_query' || before === 'presentation' || before === 'discovery')) {
+        // PROPERTY_LOCATE IS A PROPERTY STATE TOO (the [05:13] capture): the
+        // client was reading the card («Куќата под Евидентен број 50 … 250
+        // евра месечно») and wrote «КУЌАВА САКАМ ДА ЈА ВИДАМ». The locate funnel
+        // owned the state, so the visit lane stood down and the turn fell into
+        // the «Во ред, ќе се обидам да го најдам» collector — asking him for
+        // населба/квадрати/цена of the flat he was looking at. A wish to SEE,
+        // with a flat bound, is the money lane from any intake state.
+        && (before === 'property_query' || before === 'presentation' || before === 'discovery'
+          || (before === 'property_locate'
+            && (session.slots.propertyId !== undefined
+              || session.slots.interestedPropertyId !== undefined
+              || (session.slots.currentBatch?.length ?? 0) > 0
+              || props.length > 0)))) {
       // Explicit visit interest: 'sakam da ja vidam', 'koga moze da se
       // pogledne', 'dogovori mi' — the client wants to SEE the property.
       // Show the fee disclosure directly (NOT enthusiasm — that's for general
@@ -12221,9 +12245,20 @@ ${contactReminder}`;
       // is requested for the NAMED property, not the last one on the table.
       const mb = await this.bindMention(text, session);
       if (await this.sendIfClarify(mb, text, session)) return;
+      // THE BOUND EB IS A FLAT EVEN WHEN THE LOADED LIST IS EMPTY (the [05:13]
+      // replay): in property_locate with no criteria `props` comes back empty,
+      // so a slot-bound flat was invisible to this lane and the wish to see
+      // landed in the flatless branch. The store is the authoritative fallback
+      // (the same rescue every other lane uses for off-batch EBs).
+      // THE FLAT HE NAMED OUTRANKS THE SLOT («DOGOVORI MI ZA OVOJ SO BROJ 89»
+      // names 89 even when an earlier card is still the slot), then the slot.
+      const boundEb = mb?.prop?.eb ?? ev.propertyId
+        ?? session.slots.propertyId ?? session.slots.interestedPropertyId;
       const visitTarget = mb?.prop
-        ?? props.find(p => p.eb === (session.slots.propertyId ?? session.slots.interestedPropertyId))
-        ?? props.find(p => p.eb === ev.propertyId)
+        ?? props.find(p => p.eb === boundEb)
+        ?? (boundEb !== undefined
+          ? await this.deps.properties.getByEb(boundEb).catch(() => undefined)
+          : undefined)
         ?? props[0];
       if (visitTarget) session.slots.interestedPropertyId = visitTarget.eb;
       // THE FLAT HE NAMED IS THE SUBJECT FROM HERE ON: «ovoj za 350 evra kirija
@@ -12234,12 +12269,30 @@ ${contactReminder}`;
       if (mb?.prop) session.slots.propertyId = mb.prop.eb;
       else if (session.slots.propertyId) session.slots.interestedPropertyId = session.slots.propertyId;
       else if (ev.propertyId) session.slots.interestedPropertyId = ev.propertyId;
-      session.state = 'closing';
-      const service = session.slots.service ?? props[0]?.service ?? 'buy';
-      const fee = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
-        ?? buildFeeAsk(service);
-      reply = fee;
-      bankKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+      // NO FLAT, NO FEE (found while replaying the [05:13] turn over an empty
+      // table): the lane disclosed the viewing fee for a property that did not
+      // exist — the client would be charged for a viewing of nothing, and the
+      // owner check later had no EB to ask about («if (eb && t)» silently
+      // skipped it while the client was told «Ќе Ве известам»). A wish to see
+      // with NOTHING named and NOTHING on the table is a FLAT question: ask it
+      // and stay where the chat is. A NAMED EB is a subject even when its row is
+      // not on the loaded page (the ghost guard owns whether it exists): the
+      // fee lane keeps that turn, exactly as it always has.
+      const visitEb = visitTarget?.eb ?? boundEb;
+      if (visitEb === undefined && props.length === 0) {
+        reply = buildLocateFirstAsk(session.slots);
+        bankKey = undefined;
+        next = before;
+        session.state = before;
+      } else {
+        if (visitEb !== undefined) session.slots.interestedPropertyId = visitEb;
+        session.state = 'closing';
+        const service = session.slots.service ?? visitTarget?.service ?? props[0]?.service ?? 'buy';
+        const fee = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
+          ?? buildFeeAsk(service);
+        reply = fee;
+        bankKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+      }
 
     } else if ((next === 'closing' || session.state === 'closing' || before === 'closing')
         && detectProvisionResistance(text)) {
@@ -12410,7 +12463,17 @@ ${contactReminder}`;
         reply = VISIT_TIME_QUESTION;
       }
     } else if (next === 'owner_checking') {
-      const eb = session.slots.interestedPropertyId ?? session.slots.propertyId ?? 0;
+      // THE EB IS THE WHOLE POINT OF THE CHECK (the [05:23] field capture): the
+      // ask is guarded by `if (eb && t)`, so a chat that reached owner_checking
+      // with only the BATCH holding the flat told the client «Ќе Ве известам
+      // штом потврдам» and never asked the owner anything — a promise with
+      // nobody behind it. The batch tail is the same subject the cards on
+      // screen show, so it is read here (and pinned as the interested flat).
+      const eb = session.slots.interestedPropertyId ?? session.slots.propertyId
+        ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
+        ?? 0;
+      if (eb) session.slots.interestedPropertyId = eb;
       const t = session.slots.visitTime ?? '';
       // Vague time guard: "попладне", "после 5", "pred 17:00" etc. are valid
       // time intentions but too imprecise for the owner — stay in visit_scheduling

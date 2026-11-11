@@ -55,14 +55,71 @@ const UNIT_TAIL =
 // typing into Cyrillic BEFORE this reader runs («200E» arrives as «200е») — a
 // Latin-only class would miss every real message.
 const GLUED_UNIT_TAIL = '(?:[eEеЕ](?![\\p{L}\\p{N}])|[eEеЕ][\\p{L}]+)';
+// AN APPROXIMATION WORD IS A CAP TOO (the [05:23] capture): «ПЕТОК ПРЕТПЛАДНЕ
+// НАКАЈ 10» — «накај 10» is «around ten», a CLOCK, and the reader took the 10
+// as an Евидентен број: the turn answered «10 моментално го нема во нашата
+// понуда» to a client proposing a viewing time. «накај/кон/приближно/баш» are
+// the same family as «околу» — a limit on the number, never a listing.
 const CAP_HEAD =
-  '(?:nad|над|do|до|pod|под|okolu|околу|preku|преку|poveke|повеќе|pomalo|помалку)';
+  '(?:nad|над|do|до|pod|под|okolu|околу|preku|преку|poveke|повеќе|pomalo|помалку'
+  + '|nakaj|накај|kon|кон|priblizno|приближно|bas|баш|tocno|точно)';
+
+// A DAY/DAY-PART FRAME MAKES THE NUMBER A CLOCK (the [05:23] capture): after
+// «петок претпладне» a bare «10» is ten o'clock, not a listing. The head is a
+// day name or a day part (in both scripts, any inflection), optionally with
+// the scaffolding a client types between them («утре попладне накај», «в
+// сабота во»). CAP_HEAD already refuses «накај 10» on its own; this arm is
+// what refuses «ПРЕТПЛАДНЕ 10» and «В САБОТА ВО 10» — the clock words that do
+// not carry a preposition. Fixed-width-free lookbehind is legal in V8 and is
+// used the same way by the CAP_HEAD arm above.
+const TIME_HEAD =
+  '(?:(?:sabajle|сабајле|izutrina|изутрина|nautro|наутро|pretspladne|претпладне'
+  + '|popladne|попладне|navecer|навечер|vecer|вечер|utro|утро'
+  + '|ponedelnik|понеделник|vtornik|вторник|sreda|среда|cetvrtok|четврток'
+  + '|petok|петок|sabota|сабота|nedela|недела|utre|утре|denes|денес|deneska|денеска'
+  + '|casot|часот|cas|час|saat|саат)(?:\\s+(?:\\p{L}+)){0,3}\\s+)';
 
 /** The shared source of the EB-number grammar. Use ebNumbersInText() /
  *  firstEbNumber() rather than an own copy: a second regex drifts. */
 export const EB_NUMBER_SOURCE =
   `(?<![\\p{L}\\p{N}])(?<!\\d[.,])(?<!\\d\\s)(?<!(?:${CAP_HEAD})\\s*)`
   + `\\b(\\d{2,3})\\b(?!\\s*[.,]\\d)(?!\\s+\\d{3})(?!\\s*${UNIT_TAIL})(?!${GLUED_UNIT_TAIL})`;
+
+/** Day and day-part words — the frames that turn a bare number into a clock. */
+const DAY_WORDS = new Set([
+  'sabajle', 'сабајле', 'izutrina', 'изутрина', 'nautro', 'наутро',
+  'pretspladne', 'претпладне', 'popladne', 'попладне', 'navecer', 'навечер',
+  'vecer', 'вечер', 'utro', 'утро', 'denes', 'денес', 'deneska', 'денеска',
+  'utre', 'утре', 'ponedelnik', 'понеделник', 'vtornik', 'вторник',
+  'sreda', 'среда', 'cetvrtok', 'четврток', 'petok', 'петок', 'sabota', 'сабота',
+  'nedela', 'недела', 'cas', 'час', 'casot', 'часот', 'saat', 'саат',
+]);
+
+/** A PROPERTY/CRITERION word between the day word and the number means the
+ *  number is NOT the clock's («В САБОТА СТАНОТ 50» names EB 50 on Saturday). */
+const NOT_A_CLOCK_WORD_RE = /^(?:стан|куќ|kukj|stan|недвиж|nedviz|имот|imot|објект|objekt|локал|lokal|дуќан|dukjan|гарсоњер|garsonjer|спалн|соби|квадрат|kvadrat|метри|metri|евра|evro|evra|денар|den|цена|cena|буџет|budzet)/u;
+
+/**
+ * TRUE when the number that starts at `index` is a CLOCK, not an Евидентен
+ * број — a day or day-part word in the same clause with nothing but
+ * time-scaffolding between it and the digits (the [05:23] capture: «ПЕТОК
+ * ПРЕТПЛАДНЕ НАКАЈ 10» answered «10 моментално го нема во нашата понуда» to a
+ * client proposing a viewing time).
+ */
+function isClockNumber(text: string, index: number): boolean {
+  // The clause before the number, last few words only — a day word three
+  // sentences back says nothing about this number.
+  const before = text.slice(Math.max(0, index - 40), index);
+  const clause = before.split(/[.!?;\n]/u).pop() ?? before;
+  const words = clause.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const tail = words.slice(-4);
+  const dayAt = tail.findIndex(w => DAY_WORDS.has(w.toLowerCase()));
+  if (dayAt < 0) return false;
+  // Everything between the day word and the digits must be scaffolding
+  // («накај», «во», «околу», a second day-part word). A property or
+  // criterion word means the number is the listing's.
+  return tail.slice(dayAt + 1).every(w => !NOT_A_CLOCK_WORD_RE.test(w.toLowerCase()));
+}
 
 /** Every EB-shaped number the client mentioned, in the order typed.
  *  NB: this is a TEXT read — it says "the client pointed at a listing", not
@@ -83,12 +140,16 @@ export function ebNumbersInText(text: string): number[] {
   const re = new RegExp(EB_NUMBER_SOURCE, 'giu');
   let m: RegExpExecArray | null;
   while ((m = re.exec(form))) {
+    // An empty-width match cannot happen (the group is mandatory), but the
+    // guard keeps a future edit from spinning forever — it runs BEFORE any
+    // skip below, so a refused number cannot loop.
+    if (m.index === re.lastIndex) re.lastIndex++;
     const n = parseInt(m[1], 10);
+    // A NUMBER INSIDE A DAY FRAME IS A CLOCK (see isClockNumber) — «петок
+    // претпладне накај 10» proposes a viewing, it does not name flat 10.
+    if (isClockNumber(form, m.index)) continue;
     // \d{2,3} alone admits «00»; 0–9 is never an Евидентен број.
     if (n >= 10 && !found.includes(n)) found.push(n);
-    // An empty-width match cannot happen (the group is mandatory), but the
-    // guard keeps a future edit from spinning forever.
-    if (m.index === re.lastIndex) re.lastIndex++;
   }
   return found;
 }

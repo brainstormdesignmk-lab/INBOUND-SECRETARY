@@ -4827,6 +4827,28 @@ export function detectLocation(text: string, feedLocations: string[]): string | 
 const OWNER_GONE_RE = /(продаден|продадена|издаден|издадена|под опција|повеќе не е достапен|веќе не е|немам имот|нема повеќе|нема да може|солд|рентед|продаден|продадена|издаден|издадена|продан|под опција)/i;
 // Short words (да/ок/ok) need explicit boundaries — "ок" inside "kako" or
 // "да" inside "дава" must never count as agreement. Long words match bare.
+// THE OWNER\'S OWN CLOSING WORDS (the [04:48] capture): «ПОТВРДЕНО , ВЕ
+// ЧЕКАМ» — a confirmed term and an invitation to come — parsed as NOTHING, so
+// the owner of the flat read «Не разбрав. Евидентен број 77 — дали недвижноста
+// е достапна и дали го прифаќате предложениот термин за посета?» and had to
+// write «ДА» to be understood. «ПОТВРДЕНО» is the way people ACTUALLY confirm:
+// потврдено/потврдувам/потврдив, договорено/договараме, средено, запишано,
+// закажано, важи, и «ве чекам»/«се гледаме»/«очекувам» (the appointment is
+// kept). An owner who is not coming says откажано/откажувам — the same class
+// as a refusal, and it must never read as agreement.
+const OWNER_CONFIRM_PAST_RE =
+  /(?<![\p{L}])(?:потврд(?:ено|ен|ена|ени|енo)|potvrd(?:eno|en|ena|eni)|договор(?:ено|ен|ени)|dogovor(?:eno|en|eni)|сред(?:ено|ен)|sred(?:eno|en)|запиш(?:ано|ан)|zapis(?:ano|an)|закаж(?:ано|ан)|zakaz(?:ano|an)|потврдив|потврдувам|потврдуваме|potvrzuvam|potvrdue?am|договоривме|dogovorivme|sredivme|средивме|важи|vazi|зелено|zeleno)(?![\p{L}])/iu;
+const OWNER_CONFIRM_KEPT_RE =
+  /(?<![\p{L}])(?:(?:ве|те|ve|te)\s+чекам|(?:ве|те|ve|te)\s+cekam|се\s+гледаме|se\s+gledame|очекувам\s+ве|ocekuvam\s+ve)(?![\p{L}])/iu;
+const OWNER_CANCEL_RE =
+  /(?<![\p{L}])(?:откаж(?:ано|ан|увам|уваме|ува)|otkaz(?:ano|an|uvam|uvame|uva)|се\s+откажувам|se\s+otkazuvam|не\s+важи|ne\s+vazi)(?![\p{L}])/iu;
+// A NEGATED CONFIRMATION IS NEVER AGREEMENT. «НЕ Е ПОТВРДЕНО», «НЕ ПОТВРДУВАМ»,
+// «НЕ Е ДОГОВОРЕНО», «НЕ ВАЖИ» all carry the confirm token the family above
+// matches — and the ladder would then book a visit on the sentence that
+// cancelled it. The negation is read POSITIONALLY (не/ne … confirm token,
+// allowiing the «е»/«е уште» copula between them).
+const OWNER_NEG_CONFIRM_RE =
+  /(?<![\p{L}])(?:не|ne|nije|није)\s*(?:(?:е|e|е\s+уште|e\s+uste)\s*)?(?:(?:\p{L}+)\s+){0,2}?(?:потврд|potvrd|договор|dogovor|среден|средено|sred|запишан|запишано|zapis|закажан|закажано|zakaz|важи|vazi|прифат)\p{L}*(?![\p{L}])/iu;
 const OWNER_AGREE_RE =
   /(?:^|[\s,.;:!?])(?:да|da|ок|ok|okay)(?:$|[\s,.;:!?])|(?:може|можам|можеш|во ред|okej|слободен|слободна|слободно|достапен|достапна|достапно|прифаќам|прифатено|прифатен|прифатена|се согласувам|согласен|согласна|зелено|moze|mozam|vo red|sloboden|slobodna|slobodno|dostapen|dostapna|dostapno|prihaka|prihakat|soglasen|soglasna)/i;
 const OWNER_DISAGREE_RE = /(?<![\p{L}])(?:не можам|не ми одговара|не ми е згодно|не одговара|не е достапен|не е достапна|нема да можам|не тој термин|не тогаш|не сакам|не ми се допаѓа|не мозам|не ми одговара|не e достапен|не e достапна|не тој термин|ne\s+mi\s+odgovara|ne\s+mi\s+e\s+zgodno|ne\s+odgovara|ne\s+e\s+dostapen|ne\s+e\s+dostapna)/iu;
@@ -5278,8 +5300,19 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   // family matches the bare predicate, so «NE E DOSTAPNA» used to read as
   // «da, available» and lock a visit the owner had just refused.
   const negAvail = OWNER_NEG_AVAILABILITY_RE.test(t);
-  const agree = !cant && !negAvail && OWNER_AGREE_RE.test(t);
-  const disagree = cant || negAvail || matchesBoth(OWNER_DISAGREE_RE, t);
+  // THE OWNER'S CLOSING WORDS ARE A VERDICT (the [04:48] capture):
+  // «ПОТВРДЕНО, ВЕ ЧЕКАМ» / «ДОГОВОРЕНО» / «СРЕДЕНО» / «ЗАПИШАНО» / «ВАЖИ»
+  // confirm the term; «ОТКАЖАНО» cancels it. A NEGATED confirmation
+  // («НЕ Е ПОТВРДЕНО», «НЕ ВАЖИ») is never agreement — it reads as the
+  // refusal it is.
+  const negConfirm = OWNER_NEG_CONFIRM_RE.test(text);
+  const confirmed = !negConfirm
+    && (OWNER_CONFIRM_PAST_RE.test(text) || OWNER_CONFIRM_KEPT_RE.test(text));
+  const cancelled = OWNER_CANCEL_RE.test(text);
+  const agree = !cant && !negAvail && !negConfirm && !cancelled
+    && (OWNER_AGREE_RE.test(t) || confirmed);
+  const disagree = cant || negAvail || negConfirm || cancelled
+    || matchesBoth(OWNER_DISAGREE_RE, t);
   // AN OWNER'S QUESTION IS NOT A VERDICT (the [09:57]/[10:02] capture). The
   // owner wrote «TOA E DENES TAKA ?» and then «DALI PRASUVATE ZA DENES ?» —
   // he was checking WHAT HE HAD BEEN ASKED, and the parser read the day word
@@ -6066,7 +6099,37 @@ const TELL_ME_SCAFFOLD_RE = /(?:што|сто|sto|shto|sho)(?:\s|$)[^!?\n]{0,40}
 
 // A question about the information available for a specific referent, not a
 // general request about agency terms, fees, or other unrelated topics.
-const REFERENT_INFO_ASK_RE = /(?<![\p{L}\p{N}])(?:кои|какви|каква|што|сто)\s+(?:информаци\p{L}*|инфо)(?:\s+ги)?\s+(?:имаш|имас|имате|има)\s+за\s+(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој)(?![\p{L}\p{N}])/iu;
+// THE ASK IS MADE OF MANY NOUNS (the [05:01] capture): «КАКВИ ПОДАТОЦИ ИМАШ ЗА
+// НЕЈЗЕ ?» — he had the card on the table and asked for ITS facts, and the only
+// noun this family knew was «инфо/информации». The turn fell to the locate
+// funnel and he got «Во ред, ќе се обидам да го најдам. Кажете ми — во која
+// населба е…» about the flat he was looking at. податоци/детали/спецификаци/
+// карактеристики/факти/опис are the same ask in the words clients arrive with.
+// The REFERENT is equally wide: a pronoun (неа/нејзе/него/нив/тоа) OR the
+// property's own definite noun («за станот», «за куќава»).
+const PROPERTY_NOUN_L =
+  '(?:стан(?:от|ат|ов)?|stan(?:ot|at|ov)?|куќа(?:та|ва)?|kukja(?:ta|va)?|kukata|недвижност(?:а|ата|та)?|nedviznost(?:a|ata|ta)?'
+  + '|имотот|imotot|објектот|objektot|гарсоњера(?:та)?|garsonjera(?:ta)?|деловниот\\s+простор|просторот|prostorot)';
+const INFO_NOUN_L =
+  '(?:информаци\\p{L}*|инфо|податоци|податок|детали|детал|спецификаци\\p{L}*|карактеристики|характеристики|факти|опис)';
+const REFERENT_INFO_ASK_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:кои|какви|каква|каков|што|сто|shto|sto)\\s+'
+  + INFO_NOUN_L + '\\p{L}*(?:\\s+\\p{L}+){0,2}?\\s+(?:ги\\s+)?'
+  + '(?:имаш|имас|имате|има|имаат|знаеш|знаете|знаат|можеш|можете|можат|ke\\s+kazes|mozes|znas)\\s+'
+  + '(?:за|на|za|na)\\s+(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој|' + PROPERTY_NOUN_L + ')(?![\\p{L}\\p{N}])'
+  // THE VERB-ONLY FORM: «ШТО ЗНАЕШ ЗА СТАНОТ» carries no info noun at all —
+  // the KNOWING is the ask, and the property noun is its object.
+  + '|(?<![\\p{L}\\p{N}])(?:што|сто|shto|sto)\\s+(?:знаеш|знаете|znas|znate'
+  + '|можеш\\s+да\\s+ми\\s+(?:кажеш|кажете)|mozes\\s+da\\s+mi\\s+kazes)\\s+(?:за|на|za|na)\\s+'
+  + '(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој|' + PROPERTY_NOUN_L + ')(?![\\p{L}\\p{N}])',
+  'iu');
+// THE NOUN-OF-THE-FLAT form of the same ask: «КАРАКТЕРИСТИКИ НА КУЌАВА ?»,
+// «ДЕТАЛИ ЗА СТАНОТ», «СПЕЦИФИКАЦИИ НА КУЌАТА». The info noun is the subject and
+// the property noun is its complement — a request for the CARD, never a place
+// question about the flat (see isPoiConfirmQuestion's stand-down).
+const PROPERTY_INFO_OF_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])' + INFO_NOUN_L + '\\p{L}*\\s+(?:на|за|na|za)\\s+'
+  + PROPERTY_NOUN_L + '(?![\\p{L}\\p{N}])', 'iu');
 
 /** True when the client asks for the DESCRIPTION of the flat(s) in play. The
  *  surroundings grammar keeps its own lane: «што има во близина?» is never a
@@ -6075,7 +6138,7 @@ export function detectDescribeAsk(text: string): boolean {
   if (detectNearbyAsk(text)) return false;
   const normalized = normalizeMc(text);
   return DESCRIBE_ASK_RE.test(normalized) || TELL_ME_SCAFFOLD_RE.test(text)
-    || REFERENT_INFO_ASK_RE.test(normalized);
+    || REFERENT_INFO_ASK_RE.test(normalized) || PROPERTY_INFO_OF_RE.test(normalized);
 }
 
 // ── CONTEXT DISAMBIGUATION for the ambiguous "more/other" family ───────────
@@ -7664,9 +7727,36 @@ const PROVISION_WHO_RE = new RegExp(
   // plati stanot" (about the apartment) can never land here.
   _cb("dali") + "[^.!?\\n]{0,15}" + _cb(PAY_VERBS) + "[^.!?\\n]{0,25}" + _cb("адвокат|advokat|нотар|notar|данок|danok|трошо|trosho"),
   "iu");
+
+/** THE BARE COST-ITEM ECHO (the [05:17] capture): «АДВОКАТ НОТАР ?» — right
+ *  after «КОЛКУ ВИ Е ПРОВИЗИЈАТА?» the client continues the MONEY thread by
+ *  naming the other two costs. No pay verb, no «кој», so the who-pays lane never
+ *  saw it: the turn fell to the info lane and answered about the flat («Се
+ *  наоѓа во приземје» — the floor of a house, to a question about the notary).
+ *  A legal-cost item named with a question shape (a «?», or a cost word: колку/
+ *  цена/трошок) IS the who-pays question — the answer for that service is the
+ *  agency's practice (provision.who.buy / .rent).
+ *  NARROW ON PURPOSE: the item must be the message's subject — at least one
+ *  legal-cost noun, no property-type or room/size/price criteria, and no
+ *  «зграда/во зградата» (a notary OFFICE in the building is not a cost). */
+const COST_WORD_L = "(?:цена|цената|трошок|трошоци|трошоот|kolku|cena|trosok|trosoci|trosok|цена|kolku)";
+const COST_ITEM_ECHO_RE = new RegExp(
+  _cb("адвокат|advokat|нотар|notar|данок|danok") + "[^.?!\\n]{0,24}(?:\\?|\\s*" + COST_WORD_L + ")"
+  + "|(?:\\?|\\s*" + COST_WORD_L + ")[^.?!\\n]{0,24}"
+  + _cb("адвокат|advokat|нотар|notar|данок|danok"),
+  "iu");
+const COST_CONTEXT_NOTARY_OFFICE_RE =
+  /(?:во|vo|na|на)\s+(?:зградата|zgrabata|зграда|zgrada|приземје|prizemje|кат|kat)/iu;
+const PROPERTY_CRITERIA_RE =
+  /(?<![\p{L}])(?:стан|stan|куќ|kukj|квадрат|kvadrat|м2|m2|спалн|spaln|споби|sobi|соби|изнајм|iznajm|купув|kupuv|евра|evra|евро|evro)(?![\p{L}])/iu;
 /** True when the client asks WHO pays lawyer/notary/tax. */
 export function detectProvisionWho(text: string): boolean {
-  return PROVISION_WHO_RE.test(text) || extFires('provision-who', text);
+  if (PROVISION_WHO_RE.test(text) || extFires('provision-who', text)) return true;
+  // THE BARE COST-ITEM ECHO (the [05:17] capture) — see COST_ITEM_ECHO_RE.
+  // A notary/inspector OFFICE inside the building is not a cost question, and a
+  // message carrying the flat's own criteria is about the flat, not the fees.
+  if (COST_CONTEXT_NOTARY_OFFICE_RE.test(text) || PROPERTY_CRITERIA_RE.test(text)) return false;
+  return COST_ITEM_ECHO_RE.test(text);
 }
 
 // ── PROVISION (rent commission) RESISTANCE — the second money ladder ────────
@@ -8152,6 +8242,13 @@ export function isPoiConfirmQuestion(text: string): boolean {
   // («da ne e vo karpos ?», «овај кај Црногорска амбасада е?») carry no
   // availability word and keep their answer.
   if (detectAvailabilityAsk(text)) return false;
+  // A REQUEST TO DESCRIBE THE FLAT IS NOT A PLACE QUESTION (the [05:05]
+  // capture): «ЌЕ МОЖЕ ЛИ ОПИС НА КУЌАВА ?» — the «НА КУЌАВА» is the flat, not a
+  // place, so this lane claimed the trailing «?», built the candidate «КУЌАВА»
+  // and answered «Не, тоа е на 3,1 километри од Михаил Чаков 9/А2» — a distance
+  // from a landmark nobody named, about a place nobody asked. The describe lane
+  // owns these asks, exactly like the availability lane owns its own.
+  if (detectDescribeAsk(text)) return false;
   // A PLACE NAMED AS A NEW SEARCH LOCATION is not a confirm — the trailing «?»
   // alone used to claim it (see isPlaceSearchPivot).
   if (isPlaceSearchPivot(text)) return false;
@@ -8692,8 +8789,21 @@ export function extractPoiConfirmPlace(text: string): string | undefined {
   // carries a number («26 JULI», «7МИ СЕПТЕМВРИ») is not a bare numeral and has
   // no time word, so it survives.
   if (isTimePhraseCandidate(place)) return undefined;
+  // THE FLAT ITSELF IS NEVER A PLACE (the [05:05] capture): «ОПИС НА КУЌАВА»
+  // built the candidate «КУЌАВА» and the map's fuzzy pass answered with a
+  // landmark's distance — the property under discussion can never be the
+  // thing its location is being compared TO. The family is every noun the
+  // client uses for the flat (стан/куќа/недвижност/имот/објект/гарсоњера/
+  // деловен простор/локал), in both scripts and all definite forms.
+  if (PROPERTY_PLACE_CANDIDATE_RE.test(place)) return undefined;
   return place.length >= 3 ? place : undefined;
 }
+
+/** The candidate that is the PROPERTY, not a place (see extractPoiConfirmPlace).
+ *  A place named beside a property noun («куќата на Карпош») keeps its own
+ *  candidate — the flat's word is only refused when it IS the whole candidate. */
+const PROPERTY_PLACE_CANDIDATE_RE =
+  /^(?:(?:овој|тој|оваа|таа|ова|тоа|ovoj|toj|ovaa|taa|ova|toa)\s+)?(?:стан(?:от|ат|ов)?|stan(?:ot|at|ov)?|куќа(?:та|ва|тава)?|kukja(?:ta|va)?|kukata|недвижност(?:а|ата|та)?|nedviznost(?:a|ata|ta)?|имотот|imotot|објектот|objektot|гарсоњера(?:та)?|garsonjera(?:ta)?|деловниот\s+простор|просторот|prostorot|локалот|lokalot|дуќанот|dukjanot)$/iu;
 
 /** The vocabulary a clock/day/plan phrase is made of — never a place
  *  (see extractPoiConfirmPlace). Weekdays and relative days in both scripts,

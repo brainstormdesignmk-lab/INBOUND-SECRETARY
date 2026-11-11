@@ -469,7 +469,11 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
     bankKey: 'provision.who',  // resolved to .buy / .rent in handler
     fallback: 'Трошоците за адвокат и нотар се по договор. Вообичаена пракса е 50/50.',
     detect: detectProvisionWho,
-    allowedStates: ['closing', 'presentation', 'property_query', 'discovery', 'intent', 'idle', 'contact_collection'],
+    // PROPERTY_LOCATE TOO (the [05:17] capture): «КОЛКУ ВИ Е ПРОВИЗИЈАТА?» then
+    // «АДВОКАТ НОТАР ?» arrived while the client was reading the property card —
+    // a money question does not wait for the closer, and the state gate is what
+    // dropped it into the info lane («Се наоѓа во приземје»).
+    allowedStates: ['closing', 'presentation', 'property_query', 'property_locate', 'discovery', 'intent', 'idle', 'contact_collection'],
   },
   {
     // ORDER (the [09:0x] V16K11 transcript): "nikoj ne zema pari za poseta" is
