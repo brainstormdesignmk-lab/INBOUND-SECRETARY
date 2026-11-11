@@ -4,9 +4,13 @@
 // it ships a wrong answer to a client.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveIntent, ROUTING_ORDER, dispatchSimple, routeLog } from '../src/handlers/router';
+import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
+import * as path from 'path';
+import { resolveIntent, ROUTING_ORDER, dispatchSimple, routeLog, ROUTE_LANES } from '../src/handlers/router';
 import { inferPropertyId } from '../src/llm/classify';
 import { detectEyeCatch, detectAgreement } from '../src/llm/deterministic';
+import { readRouteDrift, flushRouteDrift, setRouteDriftDir } from '../src/store/routeDrift';
 
 test('routing order has unique intents', () => {
   const names = ROUTING_ORDER.map(r => r.intent);
@@ -51,6 +55,45 @@ test('shadow router: prediction and actual are compared, drift is logged', () =>
   }
   assert.ok(logs.some(l => l.includes('[route-drift] drift-c1')), 'a divergence must be visible');
   assert.ok(!logs.some(l => l.includes('[route-drift] drift-c2')), 'agreement stays quiet');
+});
+
+// THE TAXONOMY: only a turn both sides claim for a MIRRORED lane is a drift.
+// The other two shapes used to be logged as drift, which trained the operator to
+// ignore the line: the classifier's own route (the mirror's FALLTHROUGH means
+// exactly "the classifier decides") and a lane that has NO mirror row yet (a
+// pending-migration GAP, not a wrong prediction).
+test('a divergence is a drift only when both sides claim a mirrored lane', async () => {
+  const dir = await fs.mkdtemp(path.join(tmpdir(), 'route-taxonomy-'));
+  setRouteDriftDir(dir);
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.join(' ')); };
+  try {
+    // a pending lane serves after FALLTHROUGH — a GAP
+    routeLog('tax-gap', 'DA NE E VO SKOPJANKA ?', 'FALLTHROUGH', 'predict');
+    routeLog('tax-gap', 'DA NE E VO SKOPJANKA ?', 'POI_CONFIRM');
+    // the classifier's own route — not a divergence at all
+    routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'FALLTHROUGH', 'predict');
+    routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'ROUTE_UNKNOWN:unknown.unknown.assert');
+    // two MIRRORED lanes disagree — the real thing
+    routeLog('tax-drift', 'MNOGU EFTINA CENA E TOA', 'FEE_PUSH', 'predict');
+    routeLog('tax-drift', 'MNOGU EFTINA CENA E TOA', 'PRICE_EVAL_CHEAP');
+  } finally {
+    console.log = original;
+  }
+  assert.ok(ROUTE_LANES.POI_CONFIRM && ROUTE_LANES.POI_CONFIRM.intent === null,
+    'the gap fixture must be a lane with no mirror row');
+  assert.ok(logs.some(l => l.includes('[route-gap] tax-gap')), `a pending lane is a gap: ${logs.join(' | ')}`);
+  assert.ok(!logs.some(l => l.includes('[route-drift] tax-gap')), 'a gap is never a drift');
+  assert.ok(!logs.some(l => l.includes('[route-drift] tax-classifier') || l.includes('[route-gap] tax-classifier')),
+    `a classifier hand-off is agreement, not drift: ${logs.join(' | ')}`);
+  assert.ok(logs.some(l => l.includes('[route-drift] tax-drift')), 'a mirrored mismatch is still a drift');
+  await flushRouteDrift();
+  const rows = await readRouteDrift();
+  assert.equal(rows.find(r => r.chatId === 'tax-gap')?.kind, 'gap',
+    'the gap is persisted and labeled, so the mirror backlog is readable');
+  assert.equal(rows.find(r => r.chatId === 'tax-drift')?.kind, 'drift');
+  await fs.rm(dir, { recursive: true, force: true });
 });
 
 test('PRICE_EVAL_CHEAP beats the fee ladder for a compliment on the quoted price', () => {

@@ -45,6 +45,7 @@ import {
 } from '../src/llm/deterministic';
 import { ebNumbersInText } from '../src/llm/ebNumber';
 import { inferPropertyId } from '../src/llm/classify';
+import { AVAILABILITY_CLAIM } from './helpers/availability-contract';
 
 const cfg = loadConfig();
 
@@ -173,7 +174,7 @@ test('[22:27] «GARSONJERATA ZA 200E … DOSTAPNA?» is about EB 76 and NAMES it
   const answer = await say('A GARSONJERATA ZA 200E DALI E DOSTAPNA USTE ?');
   assert.match(answer, /Евидентен број 76/u, `the flat he pointed at is named: ${answer}`);
   assert.doesNotMatch(answer, /Евидентен број 50/u, `the house is not the answer: ${answer}`);
-  assert.ok(/достап|слободн|располага|база|евиденц/iu.test(answer), `availability ack missing: ${answer}`);
+  assert.ok(AVAILABILITY_CLAIM.test(answer), `availability ack missing: ${answer}`);
   assert.match(answer, /сопственик/iu, `the owner question is owed: ${answer}`);
   assert.doesNotMatch(answer, /Колку спални|Колкав број на спални|буџет/iu,
     `a fresh questionnaire answered an availability question: ${answer}`);

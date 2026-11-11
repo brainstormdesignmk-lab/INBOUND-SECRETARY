@@ -28,6 +28,7 @@ import { displayAreaName, displayPlaceName } from '../src/llm/prompts';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap, toLatin } from '../src/geo/offlineMap';
+import { AVAILABILITY_CLAIM } from './helpers/availability-contract';
 import path from 'path';
 import os from 'os';
 
@@ -340,7 +341,7 @@ test('[11:29] a COLD «имавте гарсоњера кај Црногорск
   const reply = sent[sent.length - 1];
   assert.ok(!/го знаете Евидентен|Кажете ми Евидентен/.test(reply), `never the number question: ${reply}`);
   assert.ok(reply.includes('Евидентен број 63'), `the flat at that place is named: ${reply}`);
-  assert.ok(/достапн|активн|слободн|база|евиденц/iu.test(reply), `and its availability is answered: ${reply}`);
+  assert.match(reply, AVAILABILITY_CLAIM, `and its availability is answered: ${reply}`);
   assert.equal(s.state, 'closing', `the owner lane opens: ${s.state}`);
   assert.equal(s.slots.interestedPropertyId, 63);
   offlineMap.close();
@@ -449,7 +450,7 @@ test('[10:01] picking one of the described flats opens the availability answer, 
   assert.equal(s.slots.interestedPropertyId, 63, `the named flat is bound: ${reply}`);
   assert.equal(s.state, 'closing', `the owner lane opens: ${s.state}`);
   assert.ok(s.slots.ownerContactPending, 'the owner check is armed');
-  assert.match(reply, /достапн|активн|слободн|база|евиденц/iu, `availability is answered: ${reply}`);
+  assert.match(reply, AVAILABILITY_CLAIM, `availability is answered: ${reply}`);
   assert.ok(!/Има 28 м² станбена површина/u.test(reply), `no card re-description: ${reply}`);
   void sessions;
   offlineMap.close();
@@ -580,8 +581,7 @@ test('[11:07] a house for rent at Олимпико: the area is the house’s ow
   // never another card batch.
   const s4 = await send('ДАЛИ Е УШТЕ СЛОБОДНА?');
   const ack = sent[sent.length - 1];
-  assert.ok(/достапн|активна|слободн|во базата|во нашата база|во понудата|на располагање|во нашата евиденција/i.test(ack),
-    `availability is answered: ${ack}`);
+  assert.match(ack, AVAILABILITY_CLAIM, `availability is answered: ${ack}`);
   assert.ok(/сопственик/i.test(ack), `the ack offers the owner check: ${ack}`);
   assert.doesNotMatch(ack, /Евидентен број/, `availability is not a fresh batch: ${ack}`);
   assert.equal(s4.slots.propertyId, 62);
@@ -829,7 +829,7 @@ test('[09:59] the which-flat ask carries the ad’s OWN facts, and «таа со
   assert.equal(s.slots.propertyId, 80);
   assert.equal(s.state, 'closing', `the pick opens the owner lane: ${s.state}`);
   const reply = sent[sent.length - 1];
-  assert.match(reply, /достапн|активн|слободн|база|евиденц|располагање/iu, `availability is answered: ${reply}`);
+  assert.match(reply, AVAILABILITY_CLAIM, `availability is answered: ${reply}`);
   assert.ok(!/Евидентен број 70/u.test(reply), `no other flat is offered: ${reply}`);
   void sessions; void chatId;
   offlineMap.close();

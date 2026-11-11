@@ -105,7 +105,7 @@ test('[18:49] e2e: «PA NEKA BIDE 5» completes Петок 17:00 and reaches the
   await send('MARKO 078/914 196');
   let s = await send('MOZAM VO PETOK'); // day only — the exact-hour ask follows
   assert.equal(s.state, 'visit_scheduling');
-  assert.ok(/колку|точн|час/iu.test(sent[sent.length - 1] ?? ''), `the exact-clock ask fires: ${sent[sent.length - 1]}`);
+  assert.ok(/колку|точ(?:н|ен)|час/iu.test(sent[sent.length - 1] ?? ''), `the exact-clock ask fires: ${sent[sent.length - 1]}`);
 
   // THE CAPTURE: the client answers the ask with a consent frame + a digit.
   s = await send('PA NEKA BIDE 5');

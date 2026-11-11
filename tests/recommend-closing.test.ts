@@ -90,7 +90,7 @@ function seedClosing(chatId: string, userTexts: string[]): ChatSession {
 const CLOSE_POOL: string[] = RESPONSE_BANK['recommend.close'] ?? [];
 // Any fee wording at all — amount, noun, or the persuasion frame. The answer
 // to "which one?" must contain none of it.
-const FEE_RE = /(надомест|денар|симболичн|надоместот|провизи|5 евра)/iu;
+const FEE_RE = /(надомест|денар|симболич(?:н|ен)|надоместот|провизи|5 евра)/iu;
 
 test('[02:19] closing state: „KOJA OPCIJA BI MI JA PREPORACALE?“ — close, never fee', async () => {
   const { handler, sessions, sent } = makeHandler();

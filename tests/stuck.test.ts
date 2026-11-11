@@ -1773,7 +1773,7 @@ test('fee why-question: "KAKO TOA ? DA PLATAM ZA POSETA ?" is fee resistance, ne
   s = await send('KAKO TOA ? DA PLATAM ZA POSETA ?');
   assert.equal(s.state, 'closing');
   assert.equal(s.slots.viewingFeeAgreed, undefined, JSON.stringify(s.slots)); // NOT agreed
-  assert.ok(/(филтер|сериозн|симболич|услов|согласувате)/iu.test(sent[3]), sent[3]);
+  assert.ok(/(филтер|сериоз(?:н|ен)|симболич|услов|согласувате)/iu.test(sent[3]), sent[3]);
   assert.ok(!sent[3].includes('Одлично'), sent[3]);
   assert.ok(!sent[3].includes('име и презиме'), sent[3]);
   assert.ok(!sent[3].includes('телефонски'), sent[3]);

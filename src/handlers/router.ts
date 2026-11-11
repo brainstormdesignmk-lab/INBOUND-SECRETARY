@@ -27,16 +27,38 @@ import {
   detectPriceEval, adviceLaneAdmits,
   detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk,
   detectFeePaymentAgreement, detectArrangementRecall, detectToldYouNag,
-  detectNumberUnknownRecall, detectSimilarAsk, detectBusiness,
-  extractPoiWishCandidates,
+  detectNumberUnknownRecall, detectSimilarAsk, detectBusiness, EB_NAMED_RE,
+  isFeeTraffic, detectNearCenter, extractPoiWishCandidates,
 } from '../llm/deterministic';
+import type { ChatSession } from '../fsm/session';
+
+/** The session memory a rule may consult. Slots are the ONLY state a lane reads
+ *  beyond the FSM state, so the mirror sees them too (see RouteRule.fires). */
+export type RouteSlots = ChatSession['slots'];
+const NO_SLOTS = {} as RouteSlots;
+
+/** The two lanes below are the ones whose executor gates read the CLIENT'S
+ *  MEMORY (does this chat hold a business space? a category? a place?), and a
+ *  mirror that cannot see that memory predicts the wrong lane for a turn whose
+ *  text is identical in every other respect. The lists are the executor's own;
+ *  keep them in one place so a new state lands in both. */
+const RECALL_STATES_OFF = ['pending', 'queued', 'owner_checking', 'time_confirm',
+  'visit_scheduling', 'contact_collection', 'property_locate'];
+
+/** Does the chat hold a CATEGORY it can search by? (The executor's catKnown.) */
+function hasCategory(slots: RouteSlots): boolean {
+  return slots.house === true || slots.plac === true || slots.business === true
+    || slots.bedrooms !== undefined || slots.garsonjera === true;
+}
 
 export interface RouteRule {
   intent: string;
   /** Human-readable precedence note — WHY it sits at this position. */
   note: string;
-  /** Pure-text guard mirroring the inbound.ts condition for this branch. */
-  fires: (text: string, state: string) => boolean;
+  /** Guard mirroring the inbound.ts condition for this branch. `slots` is the
+   *  live session memory (empty when a caller only has text + state); a rule
+   *  that ignores it deliberately stays pure-text. */
+  fires: (text: string, state: string, slots: RouteSlots) => boolean;
 }
 
 // ORDER IS SEMANTIC — do not reorder without reading the notes.
@@ -54,13 +76,18 @@ export const ROUTING_ORDER: RouteRule[] = [
   // surroundings block — so the value remark inside a number-forget («… ЗНАМ
   // ДЕКА ИМАШЕ ДОБРА ЦЕНА») is predicted SEEN_RECALL_HELP here, exactly as it
   // is served, instead of PRICE_EVAL_CHEAP.
-  { intent: 'SEEN_RECALL_HELP', note: '«НЕ И ГО ПАМТАМ БРОЈОТ, АМА ЗНАМ ДЕКА ИМАШЕ ДОБРА ЦЕНА» ([20:51]) — the client cannot name the listing he saw, so the turn FINDS it from what the chat already holds (the category and the place he named) and closes on the seen-property question, never a visit offer. The executor also requires a place anchor and a category slot, which the mirror cannot see; the text predicate is the shared signal, so a number-forget with no context may be predicted here while the executor falls through — the same blindness the TOLD_YOU_RECALL row documents',
-    fires: (t, s) => detectNumberUnknownRecall(t)
+  { intent: 'SEEN_RECALL_HELP', note: '«НЕ И ГО ПАМТАМ БРОЈОТ, АМА ЗНАМ ДЕКА ИМАШЕ ДОБРА ЦЕНА» ([20:51]) — the client cannot name the listing he saw, so the turn FINDS it from what the chat already holds (the category and the place he named) and closes on the seen-property question, never a visit offer. SLOT-AWARE: the executor also needs a category slot AND a place anchor (poiAnchor or the area), so the mirror reads the same memory — with nothing to go on the lane stands down and property_locate keeps the turn, exactly as it serves',
+    fires: (t, s, sl) => detectNumberUnknownRecall(t) && !EB_NAMED_RE.test(t)
+      && !isFeeTraffic(t) && !sl.ownerContactPending
+      && !RECALL_STATES_OFF.includes(s)
+      && hasCategory(sl) && !!(sl.poiAnchor || sl.location) },
+  { intent: 'BUSINESS_PLACE_SERVE', note: 'business traffic near the places the client names ([20:59] pair, [21:05] «НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО ?») — the €/м² pair by distance, or an honest «нема» there plus rated alternatives. Two text shapes: a similarity ask («нешто слично/налик»), which is a SEARCH pivot the surroundings lane used to answer with a CENTRE landmark, and a business noun with a proximity place. SLOT-AWARE: the executor owns this lane only when the session ALREADY holds a business space (or says so in this turn), so the mirror reads the same slots — a residential similarity ask is no longer predicted here',
+    fires: (t, s, sl) => !EB_NAMED_RE.test(t) && !isFeeTraffic(t) && !sl.ownerContactPending
       && !['pending', 'queued', 'owner_checking', 'time_confirm', 'visit_scheduling',
-        'contact_collection', 'property_locate'].includes(s) },
-  { intent: 'BUSINESS_PLACE_SERVE', note: 'business traffic near the places the client names ([20:59] pair, [21:05] «НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО ?») — the €/м² pair by distance, or an honest «нема» there plus rated alternatives. Two text shapes: a similarity ask («нешто слично/налик»), which is a SEARCH pivot the surroundings lane used to answer with a CENTRE landmark, and a business noun with a proximity place. The executor additionally requires the business slot on the session — invisible to the mirror — so a RESIDENTIAL similarity ask is predicted here while the executor serves it elsewhere; the row still earns its place, because the shape the capture proved (business traffic, whose slot the mirror cannot read) was being claimed by SURROUNDINGS',
-    fires: t => detectSimilarAsk(t)
-      || (detectBusiness(t) && extractPoiWishCandidates(t, { withCriteria: true }).length > 0) },
+        'contact_collection'].includes(s)
+      && (sl.business === true || detectBusiness(t))
+      && (extractPoiWishCandidates(t, { withCriteria: true }).length > 0
+        || (detectSimilarAsk(t) && !!sl.poiAnchor)) },
   { intent: 'PRICE_EVAL_CHEAP', note: 'a POSITIVE price remark about the flat on the table ("MNOGU EFTINA CENA E TOA") — valence, not money talk. The fee is never called cheap, so this lane must beat the fee ladder; gated to states where a price is on the table and to non-questions, so it cannot steal a price ask or a search',
     fires: (t, s) => detectPriceEval(t) === 'cheap' && !/\?/.test(t)
       && ['property_query', 'presentation', 'closing'].includes(s) },
@@ -79,7 +106,12 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'NEAREST_OF_BATCH', note: '«OVA BESE BLISKU» ([20:17]) — a DEICTIC closeness remark about the batch just listed. No interrogative and no place of its own, so it sits AFTER NEAREST_OF_SHOWN (which owns the explicit «koj e najblisku do …» ranking) and BEFORE the funnel: the classifier read it as a description of an unknown listing and asked which neighbourhood/price it was',
     fires: t => detectCloseRemarkToBatch(t) },
   { intent: 'TOLD_YOU_RECALL', note: '«ПА ТИ КАЖАВ КАДЕ» ([23:48]) — the client says he already gave the criteria, so the turn reads the notebook back (places + area) and asks only what is missing. The executor runs it in the funnel states, after OWNER_CONTACT/PROXY_CONTACT (a contact capture inside the complaint keeps its lane) and before the where-is/location-nag branches, which is exactly where this row sits; the executor also requires NO property on the table (a shown flat makes «ти кажав» a where-is/visit topic) — a fact the mirror cannot see, so the state gate is the mirror\'s share',
-    fires: (t, s) => detectToldYouNag(t) && ['idle', 'discovery'].includes(s) },
+    // …BUT A BOOKING RECALL IS NOT THE NOTEBOOK: «ЗА КОЈ СТАН ТИ КАЖАВ ДА
+    // ДОГОВОРИШ ПРЕЕСКА?» carries «ти кажав» and reads as the told-you nag, while
+    // the executor serves VISIT_RECALL (6516) long before the funnel lane (7518).
+    // The mirror has to refuse it here, or it predicts a lane that never runs.
+    fires: (t, s) => detectToldYouNag(t) && !detectArrangementRecall(t)
+      && ['idle', 'discovery'].includes(s) },
   { intent: 'WHICH_OF_BATCH_PLACE', note: '«KOJ OD NIV E VO MADJAR MAALO?» ([09:44]) — which of the flats ALREADY OFFERED stands in the place the client names. A comparison between the rows on the table, so it sits after NEAREST_OF_SHOWN/NEAREST_OF_BATCH (the rankings it must not steal) and before MARKET_MEMORY and every search branch: the recall path read the place as a NEW search and re-served the same pair it was asked about',
     fires: t => !!detectWhichOfBatchPlace(t) },
   { intent: 'MARKET_MEMORY', note: '„ИМАШЕчЕ ЕДНА КУчА ПРЕД НЕКОЕ ВРЕМЕ КАЈ ВАС… ОКОЛУ 400 ЕВРА КИРИЈА” ([02:00]) — a recall of an OLD agency listing. Sits BEFORE MARKET_PRICE: the rent noun + the ask shape make the market mirror claim the row, while the market arm does not capture it (landmark ≠ feed area, singular noun, rent-only guard) — the turn then fell to the discovery funnel. The archive ack owns it: the old offer is not in the feed, so no figure is quoted as live, and the recollected type/segment/amount land in slots for the follow-up search',
@@ -98,8 +130,8 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectNearbyAsk(t) },
   { intent: 'SEEN_LISTING_RECALL', note: 'a RECALLED listing («imavte edna kukja nakaj … okolu 130 000 bese») — past-tense had + determiner + property noun; the archive ack owns it, never the criteria funnel or a surroundings read',
     fires: t => detectSeenListingRecall(t) },
-  { intent: 'SURROUNDINGS', note: 'which-side / relative-to-the-named-places ask ("od stranata na trgovskiot ili odkaj pazarceto") — a LOCATION question the classifier settled with the closing fee pitch ([01:29] capture). Sits after WHERE_IS, which owns the каде questions, and before every funnel branch',
-    fires: t => !!detectSurroundingsAsk(t) },
+  { intent: 'SURROUNDINGS', note: 'which-side / relative-to-the-named-places ask ("od stranata na trgovskiot ili odkaj pazarceto") — a LOCATION question the classifier settled with the closing fee pitch ([01:29] capture). Sits after WHERE_IS, which owns the каде questions, and before every funnel branch. THE EXECUTOR\'S OWN VETO: a near-centre refinement («poblisku do centar ili do aerodrom?») and a SIMILARITY ask («имаш нешто слично?») are searches, not side questions, so the block refuses both — the mirror must refuse them too, or it predicts this lane for a turn the executor never runs here (the [21:05] residential similarity ask was predicted SURROUNDINGS while the pool decided the turn)',
+    fires: t => !detectNearCenter(t) && !detectSimilarAsk(t) && !!detectSurroundingsAsk(t) },
   { intent: 'PROPERTY_DESCRIPTION', note: '"гарсоњерата кај амбасадата" — remembered-property flow before FSM discovery swallows it',
     // …but never for a STOCK-AT-A-PLACE ask («DALI IMATE NESTO INTERESNO KAJ
     // ZEBRA ?»): that is a present-tense show-me ask, the see-offers sell owns
@@ -157,13 +189,29 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'SCHEDULING_FLEX', note: 'time-window preference — visit states only',
     fires: (t, s) => detectSchedulingFlex(t) &&
       ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(s) },
+  // THE POOL-DECIDED LANE, AND WHY IT IS PREDICTED TWICE. Nothing in the text or
+  // the state says «there is no stock inside the 1 km ring» — the FEED decides
+  // that when the turn loads its pool, and the ring ask is served in the SAME
+  // turn. So the mirror predicts at entry as usual, and inbound.ts refines the
+  // prediction once the pool has spoken (`refinePrediction`, right after
+  // loadProps): by then slots.poiTooFarAsk carries the fact, and this row — last
+  // in the order, because only a turn that reached the pool can match it —
+  // predicts the lane the executor is about to log. Without it every residential
+  // similarity ask logged a false drift pair against SURROUNDINGS.
+  { intent: 'PLACE_RING_ASK', note: '«НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО?» with nothing inside 1 km ([21:05]) — the place, the MEASURED distance and the ONE binary widen question, no cards. Predicted on the refinement pass from slots.poiTooFarAsk (the pool\'s own verdict), never from the text: the same sentence with stock in the ring is a different turn',
+    fires: (t, s, sl) => sl.poiTooFarAsk === true
+      && ['presentation', 'closing'].includes(s)
+      && !detectNumberUnknownRecall(t) },
 ];
 
-/** Which intent WOULD fire for this text in this state — first match in
- *  ROUTING_ORDER, or FALLTHROUGH (LLM/classifier territory). */
-export function resolveIntent(text: string, state: string): string {
+/** Which intent WOULD fire for this text in this state (and, when the caller
+ *  has it, with this session memory) — first match in ROUTING_ORDER, or
+ *  FALLTHROUGH (LLM/classifier territory). Pass the live `session.slots`
+ *  wherever they exist: the lanes gated on the client's memory can only be
+ *  predicted when the mirror can see what that memory holds. */
+export function resolveIntent(text: string, state: string, slots: RouteSlots = NO_SLOTS): string {
   for (const r of ROUTING_ORDER) {
-    try { if (r.fires(text, state)) return r.intent; } catch { /* never let the mirror crash callers */ }
+    try { if (r.fires(text, state, slots)) return r.intent; } catch { /* never let the mirror crash callers */ }
   }
   return 'FALLTHROUGH';
 }
@@ -195,18 +243,55 @@ export function routeLog(chatId: string, text: string, intent: string, kind: 'ac
   }
   const predicted = PENDING_PREDICT.get(chatId);
   PENDING_PREDICT.delete(chatId);
-  if (predicted && entry.at - predicted.at <= DRIFT_WINDOW_MS && predicted.intent !== intent) {
-    console.log(`[route-drift] ${chatId} predicted=${predicted.intent} actual=${intent} :: "${entry.text}"`);
-    // R3: console-only findings died with the process; every drift pair is
-    // persisted (day-rotated JSONL, loss-allowed, hourly-deduped) so
-    // route:health --emit-corpus can turn production misroutes into permanent
-    // corpus rows instead of transcribed-capture folklore.
-    recordRouteDrift({ at: entry.at, chatId, text: entry.text, predicted: predicted.intent, actual: intent });
+  if (!predicted || entry.at - predicted.at > DRIFT_WINDOW_MS) return;
+  // ── THE TAXONOMY OF A DIVERGENCE ─────────────────────────────────────────
+  // Only a turn BOTH sides claim for a MIRRORED lane is a drift (a wrong
+  // prediction). Two other shapes were being reported as drift, and each one
+  // trained the operator to ignore the line:
+  //
+  //  • THE CLASSIFIER'S OWN ROUTE (`ROUTE_UNKNOWN:…`) served after the mirror
+  //    said FALLTHROUGH — that is not a divergence, that IS the contract:
+  //    FALLTHROUGH means "the classifier decides this turn".
+  //  • A LANE WITH NO MIRROR ROW YET (pending migration) — the mirror cannot be
+  //    wrong about a lane it has no row for, so this is a GAP: the backlog entry
+  //    that says which lane still needs a mirror row. Same persistence, new
+  //    label, so `route:health --emit-corpus` can keep mining the drifts.
+  //
+  // The tag is normalised through the registry first: the executor logs both
+  // `FEE_WHY` and `FEE_WHY:fast`, and a mirrored row names the intent they
+  // share.
+  const actualMirror = ROUTE_LANES[intent]?.intent ?? null;
+  if (intent.startsWith('ROUTE_UNKNOWN') && predicted.intent === 'FALLTHROUGH') return;
+  if (actualMirror !== null && predicted.intent === actualMirror) return;
+  if (actualMirror === null) {
+    console.log(`[route-gap] ${chatId} predicted=${predicted.intent} actual=${intent} :: "${entry.text}"`);
+    recordRouteDrift({ at: entry.at, chatId, text: entry.text, predicted: predicted.intent, actual: intent, kind: 'gap' });
+    return;
   }
+  console.log(`[route-drift] ${chatId} predicted=${predicted.intent} actual=${intent} :: "${entry.text}"`);
+  // R3: console-only findings died with the process; every drift pair is
+  // persisted (day-rotated JSONL, loss-allowed, hourly-deduped) so
+  // route:health --emit-corpus can turn production misroutes into permanent
+  // corpus rows instead of transcribed-capture folklore.
+  recordRouteDrift({ at: entry.at, chatId, text: entry.text, predicted: predicted.intent, actual: intent, kind: 'drift' });
 }
 
 export function recentRoutes(n = 50): RouteEntry[] {
   return ROUTE_LOG.slice(-n);
+}
+
+/** RE-PREDICT ONCE THE POOL HAS SPOKEN. A handful of lanes are decided by DATA
+ *  the text and the session cannot reveal before the turn loads its pool (the
+ *  1 km ring ask is the model: the feed decides that nothing is close). The
+ *  executor calls this right after loadProps — the prediction is still made by
+ *  ROUTING_ORDER over text + state + slots, it is simply made with the slots
+ *  the load has filled in. It replaces (never appends to) the entry prediction
+ *  for this chat, because the later pass is strictly better informed. */
+export function refinePrediction(chatId: string, text: string, state: string, slots: RouteSlots): string {
+  const intent = resolveIntent(text, state, slots);
+  const pending = PENDING_PREDICT.get(chatId);
+  PENDING_PREDICT.set(chatId, { intent, at: pending?.at ?? Date.now() });
+  return intent;
 }
 
 // --- lane calibration registry (R1 coverage, docs/routing-audit-2026-10-23.md) ---
@@ -306,7 +391,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'OWNER_HOLD:fast': P('owner unreachable continuation'),
   POI_CONFIRM: P('POI confirm question (landmark near?)'),
   PLACE_PIVOT: P('same search at a different named place (“a neshto kaj X?”)'),
-  PLACE_RING_ASK: P('the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question'),
+  PLACE_RING_ASK: M('PLACE_RING_ASK', 'the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question (predicted on the refinement pass, from the pool\'s own poiTooFarAsk verdict)'),
   PLACE_RING_ROW: P('the identity of the flat the place ring measured (“koj e toj stan na 1,4 km?”)'),
   'PRICE_ASK:fast': P('direct price ask on the shown flat'),
   PRICE_AVG_NASELBA: P('average price in the named naselba'),

@@ -1748,6 +1748,18 @@ export function detectSimilarAsk(text: string): boolean {
     || /(?:има\p{L}*|ima\p{L}*)\s+[^.!?\n]{0,24}(?:сличн\p{L}*|slicn\p{L}*)/iu.test(flat);
 }
 
+/** True when the message NAMES A LISTING NUMBER («ЕВИДЕНТЕН БРОЈ 66», «EB 42»).
+ *  The lanes that talk about an UNIDENTIFIED listing (the number-forget recall,
+ *  the seen-listing archive ack) stand down on it: a client who says the number
+ *  has already identified the row, so "which one did you see" is the wrong turn.
+ *  It must NOT read a PRICE as one: inferPropertyId() takes the thousands group
+ *  of «за 130 000» as EB 130, which silently disabled the seen-listing lane for
+ *  the [19:44] capture («IMAVTE EDNA KUKJA VO SKOPJE SEVER ZA 130 000» → «Колку
+ *  спални соби…»). Only a NUMBER NOUN marks an EB. Exported because the ROUTE
+ *  MIRROR applies the very same exclusion — two copies would drift the way the
+ *  mirror always drifts when it re-implements a guard. */
+export const EB_NAMED_RE = /(?<![\p{L}\p{N}])(?:евидентен\s*)?(?:број|broj|еб|eb)\s*[:.]?\s*\d{1,5}(?!\d)/iu;
+
 /** True when the client HELPS us find a listing he saw but cannot identify —
  *  «НЕ И ГО ПАМТАМ БРОЈОТ, АМА ЗНАМ ДЕКА ИМАШЕ ДОБРА ЦЕНА» (the [20:51]
  *  capture). The number is unknown on purpose: the sentence is not a search

@@ -24,6 +24,10 @@ export interface DriftPair {
   predicted: string;
   /** What the inline chain actually served. */
   actual: string;
+  /** `drift` = the mirror predicted a MIRRORED lane and another one served (a
+   *  wrong prediction); `gap` = the served lane has no mirror row yet (the
+   *  pending-migration backlog). Older rows predate the field and are drifts. */
+  kind?: 'drift' | 'gap';
 }
 
 const DEDUPE_TTL_MS = 60 * 60 * 1000; // one row per identical tuple per hour

@@ -301,31 +301,46 @@ test('a business row whose bedroom column carries a layout is STILL business (EB
     'a business space has no bedroom count — it must never answer a 3-bedroom flat search');
 });
 
-// ── THE MIRROR KNOWS BOTH LANES ─────────────────────────────────────────────
+// ── THE MIRROR KNOWS BOTH LANES, AND SEES THE SESSION ────────────────────────
 // The shadow router compared its prediction with the served lane, and the
 // Аеродром turn came back `predicted=SURROUNDINGS actual=BUSINESS_PLACE_SERVE`
 // — the drift log blaming the lane that was right. Both rows are registered
 // now, in the executor's own position (above PRICE_EVAL_CHEAP and
-// SURROUNDINGS), so a later reorder that buries them fails here.
+// SURROUNDINGS), AND the mirror is handed the session slots: the two lanes are
+// gated on what the chat HOLDS (a business space, a category + a place), so a
+// text-only prediction is a coin toss — the business place turn was predicted
+// FALLTHROUGH and a RESIDENTIAL similarity ask was predicted as business.
 
 test('[20:51]/[21:05] the route mirror predicts the two new lanes, not their neighbours', () => {
   assert.ok(ROUTE_LANES.SEEN_RECALL_HELP?.intent, 'the recall help lane has a calibration row');
   assert.ok(ROUTE_LANES.BUSINESS_PLACE_SERVE?.intent, 'the business place serve has a row');
-  // THE VALUE REMARK INSIDE THE FORGET IS NOT A PRICE OPINION: «… ЗНАМ ДЕКА
-  // ИМАШЕ ДОБРА ЦЕНА» is how the client describes the listing he cannot name,
-  // and the executor serves it from the recall lane — so the mirror must not
-  // claim it for PRICE_EVAL_CHEAP.
-  assert.equal(
-    resolveIntent('НЕ И ГО ПАМТАМ БРОЈОТ, АМА ЗНАМ ДЕКА ИМАШЕ ДОБРА ЦЕНА', 'presentation'),
+  const forget = 'НЕ И ГО ПАМТАМ БРОЈОТ, АМА ЗНАМ ДЕКА ИМАШЕ ДОБРА ЦЕНА';
+  // THE VALUE REMARK INSIDE THE FORGET IS NOT A PRICE OPINION — and the lane is
+  // only predictable with the notebook: a flat category plus the area it holds.
+  assert.equal(resolveIntent(forget, 'presentation', { bedrooms: 2, location: 'Водно' } as never),
     'SEEN_RECALL_HELP');
+  // WITHOUT that memory the executor stands down (property_locate owns the
+  // «which one did you see?» turn), and the mirror says so.
+  assert.notEqual(resolveIntent(forget, 'discovery'), 'SEEN_RECALL_HELP',
+    'no category and no place on file: the locate funnel keeps the turn');
+
   // «накај» is the client's own search direction here, not a side word.
-  assert.equal(resolveIntent('НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО ?', 'presentation'),
+  const similar = 'НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО ?';
+  assert.equal(resolveIntent(similar, 'discovery', { business: true, service: 'rent' } as never),
+    'BUSINESS_PLACE_SERVE', 'business traffic: the place in this turn is the anchor');
+  // THE SAME SENTENCE IN A RESIDENTIAL CHAT IS NOT THE BUSINESS LANE (the
+  // limitation this test used to document). With the flat memory the business
+  // row cannot fire, and the ring row does not either until the pool speaks.
+  assert.notEqual(resolveIntent(similar, 'presentation', { bedrooms: 2, service: 'buy' } as never),
     'BUSINESS_PLACE_SERVE');
-  // The residential wording keeps its own lane: a business noun is required for
-  // the noun arm, and a flat word vetoes it (detectBusiness).
-  assert.equal(resolveIntent('ИМАШ НЕШТО СЛИЧНО НА ОВОЈ СТАН ?', 'presentation'),
-    'BUSINESS_PLACE_SERVE',
-    'the similarity arm is segment-blind by design (the business slot lives on the session, not the text)');
+  assert.notEqual(resolveIntent(similar, 'presentation', { bedrooms: 2, service: 'buy' } as never),
+    'SURROUNDINGS', 'a similarity ask is a SEARCH, never a which-side question');
+  // …AND WHEN THE POOL SAYS NOTHING IS INSIDE THE RING, the refined prediction
+  // names the lane the executor is about to serve (inbound.ts re-predicts right
+  // after loadProps, so the drift log stays clean).
+  assert.equal(
+    resolveIntent(similar, 'presentation', { bedrooms: 2, service: 'buy', poiTooFarAsk: true } as never),
+    'PLACE_RING_ASK');
 });
 
 // ── 4. «НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО?» IS A SEARCH ─────────────────────

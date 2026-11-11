@@ -46,6 +46,7 @@ import {
   detectAvailabilityAsk, detectProceedAfterCheck, detectArrangeClause,
   detectVisitRequest,
 } from '../src/llm/deterministic';
+import { AVAILABILITY_CLAIM } from './helpers/availability-contract';
 
 const cfg = loadConfig();
 
@@ -156,7 +157,7 @@ test('[07:06] the availability answer names the LAST PRESENTED flat, never the b
   const answer = await say(FIELD_TURN);
   // Bank ack variants rotate — the CONTRACT is an availability statement, never
   // one wording (the same rule capture-2226's ack assertion follows).
-  assert.ok(/достапн|слободн|располага|база|евиденц/iu.test(answer), `the availability ack is owed: ${answer}`);
+  assert.ok(AVAILABILITY_CLAIM.test(answer), `the availability ack is owed: ${answer}`);
   assert.doesNotMatch(answer, /Евидентен број 47/u, `EB 47 is the batch tail, not his flat: ${answer}`);
   const s = sessions.get(chatId)!;
   assert.equal(s.slots.interestedPropertyId, 63, `EB 63 is the flat on his screen: ${s.slots.interestedPropertyId}`);
@@ -186,7 +187,7 @@ test('[07:06] a plain availability question still discloses NOTHING', async () =
   const { say, sessions, chatId } = makeHandler('avail-plain');
   stateSeen63(chatId, sessions);
   const answer = await say('ДАЛИ Е СЕУШТЕ ДОСТАПЕН ?');
-  assert.ok(/достапн|слободн|располага|база|евиденц/iu.test(answer), `the ack is served: ${answer}`);
+  assert.ok(AVAILABILITY_CLAIM.test(answer), `the ack is served: ${answer}`);
   assert.match(answer, /сопственик/iu, `the owner question stays for a plain ask: ${answer}`);
   assert.doesNotMatch(answer, /500\s*денари/u, `no fee before consent: ${answer}`);
   const s = sessions.get(chatId)!;

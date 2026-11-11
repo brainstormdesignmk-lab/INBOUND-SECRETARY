@@ -116,7 +116,7 @@ test('08:32 flow: fee ask → "OVA E NESTO NOVO ?" → fee.why, never a second d
   // bank variant) carries none of the other stems — pickVariant serves the
   // bank at RANDOM, so missing it made this test fail ~1 run in 17. The word is
   // the same rationale, so селекц belongs in the guard.
-  assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply), `no rationale in reply: ${reply}`);
+  assert.ok(/филт|селект|селекц|вистинск|сериоз(?:н|ен)|искрен/iu.test(reply), `no rationale in reply: ${reply}`);
   // Funnel keeps moving: still in closing, waiting for the fee agreement.
   assert.equal(s.state, 'closing');
 });
@@ -156,7 +156,7 @@ test('02:34 flow: fee ask → "nova praksa nekoja" → fee.why, never the closin
   const reply = sent[sent.length - 1] ?? '';
   assert.ok(!reply.includes('500 денари') && !reply.includes('10 евра'),
     `nova-praksa served a second fee disclosure: ${reply}`);
-  assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply),
+  assert.ok(/филт|селект|селекц|вистинск|сериоз(?:н|ен)|искрен/iu.test(reply),
     `no filter rationale in reply: ${reply}`);
   assert.equal(s.state, 'closing');
 });
@@ -182,7 +182,7 @@ test('02:4x flow: fee ask → "zoska 500 denari ?" → fee.why, never a re-discl
   const reply = sent[sent.length - 1] ?? '';
   assert.ok(!reply.includes('500 денари') && !reply.includes('10 евра'),
     `zoska row re-disclosed the fee: ${reply}`);
-  assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply),
+  assert.ok(/филт|селект|селекц|вистинск|сериоз(?:н|ен)|искрен/iu.test(reply),
     `no filter rationale in reply: ${reply}`);
   assert.equal(s.state, 'closing');
 });
@@ -229,7 +229,7 @@ test('01:23 flow: fee ask → "IMATE NEKAKVA TAKSA ZA POSETA ?" → fee.why, nev
   // second time (the [01:23] verbatim repeat).
   assert.ok(!reply.includes('500 денари') && !reply.includes('10 евра'),
     `existence question re-disclosed the fee: ${reply}`);
-  assert.ok(/филт|селект|селекц|вистинск|сериозн|искрен/iu.test(reply),
+  assert.ok(/филт|селект|селекц|вистинск|сериоз(?:н|ен)|искрен/iu.test(reply),
     `no filter rationale in reply: ${reply}`);
   assert.equal(s.state, 'closing');
 });

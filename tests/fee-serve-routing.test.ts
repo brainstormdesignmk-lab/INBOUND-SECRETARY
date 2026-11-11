@@ -348,7 +348,7 @@ test('e2e [02:16]: multi-visit fee math at the fee question → fee.why rational
   const reply = sent[sent.length - 1] ?? '';
   // The rationale for the visit fee (the time-waster filter), never a second
   // disclosure and never the criteria/exhausted copy.
-  assert.ok(/филтер|селекц|вистинск|сериозн|искрен|препознав/iu.test(reply), `not the fee rationale: ${reply.slice(0, 120)}`);
+  assert.ok(/филтер|селекц|вистинск|сериоз(?:н|ен)|искрен|препознав/iu.test(reply), `not the fee rationale: ${reply.slice(0, 120)}`);
   assert.ok(!reply.includes('300 денари') && !reply.includes('500 денари'), `fee re-disclosed: ${reply.slice(0, 120)}`);
   assert.ok(!/ги искористивме и ги прегледавме|разгледавме сите опции|ги запишам Вашите барања|ги сочувам Вашите податоци/iu.test(reply),
     `the exhausted-criteria nag was served: ${reply.slice(0, 140)}`);
@@ -403,7 +403,7 @@ test('e2e [12:40]: total-cost math in a FRESH IDLE session → fee.why, never a 
   const s = await send('ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje');
 
   const reply = sent[sent.length - 1] ?? '';
-  assert.ok(/филт|селекц|вистинск|сериозн|искрен|препознав/iu.test(reply), `not the rationale: ${reply.slice(0, 120)}`);
+  assert.ok(/филт|селекц|вистинск|сериоз(?:н|ен)|искрен|препознав/iu.test(reply), `not the rationale: ${reply.slice(0, 120)}`);
   assert.ok(!reply.includes('300 денари') && !reply.includes('500 денари'), `fee re-disclosed: ${reply.slice(0, 120)}`);
   assert.ok(!reply.includes('м²'), `property cards dumped on fee math: ${reply.slice(0, 120)}`);
   // The fast lane answers the EXPLANATION and leaves the funnel untouched
@@ -581,7 +581,7 @@ test('fee.why bank stays amount-free and rationale-only (no buy-terms leakage)',
     assert.ok(!/\d/.test(v), `fee.why carries an amount (rent clients would read 500): ${v}`);
     assert.ok(!/провизиј/iu.test(v), `fee.why mentions commission: ${v}`);
     assert.ok(!/адвокат|нотар/iu.test(v), `fee.why drifts into rules-of-work: ${v}`);
-    assert.ok(/филт|селекц|вистинск|сериозн|искрен|препознав/iu.test(v), `no rationale: ${v}`);
+    assert.ok(/филт|селекц|вистинск|сериоз(?:н|ен)|искрен|препознав/iu.test(v), `no rationale: ${v}`);
   }
 });
 
@@ -615,7 +615,7 @@ test('e2e: rent funnel, session RESET, burst "samo vie…/nikoj ne zema…" → 
   const reply = sent[sent.length - 1] ?? '';
   assert.ok(!reply.includes('500 денари') && !reply.includes('10 евра'), `buy script leaked: ${reply.slice(0, 120)}`);
   assert.ok(!/провизиј/iu.test(reply), `rules-of-work served instead of the reasons: ${reply.slice(0, 120)}`);
-  assert.ok(/филт|селекц|вистинск|сериозн|искрен|препознав/iu.test(reply), `not the fee rationale: ${reply.slice(0, 120)}`);
+  assert.ok(/филт|селекц|вистинск|сериоз(?:н|ен)|искрен|препознав/iu.test(reply), `not the fee rationale: ${reply.slice(0, 120)}`);
   // The FSM-leg feeWhy branch re-pins the funnel at the fee question (idle is
   // an allowed before-state) — the client answers the agreement ask, no rung
   // burned, no property dumped.
@@ -637,7 +637,7 @@ test('e2e: total-cost math in closing → fee.why rationale, no property dump', 
   s = await send('ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje');
 
   const reply = sent[sent.length - 1] ?? '';
-  assert.ok(/филт|селекц|вистинск|сериозн|искрен|препознав/iu.test(reply), `not the rationale: ${reply.slice(0, 120)}`);
+  assert.ok(/филт|селекц|вистинск|сериоз(?:н|ен)|искрен|препознав/iu.test(reply), `not the rationale: ${reply.slice(0, 120)}`);
   assert.ok(!reply.includes('Капиштец') && !reply.includes('м²'), `card re-dumped on fee math: ${reply.slice(0, 120)}`);
   assert.equal(s.state, 'closing', 'math complaint stays at the fee question');
 });
@@ -693,7 +693,7 @@ test('e2e [20:0x]: "Pari zemate za posetam? Zosto?" → fee.why rationale, never
   await send('ZDRAVO');
   await send('Pari zemate za posetam?\nZosto?');
   const reply = sent[sent.length - 1] ?? '';
-  assert.ok(/филт|селекц|вистинск|сериозн|искрен|препознав|квалитет|енерги/iu.test(reply),
+  assert.ok(/филт|селекц|вистинск|сериоз(?:н|ен)|искрен|препознав|квалитет|енерги/iu.test(reply),
     `not the filter rationale: ${reply.slice(0, 160)}`);
   assert.ok(!/0%/u.test(reply), `the 0% provision script served: ${reply.slice(0, 160)}`);
   assert.ok(!/адвокат|нотар/iu.test(reply), `the legal-obligations script served: ${reply.slice(0, 160)}`);
@@ -908,7 +908,7 @@ test('e2e 300-ден rent: per-visit fee question, arithmetic and the property r
   // rationale, never a property search, never cards, never the exhausted nag.
   s = await send('AKO POSETAM 10 STANA TOA SE 3000 DEN OD MOJ DJEB');
   reply = sent[sent.length - 1] ?? '';
-  assert.ok(/филт|селекц|вистинск|сериозн|искрен|препознав/iu.test(reply), `not the fee rationale: ${reply.slice(0, 130)}`);
+  assert.ok(/филт|селекц|вистинск|сериоз(?:н|ен)|искрен|препознав/iu.test(reply), `not the fee rationale: ${reply.slice(0, 130)}`);
   assert.ok(!reply.includes('м²'), `cards dumped on rent fee math: ${reply.slice(0, 130)}`);
   assert.ok(!reply.includes('300 денари') && !reply.includes('500 денари'), `fee re-disclosed: ${reply.slice(0, 130)}`);
   assert.equal(s.state, 'closing', 'explanation traffic never advances the funnel');

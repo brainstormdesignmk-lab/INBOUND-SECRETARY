@@ -110,7 +110,7 @@ test('10:18 e2e: fee counter-offer → fee.why persuasion continues, NEVER the p
   // The fee conversation CONTINUES — rationale + re-ask, not the property price
   assert.ok(!/143\.000/.test(reply), `must NOT quote the property price: ${reply}`);
   assert.ok(!/Евидентен број 82 чини/i.test(reply), `must NOT be the flat price quote: ${reply}`);
-  assert.ok(/(?:надомест|симболичн|посета|фи)/iu.test(reply), `must stay on the fee protocol: ${reply}`);
+  assert.ok(/(?:надомест|симболич(?:н|ен)|посета|фи)/iu.test(reply), `must stay on the fee protocol: ${reply}`);
   assert.ok(/\?/.test(reply), `must re-ask so the funnel keeps moving: ${reply}`);
   // No refusal rung burned — the complaint is answered, not counted
   assert.equal(s.slots.feeRejections ?? 0, rejectsBefore, 'complaint must not burn a refusal rung');

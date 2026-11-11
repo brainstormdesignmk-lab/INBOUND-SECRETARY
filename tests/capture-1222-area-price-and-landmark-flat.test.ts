@@ -51,6 +51,7 @@ import {
   detectAvailabilityAsk, detectFeeNag, detectMarketLevelFollowUp, detectMarketPriceAsk,
   detectPropertyDescription,
 } from '../src/llm/deterministic';
+import { AVAILABILITY_CLAIM } from './helpers/availability-contract';
 
 class FailingLlm {
   async complete(): Promise<string> { throw new Error('429'); }
@@ -193,7 +194,7 @@ test('[12:22] the availability ask binds the flat ACROSS the school, not the nea
   // matches the shipped «Сè уште се води како активен во нашата евиденција»
   // (the «е» breaks the stem), so the full-suite run failed on that variant
   // while the short one passed. Stems take inflections (AGENTS.md §4c).
-  assert.ok(/достап|слободн|продажб|актив/iu.test(reply), `availability copy expected: ${reply}`);
+  assert.ok(AVAILABILITY_CLAIM.test(reply), `availability copy expected: ${reply}`);
 
   offlineMap.close();
 });

@@ -42,6 +42,7 @@ import { EnrichmentStore } from '../src/store/enrichment';
 import {
   isDistanceQuestion, extractDistancePlace, extractBareDistancePlace,
 } from '../src/llm/deterministic';
+import { AVAILABILITY_CLAIM } from './helpers/availability-contract';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429 quota exhausted'); }
@@ -193,10 +194,9 @@ test('[04:47] «KAJ DRZAVNA» is the hospital, and the recall serves the flat th
   const availability = await send('DALI SE PRODAVA USTE?');
   // The ack pools rotate; the contract is the availability CLAIM („достапен /
   // слободен / активен / на располагање / во базата"), never one adjective —
-  // and the STEM must cover every inflection the pool ships: the rotation
-  // served «активен» (the full adjective) while this regex only carried
-  // «активн», so a legitimate variant read as a failure.
-  assert.match(availability.reply, /достап|слобод|актив|располага|база/u, availability.reply);
+  // and it lives in ONE helper, pinned against every shipped variant, because
+  // this very regex was carrying «активн» while the rotation served «активен».
+  assert.match(availability.reply, AVAILABILITY_CLAIM, availability.reply);
   assert.equal(availability.session.slots.propertyId, 66);
   assert.equal(availability.session.slots.service, 'buy');
 });

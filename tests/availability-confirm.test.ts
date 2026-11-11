@@ -18,6 +18,22 @@ import { EscalationStore } from '../src/store/escalations';
 import { MetaStore } from '../src/store/meta';
 import { ChannelRegistry } from '../src/channels/types';
 import { LandmarkService } from '../src/geo/landmarks';
+import { AVAILABILITY_CLAIM, MASCULINE_AGREEMENT } from './helpers/availability-contract';
+// THE CONTRACT IS PINNED AGAINST THE WHOLE POOL, not just the variant that
+// happened to rotate during this run: a bank variant worded with a claim the
+// helper's stems do not know must fail HERE, before it fails an e2e flow three
+// files away. Both pools, because a стан and a недвижност answer with different
+// genders of the same claim.
+test('the availability contract covers EVERY shipped variant of both pools', () => {
+  for (const key of ['availability.ack', 'availability.ack.masc']) {
+    const seeds = RESPONSE_BANK[key] ?? [];
+    assert.ok(seeds.length >= 5, `${key} must be a real pool, got ${seeds.length}`);
+    for (const v of seeds) {
+      assert.match(v, AVAILABILITY_CLAIM, `${key} variant carries no availability claim: ${v}`);
+    }
+  }
+});
+
 import { Db } from '../src/store/db';
 import { loadConfig } from '../src/config';
 import { Property } from '../src/data/properties';
@@ -45,9 +61,8 @@ test('availability.ack variants never "connect" the client with the owner', () =
 // feminine too (Вашата / која / внесена / достапна).
 test('availability.ack seeds agree with the feminine „недвижност“', () => {
   const seeds: string[] = RESPONSE_BANK['availability.ack'] ?? [];
-  const MASC = /(?<![\p{L}])(?:слободен|активен|достапен|евидентиран|внесен|заведен|продаден|издаден)(?![\p{L}])/iu;
   for (const v of seeds) {
-    assert.ok(!MASC.test(v), `masculine agreement on „недвижност“: ${v}`);
+    assert.ok(!MASCULINE_AGREEMENT.test(v), `masculine agreement on „недвижност“: ${v}`);
     assert.ok(!/(?<![\p{L}])го\s+имаме(?![\p{L}])/iu.test(v), `„го имаме“ for a feminine property: ${v}`);
   }
 });
@@ -119,7 +134,7 @@ test('21:23 flow: availability ack → "DA SAKAM" → VISIT FEE (not contact ask
   // достапна" — the contract is the availability claim, not its gender.
   // „слобод" as a stem: the masculine pool rotates „слободен" (which the
   // „слободн" stem never matched) alongside „достапен/активен".
-  assert.ok(/достап|активн|баз|евиденц|слобод|располага/iu.test(ack), `availability ack expected, got: ${ack}`);
+  assert.match(ack, AVAILABILITY_CLAIM, `availability ack expected, got: ${ack}`);
   assert.ok(!FORBIDDEN_CONNECT.test(ack), `connect-phrasing leaked: ${ack}`);
   assert.equal(s.slots.ownerContactPending, true, 'ack must arm the owner-contact gate');
 
@@ -128,7 +143,7 @@ test('21:23 flow: availability ack → "DA SAKAM" → VISIT FEE (not contact ask
   const after = sent[sent.length - 1] ?? '';
   assert.ok(!/(име и презиме|име и телефон|телефонскиот број)/iu.test(after), `contact ask served instead of fee: ${after}`);
   assert.ok(
-    /(надомест|300|денари|симболичн|посета)/iu.test(after),
+    /(надомест|300|денари|симболич(?:н|ен)|посета)/iu.test(after),
     `visit fee expected after "DA SAKAM", got: ${after}`,
   );
   assert.equal(s.state, 'closing', 'fee stage keeps the funnel in closing');
@@ -163,7 +178,7 @@ test('bundled confirm-arrow ("prasaj\nako e slobodna…") after the ack → FEE,
   s = await send('prasaj\nako e slobodna i ako e dobra ke ja iznajmam');
   const bundled = sent[sent.length - 1] ?? '';
   assert.ok(
-    /(надомест|300|денари|симболичн|посета|политика)/iu.test(bundled),
+    /(надомест|300|денари|симболич(?:н|ен)|посета|политика)/iu.test(bundled),
     `fee disclosure expected for the bundled arrow, got: ${bundled.slice(0, 160)}`,
   );
   assert.ok(
@@ -210,9 +225,8 @@ test('availability ack for a куќа row serves the feminine pool', async () =>
   const ack = sent[sent.length - 1] ?? '';
   // The bank pool rotates — the contract is feminine agreement (all its
   // variants speak „недвижноста“), never a masculine-ending claim.
-  assert.ok(/(?:достап|активн|баз|евиденц|слободн|располага)/iu.test(ack), `availability ack expected, got: ${ack}`);
-  assert.ok(!/(?:достапен|слободен|активен|внесен)(?![\p{L}])/iu.test(ack), `masculine agreement leaked: ${ack}`);
-  assert.ok(!/достапен(?![\p{L}])/iu.test(ack), ack);
+  assert.match(ack, AVAILABILITY_CLAIM, `availability ack expected, got: ${ack}`);
+  assert.ok(!MASCULINE_AGREEMENT.test(ack), `masculine agreement leaked: ${ack}`);
   assert.ok(!FORBIDDEN_CONNECT.test(ack), ack);
 });
 

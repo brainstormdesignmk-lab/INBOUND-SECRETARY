@@ -202,6 +202,10 @@ const esc = (s: string): string => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 export function emitCorpusRows(d: readonly DriftPair[]): string[] {
   const seen = new Map<string, DriftPair>();
   for (const p of d) {
+    // A GAP IS NOT A MISROUTE: the served lane has no mirror row yet, so there
+    // is no wrong prediction to freeze into the corpus. The gap stays in the
+    // drift JSONL (labeled), where the mirror backlog can be read from.
+    if (p.kind === 'gap') continue;
     const norm = normalize(p.text);
     if (!norm) continue;
     const have = seen.get(norm);

@@ -33,6 +33,7 @@ import { BankStore } from '../store/bank';
 import { loopStatusLines } from './status';
 import { setLearnedBank } from '../data/responseBank';
 import { sessionStateDump, sessionStateRows, sessionStateFullRows } from './state';
+import { runStamp, newClientId, displayChatId } from './chatId';
 
 type Role = 'user' | 'assistant' | 'system' | 'error';
 // source = which brain produced the reply ('gemini:1..3', 'groq',
@@ -75,6 +76,9 @@ export class TuiApp {
   private leads: Lead[] = [];
   private selected = 0;
   private nextId = 1;
+  /** THIS RUN's identity stamp — chat ids carry it so a new run's client-1 is a
+   *  different identity from last run's client-1 (see src/tui/chatId.ts). */
+  private readonly runId = runStamp();
   private inputBuf = '';
   private nameBuf = '';
   private mode: Mode = 'chat';
@@ -537,10 +541,16 @@ export class TuiApp {
   private confirmName(): void {
     const name = this.nameBuf.trim() || `Клиент ${this.nextId}`;
     this.mode = 'chat';
-    const chatId = `client-${this.nextId++}`;
-    // data/tui.db persists across runs while chatIds restart at client-1 — a NEW
-    // client must never inherit a stale session (e.g. owner_checking from a
-    // previous run), or Lina resumes the old state and never greets.
+    // THE ID CARRIES THE RUN: `client-1@<stamp>` is nobody from a previous run.
+    // data/tui.db persists while the counter restarts at 1, so the bare
+    // `client-1` made every run's first client ONE identity — and the [20:54]
+    // capture read a new client a visit another person had booked. Sessions,
+    // appointments, events, escalations and enrichment all key on this value,
+    // so the epoch separates the whole family by construction.
+    const chatId = newClientId(this.nextId++, this.runId);
+    // Belt and braces: a session row can still exist under this exact id if the
+    // clock repeats (or a fixture planted one) — a NEW client must never inherit
+    // a stale FSM state (e.g. owner_checking), or Lina resumes it and never greets.
     this.sessions.delete(chatId);
     const lead: Lead = {
       chatId,
@@ -777,7 +787,8 @@ export class TuiApp {
       // The dump written below always describes the SAME session the rows do.
       const stateArgs = (stateCmd[1] ?? '').trim();
       const full = /(?:^|\s)full(?:\s|$)/.test(stateArgs);
-      const targetChatId = stateArgs.replace(/(?:^|\s)full(?:\s|$)/, ' ').trim() || lead.chatId;
+      const targetChatId = this.resolveChatArg(
+        stateArgs.replace(/(?:^|\s)full(?:\s|$)/, ' ').trim()) || lead.chatId;
       const s = this.sessions.get(targetChatId);
       // THE ROWS ARE AN OPERATOR PROJECTION, not the notebook: six short rows
       // covering the funnel position, both money ladders, the search intent,
@@ -1174,6 +1185,21 @@ export class TuiApp {
     );
   }
 
+  /** Resolve an operator-typed chat argument to a live chat id. Chat ids carry
+   *  this run's stamp (`client-1@k3f9x`), so the operator's habit — `/state
+   *  client-1` — and the pty harness keep working: an exact id wins, then the
+   *  display half, then a UNIQUE prefix. An ambiguous argument resolves to
+   *  nothing (the caller falls back to the active chat) rather than picking one
+   *  of two clients at random. */
+  private resolveChatArg(arg: string): string {
+    if (!arg) return '';
+    if (this.leads.some(l => l.chatId === arg)) return arg;
+    const byDisplay = this.leads.filter(l => displayChatId(l.chatId) === arg);
+    if (byDisplay.length === 1) return byDisplay[0].chatId;
+    const byPrefix = this.leads.filter(l => l.chatId.startsWith(arg));
+    return byPrefix.length === 1 ? byPrefix[0].chatId : '';
+  }
+
   private renderLeads(): void {
     const { leadsBox } = this.box;
     if (!this.leads.length) {
@@ -1184,7 +1210,11 @@ export class TuiApp {
       const sel = i === this.selected;
       const busyMark = this.busy.has(l.chatId) ? ' …' : '';
       const strikes = l.strikes > 0 ? ` ✗${l.strikes}` : '';
-      const row = `${sel ? '▸' : ' '} ${l.name}${busyMark}\n   ${l.chatId} · ${l.state}${strikes} · ${l.outbound}/100 · мозок: ${l.brain}`;
+      // THE LEAD ROW LOOKS THE SAME AS IT ALWAYS DID: the run stamp is STORAGE
+      // identity, not something the operator types (`/state client-1` resolves
+      // it — App.resolveChatArg), so the width of this narrow pane row and the
+      // `/state client-1` habit both survive the change.
+      const row = `${sel ? '▸' : ' '} ${l.name}${busyMark}\n   ${displayChatId(l.chatId)} · ${l.state}${strikes} · ${l.outbound}/100 · мозок: ${l.brain}`;
       return sel ? `{inverse}${esc(row)}{/inverse}` : esc(row);
     });
     leadsBox.setContent(lines.join('\n') + '\n');

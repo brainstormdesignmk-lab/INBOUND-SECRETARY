@@ -29,6 +29,7 @@ import { LlmClient } from '../src/llm/types';
 import { detectSeenListingRecall, detectDescribeAsk } from '../src/llm/deterministic';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
+import { AVAILABILITY_CLAIM } from './helpers/availability-contract';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -128,7 +129,7 @@ test('[20:11] after a single-card serve, «dali se prodava uste?» is ANSWERED, 
 
   assert.ok(!/Евидентен број 44/u.test(second), `the card is not repeated: ${second}`);
   assert.ok(!/Дали ова е куќата што ја видовте/u.test(second), `the pick question is not repeated: ${second}`);
-  assert.ok(/(достап|активн|баз|евиденц|слободн|располага)/iu.test(second), `the availability answer: ${second}`);
+  assert.match(second, AVAILABILITY_CLAIM, `the availability answer: ${second}`);
   assert.equal(s.state, 'closing');
   assert.equal(s.slots.interestedPropertyId, 44);
   assert.equal(s.slots.ownerContactPending, true, 'the owner lane arms from the ack');

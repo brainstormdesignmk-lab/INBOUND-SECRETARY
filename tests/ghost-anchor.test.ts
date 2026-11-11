@@ -29,6 +29,7 @@ import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
 import { EnrichmentStore } from '../src/store/enrichment';
 import { BankStore } from '../src/store/bank';
+import { AVAILABILITY_CLAIM } from './helpers/availability-contract';
 
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('429'); }
@@ -106,7 +107,7 @@ test('control: availability + interest for a REAL property keeps the funnel inta
   await send('ZA EB 78');
   await send('dali e dostapen 78?');
   const ack = sent[sent.length - 1];
-  assert.ok(/достап|слободн|контакт|сопственикот/i.test(ack), `real property keeps the availability ack: ${ack.slice(0, 70)}`);
+  assert.ok(AVAILABILITY_CLAIM.test(ack), `real property keeps the availability ack: ${ack.slice(0, 70)}`);
   assert.equal(sessions.get(chatId)!.state, 'closing');
 
   await send('da');

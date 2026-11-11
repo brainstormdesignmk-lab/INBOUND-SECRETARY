@@ -15,7 +15,7 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace } from '../data/properties';
-import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
+import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -45,7 +45,7 @@ import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extractDetailsLandmark, resolveSearchCenter, FEED_LANDMARK_MAX_M, type PropertyRow, type Center } from '../geo/landmarks';
 import { toLatin, toCyrillic, translitToLatin, officialPlaceName, canonicalWordKey, wordsAlmostEqual } from '../geo/offlineMap';
 import { walkMinutes, distM } from '../geo/precision';
-import { routeLog, resolveIntent, dispatchSimple } from './router';
+import { routeLog, resolveIntent, refinePrediction, dispatchSimple } from './router';
 // PER-CATEGORY MONEY (the [19:14] capture): the pair detectors live beside the
 // budget family so a cap and the budget read can never disagree.
 import { detectCategoryBudgets } from '../llm/deterministic';
@@ -116,11 +116,8 @@ const LANDMARK_REF_M = 150;
 const LANDMARK_OPPOSITE_RE = /(?:спроти|наспроти|sproti|nasproti)/iu;
 // An EXPLICIT Евидентен број in the text («број 61», «еб 130», «евидентен број 61»).
 // The seen-listing recall lane yields to the number funnel when the client names
-// one — but it must NOT read a PRICE as one: inferPropertyId() takes the
-// thousands group of «за 130 000» as EB 130, which silently disabled the lane
-// for the [19:44] capture («IMAVTE EDNA KUKJA VO SKOPJE SEVER ZA 130 000» →
-// «Колку спални соби…»). Only a NUMBER NOUN marks an EB.
-const EB_NAMED_RE = /(?<![\p{L}\p{N}])(?:евидентен\s*)?(?:број|broj|еб|eb)\s*[:.]?\s*\d{1,5}(?!\d)/iu;
+// one. EB_NAMED_RE lives in deterministic.ts (imported above): the ROUTE MIRROR
+// applies the same exclusion, and two copies of the guard would drift.
 /** «ТАМУ» — THE PLACE THE CHAT IS ALREADY AT (the [20:47] capture).
  *  «IMAVTE EDNA GARSONJERA TAMU SO KIRIJA OD 200 EVRA» points back at the place
  *  bound one turn earlier (Католичка): no second place name, no кај/до/близу,
@@ -3882,7 +3879,11 @@ export class InboundHandler {
       // WOULD fire; branch points below log the ACTUAL intent. Divergence
       // between [route?] and [route] in data/tui.log = the mirror drifted
       // from the real chain and needs updating.
-      routeLog(chatId, text, resolveIntent(text, session.state), 'predict');
+      // The mirror gets the SLOTS too: the lanes gated on what the chat already
+      // holds (a business space, a category + place) are unpredictable from text
+      // and state alone, and a shadow router that cannot see the notebook logs
+      // drift against a lane that was right.
+      routeLog(chatId, text, resolveIntent(text, session.state, session.slots), 'predict');
     }
     if (outcome !== 'none') {
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -11200,6 +11201,11 @@ export class InboundHandler {
 
     // 4) Property context (responder only needs it for LLM-driven states)
     let props = await this.loadProps(session, areaRequested, seeOffers, typedAnswer && blankBatchBefore);
+    // THE MIRROR'S SECOND LOOK: the ring decision is made by the FEED, not by the
+    // text, and loadProps has just filled in slots.poiTooFarAsk — re-predict now
+    // so the shadow router names the lane this turn is about to serve instead of
+    // the search it was before the pool spoke (the [21:05] similarity ask).
+    refinePrediction(chatId, text, session.state, session.slots);
     // The blank batch stops steering once the typed answer has used it: the next
     // batch is this type's own, and the exclusion rule is back in force.
     if (typedAnswer && blankBatchBefore) {
