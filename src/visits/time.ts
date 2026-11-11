@@ -549,6 +549,35 @@ export function extractDayWord(s: string): string | undefined {
   return undefined;
 }
 
+/** A TERM THAT LANDS ON A NON-WORKING DAY (the [10:33] owner turn). The agency
+ *  works Monday–Friday, 09:00–17:00 and visits happen inside that window, so a
+ *  Saturday/Sunday term is not a term: whoever proposed it (client or owner) is
+ *  answered with the working-hours protocol and asked for a weekday instead of
+ *  being relayed to the other side for a check that can never succeed. A named
+ *  weekday word wins over everything; without one, an explicit date is checked
+ *  on the calendar («сабота во 12», «14.11.2026», «субота»). */
+export function isWeekendTerm(phrase: string, now: Date = new Date()): boolean {
+  if (!phrase) return false;
+  const day = extractDayWord(phrase);
+  if (day === 'сабота' || day === 'недела') return true;
+  if (day !== undefined) return false; // a named weekday settles its own day
+  const explicit = phrase.match(/(?<!\p{N})(\d{1,2})\s*[.\/]\s*(\d{1,2})(?:\s*[.\/]\s*(\d{2,4}))?(?!\p{N})/u);
+  if (!explicit) return false;
+  const dayNum = Number(explicit[1]);
+  const monthNum = Number(explicit[2]);
+  if (dayNum < 1 || dayNum > 31 || monthNum < 1 || monthNum > 12) return false;
+  // AN AMBIGUOUS PAIR IS A CLOCK, NOT A DATE (the namesADay rule): «во 14.30»
+  // is half past two, and reading it as 14 November would refuse a working-day
+  // term. Only a pair that cannot be a clock (first part > 12) or one that
+  // carries a year is a date.
+  if (!explicit[3] && dayNum <= 12) return false;
+  const year = explicit[3] ? Number(explicit[3].length === 2 ? `20${explicit[3]}` : explicit[3]) : now.getFullYear();
+  const at = new Date(year, monthNum - 1, dayNum);
+  // A past date cannot be a proposal; only a real weekend matters here.
+  const weekday = at.getDay();
+  return weekday === 0 || weekday === 6;
+}
+
 // A relative day («утре», «денес») names the DAY just as concretely as a
 // weekday — it must not be re-anchored onto the term on the table, and it must
 // not be treated as "no day" (that would send the owner a needless re-ask).

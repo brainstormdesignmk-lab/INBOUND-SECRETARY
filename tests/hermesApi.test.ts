@@ -395,7 +395,11 @@ test('hermes API /reply: a day-only counter re-asks the OWNER for the hour — a
 
     const r = await apiCall(env, `/hermes/v1/owners/${chatId}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ eb: 53, text: 'MOZE VO SABOTA', message_id: 'vague-1' }),
+      // A WEEKDAY day-only counter: a Saturday/Sunday counter is answered with
+      // the agency's working-hours protocol instead of the exact-hour re-ask
+      // (the owner's standing rule — tests/owner-counter-and-working-hours.test.ts),
+      // and THIS test owns the exact-hour re-ask seam.
+      body: JSON.stringify({ eb: 53, text: 'MOZE VO VTORNIK', message_id: 'vague-1' }),
     }, env.token);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     // The exact-hour question is OWNER-facing copy: it used to reach only the

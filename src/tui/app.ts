@@ -18,7 +18,7 @@ import { LlmClient } from '../llm/types';
 import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
 import { buildLayout, esc, guardGlyphs, hhmm, wrapMarked, paneTextWidth, CHAT_PANE_FRACTION } from './layout';
-import { FramePainter } from './paint';
+import { FramePainter, paneAtBottom } from './paint';
 import type { OwnerVerdict } from '../backoffice/ownerAgent';
 import { detectOwnerVerdict, detectOwnerAddressReply } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
@@ -474,14 +474,15 @@ export class TuiApp {
   }
 
   /** Home/End follow the same focus; both re-anchor the follow flag so the pane
-   *  stops/starts tracking new lines exactly like their chat counterparts. */
+   *  stops/starts tracking new lines exactly like their chat counterparts. End
+   *  on a pane that fits re-arms it (paneAtBottom), never only at exactly 100 %. */
   private scrollFocusedPaneTo(perc: number): void {
     if (this.ownerMode) {
       this.box.ownerBox.setScrollPerc(perc);
-      this.ownerFollow = perc >= 100;
+      this.ownerFollow = perc >= 100 || paneAtBottom(this.box.ownerBox);
     } else {
       this.box.chatBox.setScrollPerc(perc);
-      this.chatFollow = perc >= 100;
+      this.chatFollow = perc >= 100 || paneAtBottom(this.box.chatBox);
     }
     this.renderStatus();
     this.repaint();
@@ -497,7 +498,11 @@ export class TuiApp {
       this.ownerFollow = false;
     } else {
       ownerBox.scroll(step);
-      if (ownerBox.getScrollPerc() >= 100) this.ownerFollow = true;
+      // A pane that FITS cannot scroll: it is already showing its newest line,
+      // so PgDn there re-arms the follow flag (paneAtBottom owns that rule —
+      // reading `getScrollPerc() >= 100` alone left the pane latched “scrolled
+      // up” and new owner lines stopped appearing until the content overflowed).
+      if (paneAtBottom(ownerBox)) this.ownerFollow = true;
     }
     this.renderStatus();
     this.repaint();
@@ -513,7 +518,7 @@ export class TuiApp {
       this.chatFollow = false;
     } else {
       chatBox.scroll(step);
-      if (chatBox.getScrollPerc() >= 100) this.chatFollow = true;
+      if (paneAtBottom(chatBox)) this.chatFollow = true;
     }
     this.renderStatus();
     this.repaint();
@@ -522,7 +527,11 @@ export class TuiApp {
   private move(delta: number): void {
     if (!this.leads.length) return;
     this.selected = Math.max(0, Math.min(this.leads.length - 1, this.selected + delta));
-    this.ownerFollow = true; // a different chat starts at ITS newest owner line
+    // A DIFFERENT CHAT STARTS AT ITS NEWEST LINE — both panes. Carrying a
+    // "scrolled up" flag across a lead switch left the new chat pinned at its
+    // oldest message until the operator pressed PgDn (the [10:3x] pan report).
+    this.ownerFollow = true;
+    this.chatFollow = true;
     this.renderLeads();
     this.renderChat();
     this.renderStatus();
@@ -734,9 +743,15 @@ export class TuiApp {
         text: `/owner ${eb} ${action}${ownerTime ? ` ${ownerTime}` : ''}`,
         at: Date.now(),
       });
+      // NO RELAY CLAIM HERE (the [10:33] capture): the answer is only PARSED at
+      // this point — it is applied when the typing window closes, and a bare
+      // counter, an owner re-ask or a weekend refusal sends the client NOTHING.
+      // The pane prints «пренесено на клиентот: <text>» only when a relay really
+      // went out (onOwnerRelay), so it can never describe a transfer that did
+      // not happen.
       this.appendOwnerMsg(lead.chatId, {
         role: 'system',
-        text: `одговор примен: ${action}${ownerTime ? ` (${ownerTime})` : ''} — Лина го пренесува на клиентот`,
+        text: `одговор примен: ${action}${ownerTime ? ` (${ownerTime})` : ''} — се применува по крајот на пораката`,
         at: Date.now(),
       });
       // The owner "types" within a window (default 30s — they may send a
@@ -976,9 +991,12 @@ export class TuiApp {
         }
         if (late && this.pipeline.ownerFollowup(lead.chatId, liveEb, late)) {
           this.appendOwnerMsg(lead.chatId, { role: 'user', text, at: Date.now() });
+          // The applied text itself reaches the pane through onOwnerRelay; this
+          // row only records that the verdict was taken (a counter that re-asks
+          // the owner relays nothing, and must not claim otherwise).
           this.appendOwnerMsg(lead.chatId, {
             role: 'system',
-            text: `одговор примен: ${late.status}${late.ownerTime ? ` (${late.ownerTime})` : ''} — Лина го пренесува на клиентот`,
+            text: `одговор примен: ${late.status}${late.ownerTime ? ` (${late.ownerTime})` : ''} — применет`,
             at: Date.now(),
           });
           this.renderAll();
@@ -1022,9 +1040,12 @@ export class TuiApp {
       action: verdict.status === 'gone' ? 'sold' : verdict.status,
       ownerTime: verdict.ownerTime, verdict,
     };
+    // PARSED, NOT RELAYED YET: the verdict is applied when this window closes,
+    // and what the client actually hears arrives as its own «пренесено на
+    // клиентот: …» row from onOwnerRelay (nothing at all for an owner re-ask).
     this.appendOwnerMsg(lead.chatId, {
       role: 'system',
-      text: `одговор примен: ${verdict.status}${verdict.ownerTime ? ` (${verdict.ownerTime})` : ''} — Лина го пренесува на клиентот по крајот на пораката`,
+      text: `одговор примен: ${verdict.status}${verdict.ownerTime ? ` (${verdict.ownerTime})` : ''} — се применува по крајот на пораката`,
       at: Date.now(),
     });
     this.renderStatus();
@@ -1258,16 +1279,20 @@ export class TuiApp {
           return `{red-fg}[${t}] ✗ ${esc(m.text)}{/red-fg}`;
       }
     });
-    const perc = chatBox.getScrollPerc(); // preserve position if the user scrolled up
+    // FOLLOW IS MEASURED, NOT ASSUMED (the [10:3x] pan report): a reader at the
+    // bottom — or in a pane too short to scroll — gets the newest line; only a
+    // reader who really scrolled up keeps their position.
+    const followChat = this.chatFollow || paneAtBottom(chatBox);
     // PRE-WRAP TO THE PANE (the [22:46] link-truncation fix): blessed wraps at
     // ANY character, so a 48-char map URL used to be split mid-string and the
     // last digit landed on the next line — the clicked link reached Google as
     // an 18-digit cid and opened a blank, zoomed-out map. wrapMarked never
     // splits a token: a link that does not fit moves whole to the next line.
     const w = this.paneWidth();
+    const keepPerc = chatBox.getScrollPerc(); // captured BEFORE the rewrite
     chatBox.setContent(lines.map(l => wrapMarked(l, w)).join('\n\n'));
-    if (this.chatFollow || perc >= 100) chatBox.setScrollPerc(100);
-    else chatBox.setScrollPerc(perc);
+    if (followChat) chatBox.setScrollPerc(100);
+    else chatBox.setScrollPerc(keepPerc);
     this.chatContent = lead.msgs.map(m => `${m.at}|${m.role}|${m.text}`).join('\u0001');
   }
 
@@ -1296,10 +1321,11 @@ export class TuiApp {
     // unconditional setScrollPerc(100) undid that on the very next render — the
     // pane was permanently stuck on its last line. Follow only when the reader
     // is at (or near) the bottom, exactly like the chat pane.
-    const perc = ownerBox.getScrollPerc();
+    const followOwner = this.ownerFollow || paneAtBottom(ownerBox);
+    const keepPerc = ownerBox.getScrollPerc(); // captured BEFORE the rewrite
     ownerBox.setContent(lines.map(l => wrapMarked(l, this.paneWidth())).join('\n\n'));
-    if (this.ownerFollow || perc >= 100) ownerBox.setScrollPerc(100);
-    else ownerBox.setScrollPerc(perc);
+    if (followOwner) ownerBox.setScrollPerc(100);
+    else ownerBox.setScrollPerc(keepPerc);
     this.ownerContent = lead.ownerMsgs.map(m => `${m.at}|${m.role}|${m.text}`).join('\u0001');
   }
 

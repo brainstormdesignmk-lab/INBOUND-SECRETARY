@@ -159,9 +159,12 @@ test('[20:28] e2e: a second owner verdict is relayed, never «нема акти�
   await tick();
   assert.match(sent[sent.length - 1] ?? '', /11:00/u, `the first relay: ${sent[sent.length - 1]}`);
 
-  // …and his NEXT sentence (a correction to the correction) still lands.
+  // …and his NEXT sentence (a correction to the correction) still lands. The
+  // corrected day is a WEEKDAY: a Saturday/Sunday counter is answered with the
+  // agency's working-hours protocol instead of being relayed (the owner's
+  // standing rule), so a weekend term cannot serve as this test's probe.
   assert.equal(sessions.get(chatId)!.state, 'time_confirm');
-  assert.equal(handler.ownerFollowup(chatId, 78, { status: 'counter', ownerTime: 'Сабота во 12:30' }), true);
+  assert.equal(handler.ownerFollowup(chatId, 78, { status: 'counter', ownerTime: 'Среда во 12:30' }), true);
   await tick();
   assert.match(sent[sent.length - 1] ?? '', /12:30/u, `the follow-up must reach the client: ${sent[sent.length - 1]}`);
 

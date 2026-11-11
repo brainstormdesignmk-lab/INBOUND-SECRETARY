@@ -2557,7 +2557,11 @@ function collectMoneyMentions(text: string): MoneyMention[] {
   // 000»); anything else ends the number and the next figure is read on its
   // own («1500 1600» → 1500 and 1600). The separators are still stripped below,
   // so the parse of a genuine grouped number is unchanged.
-  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d+)?)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(евра|евро|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}]))?/giu;
+  // «eura»/«еура» BEFORE «eur»/«евра» (the [10:11] capture): the two shorter
+  // spellings are PREFIXES of these, so the alternation stopped inside the word
+  // («1500 eur» of «1500 eura»), the per-m² marker then read a tail starting at
+  // «a za kvadrat» and the €/m² ceiling died into a 1.500 € total.
+  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d+)?)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(еура|евра|евро|eura|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}]))?/giu;
   const out: MoneyMention[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(cleaned)) !== null) {
@@ -4856,8 +4860,13 @@ const OWNER_DISAGREE_RE = /(?<![\p{L}])(?:не можам|не ми одгова
 // negated "nema da mozam" / "нема да можам" ("won't be able to") is the
 // MOST common owner refusal — it contains the bare "mozam" that would
 // otherwise match OWNER_AGREE_RE and CLOSE THE DEAL on a refusal.
+// «НЕМА ШАНСИ» IS A REFUSAL (the [10:32] owner turn): the owner answered the
+// Friday 10:00 ask with «НЕМА ШАНСИ ВО ПЕТОК» and the parser read the day as a
+// COUNTER — Lina relayed «Има друг предлог: Петок» to the client, i.e. the very
+// term the owner had just refused. A no-chance phrase is the same refusal
+// family as «не можам/никако», in both scripts and both spellings of шанса.
 const OWNER_CANT_RE =
-  /(?<![\p{L}])(не\s+можам|не\s+може|не\s+можеш|ne\s*mozam|ne\s*moze|nemoz[ae]m|nemoz[ae]t|nemoze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да|nema\s*da\s*mozam|nema\s*da\s*moze|nema\s*da\s*mozeme|нема\s+да\s+можам|нема\s+да\s+може|нема\s+да\s+можеме|зазет|zafaten|zauzet|немам\s+време|nemam\s+vreme|никако|nikako|не\s+оди|ne\s+odi|не\s+е\s+можно|ne\s*e\s*mozno|немам\s+обврск|нема\s+обврск|имам\s+обврск|imam\s+obvrs)/iu;
+  /(?<![\p{L}])(не\s+можам|не\s+може|не\s+можеш|ne\s*mozam|ne\s*moze|nemoz[ae]m|nemoz[ae]t|nemoze|не\s+ми\s+одговара|не\s+ми\s+е\s+згодно|не\s+можам\s+да|nema\s*da\s*mozam|nema\s*da\s*moze|nema\s*da\s*mozeme|нема\s+да\s+можам|нема\s+да\s+може|нема\s+да\s+можеме|нема\s+шанс[аи]|nema\s+san[sc]i|nema\s+shansi|без\s+шанс[аи]|bez\s+san[sc]i|зазет|zafaten|zauzet|немам\s+време|nemam\s+vreme|никако|nikako|не\s+оди|ne\s+odi|не\s+е\s+можно|ne\s*e\s*mozno|немам\s+обврск|нема\s+обврск|имам\s+обврск|imam\s+obvrs)/iu;
 // THE AVAILABILITY HALF IS NOT THE TERM HALF (the [23:41] capture). The owner
 // ask is COMPOUND — «дали е достапна… и дали го прифаќате терминот за посета?»
 // — so «DOSTAPNA E DA» answers only the first half. Read as a full «ok» it
@@ -4927,7 +4936,17 @@ const OWNER_DAY_RE = /утре|задутре|денес|денеска|вече
 // message, and the whole-day branch relayed «Среда — било кое време му
 // одговара» while the owner had named 18:00. visits/time.CLOCK_RE has always
 // accepted the same prefix, so the visit-side reader and this one now agree.
-const OWNER_CLOCK_RE = /((?:(?:во|по|после|околу|од|vo|po|posle|okolu|od)\s*\d{1,2}(?:[.:]\d{2})?)|(?:\d{1,2}[.:]\d{2}))(?!\s*(?:\d[\d\s.,]*)?\s*(?:илјади|хилјади|iljadi|евра|евро|evra|evro|eur|€))/i;
+// «НАКАЈ 6» IS A CLOCK (the [10:06] capture): the owner answered «МОЖЕ НАКАЈ 6
+// АКО ВИ ОДГОВАРА» — a counter at ~18:00 — and the prefix list knew only
+// во/по/после/околу/од, so no clock was read at all, the bare «може» stood as
+// AGREEMENT and the visit was finalised at the client's 10:00. «накај»/«кон»
+// (towards/around) are the same approximation family as «околу», and «око» is
+// its short form.
+const OWNER_CLOCK_RE = /((?:(?:накај|nakaj|кон|kon|приближно|priblizno|во|по|после|околу|око|ока|vo|po|posle|okolu|oko|od|од)\s*\d{1,2}(?:[.:]\d{2})?)|(?:\d{1,2}[.:]\d{2}))(?!\s*(?:\d[\d\s.,]*)?\s*(?:илјади|хилјади|iljadi|евра|евро|evra|evro|eur|€))/i;
+/** The TOWARDS family («накај 4», «кон 4») — an entrance clock, not an exact
+ *  one, so it is shaped like «од»: the hour is resolved through the visit
+ *  window (4 → 16:00) instead of being relayed as a literal 04:00. */
+const OWNER_TOWARDS_CLOCK_RE = /^(?:накај|nakaj|кон|kon|приближно|priblizno)\s*(\d{1,2})(?:[.:](\d{2}))?$/iu;
 
 /** An OPEN-START clock ("од 6", "od 18:30") names the EARLIEST hour the owner
  *  can take — a fixed clock, never an open day. The from-prefix is dropped and
@@ -4935,7 +4954,8 @@ const OWNER_CLOCK_RE = /((?:(?:во|по|после|околу|од|vo|po|posle|
  *  bare-hour-after-ability-verb branch, so both readers of the phrase (the
  *  client relay and normalizeOwnerTime) already carry the 24h hour. */
 function shapeOwnerClock(raw: string): string {
-  const m = raw.match(/^(?:од|od)\s*(\d{1,2})(?:[.:](\d{2}))?$/iu);
+  const m = raw.match(/^(?:од|od)\s*(\d{1,2})(?:[.:](\d{2}))?$/iu)
+    ?? raw.match(OWNER_TOWARDS_CLOCK_RE);
   if (!m) return raw;
   const h = visitClockHour(Number(m[1]));
   return `vo ${String(h).padStart(2, '0')}:${m[2] ?? '00'}`;
@@ -5149,7 +5169,12 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
   // clause and share it with an ability verb („MOZAM … 4“, „MOZAM DO 4“), and
   // the owner's day — named in the refused clause — rides along so «porano»
   // stays on the same day. Money and years are vetoed explicitly.
-  if (clocks.length === 0) {
+  // A trailing bare hour is read here when NO clock was found, and also when
+  // the only clock found is a TOWARDS phrase («NAKAJ 4» = the hour, not a full
+  // term): the day named in the refused clause must ride along, exactly as the
+  // [17:45] contract pins — otherwise the counter reaches the client dateless
+  // and the relay cannot date it.
+  if (clocks.length === 0 || clocks.every(c => OWNER_TOWARDS_CLOCK_RE.test(c[1].trim()))) {
     const clause = scoped.trim().replace(/[.,;!?\s]+$/u, '');
     const ability = /(?<![\p{L}])(?:mozam|mozeme|mozat|можам|можеме|можат)(?![\p{L}])/iu.test(clause);
     const bareHour = /(?<![\p{L}\p{N}])(\d{1,2})(?:\s*(?:h|ч|saat|часот))?$/iu.exec(clause);
@@ -5254,6 +5279,28 @@ export function isOwnerWorkReason(text: string): boolean {
   return /(?<![\p{L}])(?:na\s+rabota|на\s+работа|sum\s+na\s+rabota|сум\s+на\s+работа|na\s+rabotno\s+vreme|на\s+работно\s+време|preku\s+den\s+sum|преку\s+ден\s+сум)(?![\p{L}])/iu.test(text);
 }
 
+/** DOES THE OWNER MEAN THE SAME MOMENT AS THE PROPOSAL? «MOZE NAKAJ 10» answers
+ *  a 10:00 ask — a day-less clock COMPLETES the proposed day, so it is consent,
+ *  while a different clock («накај 6») is a counter. Days are compared when the
+ *  owner's phrase names one («во сабота во 10» vs «петок во 10» is never the
+ *  same term, however equal the clock). */
+function ownerSaysSameTerm(proposed: string, ownerPhrase: string): boolean {
+  if (!proposed || !ownerPhrase) return false;
+  if (locMatches(ownerPhrase, proposed)) return true;
+  // A phrase that names a day of its own is judged by that day, never by the
+  // clock alone (a weekend counter on the same hour must stay a counter).
+  if (OWNER_DAY_RE.test(ownerPhrase)) return false;
+  const clock = (s: string): string | undefined => {
+    const m = s.match(OWNER_CLOCK_RE);
+    const digits = m?.[1].match(/(\d{1,2})(?:[.:](\d{2}))?/u);
+    if (!digits) return undefined;
+    return `${String(visitClockHour(Number(digits[1]))).padStart(2, '0')}:${digits[2] ?? '00'}`;
+  };
+  const a = clock(proposed);
+  const b = clock(ownerPhrase);
+  return !!a && !!b && a === b;
+}
+
 export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVerdict | undefined {
   const t = text.toLowerCase();
   const price = extractOwnerPrice(text);
@@ -5339,7 +5386,7 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   if (isOwnerAvailabilityOnly(text)) return undefined;
   // Same-time confirmation or plain agreement → ok (accept the client's time).
   // locMatches is transliteration-aware: "utre po 18:00" === "утре по 18:00".
-  if (agree && (!time || (proposedTime && locMatches(timeStr ?? '', proposedTime)))) {
+  if (agree && (!time || (proposedTime && ownerSaysSameTerm(proposedTime, timeStr ?? '')))) {
     return withPrice({ status: 'ok', ownerTime: proposedTime });
   }
   // A positively proposed DIFFERENT time → counter-proposal, EVEN when the
@@ -5364,7 +5411,16 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   // WHOLE-DAY counter: refusal + a later day with no clock — the dropped-day
   // bug made Lina relay "не може во тој термин" and re-ask from zero while
   // the owner had just OFFERED the whole day. The day rides to the client.
-  if (isWholeDay && timeStr) {
+  // …BUT THE PROPOSED DAY IS NOT AN OFFER (the [10:32] owner turn): «НЕМА ШАНСИ
+  // ВО ПЕТОК» names the day he is REFUSING, so relaying «Friday, whole day»
+  // proposes the refused term back. A DIFFERENT day is an offer, and so is the
+  // same day with an ANY-TIME idiom («NE MOZAM TOGAS . PONEDELNIK BILO KOE
+  // VREME MI ODGOVARA» — the clock is refused, the whole day is offered); only
+  // a bare refusal of the day on the table falls through to the bare counter
+  // below, where the OWNER is asked for a term of his own.
+  const refusedOwnDay = !!proposedTime && !!timeStr && !anytime
+    && locMatches(timeStr, proposedTime);
+  if (isWholeDay && timeStr && !refusedOwnDay) {
     return withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(timeStr), canAcceptWholeDay: true });
   }
   // Can't do the proposed time (no alternative given) → counter; the client
@@ -8252,6 +8308,14 @@ export function isPoiConfirmQuestion(text: string): boolean {
   // A PLACE NAMED AS A NEW SEARCH LOCATION is not a confirm — the trailing «?»
   // alone used to claim it (see isPlaceSearchPivot).
   if (isPlaceSearchPivot(text)) return false;
+  // A REQUEST TO SEE THE FLAT IS THE VISIT LANE (the [10:00] capture): «ЌЕ МОЖЕ
+  // ДА ГО ВИДАМ ВО ЖИВО ?» ends with «?», so this lane claimed it, extracted
+  // the candidate «ЖИВО», and the map's typo pass bound «животна средина» — the
+  // client who asked for a viewing was told «Не, тоа е на 1,0 километри од
+  // Министерство за животна средина». A viewing request belongs to the visit
+  // protocol (fee → contact → term), exactly like the availability and describe
+  // asks above own their own turns.
+  if (detectVisitInterest(text)) return false;
   // Wh-openers are a DIFFERENT family ("kade e skopjanka?", "koga moze da se
   // vidi?") — their own detectors own them, the trailing '?' alone must not
   // claim them. The opener guard is start-anchored; a каде-verb ANYWHERE in

@@ -506,12 +506,27 @@ export function buildSeenSlots(): RegExp {
 export function buildSqmRateMarkerSlot(): RegExp {
   const UNIT = or([
     'квадрат', 'квадрати', 'квадратот', 'квадратен метар', 'квадратни метри',
+    // THE CLIENT'S OWN TYPO IS STILL THE UNIT (the [10:11] capture): «ДО 1500Е
+    // ЗА КВДРАТ» dropped one letter, and the rate read as a 1.500 € TOTAL — the
+    // funnel then denied stock the market answer it had just given (1.234–2.889
+    // €/m²) says exists. A dropped letter inside a word of five+ letters is the
+    // one-slip budget every place-name reader in this codebase already allows;
+    // the unit is a closed vocabulary, so the slips are listed, never guessed.
+    'квдрат', 'квдрати', 'квдратот', 'kvdrat', 'kvdrati',
     'метар квадратен', 'метри квадратни', 'm2', 'м2', 'm²', 'м²', 'kvm', 'kv.m', 'kv. m',
     'kvadrat', 'kvadrati', 'kvadraten metar', 'kvadratni metri', 'metar kvadraten',
     'metri kvadratni', 'кв.м', 'кв. м',
   ]);
   const PREP = or(['по', 'po', 'за', 'za', 'на', 'na', 'околу', 'okolu']);
-  const CUR = '(?:евра|евро|евр|evra|evro|evr|eur|€|e)';
+  // THE CYRILLIC «Е» IS THE SAME SHORTHAND (the [10:11] capture): the client
+  // writes «1500 Е ЗА М2» / «1500Е ЗА КВДРАТ», exactly as he writes «1500E PO
+  // M2» in Latin. The Cyrillic е is ALSO the copula («63 Е таа»), so it is only
+  // ever read as a currency when a per-m² UNIT follows — which is what this
+  // marker requires of every alternative.
+  // «eura» is a spelling the feed's own clients use («1500 eura za kvadrat») —
+  // without it the alternation stopped at «eur» and the boundary guard refused
+  // the trailing «a», so the rate never fired and the figure became a total.
+  const CUR = '(?:евра|евро|евр|eura|evra|evro|evr|eur|€|e|е)';
   // THE CURRENCY IS REQUIRED (the widen-flow sweep): «deloven prostor od 500 м²»
   // is an AREA, and a bare figure standing before «м²» is never €/m² — reading
   // it as a rate turned a business size into a price criterion and the absence

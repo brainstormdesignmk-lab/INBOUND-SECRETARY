@@ -1791,8 +1791,16 @@ export class PropertyService {
       // sortByPopularity: "било каде" — most popular neighborhoods FIRST
       // (Центар, Капиштец, Карпош, Аеродром, Кисела Вода, Влае, Ѓорче Петров,
       // then the rest), within each neighborhood by price.
+      // POPULARITY OUTRANKS THE RATE LADDER when the client released the area
+      // (the [10:11] capture): «БИЛО КАДЕ ДА Е ДО 1500Е ЗА КВДРАТ» is the whole
+      // city under a €/m² ceiling, and the owner's order is Центар first, then
+      // the ring — the rate ladder alone led with whichever row sat closest to
+      // the ceiling (Аеродром 1.385 €/m² ahead of Центар 1.300) and the batch
+      // read as «somewhere far-first». within a neighbourhood the ladder still
+      // applies (his rate buys the most), then the price-distance tiebreak.
       .sort((a, b) => opts.rate !== undefined
         ? (Number(b.inLoc) - Number(a.inLoc))
+          || (opts.sortByPopularity ? (a.rank - b.rank) : 0)
           || ((b.per ?? 0) - (a.per ?? 0))
           || (a.dist - b.dist)
           || (a.p.eb - b.p.eb)

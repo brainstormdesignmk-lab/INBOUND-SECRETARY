@@ -107,6 +107,28 @@ export function markRowsWhole(screen: any, rows: number[]): void {
   }
 }
 
+/** IS THE READER LOOKING AT THE NEWEST LINE?
+ *
+ *  The [10:3x] field report (“it did not pan down with the last message on the
+ *  first screen; after PgDn it started panning”) is blessed's percentage being
+ *  read as “at the bottom” only when it is exactly 100. A pane whose content
+ *  FITS the viewport reports 0 % — there is nothing to scroll — so:
+ *    • a PgDn in such a pane could never re-arm the follow flag, and the pane
+ *      stayed “scrolled up” for ever after one PgUp (new messages then piled up
+ *      below the fold until a later PgDn landed on overflowing content), and
+ *    • a render that decided “the reader scrolled up” on 0 % pinned a fitting
+ *      pane where it was.
+ *  A pane that cannot scroll IS at its bottom; that is the only honest reading
+ *  of its state, and it is what keeps every new line visible. */
+export function paneAtBottom(box: any): boolean {
+  const perc = Number(box?.getScrollPerc?.() ?? 0);
+  if (!Number.isFinite(perc)) return true;
+  if (perc >= 100) return true;
+  const inner = (Number(box?.height) || 0) - (Number(box?.iheight) || 0);
+  const total = Number(box?.getScrollHeight?.() ?? 0) || 0;
+  return inner > 0 && total <= inner;
+}
+
 /** Everything a frame's look depends on. Two identical signatures mean the
  *  terminal already shows the right picture — no write is needed. */
 export function frameSignature(boxes: FrameBoxes, extra = ''): string {

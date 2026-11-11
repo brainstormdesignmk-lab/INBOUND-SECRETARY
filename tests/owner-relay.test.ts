@@ -74,11 +74,15 @@ test('whole-day counter: owner offers a day with any hour → relay carries the 
   const { handler, sessions, sent, send } = await makeHandler();
   await reachOwnerChecking(send);
 
-  // THE 20:24 FIELD TEXT: refusal + day proposal with NO clock.
-  const verdict = detectOwnerVerdict('NE MOZAM VO 6 VO PETOK . CEL DEN SUM ZAUZET. KE MORA VO SABOTA . BILO KOE VREME', 'Утре попладне после 6');
+  // THE 20:24 FIELD TEXT: refusal + day proposal with NO clock. The offered day
+  // is ВТОРНИК, not the captured САБОТА: weekend terms are answered with the
+  // agency's working-hours protocol instead of being relayed (the owner's
+  // standing rule — see tests/owner-counter-and-working-hours.test.ts). The
+  // whole-day relay contract this test pins is the same either way.
+  const verdict = detectOwnerVerdict('NE MOZAM VO 6 VO PETOK . CEL DEN SUM ZAUZET. KE MORA VO VTORNIK . BILO KOE VREME', 'Утре попладне после 6');
   assert.ok(verdict, 'owner text must parse');
   assert.equal(verdict.status, 'counter');
-  assert.match(verdict.ownerTime ?? '', /сабот/i, `the day proposal must survive: ${JSON.stringify(verdict)}`);
+  assert.match(verdict.ownerTime ?? '', /вторн/i, `the day proposal must survive: ${JSON.stringify(verdict)}`);
   assert.equal(verdict.canAcceptWholeDay, true, 'day-only counter must flag canAcceptWholeDay');
 
   // The verdict lands in the pipeline → the relay carries the day + clock ask
@@ -87,13 +91,13 @@ test('whole-day counter: owner offers a day with any hour → relay carries the 
   const s = sessions.get('relay')!;
   assert.equal(s.state, 'visit_scheduling', `relay must return to visit_scheduling, got ${s.state}`);
   const relay = sent[sent.length - 1];
-  assert.match(relay, /сабот/iu, `relay must carry the owner's day: ${relay}`);
+  assert.match(relay, /вторн/iu, `relay must carry the owner's day: ${relay}`);
   // The whole-day invariant: the relay ASKS the client to complete the term
   // — it ends with a question carrying the hour/time ask (every bank variant
   // is spec-bound to `?` + a time word; enumeration keeps lagging new draws).
   assert.ok(relay.trim().endsWith('?'), `relay must ask the client to precise the clock: ${relay}`);
   assert.match(relay, /час|време|термин|кога|колку/u, `relay must ask for the hour: ${relay}`);
-  assert.ok(!/не може во тој термин(?!.*сабот)/iu.test(relay), `never the dropped-day refusal: ${relay}`);
+  assert.ok(!/не може во тој термин(?!.*вторн)/iu.test(relay), `never the dropped-day refusal: ${relay}`);
 });
 
 // ── The [00:11] field rule: the OWNER holds the calendar ────────────────────
@@ -278,11 +282,15 @@ test('second owner turn: a changed client term sends the one-line proposal, not 
   assert.equal(asks.length, 1, `first owner ask expected: ${JSON.stringify(asks)}`);
   assert.match(asks[0], /Дали .*сè уште достап/u, `first ask is the full availability intro: ${asks[0]}`);
 
-  // Client proposes a DIFFERENT term while the owner check is in flight.
-  const s = await send('VO SABOTA VO 12:00');
+  // Client proposes a DIFFERENT term while the owner check is in flight. The
+  // term is a WEEKDAY: a Saturday/Sunday proposal is answered with the agency's
+  // working-hours protocol and never reaches the owner (the owner's standing
+  // rule, pinned in tests/owner-counter-and-working-hours.test.ts) — the
+  // changed-term relay contract this test owns is the same on a working day.
+  const s = await send('VO SREDA VO 12:00');
   assert.equal(s.state, 'owner_checking');
   assert.equal(asks.length, 2, `a second owner ask must go out: ${JSON.stringify(asks)}`);
-  assert.match(asks[1], /^Клиентот не е во можност за посета во .+\..*Има друг предлог: .*Сабота.*12:00.*Дали би Ви одговарал тој термин\?$/u, asks[1]);
+  assert.match(asks[1], /^Клиентот не е во можност за посета во .+\..*Има друг предлог: .*Среда.*12:00.*Дали би Ви одговарал тој термин\?$/u, asks[1]);
   assert.ok(!/Дали е сè уште достапна|Ве контактирам во врска/u.test(asks[1]), `the first-time intro must not repeat: ${asks[1]}`);
 });
 

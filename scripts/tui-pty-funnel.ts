@@ -772,7 +772,11 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
     // NOT read as fee agreement and the funnel stalls at the fee gate.
     await turn('DA, SE SOGLASUVAM', 'the fee agreement → the contact ask', /име|телефон|контакт/iu);
     await turn('ZORAN 078/914 196', 'the contact → the term ask', /термин|посета|часот/iu);
-    await turn('VO SABOTA VO 12:00', 'the first term → the owner is asked', /известам|потврдам/u);
+    // A WEEKDAY term, because a Saturday/Sunday proposal is answered with the
+    // agency's working-hours protocol and never reaches the owner (the owner's
+    // standing rule, pinned in tests/owner-counter-and-working-hours.test.ts).
+    // The owner-check ACK this step waits on is the working-day path.
+    await turn('VO VTORNIK VO 12:00', 'the first term → the owner is asked', /известам|потврдам/u);
     // The owner pane must hold the ASK, not its placeholder text.
     await session.waitForScreen(
       () => /сака посета|Клиентот/u.test(ownerPane()),

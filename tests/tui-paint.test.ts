@@ -24,7 +24,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'stream';
 import { buildLayout } from '../src/tui/layout';
-import { FramePainter, boxRows, markRowsWhole, screenRows, surfaceRows } from '../src/tui/paint';
+import { FramePainter, boxRows, markRowsWhole, screenRows, surfaceRows, paneAtBottom } from '../src/tui/paint';
 
 function makeScreen(cols = 80, rows = 24) {
   const input = new PassThrough(); (input as any).isTTY = true;
@@ -227,6 +227,32 @@ test('surface fallbacks and clamping hold before the first render', () => {
   assert.equal(screenRows(boxes.screen), 24);
   const clamped = boxRows(boxes.chatBox, [1, 99], 24);
   assert.ok(clamped.every(r => r >= 0 && r < 24), 'fallback rows are clamped, never emitted out of range');
+});
+
+// THE PAN CONTRACT (the [10:3x] field report: “it did not pan down with the last
+// message on the first screen; after PgDn it started panning”). blessed reports
+// 100 % only when the reader sits at the bottom of an OVERFLOWING pane; a pane
+// whose content FITS reports 0 %, so reading “>= 100” alone left the follow flag
+// latched false after one PgUp — PgDn could not re-arm it and new lines stopped
+// appearing until the content grew past the viewport. `paneAtBottom` is the ONE
+// reading of that state, used by both panes and by the PgUp/PgDn handlers.
+test('paneAtBottom: a pane that fits IS at its bottom, an overflowing one is not until scrolled', async () => {
+  const { boxes } = makeScreen(80, 24);
+  boxes.chatBox.setContent('краток разговор');
+  boxes.screen.render();
+  await tick();
+  assert.equal(boxes.chatBox.getScrollPerc(), 0, 'blessed reports 0 % for a pane that cannot scroll');
+  assert.equal(paneAtBottom(boxes.chatBox), true, 'a fitting pane shows its newest line already');
+
+  boxes.chatBox.setContent(Array.from({ length: 80 }, (_, i) => `линија ${i}`).join('\n'));
+  boxes.chatBox.setScrollPerc(0);
+  boxes.screen.render();
+  await tick();
+  assert.equal(paneAtBottom(boxes.chatBox), false, 'scrolled to the top of overflowing content');
+  boxes.chatBox.setScrollPerc(100);
+  boxes.screen.render();
+  await tick();
+  assert.equal(paneAtBottom(boxes.chatBox), true, 'at the bottom of overflowing content');
 });
 
 test('markRowsWhole flags exactly the rows it is given, and out-of-range rows are safe', () => {

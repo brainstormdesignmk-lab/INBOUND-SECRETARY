@@ -21,7 +21,7 @@ import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWIN
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
-import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate } from '../visits/time';
+import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, isWeekendTerm } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, descriptorPhrases, isStudio, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer, isSuterenUnit, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE, INFO_NO_YEAR_KEY, INFO_NO_RENOVATION_KEY } from '../llm/infoAnswer';
@@ -869,6 +869,14 @@ export function poiNameCoversClientWords(clientText: string, poiName: string, po
 // GREETING_ONLY_RE moved to deterministic.ts (shared with the pre-classify's
 // greeting ownership — the 15:12 TUI capture) and imported below.
 const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветна недвижност.';
+// THE AGENCY'S WORKING HOURS ARE A PROTOCOL, AND SHE KNOWS THEM (the owner's
+// standing rule, restated from the [10:33] capture): Monday–Friday 09:00–17:00,
+// visits inside the working week, Saturday and Sunday closed. Every place that
+// must state them — a client's hours question, a client's weekend term, the
+// owner asking whether we work Saturday — reads this ONE sentence, so the pilot
+// can never be told different hours in two turns.
+const AGENCY_HOURS_PROTOCOL =
+  'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.';
 // The owner CAN'T do the client's proposed time and gave NO alternative. Lina
 // must never fabricate a term ("по договор со сопственикот" was relayed as a
 // fake proposal the client was asked to accept — and an accept then fell back
@@ -5378,8 +5386,25 @@ export class InboundHandler {
             : srcHouse === true || yardWant ? !!p.house
               : srcHouse === false ? !p.business && !p.house && !p.plac
               : !p.business && !p.house && !p.plac;
+        // THE ROOM COUNT IS A CRITERION TOO (the [10:24] capture): «КОИ ТИ СЕ
+        // НАЈЕВТИНИ ДВОСОБНИ СТАНОВИ» served a ТРИСОБЕН in the lead — the lane
+        // filtered by category (flat/house/shop) and ignored the rooms the
+        // client had just named (the message's own count, else the funnel's).
+        const wantRooms = slots.bedrooms ?? session.slots.bedrooms;
+        const wantStudio = !!slots.garsonjera || (wantRooms === undefined && !!session.slots.garsonjera);
+        const roomOk = (p: Property): boolean => wantStudio
+          ? (p.studio === true || p.bedrooms === 1)
+          : wantRooms === undefined ? true
+            : p.studio === true ? wantRooms === 1 : p.bedrooms === wantRooms;
+        // A €/m² CEILING IS A CRITERION OF THE ASK (the [10:11] capture): the
+        // band the client set must hold in the cheapest/dearest listing too —
+        // «до 1500 евра за м²» then «најевтини двособни» is still the same
+        // search, not a licence to serve a 1.700 €/m² row.
+        const rateCap = session.slots.sqmRate;
+        const rateOk = (p: Property): boolean => rateCap === undefined
+          || (pricePerM2(p) !== undefined && (pricePerM2(p) as number) <= rateCap);
         const allRows = (await this.deps.properties.getAll()).filter(p =>
-          typeOk(p) && typeof p.price === 'number' && p.price > 0);
+          typeOk(p) && roomOk(p) && rateOk(p) && typeof p.price === 'number' && p.price > 0);
         const inScope = areaNames.length > 0
           ? areaNames.flatMap(a => rowsInArea(allRows, a))
           : allRows;
@@ -5399,13 +5424,28 @@ export class InboundHandler {
         const totalMode = q.total === true && val !== undefined
           && (segment === 'rent' || val >= 10000
             || rows.some(p => typeof p.price === 'number' && Math.abs(p.price - val) <= Math.max(1000, val * 0.05)));
+        // «НАЈЕВТИНИ» MEANS THE PRICE THE CLIENT PAYS (the [10:24] capture):
+        // the superlatives ranked a SALE batch by €/m², so «најeвтините
+        // двособни» led with a 95.000 € flat (1.234 €/m²) over a 57.000 € one
+        // (1.239 €/m²) and the intro still claimed «со најниска цена». A €/m²
+        // marker in the ask («по м²», «за квадрат») keeps the rate ranking; a
+        // plain superlative orders by the whole price.
+        const perM2Ask = /(?:\bza\s*m2|\bpo\s*m2|za\s*kvadrat|po\s*kvadrat|по\s*м2|за\s*м2|за\s*м²|по\s*м²|за\s*квадрат|по\s*квадрат)/iu.test(text);
+        // „СИТЕ / ШТО ИМА“ IS THE WHOLE LIST, not a superlative (the list keeps
+        // its documented €/m² order: ascending rate, five cards, queue behind).
+        const allAsk = /(?:^|[\s,.:;!?])(?:site|сите|sto\s+ima|што\s+има)(?![\p{L}\p{N}])/iu.test(text);
+        const priceOrdered = !perM2Ask && !allAsk
+          && (q.mode === 'cheapest' || q.mode === 'expensive');
         // €/m² comes from pricePerM2(): a sale row with no м² has NO metric and
         // is excluded from the ranking — never treated as price/1, which made a
-        // surface-less flat the permanent "most expensive".
-        const metric = (p: Property): number | undefined => totalMode
+        // surface-less flat the permanent "most expensive". A SALE row is only
+        // comparable inside a price ordering when its surface is on file (the
+        // [113] contract: a surface-less 500.000 € row is not "the dearest").
+        const metric = (p: Property): number | undefined => totalMode || priceOrdered
           ? p.price
           : segment === 'rent' ? p.price : pricePerM2(p);
         const rankable = rows
+          .filter(p => !(priceOrdered && segment === 'buy') || pricePerM2(p) !== undefined)
           .map(p => ({ p, m: metric(p) }))
           .filter((x): x is { p: Property; m: number } => typeof x.m === 'number');
         const fmtEur = (n: number): string => n >= 1000
@@ -5424,13 +5464,22 @@ export class InboundHandler {
         // „населба/naselba“ (ordinary cheapest asks keep their row listing)
         // and only where per-м² exists (buy): a rent rate is not a €/м² fact.
         const aggPluralNoun = slots.plac ? 'ПЛАЦОВИ' : slots.business ? 'ДЕЛОВНИ ОБЈЕКТИ' : slots.house ? 'КУЌИ' : 'СТАНОВИ';
+        // THE NASELBA COMPARISON IS A €/m² MEASUREMENT, whatever the listing
+        // orders by (the [13:47] capture): «најниска цена» now orders by the
+        // whole price, but «која населба има најевтини станови» compares the
+        // RATE per neighbourhood — averaging whole prices said «72.000 ПО
+        // МЕТАР КВАДРАТЕН». Its own ranking set, measured the same way the
+        // wording claims.
+        const perM2Rankable = rows
+          .map(p => ({ p, m: pricePerM2(p) }))
+          .filter((x): x is { p: Property; m: number } => typeof x.m === 'number');
         if (q.mode === 'cheapest'
           && /(?<![\p{L}\p{N}])(?:населб|naselb)\p{L}*/iu.test(text)
           && areaNames.length === 0
           && segment === 'buy'
-          && rankable.length > 0) {
+          && perM2Rankable.length > 0) {
           const byArea = new Map<string, { sum: number; n: number }>();
-          for (const x of rankable) {
+          for (const x of perM2Rankable) {
             const a = feedArea(x.p);
             if (!a) continue; // a row with no naselba cannot name one
             const g = byArea.get(a) ?? { sum: 0, n: 0 };
@@ -5449,7 +5498,7 @@ export class InboundHandler {
             // naselba's average is the pick (equidistant → the cheaper row);
             // served as EB + whole price + the €/м² figure, per the owner
             // template, and closed with the visit followup.
-            const nearAvg = rankable.filter(x => feedArea(x.p) === best.a)
+            const nearAvg = perM2Rankable.filter(x => feedArea(x.p) === best.a)
               .sort((u, v) => Math.abs(u.m - best.avg) - Math.abs(v.m - best.avg) || u.m - v.m)[0];
             // The pick is typed like the ask's own noun (стан / куќа /
             // деловен простор / плац) — the (type) of property the template
@@ -5479,12 +5528,13 @@ export class InboundHandler {
         // must serve ONE property, not a two-card list.
         const pluralAsk = /(?:naj(?:e|е)?(?:v|f)tin(?:i|ite)(?![\p{L}])|najskap(?:i|ite)(?![\p{L}])|нај(?:е)?(?:в|ф)тин(?:и|ите)(?![\p{L}])|најскап(?:и|ите)(?![\p{L}])|po(?:e|е)?(?:v|f)tin(?:ite|i)(?![\p{L}])|по(?:е)?(?:в|ф)тин(?:ите|и)(?![\p{L}])|(?:^|[\s,.:;!?])(?:site|сите|sto\s+ima|што\s+има)(?![\p{L}]))/iu.test(text);
         // THE CAP FOLLOWS THE ASK: „site/site stanovi/што има“ is the whole list
-        // (5 cards), a plural superlative a small batch (3), a singular exactly
-        // one. The old hard cap of two cut the list the client asked for.
-        const allAsk = /(?:^|[\s,.:;!?])(?:site|сите|sto\s+ima|што\s+има)(?![\p{L}\p{N}])/iu.test(text);
+        // (5 cards), a singular exactly one.
         const pluralListAsk = pluralAsk
           || ((q.mode === 'cheaper' || q.mode === 'dearer') && /(?:stanovi|станови|opcii|опции|kukji|куќи)/iu.test(text));
-        const limit = allAsk ? 5 : pluralListAsk ? 3 : 1;
+        // A PAIR, NOT A TRIPLET (the [10:20] capture / the owner's rule): every
+        // other serve in this funnel is a two-card pair, and three cards of the
+        // same list read as a dump. «СИТЕ» is still the whole list (5 + queue).
+        const limit = allAsk ? 5 : pluralListAsk ? 2 : 1;
         // ── DUAL-SERVICE PAIRED SERVE (the [12:33] capture) ──────────────────
         // Both budgets are on file («za kirija do 1000 evra» + «za kupuvanje
         // do 2000000») and the ask picked no segment: every serve is PAIRS —
@@ -12600,7 +12650,7 @@ ${contactReminder}`;
       // another time re-ask — the client asked something concrete first.
       if (detectWorkdaysQuestion(text)) {
         reply = pickVariant('workdays.question', { recent: assistantTexts(session) })
-          ?? 'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.';
+          ?? AGENCY_HOURS_PROTOCOL;
         bankKey = 'workdays.question';
       } else {
         reply = VISIT_TIME_QUESTION;
@@ -12636,10 +12686,23 @@ ${contactReminder}`;
         session.state = 'visit_scheduling';
         next = 'visit_scheduling';
       };
-      // Vague time guard: "попладне", "после 5", "pred 17:00" etc. are valid
-      // time intentions but too imprecise for the owner — stay in visit_scheduling
-      // and ask for the exact clock before proceeding.
-      if (t && detectVagueTime(t)) {
+      // A WEEKEND TERM IS NOT A TERM (the owner's standing rule, the [10:33]
+      // capture): the agency works Monday–Friday 09:00–17:00, so «САБОТА ВО 12»
+      // can never be checked with the owner — the client is told the working-
+      // hours protocol and asked for a working-day term instead. Without this
+      // the Saturday ask went to the owner («Клиентот сака посета: Сабота …»)
+      // and the funnel stalled on a day nobody can hold.
+      if (t && isWeekendTerm(t)) {
+        session.slots.visitTime = undefined;
+        session.slots.ownerClockDay = undefined;
+        session.state = 'visit_scheduling';
+        next = 'visit_scheduling';
+        reply = `${AGENCY_HOURS_PROTOCOL} ${VISIT_TIME_QUESTION}`;
+        bankKey = undefined;
+      } else if (t && detectVagueTime(t)) {
+        // Vague time guard: "попладне", "после 5", "pred 17:00" etc. are valid
+        // time intentions but too imprecise for the owner — stay in
+        // visit_scheduling and ask for the exact clock before proceeding.
         session.state = 'visit_scheduling';
         next = 'visit_scheduling';
         reply = pickVariant('vague.time', { recent: assistantTexts(session) })
@@ -12712,7 +12775,7 @@ ${contactReminder}`;
       // ignores the client's question entirely.
       if (detectWorkdaysQuestion(text)) {
         reply = pickVariant('workdays.question', { recent: assistantTexts(session) })
-          ?? 'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.';
+          ?? AGENCY_HOURS_PROTOCOL;
         bankKey = 'workdays.question';
       } else {
         // CLIENT WROTE WHILE THE CHECK IS IN FLIGHT — the same claim as the
@@ -14081,6 +14144,18 @@ ${contactReminder}`;
     // A QUESTION THAT PROPOSES IS A VERDICT: «MOZE VO SABOTA ?» / «PETOK VO 6 ?»
     // are the owner answering with an alternative — never answered here.
     if (detectOwnerVerdict(text, session.slots.visitTime ?? '')) return undefined;
+    // «ВО САБОТА РАБОТИТЕ ?» IS ABOUT OUR HOURS (the [10:33] capture): the owner
+    // is weighing a weekend viewing, and answering him with «Прашав дали Ви
+    // одговара посета во Петок … Дали е слободен тој термин?» repeats the ask he
+    // is trying to answer. He gets the agency's protocol, then the ask again —
+    // the same copy every other surface uses.
+    if (detectWorkdaysQuestion(text)) {
+      session.state = 'owner_checking';
+      const hoursAsk = `${AGENCY_HOURS_PROTOCOL} ${askAgain}`;
+      this.rememberOwnerLine(chatId, hoursAsk);
+      if (eb !== undefined) this.armOwnerCheck(session, eb, hoursAsk);
+      return hoursAsk;
+    }
     // «IS THAT TODAY?» — answered with the fact, never by echoing his word.
     if (/(?<![\p{L}])(?:denes|deneska|dnes|today|денес|денеска)(?![\p{L}])/iu.test(text) && shownTerm) {
       const at = parseVisitDateTime(term);
@@ -14462,6 +14537,27 @@ ${contactReminder}`;
     } catch { /* the audit must never break the relay */ }
   }
 
+  /** THE OWNER-FACING ASK IS NOT A CLIENT RELAY (the [10:33] capture). A
+   *  counter that re-asks the OWNER («кој час Ви одговара?», «во сабота не
+   *  работиме») used to ride logOwnerExchange, so the operator pane printed
+   *  «пренесено на клиентот: …» for a sentence the client never received — the
+   *  single most confusing line in the field log. The row is still logged for
+   *  the judge; only the client mirror is skipped, because there was no relay. */
+  private logOwnerAskLine(session: ChatSession, eb: number, verdict: OwnerVerdict, ownerText: string): void {
+    if (!this.deps.enrichment) return;
+    try {
+      this.deps.enrichment.insert({
+        chatId: session.chatId,
+        state: session.state,
+        eventType: 'OWNER_ASK',
+        userMsg: `[owner:${eb}] ${verdict.status}${verdict.ownerTime ? ` @ ${verdict.ownerTime}` : ''}`,
+        replyText: ownerText,
+        replySource: 'owner-relay',
+        bankKey: `owner.reask:${verdict.status}`,
+      });
+    } catch { /* the audit must never break the ask */ }
+  }
+
   /** A DAY-LESS OWNER CLOCK RESOLVES TO ITS NEXT OCCURRENCE (the [13:16/13:20]
    *  capture): when NEITHER party named a day, the owner's «после 6» still has
    *  to reach the client as a concrete term — re-asking for a day he never had
@@ -14690,6 +14786,23 @@ ${contactReminder}`;
         await this.sendRaw(session, dayRelay);
         return undefined;
       }
+      // THE WORKING WEEK APPLIES TO THE OWNER'S PROPOSAL TOO (the owner's own
+      // rule, the [10:33] capture «ВО САБОТА РАБОТИТЕ ?»): the agency works
+      // Monday–Friday 09:00–17:00, so a Saturday/Sunday counter is not a term
+      // the client could ever take. He is told the working-hours protocol and
+      // asked for a working-day term; nothing reaches the client, and the check
+      // stays armed so his next sentence still lands on the funnel.
+      if (isWeekendTerm(ownerTerm)) {
+        session.state = 'owner_checking';
+        this.ownerAltTimeAsks.delete(session.chatId);
+        const weekendAsk = `Во сабота и недела не работиме — посетите ги организираме од понеделник до петок, од 09:00 до 17:00 часот. Кој работен ден и час Ви одговараат за посетата?`;
+        this.onOwnerAsk?.(session.chatId, eb, weekendAsk);
+        this.rememberOwnerLine(session.chatId, weekendAsk);
+        this.logOwnerAskLine(session, eb, { ...verdict, ownerTime: undefined }, weekendAsk);
+        this.deps.sessions.set(session);
+        this.armOwnerCheck(session, eb, weekendAsk);
+        return weekendAsk;
+      }
       // THE VISIT WINDOW APPLIES TO THE OWNER'S PROPOSAL TOO: viewings are made
       // 09:00–21:00, so a counter outside it («во 8 наутро», «во 22:00») is not
       // a term the client could ever take. Ask the owner for a time INSIDE the
@@ -14737,7 +14850,7 @@ ${contactReminder}`;
           // the ACK and must never read owner-facing copy.
           this.onOwnerAsk?.(session.chatId, eb, vagueAsk);
           this.rememberOwnerLine(session.chatId, vagueAsk);
-          this.logOwnerExchange(session, eb, verdict, vagueAsk);
+          this.logOwnerAskLine(session, eb, verdict, vagueAsk);
           this.deps.sessions.set(session);
           this.armOwnerCheck(session, eb, vagueAsk);
           return vagueAsk;
