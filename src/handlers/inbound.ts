@@ -981,9 +981,46 @@ function searchGeo(slots: ChatSession['slots']): string {
  *  The difference between «Тоа е сè што имав …» (he saw the category and it ran
  *  out) and «Моментално во системот нема …» (the system does not hold it). A
  *  geography with no notebook at all means nothing has been shown here yet. */
-function servedTierHere(slots: ChatSession['slots'], rooms: number[]): boolean {
+function servedTierHere(slots: ChatSession['slots'], rooms: number[] | undefined): boolean {
   if (slots.categoriesServedGeo !== searchGeo(slots)) return false;
+  // THE TYPES WITHOUT A ROOM COUNT read the parallel note (the [05:13]
+  // capture): «куќа/плац/деловен простор/гарсоњера» have no tier, so the room
+  // notebook could never say they were shown — and the absence sentence
+  // claimed the SYSTEM holds no house while the house card was on the screen.
+  if (rooms === undefined) {
+    const kind = slots.business ? 'business' : slots.plac ? 'plac'
+      : slots.house ? 'house' : slots.garsonjera ? 'garsonjera' : undefined;
+    return kind !== undefined && (slots.categoriesServedKinds ?? []).includes(kind);
+  }
   return rooms.some(r => (slots.categoriesServed ?? []).includes(r));
+}
+
+/** THE SYSTEM-LEVEL TRUTH: has a card of this tier/type EVER been served in this
+ *  chat, in ANY geography? «Моментално во системот нема куќи до 250 евра» is a
+ *  claim about the whole system, so a single house card anywhere refutes it —
+ *  the geography-scoped notebook (servedTierHere) only decides between «drained
+ *  here» and «nothing here yet». Without this, a widen that clears `location`
+ *  retired the notebook and the very next turn told the client the system holds
+ *  no houses while EB 50 was in his history (the [05:13] class). */
+function servedEver(slots: ChatSession['slots'], rooms: number[] | undefined): boolean {
+  if (rooms === undefined) {
+    const kind = slots.business ? 'business' : slots.plac ? 'plac'
+      : slots.house ? 'house' : slots.garsonjera ? 'garsonjera' : undefined;
+    return kind !== undefined && (slots.categoriesEverKinds ?? []).includes(kind);
+  }
+  return rooms.some(r => (slots.categoriesEver ?? []).includes(r));
+}
+
+/** HAS THE MONEY QUESTION BEEN ASKED YET? The visit gate's pre-closing states
+ *  open the fee lane on a bare wish to see; once the fee is on the table (or a
+ *  resistance round was spent, or the client agreed) the LADDER owns repeated
+ *  visit words — reopening `fee.ask` there is the re-disclosure bug, and a
+ *  spent refusal round must reach contact collection exactly as the closing
+ *  visit-command leg does (the 21:05b contract, tests/stuck.test.ts). */
+function feeAlreadyHandled(session: ChatSession): boolean {
+  return session.slots.viewingFeeAgreed === true
+    || session.slots.feeDisclosed === true
+    || (session.slots.feeRejections ?? 0) >= 1;
 }
 
 /** «една спална» / «две спални» — the spoken bedroom count of ROOMS (the slot
@@ -12203,9 +12240,19 @@ ${contactReminder}`;
           // asked for went nowhere. The deterministic intent opens the money
           // ladder exactly like a visit request does.
           || ((detectVisitInterest(text) || detectProceedAfterCheck(text))
-            && ['idle', 'intent', 'discovery', 'presentation', 'property_query', 'property_locate'].includes(before)))
+            && ['idle', 'intent', 'discovery', 'presentation', 'property_query', 'property_locate'].includes(before))
+          // …AND CLOSING BEFORE THE FEE WAS EVER NAMED (the [05:13] capture):
+          // «КУЌАВА САКАМ ДА ЈА ВИДАМ» arrived while the chat sat in closing (the
+          // fee question had been framed but NOT disclosed), and the gate's
+          // `before !== 'closing'` sent the turn to the SEARCH leg, which
+          // answered «нема куќи до 250 евра месечно во Центар» about the house
+          // card on the screen. Once the fee HAS been disclosed the ladder owns
+          // repeated visit words (re-disclosure is its own bug), so this arm
+          // only opens the money lane the first time.
+          || ((detectVisitInterest(text) || detectProceedAfterCheck(text))
+            && before === 'closing' && !feeAlreadyHandled(session)))
         && (ev.type === 'INTERESTED' || detectVisitInterest(text) || detectProceedAfterCheck(text))
-        && before !== 'closing'
+        && (before !== 'closing' || !feeAlreadyHandled(session))
         && !session.slots.viewingFeeAgreed
         && !detectVisitTimingQuestion(text) // belt-and-braces: the confirm-ask leg above owns timing questions
         && (!detectAvailabilityAsk(text) || detectProceedAfterCheck(text))
@@ -12232,6 +12279,10 @@ ${contactReminder}`;
         // населба/квадрати/цена of the flat he was looking at. A wish to SEE,
         // with a flat bound, is the money lane from any intake state.
         && (before === 'property_query' || before === 'presentation' || before === 'discovery'
+          // CLOSING BEFORE THE FIRST DISCLOSURE — the sibling of the arm above:
+          // the state gate must agree with the branch gate, or the visit wish
+          // still falls to the search leg (the [05:13] replay).
+          || (before === 'closing' && !feeAlreadyHandled(session))
           || (before === 'property_locate'
             && (session.slots.propertyId !== undefined
               || session.slots.interestedPropertyId !== undefined
@@ -12286,6 +12337,14 @@ ${contactReminder}`;
         session.state = before;
       } else {
         if (visitEb !== undefined) session.slots.interestedPropertyId = visitEb;
+        // THE DISCLOSURE SUPERSEDES THE PENDING PERMISSION (the 21:05b contract,
+        // pinned in tests/stuck.test.ts): an availability ack arms
+        // `ownerContactPending`, and the fee turn must clear it — otherwise the
+        // next turn still reads the chat as «permission granted, fee unknown»
+        // and the owner gate can fire before the money question is answered.
+        // The sibling leg at closing (the visit command) already does this;
+        // this lane was reachable first and skipped it.
+        session.slots.ownerContactPending = false;
         session.state = 'closing';
         const service = session.slots.service ?? visitTarget?.service ?? props[0]?.service ?? 'buy';
         const fee = pickVariant(service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
@@ -12859,9 +12918,19 @@ ${contactReminder}`;
         // сите опции …»): «нема во системот» over a category he was shown is
         // the same lie in the other direction.
         const rooms = requestedRooms(session.slots);
+        // `servedTierHere` is the ONE truth switch, for every category and for
+        // every entry shape (the [05:13] capture):
+        //   • `rooms === undefined` was a synonym for «never shown», so a HOUSE
+        //     search could never be drained — the empty pool (the shown card is
+        //     excluded from it) became «Моментално во системот нема куќи до 250
+        //     евра во Центар» about the card still on the screen;
+        //   • `areaRequested` forced the same claim for a place the client just
+        //     named, even when this geography's card of that category WAS shown.
+        // The notebook already keys on geography (location + place anchor), so a
+        // genuinely new place starts empty by construction — the other two
+        // disjuncts only ever turned a drained search into an empty-system lie.
         const noStock = noStockLine(session.slots,
-          before === 'discovery' || areaRequested
-          || rooms === undefined || !servedTierHere(session.slots, rooms));
+          !servedTierHere(session.slots, rooms) && !servedEver(session.slots, rooms));
         reply = !this.deps.properties.healthy
           ? FEED_UNAVAILABLE_LINE
           : noStock
@@ -13264,8 +13333,12 @@ ${contactReminder}`;
           // sentence is the drained one, never a claim about the system.
           const rooms = requestedRooms(session.slots);
           const shownHere = (session.slots.presentedIds?.length ?? 0) > 0;
+          // The system claim needs BOTH notebooks empty (see servedEver):
+          // `rooms === undefined` is a statement about the TIER, not about the
+          // system, and a retire-on-area-change must not reopen the claim.
           const noStock = noStockLine(session.slots,
-            !shownHere && (rooms === undefined || !servedTierHere(session.slots, rooms)));
+            !shownHere && !servedTierHere(session.slots, rooms)
+            && !servedEver(session.slots, rooms));
           reply = !this.deps.properties.healthy
             ? FEED_UNAVAILABLE_LINE
             : (session.slots.propertyId != null
@@ -15548,6 +15621,7 @@ ${contactReminder}`;
     session.slots.categoryDrainedTold = undefined;
     // A new money split is a new serve: nothing of it has been on the table yet.
     session.slots.categoriesServed = undefined;
+    session.slots.categoriesServedKinds = undefined;
     // A pair TOTAL (slots.countBudget) is a different money rule — it must
     // never ride a per-category split, or every single card is capped twice.
     session.slots.countBudget = undefined;
@@ -15963,7 +16037,11 @@ ${contactReminder}`;
     const geo = searchGeo(session.slots);
     if (session.slots.categoriesServedGeo !== geo) {
       session.slots.categoriesServedGeo = geo;
+      // BOTH notebooks are per-geography — retire them together, or a house
+      // served downtown would make an empty search across town read as drained
+      // (the kinds note is the roomless twin of `categoriesServed`).
       session.slots.categoriesServed = undefined;
+      session.slots.categoriesServedKinds = undefined;
     }
     return new Set<number>(session.slots.categoriesServed ?? []);
   }
@@ -15977,6 +16055,31 @@ ${contactReminder}`;
     const seen = this.categoriesOnTable(session);
     for (const p of batch) if (typeof p.bedrooms === 'number') seen.add(p.bedrooms);
     session.slots.categoriesServed = [...seen];
+    // THE SAME NOTE FOR THE TYPES WITHOUT ROOMS — a house/plot/shop/гарсоњера
+    // card on the table is a fact the absence sentence must read (see
+    // servedTierHere). Kept beside the room note, under the same geography key.
+    const kinds = new Set<string>(session.slots.categoriesServedKinds ?? []);
+    for (const p of batch) {
+      if (p.business) kinds.add('business');
+      else if (p.plac) kinds.add('plac');
+      else if (p.house) kinds.add('house');
+      else if (p.studio) kinds.add('garsonjera');
+    }
+    session.slots.categoriesServedKinds = kinds.size > 0 ? [...kinds] : undefined;
+    // THE CHAT-WIDE TWIN (see servedEver): never retired by an area change, so
+    // the «во системот нема» sentence stays unavailable once anything like it
+    // was served. Rooms and roomless kinds both.
+    const everRooms = new Set<number>(session.slots.categoriesEver ?? []);
+    for (const p of batch) if (typeof p.bedrooms === 'number') everRooms.add(p.bedrooms);
+    session.slots.categoriesEver = everRooms.size > 0 ? [...everRooms] : undefined;
+    const everKinds = new Set<string>(session.slots.categoriesEverKinds ?? []);
+    for (const p of batch) {
+      if (p.business) everKinds.add('business');
+      else if (p.plac) everKinds.add('plac');
+      else if (p.house) everKinds.add('house');
+      else if (p.studio) everKinds.add('garsonjera');
+    }
+    session.slots.categoriesEverKinds = everKinds.size > 0 ? [...everKinds] : undefined;
   }
 
   /** The all-categories-drained sentence: no stock left for EITHER category in

@@ -79,6 +79,22 @@ export interface SlotData {
    *  out) and «Моментално во системот нема» (the category was never on the
    *  table at all). */
   categoriesServed?: number[];
+  /** THE TYPES this chat has SERVED a card of in this geography — the same
+   *  notebook for the categories that carry no room count (куќа/плац/деловен
+   *  простор/гарсоњера). Without it a house search could never be «drained»:
+   *  `rooms === undefined` meant «never served here», so a repeat search told
+   *  the client «Моментално во системот нема куќи до 250 евра во Центар» about
+   *  the house card still on his screen (the [05:13] capture). */
+  categoriesServedKinds?: string[];
+  /** THE SAME NOTE WITHOUT THE GEOGRAPHY LIMIT — «has this chat ever seen a card
+   *  of this room tier / this type AT ALL?». «Моментално во системот нема …» is
+   *  a claim about the WHOLE system, so any card ever served in this chat
+   *  refutes it, however the area moved since (a widen clears `location`, which
+   *  retires the geography-scoped notebook and used to reopen the system
+   *  claim). «Тоа е сè што имав» needs the scoped note; this one guards the
+   *  stronger sentence. */
+  categoriesEver?: number[];
+  categoriesEverKinds?: string[];
   /** The GEOGRAPHY `categoriesServed` belongs to (location + place anchor).
    *  «Was this category ever on the table?» is a question about THIS search: a
    *  pair served in Центар says nothing about the stock around a landmark the

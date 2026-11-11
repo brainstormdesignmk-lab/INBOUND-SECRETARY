@@ -252,6 +252,67 @@ test('a wish to see with NO flat bound asks which flat — it never charges for 
   assert.equal(state.slots.interestedPropertyId, undefined, 'no flat may be invented');
 });
 
+test('[05:13] the visit wish in closing (fee not yet disclosed) serves the fee, never a search', async () => {
+  const { turn, seedLocate, sessions } = makeHandler();
+  const s = seedLocate('closing-wish');
+  s.state = 'closing';
+  s.slots.budget = '250';
+  s.slots.location = 'Центар';
+  sessions.set(s);
+
+  const { answer, state } = await turn('closing-wish', 'КУЌАВА САКАМ ДА ЈА ВИДАМ');
+  assert.match(answer, /300 денари|5 евра/u, `the fee is disclosed: ${answer}`);
+  assert.ok(!/во системот нема/u.test(answer), `never a stock denial about the card on screen: ${answer}`);
+  assert.equal(state.state, 'closing', `the fee lane owns the turn: ${state.state}`);
+  assert.equal(state.slots.interestedPropertyId, 50, 'the house he pointed at is the subject');
+});
+
+// ── 5b. AN EMPTY POOL IS NOT AN EMPTY SYSTEM ──────────────────────────────
+// The field turn was «КУЌАВА САКАМ ДА ЈА ВИДАМ» answered with «Моментално во
+// системот нема куќи до 250 евра месечно во Центар» — about the house card on
+// the screen. Two siblings share the cause: the roomless categories had no
+// notebook at all, and the geography-scoped notebook was retired by an area
+// change. Both are swept here over the REAL pipeline (serving the card first).
+async function serveHouse(chatId: string, turn: (id: string, t: string) => Promise<{ answer: string; state: any }>) {
+  const search = await turn(chatId, 'БАРАМ КУЌА ЗА ИЗНАЈМУВАЊЕ ДО 250 ЕВРА ВО ЦЕНТАР');
+  // The funnel may ask for the room count first — a house answers it with a
+  // waive («небитно»), which is how the field chat got to the card.
+  const served = /Евидентен број/iu.test(search.answer)
+    ? search
+    : await turn(chatId, 'НЕБИТНО КОЛКУ СОБИ');
+  assert.match(served.answer, /Евидентен број 50/u, `the EB 50 card must be served: ${served.answer}`);
+  return served;
+}
+
+test('a repeat HOUSE search over the shown card never claims the system has none', async () => {
+  const { turn } = makeHandler();
+  await serveHouse('drained-house', turn);
+
+  // Same area named again: this is the DRAINED shape.
+  const here = await turn('drained-house', 'имаш ли уште куќи во Центар до 250 евра');
+  assert.ok(!/во системот нема|нема\s+куќи\s+до/iu.test(here.answer),
+    `a served category is never announced as absent from the system: ${here.answer}`);
+  assert.match(here.answer, /прошириме|друг\p{L}*(?:\s+\p{L}+){0,2}\s+(?:населб|локаци|дел)|исцрпивме/iu,
+    `the honest widen ask: ${here.answer}`);
+  assert.ok(/\?\s*$/.test(here.answer), `the turn asks the client: ${here.answer}`);
+});
+
+test('an AREA CHANGE does not reopen the system claim about a category already served', async () => {
+  const { turn, sessions } = makeHandler();
+  await serveHouse('drained-wide', turn);
+
+  // No area named: the widen lane clears `location`, which retires the
+  // geography-scoped notebook. The «во системот нема» sentence is a claim about
+  // the whole system, so the chat-wide note must still refuse it.
+  const city = await turn('drained-wide', 'имаш ли уште куќи до 250 евра');
+  const st = sessions.get('drained-wide')!;
+  assert.equal(st.slots.location, undefined, 'the widen cleared the area (the premise)');
+  assert.ok(!/во системот нема/iu.test(city.answer),
+    `the system claim needs an EMPTY history, not an empty geography: ${city.answer}`);
+  assert.deepEqual(st.slots.categoriesEverKinds, ['house'],
+    'the chat-wide notebook survives the area change');
+});
+
 // ── 6. WHO PAYS THE LAWYER AND THE NOTARY ──────────────────────────────────
 test('[05:17] a bare «АДВОКАТ НОТАР ?» is the legal-cost question, not the flat', async () => {
   // The detector: the cost item is the subject — a pay verb is not required.
