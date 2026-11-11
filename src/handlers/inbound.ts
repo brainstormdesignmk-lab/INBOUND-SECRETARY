@@ -233,6 +233,41 @@ const PLACE_CONNECTORS = new Set([
   'na', 'vo', 'od', 'do', 'za', 'so', 'i', 'u', 'kaj', 'sproti',
   'of', 'the', 'in', 'at', 'and', 'to',
 ]);
+
+/** THE CITY CLASS OF A MAP ROW — a city/municipality/region row is GEOGRAPHY,
+ *  never a landmark a client navigates by.
+ *
+ *  THE [09:50] CAPTURE: «МИ ТРЕБА СТАН ЗА КУПУВАЊЕ ВО СКОПЈЕ, БИДЕЈЌИ СУМ ОД
+ *  ДРУГ ГРАД» — the map holds a POI row literally named «Скопје» (osm type
+ *  `city`, at the city centroid), the landmark resolver bound it as an anchor,
+ *  its centroid derived the district «Центар» (areaAtPlace), and the funnel
+ *  therefore believed the AREA was answered: the client was never asked which
+ *  neighbourhood of Skopje he wants, and the batch went out as «Еве ги
+ *  најблиските опции до Скопје» with cards «890 m од Скопје» — a city measured
+ *  like a shopping centre. */
+const CITY_LEVEL_POI_TYPES = new Set([
+  'city', 'town', 'municipality', 'administrative', 'region', 'county', 'state', 'country',
+]);
+
+/** True when the map row IS the city/region (geography), not a place inside it.
+ *  The row's own OSM class is the ONE truth here (the name is not: the map also
+ *  carries a hotel and a bus station called «Скопје», which are real landmarks
+ *  when the client names them as such). */
+export function isCityLevelPlace(type?: string | null): boolean {
+  return CITY_LEVEL_POI_TYPES.has((type ?? '').trim().toLowerCase().replace(/\s+/gu, ' '));
+}
+
+/** Is the client's own mention NOTHING BUT the city's name? («Скопје»,
+ *  «во Скопје», «Vo Skopje».) Those words are the SCOPE of the search, not a
+ *  landmark in it — binding the map's city row made the city an anchor, derived
+ *  the district from its centroid and skipped the area question (the [09:50]
+ *  capture above). The test is on the CLIENT's words rather than the row name,
+ *  so «ХОТЕЛ СКОПЈЕ» and «Скопје Сити Мол» still bind their real rows: only a
+ *  mention that is the city alone is refused. */
+function namesOnlyTheCity(name: string): boolean {
+  const words = toLatin(name).toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean);
+  return words.length > 0 && words.every(w => PLACE_CITY_WORDS.has(w) || PLACE_CONNECTORS.has(w));
+}
 const PLACE_REFERENCE_TAIL = new Set([
   'skoloto', 'skolata', 'skolo', 'школото', 'школата', 'школо',
   'ucilisteto', 'uciliste', 'училиштето', 'училиште',
@@ -1757,7 +1792,10 @@ export class InboundHandler {
       const hit = descriptorPhrases(sig.descriptor)
         .filter(p => p.trim().length >= MIN_POI_DESCRIPTOR)
         .map(p => this.landmarks?.findPlace(p))
-        .find(h => !!h);
+        // A CITY ROW IS NOT THE FLAT'S NEIGHBOURHOOD (the [09:50] family): the
+        // descriptor pass may fuzz onto «Скопје» and sign off a mention bind on
+        // a landmark the client never meant.
+        .find(h => !!h && !isCityLevelPlace(h.type));
       if (hit) poi = { name: hit.name, lat: hit.lat, lon: hit.lon };
     }
     // «ТАМУ» IS THE PLACE WE WERE JUST TALKING ABOUT (the [20:47] capture):
@@ -2289,6 +2327,31 @@ export class InboundHandler {
     return explicitSeenRecall;
   }
 
+  /** FORGET A CITY ANCHOR AN OLD SESSION STILL HOLDS (see processMessage).
+   *
+   *  A city is not a landmark (the [09:50] capture — see isCityLevelPlace), but
+   *  sessions persisted before that rule can still carry `poiAnchor: 'Скопје'`
+   *  together with the district `areaAtPlace()` invented from its centroid. The
+   *  anchor resolves to the map's `city` row, so it is dropped here once, and
+   *  the derived area goes with it (only when it IS the derived one — a district
+   *  the client named himself is his own answer and stays). */
+  private dropCityAnchor(session: ChatSession): void {
+    const anchor = session.slots.poiAnchor;
+    if (!anchor || !this.landmarks) return;
+    const row = this.landmarks.findPlace(anchor);
+    if (!row || !isCityLevelPlace(row.type)) return;
+    const derived = !!session.slots.poiArea && session.slots.poiArea === session.slots.location;
+    session.slots.poiAnchor = undefined;
+    session.slots.poiArea = undefined;
+    session.slots.poiPlaces = undefined;
+    session.slots.pairAnchorOf = undefined;
+    session.slots.pairAlsoNearOf = undefined;
+    session.slots.poiWidenScope = undefined;
+    session.slots.poiNearestM = undefined;
+    session.slots.poiNearestId = undefined;
+    if (derived) session.slots.location = undefined;
+  }
+
   /** The place the client named, as a CARD anchor: the ONE place whose measured
    *  distance belongs on every card of a batch served around it. Undefined when
    *  no anchor is on file or the map cannot place it — a card never states a
@@ -2297,7 +2360,10 @@ export class InboundHandler {
     const name = session.slots.poiAnchor;
     if (!name || !this.landmarks) return undefined;
     const place = this.landmarks.findPlace(name);
-    if (!place) return undefined;
+    // A PERSISTED CITY ANCHOR MEASURES NOTHING (the [09:50] capture): a session
+    // stored before the city veto can still hold «Скопје», and a card must never
+    // carry «890 m од Скопје». The row-type guard is the one truth for that.
+    if (!place || isCityLevelPlace(place.type)) return undefined;
     return { name: displayPlaceName(name), lat: place.lat, lon: place.lon };
   }
 
@@ -2942,6 +3008,10 @@ export class InboundHandler {
     // grammar tail before it («вас на сајт») decided the geography instead.
     // Junk of that length is now refused by the map's own generic-word veto.
     if (!this.landmarks || clean.length < 3) return undefined;
+    // A CITY IS NOT A PLACE ON THE MAP (the [09:50] capture): «во Скопје» names
+    // the city the search is IN, so no anchor may be bound from it. The area
+    // question therefore stays open and the funnel asks which neighbourhood.
+    if (namesOnlyTheCity(clean)) return undefined;
     // A COLLOQUIAL NAME the map's own alias table knows («ВОЕНА БОЛНИЦА» IS the
     // ГОБ „8 Септември“ — the old military hospital) is answered BY THAT NAME.
     // It is not a similarity guess, so the word-coverage guard below (which
@@ -2949,7 +3019,7 @@ export class InboundHandler {
     const official = officialPlaceName(clean);
     if (official) {
       const aliased = this.landmarks.findPlace(official);
-      if (aliased) return aliased;
+      if (aliased && !isCityLevelPlace(aliased.type)) return aliased;
       // The colloquial name is KNOWN to mean ANOTHER place, and that place is
       // not on the map. Falling through to the fuzzy passes here answered the
       // shared word («воена») with «Воена академија Генерал Михаило
@@ -2967,7 +3037,7 @@ export class InboundHandler {
     for (const [re, canonical] of PLACE_CANON) {
       if (!re.test(genericKey)) continue;
       const canon = this.landmarks.findPlace(canonical);
-      if (canon) return canon;
+      if (canon && !isCityLevelPlace(canon.type)) return canon;
     }
     const variants = (s: string): string[] => [s, translitToLatin(s), toCyrillic(s)];
     // CLAUSE PREFIXES: the extractor's capture is greedy, so a landmark typed
@@ -3011,6 +3081,11 @@ export class InboundHandler {
     let refused: string | undefined;
     for (const t of tries) {
       const hit = this.landmarks.findPlace(t);
+      // A CITY ROW IS GEOGRAPHY, NOT A LANDMARK (the [09:50] capture — see
+      // isCityLevelPlace). The words may reach a city row through any pass
+      // («VO SKOPJE» from the extractor's tail), and an anchor built on it
+      // measures every card from the city centroid.
+      if (hit && isCityLevelPlace(hit.type)) continue;
       // UNMENTIONED-WORD GUARD (the [10:28] capture): findPlace is a FUZZY
       // lookup, so an area the client named came back as the BUSINESS whose
       // name merely contains it — "kaj vas vo novo lisice" resolved to the post
@@ -3041,7 +3116,7 @@ export class InboundHandler {
       if (map?.findPoisByName) {
         for (const t of tries) {
           const cands = map.findPoisByName(t, 8);
-          const ok = cands.find(c => poiNameCoversClientWords(clean, c.name, c.type));
+          const ok = cands.find(c => !isCityLevelPlace(c.type) && poiNameCoversClientWords(clean, c.name, c.type));
           if (ok) return ok;
         }
       }
@@ -3052,7 +3127,7 @@ export class InboundHandler {
     // never bind a different place: «Карош 1» reaches «Карпош», «Шпарасе»
     // reaches «Шпаркасе», while «KAM»/«KAN» and any tie stay a MISS.
     const loose = this.landmarks.findPlaceLoose ? this.landmarks.findPlaceLoose(clean) : undefined;
-    if (loose && poiNameCoversClientWords(clean, loose.name, loose.type)) return loose;
+    if (loose && !isCityLevelPlace(loose.type) && poiNameCoversClientWords(clean, loose.name, loose.type)) return loose;
     // TELEMETRY (never throws, day-rotated JSONL): a place the client named and
     // the map could not accept. Read it weekly with scripts/place-misses.ts and
     // add the words that repeat — that is how the next CITY MOL is found before
@@ -3734,6 +3809,12 @@ export class InboundHandler {
     // any early return that reaches the cheaper-search batch presentation.
     this.lastUserText = text;
     let session = this.deps.sessions.get(chatId) ?? freshSession(channel, chatId);
+    // A SESSION STORED BEFORE THE CITY VETO CAN HOLD A CITY AS ITS ANCHOR (the
+    // [09:50] capture): the row «Скопје» was bound as a landmark and its
+    // centroid derived a district, so the poisoned session would keep measuring
+    // cards from the city and area-locking the search to that invented district
+    // for the rest of the chat. Clear it once, at the turn boundary.
+    this.dropCityAnchor(session);
     // THE TYPE LOCK for this turn: every pool built below inherits the type the
     // client chose (see categoryLock). Installed here, once, so no lane can
     // serve another category — a studio under a house ask, an office under a
@@ -6032,7 +6113,10 @@ export class InboundHandler {
         if (placeCandidate && this.landmarks) {
           const hit = this.landmarks.findPlace(placeCandidate,
             poiProp.lat != null && poiProp.lon != null ? { lat: poiProp.lat, lon: poiProp.lon } : undefined);
-          if (hit) {
+          // «ДА НЕ Е ВО СКОПЈЕ?» ASKS ABOUT THE CITY, NOT ABOUT A LANDMARK (the
+          // [09:50] family): a city row is not a distance claim — answering
+          // «Да, директно до Скопје» is the same defect one lane over.
+          if (hit && !isCityLevelPlace(hit.type) && !namesOnlyTheCity(placeCandidate)) {
             const d = poiProp.lat != null && poiProp.lon != null
               ? Math.round(distM(poiProp.lat, poiProp.lon, hit.lat, hit.lon))
               : null;
@@ -15936,6 +16020,16 @@ ${contactReminder}`;
     // bedrooms ask waived the size before the funnel had asked anything.
     const askedBedrooms = askedCriteria.includes('bedrooms');
     const askedArea = askedCriteria.includes('area');
+    // THE WHOLE CITY IS AN ANSWER TO «КОЈ ДЕЛ?» (the [09:50] capture, second
+    // half). A client from another city has no neighbourhood in mind, so when
+    // the area question is answered with the CITY again — «ВО СКОПЈЕ»,
+    // «СКОПЈЕ» — the funnel used to re-ask «кој дел од градот?» forever (four
+    // rotations in the probe), the ping-pong the owner hates. A city-only
+    // mention answers an AREA question exactly like «било каде»: the search is
+    // city-wide, ordered from the most popular neighbourhoods. On the FIRST
+    // message it is not an answer to anything — that is why the rule reads the
+    // question actually asked (askedCriteria) instead of the words alone.
+    if (askedArea && !askedBedrooms && namesOnlyTheCity(rawText)) session.slots.anywhere = true;
     const bareDismissal = detectBareCriterionDismissal(rawText);
     if (ev.anywhere && bareDismissal) {
       // «НЕБИТНО» AFTER A BATCH IS NOT AN AREA RELEASE (the [23:51] capture):
