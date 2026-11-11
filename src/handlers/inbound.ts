@@ -12528,12 +12528,30 @@ ${contactReminder}`;
       // штом потврдам» and never asked the owner anything — a promise with
       // nobody behind it. The batch tail is the same subject the cards on
       // screen show, so it is read here (and pinned as the interested flat).
-      const eb = session.slots.interestedPropertyId ?? session.slots.propertyId
-        ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
-        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
-        ?? 0;
-      if (eb) session.slots.interestedPropertyId = eb;
-      const t = session.slots.visitTime ?? '';
+      const { eb, t } = this.ownerCheckSubject(session);
+      // THE PROMISE NEEDS A PENDING ASK BEHIND IT (the [05:23]–[05:53] capture,
+      // second half): «Ќе Ве известам штом потврдам» AND «Терминот сè уште го
+      // проверувам со сопственикот» were both served with NOBODY asked — once
+      // because no flat was bound anywhere, once because the pending check had
+      // been consumed while the funnel still waited. Every reply that claims a
+      // check in flight is therefore gated on dispatching it first; when it
+      // cannot be dispatched, the MISSING PIECE is the question (flat or term),
+      // never a promise. tests/capture-1111-owner-confirm-info-card.test.ts.
+      const canAskOwner = eb !== 0 && t !== '';
+      const dispatchOwnerAsk = (): boolean => {
+        if (!canAskOwner) return false;
+        void this.runOwnerCheck(session, eb, t);
+        return true;
+      };
+      /** The sincere turn when the owner cannot be asked: name what is missing. */
+      const askMissingPiece = (): void => {
+        reply = eb === 0
+          ? buildLocateFirstAsk(session.slots) // no flat anywhere: which one?
+          : VISIT_TIME_QUESTION;               // a flat but no term: which hour?
+        bankKey = undefined;
+        session.state = 'visit_scheduling';
+        next = 'visit_scheduling';
+      };
       // Vague time guard: "попладне", "после 5", "pred 17:00" etc. are valid
       // time intentions but too imprecise for the owner — stay in visit_scheduling
       // and ask for the exact clock before proceeding.
@@ -12565,14 +12583,27 @@ ${contactReminder}`;
         // with the NEW time (the ping-pong continues with the new proposal).
         // Same combined shape as the transition arm: a riding meeting-spot
         // ask gets the reveal-protocol answer next to the ACK.
-        reply = detectMeetingSpotAsk(text)
-          ? `${OWNER_CHECK_ACK} ${buildExactAddressAnswer(assistantTexts(session))}`
-          : OWNER_CHECK_ACK;
-        if (eb && t) void this.runOwnerCheck(session, eb, t);
+        if (dispatchOwnerAsk()) {
+          reply = detectMeetingSpotAsk(text)
+            ? `${OWNER_CHECK_ACK} ${buildExactAddressAnswer(assistantTexts(session))}`
+            : OWNER_CHECK_ACK;
+        } else {
+          askMissingPiece();
+        }
       } else if (before === 'owner_checking') {
-        // Bank-backed: patience variants rotate, never the same sentence twice.
-        reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
-        bankKey = 'patience.line';
+        // A PATIENCE LINE IS A CLAIM ABOUT A CHECK IN FLIGHT (the [05:53] lie):
+        // «Терминот сè уште го проверувам со сопственикот» went out when the
+        // pending check had already been consumed — nobody was checking. Re-arm
+        // it when the agent can prove nothing is pending; when the flat or the
+        // term is missing, say what is missing instead of claiming a check.
+        const pending = this.ownerCheckPending(session.chatId);
+        if (canAskOwner && pending === false) void this.runOwnerCheck(session, eb, t);
+        if (canAskOwner) {
+          reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
+          bankKey = 'patience.line';
+        } else {
+          askMissingPiece();
+        }
       } else {
         // First transition into owner_checking. A time completion that ALSO
         // asks where the two of them will wait (the [01:07] capture: «MOZAM VO
@@ -12580,10 +12611,13 @@ ${contactReminder}`;
         // protocol — the pure ACK left the client's question hanging and the
         // chat stalled there. (a pure spot ask mid-scheduling rides the
         // address lanes upstream; only the COMBINED shape needs this.)
-        reply = detectMeetingSpotAsk(text)
-          ? `${OWNER_CHECK_ACK} ${buildExactAddressAnswer(assistantTexts(session))}`
-          : OWNER_CHECK_ACK;
-        if (eb && t) void this.runOwnerCheck(session, eb, t);
+        if (dispatchOwnerAsk()) {
+          reply = detectMeetingSpotAsk(text)
+            ? `${OWNER_CHECK_ACK} ${buildExactAddressAnswer(assistantTexts(session))}`
+            : OWNER_CHECK_ACK;
+        } else {
+          askMissingPiece();
+        }
       }
     } else if (next === 'escalated') {
       reply = fallbackVariant('escalated', assistantTexts(session))
@@ -12597,9 +12631,27 @@ ${contactReminder}`;
           ?? 'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.';
         bankKey = 'workdays.question';
       } else {
-        // client wrote while the owner check is in flight — bank-backed patience line
-        reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
-        bankKey = 'patience.line';
+        // CLIENT WROTE WHILE THE CHECK IS IN FLIGHT — the same claim as the
+        // patience arm above, so the same proof is required: a pending ask, or
+        // the missing piece named. This leg owns chats that reached the state
+        // by another route (a restored session, the [05:53] patience line) and
+        // used to promise a check nobody was running.
+        const subject = this.ownerCheckSubject(session);
+        const canAsk = subject.eb !== 0 && subject.t !== '';
+        if (canAsk && this.ownerCheckPending(session.chatId) === false) {
+          void this.runOwnerCheck(session, subject.eb, subject.t);
+        }
+        if (canAsk) {
+          // Bank-backed patience variants rotate, never the same sentence twice.
+          reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
+          bankKey = 'patience.line';
+        } else {
+          reply = subject.eb === 0
+            ? buildLocateFirstAsk(session.slots)
+            : VISIT_TIME_QUESTION;
+          bankKey = undefined;
+          session.state = 'visit_scheduling';
+        }
       }
     } else if (session.state === 'queued') {
       reply = QUEUED_STAY_LINE;
@@ -14142,6 +14194,31 @@ ${contactReminder}`;
    *  duplicate a transport's answer() produces is skipped without state flags. */
   private appliedVerdicts = new WeakSet<OwnerVerdict>();
   private static readonly OWNER_RECENT_MAX = 4;
+  /** THE FLAT AND THE TERM A CHECK NEEDS (the [05:23] capture): the subject is
+   *  whatever the chat has agreed on — the interested flat, then the current
+   *  one, then the BATCH/PRESENTED tail (the cards on the screen are the same
+   *  subject the client means). Reading only the first two left `eb` at 0, so
+   *  «Ќе Ве известам штом потврдам» went out with nobody asked. The resolved
+   *  flat is pinned as the interested one so later turns agree. */
+  private ownerCheckSubject(session: ChatSession): { eb: number; t: string } {
+    const eb = session.slots.interestedPropertyId ?? session.slots.propertyId
+      ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
+      ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
+      ?? 0;
+    if (eb) session.slots.interestedPropertyId = eb;
+    return { eb, t: session.slots.visitTime ?? '' };
+  }
+
+  /** IS A CHECK ACTUALLY PENDING for this chat? `undefined` = the agent cannot
+   *  tell (a local agent answers from the owners table), and then a reply must
+   *  not assume the worst; `false` = nothing is pending and a patience line
+   *  would be a claim with nobody behind it. */
+  private ownerCheckPending(chatId: string): boolean | undefined {
+    const agent = this.ownerAgent as unknown as { pendingEb?: (c: string) => number | null };
+    if (typeof agent.pendingEb !== 'function') return undefined;
+    return agent.pendingEb(chatId) != null;
+  }
+
   private rememberOwnerLine(chatId: string, text: string): void {
     if (!text) return;
     const ring = [...(this.ownerRecent.get(chatId) ?? []), text].slice(-InboundHandler.OWNER_RECENT_MAX);

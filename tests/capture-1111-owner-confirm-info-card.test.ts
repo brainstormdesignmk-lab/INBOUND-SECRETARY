@@ -267,6 +267,64 @@ test('[05:13] the visit wish in closing (fee not yet disclosed) serves the fee, 
   assert.equal(state.slots.interestedPropertyId, 50, 'the house he pointed at is the subject');
 });
 
+// ── 7b. THE PROMISE IS BACKED BY AN ASK ───────────────────────────────────
+// The operator's complaint on the [05:23] pane: «Ќе Ве известам штом потврдам»
+// with an EMPTY owner window. The batch-only chat is the field shape; the two
+// siblings below are the same family — a promise (or a patience claim) with no
+// ask behind it because the flat or the term was missing.
+test('[05:23] the visit term reaches the OWNER PANE even when only the batch holds the flat', async () => {
+  const { turn, seedLocate, sessions, ownerAsks } = makeHandler();
+  const s = seedLocate('batch-only');
+  s.state = 'visit_scheduling';
+  s.slots.viewingFeeAgreed = true;
+  s.slots.contactName = 'ЗОРАН';
+  s.slots.contactPhone = '078914196';
+  // The [05:13] visit wish never bound propertyId — the card lives in the batch.
+  s.slots.propertyId = undefined;
+  s.slots.interestedPropertyId = undefined;
+  sessions.set(s);
+
+  const { answer, state } = await turn('batch-only', 'ПЕТОК ПРЕТПЛАДНЕ НАКАЈ 10');
+  assert.match(answer, /известам|потврдам/iu, `the client is told the check started: ${answer}`);
+  assert.equal(state.state, 'owner_checking');
+  assert.ok(ownerAsks.length >= 1,
+    `the promise must be backed by an owner ask (the empty-pane defect): ${JSON.stringify(ownerAsks)}`);
+  assert.match(ownerAsks.join(' '), /50/u, `the ask names the flat on the table: ${JSON.stringify(ownerAsks)}`);
+});
+
+test('a visit term with NO flat anywhere asks which flat — it never promises a check', async () => {
+  const { turn, seedLocate, sessions, ownerAsks } = makeHandler();
+  const s = seedLocate('flatless-term');
+  s.state = 'visit_scheduling';
+  s.slots.viewingFeeAgreed = true;
+  s.slots.propertyId = undefined;
+  s.slots.interestedPropertyId = undefined;
+  s.slots.presentedIds = [];
+  s.slots.currentBatch = [];
+  sessions.set(s);
+
+  const { answer, state } = await turn('flatless-term', 'ПЕТОК ПРЕТПЛАДНЕ НАКАЈ 10');
+  assert.ok(!/известам|потврдам/iu.test(answer),
+    `never a promise with nobody to ask: ${answer}`);
+  assert.match(answer, /Евидентен број|населба/iu, `ask which flat instead: ${answer}`);
+  assert.equal(state.state, 'visit_scheduling', `the check never started: ${state.state}`);
+  assert.equal(ownerAsks.length, 0, 'no ask can exist for a flat that does not');
+});
+
+test('a patience claim re-arms the owner check — never a check nobody is running', async () => {
+  const { turn, seedLocate, sessions, ownerAsks } = makeHandler();
+  const s = seedLocate('patience-rearm');
+  s.state = 'owner_checking';
+  s.slots.visitTime = 'ПЕТОК 10:00';
+  sessions.set(s);
+
+  const { answer } = await turn('patience-rearm', 'IMA LI NESTO NOVO ?');
+  assert.match(answer, /проверувам|контактирам|известам|информирам/iu,
+    `the patience line is served: ${answer}`);
+  assert.ok(ownerAsks.length >= 1,
+    `the claim needs a live ask behind it: ${JSON.stringify(ownerAsks)}`);
+});
+
 // ── 5b. AN EMPTY POOL IS NOT AN EMPTY SYSTEM ──────────────────────────────
 // The field turn was «КУЌАВА САКАМ ДА ЈА ВИДАМ» answered with «Моментално во
 // системот нема куќи до 250 евра месечно во Центар» — about the house card on

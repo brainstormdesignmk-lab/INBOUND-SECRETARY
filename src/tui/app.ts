@@ -1052,7 +1052,15 @@ export class TuiApp {
 
   private appendOwnerMsg(chatId: string, msg: Msg): void {
     const lead = this.leads.find(l => l.chatId === chatId);
-    if (!lead) return;
+    if (!lead) {
+      // NEVER SWALLOW AN OWNER LINE (the [05:23] pane): a message for a chat the
+      // pane does not know is dropped here — and a dropped OWNER ASK is a client
+      // told «Ќе Ве известам» with an empty window, with nothing in any log to
+      // explain it. Say so; the pane is the operator's only window into the
+      // ping-pong.
+      console.error(`[owner] no lead for chat ${chatId} — owner pane line dropped: ${msg.text.slice(0, 80)}`);
+      return;
+    }
     lead.ownerMsgs.push(msg);
     this.renderOwner();
   }
