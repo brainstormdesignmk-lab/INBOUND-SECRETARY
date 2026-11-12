@@ -29,6 +29,10 @@ export interface VisitPlanStop {
    *  re-ask at three — after that the stop is dropped and named, never
    *  ping-ponged forever). */
   asks?: number;
+  /** The solved route's hour for this stop while it is being re-confirmed —
+   *  a window is not a slot, so the owner is asked for the hour he ended up at
+   *  (absent on the first ask, which follows the client's own order). */
+  pendingHour?: number;
   /** Hours the owner can do that day (his answer). Absent while unasked. */
   hours?: number[];
   status: 'pending' | 'asked' | 'ok' | 'counter' | 'dropped';

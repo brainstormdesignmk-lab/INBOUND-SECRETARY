@@ -167,7 +167,12 @@ export function buildChainAsk(
   const dropped = opts.dropped && opts.dropped.length > 0
     ? `\nЗа жал, не можев да ги поврзам во истиот ден: Евидентен број ${opts.dropped.join(', ')} — за нив ќе најдеме друг термин.`
     : '';
-  return `Посети по ред, една по друга:\n\n${lines.join('\n')}${dropped}${shift}\n\nДали да ги потврдам посетите?`;
+  // ONE STOP is a single visit, whatever the route was meant to be (the others
+  // were dropped) — «посетите» would promise visits that do not exist.
+  const one = stops.length === 1;
+  const head = one ? 'Посета:' : 'Посети по ред, една по друга:';
+  const ask = one ? 'Дали да ја потврдам посетата?' : 'Дали да ги потврдам посетите?';
+  return `${head}\n\n${lines.join('\n')}${dropped}${shift}\n\n${ask}`;
 }
 
 /** The day-before plan: the SAME lines the client got at confirmation, one per

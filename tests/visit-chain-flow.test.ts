@@ -176,6 +176,73 @@ test('[chain] the plural request starts the route even after a pick', async () =
   assert.ok(h.sessions.get(h.chatId)!.slots.visitPlan, 'the client’s own plural starts the route');
 });
 
+test('[chain] a new term mid-route restarts the asks on the new day', async () => {
+  // The client moves the day while the first owner is being asked. The answers
+  // on file were about the OLD day/hour, so they are void: every stop returns
+  // to pending and the first owner is asked about the new term (the brief: a
+  // different day is a new chain). Before this the reply was the ACK and NOBODY
+  // was asked — «ќе Ве известам штом потврдам» with no check behind it.
+  const h = makeHandler();
+  h.seed();
+  await h.say('ПЕТОК ВО 16:00, САКАМ ДА ГИ ВИДАМ ДВАТА');
+  assert.equal(h.asks.length, 1, `one ask so far: ${JSON.stringify(h.asks)}`);
+
+  const before = h.asks.length;
+  await h.say('ПОНЕДЕЛНИК ВО 12:00, САКАМ ДА ГИ ВИДАМ ДВАТА');
+  assert.ok(h.asks.length > before, 'the owner is asked about the NEW term');
+  assert.match(h.asks.at(-1) ?? '', /12:00/u, `the new hour reaches the owner: ${h.asks.at(-1)}`);
+  const plan = h.sessions.get(h.chatId)!.slots.visitPlan!;
+  assert.equal(plan.targetHour, 12, 'the route starts at the new hour');
+  const day = new Date(plan.dayMs);
+  assert.equal(day.getDay(), 1, `the route moved to Monday: ${day.toString()}`);
+  // The restart is an ask, not a fresh chain: the stop keeps its ask history so
+  // the three-ask budget still bounds it.
+  const stop = plan.stops.find(s => s.eb === 42)!;
+  assert.equal(stop.asks, 2, `the first owner was asked twice: ${JSON.stringify(stop)}`);
+  assert.equal(stop.askedHour, 12);
+});
+
+test('[chain] an owner’s counter that moves the start hour is re-solved and disclosed', async () => {
+  // The client is open to any hour («БИЛО КОГА»). Owner 42 cannot do 16:00 and
+  // offers 18:00; owner 59 is free at 17:00. The route therefore STARTS at 17:00
+  // — the brief's own rule: the counters re-solve the chain, the client is told
+  // the start moved, and nothing is booked before his yes.
+  const h = makeHandler();
+  h.seed();
+  await h.say('ПЕТОК ВО 16:00, БИЛО КОГА, САКАМ ДА ГИ ВИДАМ ДВАТА');
+  await h.answer(42, 'MOZE VO 18:00', 'Петок во 16:00');
+  const asked = await h.answer(59, 'MOZE', 'Петок во 17:00');
+  assert.match(asked, /17:00/u, `the route starts at the counter hour: ${asked}`);
+  assert.match(asked, /18:00/u, `the counter stop is placed at its own hour: ${asked}`);
+  assert.match(asked, /подоцна за 1 час/u, `the moved start is disclosed: ${asked}`);
+  assert.match(asked, /Дали да ги потврдам посетите/u, asked);
+  assert.equal(h.appointments.count(), 0, 'a counter books nothing');
+});
+
+test('[chain] no linkable hours that day: an honest ask, never a fabricated route', async () => {
+  // 42 can only do 18:00 and 59 only 17:00, the client is NOT flexible and
+  // asked for 16:00 — no contiguous route exists. The old fallback placed each
+  // stop at the hour it had been ASKED about (16:00/17:00), i.e. put a flat on
+  // the table at a time its owner had just ruled out. The honest turn names the
+  // day and asks for another — and the client's plural wish survives it.
+  const h = makeHandler();
+  h.seed();
+  await h.say('ПЕТОК ВО 16:00, САКАМ ДА ГИ ВИДАМ ДВАТА');
+  await h.answer(42, 'SAMO VO 18:00', 'Петок во 16:00');
+  const answer = await h.answer(59, 'MOZE', 'Петок во 17:00');
+  assert.match(answer, /не можат да ги поврзам/u, `the honest no-link turn: ${answer}`);
+  assert.doesNotMatch(answer, /16:00|17:00/u, `no invented route: ${answer}`);
+  const s = h.sessions.get(h.chatId)!;
+  assert.equal(s.slots.visitPlan, undefined, 'the impossible plan is cleared');
+  assert.equal(s.state, 'visit_scheduling');
+  assert.equal(h.appointments.count(), 0, 'nothing is booked');
+
+  // His plural wish is remembered: the next term starts the route again even
+  // without repeating «двата».
+  await h.say('ПОНЕДЕЛНИК ВО 12:00');
+  assert.ok(h.sessions.get(h.chatId)!.slots.visitPlan, 'the route restarts for the next term');
+});
+
 test('[chain] a single flat keeps the ordinary single-visit flow', async () => {
   const h = makeHandler();
   const s = h.seed();

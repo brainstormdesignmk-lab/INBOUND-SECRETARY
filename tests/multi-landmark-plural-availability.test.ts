@@ -147,7 +147,12 @@ test('«А 42?» is answered from the row, not the brain', async () => {
   assert.equal(detectBareEbFollowup('А 42 ?'), 42);
   const answer = await h.say('А 42 ?');
   assert.match(answer, /42/u, `the named flat is answered: ${answer}`);
-  assert.match(answer, /достап/iu, `with the availability answer: ${answer}`);
+  // CONTRACT, not a wording: `availability.ack.masc` rotates («достапен»,
+  // «слободен», «активен», «фигурира», «на располагање»), so pinning «достап»
+  // made a false failure on the sanctioned «се води како активен» variant.
+  assert.match(answer, /достап|слобод|актив|располага|фигурира|база/iu,
+    `with the availability answer: ${answer}`);
+  assert.match(answer, /сопственик/iu, `the owner-confirm question is owed: ${answer}`);
   // Never a fallback/LLM line, and the discussion anchor moves to that flat.
   assert.doesNotMatch(answer, /Не разбрав|не можам да одговорам/iu, answer);
   assert.equal(h.sessions.get(h.chatId)!.slots.propertyId, 42);

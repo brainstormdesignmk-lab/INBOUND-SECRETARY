@@ -54,6 +54,56 @@ function makeScheduler(nowRef: { t: Date }) {
   return { db, sched, clientMsgs, ownerMsgs, operatorLogs };
 }
 
+test('the 10:00 day-before reminder fires from the clock, not from a forced turn', async () => {
+  // forceTurn proves the COPY; this proves the SCHEDULE: the turn sits at 10:00
+  // the day before the visit and the ordinary tick (no operator) must send the
+  // route then — and only once.
+  const nowRef = { t: new Date(2026, 10, 10, 9, 0, 0) }; // Tue 10.11, 09:00
+  const h = makeScheduler(nowRef);
+  const appts = new AppointmentStore(h.db);
+  const ids = [42, 59].map(eb => appts.insert({
+    chatId: 'chain', clientName: 'Марко', clientPhone: '070999888', propertyId: eb,
+    service: 'Купување', viewingFee: '500 MKD', time: '', agentPhone: '076247467',
+  }));
+  for (const id of ids) appts.markFinalized(id, '');
+  await h.sched.arrange({
+    appointmentId: ids[0]!, chatId: 'chain', eb: 42, time: 'Петок, 13.11.2026 во 16:00',
+    agentPhone: '076247467', clientName: 'Марко', clientPhone: '070999888',
+    owner: { name: 'Петре', phone: '070111222' }, chainSize: 2,
+  });
+  await h.sched.arrange({
+    appointmentId: ids[1]!, chatId: 'chain', eb: 59, time: 'Петок, 13.11.2026 во 17:00',
+    agentPhone: '076247467', clientName: 'Марко', clientPhone: '070999888',
+    owner: { name: 'Ана', phone: '070333444' }, chainSize: 2,
+  });
+  await h.sched.confirmAddress(ids[0]!);
+  await h.sched.confirmAddress(ids[1]!);
+
+  // The day before at 09:59 nothing is due yet.
+  nowRef.t = new Date(2026, 10, 12, 9, 59, 0);
+  h.clientMsgs.length = 0;
+  h.ownerMsgs.length = 0;
+  await h.sched.tick();
+  assert.equal(h.clientMsgs.length, 0, `nothing before 10:00: ${JSON.stringify(h.clientMsgs)}`);
+
+  // 10:00 the day before: the client's whole route, once; each owner his line.
+  nowRef.t = new Date(2026, 10, 12, 10, 0, 5);
+  await h.sched.tick();
+  assert.equal(h.clientMsgs.length, 1, `the route reaches the client once: ${JSON.stringify(h.clientMsgs)}`);
+  const plan = h.clientMsgs[0]!;
+  assert.match(plan, /NEDVIZNOST 42/u, plan);
+  assert.match(plan, /NEDVIZNOST 59/u, plan);
+  assert.doesNotMatch(plan, /Улица 42|Улица 59/u, `no street a day early: ${plan}`);
+  assert.equal(h.ownerMsgs.length, 2, JSON.stringify(h.ownerMsgs));
+  assert.ok(h.ownerMsgs.every(m => /Улица/u.test(m.text)), JSON.stringify(h.ownerMsgs));
+  assert.ok(h.operatorLogs.some(l => /PLAN DAY-BEFORE/u.test(l)), h.operatorLogs.join(' | '));
+
+  // A later tick does not repeat it.
+  nowRef.t = new Date(2026, 10, 12, 10, 5, 0);
+  await h.sched.tick();
+  assert.equal(h.clientMsgs.length, 1, `the plan is sent once: ${JSON.stringify(h.clientMsgs)}`);
+});
+
 test('the day-before plan: the client hears the route ONCE, each owner his own stop', async () => {
   const nowRef = { t: new Date(2026, 10, 10, 9, 0, 0) }; // Tue 10.11
   const h = makeScheduler(nowRef);

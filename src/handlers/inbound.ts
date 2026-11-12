@@ -2282,6 +2282,7 @@ export class InboundHandler {
           s.status = 'pending';
           s.hours = undefined;
           s.askedHour = undefined;
+          s.pendingHour = undefined;
         }
         this.advanceChain(session);
       }
@@ -2293,7 +2294,11 @@ export class InboundHandler {
     // the single visit he asked for was never confirmed. So the route begins
     // only on a PLURAL request («двата/сите/… станови», «да ги видам»), which
     // is the only honest evidence that more than one visit is wanted.
-    if (!detectMultiVisitIntent(`${text} ${term}`)) return false;
+    // A plural request STICKS for the rest of the hunt (`visitWanted`): a later
+    // term for the same set («ПЕТОК ВО 15:00» after «не можев да ги поврзам»)
+    // is the same route, not a sudden single visit.
+    if (detectMultiVisitIntent(`${text} ${term}`)) session.slots.visitWanted = true;
+    if (!session.slots.visitWanted) return false;
     const ebs = [...new Set([
       ...(session.slots.currentBatch ?? []),
       ...(session.slots.presentedIds ?? []),
@@ -2341,9 +2346,12 @@ export class InboundHandler {
     // live stops — contiguous by construction, and the solver corrects later.
     const live = plan.stops.filter(s => s.status !== 'dropped');
     const idx = live.indexOf(next);
-    const hour = plan.targetHour + Math.max(0, idx);
+    // A RE-CONFIRM asks about the hour the solved route assigned (`pendingHour`),
+    // not the stop's position — the order may have changed after a counter.
+    const hour = next.pendingHour ?? plan.targetHour + Math.max(0, idx);
     next.status = 'asked';
     next.askedHour = hour;
+    next.pendingHour = undefined;
     session.state = 'owner_checking';
     session.slots.interestedPropertyId = next.eb;
     session.slots.propertyId = next.eb;
@@ -2366,8 +2374,10 @@ export class InboundHandler {
       stop.hours = [stop.askedHour ?? plan.targetHour];
     } else if (verdict.status === 'counter' && verdict.ownerTime) {
       const when = parseVisitDateTime(verdict.ownerTime, new Date());
-      // A counter with a real clock is his window; a bare refusal drops him
-      // from this chain (he gets his own term later) — never a silent hour.
+      // A counter with a real clock is his own hour — a slot he offered, so the
+      // solved route may place him there without a second ask. A bare refusal
+      // drops him from this chain (he gets his own term later) — never a silent
+      // hour.
       stop.status = when ? 'counter' : 'dropped';
       if (when) stop.hours = [when.getHours()];
     } else {
@@ -2392,16 +2402,60 @@ export class InboundHandler {
       return;
     }
     const cal = this.dayCalendar(new Date(plan.dayMs));
-    const solved = solveChain({
-      targetHour: plan.targetHour,
-      stops: live.map(s => ({ eb: s.eb, hours: s.hours })),
-      busy: cal.busy.map(b => new Date(b).getHours()),
-      flexible: plan.flexible === true,
+    // A LONE SURVIVOR IS ITS OWN SLOT — the solver's job is linking SEVERAL
+    // flats, and its drop-loop would answer a one-stop route with undefined
+    // just because that owner's clock is not the client's hour.
+    const solved = live.length === 1
+      ? {
+        stops: [{ eb: live[0]!.eb, hour: live[0]!.hours?.[0] ?? live[0]!.askedHour ?? plan.targetHour }],
+        dropped: [] as number[],
+        shiftedBy: 0,
+      }
+      : solveChain({
+        targetHour: plan.targetHour,
+        stops: live.map(s => ({ eb: s.eb, hours: s.hours })),
+        busy: cal.busy.map(b => new Date(b).getHours()),
+        flexible: plan.flexible === true,
+      });
+    // NO LINK EXISTS: every owner answered, but their hours cannot be joined
+    // into one non-stop route that day. The honest turn names the day and asks
+    // for another — NEVER a fabricated route at hours somebody refused (the
+    // old fallback placed each stop at its ASKED hour, i.e. booked a flat at a
+    // time its owner had just ruled out).
+    if (!solved) {
+      const day = new Date(plan.dayMs);
+      const who = live.map(s => s.eb).join(', ');
+      session.slots.visitPlan = undefined;
+      session.state = 'visit_scheduling';
+      const reply = `Сопствениците на Евидентен број ${who} не можат да ги поврзам една по друга на ${formatDateOnly(day)}. `
+        + 'Дали сакате да пробаме друг ден или друг почетен час?';
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, reply, 'deterministic');
+      return;
+    }
+    const assignments = solved.stops;
+    // A WINDOW IS NOT A SLOT (the brief): the solver may start the route an
+    // hour earlier/later, or re-order it after a counter, so an owner whose
+    // answer does not cover the hour he ended up at is asked for THAT hour
+    // before the client ever hears the plan. His yes then confirms the slot.
+    const unconfirmed = assignments.find(a => {
+      const stop = plan.stops.find(s => s.eb === a.eb);
+      return !stop || !(stop.hours ?? []).includes(a.hour);
     });
-    plan.assignments = solved?.stops ?? live.map(s => ({ eb: s.eb, hour: s.askedHour ?? plan.targetHour }));
+    if (unconfirmed) {
+      const stop = plan.stops.find(s => s.eb === unconfirmed.eb);
+      if (stop) {
+        stop.status = 'pending';
+        stop.pendingHour = unconfirmed.hour;
+        this.deps.sessions.set(session);
+        this.advanceChain(session);
+        return;
+      }
+    }
+    plan.assignments = assignments;
     plan.dropped = [
       ...plan.stops.filter(s => s.status === 'dropped').map(s => s.eb),
-      ...(solved?.dropped ?? []),
+      ...(solved.dropped ?? []),
     ];
     // The first stop is the subject the booking seam continues on.
     const first = plan.assignments[0]!;
@@ -2411,7 +2465,7 @@ export class InboundHandler {
     session.state = 'time_confirm';
     const svc = session.slots.service ?? 'buy';
     const fee = buildFeePerProperty(svc, plan.assignments.length);
-    const answer = `${buildChainAsk(plan.assignments, { dropped: plan.dropped, shiftedBy: solved?.shiftedBy })}\n\n${fee}`;
+    const answer = `${buildChainAsk(plan.assignments, { dropped: plan.dropped, shiftedBy: solved.shiftedBy })}\n\n${fee}`;
     routeLog(session.chatId, 'chain', 'CHAIN_READY');
     pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
@@ -2425,6 +2479,7 @@ export class InboundHandler {
     const plan = session.slots.visitPlan;
     if (!plan?.assignments?.length) return;
     session.slots.visitPlan = undefined; // consumed — a second yes must not rebook
+    session.slots.visitWanted = undefined; // the wish is fulfilled by the route
     // The scheduler's Turn 0 carries the plan line for a real route.
     session.slots.chainSize = plan.assignments.length;
     this.deps.sessions.set(session);

@@ -229,6 +229,12 @@ export interface SlotData {
    *  Each stop carries the owner's answer; when every owner has answered, the
    *  solver lays the chain out and the client confirms it in one yes. */
   visitPlan?: import('../visits/chain').VisitPlanState;
+  /** The client asked to see SEVERAL flats in one day (his own plural wording).
+   *  It outlives one plan: after a route is abandoned (no owner could link the
+   *  hours, or the client moved the day) his next term is the SAME route, not
+   *  a sudden single visit — the brief's «several stays several». Cleared when
+   *  the route is booked. */
+  visitWanted?: boolean;
   /** How many stops the confirmed route has (>= 2 marks a chain for the visit
    *  protocol's plan line). Set when the route is booked. */
   chainSize?: number;
