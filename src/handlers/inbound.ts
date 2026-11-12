@@ -19,7 +19,7 @@ import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWIN
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
-import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck } from '../llm/deterministic';
+import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
 import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, pad2, isWeekendTerm } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
@@ -2108,7 +2108,11 @@ export class InboundHandler {
 
   private async areaNamed(text: string): Promise<string | undefined> {
     try {
-      const extra = await this.deps.properties.placesNamedIn(text).catch(() => [] as string[]);
+      // THE FEED NAMES THE AREA TOO — and a name inside a negation is not a
+      // request for it (the #1 field capture: «НЕ ВО СКОПЈЕ СЕВЕР» came back as
+      // the area through THIS door, the only reader that bypassed the detector).
+      const extra = (await this.deps.properties.placesNamedIn(text).catch(() => [] as string[]))
+        .filter(a => !isAreaNegated(text, a));
       if (extra.length > 0) return extra.join(', ');
       const locs = await this.deps.properties.locations();
       // A FEED AREA NAMED VERBATIM OUTRANKS THE ALIAS COLLAPSE (the [04:14]
@@ -2132,8 +2136,16 @@ export class InboundHandler {
       // the client said them.
       const taken: Array<[number, number]> = [];
       const hits: Array<{ l: string; at: number }> = [];
+      // A LITERAL NAME HE RULED OUT IS NOT A NAME HE ASKED FOR (the #1 field
+      // capture): this path scans raw text spans, so it never saw the negation
+      // reading `detectLocation` now owns — «НЕ ВО СКОПЈЕ СЕВЕР» came back as
+      // the area through THIS door even after the detector was fixed. One
+      // grammar, two readers: the shared `isAreaNegated`.
+      const negatedText = text;
       for (const x of locs.map(l => ({ l, key: fold(l) }))
-        .filter(x => x.key.length >= 3).sort((a, b) => b.key.length - a.key.length)) {
+        .filter(x => x.key.length >= 3)
+        .filter(x => !isAreaNegated(negatedText, x.l))
+        .sort((a, b) => b.key.length - a.key.length)) {
         const needle = ` ${x.key} `;
         let from = 0;
         for (;;) {
@@ -3508,11 +3520,20 @@ export class InboundHandler {
   }
 
   private placeWish(text: string): { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined {
+    // A PLACE HE RULED OUT IS NOT HIS PLACE (the #1 field capture, 2026-11-12).
+    // The map has a real suburb named «Скопје Север», so «КУЌАВА БЕШЕ КАЈ
+    // УНИВЕРЗАЛНА НЕ ВО СКОПЈЕ СЕВЕР» resolved that denial as the ANCHOR: the
+    // search locked to the district he was excluding and every answer named a
+    // geography he never asked for. A name inside a negation span is skipped
+    // here, so the client's real place (Универзална) wins the candidate list.
+    const notNegated = <T extends { name: string }>(p: T | undefined): T | undefined =>
+      (p && !isAreaNegated(text, p.name) ? p : undefined);
     for (const cand of extractPoiWishCandidates(text, { withCriteria: true })) {
+      if (isAreaNegated(text, cand)) continue;
       const a = this.resolvePlace(cand);
       if (a) return a;
     }
-    const tailPlace = this.searchPlaceTail(text);
+    const tailPlace = notNegated(this.searchPlaceTail(text));
     if (tailPlace) return tailPlace;
     // A BARE PLACE NAME IS STILL A PLACE (the [21:42] capture): the extractor
     // only reads a wish behind a preposition («кај», «околу», «во близина на»),
@@ -3522,9 +3543,9 @@ export class InboundHandler {
     // the whole message is tried as one place name: short, no digits, no money
     // or size vocabulary, and — the only thing that matters — it must resolve
     // to a REAL map row, so grammar can never become a place.
-    const bare = this.barePlace(text);
+    const bare = notNegated(this.barePlace(text));
     if (bare) return bare;
-    return this.bareListPlace(text);
+    return notNegated(this.bareListPlace(text));
   }
 
   /** A BARE LIST OF PLACES (the [00:34] capture): «LEPTOKARIJA ILI CITY MALL»
@@ -3590,8 +3611,14 @@ export class InboundHandler {
     // landed, the place was unwritten and buildDiscoveryAsk asked «во кој дел од
     // градот?» of a client who had just answered it (the same sentence with
     // «кај» asked bedrooms + budget). One arbitration, both readers.
+    // …and the locative tail honours the denial too (the #1 field capture:
+    // «… НЕ ВО СКОПЈЕ СЕВЕР, КИРИЈАТА …» came back from THIS reader and the
+    // anchored serve announced «Да, имаме куќа … кај Скопје Север» for the
+    // district the client had just excluded).
+    const notNegated = <T extends { name: string }>(p: T | undefined): T | undefined =>
+      (p && !isAreaNegated(text, p.name) ? p : undefined);
     if (out.length === 0) {
-      const tailPlace = this.searchPlaceTail(text);
+      const tailPlace = notNegated(this.searchPlaceTail(text));
       if (tailPlace) out.push({ name: tailPlace.name, lat: tailPlace.lat, lon: tailPlace.lon });
     }
     // A BARE PLACE NAME IS STILL A PLACE (the [21:42] capture — see placeWish):
@@ -3599,12 +3626,12 @@ export class InboundHandler {
     // which only reads a wish behind a preposition, produces nothing. The whole
     // message is tried as one place name and must resolve to a REAL map row.
     if (out.length === 0) {
-      const bare = this.barePlace(text);
+      const bare = notNegated(this.barePlace(text));
       if (bare) out.push({ name: bare.name, lat: bare.lat, lon: bare.lon });
     }
     // A BARE LIST OF PLACES reads every member (see bareListPlace).
     if (out.length === 0) {
-      const listed = this.bareListPlace(text);
+      const listed = notNegated(this.bareListPlace(text));
       if (listed) out.push({ name: listed.name, lat: listed.lat, lon: listed.lon });
     }
     return out;
@@ -4174,6 +4201,35 @@ export class InboundHandler {
     // so a blocked chat can never be resurrected by expiry. Phone-backed only —
     // synthetic TUI/sim chatIds block nothing.
     if (this.blocklist.isBlocked(chatId, session.slots.phone)) return;
+
+    // A GEOGRAPHY THIS MESSAGE RULES OUT never survives the turn (the #1 field
+    // capture) — see dropNegatedGeography.
+    this.dropNegatedGeography(session, text);
+
+    // THE OWNER'S TENANT QUESTION IS ANSWERED BY THE CLIENT, AND HIS ANSWER IS
+    // FORWARDED (the #4 field request, 2026-11-12). The owner asked «КОЈ САКА
+    // ДА ЈА ИЗНАЈМИ?»; Lina then asked the client «За кого би била изнајмена
+    // недвижноста?». A plain reply (not a question of his own, not a fee fight)
+    // is exactly that answer: it goes to the owner through `onOwnerMessage`
+    // (Viber in production, the owner pane in the TUI), the client is thanked,
+    // and the turn ends — the funnel never swallows it as a stray name.
+    if (session.slots.ownerTenantAsk) {
+      const tenantAnswer = this.ownerTenantAnswer(text);
+      if (tenantAnswer) {
+        session.slots.ownerTenantAsk = undefined;
+        const tenantEb = session.slots.interestedPropertyId ?? session.slots.propertyId;
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        if (tenantEb !== undefined) {
+          this.onOwnerMessage?.(chatId, tenantEb,
+            `Клиентот одговори на прашањето за кого би била изнајмена недвижноста: «${tenantAnswer}»`);
+        }
+        const thanks = 'Ви благодарам — ќе го пренесам ова на сопственикот.';
+        pushHistory(session, { role: 'assistant', text: thanks }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, thanks);
+        return;
+      }
+    }
 
     // TTL expiry — resume or reset (the 22:18 bug). The visit offer sat on
     // the table past the TTL and the client answered "ORGABIZIRAJ MI" 73
@@ -5269,8 +5325,15 @@ export class InboundHandler {
       // absence. The recall is therefore verified against the bank FIRST —
       // place + category + segment, ranked from the place, price remembered as
       // a band — and only a recall with no live match keeps the archive line.
-      const recalledPlace = this.resolvePlace(session.slots.poiAnchor)
+      // A DENIED PLACE IS NOT THE ANCHOR (the #1 field capture, 2026-11-12):
+      // the map has a real suburb called «Скопје Север», so the recall sentence
+      // «НЕ ВО СКОПЈЕ СЕВЕР» anchored the archive search at the district the
+      // client had just excluded and served its house back to him. Same reader
+      // as everywhere else (`isAreaNegated`), applied to the held anchor too.
+      const heldRecallPlace = this.resolvePlace(session.slots.poiAnchor);
+      const recalledPlace = (heldRecallPlace && !isAreaNegated(text, heldRecallPlace.name) ? heldRecallPlace : undefined)
         ?? extractPoiWishCandidates(text, { withCriteria: true })
+          .filter(c => !isAreaNegated(text, c))
           .map(c => this.resolvePlace(c)).find(Boolean);
       if (recalledPlace) {
         const recalledArea = session.slots.location
@@ -14627,10 +14690,53 @@ ${contactReminder}`;
     return answer;
   }
 
+  /** IS THIS MESSAGE THE CLIENT'S ANSWER to the owner's tenant question?
+   *
+   *  The relay only owns a PLAIN answer («за мене и сопругата», «за мојот син»,
+   *  «самостојно живеам»). A question of the client's own («а кој е
+   *  сопственикот?»), a fee fight, a visit command or a goodbye keeps its own
+   *  lane — forwarding one of those to the owner would put words in the
+   *  client's mouth about who is moving in, and the flag stays armed for the
+   *  real answer. Length-capped so a pasted paragraph is not "the name". */
+  private ownerTenantAnswer(text: string): string | undefined {
+    const t = text.trim();
+    if (!t || t.length > 240) return undefined;
+    if (/\?\s*$/u.test(t) || isOwnerQuestion(t)) return undefined;
+    if (detectFeeNag(t) || detectVisitTime(t) || detectExplicitCancel(t) || detectBye(t)) return undefined;
+    return t;
+  }
+
   private ownerQuestionReplyRaw(chatId: string, text: string): string | undefined {
     const session = this.deps.sessions.get(chatId);
     if (!session) return undefined;
     const liveEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    // THE OWNER ASKS WHO WILL RENT IT (the #4 field request, 2026-11-12).
+    //
+    //   СОПСТВЕНИК: «КОЈ САКА ДА ЈА ИЗНАЈМИ?»
+    //
+    // He is vetting the client before he gives a viewing. The generic answer
+    // seam sent the availability/term question straight back — a robot that did
+    // not listen — and the client was never asked, so the owner never got a
+    // name. His question is ANSWERED (we will ask), the CLIENT is asked «За кого
+    // би била изнајмена недвижноста?», and `ownerTenantAsk` marks the chat as
+    // waiting on that answer: the client's next reply is forwarded to the owner
+    // by the processMessage lane below. Placed BEFORE the question gates, so a
+    // tenant ask without a question mark («КОЈ САКА ДА ЈА ИЗНАЈМИ») still
+    // lands here instead of falling through as unintelligible.
+    if (detectOwnerTenantAsk(text)) {
+      session.slots.ownerTenantAsk = true;
+      this.deps.sessions.set(session);
+      const tenantAsk = 'За кого би била изнајмена недвижноста?';
+      this.enqueue(session.chatId, async () => {
+        const live = this.deps.sessions.get(session.chatId) ?? session;
+        pushHistory(live, { role: 'assistant', text: tenantAsk }, this.cfg.maxHistory);
+        this.deps.sessions.set(live);
+        await this.sendRaw(live, tenantAsk);
+      });
+      const tenantAck = 'Ќе го прашам клиентот за кого би била изнајмена недвижноста и веднаш ќе Ве известам.';
+      this.rememberOwnerLine(chatId, tenantAck);
+      return tenantAck;
+    }
     // THE OWNER'S REASON IS ANSWERED EVEN AFTER A BARE COUNTER (the [04:36]
     // capture). «NE MOZAM PRED 5» went to the client as a refusal and the funnel
     // moved to visit_scheduling — so the owner's next sentence, «NA RABOTA SUM»,
@@ -15249,6 +15355,21 @@ ${contactReminder}`;
       if (old !== undefined && old !== verdict.price) session.slots.priceChangePending = true;
     }
 
+    // THE OWNER'S EXTRA CONDITIONS REACH THE CLIENT BEFORE ANYTHING IS BOOKED
+    // (the operator's 2026-11-12 request): a deposit, the first month's rent, an
+    // advance. They are relayed in HIS words as their own paragraph, and — like
+    // a moved price — they keep the visit the CLIENT's decision: the chat parks
+    // at time_confirm and asks him, instead of booking him under terms he has
+    // not heard. Every client relay below prefixes `priceRelay`, so appending
+    // here covers the ok, counter and whole-day arms in one place.
+    const ownerConditions = verdict.conditions ?? [];
+    if (ownerConditions.length > 0) {
+      const conditionsNotice = `Сопственикот наведе услови за Евидентен број ${eb}: ${ownerConditions.join('; ')}.`;
+      session.slots.ownerConditions = ownerConditions.join('; ');
+      session.slots.ownerConditionsPending = true;
+      priceRelay = [priceRelay, conditionsNotice].filter(Boolean).join(' ');
+    }
+
     // A CHAIN IN FLIGHT OWNS ITS OWN VERDICTS (the owner's 2026-11-11 brief):
     // an answer about the stop that was asked moves the route forward — the
     // single-visit arms below must never book one flat of a route or ask it a
@@ -15301,7 +15422,7 @@ ${contactReminder}`;
       // the ad has changed. He hears both figures and the booking question, and
       // his own answer locks the visit (the owner's 2026-11-11 brief: "report
       // the change and let him decide").
-      if (!agreedToClientTerm || session.slots.priceChangePending) {
+      if (!agreedToClientTerm || session.slots.priceChangePending || session.slots.ownerConditionsPending) {
         // THE OWNER'S TERM OPENS THE OFFER — THE CLIENT CLOSES IT: relay the
         // term as an ask, park the chat in time_confirm, and let the client's
         // own yes run the booking seam (the same shape the fixed-counter path
@@ -15605,6 +15726,11 @@ ${contactReminder}`;
     // The client has now answered the moved price by booking — the pending
     // marker (and the disclaimer lane it opens) belongs to that one exchange.
     session.slots.priceChangePending = undefined;
+    // Same for the owner's extra conditions: he heard them BEFORE this turn's
+    // yes, so the gate has done its job. The confirmation below still REPEATS
+    // them, because that line is what he keeps.
+    const ownerConditions = session.slots.ownerConditions;
+    session.slots.ownerConditionsPending = undefined;
     const agent = this.dispatcher.pick(session.slots.service ?? 'buy');
     const agentPhone = agent?.phone ?? this.cfg.agentDefaultPhone;
     const agentName = agent?.name ?? 'Агент';
@@ -15628,7 +15754,14 @@ ${contactReminder}`;
     ]);
     const displayTime = normalizeOwnerTime(recordTime);
 
-    const reply = buildVisitConfirmation(eb, displayTime, agentPhone);
+    const reply = buildVisitConfirmation(eb, displayTime, agentPhone)
+      // THE OWNER'S CONDITIONS STAY VISIBLE IN THE BOOKING ITSELF (the
+      // operator's 2026-11-12 request): the client heard them once in the relay,
+      // and the line he can re-read carries them too.
+      + (ownerConditions ? `\nУслови од сопственикот: ${ownerConditions}.` : '');
+    // …and they belong to THIS booking only: a later visit must never inherit
+    // a deposit the owner attached to another flat.
+    session.slots.ownerConditions = undefined;
     pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
     if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'VISIT_CONFIRMED', userMsg: `[owner:${eb}] visit confirmed`, replyText: reply, replySource: 'owner-relay', bankKey: 'owner.relay:ok' }); } catch { /* ignore */ } }
@@ -16609,7 +16742,35 @@ ${contactReminder}`;
   /** `rawText` is the client's own words for THIS message (the caller has them);
    *  a few rules read the message against the question it answers — see the
    *  dismissal block below. */
+  /** A GEOGRAPHY THE MESSAGE RULES OUT IS DROPPED FROM THE CHAT (the #1 field
+   *  capture, 2026-11-12). Every lane that reads a place or an area from the
+   *  text now honours a negation (`isAreaNegated`), but the SESSION can still
+   *  carry the value a lane wrote a turn earlier, and one leak is enough for
+   *  every later answer to name a district the client excluded. This is the
+   *  invariant at the slot level: if THIS message denies it, it is gone. */
+  private dropNegatedGeography(session: ChatSession, text: string): void {
+    const sl = session.slots;
+    const denied = (v: string | undefined): boolean => !!v && isAreaNegated(text, v);
+    if (denied(sl.location)) sl.location = undefined;
+    if (denied(sl.poiArea)) sl.poiArea = undefined;
+    if (denied(sl.poiAnchor)) {
+      sl.poiAnchor = undefined;
+      sl.poiPlaces = undefined;
+      sl.poiNearestM = undefined;
+      sl.poiNearestId = undefined;
+      sl.poiTooFarAsk = undefined;
+      sl.poiTooFarAnchor = undefined;
+      sl.poiWidenScope = undefined;
+      sl.poiAnchorTooFar = undefined;
+      sl.pairAnchorOf = undefined;
+      sl.pairAlsoNearOf = undefined;
+    }
+  }
+
   private async applySlots(session: ChatSession, ev: Event, rawText = ''): Promise<void> {
+    // The message's own denial first: nothing it rules out can be applied or
+    // kept below.
+    this.dropNegatedGeography(session, rawText || this.lastUserText || '');
     // THE QUESTION THE CLIENT IS LOOKING AT, READ BEFORE THIS TURN IS APPLIED
     // (the [23:51] rule). The criteria are the ones the ask was BUILT from, so
     // they must be read from the slots as they stand BEFORE this message lands:

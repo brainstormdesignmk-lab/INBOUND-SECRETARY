@@ -382,6 +382,20 @@ export interface SlotData {
   /** Strike 3 on the owner side: his pane stops getting answers (the operator
    *  is alerted and takes over). Cleared with the rest of the slots. */
   ownerMuted?: boolean;
+  /** THE OWNER ASKED WHO WILL RENT IT (the #4 field request, 2026-11-12):
+   *  «КОЈ САКА ДА ЈА ИЗНАЈМИ?» is relayed to the client as «За кого би била
+   *  изнајмена недвижноста?», and THIS flag marks the chat as waiting on that
+   *  answer — the client's reply is forwarded to the owner and the turn ends.
+   *  Cleared when the answer is relayed (or when it is not an answer at all). */
+  ownerTenantAsk?: boolean;
+  /** THE OWNER'S EXTRA CONDITIONS AS THEY REACHED THE CLIENT (the operator's
+   *  2026-11-12 request): his own words about a deposit / first rent / advance.
+   *  Kept for the confirmation copy and the record. */
+  ownerConditions?: string;
+  /** The conditions have been relayed and the client has NOT yet answered —
+   *  the visit stays HIS decision (the same gate a moved price uses). Cleared
+   *  when the visit is booked (or the chat moves off that term). */
+  ownerConditionsPending?: boolean;
   /** THE PUBLISHED PRICE ASKED OF THE OWNER (the [02:03] field capture): rows
    *  without a clean price get the CONFIRM-the-ad-figure half instead of no
    *  price question at all — so a figure in his answer means "the ad is wrong"

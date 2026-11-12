@@ -23,6 +23,14 @@ export interface OwnerVerdict {
    *  the source of truth. The handler stores it so Hermes corrects the public
    *  app (Lovable/Cloudflare) and relays the change to the client. */
   price?: number;
+  /** THE OWNER'S EXTRA CONDITIONS, in his own words (the operator's 2026-11-12
+   *  request): a deposit, the first month's rent, an advance — everything he
+   *  attaches to his yes besides the term. Without this they died in the
+   *  parser: the client booked a viewing under conditions he had never heard,
+   *  and the operator only saw them in the owner's message. The handler
+   *  relays them to the client BEFORE the visit is locked, and (like a moved
+   *  price) the booking stays the CLIENT's decision. */
+  conditions?: string[];
 }
 
 export interface OwnerAgent {

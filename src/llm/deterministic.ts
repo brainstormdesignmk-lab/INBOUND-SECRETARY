@@ -281,9 +281,16 @@ export function extractPoiWishCandidates(text: string, opts: { withCriteria?: bo
   // беше околу 200.000 евра"), and the landmark must still be read — the
   // tail-scoped veto above keeps a bare budget from ever becoming a place.
   if (!opts.withCriteria && TARGETING_RE.test(t)) return [];
-  const raw = collect(POI_WISH_RE, t);
+  // A DENIED PLACE IS NOT A WISH (the #1 field capture, 2026-11-12): «КУЌАВА
+  // БЕШЕ КАЈ УНИВЕРЗАЛНА НЕ ВО СКОПЈЕ СЕВЕР» made the preposition opener read
+  // the DISTRICT HE WAS EXCLUDING as a place — and the map really holds a
+  // suburb named «Скопје Север», so it resolved and anchored the whole search
+  // there. Every caller (classifier, placeWish, the recall lanes) inherits the
+  // veto here, so no lane can resurrect the denial.
+  const deny = (list: string[]): string[] => list.filter(c => !isAreaNegated(t, c));
+  const raw = deny(collect(POI_WISH_RE, t));
   if (raw.length > 0) return raw; // the raw-script candidates win
-  return collect(POI_WISH_RE, normalizeMc(t));
+  return deny(collect(POI_WISH_RE, normalizeMc(t)));
 }
 
 export function extractPoiWish(text: string, opts: { withCriteria?: boolean } = {}): string | undefined {
@@ -324,13 +331,17 @@ export function extractPoiListCandidates(text: string): string[] {
     const bare = bparts.join(' ');
     const words = bare.split(' ').filter(Boolean);
     if (afterPlace && words.length >= 1 && words.length <= 4
-      && bare.length >= 4 && !/\d/.test(bare)) {
+      && bare.length >= 4 && !/\d/.test(bare) && !isAreaNegated(text, bare)) {
       out.push(bare);
       continue;
     }
     afterPlace = false;
   }
-  return out;
+  // A LIST MEMBER NAMED INSIDE A DENIAL IS NOT A PLACE (the #1 field capture:
+  // «… НЕ ВО СКОПЈЕ СЕВЕР, КИРИЈАТА …» split on the comma and handed the
+  // EXCLUDED district back as a place — the anchored serve then said «Да, имаме
+  // куќа … кај Скопје Север»). Same reader as the wish extractor above.
+  return out.filter(c => !isAreaNegated(text, c));
 }
 
 export interface DetectedSlots {
@@ -4914,6 +4925,40 @@ export function isValidVisitTime(t: string): boolean {
 // Exported for the place-template layer (src/llm/placeTemplate.ts): a sentence
 // that names a FEED AREA is district-bound and must never become a {place}
 // template — same list, one reader each, no second copy to drift.
+// ── NEGATED AREAS — one reader for every extractor ──────────────────────────
+// A DENIAL NAMES THE AREA IN ORDER TO EXCLUDE IT, and every lane that reads an
+// area out of client text has to know that: `detectLocation` (the slot), and
+// `areaNamed` in the handler (its literal-name path bypasses this function, so
+// it shares `isAreaNegated` instead of growing a second grammar).
+//
+// Two families:
+//   • the WANT-VERB form — «ama ne sakam karpos 3 i aerodrom, samo centar»
+//     (the #1/#2 replay);
+//   • the PREPOSITIONAL form — «не во Скопје Север», «не ми е во Чаир»,
+//     «не беше во Водно» (the #1 field capture of 2026-11-12, where the client
+//     was CORRECTING the bot and the denial became the search's district).
+// A span STOPS at punctuation and at a reversal word (ама/но/туку/samo…), so
+// «не во Скопје Север, ама во Центар» excludes only the first.
+const AREA_NEG_AUX = '(?:ми|ти|му|ме|е|сум|сме|сте|беше|бев|бил|била|sum|sme|ste|si|e|mi|ti|mu|me|bese|bev|bil|bila|nije|није)';
+const AREA_NEG_PREP = '(?:во|vo|в|на|na|кај|kaj|кон|kon|низ|niz)';
+const AREA_NEG_REVERSAL = 'ама|но|туку|само|samo|ama|no|tuku|ali';
+
+/** The spans of `text` that only exist to EXCLUDE an area. */
+export function negatedAreaSpans(text: string): string[] {
+  return [
+    ...text.matchAll(/(?<![\p{L}])(?:не|ne)\s+(?:сакам|sakam|сакаме|sakame|сакав|сакаат|ne\s+treba|не\s+треба|не\s+ми\s+одговара)[^,]*?(?=,|\s+(?:само|samo)(?![\p{L}])|$)/giu),
+    ...text.matchAll(new RegExp(
+      `(?<![\\p{L}])(?:не|ne|ниту|nitu)(?:\\s+${AREA_NEG_AUX}){0,2}\\s+${AREA_NEG_PREP}\\s+[^,.;!?]*?(?=,|\\.|;|!|\\?|\\s+(?:${AREA_NEG_REVERSAL})(?![\\p{L}])|$)`,
+      'giu',
+    )),
+  ].map(m => m[0]);
+}
+
+/** Is this area named only to be ruled out? */
+export function isAreaNegated(text: string, loc: string): boolean {
+  return negatedAreaSpans(text).some(span => locMatches(span, loc));
+}
+
 export const KNOWN_NEIGHBORHOODS = [
   'Центар', 'Центар (населба)', 'Карпош', 'Карпош III',
   'Аеродром', 'Кисела Вода', 'Капиштец', 'Чаир', 'Тафталиџе', 'Маџари',
@@ -4956,7 +5001,10 @@ export function detectLocation(text: string, feedLocations: string[]): string | 
   // only to exclude them, yet every named area was stored. A negation (не /
   // ne) followed by a want/nominal phrase up to the next comma or «само»
   // («only») cancels the area it covers; the affirmed areas are kept.
-  const negatedSpans = [...text.matchAll(/(?<![\p{L}])(?:не|ne)\s+(?:сакам|sakam|сакаме|sakame|сакав|сакаат|ne\s+treba|не\s+треба|не\s+ми\s+одговара)[^,]*?(?=,|\s+(?:само|samo)(?![\p{L}])|$)/giu)].map(m => m[0]);
+  // A NEGATED AREA IS NEVER THE AREA HE WANTS — both families (want-verb and
+  // prepositional) come from `negatedAreaSpans`, the ONE reader `areaNamed`
+  // also uses; see the comment above `KNOWN_NEIGHBORHOODS`.
+  const negatedSpans = negatedAreaSpans(text);
   const isNegated = (loc: string): boolean => negatedSpans.some(span => locMatches(span, loc));
   let hits = [...KNOWN_NEIGHBORHOODS, ...feedLocations].filter(loc => locMatches(text, loc) && !isNegated(loc));
   // "vo Skopje" alone is too broad — the bot should ask which neighbourhood.
@@ -5434,6 +5482,29 @@ export function isOwnerQuestion(text: string): boolean {
     || matchesBoth(new RegExp(`${W}(?:dali|дали|kako|како|koja|која|koj|кој|koe|кое|kade|каде|koga|кога|zosto|зошто|sto|што|kolku|колку|which|when|what|how)${E}`, 'iu'), text);
 }
 
+/** THE OWNER ASKS WHO WILL RENT IT (the #4 field request, 2026-11-12).
+ *
+ *  «КОЈ САКА ДА ЈА ИЗНАЈМИ?» is the owner vetting the client before he gives a
+ *  viewing, and it used to fall to the generic answer seam — he was sent the
+ *  availability/term question back, which reads as a robot that did not listen,
+ *  while the CLIENT was never asked and nobody ever gave him the name.
+ *
+ *  Families (stems + `\p{L}*`, both scripts, so word order and inflections do
+ *  not matter): a who-word with a rent/occupy verb, or a tenant noun in an ask
+ *  shape. A STATEMENT about the tenant («закупникот плаќа» — no who-word and no
+ *  question) is not the ask and stays with the verdict/answer lanes.
+ */
+export function detectOwnerTenantAsk(text: string): boolean {
+  const WHO = /(?<![\p{L}])(?:кој|кои|koj|koi|who)(?![\p{L}])/iu;
+  const RENT_VERB = /(?:изнајм\p{L}*|iznajm\p{L}*|ќе\s+живее|ke\s+живее|ke\s+zivee|вселува\p{L}*|vseluva\p{L}*|живее|zivee|кириј\p{L}*|kirij\p{L}*)/iu;
+  const FOR_WHOM = /(?<![\p{L}])(?:за\s+кого|za\s+kogo|for\s+whom)(?![\p{L}])/iu;
+  const TENANT_NOUN = /(?<![\p{L}])(?:закуп\p{L}*|zakup\p{L}*|станар\p{L}*|stanar\p{L}*|кираџи\p{L}*|kiradzi\p{L}*|kiradzij\p{L}*|tenant\p{L}*)/iu;
+  if (WHO.test(text) && RENT_VERB.test(text)) return true;
+  if (FOR_WHOM.test(text) && RENT_VERB.test(text)) return true;
+  if (TENANT_NOUN.test(text) && (WHO.test(text) || FOR_WHOM.test(text) || text.includes('?'))) return true;
+  return false;
+}
+
 /** A MODAL frame is an OFFER even when it is phrased as a question
  *  («MOZE VO SABOTA?» = I could do Saturday). A copula/asking frame
  *  («TOA E DENES TAKA?», «DALI PRASUVATE ZA DENES?») is the owner checking what
@@ -5492,6 +5563,44 @@ function ownerSaysSameTerm(proposed: string, ownerPhrase: string): boolean {
   return !!a && !!b && a === b;
 }
 
+/** THE OWNER'S EXTRA CONDITIONS (the operator's 2026-11-12 request): the
+ *  deposit / first month's rent / advance he attaches to his yes. They used to
+ *  die in the parser — the client booked a visit under conditions he had never
+ *  heard, and the only record was the owner's raw message.
+ *
+ *  The CLAUSE is returned in his own words (never a re-worded figure), since
+ *  the amounts are his: «ДА, МОЖЕ, АМА БАРА ДЕПОЗИТ ОД ЕДНА КИРИЈА» → «ама бара
+ *  депозит од една кирија». A condition is only ever read off the money nouns
+ *  (депозит/капаро/гаранција, прва кирија/аванс/предплата) — ordinary owner
+ *  chatter about the flat carries neither and stays untouched.
+ */
+const OWNER_CONDITION_RE = /(?<![\p{L}])(?:депозит\p{L}*|depozit\p{L}*|капаро\p{L}*|kaparo\p{L}*|гаранциј\p{L}*|garancij\p{L}*|прва\s+кириј\p{L}*|prva\s+kirij\p{L}*|прва\s+месечн\p{L}*|prva\s+mesecn\p{L}*|аванс\p{L}*|avans\p{L}*|предплат\p{L}*|predplat\p{L}*)(?![\p{L}])/iu;
+
+/** The RAW clauses of `text` that name an owner condition (cleaning is the
+ *  caller's business). Used both to relay them and to keep their FIGURES out of
+ *  the property price — «капаро од 300 евра» is a deposit, not a new price. */
+function ownerConditionClauses(text: string): string[] {
+  if (!OWNER_CONDITION_RE.test(text)) return [];
+  return text
+    .split(/[,.;!?\n]+/u)
+    .map(c => c.trim())
+    .filter(c => !!c && OWNER_CONDITION_RE.test(c));
+}
+
+export function detectOwnerConditions(text: string): string[] {
+  const out: string[] = [];
+  for (const c of ownerConditionClauses(text)) {
+    let clean = c.replace(/^\s*(?:и|i|and)\s+/iu, '').slice(0, 160).trim();
+    // AN ALL-CAPS OWNER IS STILL A SENTENCE IN OUR COPY: the relayed clause
+    // sits mid-sentence («… наведе услови: ама бара депозит …»), so a shouted
+    // clause is folded to lowercase. Mixed-case text keeps its own capitals
+    // (a name or a district the owner wrote properly is not touched).
+    if (clean && clean === clean.toUpperCase()) clean = clean.toLowerCase();
+    if (clean && !out.some(x => x.toLowerCase() === clean.toLowerCase())) out.push(clean);
+  }
+  return out;
+}
+
 export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVerdict | undefined {
   const t = text.toLowerCase();
   // A LONE HOUR IS AN ANSWER (the same [owner] capture family): the owner is
@@ -5510,9 +5619,26 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
         : { status: 'counter', ownerTime: `vo ${clock}` };
     }
   }
-  const price = extractOwnerPrice(text);
-  const withPrice = (v: OwnerVerdict): OwnerVerdict =>
-    price !== undefined ? { ...v, price } : v;
+  // A FIGURE THAT BELONGS TO A CONDITION IS NOT THE PROPERTY'S PRICE (caught
+  // while building this relay): «БАРА КАПАРО ОД 300 ЕВРА» made the parser read
+  // 300 as a new asking price and put a price-change notice on the owner's own
+  // deposit. The condition clauses are cut out of the text the price comes
+  // from, so the flat's figure can only be read off his real price sentence.
+  const conditions = detectOwnerConditions(text);
+  const priceText = conditions.length > 0
+    ? text.split(/[,.;!?\n]+/u)
+      .filter(c => !ownerConditionClauses(text).some(raw => raw.toLowerCase() === c.trim().toLowerCase()))
+      .join('. ')
+    : text;
+  const price = extractOwnerPrice(priceText);
+  // The conditions ride EVERY verdict shape (ok / counter / gone): an owner
+  // can attach them to a yes, to an alternative term, or even to a refusal.
+  const withPrice = (v: OwnerVerdict): OwnerVerdict => {
+    let out = v;
+    if (price !== undefined) out = { ...out, price };
+    if (conditions.length > 0) out = { ...out, conditions };
+    return out;
+  };
   if (matchesBoth(OWNER_GONE_RE, t)) {
     const note = /продад|prodad/.test(t) ? 'продаден' : /издад|izdad/.test(t) ? 'издаден' : undefined;
     return withPrice({ status: 'gone', note });
