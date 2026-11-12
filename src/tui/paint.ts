@@ -54,6 +54,7 @@ export interface FrameBoxes {
   screen: any;
   topBar: any;
   leadsBox: any;
+  bookingsBox: any;
   chatBox: any;
   ownerBox: any;
   inputBox: any;
@@ -142,6 +143,7 @@ export function frameSignature(boxes: FrameBoxes, extra = ''): string {
     `${Number(screen?.width) || 0}x${screenRows(screen)}`,
     part(boxes.topBar),
     part(boxes.leadsBox), scroll(boxes.leadsBox),
+    part(boxes.bookingsBox), scroll(boxes.bookingsBox),
     part(boxes.chatBox), scroll(boxes.chatBox),
     part(boxes.ownerBox), scroll(boxes.ownerBox),
     label(boxes.inputBox), part(boxes.inputBox),
@@ -163,7 +165,8 @@ export function surfaceRows(boxes: FrameBoxes): SurfaceSpec[] {
   const rows = screenRows(boxes.screen);
   return [
     { key: 'top', box: boxes.topBar, fallback: [0, 1] },
-    { key: 'leads', box: boxes.leadsBox, fallback: [1, Math.max(1, rows - 1)] },
+    { key: 'leads', box: boxes.leadsBox, fallback: [1, Math.max(1, Math.floor(rows / 2))] },
+    { key: 'bookings', box: boxes.bookingsBox, fallback: [Math.max(1, Math.floor(rows / 2)), Math.max(1, rows - 1)] },
     { key: 'chat', box: boxes.chatBox, fallback: [1, Math.max(1, rows - 12)] },
     { key: 'owner', box: boxes.ownerBox, fallback: [Math.max(1, rows - 12), Math.max(1, rows - 4)] },
     { key: 'input', box: boxes.inputBox, fallback: [Math.max(0, rows - 4), Math.max(1, rows - 1)] },

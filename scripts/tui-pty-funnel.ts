@@ -22,6 +22,8 @@ import * as os from 'os';
 import * as path from 'path';
 import * as http from 'http';
 import { PtySession } from '../src/tui/pty';
+import { Db } from '../src/store/db';
+import { AppointmentStore } from '../src/store/appointments';
 // The full-notebook ROW ORDER is the app's own rule, not a copy of it: the pty
 // funnel may only assert rows the view is guaranteed to print where they can be
 // read (see 7f).
@@ -67,6 +69,8 @@ const FEED_FIXTURE = path.join(PROJECT_ROOT, 'tests', 'fixtures', 'pty-feed.json
 const KEY_F3 = '\x1bOR';
 const KEY_PAGEUP = '\x1b[5~';
 const KEY_PAGEDOWN = '\x1b[6~';
+// xterm's kf8=\E[19~.
+const KEY_F8 = '\x1b[19~';
 
 /** Serve the fixture feed on an ephemeral local port; returns its URL + closer. */
 async function serveFeedFixture(): Promise<{ url: string; close: () => Promise<void> }> {
@@ -99,6 +103,25 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
   const feed = await serveFeedFixture();
   const workDir = opts.workDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'lina-pty-'));
   fs.mkdirSync(path.join(workDir, 'data'), { recursive: true });
+
+  // A BOOKING ALREADY ON THE CALENDAR BEFORE BOOT. This is the [09:52] state
+  // the operator could not explain: `17:00 часот е веќе зафатен` is read out of
+  // `appointments`, and a row left by an earlier run made the answer look
+  // invented. The pane must SHOW that row, and [F8] must be able to remove it —
+  // which is exactly what this seeds and then presses. Far in the future so the
+  // funnel's own days are never affected.
+  const seededVisitAt = new Date(2030, 0, 15, 17, 0, 0, 0).getTime();
+  {
+    const seedDb = new Db(path.join(workDir, 'data', 'tui.db'));
+    const seedAppointments = new AppointmentStore(seedDb);
+    const id = seedAppointments.insert({
+      chatId: 'seed-booking', clientName: 'Оператор', clientPhone: '070000000',
+      propertyId: 50, service: 'buy', viewingFee: '500', time: '15.01 17:00', agentPhone: null,
+    });
+    seedAppointments.markFinalized(id, '15.01 17:00');
+    seedDb.db.prepare(`UPDATE appointments SET visit_at = ? WHERE id = ?`).run(seededVisitAt, id);
+    seedDb.db.close();
+  }
 
   const tsx = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'tsx');
   const app = path.join(PROJECT_ROOT, 'src', 'tui', 'run.ts');
@@ -227,6 +250,7 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
   };
 
   let screen = '';
+  const boxesScroll = () => 'n/a';
   let preCloseChunks = 0;
   try {
     // ── 1. boot: the layout is on screen and pane labels are unique ──────────
@@ -237,9 +261,51 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
     // scroll AFTER this line is one.
     const bootScrolls = session.terminal.scrolls;
     if (bootScrolls > 0) notes.push(`${bootScrolls} scroll(s) before the first frame (pre-boot output — not a frame defect)`);
-    for (const label of ['ПОРАКА', 'РАЗГОВОР', 'СОПСТВЕНИК']) {
+    for (const label of ['ПОРАКА', 'РАЗГОВОР', 'СОПСТВЕНИК', 'КЛИЕНТИ', 'ПОСЕТИ']) {
       const count = session.terminal.rowsText().filter(r => r.includes(`┌─ ${label}`)).length;
       if (count !== 1) failures.push(`pane label "${label}" appears ${count}× on the real terminal (must be exactly 1)`);
+    }
+
+    // ── 1b. THE BOOKINGS PANE + [F8] ────────────────────────────────────────
+    // The seed above is on the calendar, so the pane must show it — the row an
+    // operator needs to see when the funnel later answers «зафатен» — and two
+    // [F8] presses must clear it. Both are read off the REAL terminal: the pane
+    // text through the emulator, the calendar through the SQLite file the app
+    // just wrote.
+    {
+      // COLLAPSED text: the left column is 20 cells wide at 80 columns, so both
+      // the row and the hint wrap — the assertions must read the WORDS, not the
+      // wrap points (the same rule the chat pane follows).
+      const pane = () => session.terminal.paneCollapsed('ПОСЕТИ') ?? '';
+      await session.waitForScreen(() => /ЕБ50/.test(pane()), {
+        timeoutMs: 20_000, label: 'the seeded booking in the bookings pane',
+      }).catch(() => {
+        failures.push(`the bookings pane never showed the calendar row on the real terminal: ${JSON.stringify(pane().slice(0, 120))}`);
+      });
+      if (/ЕБ50/.test(pane()) && !/15\.0117:00/.test(pane())) {
+        failures.push(`the booking row does not carry its confirmed hour: ${JSON.stringify(pane().slice(0, 120))}`);
+      }
+      await session.key(KEY_F8);
+      await session.waitQuiet(300);
+      // The arm notice is asserted IN THE PANE, not the top bar: a bar 100
+      // columns wide truncates its own tail, and a confirmation nobody can read
+      // is a key that silently does nothing.
+      if (!/уштееднаш/.test(pane())) {
+        failures.push(`the first [F8] did not arm the clear (the operator must confirm): ${JSON.stringify(pane().slice(0, 160))}`);
+      }
+      if (!/ЕБ50/.test(pane())) {
+        failures.push('the first [F8] cleared the calendar without a second press');
+      }
+      await session.key(KEY_F8);
+      await session.waitForScreen(() => /немапосети/.test(pane()), {
+        timeoutMs: 10_000, label: 'the emptied bookings pane',
+      }).catch(() => {
+        failures.push(`[F8] did not clear the calendar on the real terminal: ${JSON.stringify(pane().slice(0, 160))}`);
+      });
+      const left = new Db(path.join(workDir, 'data', 'tui.db'));
+      const remaining = new AppointmentStore(left).count();
+      left.db.close();
+      if (remaining !== 0) failures.push(`[F8] left ${remaining} appointment row(s) in the calendar database`);
     }
 
     // ── 2. a new client, then the exam brain (no LLM: the bank must answer) ──
@@ -685,7 +751,7 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
     }
     const leadsPane = session.terminal.paneText('КЛИЕНТИ') ?? '';
     if (!/Анкор-Клиент/.test(leadsPane) || !/✗1/.test(leadsPane)) {
-      failures.push(`the insult did not record a strike on the client row: ${leadsPane.replace(/\s+/g, ' ').slice(0, 160)}`);
+      failures.push(`the insult did not record a strike on the client row: ${leadsPane.replace(/\s+/g, ' ').slice(0, 160)} || ROWS: ${JSON.stringify(session.terminal.rowsText().slice(0, 12))} || SCROLL ${String(boxesScroll())}`);
     }
     await turn('KOJA SIMBOLICNA CENA . 500DEN SE PARI', 'the fee objection', /500\s*денари/u);
     const anchorFeeReply = lastReply();

@@ -17,7 +17,7 @@ import { ChannelRegistry } from '../channels/types';
 import { LlmClient } from '../llm/types';
 import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
-import { buildLayout, esc, guardGlyphs, hhmm, wrapMarked, paneTextWidth, CHAT_PANE_FRACTION } from './layout';
+import { buildLayout, esc, guardGlyphs, hhmm, wrapMarked, paneTextWidth, visibleWidth, CHAT_PANE_FRACTION } from './layout';
 import { FramePainter, paneAtBottom } from './paint';
 import type { OwnerVerdict } from '../backoffice/ownerAgent';
 import { detectOwnerVerdict, detectOwnerAddressReply } from '../llm/deterministic';
@@ -52,7 +52,7 @@ interface Lead {
 }
 type Mode = 'chat' | 'naming' | 'menu';
 
-const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/status] здравствена проверка (клучеви, мапа, фид, мозок) · [/routes N] последни рутирани намери · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [C-q] излез`;
+const HELP = `КОНТРОЛИ: [Space] нов клиент · [↑/↓] префрли клиент · [Enter] испрати / bypass типинг · [F1] нов клиент · [F2] брз почеток · [F3] пишувај како сопственик · [F8] избриши ги закажаните посети (два пати во 5 сек — рачен ресет на календарот, не се брише само) · [PgUp/PgDn] скрол на разговорот · [/reset] ресетирај сесија · [/status] здравствена проверка (клучеви, мапа, фид, мозок) · [/routes N] последни рутирани намери · [/brain hybrid|gemini|groq|free] мозок (free = LLM-без, детерминистички) · [/owner <eb> ok|sold|rented|counter|price <time|износ>] одговори на сопственик (price = нова цена — се складира за Hermes) · [/visit <apptId> confirm|location] испали протокол-термин сега (тест) · [/visits] список закажани посети · [/agents] квоти · [/customers] редица · [C-q] излез`;
 
 // The brain chooser: 'hybrid' = Gemini pool -> Groq fallback (production),
 // 'gemini' = the 3 rotating keys only, 'groq' = Groq only, 'free' = always-throw
@@ -93,6 +93,9 @@ export class TuiApp {
 
   private chains = new Map<string, Promise<void>>();
   private busy = new Set<string>();
+  /** The bookings pane's store + the [F8] arm window (see clearBookings). */
+  private appointments!: AppointmentStore;
+  private bookingsArmAt = 0;
   private typing: { chatId: string; until: number } | null = null;
   private ownerTyping: {
     chatId: string; until: number;
@@ -167,6 +170,7 @@ export class TuiApp {
     setLearnedBank(this.bank);
     this.sessions = new SessionStore(this.db);
     const appointments = new AppointmentStore(this.db);
+    this.appointments = appointments;
     const escalations = new EscalationStore(this.db);
     const meta = new MetaStore(this.db);
 
@@ -418,6 +422,7 @@ export class TuiApp {
         this.renderStatus();
         this.repaint();
         return;
+      case 'f8': this.clearBookings(); return;
       // THE SCROLL KEYS FOLLOW THE FOCUS: PgUp/PgDn used to drive the CHAT pane
       // only — and renderOwner pinned the owner pane to the bottom on every
       // render — so the owner conversation (the ping-pong that fixes the visit
@@ -1235,7 +1240,17 @@ export class TuiApp {
       leadsBox.setContent('\n{gray-fg}(нема клиенти — притиснете Space за нов клиент){/gray-fg}');
       return;
     }
-    const lines = this.leads.map((l, i) => {
+    // PRE-WRAP TO THE PANE, and scroll by the SAME measurement (the [09:52]
+    // split-pane regression): blessed re-wraps for itself, mid-word included, so
+    // a view scrolled by an estimate drifts — the selected lead's row was cut
+    // and its strike counter with it (the real-terminal check read the wrong
+    // client). The lines below are wrapped to the pane's exact text width, so
+    // the height computed here is the number of physical rows blessed draws.
+    const textCols = Math.max(8, (Number(leadsBox.width) || 0) - (Number(leadsBox.iwidth) || 2) - (leadsBox.scrollbar ? 1 : 0));
+    const wrapTo = (s: string): string[] => wrapMarked(s, textCols).split('\n');
+    const heightOf = (s: string): number => wrapTo(s)
+      .reduce((n, line) => n + Math.max(1, Math.ceil(visibleWidth(line) / textCols)), 0);
+    const leadLines = this.leads.map((l, i) => {
       const sel = i === this.selected;
       const busyMark = this.busy.has(l.chatId) ? ' …' : '';
       const strikes = l.strikes > 0 ? ` ✗${l.strikes}` : '';
@@ -1243,11 +1258,36 @@ export class TuiApp {
       // identity, not something the operator types (`/state client-1` resolves
       // it — App.resolveChatArg), so the width of this narrow pane row and the
       // `/state client-1` habit both survive the change.
-      const row = `${sel ? '▸' : ' '} ${l.name}${busyMark}\n   ${displayChatId(l.chatId)} · ${l.state}${strikes} · ${l.outbound}/100 · мозок: ${l.brain}`;
-      return sel ? `{inverse}${esc(row)}{/inverse}` : esc(row);
+      return `${sel ? '▸' : ' '} ${l.name}${busyMark}\n   ${displayChatId(l.chatId)} · ${l.state}${strikes} · ${l.outbound}/100 · мозок: ${l.brain}`;
     });
-    leadsBox.setContent(lines.join('\n') + '\n');
-    leadsBox.setScrollPerc(100);
+    // THE LIST IS WINDOWED HERE, NEVER SCROLLED BY BLESSED (the [09:52]
+    // split-pane regression, second half): `scrollTo` clamps against the height
+    // blessed measured BEFORE the new content was rendered, so a half-height
+    // pane ended up parked mid-list — the selected client and its strike counter
+    // were off-screen while the pane looked fine. The window is computed from
+    // the same wrapped lines the pane draws, so what is computed is what is seen.
+    const interior = Math.max(1, (Number(leadsBox.height) || 0) - (Number(leadsBox.iheight) || 2));
+    const blocks = leadLines.map((raw, i) => {
+      const wrapped = wrapTo(raw).map(esc);
+      return { rows: wrapped.length, tag: i === this.selected ? ['{inverse}', '{/inverse}'] : ['', ''] };
+    });
+    const selectedFirst = blocks.slice(0, this.selected).reduce((n, b) => n + b.rows, 0);
+    const selectedRows = blocks[this.selected]?.rows ?? 0;
+    // The selected block's LAST row sits on the viewport's last row, never past
+    // it: the client the operator is working on stays readable.
+    let top = Math.max(0, selectedFirst + selectedRows - interior);
+    const flat: string[] = [];
+    leadLines.forEach((raw, i) => {
+      const b = blocks[i]!;
+      const wrapped = wrapTo(raw).map(esc);
+      const [open, close] = b.tag;
+      wrapped.forEach((line, k) => {
+        flat.push(k === 0 ? `${open}${line}` : line);
+        if (k === wrapped.length - 1 && close) flat[flat.length - 1] = `${flat[flat.length - 1]}${close}`;
+      });
+    });
+    top = Math.min(top, Math.max(0, flat.length - interior));
+    leadsBox.setContent(flat.slice(top, top + interior).join('\n'));
   }
 
   /** Text columns available inside the chat/owner pane at the CURRENT
@@ -1257,6 +1297,101 @@ export class TuiApp {
     const screen: any = this.box.screen;
     const cols = Number(screen?.width) || Number((process.stdout as any)?.columns) || 80;
     return paneTextWidth(cols, CHAT_PANE_FRACTION);
+  }
+
+  /** The lower half of the left column: what the CALENDAR holds right now.
+   *
+   *  WHY THE PANE EXISTS (the [09:52] capture): the taken-hour answer is built
+   *  from `appointments` — `17:00 часот е веќе зафатен` is read out of that
+   *  table — and a visit left there by an earlier test chat made the answer
+   *  look invented, because nothing on screen showed the calendar. Now the
+   *  operator sees the row that takes the hour, and [F8] removes it.
+   *
+   *  Confirmed visits come first in the order they will happen; still-being-
+   *  negotiated rows follow (their hour is not fixed yet, so they carry no
+   *  date). `visit_at` — the confirmed epoch — is what sorts, never the raw
+   *  `time` text the client typed. */
+  private renderBookings(): void {
+    const { bookingsBox } = this.box;
+    const rows = this.appointments.listAll();
+    const textCols = Math.max(8, (Number(bookingsBox.width) || 0) - (Number(bookingsBox.iwidth) || 2) - 1);
+    const interior = Math.max(1, (Number(bookingsBox.height) || 0) - (Number(bookingsBox.iheight) || 2));
+    const wrapTo = (s: string): string[] => wrapMarked(s, textCols).split('\n');
+    if (rows.length === 0) {
+      // Short enough to fit the narrowest column this TUI runs at: a hint that
+      // wraps mid-word is a hint the operator reads wrong.
+      bookingsBox.setContent(wrapTo('{gray-fg}(нема посети){/gray-fg}').join('\n'));
+      return;
+    }
+    const confirmed = rows
+      .filter(r => r.status === 'finalized' && r.visitAt)
+      .sort((a, b) => (a.visitAt ?? 0) - (b.visitAt ?? 0));
+    const pending = rows
+      .filter(r => !(r.status === 'finalized' && r.visitAt))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    const lines: string[] = [];
+    for (const r of [...confirmed, ...pending]) {
+      const at = r.visitAt ? new Date(r.visitAt) : undefined;
+      const when = at ? `${pad(at.getDate())}.${pad(at.getMonth() + 1)} ${pad(at.getHours())}:${pad(at.getMinutes())}` : ' — ';
+      lines.push(` ${when} · ЕБ ${r.propertyId}`);
+      lines.push(`   ${r.status === 'finalized' && r.visitAt ? 'закажана' : 'во тек'}`);
+    }
+    // THE ARM NOTICE LIVES IN THE PANE, not only in the top bar: a terminal
+    // 80–100 columns wide truncates the top bar's tail, and a confirmation the
+    // operator cannot read is a key that silently does nothing.
+    const armed = Date.now() - this.bookingsArmAt <= 5000;
+    lines.push(armed
+      ? '{yellow-fg}[F8] уште еднаш — бриши{/yellow-fg}'
+      : '{gray-fg}[F8] избриши ги{/gray-fg}');
+    // PRE-WRAPPED AND WINDOWED, exactly like the client list: blessed's own
+    // scroll clamps against the PREVIOUS frame's height, and a calendar read
+    // from its first entry must never be parked mid-list or left blank.
+    const flat = lines.flatMap(l => wrapTo(l));
+    bookingsBox.setContent(flat.slice(0, Math.max(1, interior)).join('\n'));
+  }
+
+  /** [F8] — CLEAR THE CALENDAR, ON PURPOSE AND ONLY ON PURPOSE.
+   *
+   *  Two presses within five seconds: one key that wipes every booking is one
+   *  slip away from destroying a real calendar, and the pane right beside it
+   *  already shows what would go. Nothing clears automatically — not a boot, not
+   *  a restart, not a timer — so the production calendar behaves exactly as it
+   *  did, and a test run gets its clean slate when the operator asks for it. */
+  private clearBookings(): void {
+    const count = this.appointments.count();
+    const now = Date.now();
+    if (now - this.bookingsArmAt > 5000) {
+      this.bookingsArmAt = now;
+      this.banner = count === 0
+        ? 'нема закажани посети за бришење'
+        : `[F8] уште еднаш во 5 сек — се бришат ${count} посети`;
+      this.renderAll();
+      // DISARM ON ITS OWN: the second press must be a decision, so a press an
+      // hour later is a fresh arm and not a clear nobody asked for.
+      setTimeout(() => {
+        if (this.bookingsArmAt === now) { this.bookingsArmAt = 0; this.renderBookings(); this.repaint(); }
+      }, 5100).unref?.();
+      return;
+    }
+    this.bookingsArmAt = 0;
+    const cleared = this.appointments.clearAll();
+    this.banner = `избришани ${cleared} закажани посети`;
+    const lead = this.activeLead();
+    if (lead) {
+      this.appendMsg(lead.chatId, {
+        role: 'system',
+        text: `[F8] избришани ${cleared} закажани посети — календарот е празен`,
+        at: now,
+      });
+    }
+    this.renderAll();
+    // The confirmation is a transient: the top bar goes back to its normal
+    // content instead of carrying the message for the rest of the session.
+    const stamp = this.banner;
+    setTimeout(() => {
+      if (this.banner === stamp) { this.banner = ''; this.renderTop(); this.repaint(); }
+    }, 6000).unref?.();
   }
 
   private renderChat(): void {
@@ -1393,13 +1528,14 @@ export class TuiApp {
     }
     s += 'antiban: 9/s бакет · 100/час по клиент';
     s += ` · мозок: ${this.brainMode}`;
-    s += ' · [Space] нов клиент · [↑/↓] префрли · [Enter] испрати/bypass · [F2] брз почеток · [F3] сопственик · [PgUp/PgDn] скрол · [/reset] · [/brain] · [/owner] · [C-q] излез';
+    s += ' · [Space] нов клиент · [↑/↓] префрли · [Enter] испрати/bypass · [F2] брз почеток · [F3] сопственик · [F8] избриши посети · [PgUp/PgDn] скрол · [/reset] · [/brain] · [/owner] · [C-q] излез';
     statusBar.setContent(s);
   }
 
   private renderAll(opts: { force?: boolean } = {}): void {
     this.renderTop();
     this.renderLeads();
+    this.renderBookings();
     this.renderChat();
     this.renderOwner();
     this.renderInput();

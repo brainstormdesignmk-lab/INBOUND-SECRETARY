@@ -15236,6 +15236,17 @@ ${contactReminder}`;
       this.events.insert('price_changed', chatId, eb, { oldPrice: old ?? null, newPrice: verdict.price, source: 'owner' });
       console.log(`[EVENT] PRICE_CHANGED ${JSON.stringify({ eb, oldPrice: old ?? null, newPrice: verdict.price })}`);
       priceRelay = buildPriceRelay(eb, verdict.price, old);
+      // A MOVED PRICE IS THE CLIENT'S DECISION, AND THIS BRANCH IS A MOVE TOO
+      // (the [09:54] field capture). The gate below («a moved price is the
+      // client's decision…») already existed, but only the CLEAN-price branch
+      // ever set `priceChangePending` — so an owner reply that changed the
+      // PUBLISHED figure («СЛОБОДНА Е ДА, АМА КИРИЈАТА Е 300 ЕВРА») relayed the
+      // change and then booked the visit in the SAME turn: the client read
+      // «цената е променета: 300 евра» and «Договорена посета» together, with
+      // no turn of his own — and the owner's other condition (a deposit) never
+      // reached him at all. With the flag set, the gate parks the chat at
+      // time_confirm and asks him; his own yes runs the booking seam.
+      if (old !== undefined && old !== verdict.price) session.slots.priceChangePending = true;
     }
 
     // A CHAIN IN FLIGHT OWNS ITS OWN VERDICTS (the owner's 2026-11-11 brief):

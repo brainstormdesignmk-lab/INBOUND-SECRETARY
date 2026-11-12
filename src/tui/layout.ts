@@ -142,6 +142,8 @@ export interface TuiBoxes {
   screen: any;
   topBar: any;
   leadsBox: any;
+  /** The lower half of the left column: the visits the calendar holds. */
+  bookingsBox: any;
   chatBox: any;
   ownerBox: any;
   inputBox: any;
@@ -172,15 +174,43 @@ export function buildLayout(
     style: { bg: 'blue', fg: 'white' },
   } as any);
 
-  // LEFT THIRD — the clients that contacted the agency (parallel leads)
+  // LEFT COLUMN, UPPER HALF — the clients that contacted the agency.
+  // The column is SPLIT (the owner's 2026-11-12 directive): the operator has to
+  // see, on one screen, both WHO is talking and WHAT is on the calendar — the
+  // «17:00 е веќе зафатен» answer is only explainable when the visit that took
+  // the hour is visible next to it.
   const leadsBox: any = blessed.box({
-    parent: screen, top: 1, left: 0, width: `${LEADS_PANE_FRACTION * 100}%`, bottom: 1,
+    parent: screen, top: 1, left: 0, width: `${LEADS_PANE_FRACTION * 100}%`,
     tags: true,
-    scrollable: true, alwaysScroll: true,
+    // WRAP ON, alwaysScroll OFF (the split's [09:52] regression): a lead's
+    // detail line is longer than this column and CLIPPING it hid the strike
+    // counter the operator watches for, so blessed wraps it into the pane. The
+    // app scrolls the view to the SELECTED lead by measuring those wrapped
+    // rows — `alwaysScroll` used to let the view overshoot and leave the pane
+    // blank, which is how the strike row disappeared from the real terminal.
+    wrap: true,
+    scrollable: true, alwaysScroll: false,
     scrollbar: { ch: '│', style: { fg: 'cyan' } },
     border: { type: 'line', fg: 'cyan' },
     label: ' КЛИЕНТИ ',
     style: { fg: 'white', border: { fg: 'cyan' } },
+  } as any);
+
+  // LEFT COLUMN, LOWER HALF — the arranged visits (the calendar the taken-hour
+  // answer reads). [F8] clears them on demand: the reset is the operator's, so
+  // a production calendar is never touched by a boot or a timer.
+  const bookingsBox: any = blessed.box({
+    parent: screen, left: 0, width: `${LEADS_PANE_FRACTION * 100}%`,
+    tags: true,
+    wrap: false,
+    scrollable: true, alwaysScroll: false,
+    scrollbar: { ch: '│', style: { fg: 'green' } },
+    border: { type: 'line', fg: 'green' },
+    // SHORT ON PURPOSE: the left column is 20 cells wide at 80 columns, and
+    // blessed truncates a label that does not fit — the operator's pane must
+    // keep its name at the smallest terminal the TUI supports.
+    label: ' ПОСЕТИ ',
+    style: { fg: 'white', border: { fg: 'green' } },
   } as any);
 
   // RIGHT TWO-THIRDS — the active chat (client ↔ Lina)
@@ -225,11 +255,33 @@ export function buildLayout(
     style: { bg: 'black', fg: 'yellow' },
   } as any);
 
+  // THE LEFT COLUMN SPLIT IS NUMERIC, AND RESIZE-AWARE.
+  //
+  // The obvious `bottom: '50%'` does NOT work: blessed resolves a percentage
+  // `top`, but leaves `bottom: '50%'` unresolved — the leads box then has
+  // `height: NaN`, draws ONE row (its label's border) and nothing else, and the
+  // client column is blank while the pane still reports as present. The split is
+  // therefore computed from the screen's real height and recomputed whenever the
+  // terminal is resized (the operator resizes; a broker re-wraps).
+  const syncLeftColumn = (): void => {
+    const rows = Number((screen as any).rows) || Number((screen as any).height) || 24;
+    const inner = Math.max(4, rows - 2);            // between the top bar and the status bar
+    const leadsHeight = Math.max(3, Math.round(inner / 2));
+    leadsBox.top = 1;
+    leadsBox.height = leadsHeight;
+    leadsBox.bottom = undefined;
+    bookingsBox.top = 1 + leadsHeight;
+    bookingsBox.height = Math.max(3, inner - leadsHeight);
+    bookingsBox.bottom = 1;                          // only the last row is left to the status bar
+  };
+  syncLeftColumn();
+  screen.on('resize', () => { syncLeftColumn(); try { screen.render(); } catch { /* pre-first-frame */ } });
+
   // No pane text may reach the terminal unfiltered — one emoji in a row makes
   // the terminal wrap that row (see narrowGlyphs above).
-  for (const box of [topBar, leadsBox, chatBox, ownerBox, inputBox, statusBar]) guardGlyphs(box);
+  for (const box of [topBar, leadsBox, bookingsBox, chatBox, ownerBox, inputBox, statusBar]) guardGlyphs(box);
 
-  return { screen, topBar, leadsBox, chatBox, ownerBox, inputBox, statusBar };
+  return { screen, topBar, leadsBox, bookingsBox, chatBox, ownerBox, inputBox, statusBar };
 }
 
 // Escape blessed tag characters in user/LLM text.

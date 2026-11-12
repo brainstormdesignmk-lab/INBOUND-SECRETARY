@@ -2064,17 +2064,28 @@ test('owner dictates a NEW price: stored for Hermes + relayed to the client befo
   assert.ok(ok);
   await tick();
   s = sessions.get(chatId)!;
-  assert.equal(s.state, 'pending'); // visit confirmed
+  // A MOVED PRICE IS THE CLIENT'S DECISION (the [09:54] field capture): the
+  // owner's yes to the TERM must not book a flat whose published price has
+  // moved. The relay arrives and the chat PARKS at time_confirm — this used to
+  // assert 'pending' (booked in the owner's own turn), which is the bug: the
+  // client read «цената е променета» and «Договорена посета» back to back with
+  // no turn of his own in between.
+  assert.equal(s.state, 'time_confirm');
   // the price change was STORED (pending for Hermes) with old -> new
   const pending = handler.priceChanges.listPending();
   assert.equal(pending.length, 1);
   assert.equal(pending[0].eb, 78);
   assert.equal(pending[0].oldPrice, 185000); // the feed price of EB 78
   assert.equal(pending[0].newPrice, 200000);
-  // and relayed to the client BEFORE the confirmation
+  // the relay reached him BEFORE any confirmation…
   const relayIdx = sent.findIndex(m => m.includes('200.000 евра'));
+  assert.ok(relayIdx !== -1, sent.join(' | '));
+  assert.ok(!sent.some(m => m.includes('Договорена посета')), 'nothing is booked before the client answers');
+  // …and HIS OWN yes runs the booking seam, with the relay still first.
+  s = await send('DA');
+  assert.equal(s.state, 'pending'); // visit confirmed by the client
   const confirmIdx = sent.findIndex(m => m.includes('Договорена посета'));
-  assert.ok(relayIdx !== -1 && confirmIdx !== -1, sent.join(' | '));
+  assert.ok(confirmIdx !== -1, sent.join(' | '));
   assert.ok(relayIdx < confirmIdx, 'price relay must precede the confirmation');
   // the local price must follow the owner's word ("нашата цена се менува")
   assert.ok(pending[0].status === 'pending', 'Hermes has not applied it yet');

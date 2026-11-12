@@ -110,9 +110,9 @@ function makeHandler(rows: Property[] = [SALE]) {
     assert.equal(sessions.get(chatId)!.state, 'owner_checking', `setup: the owner must be checking (${term})`);
     sent.length = 0;
   };
-  const apply = async (v: ReturnType<typeof detectOwnerVerdict>) => {
+  const apply = async (v: ReturnType<typeof detectOwnerVerdict>, eb = 42) => {
     sent.length = 0;
-    handler.ownerAnswer(chatId, 42, v!);
+    handler.ownerAnswer(chatId, eb, v!);
     await new Promise(r => setTimeout(r, 150));
     return sent.at(-1) ?? '';
   };
@@ -240,6 +240,52 @@ test('a new clean price is recomputed into the FINAL price and queued for Hermes
   h.sent.length = 0;
   const booked = await h.say('ДА, САКАМ ПОСЕТА');
   assert.match(booked, /Договорена посета/u, `the client's yes books the visit: ${booked}`);
+});
+
+// THE PUBLISHED-PRICE SIBLING (the [09:54] field capture). A row WITHOUT a
+// clean price is asked about the figure the client is looking at, and the owner
+// answered: «СЛОБОДНА Е ДА , АМА КИРИЈАТА Е 300 ЕВРА. ПРВА КИРИЈА + ЕДНА
+// ДЕПОЗИТ КИРИЈА БАРАМ». Lina relayed the change — and booked the visit in the
+// SAME turn («Договорена посета … Петок, 13.11.2026 во 18:00»), so the client
+// never had his own turn on the new money. The clean-price branch armed the
+// gate (`priceChangePending`); this one forgot to, and the gate is the only
+// thing between an owner's new figure and a locked appointment.
+const RENT_NO_CLEAN: Property = {
+  eb: 50, id: 50, location: 'Центар', address: 'Партизанска 7', price: 250,
+  bedrooms: 1, sqm: 40, size: '40 м²', service: 'rent',
+  lat: 42.0004, lon: 21.4321, geo_source: 'stored', details: '',
+} as Property;
+
+test('[09:54] a changed PUBLISHED price is the client’s decision, never a booking on the owner’s yes', async () => {
+  const h = makeHandler([RENT_NO_CLEAN]);
+  h.seed(50);
+  await h.propose('ПЕТОК ВО 18:00');
+  // The ask confirms the figure the client is looking at (there is no clean one).
+  assert.match(h.asks.at(-1) ?? '', /250/u, `the owner is asked about the published rent: ${h.asks.at(-1)}`);
+
+  const v = detectOwnerVerdict('СЛОБОДНА Е ДА , АМА КИРИЈАТА Е 300 ЕВРА. ПРВА КИРИЈА + ЕДНА ДЕПОЗИТ КИРИЈА БАРАМ', 'ПЕТОК ВО 18:00');
+  assert.equal(v?.status, 'ok', `the owner confirmed the flat is free: ${JSON.stringify(v)}`);
+  assert.equal(v?.price, 300, `his new rent parses: ${JSON.stringify(v)}`);
+  const reply = await h.apply(v, 50);
+
+  // The client hears the change…
+  assert.match(reply, /300/u, `the new rent reaches him: ${reply}`);
+  assert.match(reply, /\?\s*$/u, `and he is asked, never told: ${reply}`);
+  // …and NOTHING is booked behind his back.
+  assert.doesNotMatch(reply, /Договорена посета/u, `no appointment yet: ${reply}`);
+  assert.equal(h.sessions.get(h.chatId)!.state, 'time_confirm', 'the client closes the visit himself');
+  assert.equal(h.sessions.get(h.chatId)!.slots.priceChangePending, true, 'the gate is armed');
+  const finalized = (h.db.db.prepare(
+    `SELECT COUNT(*) as c FROM appointments WHERE status = 'finalized'`).get() as { c: number }).c;
+  assert.equal(finalized, 0, 'no finalized appointment on the owner’s word alone');
+  const queued = h.priceChanges.listPending();
+  assert.equal(queued.length, 1, `the change is queued for Hermes: ${JSON.stringify(queued)}`);
+  assert.equal(queued[0]!.newPrice, 300, 'a rent carries no markup — the clean rent IS the monthly rent');
+
+  // His own yes runs the booking seam, at the owner's term.
+  h.sent.length = 0;
+  const booked = await h.say('ДА, САКАМ ПОСЕТА');
+  assert.match(booked, /Договорена посета/u, `his yes books it: ${booked}`);
 });
 
 test('a complaint about the moved price gets the owners-may-reprice line', async () => {
