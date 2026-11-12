@@ -73,7 +73,7 @@ import {
   locateNoun,  buildLocateFirstAsk, buildLocateServiceAsk, buildLocateMoreSpecsAsk,
   buildLocateLandmarkPriceProbe, buildDescribeIntro,
   AVAILABILITY_ACK, AVAILABILITY_ACK_FEM, AVAILABILITY_CLAIM, AVAILABILITY_CLAIM_FEM,
-  buildPriceRelay, buildFeeAsk, buildFeePerProperty, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
+  buildPriceRelay, buildFeeAsk, buildFeePerProperty, extendFeeAskForCount, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildDiscoveryAsk, discoveryAskCriteria, locationCriterionKnown, serviceCriterionKnown,
   type DiscoveryCriterion,
@@ -9222,7 +9222,12 @@ export class InboundHandler {
           });
           // The fee is PER PROPERTY, and a plural ask is exactly where a client
           // starts multiplying — the arithmetic is stated, not left to him.
-          const answer = `${lines.join('\n')}\n\n${buildFeePerProperty(svc, rows.length)}`;
+          // SAME DISCLOSURE AS A ONE-FLAT VISIT (the owner's 2026-11-12 rule):
+          // the bank variant is served and only the per-property sum is added,
+          // so the protocol has ONE voice whether he asks about one flat or two.
+          const feeLine = pickVariant(svc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy', { recent: assistantTexts(session) })
+            ?? buildFeeAsk(svc);
+          const answer = `${lines.join('\n')}\n\n${extendFeeAskForCount(feeLine, svc, rows.length)}`;
           session.state = 'closing';
           session.slots.ownerContactPending = true;
           session.slots.feeDisclosed = true;
@@ -14500,8 +14505,13 @@ ${contactReminder}`;
         const list = tripEbs.length === 2
           ? `${tripEbs[0]} и ${tripEbs[1]}`
           : `${tripEbs.slice(0, -1).join(', ')} и ${tripEbs[tripEbs.length - 1]}`;
+        // THE SERVED DISCLOSURE IS KEPT, NOT REPLACED (the owner's 2026-11-12
+        // directive, the [04:10] capture): the one-flat fee.ask copy is the
+        // perfected answer and the bank rotates a dozen variants of it, so a
+        // two-flat visit adds ONLY the per-property arithmetic — the sentence
+        // is inserted before the variant's own agreement question.
         reply = `Посетата е за становите со Евидентни броеви ${list}${loc ? ` (${loc})` : ''}.\n\n`
-          + buildFeePerProperty(session.slots.service, tripEbs.length);
+          + extendFeeAskForCount(reply, session.slots.service, tripEbs.length);
       } else {
         const subjEb = session.slots.propertyId ?? session.slots.interestedPropertyId
           ?? (session.slots.currentBatch?.length ? session.slots.currentBatch[0] : undefined);

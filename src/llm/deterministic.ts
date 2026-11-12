@@ -2560,6 +2560,10 @@ export function detectYardNeed(text: string): boolean {
 // fee, small currency figures are the fee, not a budget.
 const FEE_CTX_RE = /(надомест|nadomest|такса|taksa|симболич|simbolic|simvolich|за\s+(?:една\s+)?посет|za\s+(?:edna\s+)?poset|tie\s+pari|тие\s+пари)/iu;
 
+// Denar money — the UNIT alone decides (see collectMoneyMentions): this feed
+// prices property in euros, so a denar figure is a fee figure and never a cap.
+const DENAR_UNIT_RE = /^(?:денари|denari|денар|denar|ден\.?|den\.?|мкд|mkd)/iu;
+
 // PRICE ASSERTION ABOUT AN EB (the [22:33] field capture): "44 e 130000
 // evra kaj vas na stranicata" — the client TELLS Lina the price he saw on
 // the public site. The money number names the EB's price; it is never his
@@ -2627,11 +2631,21 @@ function collectMoneyMentions(text: string): MoneyMention[] {
   // spellings are PREFIXES of these, so the alternation stopped inside the word
   // («1500 eur» of «1500 eura»), the per-m² marker then read a tail starting at
   // «a za kvadrat» and the €/m² ceiling died into a 1.500 € total.
-  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d+)?)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(еура|евра|евро|eura|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}]))?/giu;
+  // A DENAR FIGURE IS NEVER A EURO BUDGET (the [04:13] field capture): «AMA OVA
+  // SE 1000 DEN ?» — the client challenged the 1.000-denar total the pair
+  // disclosure had just quoted — was read as a 1.000-EURO cap, the search
+  // re-ran, found nothing and answered «Ги исцрпивме двособни до 160.000
+  // евра…» instead of the fee ladder. The feed prices property in EUROS and
+  // the only denar figures Lina quotes are the viewing fee and its sums
+  // (`isFeeFrame` already states this invariant for the price lanes), so a
+  // figure carrying a denar unit is fee money: it is scanned here only so the
+  // NEXT figure is not glued onto it, and then dropped.
+  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d+)?)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(еура|евра|евро|eura|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}])|денари|денар|ден\.?|denari|denar|den\.?|мкд|mkd)?/giu;
   const out: MoneyMention[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(cleaned)) !== null) {
     const capped = !!m[1];
+    if (m[4] && DENAR_UNIT_RE.test(m[4])) continue;
     const digits = m[2].replace(/[\s.,]/g, '');
     let n = parseInt(digits, 10);
     if (!Number.isFinite(n) || n <= 0) continue;
@@ -7173,6 +7187,15 @@ const NAG_PRACTICE_DISLIKE_RE = buildFeePracticeDislikeSlots();
 // stays with the negotiation lanes). Normalised to Cyrillic by normalizeMc,
 // so the Latin typings arrive as променете/правилата and one alternation
 // covers both scripts.
+// THE RESTATED FEE IN A CHALLENGE FRAME (arm 4f): an amount WITH ITS UNIT
+// beside a deictic/challenge particle. The UNIT is captured because the
+// magnitude ceiling differs (£ vs denar) and because the figure that matters
+// is the one the unit belongs to — «PA AKO POSETAM 10 STANA TOA SE 5000DEN…»
+// has a fee-sized «10» FIRST and a 5.000-denar total after it, and judging the
+// first number called arithmetic resistance.
+const NAG_RESTATE_AMOUNT_RE = /(?<![\p{L}\p{N}])(\d[\d\s.,]*?)\s*(ден\p{L}*|den\p{L}*|мкд|mkd|евр\p{L}*|evr\p{L}*|eur|€)(?![\p{L}\p{N}])/iu;
+const NAG_RESTATE_FRAME_RE = /(?<![\p{L}])(?:ама|ama|ова|ova|оваа|ovaa|тоа|toa|толку|tolku|вака|vaka|така|taka)(?![\p{L}])/iu;
+
 const NAG_RULES_CHANGE_RE = new RegExp(
   '(?:промен|измен|смен|менува)\\p{L}*[^.!?\\n]{0,24}(?:правил|услов|тариф|ценовник|политик)\\p{L}*'
   + '|(?:правил|услов|тариф|ценовник|политик)\\p{L}*[^.!?\\n]{0,24}(?:промен|измен|смен|менува)\\p{L}*',
@@ -7542,6 +7565,38 @@ export function detectFeeNag(text: string, opts: FeeNagOptions = {}): boolean {
   //     policy and tells the agency to rewrite it, so the turn must climb the
   //     ladder (at rung 3 it IS the binary decision the owner expects).
   if (NAG_RULES_CHANGE_RE.test(cyr)) return true;
+
+  // 4f) THE RESTATED FEE IN A CHALLENGE FRAME — «AMA OVA SE 1000 DEN ?»
+  //     (the [04:13] field capture, right after the two-flat disclosure quoted
+  //     «за двете недвижности тоа е вкупно 1.000 денари»). The message carries
+  //     no viewing noun, no charge verb and no value adjective, so every arm
+  //     above missed it — and `collectMoneyMentions` read the denar figure as
+  //     a 1.000-EURO budget, so the search re-ran, found nothing and answered
+  //     «Ги исцрпивме двособни до 160.000 евра…». The rung never burned, the
+  //     funnel left the fee and the client's second resistance went unserved.
+  //     A DENAR figure is fee money in this feed (property is priced in
+  //     euros), the magnitude must be FEE-SIZED (the same ≤2.000 ден bound
+  //     every fee arm uses), and the frame must be a CHALLENGE — a deictic or
+  //     «ама»/«толку»/«вака»: «ова е 1000 ден» points at the figure and
+  //     disputes it. A PROPERTY-price noun («цената») moves the read back to
+  //     the flat and keeps that lane.
+  //     FEE ARITHMETIC IS NOT RESISTANCE (the [02:43]/[23:45]/[02:16] pins): a
+  //     message that names the per-property rule or the plural it is
+  //     multiplying («500 DEN PO STAN? AKO GI VIDAM DVATA TOA SE 1000DEN»,
+  //     «za dva stana toa se 1000 za gledanje samo», «AKO POSETAM 10 STANA TOA
+  //     SE 5000DEN») states the maths and must be CONFIRMED or explained — only
+  //     a bare restatement with no unit and no count is a challenge.
+  {
+    const restate = NAG_RESTATE_AMOUNT_RE.exec(cyr);
+    if (restate && NAG_RESTATE_FRAME_RE.test(cyr)) {
+      const n = Number(restate[1]!.replace(/[\s.,]/g, ''));
+      const eurUnit = /^(?:евр|evr|eur|€)/iu.test(restate[2]!);
+      if (Number.isFinite(n) && n > 0 && n <= (eurUnit ? 100 : 2000)
+        && !FEE_PER_UNIT_RE.test(cyr) && !FEE_PER_EACH_RE.test(cyr)
+        && !FEE_PER_PLURAL_RE.test(cyr) && !FEE_PER_COUNT_RE.test(cyr)
+        && !/(?<![\p{L}])(?:цена\p{L}*|cena\p{L}*)/iu.test(cyr)) return true;
+    }
+  }
 
   // 5) FEE-CONTEXT HESITATION / NON-ACCEPTANCE — the client neither accepts nor
   //    refuses, he stalls ("NEZNAM", "OVA NE GO OCEKUVAV", "ne sum siguren",

@@ -319,8 +319,13 @@ test('a patience claim re-arms the owner check — never a check nobody is runni
   sessions.set(s);
 
   const { answer } = await turn('patience-rearm', 'IMA LI NESTO NOVO ?');
-  assert.match(answer, /проверувам|контактирам|известам|информирам/iu,
-    `the patience line is served: ${answer}`);
+  // CONTRACT, not wording: bank variants rotate (one says «испратив порака… ќе
+  // Ви пишам», another «го контактирам»), so pin the two invariants — the line
+  // names the OWNER and promises the callback when the answer lands.
+  assert.match(answer, /сопственик\p{L}*/iu,
+    `the line names whom the check is with: ${answer}`);
+  assert.match(answer, /штом|веднаш|токму сега|во овој момент/iu,
+    `the line promises the callback: ${answer}`);
   assert.ok(ownerAsks.length >= 1,
     `the claim needs a live ask behind it: ${JSON.stringify(ownerAsks)}`);
 });

@@ -200,7 +200,7 @@ test('[field] a budget floor then a cap is ONE window, never the owner-sets-pric
   // 200.000») over rows it just showed. CONTRACT, not a wording: the drained
   // family rotates (that is not a failure), the lie and the dead end are.
   assert.doesNotMatch(capped, /Моментално во системот нема/iu, `no empty-system lie: ${capped}`);
-  assert.match(capped, /прошириме|забележам|известам|70/u, `the funnel stays open: ${capped}`);
+  assert.match(capped, /прошириме|забележам|известам|друга населба|друг дел|70/u, `the funnel stays open: ${capped}`);
 });
 
 test('[field] the two-flat info line counts BEDROOMS, not rooms', async () => {

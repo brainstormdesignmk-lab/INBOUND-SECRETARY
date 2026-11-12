@@ -1277,6 +1277,45 @@ export function buildFeePerProperty(service: Service | undefined, count?: number
   return `Да, точно — ${mk(per)} денари (${evr}) се за секое разгледување, односно по недвижност.${prov} Дали се согласувате со овој услов за да ја закажеме посетата?`;
 }
 
+/**
+ * TWO OR MORE FLATS IS THE SAME DISCLOSURE, EXTENDED (the owner's 2026-11-12
+ * directive, the [04:10] field capture). The one-flat disclosure is the copy
+ * the owner calls perfected, and the bank carries a dozen variants of it — so
+ * a two-flat visit must NOT replace it with a separate fixed sentence (the
+ * field served «Посетата е за становите… Да, точно — 500 денари … За двете
+ * недвижности тоа е вкупно 1.000 денари», a different voice mid-protocol, and
+ * the perfect answer was lost). This keeps the SERVED variant verbatim and
+ * inserts one sentence before its closing question: the per-property rule and
+ * the sum. The arithmetic is the only thing a visit to several flats adds.
+ *
+ * The sentence is inserted before the LAST question sentence so the disclosure
+ * still ends with its agreement ask (the pool contract), and an undeclared
+ * market names BOTH fees — never a defaulted 500 (the [09:0x] rule) — exactly
+ * as buildFeePerProperty does for the arithmetic-only answer.
+ */
+export function extendFeeAskForCount(copy: string, service: Service | undefined, count: number): string {
+  if (count <= 1) return copy;
+  const mk = (n: number) => n.toLocaleString('mk-MK');
+  const what = count === 2 ? 'двете недвижности' : `${count} недвижности`;
+  const sum = service === 'rent'
+    ? `За ${what} тоа е вкупно ${mk(300 * count)} денари.`
+    : service === 'buy'
+      ? `За ${what} тоа е вкупно ${mk(500 * count)} денари.`
+      : `За ${what} тоа е вкупно ${mk(300 * count)} денари за изнајмување или ${mk(500 * count)} денари за купување.`;
+  const qm = copy.lastIndexOf('?');
+  if (qm === -1) return `${copy.trimEnd()} ${sum} Дали се согласувате со овој услов за да ги закажеме посетите?`;
+  // The START of the closing question sentence — a sentence boundary is a
+  // terminator followed by whitespace, so a decimal or an abbreviation inside
+  // the sentence never splits it.
+  let cut = qm;
+  for (let i = qm - 1; i >= 0; i--) {
+    if (/[.!?\n]/u.test(copy[i]!) && /\s/u.test(copy[i + 1] ?? '')) { cut = i + 1; break; }
+  }
+  const head = copy.slice(0, cut).trimEnd();
+  const tail = copy.slice(cut).trimStart();
+  return `${head} ${sum} ${tail}`;
+}
+
 /** Fee persuasion ladder, keyed by refusal count (1 = persuade, 2 = ask why).
  *  Service UNDEFINED is a LITERAL case (the [09:0x] V16K11 bug): the old
  *  `=== 'rent' ? A : B` ternary served the buy copy at a rent client whose
