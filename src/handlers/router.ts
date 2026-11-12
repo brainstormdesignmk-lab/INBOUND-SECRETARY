@@ -335,6 +335,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   PROPERTY_DESCRIPTION: M('PROPERTY_DESCRIPTION', 'remembered-property flow'),
   SEEN_LISTING_RECALL: M('SEEN_LISTING_RECALL', 'a recalled listing («имавте една куќа накај Скопје Север, околу 130 000 беше») served from the bank by category+area+price in helpful mode — never the criteria ask ([18:41] capture)'),
   DESCRIBE_TABLE: P('“опиши ми ги?” — the flats she just offered, answered from the bank rows'),
+  MORE_STOCK: P('a stock ask after a pair was served («сакам да видам уште», «што уште имате ?») — the NEXT unshown pair from the same search, or the honest drained line; never the availability table, never the booking protocol, never a repeat of a flat already served ([12:41] capture)'),
   AVAILABILITY_TABLE: P('an availability ask that points at ONE flat already on the table by its type/price («GARSONJERATA ZA 200E DALI E DOSTAPNA?») — the ack + the owner question for THAT flat, never a fresh criteria grill ([22:27] capture)'),
   CONTACT_MECHANICS: P('the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» — the number she holds + the mechanism, never the DEFER line ([22:28] capture)'),
   STOCK_CONTRADICTION: P('the client quotes a card she served against a «нема» she said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?») — admission + the row\'s own facts + the next step, never a location line ([02:12] capture)'),

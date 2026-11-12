@@ -174,6 +174,42 @@ export function surfaceRows(boxes: FrameBoxes): SurfaceSpec[] {
   ];
 }
 
+/** HOW OFTEN A FULL-FRAME HEAL IS OWED.
+ *
+ *  The heal used to be a REWARD FOR SILENCE: it fired only once the chat and
+ *  owner panes had been unchanged for ~1.5 s. A web-terminal broker garbles
+ *  output while the operator is READING — a live exchange changes those panes
+ *  every turn — so during the one moment the screen matters most the heal never
+ *  ran, and «some chats get messed up» / «ПОСЕТИ drawn over other panes»
+ *  survived until the conversation paused. Damage must have a bounded lifetime
+ *  regardless of traffic, so a heal is also owed every HEAL_LIVE_MS while the
+ *  content keeps changing. At 100x40 a whole-frame re-emit is ~4 KB, i.e. well
+ *  under 1.5 KB/s at this cadence — the old "no redundant writes" rule (which
+ *  exists to protect a slow broker) is not violated in any meaningful way, and
+ *  a line a broker dropped is restored instead of staying wrong for ever.
+ */
+export const HEAL_LIVE_MS = 3000;
+/** Idle ticks (100 ms each) before the quiet-path heal: ~1.5 s of silence. */
+export const HEAL_QUIET_TICKS = 15;
+export const HEAL_QUIET_REPEAT_TICKS = 30;
+
+/** IS A FULL-FRAME HEAL OWED THIS TICK? One predicate, so the app and its test
+ *  cannot drift. `hasContent` keeps the boot/empty frame out of it (there is
+ *  nothing yet to protect), the quiet path heals once and then once every 3 s
+ *  of continued silence, and the live path bounds damage while it changes. */
+export function owedHeal(o: {
+  hasContent: boolean;
+  quietTicks: number;
+  waiting: boolean;
+  sinceHealMs: number;
+}): boolean {
+  if (!o.hasContent) return false;
+  if (o.quietTicks === HEAL_QUIET_TICKS) return true;
+  if (o.waiting && o.quietTicks > HEAL_QUIET_TICKS
+    && (o.quietTicks - HEAL_QUIET_TICKS) % HEAL_QUIET_REPEAT_TICKS === 0) return true;
+  return Number.isFinite(o.sinceHealMs) && o.sinceHealMs >= HEAL_LIVE_MS;
+}
+
 /**
  * The only writer to the terminal. Owns the change gate, the whole-row
  * re-emission, the whole-pane rewrites and the full-frame heal, so no caller

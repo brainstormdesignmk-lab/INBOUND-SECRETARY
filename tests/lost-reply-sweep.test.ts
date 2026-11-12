@@ -92,6 +92,12 @@ test('lost-reply sweep: the candidate list is finite and reviewed', () => {
  * because later, unrelated lanes in `processMessage` assign `reply`; that is
  * the same shape as every candidate above, and the arm sets state to closing
  * and answers the turn's question in full (the 02:19 Водно capture). */
+// 25th read 2026-11-12: @14489 `reply = pickVariant('both.ask.type', { recent: … })`
+// — the arm of `else if (session.slots.bothServices && …)`, and its reported
+// neighbour @14499 `reply = picked` sits in the LATER `else` arm of the same
+// chain. The two branches are mutually exclusive by construction, so the
+// ask-type reply is never overwritten; the adjacency appears only because the
+// sweep reads assignment order, not the chain (the 24th read's reason exactly).
 // 24th read 2026-10-31: @9584 `reply = r.text` — the LLM-responder arm of the
 // `dispatchSimple` else; the next writer @9674 is the money+fee lane, which
 // only fires when `bankKey` is `fee.ask.*`, and this arm leaves `bankKey`
@@ -162,4 +168,4 @@ test('lost-reply sweep: the candidate list is finite and reviewed', () => {
 // different lane's answer. Both are append-to-`reply` writers, the same shape
 // as the money lead read on the 26th–30th passes, and neither can run on the
 // LLM-responder arm's key.
-const REVIEWED = 31;
+const REVIEWED = 32;

@@ -3113,6 +3113,15 @@ const SIZE_WAIVED_RE = buildSizeWaivedSlots();
 /** True when the client says size/bedrooms don't matter. */
 export function detectSizeWaived(text: string): boolean {
   if (matchesBoth(SIZE_WAIVED_RE, text)) return true;
+  // «NE MI IGRA TOA ULOGA» IS THE SAME WAIVER (the operator's [13:05] capture):
+  // the funnel asked «колку спални соби?» and the client answered «НЕ МИ ИГРА
+  // ТОА УЛОГА» — the idiom says the size is not a criterion, but it shares no
+  // word with the «не ми е битно» family, so nothing claimed it and the same
+  // question went out again. The idiom is the predicate here: не/ne + (ми/ни
+  // clitic) + игра/igra + an optional subject + улога/uloga, in either order.
+  if (/(?<![\p{L}\p{N}])(?:не|ne)\s+(?:ми|ни|mi|ni)\s+(?:игра|igra)\p{L}*(?:\s+\p{L}+){0,3}?\s+(?:улога|uloga)(?![\p{L}\p{N}])/iu.test(text)) return true;
+  if (/(?<![\p{L}\p{N}])(?:не|ne)\s+(?:игра|igra)\p{L}*\s+(?:улога|uloga)(?![\p{L}\p{N}])/iu.test(text)) return true;
+  if (/(?<![\p{L}\p{N}])(?:улога|uloga)(?:та|ta)?\s+(?:не|ne)\s+(?:ми|mi)\s+(?:игра|igra)(?![\p{L}\p{N}])/iu.test(text)) return true;
   // THE WAIVER IS A CLAUSE, NOT THE WHOLE MESSAGE (the [23:34]/[23:35] capture):
   // «NEBITNO KOLKU SPALNI↵BITNO E DA E DO 350 EVRA» — the client released the
   // size and named the money in the same breath. Every waiver slot that carries
@@ -6597,6 +6606,35 @@ export function detectMoreOptions(text: string): boolean {
   // (c) bare "nesto novo" / "nesto drugo" — no verb needed
   return matchesBoth(/(?<![\p{L}])нест[оа]|(?<![\p{L}])nesto(?![\p{L}])/iu, text)
     && matchesBoth(/(?<![\p{L}])(?:нов|novo|nov|друг|drugo|druga)/iu, text);
+}
+
+/** "SHOW ME MORE" AFTER A SERVED PAIR — the operator's [12:41] field capture:
+ *  a pair went out ending with «…дали некоја од нив Ви одговара за да организирам
+ *  посета?» and the client answered «НЕ СЕ ЛОШИ АМА САКАМ ДА ВИДАМ УШТЕ АКО
+ *  ИМАТЕ», then «ШТО УШТЕ ИМАТЕ ?» after the next turn. Both asked for the NEXT
+ *  PAIR — one was answered with the visit protocol for a flat already on the
+ *  table, the other with the availability table, so a client asking for stock
+ *  was pushed into a booking.
+ *
+ *  DELIBERATELY NARROW. The message must ASK FOR MORE STOCK — an explicit
+ *  «уште опции/понуди/станови», an «имате ли уште» / «уште имате», or a
+ *  see-more verb («сакам да видам уште», «уште да видам»). A lone «уште» never
+ *  fires: it is also the word in «дали е уште достапна» (a stock question about
+ *  one flat) and in «уште колку време» — those keep their own lanes. */
+export function detectMoreStockRequest(text: string): boolean {
+  const t = normalizeMc(text);
+  // «ГО ИМАТЕ УШТЕ ?» / «ДАЛИ ЈА ИМА УШТЕ ?» IS THE SAME VERB AND THE OTHER
+  // QUESTION (the [07:06]/[04:14] captures): both ask whether ONE flat is
+  // still available, and the availability lane owns them. The «има» family
+  // below only fires when NO object stands between the question and the verb.
+  const objectAsk = /(?<![\p{L}\p{N}])(?:дали|dali)\s+(?:\S+\s+){0,3}(?:има|имаат|имате|ima|imate)(?![\p{L}\p{N}])/iu.test(t)
+    || /(?<![\p{L}\p{N}])(?:го|ја|ja|ги|gi|го|toa|тоа|taa|таа)\s+(?:има|имаат|имате|ima|imate)(?![\p{L}\p{N}])/iu.test(t);
+  if (objectAsk) return false;
+  return /(?<![\p{L}\p{N}])(?:уште|усте|uste|повеќе|poveke|povekje|уште\s+малку|uste\s+malku)\s+(?:опции|понуди|станови|куќи|недвижности|имоти|предлози|посети|опциите|понудите|становите|opcii|ponudi|stanovi|kuki|nedviznosti|imoti|predlozi)(?![\p{L}\p{N}])/iu.test(t)
+    || /(?<![\p{L}\p{N}])(?:имате|има|imate|ima)\s+(?:ли\s+|li\s+)?(?:уште|усте|uste|повеќе|poveke)(?![\p{L}\p{N}])/iu.test(t)
+    || /(?<![\p{L}\p{N}])(?:уште|усте|uste|повеќе|poveke)\s+(?:имате|има|imate|ima)(?![\p{L}\p{N}])/iu.test(t)
+    || /(?<![\p{L}\p{N}])(?:сака|saka|сакам|sakam|сакаме|sakame|дај|daj|покажи|pokazi|можеше|mozese)\s+(?:да\s+|da\s+)?(?:видам|vidam|видиме|vidime)\s+(?:уште|усте|uste|повеќе|poveke|други|drugi)(?![\p{L}\p{N}])/iu.test(t)
+    || /(?<![\p{L}\p{N}])(?:уште|усте|uste|повеќе|poveke)\s+да\s+(?:видам|vidam|видиме|vidime)(?![\p{L}\p{N}])/iu.test(t);
 }
 
 /** The last assistant reply was an EXHAUSTED/WIDEN line — the area drained
@@ -10336,6 +10374,36 @@ export function buildEvent(state: State, slots: DetectedSlots): Event {
 const BOTH_SERVICES_RE = /(?:^|\s)(?:i\s+тоа\s+i\s+тоа|i\s+за\s+двете|за\s+двете|и\s+тоа\s+и\s+тоа|и\s+за\s+двете|за\s+двете|i\s+купам\s+i\s+киријам|и\s+купам\s+и\s+кирија|кедето|ке\s+треба(?:ат)?|ќе\s+треба(?:ат)?|сакам\s+(?:[iи]\s+)?(?:купам|киријам)|сакам\s+(?:и\s+)?(?:купам|кирија)|две\s+работи|две\s+работи|купување\s+i\s+изнајмување|купување\s+и\s+изнајмување|i\s+купувам\s+i\s+изнајмувам|и\s+купувам\s+и\s+изнајмувам|ке\s+купам\s+i\s+киријам|ќе\s+купам\s+и\s+кирија|моз(?:[еe]|ам|хе|ххе?|ззе?)\s+да\s+куп(?:ам|увам).*?моз(?:[еe]|ам|хе|ххе?|ззе?)\s+(?:[iи]\s+)?да\s+изн(?:ајм(?:увам|ам|ат|аме)|ајм(?:ување))|може\s+да\s+куп(?:ам|увам).*?може\s+(?:и\s+)?да\s+изн(?:ајм(?:увам|ам|ат)|ајмување)|моз(?:[еe]|ам|хе|ххе?|ззе?)\s+да\s+(?:го\s+)?изн(?:ајм(?:увам|ам|ат|аме)|ајм(?:ување)).*?моз(?:[еe]|ам|хе|ххе?|ззе?)\s+(?:[iи]\s+)?да\s+(?:го\s+)?куп(?:ам|увам)|може\s+да\s+(?:го\s+)?изн(?:ајм(?:увам|ам|ат)|ајмување).*?може\s+(?:и\s+)?да\s+куп(?:ам|увам))/iu;
 export function detectBothServices(text: string): boolean {
   return matchesBoth(BOTH_SERVICES_RE, text) || extFires('both-services', text);
+}
+
+/** «I DVETE» — the BARE answer to the two-option market question (the operator's
+ *  [12:23] capture): Lina asked «дали за Вас е подобро купување или
+ *  изнајмување?» and the client answered «I DVETE». The long list above only
+ *  knows the sentence forms («i za dvete», «i kupam i kirijam»), so the answer
+ *  fell through the whole chain and the market question was re-asked twice.
+ *
+ *  SEPARATE FROM `detectBothServices` ON PURPOSE: a message that CONTAINS
+ *  «двете» mid-sentence is usually about the two flats on the table («овие
+ *  двете не се лоши»), and reading that as a market declaration would reopen a
+ *  settled search. This reader fires only when the message IS the answer — the
+ *  pronoun alone, optionally with the polite padding a client types
+ *  («I DVETE», «двете», «да, и двете», «i ednoto i drugoto»).
+ *  The conjunctive market forms («i kupuvanje i iznajmuvanje») are sentences
+ *  and belong to `detectBothServices`. */
+export function detectBareBothAnswer(text: string): boolean {
+  const normal = normalizeMc(text)
+    .replace(/[\p{P}\p{S}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normal) return false;
+  const bare = normal
+    .replace(/^(?:da|да|pa|па|ok|ок|dobro|добро)\s+/iu, '')
+    // The polite padding survives normalisation in EITHER spelling
+    // (normalizeMc folds «MOZE» to «мозе», not «може»).
+    .replace(/\s+(?:moze|мозе|може|taka|така|ve molam|ве молам)$/iu, '')
+    .trim();
+  return /^(?:(?:i|и)\s+)?(?:dvete|двете)$/u.test(bare)
+    || /^(?:i|и)\s+(?:ednoto|едното)\s+(?:i|и)\s+(?:drug\p{L}*|друг\p{L}*)$/u.test(bare);
 }
 
 // Visit cancellation: the client or owner says they can't make it.

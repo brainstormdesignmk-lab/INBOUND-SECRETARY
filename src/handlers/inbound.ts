@@ -17,7 +17,7 @@ import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -9251,6 +9251,83 @@ export class InboundHandler {
       }
     }
 
+    // 0-c2m) «SHOW ME MORE» AFTER A SERVED PAIR — SERVE THE NEXT PAIR, NEVER A
+    // BOOKING PROTOCOL (the operator's [12:41]/[13:08] capture). The pair went
+    // out ending with «…дали некоја од нив Ви одговара за да организирам
+    // посета?» and the client answered «НЕ СЕ ЛОШИ АМА САКАМ ДА ВИДАМ УШТЕ АКО
+    // ИМАТЕ» — he asked for STOCK, and the turn answered with the visit fee for
+    // a flat already on the table («Посетата е за станот со Евидентен број 84»).
+    // After the next pair, «ШТО УШТЕ ИМАТЕ ?» got the availability table for the
+    // same card. Both messages fell through every lane (the route log says
+    // FALLTHROUGH), so nothing owned the plain request.
+    // ONE LANE FOR BOTH SHAPES, and the serve is the SAME criteria the batch was
+    // built from minus what he has already seen — a repeated card is the [13:0x]
+    // defect this closes with the exclusion, not with a new search. A drained
+    // pool gets the honest exhausted line and the pivot, never a silent junk
+    // refill and never the visit protocol.
+    if (detectMoreStockRequest(text)
+        && ((session.slots.presentedIds?.length ?? 0) > 0)
+        && !isFeeTraffic(text) && !detectFeeNag(text) && !detectProvisionAsk(text)
+        && !detectProvisionWho(text) && !session.slots.ownerContactPending
+        && !session.slots.viewingFeeAgreed
+        // THE FIELD MESSAGE CONTAINS «ДА ВИДАМ», WHICH IS ALSO THE VISIT VERB
+        // («НЕ СЕ ЛОШИ АМА САКАМ ДА ВИДАМ УШТЕ АКО ИМАТЕ»): a blanket
+        // detectVisitInterest / detectVisitRequest veto sent it straight back to
+        // the visit lane — exactly the booking protocol this lane exists to
+        // prevent. A VISIT ASK NAMES A VISIT: a term, a day, a visit noun. Those
+        // keep their lane here, and the more-word itself is the discriminator
+        // («сакам да видам УШТЕ» is stock; «сакам да ја видам» is not).
+        && !detectVisitTime(text) && !proposesVisitTerm(text)
+        && !detectCheaperSearch(text) && !detectPomaloAsk(text) && !detectBudgetUpAsk(text)
+        && !detectAgreement(text) && !detectExplicitCancel(text) && !detectBye(text)
+        && inferPropertyId(text) === undefined
+        // A NEW CRITERION IS A NEW SEARCH, NOT «MORE» («уште нешто до 300
+        // евра» must APPLY the 300, not re-serve the old pool). applySlots runs
+        // AFTER this lane, so the criteria are read from the message itself.
+        && (() => {
+          const es = extractSlots(text);
+          return es.bedrooms === undefined && es.bedroomsMin === undefined && es.bedroomsMax === undefined
+            && es.sqm === undefined && !es.budget && !es.priceMin && !es.location
+            && es.house === undefined && !es.business && !es.plac && !es.garsonjera
+            && !es.yard && !es.anywhere && !es.sizeWaived;
+        })()) {
+      routeLog(chatId, text, 'MORE_STOCK');
+      const morePool = await this.deps.properties.candidates({
+        location: session.slots.location,
+        bedrooms: session.slots.bedrooms,
+        bedroomsMin: session.slots.bedroomsMin,
+        bedroomsMax: session.slots.bedroomsMax,
+        sqm: session.slots.sqm,
+        business: this.businessPoolLock(session.slots) ?? undefined,
+        house: this.poolHouse(session.slots),
+        garsonjera: session.slots.garsonjera,
+        plac: session.slots.plac,
+        yard: session.slots.yard,
+        service: session.slots.service,
+        budget: session.slots.budget,
+        exclude: [...(session.slots.presentedIds ?? [])],
+        sortByPopularity: !session.slots.location,
+      });
+      const moreBatch = session.slots.countBudget
+        ? fitCountBudgetPair(morePool, session.slots.countBudget.pair)
+        : morePool.slice(0, 2);
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      if (moreBatch.length > 0) {
+        const intro = pickVariant('batch.more', { recent: assistantTexts(session) })
+          ?? 'Секако — еве ги следните опции што одговараат на вашето барање:';
+        await this.serveBatch(session, moreBatch, intro, 'MORE_STOCK', 'batch.more');
+        return;
+      }
+      // DRAINED: say so, and hand the two standard pivots (widen / record the
+      // wish) — the honest line the funnel already owns.
+      const drained = exhaustedLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
+        ?? 'Ги прегледавме сите опции што одговараат на вашето барање — повеќе немам во моментов. Можам да ги запишам Вашите барања и да Ве известам штом се појави нешто соодветно, или да погледнеме во друга населба?';
+      pushHistory(session, { role: 'assistant', text: drained }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, drained, 'deterministic');
+      return;
+    }
+
     // 0-c2a) A PLURAL AVAILABILITY ASK — ANSWER FOR EVERY FLAT ON THE TABLE
     // (the owner's 2026-11-11 brief). «ДАЛИ СЕ СЛОБОДНИ?» after a pair was
     // answered for ONE flat, and the client had to type «А 42?» to hear about
@@ -14357,13 +14434,13 @@ ${contactReminder}`;
           if (ask) reply = `${reply}\n\n${ask}`;
         }
       }
-    } else if (detectBothServices(text)
-        && ['idle', 'intent'].includes(before)
+    } else if ((detectBothServices(text) || detectBareBothAnswer(text))
+        && ['idle', 'intent', 'discovery'].includes(before)
         && !session.slots.service) {
-      // Both buy + rent: client said 'I TOA I TOA' / 'za dvete' — ask
-      // what TYPE of property they want (stan, kukja, business, plac).
-      // The bothServices flag persists so the next message (type) triggers
-      // the buy-vs-rent question instead of the normal discovery flow.
+      // Both buy + rent: client said 'I TOA I TOA' / 'za dvete' / the bare
+      // «I DVETE» — ask what TYPE of property they want (stan, kukja, business,
+      // plac). The bothServices flag persists so the next message (type) turns
+      // into the DUAL search instead of the single-market funnel.
       session.slots.bothServices = true;
       session.state = 'intent';
       reply = pickVariant('both.ask.type', { recent: assistantTexts(session) })
@@ -14385,10 +14462,33 @@ ${contactReminder}`;
         : h ? 'Куќа'
         : /(?:плац|plac)/iu.test(text) ? 'Плац'
         : 'Стан';
-      reply = (pickVariant('both.ask.service', { recent: assistantTexts(session) })
-        ?? `{type} — одлично. Дали сакате да купите или да изнајмите?`)
-        .replace('{type}', typeLabel);
-      bankKey = 'both.ask.service';
+      // THE MARKET IS ALREADY ANSWERED — «I DVETE» came BEFORE the type (the
+      // operator's [13:23]→[13:29] capture). The old flow asked buy-or-rent a
+      // second time («Дали сакате да купите или да изнајмите?») of a client who
+      // had just said both, and his «ЗА ДУЌАН СЕ РАБОТИ» got the same question
+      // again with the type swapped in. He declared BOTH markets, so the search
+      // is the dual ladder (dualService) and the funnel goes on to that type's
+      // own criteria. A single market named in the SAME breath still wins:
+      // «ЗА ИЗНАЈМУВАЊЕ ДУЌАН» is one service, plainly said.
+      const singleMarket = !detectBothServices(text) && !detectBareBothAnswer(text)
+        ? detectService(text) : undefined;
+      if (singleMarket) {
+        session.slots.service = singleMarket;
+        session.slots.bothServices = undefined;
+        session.slots.dualService = undefined;
+        session.state = 'discovery';
+        reply = this.criteriaAsk(session) ?? await this.discoveryServe(session);
+        bankKey = 'discovery.ask.service.stan';
+      } else {
+        // BOTH: no market question is owed. The dual ladder pairs one rent and
+        // one buy offer from here on (the [23:10] contract).
+        session.slots.dualService = true;
+        session.slots.service = undefined;
+        session.slots.bothServices = undefined;
+        session.state = 'discovery';
+        reply = this.criteriaAsk(session) ?? await this.discoveryServe(session);
+        bankKey = 'both.dual.ask';
+      }
     } else if (session.slots.bothServices
         && before === 'intent'
         && !session.slots.service

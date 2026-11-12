@@ -18,7 +18,7 @@ import { LlmClient } from '../llm/types';
 import { TuiChannel } from './channel';
 import { QUICK_INTROS } from './intros';
 import { buildLayout, esc, guardGlyphs, hhmm, wrapMarked, paneTextWidth, visibleWidth, CHAT_PANE_FRACTION } from './layout';
-import { FramePainter, paneAtBottom } from './paint';
+import { FramePainter, paneAtBottom, owedHeal } from './paint';
 import type { OwnerVerdict } from '../backoffice/ownerAgent';
 import { detectOwnerVerdict, detectOwnerAddressReply } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
@@ -123,6 +123,9 @@ export class TuiApp {
   private ownerContent = '';
   private quietTicks = 0;
   private lastPaintSig = '';
+  /** When the last full-frame heal was written (ms). The live-path heal in
+   *  paint.ts bounds how long a broker's damage may survive — see owedHeal. */
+  private lastHealAt = 0;
   /** The single writer to the terminal — change-gated, whole-row repaints
    *  (see src/tui/paint.ts for why the naive per-tick diff garbled the frame
    *  during the send/typing waits). */
@@ -336,6 +339,7 @@ export class TuiApp {
 
     this.banner = 'Добредојдовте. [Space] = нов клиент. Вие сте клиентот — тестирајте ја Лина.';
     this.renderAll();
+    this.lastHealAt = Date.now();
 
     // The clock line is minute-granular now, so most seconds are a NO-OP: the
     // painter's change gate turns this into zero bytes written.
@@ -353,16 +357,31 @@ export class TuiApp {
       // flush). A wait (client's typing window, owner ping-pong, antiban send
       // delay) only ticks the status line once a second, so while one is open
       // the heal runs on a 3 s cadence: damage cannot outlive the wait.
+      // …AND SILENCE IS NOT THE ONLY OCCASION (the operator's 2026-11-12
+      // report — «ПОСЕТИ drawn over other panes», «some chats get messed up»):
+      // that rule means a garble arriving DURING a live exchange was never
+      // repaired, because a live exchange never has 1.5 s of identical panes.
+      // paint.ts's owedHeal() also owes a heal every HEAL_LIVE_MS, so broker
+      // damage has a bounded lifetime in both states.
       const sig = `${this.chatContent}\u0000${this.ownerContent}`;
-      if (sig === this.lastPaintSig) {
-        this.quietTicks++;
-        const waiting = !!(this.typing || this.ownerTyping || this.clientWindow || this.busy.size > 0);
-        if (sig !== '\u0000' && (this.quietTicks === 15 || (waiting && this.quietTicks > 15 && (this.quietTicks - 15) % 30 === 0))) {
-          this.healScreen();
-        }
-      } else {
+      const changed = sig !== this.lastPaintSig;
+      if (changed) {
         this.quietTicks = 0;
         this.lastPaintSig = sig;
+      } else {
+        this.quietTicks++;
+      }
+      {
+        const waiting = !!(this.typing || this.ownerTyping || this.clientWindow || this.busy.size > 0);
+        if (owedHeal({
+          hasContent: sig !== '\u0000',
+          quietTicks: this.quietTicks,
+          waiting,
+          sinceHealMs: Date.now() - this.lastHealAt,
+        })) {
+          this.healScreen();
+          this.lastHealAt = Date.now();
+        }
       }
       if (this.typing || this.ownerTyping || this.clientWindow || this.busy.size > 0) {
         this.renderStatus();
