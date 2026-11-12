@@ -70,6 +70,19 @@ export function buildOwnerCleanPriceQuestion(cleanPrice?: number, service?: 'buy
     : `Дали останува договорената чиста цена за Вас од ${eur(cleanPrice)} евра?`;
 }
 
+/** THE PUBLISHED FIGURE IS THE ONLY OTHER PRICE WE HOLD (the [02:03] field
+ *  capture). Most feed rows carry no clean price — the ad price is all there is,
+ *  and the owner ask went out with NO price question at all, so the owner was
+ *  never given the chance to correct it. This half asks him to confirm the
+ *  figure the client is looking at; a different number in his answer is a price
+ *  change like any other. Empty when the row has no price. */
+export function buildOwnerPublishedPriceQuestion(price?: number, service?: 'buy' | 'rent'): string {
+  if (price === undefined || !Number.isFinite(price) || price <= 0) return '';
+  return service === 'rent'
+    ? `Дали месечната кирија од огласот, ${eur(price)} евра, е сè уште актуелна?`
+    : `Дали цената од огласот, ${eur(price)} евра, е сè уште актуелна?`;
+}
+
 /** THE PRICE-CHANGE NOTICE — served to the client at arranging time, before the
  *  visit is locked. It names both figures (what he saw on the ad, what stands
  *  now) and asks whether he still wants the visit, so he decides instead of

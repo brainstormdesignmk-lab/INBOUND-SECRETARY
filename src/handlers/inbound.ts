@@ -14,10 +14,10 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -27,7 +27,7 @@ import { dayStartOf, slotStartOf, isSlotTaken, freeHoursNear, buildSlotTakenLine
 import { solveChain, type VisitPlanState } from '../visits/chain';
 import { buildChainAsk, buildPlanReminder, mapsLinkFor } from '../visits/messages';
 import {
-  buildOwnerCleanPriceQuestion, buildPriceChangeNotice, computeFinalFromClean,
+  buildOwnerCleanPriceQuestion, buildOwnerPublishedPriceQuestion, buildPriceChangeNotice, computeFinalFromClean,
   PRICE_CHANGE_DISCLAIMER, DEFAULT_AGENCY_PERCENT,
 } from '../pricing/cleanPrice';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, descriptorPhrases, isStudio, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
@@ -2401,7 +2401,11 @@ export class InboundHandler {
       await this.sendRaw(session, reply, 'deterministic');
       return;
     }
-    const cal = this.dayCalendar(new Date(plan.dayMs));
+    // The route's OWN stops are not bookings yet — only they are exempt, so a
+    // finalized visit this chat already holds that afternoon still blocks.
+    const cal = this.dayCalendar(new Date(plan.dayMs), {
+      chatId: session.chatId, ebs: plan.stops.map(s => s.eb),
+    });
     // A LONE SURVIVOR IS ITS OWN SLOT — the solver's job is linking SEVERAL
     // flats, and its drop-loop would answer a one-stop route with undefined
     // just because that owner's clock is not the client's hour.
@@ -2523,10 +2527,17 @@ export class InboundHandler {
 
   /** The day's CONFIRMED visits as hour starts — the calendar the taken-hour
    *  answer and the chain solver read. `dayStart` is 00:00 local of that day. */
-  private dayCalendar(when: Date): CalendarInput {
+  private dayCalendar(when: Date, own?: { chatId: string; ebs: number[] }): CalendarInput {
     const dayStart = dayStartOf(when);
     const dayEnd = dayStart + 24 * 3600_000;
     const busy = this.deps.appointments.listVisitsBetween(dayStart, dayEnd)
+      // THE CHAT'S OWN FLAT IS NOT «ЗАФАТЕН» (the [02:05] field capture): the
+      // row under negotiation — this chat, this Евидентен број — is already in
+      // the store while the owner's counter is being discussed, so the client
+      // was told «19:00 часот е веќе зафатен» about the very hour he had just
+      // accepted from the owner. Another chat's booking, or this chat's OTHER
+      // flat (a real double-booking), still blocks.
+      .filter(v => !own || !(v.chatId === own.chatId && own.ebs.includes(v.eb)))
       .map(v => slotStartOf(new Date(v.visitAt)));
     return { dayStart, busy };
   }
@@ -6402,7 +6413,15 @@ export class InboundHandler {
         || /(?:sakam|сакам|baram|барам)\s+da\s+(?:kup|куп|iznajm|изнајм)/iu.test(text);
       const pivotPlace = !pivotIsIntake ? this.placesWish(text)[0] : undefined;
       const criteria = pivotPlace ? this.criteriaPhrase(session) : undefined;
-      if (pivotPlace && criteria && this.slotsComplete(session)) {
+      // …AND THE PLACE HE IS ALREADY AT IS NOT A PIVOT (the [01:50] field
+      // capture): «МИСЛЕВ ПОСКАПО КАЈ БРОЗ КАФЕ» named the anchor the pair was
+      // already ranked from, and the confirm question («Да барам истите
+      // критериуми … околу Броз Кафе?») asked him to re-confirm his own place
+      // instead of serving the dearer rows he had just asked for. A NEW place
+      // still pivots.
+      const anchoredHere = !!pivotPlace && !!session.slots.poiAnchor
+        && textNamesPlace(pivotPlace.name, session.slots.poiAnchor);
+      if (pivotPlace && criteria && this.slotsComplete(session) && !anchoredHere) {
         session.slots.pendingPivot = pivotPlace;
         const reply = `Секако. Да барам истите критериуми (${criteria}) околу ${displayPlaceName(pivotPlace.name)}?`;
         routeLog(chatId, text, 'PLACE_PIVOT');
@@ -7442,8 +7461,14 @@ export class InboundHandler {
     // that names several Евидентен броеви asks about ALL of them, so each gets
     // its own identity line from the feed's own columns — never a brain round,
     // never a card batch.
+    // A VISIT REQUEST IS NOT AN INFO ASK (the [02:01] field capture): «САКАМ ДА
+    // ГИ ПОСЕТАМ 66 И 84» named two flats and the pair-identity lane answered
+    // with their facts + «За кој од нив сакате повеќе детали?» — the client had
+    // said which: both, for a viewing. The visit lanes below own this turn.
     if (!detectAvailabilityAsk(text) && !detectExactAddressAsk(text)
-      && !isFeeTraffic(text) && !detectPriceAsk(text) && !detectBudget(text)) {
+      && !isFeeTraffic(text) && !detectPriceAsk(text) && !detectBudget(text)
+      && !detectVisitRequest(text) && !detectMultiVisitIntent(text)
+      && !detectVisitInterest(text) && !detectVisitTimingQuestion(text)) {
       const facetsNow = detectInfoFacets(text);
       if (!facetsNow) {
         const calledEbs = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
@@ -7457,8 +7482,13 @@ export class InboundHandler {
               if (p.location) bits.push(`во ${displayAreaName(p.location)}`);
               if (p.sqm !== undefined) bits.push(`${p.sqm} м²`);
               if (p.bedrooms !== undefined) {
-                const beds = roomsFromBedrooms(p.bedrooms);
-                if (beds > 0) bits.push(beds === 1 ? 'една спална' : `${beds} спални`);
+                // THE FEED'S `bedrooms` IS THE ROOM COUNT (the [02:01] field
+                // capture): the pair line read `roomsFromBedrooms` (= rooms + 1)
+                // and printed «трисобен стан … 4 спални» — a room count sold as
+                // bedrooms on the very card meant to identify the flat. A
+                // двособен carries ONE спална, a трисобен TWO.
+                const beds = p.bedrooms - 1;
+                if (beds > 0) bits.push(beds === 1 ? 'една спална' : beds === 2 ? 'две спални' : `${beds} спални`);
               }
               if (p.price !== undefined) {
                 bits.push(`${p.price.toLocaleString('mk-MK')} евра${p.service === 'rent' ? ' месечно' : ''}`);
@@ -8981,7 +9011,11 @@ export class InboundHandler {
       && (hasClockHint(text) || detectVisitTime(text) !== undefined)) {
       const wanted = parseVisitDateTime(text, new Date());
       if (wanted) {
-        const cal = this.dayCalendar(wanted);
+        const onTable = session.slots.propertyId ?? session.slots.interestedPropertyId
+          ?? (session.slots.currentBatch?.length ? session.slots.currentBatch[0] : undefined)
+          ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
+        const cal = this.dayCalendar(wanted, onTable !== undefined
+          ? { chatId: session.chatId, ebs: [onTable] } : undefined);
         if (isSlotTaken(wanted, cal)) {
           const free = freeHoursNear(wanted, cal, 2);
           const reply = buildSlotTakenLine(wanted.getHours(), free);
@@ -14447,16 +14481,37 @@ ${contactReminder}`;
     // later). One short subject line, added centrally here so every fee.ask
     // site gets it, and only when the reply does not already name an EB (the
     // money-question lead above does).
+    // SEVERAL FLATS WANTED IS NOT A ONE-FLAT FEE (the [02:02] field capture):
+    // «САКАМ ДА ДИ ВИДАМ ВО ЖИВО ДВАТА» was answered with «Посетата е за станот
+    // со Евидентен број 66 … 500 денари» — one visit, one fee, and the second
+    // flat vanished from the protocol he had just asked for. The wish is
+    // remembered (`visitWanted`), both flats are NAMED, and the arithmetic is
+    // per property (the same builder the route's confirmation uses).
+    const multiWish = session.slots.visitWanted === true || detectMultiVisitIntent(text);
+    const tripEbs = multiWish
+      ? [...new Set([...(session.slots.currentBatch ?? []), ...(session.slots.presentedIds ?? [])])].slice(0, 4)
+      : [];
+    if (multiWish) session.slots.visitWanted = true;
     if (reply && (bankKey === 'fee.ask.rent' || bankKey === 'fee.ask.buy')
-        && !session.slots.viewingFeeAgreed) {
-      const subjEb = session.slots.propertyId ?? session.slots.interestedPropertyId
-        ?? (session.slots.currentBatch?.length ? session.slots.currentBatch[0] : undefined);
-      if (subjEb !== undefined && !/Евидентен број/u.test(reply)) {
-        const subjProp = await this.deps.properties.getByEb(subjEb).catch(() => undefined);
-        const subjType = subjProp?.house ? 'куќата' : subjProp?.business ? 'деловниот простор' : 'станот';
-        const subjLoc = displayAreaName(subjProp?.location ?? session.slots.location ?? '');
-        reply = `Посетата е за ${subjType} со Евидентен број ${subjEb}`
-          + `${subjLoc ? ` (${subjLoc})` : ''}.\n\n${reply}`;
+        && !session.slots.viewingFeeAgreed && !/Евидентен број/u.test(reply)) {
+      if (multiWish && tripEbs.length >= 2) {
+        const firstProp = await this.deps.properties.getByEb(tripEbs[0]!).catch(() => undefined);
+        const loc = displayAreaName(firstProp?.location ?? session.slots.location ?? '');
+        const list = tripEbs.length === 2
+          ? `${tripEbs[0]} и ${tripEbs[1]}`
+          : `${tripEbs.slice(0, -1).join(', ')} и ${tripEbs[tripEbs.length - 1]}`;
+        reply = `Посетата е за становите со Евидентни броеви ${list}${loc ? ` (${loc})` : ''}.\n\n`
+          + buildFeePerProperty(session.slots.service, tripEbs.length);
+      } else {
+        const subjEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+          ?? (session.slots.currentBatch?.length ? session.slots.currentBatch[0] : undefined);
+        if (subjEb !== undefined) {
+          const subjProp = await this.deps.properties.getByEb(subjEb).catch(() => undefined);
+          const subjType = subjProp?.house ? 'куќата' : subjProp?.business ? 'деловниот простор' : 'станот';
+          const subjLoc = displayAreaName(subjProp?.location ?? session.slots.location ?? '');
+          reply = `Посетата е за ${subjType} со Евидентен број ${subjEb}`
+            + `${subjLoc ? ` (${subjLoc})` : ''}.\n\n${reply}`;
+        }
       }
     }
     if (bankKey === 'fee.ask.rent' || bankKey === 'fee.ask.buy') {
@@ -14985,8 +15040,18 @@ ${contactReminder}`;
       // already asked, so the clause rides only the first one. Without a clean
       // price on file the question is skipped entirely (never a made-up amount).
       const cleanPriceAsked = !isFollowup && !acceptFollowup ? ownerProp?.cleanPrice : undefined;
-      const cleanPriceClause = buildOwnerCleanPriceQuestion(cleanPriceAsked, ownerProp?.service);
+      // WITHOUT A CLEAN PRICE THE OWNER STILL GETS A PRICE QUESTION (the [02:03]
+      // field capture): the clause used to ride only a row carrying `cleanPrice`,
+      // which most feed rows do not — so the owner was asked about the term and
+      // never about the figure the client is looking at. The published price is
+      // the only figure we hold; his yes confirms it, a different number is a
+      // price change like any other.
+      const publishedPriceAsked = !isFollowup && !acceptFollowup && cleanPriceAsked === undefined
+        ? ownerProp?.price : undefined;
+      const cleanPriceClause = buildOwnerCleanPriceQuestion(cleanPriceAsked, ownerProp?.service)
+        || buildOwnerPublishedPriceQuestion(publishedPriceAsked, ownerProp?.service);
       const ownerAskText = cleanPriceClause ? `${baseOwnerAsk} ${cleanPriceClause}` : baseOwnerAsk;
+      session.slots.ownerAskPublishedPrice = publishedPriceAsked;
       // The verdict seam reads this to interpret a figure in the owner's answer
       // as a CLEAN price (not the final one) — see applyOwnerVerdict. Persisted
       // HERE, because the verdict arrives on a later turn and applyOwnerVerdict
@@ -15128,6 +15193,8 @@ ${contactReminder}`;
     // owns the write into the app's clean-price field.
     const cleanAsked = session.slots.ownerAskCleanPrice;
     session.slots.ownerAskCleanPrice = undefined;
+    const publishedAsked = session.slots.ownerAskPublishedPrice;
+    session.slots.ownerAskPublishedPrice = undefined;
     if (verdict.price !== undefined && cleanAsked !== undefined) {
       const prop = await this.deps.properties.getById(eb);
       const pct = prop?.agencyPercent ?? DEFAULT_AGENCY_PERCENT;
@@ -15149,6 +15216,10 @@ ${contactReminder}`;
         priceRelay = buildPriceChangeNotice(eb, oldFinal, newFinal);
         session.slots.priceChangePending = true;
       }
+    } else if (verdict.price !== undefined && publishedAsked !== undefined && verdict.price === publishedAsked) {
+      // CONFIRMED, NOT CHANGED: the owner repeated the figure the client is
+      // looking at, so there is nothing to relay and nothing to re-price. The
+      // client must not hear «цената е променета» for his own price.
     } else if (verdict.price !== undefined) {
       const old = (await this.deps.properties.getById(eb))?.price;
       this.priceChanges.insert({ eb, oldPrice: old ?? null, newPrice: verdict.price, chatId, source: 'owner' });
@@ -16038,21 +16109,56 @@ ${contactReminder}`;
     const pricier = pool
       .filter(p => (anchor?.price === undefined || (p.price ?? -Infinity) > anchor.price))
       .sort((a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity));
+    // THE PLACE HE NAMED BOUNDS «ПОСКАПО» TOO (the [01:50] field capture): the
+    // anchor was Броз Кафе (the pair on screen sat 260 m and 540 m from it) and
+    // «МИСЛЕВ ПОСКАПО КАЈ БРОЗ КАФЕ» was answered with a Ново Лисиче flat and a
+    // Водно flat — 5 km away, introduced as «во соседните населби». A pricier
+    // row is an ALTERNATIVE only while it is still near the place (the owner's
+    // 1 km rule); beyond it the turn says so, names the nearest distance, and
+    // serves the CLOSEST rows — never the priciest city-wide.
+    const place = this.poiPlaceOf(session);
+    const distTo = (p: Property): number | undefined => (place
+      && typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0)
+      ? distM(place.lat, place.lon, p.lat, p.lon) : undefined;
+    const inRing = (p: Property): boolean => {
+      const d = distTo(p);
+      return d !== undefined && d <= LANDMARK_NEAR_M;
+    };
+    const nearPricier = place ? pricier.filter(inRing) : pricier;
     // NOTHING ABOVE THE ANCHOR IS NOT SILENCE (the [20:08] contract): «ако нема
     // поскап со тие карактеристики — кажи и дај слично». The same-
     // characteristics rows are still options, so the turn serves the closest
     // ones and SAYS there is nothing pricier, instead of dropping the client on
     // the exhausted line after he accepted the offer.
-    const batch = pricier.length > 0 ? pricier.slice(0, 2)
-      : [...pool].sort((a, b) => Math.abs((a.price ?? 0) - (anchor?.price ?? a.price ?? 0))
-        - Math.abs((b.price ?? 0) - (anchor?.price ?? b.price ?? 0))).slice(0, 2);
+    const nearestFirst = (rows: Property[]): Property[] => place
+      ? [...rows].sort((a, b) => (distTo(a) ?? Infinity) - (distTo(b) ?? Infinity))
+      : [...rows].sort((a, b) => Math.abs((a.price ?? 0) - (anchor?.price ?? a.price ?? 0))
+        - Math.abs((b.price ?? 0) - (anchor?.price ?? b.price ?? 0)));
+    const batch = nearPricier.length > 0 ? nearPricier.slice(0, 2) : nearestFirst(pool).slice(0, 2);
     if (batch.length === 0) return false;
-    const intro = pricier.length > 0
+    let intro = nearPricier.length > 0
       ? pickVariant('pricier.search.intro', { recent: assistantTexts(session) })
         ?? 'Разбирам — еве нешто поскапо со истите карактеристики:'
       : 'Поскап со тие карактеристики во моментов немам — еве ги најблиските што ги имам:';
+    if (place && nearPricier.length === 0) {
+      const d = batch.map(distTo).find((x): x is number => x !== undefined);
+      const at = d === undefined ? ''
+        : d < 1000 ? ` — најблиску на ${Math.max(10, Math.round(d / 10) * 10)} метри`
+          : ` — најблиску на ${(d / 1000).toFixed(1).replace('.', ',')} km`;
+      intro = `Во близина на ${displayPlaceName(session.slots.poiAnchor as string)} поскап со тие карактеристики во моментов немам${at}. Еве ги најблиските опции:`;
+    }
     await this.serveBatch(session, batch, intro, 'BUDGET_UP_SEARCH', 'pricier.search.intro');
     return true;
+  }
+
+  /** The MAP PLACE the session is anchored on, resolved — undefined when the
+   *  chat named no place (or the map cannot place it). */
+  private poiPlaceOf(session: ChatSession): { name: string; lat: number; lon: number } | undefined {
+    const name = session.slots.poiAnchor;
+    if (!name) return undefined;
+    try {
+      return this.landmarks?.findPlace(name) ?? this.resolvePlace(name) ?? undefined;
+    } catch { return undefined; }
   }
 
   private async presentCheaperBatch(session: ChatSession, intro: string,
@@ -16649,7 +16755,38 @@ ${contactReminder}`;
       session.slots.plac = undefined;
     }
     if (ev.house !== undefined || ev.business || ev.plac) session.slots.residential = undefined;
-    if (ev.budget) session.slots.budget = ev.budget;
+    // THE PRICE FLOOR AND THE WINDOW (the [01:50]/[01:51] field capture):
+    // «ПОСКАПИ ОД 180000» then «ДО 200 000 МОЖЕ СЛОБОДНО» is ONE ask in two
+    // sentences — a floor of 180k and a cap of 200k. Each half is a criterion,
+    // so a new cap ABOVE the floor keeps the floor, and a cap BELOW it is the
+    // client moving off it (nothing can satisfy both). The floor is read from
+    // the client's own words as well as the event: it is a money axis the
+    // classifier does not carry yet, and reading it here covers both legs.
+    const priceMinIn = ev.priceMin ?? detectPriceFloor(rawText);
+    if (priceMinIn) {
+      session.slots.priceMin = priceMinIn;
+      const floor = budgetAmount(priceMinIn);
+      const cap = budgetAmount(session.slots.budget);
+      // A STANDING CEILING AT OR BELOW THE NEW FLOOR IS SPENT: «поскапи од
+      // 180.000» says the 180k cap from an earlier turn is no longer his money
+      // frame (cap === floor would make an empty window; cap < floor is the
+      // client moving UP). A cap ABOVE the floor stays — that is the window.
+      if (floor !== undefined && cap !== undefined && cap <= floor) session.slots.budget = undefined;
+    }
+    if (ev.budget) {
+      const floor = budgetAmount(session.slots.priceMin);
+      const cap = budgetAmount(ev.budget);
+      if (floor !== undefined && cap !== undefined && cap === floor) {
+        // ONE NUMBER CANNOT BE BOTH ENDS OF A WINDOW: the classifier's own
+        // money extraction reads the floor figure as a cap too («поскапи од
+        // 180.000» → budget 180000), which made the window empty and the client
+        // hear «нема … до 180.000» about the very range he asked to start at.
+        session.slots.budget = undefined;
+      } else {
+        session.slots.budget = ev.budget;
+        if (floor !== undefined && cap !== undefined && cap < floor) session.slots.priceMin = undefined;
+      }
+    }
     // THE €/m² CEILING (the [02:09] capture): «PO 1500E ZA KVADRAT» is a RATE
     // — it lands in its own slot and never as a 1.500 € sum, so the funnel
     // cannot answer «нема станови до 1.500 евра» while holding 1.250 €/m²
@@ -17205,6 +17342,7 @@ ${contactReminder}`;
         yard: session.slots.yard,
         service: session.slots.service,
         budget: session.slots.budget,
+        minPrice: session.slots.priceMin,
         // THE RATE (the [02:09] capture): a €/m² ceiling filters and ranks
         // ACROSS TYPES — «PO 1500E ZA KVADRAT» is not a 1.500 € flat.
         rate: session.slots.sqmRate,
@@ -17255,6 +17393,7 @@ ${contactReminder}`;
           yard: session.slots.yard,
           service: session.slots.service,
           budget: session.slots.budget,
+          minPrice: session.slots.priceMin,
           rate: session.slots.sqmRate,
           exclude: shown,
           sortBySqm: seeOffers,
@@ -17275,6 +17414,7 @@ ${contactReminder}`;
           yard: session.slots.yard,
           service: session.slots.service,
           budget: session.slots.budget,
+          minPrice: session.slots.priceMin,
           exclude: shown,
           sortBySqm: seeOffers,
           sortBySqmDesc: sqmDesc,
@@ -17393,6 +17533,7 @@ ${contactReminder}`;
             house: this.poolHouse(session.slots),
             service: session.slots.service,
             budget: session.slots.budget,
+            minPrice: session.slots.priceMin,
             exclude: shown,
           });
           if (oneRoom.length > 0) {
@@ -17405,6 +17546,7 @@ ${contactReminder}`;
               house: this.poolHouse(session.slots),
               service: session.slots.service,
               budget: session.slots.budget,
+              minPrice: session.slots.priceMin,
               exclude: shown,
               // SMALLEST first — the relaxed line says "мало станче", so the
               // cards must lead with the smallest units in budget, not
@@ -17481,6 +17623,7 @@ ${contactReminder}`;
           yard: session.slots.yard,
           service: session.slots.service,
           budget: session.slots.budget,
+          minPrice: session.slots.priceMin,
           exclude: shown,
           sortByPopularity: true,
         });

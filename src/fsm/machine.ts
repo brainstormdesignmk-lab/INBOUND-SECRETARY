@@ -31,6 +31,9 @@ export interface Event {
    *  pinning one; a later single type retires it. */
   residential?: boolean;
   budget?: string;
+  /** THE PRICE FLOOR (the [01:50] field capture): «поскапи од 180.000» — the
+   *  money is a MINIMUM; `budget` stays the ceiling, so the two are a window. */
+  priceMin?: string;
   /** THE €/m² CEILING (the [02:09] capture): «PO 1500E ZA KVADRAT» caps the
    *  RATE, not the sum. A money criterion of its own — never folded into
    *  `budget`, or the funnel claims «нема до 1.500 евра» over 1.250 €/m² rows. */

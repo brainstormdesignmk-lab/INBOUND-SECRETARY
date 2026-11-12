@@ -343,7 +343,11 @@ export interface DetectedSlots {
   business?: boolean;  // деловен простор / канцеларија / локал
   house?: boolean;     // куќа — a residential request that is NOT a стан
   budget?: string;     // canonical digits, e.g. "80000"
-  /** ALTERNATIVE BUDGET (the [20:08] capture): «so edna do 80000 ili dve do
+  /** THE PRICE FLOOR (the [01:50] field capture): «поскапи од 180000» — the
+   *  money he wants to spend is a MINIMUM. Never a `budget` (his ceiling): the
+   *  funnel searched below the figure he said he wanted to go above. */
+  priceMin?: string;
+  /** ALTERNATIVE BUDGET (the [20:08] capture):«so edna do 80000 ili dve do
    *  140000» — ONE card under `single`, OR TWO whose TOTAL stays inside `pair`.
    *  `budget` carries `single` (the STRICTER figure every single-card lane
    *  already enforces). */
@@ -1770,6 +1774,18 @@ export function detectMultiVisitIntent(text: string): boolean {
   if (/(?:и|i)\s+(?:овој|ovoj|оној|onoj|единиот|ediniot)\s+(?:и|i)\s+(?:овој|ovoj|оној|onoj|другиот|drugiot)/iu.test(flat)) return true;
   // An explicit COUNT of flats: «да видам 3 стана» (never a price or a size).
   if (/\b[2-9]\s+(?:стан\p{L}*|stan\p{L}*|станови|stanovi)/iu.test(flat)) return true;
+  // THE VISIT VERB FAMILY names the viewing too (the [02:01] field capture):
+  // «САКАМ ДА ГИ ПОСЕТАМ 66 И 84» — «посетам/посети/посетиме» was in NO family,
+  // so the pair-identity lane answered with an info card and the route never
+  // started. Same rule as «да ги видам»: the verb must carry a COLLECTIVE or
+  // TWO NAMED FLATS; a bare «сакам да го посетам» stays a single visit.
+  const visitVerb = /(?:посет|poset|видам|vidam|видиме|vidime|видите|vidite|погледам|погледаме|разгледам|разгледаме|гледам|gledam)/iu.test(flat);
+  if (visitVerb && /(?:ги\s+)?(?:двата|двете|трите|сите|dvata|dvete|trite|site)(?!\p{L})/iu.test(flat)) return true;
+  // TWO FLATS NAMED, nothing else: «посети 66 и 84», «да ги видам 66, 84 и 77».
+  // A pair of NUMBER NOUNS (Евидентен број 66 и 84) is unambiguous; a bare
+  // «66 и 84» needs the visit verb beside it, which `visitVerb` just proved.
+  if (visitVerb && EB_NAMED_RE.test(flat) && (flat.match(/\d{1,5}/g) ?? []).length >= 2) return true;
+  if (visitVerb && /(?<![\p{N}])\d{1,4}\s*(?:,|и|i)\s*\d{1,4}(?![\p{N}])/iu.test(flat)) return true;
   return false;
 }
 
@@ -1933,7 +1949,14 @@ export function detectFeeSurprise(text: string): boolean {
 // value/price of the fee itself. These should get the fee.why rationale (the
 // fee is a filter for real clients, symbolic for serious ones), NOT the refusal
 // ladder that pivots to alternative properties. Latin + Cyrillic.
-const FEE_COMPLAINT_RE = /(?:(?:скуп|скап|скупо)\w*|надомест\w*[^.!?\n]{0,40}(?:зошто|што|која|вклуч|содржи|поент|постиг|смисла)\w*|(?:надомест|посета|платим|плаќам|платам)(?:.*?(?:скуп|скап|неприступн|премал|повеќе|недостат))|(?:5\d{2}|3\d{2})\s*(?:ден|денар|евр|еура|мкд|denari).*?(?:скуп|скап|повеќе|неприступн)|(?:50\s+стан|стан.*50|50.*стан).*(?:\d+\s*(?:ден|денар|евр|мкд))|надомест.*(?:\d+)\s*(?:денари).*?(?:скуп|скап|повеќе|непостиг))/iu;
+// THE BARE EXPENSE ARM IS WORD-INITIAL: «поскапо» is the COMPARATIVE ("pricier",
+// a price-direction ask), and the unanchored `скап\w*` read it as "expensive" —
+// so «МИСЛЕВ ПОСКАПО КАЈ БРОЗ КАФЕ» and «НЕМОРА ПОЕФТИНИ ДАЈ МИ ПОСКАПО»
+// climbed the VISIT-FEE ladder instead of searching (the [01:49]/[01:50] field
+// capture: a client asking for dearer flats got the fee rationale). The
+// lookbehind keeps every real complaint ("скапо е", "многу скупо") while
+// «по/нај/пре+скап» comparatives stay out.
+const FEE_COMPLAINT_RE = /(?:(?<![\p{L}])(?:скуп|скап|скупо)\p{L}*|надомест\w*[^.!?\n]{0,40}(?:зошто|што|која|вклуч|содржи|поент|постиг|смисла)\w*|(?:надомест|посета|платим|плаќам|платам)(?:.*?(?:скуп|скап|неприступн|премал|повеќе|недостат))|(?:5\d{2}|3\d{2})\s*(?:ден|денар|евр|еура|мкд|denari).*?(?:скуп|скап|повеќе|неприступн)|(?:50\s+стан|стан.*50|50.*стан).*(?:\d+\s*(?:ден|денар|евр|мкд))|надомест.*(?:\d+)\s*(?:денари).*?(?:скуп|скап|повеќе|непостиг))/iu;
 // Also catch direct price-complaint markers: the fee amount + "too expensive"
 const FEE_PRICE_COMPLAINT_RE = /(?:(?:500|300)\s*(?:денари|ден|мкд|mkd|ден\.))[^.!?\n]{0,60}(?:скуп|скап|неприступн|премал|повеќе|жеш|недостат|nadvoz)/iu;
 
@@ -3106,13 +3129,30 @@ export function detectPricePriority(text: string): boolean {
 // телефон?”), the fee, or an investment-opinion excuse: it is a SEARCH, not
 // a market opinion. Runs through matchesBoth so normalizeMc (Latin→Cyrillic
 // normalization) is covered too.
+// THE PRICE-DIRECTED half of the alternatives family: «исто е скапо», «истата
+// цена», «прескапо», «не ми одговара цената». These are complaints about the
+// MONEY, which ask for a cheaper row. They live apart from the bare more-word
+// members («друго нешто», «покажи други», «predlozi mi») because those name
+// NO direction — «ДРУГО НЕШТО ИМА ?» after a pair was shown is "anything
+// else?", and the cheaper-ask copy («нема поевтини станови … соседните
+// населби») answered a question the client never asked (the [01:48] field
+// capture, first pair on the table).
+const CHEAPER_DEMAND_RE =
+  /(?:isto e skapo|исто е скапо|пак е скапо|пак скапо|пак e skapo|isto skapo|istata cena|истата цена|skapa e|скапо е|skapo e|сЀ уште е скапо|сè уште е скапо|previsoko e|превисоко е|preskapo|прескапо|ne mi odgovara cenata|не ми одговара цената|cenata ne mi odgovara|цената не ми одговара|ne odgovara cenata|не одговара цената|poeftino|poeftina|poektino|poektina|poftino|poftina|поевтино|поевтина|поефтино|поефтина|појефтино|појефтина|pojeftino|pojeftina)/iu;
+
 /** True when the client asks for something cheaper (any spelling). */
 export function detectCheaperSearch(text: string): boolean {
   // A cheap-price EVALUATION is not a request for cheaper options: the client
   // says the quoted price is good. "многу ефтина" used to ride the "многу е"
   // fragment of the alternatives list and dump unrelated cheaper properties.
   if (isCheapPriceEval(text)) return false;
-  return detectPricePriority(text) || detectSuggestAlternatives(text) || extFires('cheaper', text);
+  // A DISMISSED CHEAPER IS NOT A CHEAPER ASK (the [01:49] field capture):
+  // «НЕМОРА ПОЕФТИНИ ДАЈ МИ ПОСКАПО АКО ИМА» says "no need for cheaper — give
+  // me dearer if you have it". The cheaper word was in the sentence, so the
+  // cheaper lane served «нема поевтини … соседните населби» — the opposite
+  // direction. The pricier lane (detectBudgetUpAsk) owns the turn.
+  if (/(?:немора|не\s+мора|ne\s+mora|не\s+сакам|ne\s+sakam|без\s+потреба)[^.!?\n]{0,16}(?:поевтин|поефтин|појефтин|poeftin|poektin|poftin)/iu.test(text)) return false;
+  return detectPricePriority(text) || CHEAPER_DEMAND_RE.test(text) || extFires('cheaper', text);
 }
 
 // The client asks for ALTERNATIVE suggestions — "predlozi mi", "drugi
@@ -4226,6 +4266,47 @@ export function detectAgreement(text: string): boolean {
 const POSKAPO_TOKEN_RE = /(?<![\p{L}\p{N}])(?:poskap?o|поскапо)(?![\p{L}\p{N}])/iu;
 
 /** True when the message is a bare upward-priced search ask (budget UP). */
+/** THE PRICE FLOOR — «ПОСКАПИ ОД 180.000», «над 180 000 евра», «од 180 000
+ *  нагоре» (the [01:50] field capture). A comparative price with an AMOUNT is
+ *  the client naming the money he wants to spend, i.e. a SEARCH criterion — the
+ *  opposite of `budget` (his ceiling). Without this slot the funnel reversed his
+ *  ask and searched BELOW the figure he said he wanted to go above.
+ *
+ *  Returns the amount as digits ("180000").
+ *
+ *  NOT a floor: a bare comparative with no number (that is the pricier-stock
+ *  ask, `detectBudgetUpAsk`), a rate («над 1500 евра за м²» — a €/м² cap), and
+ *  a REFUSAL to go higher («нема да дадам повеќе од 400»). */
+export function detectPriceFloor(text: string): string | undefined {
+  const flat = text.replace(/\n/g, ' ');
+  // A refusal caps the money: «нема да одам над 200 000» is not a floor.
+  if (/(?:нема|не\s+можам|nema|ne\s+mozam)[^.!?\n]{0,20}(?:повеќе|povekje|poveke|повеќe|preku|преку)/iu.test(flat)) return undefined;
+  const NUM = '(\\d[\\d\\s.,]*)';
+  const grab = (m: RegExpExecArray | null): string | undefined => {
+    if (!m) return undefined;
+    const raw = m[1] ?? '';
+    // A RATE or a size is not a price: «над 1500 евра за м²», «над 80 м²».
+    const tail = flat.slice(m.index + m[0].length, m.index + m[0].length + 18);
+    if (/^\s*(?:евр\p{L}*|evr\p{L}*|eur|€)[^.!?\n]{0,8}(?:за\s*м|квадрат|м²|m²)/iu.test(tail)) return undefined;
+    if (/^\s*(?:м²|m²|квадрат|kvadrat)/iu.test(tail)) return undefined;
+    const n = parseInt(raw.replace(/[\s.,]/g, ''), 10);
+    // A price, not a floor number or a room count.
+    if (!Number.isFinite(n) || n < 1000) return undefined;
+    return String(n);
+  };
+  // 1) the comparative + «од/над»: «поскапи од 180.000», «поскапо над 200 000»
+  const comparative = new RegExp(`(?<![\\p{L}])(?:поскап|скап|poskap|skap)\\p{L}*\\s+(?:од|od|над|nad)\\s*${NUM}`, 'iu').exec(flat);
+  const a = grab(comparative);
+  if (a) return a;
+  // 2) «над 180 000» on its own (a floor word with a price magnitude).
+  const over = new RegExp(`(?<![\\p{L}])(?:над|nad)\\s*${NUM}`, 'iu').exec(flat);
+  const b = grab(over);
+  if (b) return b;
+  // 3) «од 180 000 нагоре» / «180 000 па нагоре» — the amount first.
+  const up = new RegExp(`${NUM}\\s*(?:евр\\p{L}*|evr\\p{L}*|евра|eur|€)?\\s*(?:па\\s*)?(?:нагоре|nagore)`, 'iu').exec(flat);
+  return grab(up);
+}
+
 export function detectBudgetUpAsk(text: string): boolean {
   if (!POSKAPO_TOKEN_RE.test(text)) return false;
   // Cap word or amount present → the with-number RAISE-THE-CAP class in
@@ -4588,8 +4669,20 @@ export function detectInvestmentOpinion(text: string): boolean {
   // 5-letter fuzzy floor can't reach these): any folded word starting поскап
   // EXCEPT the neuter поскапо (the budget-refinement word, excluded by the
   // stuck.test regression pin).
+  // A BUDGET FLOOR IS NOT A MARKET OPINION (the [01:50] field capture):
+  // «ПОСКАПИ ОД 180000 СО ДВЕ СПАЛНИ» is a search — the comparative names the
+  // MONEY he wants to spend, not the market he is judging. The typo floor below
+  // covered the verb typos («поскапеја», «поскапие») but its prefix shape also
+  // swallowed the plain comparative, so the client got «пазарот диктира високи
+  // стандарди» instead of a list. A floor marker with an amount, or a criterion
+  // after the comparative, is the search side.
+  if (detectPriceFloor(text) !== undefined) return false;
+  if (/(?<![\p{L}])(?:поскап\p{L}*)\s+(?:со|so)\s+\d/iu.test(normalizeMc(text))) return false;
   const folded = normalizeMc(text);
-  return /(?<![\p{L}])поскап(?!о)/iu.test(folded);
+  // The FLOOR is the typo family only: two or more letters past «поскап»
+  // («поскапеја», «поскапие»). The plain adjective «поскапи/поскапо» is the
+  // comparative the price lanes own.
+  return /(?<![\p{L}])поскап\p{L}{2,}/iu.test(folded);
 }
 
 // The client makes a CONVERSATIONAL REMARK about the property — a compliment
@@ -6349,7 +6442,12 @@ export function mentionsMore(text: string): boolean {
 const MORE_OPTIONS_RE = new RegExp(
   '(?<![\\p{L}])(?:друг(?:и|о|а)\\p{L}*|drugi|drugo|druga|nov(?:о|а)?|novo|nova)' +
   '(?:\\s+\\p{L}+){0,6}?\\s+' +
-  '(?:имат|имате|немат|немате|nemat(?:e)?|imate|ima|imaт|посто|posto|ponud|понуд)',
+  // A BARE «ИМА» IS THE WHOLE QUESTION (the [01:48] field capture): «ДРУГО
+  // НЕШТО ИМА ?» asks for more options with the plain third-person verb, and
+  // the list knew only the plural/polite forms — so the question fell into the
+  // cheaper lane (and, once that was narrowed, into the closing fee black
+  // hole) instead of a search.
+  '(?:имат|имате|немат|немате|nemat(?:e)?|imate|ima|imaт|(?<![\\p{L}])има(?![\\p{L}])|посто|posto|ponud|понд)',
   'iu');
 
 /** True when the client asks for MORE/OTHER options (alternatives family).
@@ -6357,7 +6455,7 @@ const MORE_OPTIONS_RE = new RegExp(
 export function detectMoreOptions(text: string): boolean {
   if (matchesBoth(MORE_OPTIONS_RE, text)) return true;
   // (c) bare "nesto novo" / "nesto drugo" — no verb needed
-  return matchesBoth(/(?<![\p{L}])нест[оа]|(?<![\p{L}])nesto(?![\p{L}])/u, text)
+  return matchesBoth(/(?<![\p{L}])нест[оа]|(?<![\p{L}])nesto(?![\p{L}])/iu, text)
     && matchesBoth(/(?<![\p{L}])(?:нов|novo|nov|друг|drugo|druga)/iu, text);
 }
 
@@ -6950,6 +7048,16 @@ export function detectNegotiate(text: string): boolean {
   // also carries the family's CAP-WORD guard now (B8), so a plain "moze do
   // 80000" is a search refinement too; this veto is the belt for the arm.
   if (detectCountBudget(text)) return false;
+  // A STATED CAP IS A SEARCH, NOT A COUNTER-OFFER (the [01:51] field capture):
+  // «ДО 200 000 МОЖЕ СЛОБОДНО» answers "how much can you spend?" — it raises
+  // his ceiling. The counter-offer grammar claimed the figure and served
+  // «Сопственикот ја одредува сумата…», so the client repeated himself twice
+  // («ПОСКАПИ ОД 180000…», «ДО 200 000 МОЖЕ СЛОБОДНО») and never got a search.
+  // An OFFER keeps its lane: a pay/offer verb means the money is aimed at the
+  // flat on the table ("ke dadam 120000", "плаќам до 120 000").
+  if (detectBudget(text) !== undefined
+      && /(?<![\p{L}])(?:до|do)\s*\d/iu.test(text)
+      && !/(?:дадам|дам|платам|плаќам|нудам|dadam|dam|platam|plakjam|nudam)/iu.test(text)) return false;
   return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text) || extFires('negotiate', text)
     // Counter-offer class — freshness keeps its fast-path; fee-consent wins
     // only for FEE-SIZED amounts ("ok ke platam 500 denari" = consent, while
@@ -10132,6 +10240,13 @@ export function extractSlots(text: string): DetectedSlots {
   if (sqm) out.sqm = sqm;
   const budget = detectBudget(text);
   if (budget) out.budget = budget;
+  const priceMin = detectPriceFloor(text);
+  if (priceMin) out.priceMin = priceMin;
+  // THE SAME FIGURE IS NOT ALSO A CAP (the [01:50] capture): «поскапи од
+  // 180.000» names ONE number, and the number matcher reads every figure as a
+  // budget — a 180 000 floor with a 180 000 ceiling is an empty window. A cap
+  // the client states separately («до 200 000») survives.
+  if (priceMin && out.budget === priceMin) delete out.budget;
   // THE RATE, NOT A CAP (the [02:09] capture): «PO 1500E ZA KVADRAT» caps the
   // €/m². The same figure must NOT also land in `budget` — a 1.500 € sum buys
   // no flat, so the funnel would claim «нема станови до 1.500 евра» while

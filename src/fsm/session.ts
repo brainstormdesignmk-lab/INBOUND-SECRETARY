@@ -26,6 +26,12 @@ export interface SlotData {
    *  never says «станот»; a later single type retires it. */
   residential?: boolean;
   budget?: string;
+  /** THE PRICE FLOOR (the [01:50] field capture): «поскапи од 180.000» — the
+   *  client names the money he wants to spend as a MINIMUM, so the search must
+   *  start there. `budget` stays the ceiling; the pair is a WINDOW
+   *  («поскапи од 180 000» then «до 200 000 може слободно»). Cleared when the
+   *  client moves off it (a new cap below it, a new area, a fresh search). */
+  priceMin?: string;
   /** THE €/m² CEILING (the [02:09] capture): «STANCE VO AERODROM PO 1500E ZA
    *  KVADRAT» caps the RATE. A money criterion of its own: the pool is filtered
    *  by price ÷ м² across EVERY type, and the copy speaks «до 1.500 евра за м²»
@@ -376,6 +382,11 @@ export interface SlotData {
   /** Strike 3 on the owner side: his pane stops getting answers (the operator
    *  is alerted and takes over). Cleared with the rest of the slots. */
   ownerMuted?: boolean;
+  /** THE PUBLISHED PRICE ASKED OF THE OWNER (the [02:03] field capture): rows
+   *  without a clean price get the CONFIRM-the-ad-figure half instead of no
+   *  price question at all — so a figure in his answer means "the ad is wrong"
+   *  unless it equals this one (then it is a confirmation, not a change). */
+  ownerAskPublishedPrice?: number;
   /** Generated (LLM) answers served in THIS session — the budget that stops a
    *  chatty client buying one Gemini call per message. Cleared with the rest of
    *  the slots on resetToIdle, so every new funnel gets a fresh allowance. */

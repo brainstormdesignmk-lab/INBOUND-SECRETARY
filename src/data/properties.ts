@@ -1436,6 +1436,13 @@ export function isAddressUnknown(p: Property): boolean {
  *  NOT followed by another letter ("120 km" stays 120). The raw-slot case
  *  mattered live: "do 120k" parsed as a 120 EUR budget and the hard filter
  *  emptied every search (the empty pivot the [02:27] probe hit). */
+/** The money as a NUMBER («180.000» → 180000) — the same parse every filter
+ *  uses, exported so a caller comparing a floor with a ceiling (the window
+ *  rule) cannot grow a second, drifting numeral reader. */
+export function budgetAmount(s: string | undefined): number | undefined {
+  return s === undefined ? undefined : parseBudgetMax(s);
+}
+
 function parseBudgetMax(s: string): number | undefined {
   const nums: number[] = [];
   const re = /(\d[\d\s.]*)/g;
@@ -1700,6 +1707,11 @@ export class PropertyService {
      *  «за живеење» / [23:50] «стан или куќа» answer). */
     house?: boolean | 'both';
     garsonjera?: boolean; plac?: boolean; yard?: boolean; service?: Service; budget?: string; exclude?: number[]; sortBySqm?: boolean;
+    /** THE PRICE FLOOR (the [01:50] field capture): «поскапи од 180000» — rows
+     *  STRICTLY dearer than the figure. `budget` stays the ceiling, so the two
+     *  together are a WINDOW; a row with no price on file cannot be shown to
+     *  fit it and stays out (the caller's honest line owns that answer). */
+    minPrice?: string;
     bedroomsMin?: number; bedroomsMax?: number; // bedroom RANGE ([09:17]): exact-category pool, both ends REQUIRED
     sortBySqmDesc?: boolean; // "nebitno" (size waived): BIGGEST м² first — the money buys space
     sortByPopularity?: boolean; // "било каде" — most popular neighborhoods first
@@ -1713,6 +1725,7 @@ export class PropertyService {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
     const max = opts.budget ? parseBudgetMax(opts.budget) : undefined;
+    const min = opts.minPrice ? parseBudgetMax(opts.minPrice) : undefined;
     // A place the ADS define («Маџар Маало», inside Центар) filters on the ad's
     // own words; everything else keeps the naselba matcher. Reading the ad is
     // what keeps a named micro-area from widening back to its municipality.
@@ -1743,6 +1756,9 @@ export class PropertyService {
           : opts.house === 'both' ? (p.business !== true && p.plac !== true)
           : true)
       .filter(p => opts.garsonjera ? !p.business && !p.house && isSmallUnit(p) : true)      .filter(p => max === undefined || p.price === undefined || p.price <= max)
+      // THE FLOOR: strictly above the figure he named as his minimum — a row
+      // at exactly the anchor is what he already saw (the ask was «поскапи»).
+      .filter(p => min === undefined || (p.price !== undefined && p.price > min))
       // THE RATE FILTER (the [02:09] capture) — price ÷ м², never the sum.
       .filter(p => opts.rate === undefined ? true : (() => {
         const per = pricePerM2(p);
