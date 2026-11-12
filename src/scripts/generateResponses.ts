@@ -736,14 +736,17 @@ const SPEC: GenerationKey[] = [
     question: true,
   },
   // workdays.question: the client asks whether the AGENCY works a given day
-  // ("VO NEDELA RABOTITE?") — answer the hours FIRST (Mon–Fri 09–17, weekends
-  // closed), then invite a visit in a working day. NEVER a proposed slot.
+  // ("VO NEDELA RABOTITE?") — answer the hours FIRST (office Mon–Fri 09–17,
+  // VISITS until 21:00, weekends closed), then invite a visit in a working day.
+  // NEVER a proposed slot. The two numbers are separate on purpose: a visit at
+  // 18:00/19:00/20:00 is normal (the owner's 2026-11-11 rule), so a variant that
+  // only says 09:00–17:00 tells an after-work client we don't work then.
   {
     key: 'workdays.question',
-    sources: ['Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите на недвижностите се организираат во тој период, а сабота и недела се неработни.'],
+    sources: ['Работното време е од понеделник до петок, од 09:00 до 17:00 часот, а посетите ги организираме до 21:00 часот. Сабота и недела не работиме.'],
     count: 10,
-    instructions: 'Одговори кои се работните денови и часови на агенцијата: понеделник до петок, 09:00–17:00; сабота и недела НЕ се работат. Посетите се организираат во работните денови. Ако клиентот прашува за сабота/недела, побарај му прошка и предложи работен ден. Кратко, учтиво, без измислени детали.',
-    required: /(?:понеделник|петок|09|работни)/iu,
+    instructions: 'Одговори кои се работните денови и часови: понеделник до петок, канцеларијата работи од 09:00 до 17:00 часот, а посетите на недвижностите ги организираме до 21:00 часот. Сабота и недела НЕ се работат. Двата броја мора да стојат одделно — посета во 18:00, 19:00 или 20:00 е нормална. Ако клиентот прашува за сабота/недела, побарај му прошка и предложи работен ден. Кратко, учтиво, без измислени детали.',
+    required: [/(?:понеделник|петок)/iu, /09[:.]?00/iu, /21[:.]?00/iu],
     banned: [/сабота\s+и\s+недела\s+(?:работиме|смe)/iu],
     question: false,
   },

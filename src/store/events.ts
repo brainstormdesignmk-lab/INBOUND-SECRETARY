@@ -7,6 +7,9 @@ export type EventType =
   | 'visit_confirmed'
   | 'customer_reengage'
   | 'price_changed'
+  /** The whole day's visit route was confirmed (the owner's 2026-11-11 brief):
+   *  one event carrying the plan text the operator forwards to the agent. */
+  | 'visit_plan'
   | 'landmark_requested'
   /** The OWNER relayed an insult — logged on every rung so a human can step in
    *  (the client-side strike protocol never involves the owner). */

@@ -116,7 +116,14 @@ export class Db {
         status      TEXT NOT NULL DEFAULT 'pending',
         chat_id     TEXT NOT NULL DEFAULT '',
         created_at  INTEGER NOT NULL,
-        resolved_at INTEGER
+        resolved_at INTEGER,
+        -- v9: the OWNER'S CLEAN PRICE on a change confirmed in the owner ask
+        -- (the owner's 2026-11-11 brief). new_price stays the FINAL price, so
+        -- Hermes keeps its public-price sync; the clean columns are what it
+        -- writes into the app's clean-price field (owner-only data).
+        clean_old   INTEGER,
+        clean_new   INTEGER,
+        agency_percent REAL
       );
       -- v8: ADDRESS corrections dictated by the OWNER — the same contract as
       -- price_changes, for the same reason. Lina confirms the address with the
@@ -261,6 +268,19 @@ export class Db {
     }
     if (!bmCols.some(c => c.name === 'learned_serves')) {
       this.db.exec(`ALTER TABLE bank_metrics ADD COLUMN learned_serves INTEGER NOT NULL DEFAULT 0`);
+    }
+    // v9: clean-price columns on the price-change queue (owner-confirmation
+    // asks) — an existing DB predates them, and a failed INSERT would lose the
+    // owner's correction entirely.
+    const pcCols = this.db.prepare(`PRAGMA table_info(price_changes)`).all() as Array<{ name: string }>;
+    if (!pcCols.some(c => c.name === 'clean_old')) {
+      this.db.exec(`ALTER TABLE price_changes ADD COLUMN clean_old INTEGER`);
+    }
+    if (!pcCols.some(c => c.name === 'clean_new')) {
+      this.db.exec(`ALTER TABLE price_changes ADD COLUMN clean_new INTEGER`);
+    }
+    if (!pcCols.some(c => c.name === 'agency_percent')) {
+      this.db.exec(`ALTER TABLE price_changes ADD COLUMN agency_percent REAL`);
     }
     // v4 migration: nearby landmarks cache column — safe no-op if already present
     const lmCols = this.db.prepare(`PRAGMA table_info(landmarks)`).all() as Array<{ name: string }>;

@@ -22,8 +22,9 @@
 //     sides agree), and the acceptance books the OWNER'S term;
 //   • «НЕМА ШАНСИ ВО ПЕТОК» is a refusal, never a proposal of Friday;
 //   • Saturday/Sunday terms — from the client or the owner — are answered with
-//     the agency's working-hours protocol (Mon–Fri 09:00–17:00, weekends closed)
-//     and a working-day term is requested; nothing is relayed or locked.
+//     the agency's working-hours protocol (office Mon–Fri 09:00–17:00, VISITS
+//     until 21:00, weekends closed) and a working-day term is requested;
+//     nothing is relayed or locked.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -238,6 +239,79 @@ test('the operator pane is told a relay ONLY when the client really received one
   const reply = await apply(detectOwnerVerdict('МОЖЕ НАКАЈ 6 АКО ВИ ОДГОВАРА', 'ПЕТОК ВО 10'));
   assert.equal(relays.at(-1), reply, `the mirror is the served text: ${JSON.stringify(relays)}`);
   assert.match(reply, /18:00/u, reply);
+});
+
+// THE OWNER'S BARE HOUR AFTER A DECISION FRAME (the [PA NEKA BIDE 5] capture).
+// The owner read «Дали се согласувате … Петок во 18:00?» and answered «PA NEKA
+// BIDE 5» — a settled decision at 17:00. Only «можам/можеме» opened the bare-hour
+// slot, so the verdict was undefined and Lina replied «Не разбрав. Евидентен
+// број 42 …» to the person who had just decided the term.
+test('«PA NEKA BIDE 5» is a 17:00 counter; «НЕКА БИДЕ 6» on an 18:00 ask is consent', () => {
+  const v = detectOwnerVerdict('PA NEKA BIDE 5', 'ПЕТОК ВО 18:00');
+  assert.equal(v?.status, 'counter', `the decision is understood: ${JSON.stringify(v)}`);
+  assert.match(v?.ownerTime ?? '', /17:00/u, `5 is a visit clock, never 05:00: ${JSON.stringify(v)}`);
+  // A prepositional clock keeps the owner's RAW shape («ВО 5») — the display
+  // renderer resolves it through the visit window for the client (pinned by the
+  // e2e below and by tests/owner-day-carry.test.ts).
+  for (const t of ['ПА НЕКА БИДЕ 5', 'НЕКА БИДЕ 5', 'neka bide 5']) {
+    const x = detectOwnerVerdict(t, 'ПЕТОК ВО 18:00');
+    assert.equal(x?.status, 'counter', `${t} must parse: ${JSON.stringify(x)}`);
+    assert.match(x?.ownerTime ?? '', /17:00/u, `${t}: ${JSON.stringify(x)}`);
+  }
+  // A lone hour while a term is on the table is that clock, not silence.
+  const lone = detectOwnerVerdict('5', 'ПЕТОК ВО 18:00');
+  assert.equal(lone?.status, 'counter', JSON.stringify(lone));
+  assert.match(lone?.ownerTime ?? '', /17:00/u, JSON.stringify(lone));
+  // The owner naming the hour already on the table has AGREED.
+  const same = detectOwnerVerdict('НЕКА БИДЕ 6', 'ПЕТОК ВО 18:00');
+  assert.equal(same?.status, 'ok', `a same-term counter is consent: ${JSON.stringify(same)}`);
+});
+
+test('[PA NEKA BIDE 5] e2e: the prepositional sibling «НЕКА БИДЕ ВО 5» is the same answer', async () => {
+  const { sessions, chatId, seed, propose, apply } = makeHandler();
+  seed();
+  await propose('ПЕТОК ВО 18:00');
+  const reply = await apply(detectOwnerVerdict('НЕКА БИДЕ ВО 5', 'ПЕТОК ВО 18:00'));
+  assert.equal(sessions.get(chatId)!.state, 'time_confirm');
+  assert.match(reply, /17:00/u, `the window resolves his 5 to 17:00: ${reply}`);
+});
+
+test('[PA NEKA BIDE 5] e2e: the client hears the owner’s 17:00, nothing is booked', async () => {
+  const { sessions, chatId, seed, propose, apply } = makeHandler();
+  seed();
+  await propose('ПЕТОК ВО 18:00');
+  const v = detectOwnerVerdict('PA NEKA BIDE 5', 'ПЕТОК ВО 18:00');
+  assert.equal(v?.status, 'counter', JSON.stringify(v));
+  const reply = await apply(v);
+  const s = sessions.get(chatId)!;
+  assert.equal(s.state, 'time_confirm', `the client must close the owner's term: ${s.state}`);
+  assert.match(reply, /17:00/u, `the owner's hour reaches the client: ${reply}`);
+  assert.match(reply, /\?/u, reply);
+  assert.doesNotMatch(reply, FINALISED, `nothing is arranged yet: ${reply}`);
+});
+
+// THE VISIT DAY RUNS TO 21:00 (the owner's 2026-11-11 rule): the OFFICE is
+// 09:00–17:00, but an after-work visit at 18:00–20:00 is the normal case. The
+// engine's window already allowed it; the copy said 09:00–17:00 and a late ask
+// had no working-hours refusal to hit — this pins that it still has none.
+test('an after-work term (19:00, 20:00) is scheduled, never refused as after hours', async () => {
+  const { sessions, chatId, seed, propose } = makeHandler();
+  seed();
+  await propose('ПЕТОК ВО 19:00');
+  assert.equal(sessions.get(chatId)!.state, 'owner_checking');
+  seed();
+  await propose('ПЕТОК ВО 20:00');
+  assert.equal(sessions.get(chatId)!.state, 'owner_checking');
+});
+
+test('the hours protocol states BOTH numbers: office 09:00–17:00, visits until 21:00', async () => {
+  const { handler, chatId, seed, propose } = makeHandler();
+  seed();
+  await propose('ПЕТОК ВО 10');
+  const answer = handler.ownerQuestionReply(chatId, 'ВО САБОТА РАБОТИТЕ ?') ?? '';
+  assert.match(answer, /09:00/u, answer);
+  assert.match(answer, /17:00/u, answer);
+  assert.match(answer, /21:00/u, `the visit window is stated: ${answer}`);
 });
 
 test('isWeekendTerm: word days and explicit dates, weekdays untouched', () => {

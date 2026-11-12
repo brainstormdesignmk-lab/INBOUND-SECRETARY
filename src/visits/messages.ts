@@ -129,17 +129,72 @@ export function mapsLinkFor(address: string | undefined, location: string | unde
 
 export interface Party { name: string; phone: string; }
 
+/** THE PLANNED-VISIT LINE (owner-dictated format, the owner's 2026-11-11
+ *  brief): `PLANIRANA POSETA NA NEDVIZNOST <EB> — <DAY> VO <HH:MM> — AGENT
+ *  <phone>`, plus the address + map when the recipient is allowed them.
+ *
+ *  ADDRESS DISCIPLINE (the two owners' answers): the OWNER always gets the
+ *  street and the map — he is the source of truth. The CLIENT's copy carries
+ *  the EB and the hour ONLY; his street arrives in Turn 3, two hours before
+ *  the visit. `withAddress` is what makes that difference explicit at every
+ *  call site instead of a default nobody remembers. */
+export function buildPlanLine(
+  eb: number,
+  when: Date,
+  agentPhone: string,
+  opts: { address?: string; mapsUrl?: string; withAddress?: boolean } = {},
+): string {
+  const head = `PLANIRANA POSETA NA NEDVIZNOST ${eb} — ${formatDateOnly(when)} VO ${formatTimeOnly(when)} — AGENT ${agentPhone || '—'}`;
+  if (!opts.withAddress) return head;
+  const addr = opts.address ? `\nАдреса: ${opts.address}` : '';
+  const map = opts.mapsUrl ? `\n${opts.mapsUrl}` : '';
+  return `${head}${addr}${map}`;
+}
+
+/** THE CHAIN ASK — the whole route in visit order, for ONE client decision.
+ *  EB + hour only (the street stays in Turn 3), the honest note when a start
+ *  hour had to move, and the flats that could not be linked. Ends with the
+ *  confirmation question so the funnel has something to consume. */
+export function buildChainAsk(
+  stops: Array<{ eb: number; hour: number }>,
+  opts: { dropped?: number[]; shiftedBy?: number } = {},
+): string {
+  const hh = (h: number): string => `${String(h).padStart(2, '0')}:00`;
+  const lines = stops.map(s => `${hh(s.hour)} — Евидентен број ${s.eb}`);
+  const shift = opts.shiftedBy
+    ? ` Часовите почнав ${opts.shiftedBy > 0 ? 'подоцна' : 'порано'} за ${Math.abs(opts.shiftedBy)} ${Math.abs(opts.shiftedBy) === 1 ? 'час' : 'часа'}, за да бидат поврзани еден по друг.`
+    : '';
+  const dropped = opts.dropped && opts.dropped.length > 0
+    ? `\nЗа жал, не можев да ги поврзам во истиот ден: Евидентен број ${opts.dropped.join(', ')} — за нив ќе најдеме друг термин.`
+    : '';
+  return `Посети по ред, една по друга:\n\n${lines.join('\n')}${dropped}${shift}\n\nДали да ги потврдам посетите?`;
+}
+
+/** The day-before plan: the SAME lines the client got at confirmation, one per
+ *  stop, in visit order. `stops` is the whole chain, so one message carries the
+ *  day's route rather than N separate reminders. */
+export function buildPlanReminder(
+  stops: Array<{ eb: number; when: Date }>,
+  agentPhone: string,
+  withAddress: Array<{ address?: string; mapsUrl?: string }> = [],
+): string {
+  const lines = stops.map((s, i) => buildPlanLine(s.eb, s.when, agentPhone,
+    withAddress[i] ? { ...withAddress[i], withAddress: true } : {}));
+  return lines.join('\n\n');
+}
+
 /** The turn names AS THE OPERATOR READS THEM. One vocabulary for the log, the
  *  visit_turns table and this file — the old log mixed «ARRANGED VISIT» with
  *  «VISIT CONFIRMATION 2 TURN» / «3 TURN LOCATION SENT», so the operator could
  *  not tell which protocol step a line belonged to (visit audit #7). */
-export type VisitLogTurn = 'address_confirm' | 'arranged' | 'confirm' | 'location';
+export type VisitLogTurn = 'address_confirm' | 'arranged' | 'confirm' | 'location' | 'plan_day_before';
 
 const LOG_LABEL: Record<VisitLogTurn, string> = {
   address_confirm: 'TURN 0 ADDRESS CONFIRM',
   arranged: 'TURN 1 ARRANGED',
   confirm: 'TURN 2 MORNING CONFIRM',
   location: 'TURN 3 LOCATION',
+  plan_day_before: 'PLAN DAY-BEFORE',
 };
 
 /** Operator log line per turn: who (owner/client) got what, with the dossier

@@ -215,6 +215,23 @@ export interface SlotData {
    *  proposal is a SECOND owner turn — it relays "the client can't do X,
    *  here is Y" instead of repeating the first-time availability intro. */
   ownerAskTime?: string;
+  /** THE CLEAN PRICE THE OWNER WAS ASKED TO CONFIRM (the owner's 2026-11-11
+   *  brief). Set when the first availability ask carried the price question;
+   *  the verdict seam then reads any figure in the owner's answer as a CLEAN
+   *  price (recomputed into the final price through Ana's formula) instead of
+   *  a final price dictated over the phone. Cleared with the check. */
+  ownerAskCleanPrice?: number;
+  /** A clean-price correction was relayed to the client in this exchange — a
+   *  later complaint about the price gets the owners-may-reprice disclaimer. */
+  priceChangePending?: boolean;
+  /** THE DAY'S VISIT CHAIN (the owner's 2026-11-11 brief): several flats asked
+   *  for a visit on one day are arranged as one non-stop, hour-by-hour route.
+   *  Each stop carries the owner's answer; when every owner has answered, the
+   *  solver lays the chain out and the client confirms it in one yes. */
+  visitPlan?: import('../visits/chain').VisitPlanState;
+  /** How many stops the confirmed route has (>= 2 marks a chain for the visit
+   *  protocol's plan line). Set when the route is booked. */
+  chainSize?: number;
   /** THE DAY THE OWNER HIMSELF NAMED (the [10:24] capture). An owner answers a
    *  clock re-ask in TWO messages: «PETOK» and then «OKOLU 5 MOZAM». The clock
    *  arrives day-less, was dated to TODAY by the display normalizer, and reached

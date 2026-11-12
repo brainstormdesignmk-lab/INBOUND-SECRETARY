@@ -15,14 +15,21 @@ import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace } from '../data/properties';
-import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
-  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict,
+import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
+  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
-import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, isWeekendTerm } from '../visits/time';
+import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, pad2, isWeekendTerm } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
+import { dayStartOf, slotStartOf, isSlotTaken, freeHoursNear, buildSlotTakenLine, type CalendarInput } from '../visits/calendar';
+import { solveChain, type VisitPlanState } from '../visits/chain';
+import { buildChainAsk, buildPlanReminder, mapsLinkFor } from '../visits/messages';
+import {
+  buildOwnerCleanPriceQuestion, buildPriceChangeNotice, computeFinalFromClean,
+  PRICE_CHANGE_DISCLAIMER, DEFAULT_AGENCY_PERCENT,
+} from '../pricing/cleanPrice';
 import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCandidate, descriptorPhrases, isStudio, MIN_POI_DESCRIPTOR, type MentionCandidate, type MentionPoi } from '../llm/mentionResolve';
 import { detectInfoFacets, buildInfoAnswer, isSuterenUnit, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE, INFO_NO_YEAR_KEY, INFO_NO_RENOVATION_KEY } from '../llm/infoAnswer';
 import { answerGlossary, detectGlossaryAsk } from '../llm/glossary';
@@ -870,13 +877,17 @@ export function poiNameCoversClientWords(clientText: string, poiName: string, po
 // greeting ownership — the 15:12 TUI capture) and imported below.
 const QUEUED_STAY_LINE = 'Вашите критериуми се забележани. Ќе Ве контактирам штом најдам соодветна недвижност.';
 // THE AGENCY'S WORKING HOURS ARE A PROTOCOL, AND SHE KNOWS THEM (the owner's
-// standing rule, restated from the [10:33] capture): Monday–Friday 09:00–17:00,
-// visits inside the working week, Saturday and Sunday closed. Every place that
-// must state them — a client's hours question, a client's weekend term, the
-// owner asking whether we work Saturday — reads this ONE sentence, so the pilot
-// can never be told different hours in two turns.
+// standing rule, restated from the [10:33] capture and corrected by the
+// 2026-11-11 directive): the OFFICE runs Monday–Friday 09:00–17:00, but VISITS
+// are arranged until 21:00 — after-work viewings are the normal case, not an
+// exception. Saturday and Sunday stay closed. The two numbers must never be
+// collapsed into one: „од 09:00 до 17:00“ alone was read as „no 18:00 visits“,
+// and the visit window in `visits/time.ts` already allowed 09:00–21:00, so the
+// copy contradicted the engine. Every place that must state the hours — a
+// client's hours question, a client's weekend term, the owner asking whether
+// we work Saturday — reads this ONE sentence.
 const AGENCY_HOURS_PROTOCOL =
-  'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.';
+  'Работното време е од понеделник до петок, од 09:00 до 17:00 часот, а посетите ги организираме до 21:00 часот. Сабота и недела не работиме.';
 // The owner CAN'T do the client's proposed time and gave NO alternative. Lina
 // must never fabricate a term ("по договор со сопственикот" was relayed as a
 // fake proposal the client was asked to accept — and an accept then fell back
@@ -2243,6 +2254,226 @@ export class InboundHandler {
       reply: buildLocateMatches(nextBatch, session.history.length, !ebDisclaimed),
       shown: nextBatch,
     };
+  }
+
+  // ── THE VISIT CHAIN (the owner's 2026-11-11 brief) ────────────────────────
+  // Several flats asked for a visit on one day are arranged as ONE non-stop,
+  // hour-by-hour route: each owner is asked about his hour, counters are fed
+  // back into the solver, and the client confirms the whole route in one yes.
+
+  /** Start a chain when the client proposes a term with SEVERAL flats on the
+   *  table AND the visit is HIS plural request. Returns false when this is an
+   *  ordinary single-flat visit. */
+  private startChainIfNeeded(session: ChatSession, term: string, text = ''): boolean {
+    // A TERM CHANGE MID-ROUTE RESTARTS IT: the answers on file were about the
+    // OLD day/hours, so they are void — every stop returns to pending and the
+    // first owner is asked about the new term (a later day is a new chain by
+    // the brief, and an hour the client moved is the same rule).
+    const running = session.slots.visitPlan;
+    if (running) {
+      const moved = parseVisitDateTime(term, new Date());
+      if (moved && (dayStartOf(moved) !== running.dayMs || moved.getHours() !== running.targetHour)) {
+        running.dayMs = dayStartOf(moved);
+        running.targetHour = moved.getHours();
+        running.term = term;
+        running.assignments = undefined;
+        running.dropped = undefined;
+        for (const s of running.stops) {
+          s.status = 'pending';
+          s.hours = undefined;
+          s.askedHour = undefined;
+        }
+        this.advanceChain(session);
+      }
+      return true; // already running — keep the route
+    }
+    // THE CLIENT'S OWN WORDS START A ROUTE, NEVER THE BATCH ON SCREEN (the
+    // [22:03]/[21:03] Catolica capture): he chose one flat («PRVIOT») and gave
+    // a term, and the funnel asked the owners of every flat ever presented —
+    // the single visit he asked for was never confirmed. So the route begins
+    // only on a PLURAL request («двата/сите/… станови», «да ги видам»), which
+    // is the only honest evidence that more than one visit is wanted.
+    if (!detectMultiVisitIntent(`${text} ${term}`)) return false;
+    const ebs = [...new Set([
+      ...(session.slots.currentBatch ?? []),
+      ...(session.slots.presentedIds ?? []),
+    ])].slice(0, 4);
+    if (ebs.length < 2) return false;
+    const when = parseVisitDateTime(term, new Date());
+    if (!when) return false;
+    session.slots.visitPlan = {
+      dayMs: dayStartOf(when),
+      targetHour: when.getHours(),
+      term,
+      stops: ebs.map(eb => ({ eb, status: 'pending' as const })),
+      flexible: /(?:bilo\s*koga|кога\s*било|било\s*кога|cel\s*den|цел\s*ден|porano|порано|pokasno|покасно|sve|сè|bilo\s*koe|било\s*кое)/iu.test(term),
+    };
+    this.advanceChain(session);
+    return true;
+  }
+
+  /** The canonical term for a stop at `hour` (the client's day, the chain's
+   *  hour) — what the owner and the client both read. */
+  private chainTermFor(plan: VisitPlanState, hour: number): string {
+    // formatVisitDate CARRIES THE CLOCK OF ITS Date (midnight), so the hour is
+    // built from the date part only — «Петок, 13.11.2026 во 00:00 во 16:00»
+    // reached an owner and his client before this.
+    const day = new Date(plan.dayMs);
+    return `${weekdayName(day)}, ${formatDateOnly(day)} во ${pad2(hour)}:00`;
+  }
+
+  /** Ask the NEXT owner in the chain; finish it when every owner answered. */
+  private advanceChain(session: ChatSession): void {
+    const plan = session.slots.visitPlan;
+    if (!plan) return;
+    const next = plan.stops.find(s => s.status === 'pending');
+    if (!next) { void this.finishChain(session); return; }
+    // THE THIRD ASK IS THE LAST (the brief's budget): an owner who keeps being
+    // ping-ponged leaves the route instead of stalling it — and he is named to
+    // the client like any other dropped stop.
+    next.asks = (next.asks ?? 0) + 1;
+    if (next.asks > 3) {
+      next.status = 'dropped';
+      this.advanceChain(session);
+      return;
+    }
+    // The hour this stop is asked about: the target plus its position among the
+    // live stops — contiguous by construction, and the solver corrects later.
+    const live = plan.stops.filter(s => s.status !== 'dropped');
+    const idx = live.indexOf(next);
+    const hour = plan.targetHour + Math.max(0, idx);
+    next.status = 'asked';
+    next.askedHour = hour;
+    session.state = 'owner_checking';
+    session.slots.interestedPropertyId = next.eb;
+    session.slots.propertyId = next.eb;
+    // THE ASK MEMORY BELONGS TO ONE PROPERTY (the [11:11] route): `ownerAskTime`
+    // is per CHAT, so the SECOND owner was told «Клиентот не е во можност во
+    // 16:00» about a flat he was never asked about. Each stop is a first ask.
+    session.slots.ownerAskTime = undefined;
+    session.slots.ownerCounterTime = undefined;
+    session.slots.ownerClockDay = undefined;
+    this.deps.sessions.set(session);
+    void this.runOwnerCheck(session, next.eb, this.chainTermFor(plan, hour));
+  }
+
+  /** One owner's answer for the stop he was asked about. */
+  private applyChainVerdict(session: ChatSession, eb: number, plan: VisitPlanState, verdict: OwnerVerdict): string | undefined {
+    const stop = plan.stops.find(s => s.eb === eb && s.status === 'asked');
+    if (!stop) return undefined;
+    if (verdict.status === 'ok' || verdict.status === 'available') {
+      stop.status = 'ok';
+      stop.hours = [stop.askedHour ?? plan.targetHour];
+    } else if (verdict.status === 'counter' && verdict.ownerTime) {
+      const when = parseVisitDateTime(verdict.ownerTime, new Date());
+      // A counter with a real clock is his window; a bare refusal drops him
+      // from this chain (he gets his own term later) — never a silent hour.
+      stop.status = when ? 'counter' : 'dropped';
+      if (when) stop.hours = [when.getHours()];
+    } else {
+      stop.status = 'dropped';
+    }
+    this.deps.sessions.set(session);
+    this.advanceChain(session);
+    return undefined;
+  }
+
+  /** Every owner answered: solve the route and put it to the client in one ask. */
+  private async finishChain(session: ChatSession): Promise<void> {
+    const plan = session.slots.visitPlan;
+    if (!plan) return;
+    const live = plan.stops.filter(s => s.status !== 'dropped');
+    if (live.length === 0) {
+      session.slots.visitPlan = undefined;
+      session.state = 'visit_scheduling';
+      const reply = 'Ниту еден од сопствениците не е слободен во тие часови. Дали сакате да пробаме друг ден или друг термин?';
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, reply, 'deterministic');
+      return;
+    }
+    const cal = this.dayCalendar(new Date(plan.dayMs));
+    const solved = solveChain({
+      targetHour: plan.targetHour,
+      stops: live.map(s => ({ eb: s.eb, hours: s.hours })),
+      busy: cal.busy.map(b => new Date(b).getHours()),
+      flexible: plan.flexible === true,
+    });
+    plan.assignments = solved?.stops ?? live.map(s => ({ eb: s.eb, hour: s.askedHour ?? plan.targetHour }));
+    plan.dropped = [
+      ...plan.stops.filter(s => s.status === 'dropped').map(s => s.eb),
+      ...(solved?.dropped ?? []),
+    ];
+    // The first stop is the subject the booking seam continues on.
+    const first = plan.assignments[0]!;
+    session.slots.propertyId = first.eb;
+    session.slots.interestedPropertyId = first.eb;
+    session.slots.visitTime = this.chainTermFor(plan, first.hour);
+    session.state = 'time_confirm';
+    const svc = session.slots.service ?? 'buy';
+    const fee = buildFeePerProperty(svc, plan.assignments.length);
+    const answer = `${buildChainAsk(plan.assignments, { dropped: plan.dropped, shiftedBy: solved?.shiftedBy })}\n\n${fee}`;
+    routeLog(session.chatId, 'chain', 'CHAIN_READY');
+    pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+    await this.sendRaw(session, answer, 'deterministic');
+  }
+
+  /** The client said yes to the route: book every stop, one by one, and send
+   *  the planned-visit lines (EB + hour for the client, address + map for each
+   *  owner through the visit protocol). */
+  private async confirmChain(session: ChatSession): Promise<void> {
+    const plan = session.slots.visitPlan;
+    if (!plan?.assignments?.length) return;
+    session.slots.visitPlan = undefined; // consumed — a second yes must not rebook
+    // The scheduler's Turn 0 carries the plan line for a real route.
+    session.slots.chainSize = plan.assignments.length;
+    this.deps.sessions.set(session);
+    for (const stop of plan.assignments) {
+      // The appointment row is built from the session's slots, so EACH stop is
+      // bound before its own confirm — otherwise every row of the route would
+      // carry the first flat (two visits to one building, both booked).
+      session.slots.interestedPropertyId = stop.eb;
+      session.slots.propertyId = stop.eb;
+      this.deps.sessions.set(session);
+      await this.confirmVisit(session, stop.eb, this.chainTermFor(plan, stop.hour));
+    }
+    // THE WHOLE ROUTE, ONCE, IN THE OWNER'S OWN FORMAT (the 2026-11-11 brief):
+    // the client gets the day's plan with the agent's number — EB + hour only,
+    // because his street arrives in Turn 3. The operator gets the same plan
+    // with every address and map link, ready to forward to the agent.
+    const agentPhone = session.slots.agentPhone ?? this.cfg.agentDefaultPhone;
+    const stops = plan.assignments.map(a => ({
+      eb: a.eb,
+      when: new Date(new Date(plan.dayMs).setHours(a.hour, 0, 0, 0)),
+    }));
+    const clientPlan = buildPlanReminder(stops, agentPhone);
+    pushHistory(session, { role: 'assistant', text: clientPlan }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+    await this.sendRaw(session, clientPlan, 'deterministic');
+    const withAddress: Array<{ address?: string; mapsUrl?: string }> = [];
+    for (const s of stops) {
+      const p = await this.deps.properties.getByEb(s.eb).catch(() => undefined);
+      withAddress.push({ address: p?.address, mapsUrl: p ? mapsLinkFor(p.address, p.location) : undefined });
+    }
+    // The operator's copy (addresses + maps) rides the event feed the TUI and
+    // the visit log read — never a client sentence.
+    const operatorPlan = buildPlanReminder(stops, agentPhone, withAddress);
+    try {
+      this.events.insert('visit_plan', session.chatId, stops[0]!.eb, {
+        plan: operatorPlan, stops: stops.map(s => s.eb), agentPhone,
+      });
+    } catch { /* advisory */ }
+    console.log(`[EVENT] VISIT_PLAN ${JSON.stringify({ ebs: stops.map(s => s.eb), agentPhone })}`);
+  }
+
+  /** The day's CONFIRMED visits as hour starts — the calendar the taken-hour
+   *  answer and the chain solver read. `dayStart` is 00:00 local of that day. */
+  private dayCalendar(when: Date): CalendarInput {
+    const dayStart = dayStartOf(when);
+    const dayEnd = dayStart + 24 * 3600_000;
+    const busy = this.deps.appointments.listVisitsBetween(dayStart, dayEnd)
+      .map(v => slotStartOf(new Date(v.visitAt)));
+    return { dayStart, busy };
   }
 
   /** THE AVAILABILITY ANSWER for a RESOLVED flat — the gender-agreed bank ack
@@ -4641,7 +4872,16 @@ export class InboundHandler {
       : undefined;
     if ((isDistanceQuestion(text) || bareDistancePlace !== undefined)
       && !detectService(text) && !detectBothServices(text)) {
-      const placeName = isDistanceQuestion(text) ? extractDistancePlace(text) : bareDistancePlace;
+      // SEVERAL PLACES IN ONE QUESTION (the owner's 2026-11-11 brief): «КОЛКУ СЕ
+      // ОДДАЛЕЧЕНИ ОД БЕВЕРЛИ ХИЛС А КОЛКУ ОД ЗЕБРА?» names two destinations.
+      // The single-place read answered only the first and dropped the second,
+      // so the client got half a measurement. Every named place is kept here and
+      // measured for every flat the question covers; `placeName` stays the first
+      // (the lead) for the single-place arms below.
+      const placeNames = isDistanceQuestion(text)
+        ? extractDistancePlaces(text)
+        : (bareDistancePlace ? [bareDistancePlace] : []);
+      const placeName = placeNames[0];
       // THE EB NAMED IN THIS MESSAGE OUTRANKS THE ONE ON THE TABLE (the [21:22]
       // capture): «A OVOJ PRVIOT 95 NA KOLKAVO RASTOJANIE E OD BROZ KAFE?» asked
       // about EB 95 and heard EB 84's 530 m AGAIN — the lane only ever read the
@@ -4706,6 +4946,57 @@ export class InboundHandler {
       // question. Each flat of the current batch gets its own measured line,
       // nearest first — the same per-row distance contract the cards carry. A
       // flat with no measurable point is left out rather than given a number.
+      // TWO (OR MORE) PLACES × EVERY FLAT ASKED — THE FULL MATRIX. One line per
+      // flat, each naming the distance to EVERY landmark in the question, in the
+      // client's own order. Rows without a measurable point are left out rather
+      // than given a number; a landmark the map cannot resolve is named as
+      // unknown for that row instead of silently disappearing.
+      if (placeNames.length >= 2 && this.landmarks) {
+        const matrixEbs = namedProp
+          ? [namedProp.eb]
+          : [...new Set(session.slots.currentBatch?.length
+            ? session.slots.currentBatch
+            : (session.slots.presentedIds ?? []))].slice(-4);
+        const rows = (await Promise.all(matrixEbs.map(eb =>
+          this.deps.properties.getByEb(eb).catch(() => undefined))))
+          .filter((p): p is Property => !!p);
+        const say = (d: number, trusted: boolean): string => {
+          const n = d < 1000
+            ? `${Math.max(10, Math.round(d / 10) * 10)} метри`
+            : `${(d / 1000).toFixed(1).replace('.', ',')} километри`;
+          return `${trusted ? '' : 'околу '}${n}`;
+        };
+        const lines: string[] = [];
+        let firstEb: number | undefined;
+        for (const p of rows) {
+          const c = resolveSearchCenter({
+            id: p.id, eb: p.eb, address: p.address, lat: p.lat, lon: p.lon,
+            geo_source: p.geo_source ?? null,
+          } as PropertyRow);
+          if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lon)
+            || (c.lat === 0 && c.lon === 0)) continue;
+          const parts: string[] = [];
+          for (const rawPlace of placeNames) {
+            const h = this.landmarks.findPlace(rawPlace, { lat: c.lat, lon: c.lon });
+            parts.push(h
+              ? `до ${placeLabel(h.name)} — ${say(Math.round(distM(c.lat, c.lon, h.lat, h.lon)), c.trusted)}`
+              : `до ${rawPlace} — не можам да го пронајдам на картата`);
+          }
+          lines.push(`• Евидентен број ${p.eb}${p.location ? ` (${locPrep(p.location)} ${p.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}: ${parts.join('; ')}`);
+          firstEb = firstEb ?? p.eb;
+          session.slots.lastDistanceEb = p.eb;
+        }
+        if (lines.length > 0) {
+          const answer = `Растојанија:\n\n${lines.join('\n')}\n\n${pickCloser(PROPERTY_QUERY_CLOSERS_ALL, session.history.length)}`;
+          if (firstEb !== undefined && !namedProp) session.slots.propertyId = firstEb;
+          routeLog(chatId, text, 'DISTANCE_MATRIX');
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
+          return;
+        }
+      }
       if (placeName && !namedProp && this.landmarks) {
         const batchEbs = [...new Set(session.slots.currentBatch?.length
           ? session.slots.currentBatch
@@ -6337,6 +6628,23 @@ export class InboundHandler {
     // is an event, never a silent swallow. pure-regex, no state.
     const laneConflict = cheapLaneConflict(text);
     if (laneConflict) routeLog(chatId, text, `LANE_COLLISION:${laneConflict}`);
+    // THE OWNERS-MAY-REPRICE DISCLAIMER (owner-dictated wording, the owner's
+    // 2026-11-11 brief): a clean-price correction was just relayed and the
+    // client pushes back on the price. The line explains why the ad and the
+    // live figure can differ — owners may reprice without telling the agency —
+    // and it is served BEFORE the cheaper-alternatives lanes, because the
+    // client's question is "why is it different", not "show me something
+    // cheaper". Fee traffic keeps its own lanes (the fee is not a price).
+    if (session.slots.priceChangePending && !isFeeTraffic(text)
+      && detectPriceChangeComplaint(text)) {
+      const reply = PRICE_CHANGE_DISCLAIMER;
+      routeLog(chatId, text, 'PRICE_CHANGE_DISCLAIMER');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, reply, 'deterministic:price-change-disclaimer');
+      return;
+    }
     const priceEval = detectPriceEval(text);
     // MONEY ARBITRATION (P5.2, option 1 — evidence, not array order): every
     // money lane in this region becomes a CLAIM with its evidence chips, and
@@ -8605,6 +8913,70 @@ export class InboundHandler {
       }
     }
 
+    // 0-a1) A TAKEN HOUR IS A FACT THE CLIENT HEARS (the owner's 2026-11-11
+    // brief). One agent makes every visit: when the hour he asks for is already
+    // on the books, Lina says so and offers the nearest free hours BEFORE and
+    // AFTER — never a bare «не може» and never a silent owner check for an hour
+    // nobody can hold. The chain solver builds on the same calendar, so a
+    // proposed hour is always one that keeps a contiguous run possible.
+    if (!isFeeTraffic(text) && propertyOnTable(session)
+      && ['closing', 'visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state)
+      && !detectWorkdaysQuestion(text) && !detectFeeWhy(text) && !detectFeeNag(text)
+      && !isWeekendTerm(text)
+      && (hasClockHint(text) || detectVisitTime(text) !== undefined)) {
+      const wanted = parseVisitDateTime(text, new Date());
+      if (wanted) {
+        const cal = this.dayCalendar(wanted);
+        if (isSlotTaken(wanted, cal)) {
+          const free = freeHoursNear(wanted, cal, 2);
+          const reply = buildSlotTakenLine(wanted.getHours(), free);
+          routeLog(chatId, text, 'SLOT_TAKEN');
+          // The day is kept as the context, the refused clock is not: the
+          // client's answer («тогаш 17:00») completes the same day.
+          session.slots.ownerClockDay = undefined;
+          session.state = 'visit_scheduling';
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, reply, 'deterministic');
+          return;
+        }
+      }
+    }
+
+    // 0-a2) A BARE FOLLOW-UP NAMING ONE OF THE SHOWN FLATS («А 42?»).
+    // The ellipsis form reached the classifier and the brain answered it with a
+    // prose tour instead of the database's own row (the [field] capture: «А 42 ?»
+    // → gemini:2). The number must be one of the flats this chat ACTUALLY
+    // SHOWED — a bare "42" in a budget or м² answer names no property — and the
+    // answer is the same ack the single-flat availability lane serves, with the
+    // Евидентен број in it, so the client can hold on to the number.
+    {
+      const bareEb = detectBareEbFollowup(text);
+      const shownEbs = new Set([
+        ...(session.slots.currentBatch ?? []),
+        ...(session.slots.presentedIds ?? []),
+      ]);
+      if (bareEb !== undefined && shownEbs.has(bareEb)
+        && !session.slots.viewingFeeAgreed && !isFeeTraffic(text)) {
+        const p = await this.deps.properties.getByEb(bareEb).catch(() => undefined);
+        if (p) {
+          routeLog(chatId, text, 'BARE_EB_FOLLOWUP');
+          const answer = this.availabilityReply(p, session, text);
+          session.state = 'closing';
+          session.slots.propertyId = p.eb;
+          session.slots.interestedPropertyId = p.eb;
+          session.slots.askedEb = p.eb;
+          session.slots.ownerContactPending = true;
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
+          return;
+        }
+      }
+    }
+
     // 0-b) THE FLATS SHE JUST OFFERED — DESCRIBE THEM, OR TAKE THE PICK.
     // Two lanes that own one conversation shape: Lina has just described
     // flats (the which-one ask) and the client either asks what she knows
@@ -8722,6 +9094,53 @@ export class InboundHandler {
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
           this.deps.sessions.set(session);
           await this.sendRaw(session, answer);
+          return;
+        }
+      }
+    }
+
+    // 0-c2a) A PLURAL AVAILABILITY ASK — ANSWER FOR EVERY FLAT ON THE TABLE
+    // (the owner's 2026-11-11 brief). «ДАЛИ СЕ СЛОБОДНИ?» after a pair was
+    // answered for ONE flat, and the client had to type «А 42?» to hear about
+    // the other — a question about the pair is a question about both. Same
+    // guards as the single-flat branch below (never a fee/provision turn, never
+    // a fresh search, never a named EB), and the fee is stated per property in
+    // the same turn through the existing per-property arithmetic.
+    {
+      const pluralEbs = [...new Set([
+        ...(session.slots.currentBatch ?? []),
+        ...(session.slots.presentedIds ?? []),
+      ])];
+      if (pluralEbs.length >= 2
+        && detectAvailabilityPlural(text)
+        && !detectFeeWhy(text) && !detectFeeNag(text) && !detectFeeComplaint(text)
+        && !detectFeeSurprise(text) && !detectProvisionAsk(text) && !detectProvisionWho(text)
+        && !isFeeTraffic(text)
+        && inferPropertyId(text) === undefined
+        && extractSlots(text).bedrooms === undefined
+        && !detectInventoryAsk(text) && !detectAreaHaveAsk(text)
+        && !session.slots.viewingFeeAgreed) {
+        const rows = (await Promise.all(pluralEbs
+          .map(eb => this.deps.properties.getById(eb).catch(() => undefined))))
+          .filter((p): p is Property => !!p);
+        if (rows.length >= 2) {
+          routeLog(chatId, text, 'AVAILABILITY_PLURAL');
+          const svc = session.slots.service ?? rows[0].service ?? 'buy';
+          const lines = rows.map(p => {
+            const labels = ownerPropertyLabels(p);
+            const claim = labels.dostapen === 'достапна' ? AVAILABILITY_CLAIM_FEM : AVAILABILITY_CLAIM;
+            return `${boundFlatIdentity(p)} — ${claim}.`;
+          });
+          // The fee is PER PROPERTY, and a plural ask is exactly where a client
+          // starts multiplying — the arithmetic is stated, not left to him.
+          const answer = `${lines.join('\n')}\n\n${buildFeePerProperty(svc, rows.length)}`;
+          session.state = 'closing';
+          session.slots.ownerContactPending = true;
+          session.slots.feeDisclosed = true;
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
           return;
         }
       }
@@ -10567,6 +10986,11 @@ export class InboundHandler {
     if (ev.type === 'TIME_REJECTED' && before === 'time_confirm') {
       session.slots.negotiationCount = (session.slots.negotiationCount ?? 0) + 1;
       if (session.slots.negotiationCount >= this.cfg.negotiationCap) next = 'escalated';
+      // A REFUSED ROUTE IS NO LONGER A ROUTE: the plan is dropped so the next
+      // term is arranged as an ordinary visit (and the owners are not asked
+      // about a schedule the client has just rejected).
+      session.slots.visitPlan = undefined;
+      session.slots.chainSize = undefined;
     }
 
     // Exhausted-options agreement: after every matching property was shown, an
@@ -11646,6 +12070,12 @@ export class InboundHandler {
 
     // Client accepted the owner's counter-time -> code-built confirmation
     if (next === 'pending' && before === 'time_confirm') {
+      // A CONFIRMED ROUTE BOOKS EVERY STOP (the owner's 2026-11-11 brief): his
+      // one yes covers the chain, one Договорена посета per flat, in visit order.
+      if (session.slots.visitPlan?.assignments?.length) {
+        await this.confirmChain(session);
+        return;
+      }
       const eb = session.slots.interestedPropertyId ?? session.slots.propertyId ?? 0;
       const time = session.slots.ownerTime ?? session.slots.visitTime ?? '';
       await this.confirmVisit(session, eb, time);
@@ -12674,6 +13104,10 @@ ${contactReminder}`;
       const canAskOwner = eb !== 0 && t !== '';
       const dispatchOwnerAsk = (): boolean => {
         if (!canAskOwner) return false;
+        // SEVERAL FLATS ON ONE DAY = ONE CHAIN (the owner's 2026-11-11 brief):
+        // the first owner of the route is asked instead of a single check, and
+        // every later answer advances the chain (applyChainVerdict).
+        if (this.startChainIfNeeded(session, t, text)) return true;
         void this.runOwnerCheck(session, eb, t);
         return true;
       };
@@ -14477,7 +14911,7 @@ ${contactReminder}`;
       // Bank-served for the GENERIC form (no property-type agreement — the
       // typed form stays code-built for its gender agreement): the owner ask
       // now varies too, with the code-built line as the always-there fallback.
-      const ownerAskText = acceptFollowup
+      const baseOwnerAsk = acceptFollowup
         ? buildOwnerAcceptFollowupAsk(mkTimePhrase(wholeDaySeed!), askTime)
         : isFollowup
         // THE TERM IS RENDERED, NEVER ECHOED (the [18:52] capture): the owner
@@ -14489,6 +14923,21 @@ ${contactReminder}`;
           ? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen, relative: ownerLabels.relative, entered: ownerLabels.entered })
           : pickVariant('owner.ask', { recent: this.recentOwnerLines(session.chatId), vars: { eb: String(eb), time: askTime } })
             ?? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime });
+      // THE FIRST ASK ALSO CONFIRMS THE CLEAN PRICE (the owner's 2026-11-11
+      // brief): one message settles availability, the term AND the owner's own
+      // figure — the price he asked on the import day is the only one we may
+      // quote back, and the client must never learn it. A second/third turn has
+      // already asked, so the clause rides only the first one. Without a clean
+      // price on file the question is skipped entirely (never a made-up amount).
+      const cleanPriceAsked = !isFollowup && !acceptFollowup ? ownerProp?.cleanPrice : undefined;
+      const cleanPriceClause = buildOwnerCleanPriceQuestion(cleanPriceAsked, ownerProp?.service);
+      const ownerAskText = cleanPriceClause ? `${baseOwnerAsk} ${cleanPriceClause}` : baseOwnerAsk;
+      // The verdict seam reads this to interpret a figure in the owner's answer
+      // as a CLEAN price (not the final one) — see applyOwnerVerdict. Persisted
+      // HERE, because the verdict arrives on a later turn and applyOwnerVerdict
+      // loads the session from the store (the earlier set() predates this slot).
+      session.slots.ownerAskCleanPrice = cleanPriceAsked;
+      this.deps.sessions.set(session);
       // OWNER-ASK INTAKE (judge layer 1): the owner ask logs the CLIENT's raw
       // proposed term — a question forwarded as a term (20:26 "VO NEDELA
       // RABOTITE ?") is detectable only against the raw words, not the relay.
@@ -14615,12 +15064,56 @@ ${contactReminder}`;
     // Hermes corrects the public app (Lovable/Cloudflare) AND relay the change
     // to the client (our price must follow the owner's word).
     let priceRelay = '';
-    if (verdict.price !== undefined) {
+    // THE OWNER'S ANSWER TO THE CLEAN-PRICE HALF (the owner's 2026-11-11 brief).
+    // The first ask quoted HIS clean price, so any figure in his answer is that
+    // same clean price, and the CLIENT price must be recomputed from it with
+    // Ana's arithmetic (commission + round-up to 500) — never relaying the
+    // owner's own figure to a client. Rent has no markup: the clean rent IS the
+    // monthly rent. The correction is queued for the outbound/Hermes sync, which
+    // owns the write into the app's clean-price field.
+    const cleanAsked = session.slots.ownerAskCleanPrice;
+    session.slots.ownerAskCleanPrice = undefined;
+    if (verdict.price !== undefined && cleanAsked !== undefined) {
+      const prop = await this.deps.properties.getById(eb);
+      const pct = prop?.agencyPercent ?? DEFAULT_AGENCY_PERCENT;
+      const isRent = prop?.service === 'rent';
+      const newFinal = isRent ? verdict.price : computeFinalFromClean(verdict.price, pct)?.sellingPrice;
+      const oldFinal = prop?.price;
+      if (newFinal !== undefined && oldFinal !== newFinal) {
+        this.priceChanges.insert({
+          eb, oldPrice: oldFinal ?? null, newPrice: newFinal, chatId, source: 'owner-clean',
+          cleanOld: cleanAsked, cleanNew: verdict.price, agencyPercent: isRent ? null : pct,
+        });
+        this.events.insert('price_changed', chatId, eb, {
+          oldPrice: oldFinal ?? null, newPrice: newFinal, source: 'owner-clean',
+          cleanOld: cleanAsked, cleanNew: verdict.price,
+        });
+        console.log(`[EVENT] PRICE_CHANGED ${JSON.stringify({ eb, oldPrice: oldFinal ?? null, newPrice: newFinal, cleanOld: cleanAsked, cleanNew: verdict.price })}`);
+        // The client hears BOTH figures and decides about the visit himself —
+        // the price is on the table BEFORE the term is locked, never at the door.
+        priceRelay = buildPriceChangeNotice(eb, oldFinal, newFinal);
+        session.slots.priceChangePending = true;
+      }
+    } else if (verdict.price !== undefined) {
       const old = (await this.deps.properties.getById(eb))?.price;
       this.priceChanges.insert({ eb, oldPrice: old ?? null, newPrice: verdict.price, chatId, source: 'owner' });
       this.events.insert('price_changed', chatId, eb, { oldPrice: old ?? null, newPrice: verdict.price, source: 'owner' });
       console.log(`[EVENT] PRICE_CHANGED ${JSON.stringify({ eb, oldPrice: old ?? null, newPrice: verdict.price })}`);
       priceRelay = buildPriceRelay(eb, verdict.price, old);
+    }
+
+    // A CHAIN IN FLIGHT OWNS ITS OWN VERDICTS (the owner's 2026-11-11 brief):
+    // an answer about the stop that was asked moves the route forward — the
+    // single-visit arms below must never book one flat of a route or ask it a
+    // second time. The price relay (if any) still reaches the client first.
+    if (session.slots.visitPlan) {
+      const handled = this.applyChainVerdict(session, eb, session.slots.visitPlan, verdict);
+      if (priceRelay) {
+        pushHistory(session, { role: 'assistant', text: priceRelay }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, priceRelay);
+      }
+      return handled;
     }
 
     // THE AVAILABILITY HALF, EXPLICIT (the [23:41] rule): the owner confirmed the
@@ -14656,7 +15149,12 @@ ${contactReminder}`;
       // the prefix test is that agreement, never a looser match.
       const agreedToClientTerm = !!clientTermRendered
         && (ownerTermRendered === clientTermRendered || clientTermRendered.startsWith(ownerTermRendered));
-      if (!agreedToClientTerm) {
+      // A MOVED PRICE IS THE CLIENT'S DECISION, NOT THE OWNER'S: even a
+      // wholehearted yes on the term must not book while the price he saw on
+      // the ad has changed. He hears both figures and the booking question, and
+      // his own answer locks the visit (the owner's 2026-11-11 brief: "report
+      // the change and let him decide").
+      if (!agreedToClientTerm || session.slots.priceChangePending) {
         // THE OWNER'S TERM OPENS THE OFFER — THE CLIENT CLOSES IT: relay the
         // term as an ask, park the chat in time_confirm, and let the client's
         // own yes run the booking seam (the same shape the fixed-counter path
@@ -14957,6 +15455,9 @@ ${contactReminder}`;
 
   /** Agent assignment (quota-balanced) + code-built confirmation + persistence. */
   private async confirmVisit(session: ChatSession, eb: number, time: string): Promise<void> {
+    // The client has now answered the moved price by booking — the pending
+    // marker (and the disclaimer lane it opens) belongs to that one exchange.
+    session.slots.priceChangePending = undefined;
     const agent = this.dispatcher.pick(session.slots.service ?? 'buy');
     const agentPhone = agent?.phone ?? this.cfg.agentDefaultPhone;
     const agentName = agent?.name ?? 'Агент';
@@ -15018,6 +15519,7 @@ ${contactReminder}`;
         owner: owner && (owner.name || owner.phone)
           ? { name: owner.name || 'Сопственик', phone: owner.phone || '?' }
           : undefined,
+        chainSize: session.slots.chainSize,
       });
     }
   }

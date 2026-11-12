@@ -79,7 +79,14 @@ test('the pending backlog is explicit and finite (migration fuel, not a graveyar
   // [10:58] capture (82+75 named in one ask, only the first described; the
   // per-m² comparison answered for one flat), so the count goes 62 → 64 and
   // the ceiling 63 → 66. It must keep falling as those lanes are mirrored.
-  assert.ok(pending.length < 66, `backlog too large to be honest: ${pending.length}`);
+  // FIVE genuinely new executors landed together (the 2026-11-11 brief):
+  // AVAILABILITY_PLURAL (an availability ask over several flats), BARE_EB_FOLLOWUP
+  // («А 42?» about a shown flat), DISTANCE_MATRIX (several places × every flat),
+  // SLOT_TAKEN (the hour the agency calendar already holds) and
+  // PRICE_CHANGE_DISCLAIMER (a complaint after the owner moved the clean price).
+  // None of them had a row before, so the count goes 63 → 68 and the ceiling
+  // 66 → 71. It must keep falling as lanes are mirrored.
+  assert.ok(pending.length < 71, `backlog too large to be honest: ${pending.length}`);
 });
 
 // R1 part 2 — the three lanes that moved from dispatchSimple into the mirror.

@@ -29,7 +29,17 @@ export interface Property {
   id: number;              // alias of eb (kept for existing code)
   uuid?: string;           // feed id (UUID) — only for the deep link
   address: string;
-  price?: number;          // cena_eur
+  price?: number;          // cena_eur — the FINAL (client-facing) price
+  /** THE OWNER'S CLEAN PRICE — the figure he asked on the day of the import,
+   *  stored in the app ABOVE the final price (owner's 2026-11-11 brief). It is
+   *  the number the owner-confirmation ask quotes and the basis of the final
+   *  price (commission + round-up to 500 — see src/pricing/cleanPrice.ts).
+   *  NEVER served to a client: a client sees `price` and the provision ladder.
+   *  Absent on rows imported before the field existed — then no price question
+   *  is asked at all, never a made-up figure. */
+  cleanPrice?: number;
+  /** The agency percentage Ana applied (feed `agency_percent`); 2 % default. */
+  agencyPercent?: number;
   priceLabel?: string;     // optional display label
   location?: string;       // naselba
   // NEW — coordinates now flow through the runtime. public-properties selects
@@ -414,6 +424,11 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     uuid: typeof r.id === 'string' ? r.id : undefined,
     address: cleanMacedonian(titleCase(str(r.adresa) || str(r.naslov))) || `Имот ЕБ ${eb}`,
     price: num(r.cena_eur),
+    // The clean price sits in its own graph field (added with the owner's
+    // 2026-11-11 brief). Accept the column names the app/feed may use until
+    // the graph settles; a missing value stays undefined (no price question).
+    cleanPrice: num(r.cista_cena_eur) ?? num(r.owner_price_eur) ?? num(r.clean_price_eur),
+    agencyPercent: num(r.agency_percent) ?? num(r.provizija_procent),
     priceLabel: str(r.cena_label) || undefined,
     // The feed leaves a few rows area-less; their own address/ad text names
     // the neighborhood, and an area-less row is invisible to every area-scoped

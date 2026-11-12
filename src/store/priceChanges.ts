@@ -17,13 +17,20 @@ export interface PriceChangeRow {
 export class PriceChangeStore {
   constructor(private db: Db) {}
 
-  insert(p: { eb: number; oldPrice?: number | null; newPrice: number; chatId?: string; source?: string }): number {
+  insert(p: {
+    eb: number; oldPrice?: number | null; newPrice: number; chatId?: string; source?: string;
+    /** The owner's CLEAN prices on this change (owner-confirmation path) — the
+     *  figure Hermes writes into the app's clean-price field. `newPrice` stays
+     *  the FINAL price, so the existing public-price sync keeps working. */
+    cleanOld?: number | null; cleanNew?: number | null; agencyPercent?: number | null;
+  }): number {
     const info = this.db.db.prepare(
-      `INSERT INTO price_changes (eb, old_price, new_price, source, chat_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO price_changes (eb, old_price, new_price, source, chat_id, created_at, clean_old, clean_new, agency_percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       p.eb, p.oldPrice ?? null, p.newPrice, p.source ?? 'owner',
-      p.chatId ?? '', Date.now()
+      p.chatId ?? '', Date.now(),
+      p.cleanOld ?? null, p.cleanNew ?? null, p.agencyPercent ?? null
     );
     return Number(info.lastInsertRowid);
   }

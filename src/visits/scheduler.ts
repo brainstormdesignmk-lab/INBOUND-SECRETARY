@@ -32,7 +32,7 @@ import { parseVisitDateTime } from './time';
 import {
   buildAddressConfirm, ADDRESS_CONFIRM_BUMP, buildAddressConfirmed,
   buildMorningConfirm, CLIENT_LOCATION_FOLLOWUP, buildLocationMsg, mapsLinkFor,
-  buildOperatorLog,
+  buildOperatorLog, buildPlanLine, buildPlanReminder,
   buildAgentBrief, buildCancelledByClient, buildCancelledByOwner, Party,
 } from './messages';
 
@@ -47,7 +47,7 @@ const ADDRESS_CONFIRM_MAX_BUMPS = 4;
 const ESC_DELIVERY_FAILED = 1;
 const ESC_STILL_UNCONFIRMED = 2;
 
-export type TurnName = 'address_confirm' | 'confirm' | 'location';
+export type TurnName = 'address_confirm' | 'confirm' | 'location' | 'plan_day_before';
 
 export interface ArrangeInput {
   appointmentId: number;
@@ -58,6 +58,9 @@ export interface ArrangeInput {
   clientName: string;
   clientPhone: string;
   owner?: Party;
+  /** How many stops the day's route has (the handler's solved chain). Omitted
+   *  for an ordinary single visit; `>= 2` makes Turn 0 carry the plan line. */
+  chainSize?: number;
 }
 
 export interface SchedulerDeps {
@@ -248,7 +251,16 @@ export class VisitScheduler {
     const prop = await this.deps.properties.getById(input.eb);
     const address = prop?.address ?? '';
     const mapsUrl = this.visitMapsLink(address, prop?.location);
-    const addrConfirm = buildAddressConfirm(input.eb, visit, address, mapsUrl);
+    // THE OWNER'S OWN LINE OF THE DAY'S ROUTE (the owner's 2026-11-11 brief):
+    // `PLANIRANA POSETA NA NEDVIZNOST <EB> — <day/hour> — AGENT <phone>` with the
+    // street and the map, attached to the address-confirmation ask so one
+    // message both asks for the confirmation and shows him what he is expecting.
+    // Only for a real chain that day — a single visit is the address confirm.
+    const chainThatDay = (input.chainSize ?? this.chainLengthForDay(input.chatId, visit)) >= 2;
+    const planLine = chainThatDay
+      ? `\n\n${buildPlanLine(input.eb, visit, input.agentPhone, { address, mapsUrl, withAddress: true })}`
+      : '';
+    const addrConfirm = `${buildAddressConfirm(input.eb, visit, address, mapsUrl)}${planLine}`;
     const ownerOk = await this.notifyOwnerSafe(input.chatId, input.eb, addrConfirm);
 
     await this.deps.notifyOperator(buildOperatorLog(input.eb, 'arranged',
@@ -280,6 +292,41 @@ export class VisitScheduler {
       confirmAt < this.now.getTime() - skipGraceMs);
     this.upsertTurn(input.appointmentId, 'location', locationAt,
       locationAt < this.now.getTime() - skipGraceMs);
+    // THE DAY-BEFORE PLAN (the owner's 2026-11-11 brief): the client and every
+    // owner get the day's route again the afternoon before, as one message.
+    // Scheduled for EVERY arrangement, because the chain is built one booking
+    // at a time — at the first arrange the second flat has no term yet, so a
+    // `chain length >= 2` gate here silently left the FIRST stop without a
+    // turn. The dispatch decides instead: a day that ended up with a single
+    // visit is skipped there (Turn 2 covers it).
+    {
+      const dayBefore = new Date(visit.getFullYear(), visit.getMonth(), visit.getDate() - 1, 10, 0, 0, 0);
+      this.upsertTurn(input.appointmentId, 'plan_day_before', dayBefore.getTime(),
+        dayBefore.getTime() < this.now.getTime() - skipGraceMs);
+    }
+  }
+
+  /** The chat's confirmed chain on that calendar day, in visit order. */
+  private chainForDay(chatId: string, visit: Date): Array<{ id: number; eb: number; visitAt: number }> {
+    const from = new Date(visit.getFullYear(), visit.getMonth(), visit.getDate()).getTime();
+    return this.db.db.prepare(
+      `SELECT id, property_id as eb, visit_at as visitAt FROM appointments
+       WHERE chat_id = ? AND status = 'finalized' AND visit_at IS NOT NULL
+         AND visit_at >= ? AND visit_at < ?
+       ORDER BY visit_at, id`
+    ).all(chatId, from, from + 24 * 3600_000) as Array<{ id: number; eb: number; visitAt: number }>;
+  }
+
+  /** How many confirmed visits this chat has on that calendar day (the chain a
+   *  day-before plan would describe). */
+  private chainLengthForDay(chatId: string, visit: Date): number {
+    const from = new Date(visit.getFullYear(), visit.getMonth(), visit.getDate()).getTime();
+    const row = this.db.db.prepare(
+      `SELECT COUNT(*) as c FROM appointments
+       WHERE chat_id = ? AND status = 'finalized' AND visit_at IS NOT NULL
+         AND visit_at >= ? AND visit_at < ?`
+    ).get(chatId, from, from + 24 * 3600_000) as { c: number } | undefined;
+    return row?.c ?? 0;
   }
 
   /** The appointment id whose Turn 0 address confirmation is still awaiting
@@ -494,11 +541,11 @@ export class VisitScheduler {
       // Turn 0 that stopped being 'pending' (a reminder cap or a skip is an
       // unconfirmed address; releasing the client on it was visit audit #3).
       const addrConfirmDone = this.addressConfirmed(row.id);
-      for (const turn of ['address_confirm', 'confirm', 'location'] as TurnName[]) {
+      for (const turn of ['address_confirm', 'confirm', 'location', 'plan_day_before'] as TurnName[]) {
         const t = this.lookupTurn(row.id, turn);
         if (!t || t.status !== 'pending') continue;
-        // Block turns 2+3 while address confirmation is still pending
-        if ((turn === 'confirm' || turn === 'location') && !addrConfirmDone) continue;
+        // Block every DISCLOSING turn while the address is still unconfirmed
+        if ((turn === 'confirm' || turn === 'location' || turn === 'plan_day_before') && !addrConfirmDone) continue;
         // address_confirm uses its own scheduled_at (2h from arrange);
         // confirm and location are computed from the visit time.
         // A MORNING confirmation that arrives after Turn 3 is due is stale:
@@ -513,7 +560,8 @@ export class VisitScheduler {
             `[ЛОГ ПОСЕТА ЕБ ${row.propertyId}] TURN 2 SUPERSEDED — утринската потврда стана бесмислена (посетата е за помалку од 2 часа); Turn 3 го носи целиот термин.`);
           continue;
         }
-        const at = turn === 'address_confirm' ? new Date(t.scheduled_at)
+        const at = turn === 'address_confirm' || turn === 'plan_day_before'
+          ? new Date(t.scheduled_at)
           : turn === 'confirm' ? this.confirmTime(visit)
           : new Date(visit.getTime() - 2 * 3600_000);
         if (at.getTime() <= this.now.getTime()) {
@@ -608,6 +656,51 @@ export class VisitScheduler {
         await this.escalateOnce(row.id, 'address_confirm', ESC_STILL_UNCONFIRMED,
           `[ЛОГ ПОСЕТА ЕБ ${eb}] ADDRESS STILL UNCONFIRMED after ${ADDRESS_CONFIRM_MAX_BUMPS} reminders — сопственикот не одговори. Клиентот НЕ доби Turn 2 (утринска потврда) ни Turn 3 (локација). Потврдете ја адресата рачно или известете го клиентот.`);
       }
+      return;
+    }
+
+    // ── DAY-BEFORE PLAN (the owner's 2026-11-11 brief): the day's whole route
+    // once for the CLIENT (EB + hour only — the street stays in Turn 3), and
+    // his OWN stop with the address + map for each OWNER (he is the source of
+    // truth and must see what he is expecting). Only the first appointment of
+    // the day sends the client's copy: the others would repeat the same plan.
+    if (d.turn === 'plan_day_before') {
+      const chain = this.chainForDay(row.chatId, d.visit);
+      if (chain.length >= 2) {
+        if (chain[0]!.id === row.id) {
+          const plan = buildPlanReminder(
+            chain.map(c => ({ eb: c.eb, when: new Date(c.visitAt) })),
+            row.agentPhone ?? '',
+          );
+          try {
+            await this.deps.notifyClient(row.chatId, plan);
+          } catch (e) {
+            console.error('[visit] plan day-before client send failed:', (e as Error).message);
+            await this.escalateOnce(row.id, 'plan_day_before', ESC_DELIVERY_FAILED,
+              `[ЛОГ ПОСЕТА] PLAN DAY-BEFORE NOT DELIVERED to the client — јавете му се.`);
+          }
+        }
+        const ownerLine = buildPlanLine(eb, d.visit, row.agentPhone ?? '',
+          { address: addr, mapsUrl, withAddress: true });
+        const ownerOk = await this.notifyOwnerSafe(row.chatId, eb, ownerLine);
+        this.db.db.prepare(
+          `UPDATE visit_turns SET status = 'sent', owner_status = ?, client_status = ?, sent_at = ?
+           WHERE appointment_id = ? AND turn = 'plan_day_before'`
+        ).run(ownerOk ? 'sent' : 'failed', chain[0]!.id === row.id ? 'sent' : 'skipped',
+          Date.now(), row.id);
+        await this.deps.notifyOperator(buildOperatorLog(eb, 'plan_day_before', ownerParty, client,
+          { owner: ownerOk ? 'OK' : 'FAIL', client: chain[0]!.id === row.id ? 'OK' : '-//-' },
+          { when: d.visit, agentPhone: row.agentPhone ?? undefined }));
+        if (!ownerOk) {
+          await this.escalateOnce(row.id, 'plan_day_before', ESC_DELIVERY_FAILED,
+            `[ЛОГ ПОСЕТА ЕБ ${eb}] OWNER TURN (plan day-before) NOT DELIVERED — сопственикот не ја доби пораката. Проверете го рачно.`);
+        }
+        return;
+      }
+      // A chain that shrank to one stop needs no plan message: Turn 2 covers it.
+      this.db.db.prepare(
+        `UPDATE visit_turns SET status = 'skipped' WHERE appointment_id = ? AND turn = 'plan_day_before'`
+      ).run(row.id);
       return;
     }
 

@@ -1090,6 +1090,16 @@ const CHARGE_MONEY_RE = new RegExp(
   + '|' + _mB + '(?:пар[аие]|par[aei]|накнад|naknad|такс[ауи]|taks[au])[^.!?\\n]{0,30}' + _mB + '(?:зем[аат]|zem[аа]t|напла[ќк]|naplakj?|наплат|naplat|плат|plat)',
   'iu');
 
+/** A PLURAL availability ask («ДАЛИ СЕ СЛОБОДНИ?», «ГИ ПРОВЕРИ ДВАТА», «СÈ УШТЕ
+ *  СЕ ДОСТАПНИ?»): the client asks about the PAIR (or the batch) he was just
+ *  shown, so every flat on the table must be answered — one ack for one flat
+ *  left the other unaddressed and the client had to type «А 42?». */
+export function detectAvailabilityPlural(text: string): boolean {
+  if (!detectAvailabilityAsk(text)) return false;
+  return /(?<![\p{L}])(?:gi|ги|site|сите|dvata|двата|dvete|двете|ovie|овие|tie|тие)(?![\p{L}])/iu.test(text)
+    || /(?<![\p{L}])(?:se|се)\s+(?:uste\s+|уште\s+)?(?:slobodni|слободни|dostapni|достапни)(?![\p{L}])/iu.test(text);
+}
+
 export function detectAvailabilityAsk(text: string): boolean {
   // THE «ПРОДАЌБА» SLIP (the [12:22] capture): the client typed «ДАЛИ ВИ Е
   // УШТЕ НА ПРОДАЌБА СТАНОТ…» — «ќ» for «ж» is the phone-keyboard slip in the
@@ -1728,6 +1738,39 @@ export function detectArrangementPlanning(text: string): boolean {
   }
   // Present/future planning words, both scripts and both inflections.
   return /(?:планира\p{L}*|planira\p{L}*|ќе\s+закаж\p{L}*|ke\s+zakaz\p{L}*|сака\p{L}*\s+да\s+закаж\p{L}*|saka\p{L}*\s+da\s+zakaz\p{L}*|ќе\s+договор\p{L}*|ke\s+dogovor\p{L}*)/iu.test(flat);
+}
+
+/** True when the client asks to see SEVERAL flats in one day — the trigger of
+ *  the day route (the owner's 2026-11-11 brief: several visits on one day are
+ *  arranged as one non-stop route).
+ *
+ *  A CHAIN IS NEVER INFERRED FROM THE BATCH ON SCREEN (the [22:03]/[21:03]
+ *  Catolica capture): a client who picked ONE flat and gave a term (
+ *  «PRVIOT» … «UTRE POPLADNE POSLE 6») was routed through the owners of every
+ *  flat ever presented, so the single visit he asked for was never confirmed.
+ *  The route starts only when HE says it is several — so this predicate needs
+ *  a COLLECTIVE object («двата/трите/сите/неколку/повеќе» + стан/станови, or
+ *  «сите што ми ги покажа»), a viewing verb over a collective, or an explicit
+ *  count of flats («да видам 3 стана»). A bare «сите» about prices or an area
+ *  is somebody else's lane and must not fire.
+ */
+export function detectMultiVisitIntent(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat) return false;
+  // «двата стана», «сите станови», «повеќе станови» — the collective NAMES
+  // the flats, in either word order the client actually speaks.
+  if (/(?:двата|двете|трите|сите|неколку|повеќе|dvata|dvete|trite|site|nekolku|povekje|poveke)\s+(?:стан\p{L}*|станови|недвижност\p{L}*|stan\p{L}*|stanovi|nedviznost\p{L}*)/iu.test(flat)) return true;
+  if (/(?:стан\p{L}*|станови|недвижност\p{L}*|stan\p{L}*|stanovi|nedviznost\p{L}*)\s+(?:двата|двете|трите|сите|dvata|dvete|trite|site)/iu.test(flat)) return true;
+  // «да ги видам сите/двата» — a viewing verb over the collective.
+  if (/(?:видам|видиме|видите|погледам|погледаме|разгледам|разгледаме|гледам|vidam|vidime|vidite|pogledam|pogledame|razgledam|razgledame|gledam)/iu.test(flat)
+      && /(?:ги\s+)?(?:двата|двете|трите|сите|dvata|dvete|trite|site)(?!\p{L})/iu.test(flat)) return true;
+  // «сите што ми ги покажа» — the whole batch the client was shown.
+  if (/(?:сите|site)\s+(?:што|sto)\s+ми\s+(?:ги|gi)/iu.test(flat)) return true;
+  // «и овој и оној» — two named referents.
+  if (/(?:и|i)\s+(?:овој|ovoj|оној|onoj|единиот|ediniot)\s+(?:и|i)\s+(?:овој|ovoj|оној|onoj|другиот|drugiot)/iu.test(flat)) return true;
+  // An explicit COUNT of flats: «да видам 3 стана» (never a price or a size).
+  if (/\b[2-9]\s+(?:стан\p{L}*|stan\p{L}*|станови|stanovi)/iu.test(flat)) return true;
+  return false;
 }
 
 /** True when the client asks for MORE OF THE SAME, near (or instead of) what
@@ -5177,9 +5220,17 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
   if (clocks.length === 0 || clocks.every(c => OWNER_TOWARDS_CLOCK_RE.test(c[1].trim()))) {
     const clause = scoped.trim().replace(/[.,;!?\s]+$/u, '');
     const ability = /(?<![\p{L}])(?:mozam|mozeme|mozat|можам|можеме|можат)(?![\p{L}])/iu.test(clause);
+    // A DECISION FRAME IS ALSO AN ABILITY FRAME (the [owner] capture): «PA NEKA
+    // BIDE 5» is the owner ACCEPTING the conversation and naming the hour — a
+    // settled decision, not a question. The bare hour only fired after
+    // «можам/можеме», so this answer parsed as nothing and Lina replied «Не
+    // разбрав. Евидентен број 42 …» to an owner who had just decided the time.
+    // «нека биде», «може да биде», «ќе биде», «да биде», «па нека» carry the
+    // same clock slot as the ability verbs; the day of the check rides along.
+    const decision = OWNER_DECISION_FRAME_RE.test(clause);
     const bareHour = /(?<![\p{L}\p{N}])(\d{1,2})(?:\s*(?:h|ч|saat|часот))?$/iu.exec(clause);
     const money = /(?:евр|evr|eur|илјад|iljad|ден|mkd)/iu.test(clause);
-    if (ability && bareHour && !money) {
+    if ((ability || decision) && bareHour && !money) {
       const h = Number(bareHour[1]);
       if (Number.isFinite(h) && h >= 1 && h <= 20) {
         const dayWord = text.match(new RegExp(OWNER_DAY_RE.source, 'i'))?.[0];
@@ -5203,6 +5254,39 @@ function extractOwnerTime(text: string, refusalIdx = -1): string | { day: string
   const clock = scoped.match(OWNER_CLOCK_RE);
   return clock ? shapeOwnerClock(clock[1]).trim() : undefined;
 }
+
+/** A BARE FOLLOW-UP THAT NAMES ONE OF THE FLATS ALREADY SHOWN («А 42?»,
+ *  «А 42 ?», «и 59?», «42»). The client is pointing at one card of the pair he
+ *  just read — the answer is the database's own row, never a brain turn. The
+ *  shapes are the ellipsis forms: an optional а/и, an optional EB/бр marker
+ *  and the number, with nothing else in the message. Returns the number; the
+ *  CALLER decides whether that number is one of the flats it actually showed
+ *  (the only safe anchor — a bare "42" in a budget/size answer is not an EB). */
+export function detectBareEbFollowup(text: string): number | undefined {
+  const m = /^[\s.!?,;:]*(?:а|a|и|i)?[\s,.;:!?]*(?:eb|ev|ев|еб)?[\s.:]*(?:br\.?|бр\.?|broj|број)?[\s.:]*(\d{1,3})[\s.!?,;:]*$/iu.exec(text.trim());
+  if (!m) return undefined;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n >= 10 && n <= 999 ? n : undefined;
+}
+
+/** A COMPLAINT ABOUT THE PRICE ITSELF (not a request for a cheaper flat): the
+ *  client pushes back on a price that moved between the ad and the owner's
+ *  confirmation — «ЗОШТО Е ПОСКАПА?», «ЦЕНАТА Е ДРУГА», «НЕ Е ИСТАТА ЦЕНА»,
+ *  «ТОА Е ГОЛЕМА ЦЕНА ЗА ТОА ШТО ГО ВИДОВ». Served only while a clean-price
+ *  correction is pending on the session, and answered with the sanctioned
+ *  owners-may-reprice disclaimer. A plain «КОЛКУ Е ЦЕНАТА?» is not a complaint:
+ *  it carries no why/difference/dearness word. */
+export function detectPriceChangeComplaint(text: string): boolean {
+  const priceObject = /(?<![\p{L}])(?:цена(?:та|ва|та)?|cena(?:ta|va)?|поскап\p{L}*|poskap\p{L}*|скап\p{L}*|skapo|preskapo|прескапо|различн\p{L}*\s+цена|druga\s+cena|друга\s+цена)(?![\p{L}])/iu.test(text);
+  if (!priceObject) return false;
+  return /(?<![\p{L}])(?:зошто|zosto|како|kako|различн|razlicn|друга|druga|се\s+смени|se\s+smeni|променет|promenet|поскап|poskap|скапо|skapo|голема|golema|висока|visoka|не\s+ми\s+се|ne\s+mi\s+se|не\s+е\s+истата|ne\s+e\s+istata)(?![\p{L}])/iu.test(text);
+}
+
+/** The owner's DECISION frame („нека биде 5“, „па нека биде 5“, „може да биде
+ *  во 5“): the hour after it is the term he is settling on. Boundary-guarded
+ *  in both scripts so «нека биде» inside a longer word never fires. */
+const OWNER_DECISION_FRAME_RE =
+  /(?<![\p{L}])(?:pa\s+neka\s+bide|па\s+нека\s+биде|neka\s+bide|нека\s+биде|neka\s+e|нека\s+е|moze\s+da\s+bide|може\s+да\s+биде|ke\s+bide|ќе\s+биде|da\s+bide|да\s+биде|dogovoreno\s+(?:e|е)|договорено\s+(?:e|е))(?![\p{L}])/iu;
 
 // The owner dictates the CURRENT price ("цената е 60.000 евра", "60 илјади",
 // "cenata e 60000") — anchored on цена/cena/price, or a bare amount only when
@@ -5303,6 +5387,22 @@ function ownerSaysSameTerm(proposed: string, ownerPhrase: string): boolean {
 
 export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVerdict | undefined {
   const t = text.toLowerCase();
+  // A LONE HOUR IS AN ANSWER (the same [owner] capture family): the owner is
+  // looking at «дали ви одговара Петок во 18:00?» and types just «5» (or «17»).
+  // With a term on the table and nothing else in the message, the number IS the
+  // clock he is naming — the visit window resolves it (5 → 17:00). Any other
+  // digits-only message (a phone number, an amount) is longer than two digits
+  // and never reaches here.
+  const loneHour = /^\s*(\d{1,2})\s*[.!]?\s*$/u.exec(text);
+  if (loneHour && proposedTime) {
+    const h = Number(loneHour[1]);
+    if (Number.isFinite(h) && h >= 1 && h <= 20) {
+      const clock = `${String(visitClockHour(h)).padStart(2, '0')}:00`;
+      return ownerSaysSameTerm(proposedTime, `vo ${clock}`)
+        ? { status: 'ok', ownerTime: proposedTime }
+        : { status: 'counter', ownerTime: `vo ${clock}` };
+    }
+  }
   const price = extractOwnerPrice(text);
   const withPrice = (v: OwnerVerdict): OwnerVerdict =>
     price !== undefined ? { ...v, price } : v;
@@ -5396,6 +5496,14 @@ export function detectOwnerVerdict(text: string, proposedTime?: string): OwnerVe
   // A refusal with only the refused day ("денес нема да можам" — no clock, no
   // alternative) is a BARE counter, not a proposal of the refused day itself.
   if (time && (!disagree || hasClock)) {
+    // THE SAME TERM IS NEVER A COUNTER: an owner who names exactly the hour on
+    // the table («НЕКА БИДЕ 5» when 17:00 was asked) has AGREED. Treated as a
+    // counter it relayed «има друг предлог: Петок во 17:00» — the client was
+    // asked to accept the term he had already offered.
+    if (!isWholeDay && !disagree && proposedTime && timeStr
+      && ownerSaysSameTerm(proposedTime, timeStr)) {
+      return withPrice({ status: 'ok', ownerTime: proposedTime });
+    }
     const v = withPrice({ status: 'counter', ownerTime: normalizeTimePhrase(timeStr ?? '') });
     // Key present ONLY when true — an explicit `undefined` breaks deepEqual
     // verdict comparisons and reads as set-but-empty in the relay.
@@ -8623,6 +8731,14 @@ export function isDistanceQuestion(text: string): boolean {
  *  („kolku e daleku OD STANOT?“ has no landmark in it at all). */
 export function extractDistancePlace(text: string): string | undefined {
   if (!isDistanceQuestion(text)) return undefined;
+  return readDistancePlace(text);
+}
+
+/** The place read WITHOUT the distance-question gate — used per clause by
+ *  `extractDistancePlaces`, where the conjunction has already established that
+ *  the whole message is a distance ask and a clause («КОЛКУ ОД ЗЕБРА?») carries
+ *  only the second destination. */
+function readDistancePlace(text: string): string | undefined {
   // The last „do/до“ wins: „od stanot do …“ has one; „do 300 evra do centar“
   // (a cap followed by a place) must resolve the PLACE.
   // THE ASKING VERB IS NOT PART OF THE PLACE (the [04:04] capture):
@@ -8646,6 +8762,32 @@ export function extractDistancePlace(text: string): string | undefined {
   // FROM-form ([16:11]): the property is the SUBJECT, the landmark follows
   // „од“. A property noun there („od stanot“) is the subject, not a place.
   return trimAsk(scanDistanceTail(text, PLACE_FROM_RE, DISTANCE_SUBJECT_WORDS));
+}
+
+/** EVERY place a distance question names (the owner's 2026-11-11 brief):
+ *  «КОЛКУ СЕ ОДДАЛЕЧЕНИ ОД БЕВЕРЛИ ХИЛС А КОЛКУ ОД ЗЕБРА?» carries TWO
+ *  destinations, and the single-place extractor answered only the first — the
+ *  second landmark was silently dropped. The message is split at its
+ *  conjunctions (а/и/and) and each clause is read with the SAME extractor the
+ *  single-place lane uses, so every spelling/abbreviation rule applies
+ *  unchanged. Deduplicated, in the client's order (the first place leads). */
+export function extractDistancePlaces(text: string): string[] {
+  if (!isDistanceQuestion(text)) return [];
+  const clauses = text.split(/(?<![\p{L}])(?:а|a|и|i|and|as well as)(?![\p{L}])/iu).filter(c => c.trim());
+  const out: string[] = [];
+  const push = (p?: string): void => {
+    const s = (p ?? '').trim();
+    if (!s) return;
+    const key = s.toLowerCase().replace(/\s+/g, ' ');
+    if (!out.some(x => x.toLowerCase().replace(/\s+/g, ' ') === key)) out.push(s);
+  };
+  if (clauses.length > 1) {
+    for (const c of clauses) push(readDistancePlace(c));
+  }
+  // The whole message still speaks: a clause split that loses a place (a
+  // conjunction inside a name, «Градска … А …») falls back to the one-place read.
+  if (out.length === 0) push(extractDistancePlace(text));
+  return out;
 }
 
 /** „КОЈ Е НАЈБЛИСКУ ДО KAFICOT?“ / „KOJ OD OVIE E NAJBLIZU DO BROZ KAFE?“ —

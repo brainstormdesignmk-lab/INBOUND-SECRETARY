@@ -48,6 +48,19 @@ export class AppointmentStore {
     this.db.db.prepare(`UPDATE appointments SET status = 'finalized', time = ? WHERE id = ?`).run(time, id);
   }
 
+  /** Every CONFIRMED visit whose slot starts in [from, to) — the day calendar
+   *  the chain solver and the taken-hour answer read. Only `finalized` rows
+   *  carry a real term (`visit_at`); a pending row is still a negotiation and
+   *  holds its slot through the handler's short hold window instead. */
+  listVisitsBetween(from: number, to: number): Array<{ id: number; chatId: string; eb: number; visitAt: number }> {
+    return this.db.db.prepare(
+      `SELECT id, chat_id as chatId, property_id as eb, visit_at as visitAt
+       FROM appointments
+       WHERE status = 'finalized' AND visit_at IS NOT NULL AND visit_at >= ? AND visit_at < ?
+       ORDER BY visit_at`
+    ).all(from, to) as Array<{ id: number; chatId: string; eb: number; visitAt: number }>;
+  }
+
   count(): number {
     const row = this.db.db.prepare(`SELECT COUNT(*) as c FROM appointments`).get() as { c: number };
     return row.c;

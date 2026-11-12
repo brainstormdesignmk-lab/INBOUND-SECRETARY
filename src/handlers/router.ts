@@ -417,6 +417,11 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   VISIT_RECALL: M('VISIT_RECALL', 'which flat the arrangement was for — answered from the appointment, never contact collection'),
   SEEN_RECALL_HELP: M('SEEN_RECALL_HELP', 'the listing he saw but cannot name — found from the held category + place, closed with the seen-property question'),
   BUSINESS_PLACE_SERVE: M('BUSINESS_PLACE_SERVE', 'business spaces at the named places by rate+distance (or an honest «нема» plus alternatives)'),
+  DISTANCE_MATRIX: P('several places × every flat on the table («kolku e daleku od X i od Y ?») — one measured line per place and flat, nearest first; every named place is measured, never only the first'),
+  AVAILABILITY_PLURAL: P('an availability ask over SEVERAL flats («se slobodni ?», «dvata ?») — the ack for the set plus the owner-confirm question, with the fee quoted per property'),
+  BARE_EB_FOLLOWUP: P('a bare Евидентен број follow-up («А 42?») after cards were shown — the answer about THAT flat only, never a fresh search'),
+  SLOT_TAKEN: P('a proposed visit hour already taken in the day calendar — the free hours of that day are named before any owner is asked'),
+  PRICE_CHANGE_DISCLAIMER: P('a complaint about a price that moved mid-exchange (owner corrected the clean price) — the owners-may-reprice line, verbatim'),
 };
 
 // --- simple deterministic dispatch table -------------------------------------
@@ -553,7 +558,7 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
   {
     intent: 'WORKDAYS_QUESTION',
     bankKey: 'workdays.question',
-    fallback: 'Агенцијата работи од понеделник до петок, од 09:00 до 17:00 часот. Посетите се организираат во работните денови; сабота и недела не работиме.',
+    fallback: 'Работното време е од понеделник до петок, од 09:00 до 17:00 часот, а посетите ги организираме до 21:00 часот. Сабота и недела не работиме.',
     detect: detectWorkdaysQuestion,
     allowedStates: undefined, // every state — an hours question is always an hours question
   },
