@@ -990,6 +990,16 @@ const PER_M2_RATE_RE =
  *  anchor, not a budget. Without this detector the INFO block's pricePerSqm
  *  facet re-renders the same flat's rate forever and the pomalo bedrooms-ask
  *  wrongly re-opens a question the client already priced. */
+/** SMALLER-DIRECTION OFFER ASK — «помало нешто», «nesto pomalo», «pomali»:
+ *  a SIZE answer in RELATIVE form. The serve gate asks the size and the price
+ *  before a pair (the operator's 2026-11-13 rule), so a turn that states the
+ *  direction itself is not owed the м² question: the pool is ranked smallest
+ *  first and served (tests/stuck.test.ts pins «помало нешто» → 35 м² before
+ *  55 м² under a stated budget). */
+export function detectSmallerOfferAsk(text: string): boolean {
+  return /(?<![\p{L}])(?:помало|помала|помали|помалечко|pomalo|pomala|pomali)(?![\p{L}])/iu.test(text);
+}
+
 export function detectSmallerPerM2Ask(text: string): boolean {
   if (!PER_M2_RATE_RE.test(text)) return false;
   if (SMALL_SIZE_RE.test(text)) return true;
@@ -1847,7 +1857,14 @@ export function detectNumberUnknownRecall(text: string): boolean {
   // THE CLITIC CLUSTER IS TWO DEEP: «не И ГО памтам бројот» carries the dative
   // «и» before the accusative «го», and a one-clitic pattern missed the exact
   // field sentence.
-  const forget = /(?:не|ne)\s+(?:(?:го|go|и|i|ja|ја|ми|mi|му|mu)\s+){0,2}(?:памт\p{L}*|pamt\p{L}*|се\s+сек\p{L}*|se\s+sek\p{L}*|текнува|teknuva|знам|znam)/iu;
+  // «НЕ МОЖАМ ДА СЕ СЕТАМ НА БРОЈОТ» (the operator's 2026-11-13 [02:40]
+  // capture) is the SAME statement as «не се сеќавам» and was the one spelling
+  // the family did not know — so the client who had just described a house he
+  // saw in Скопје Север was treated as a NEW search and grilled for bedrooms
+  // and a price instead of being shown the house again. Both scripts, both
+  // verbs: сет- (сетам/сетувам/сеќавам) and its Latin forms, with or without
+  // the «можам да» frame.
+  const forget = /(?:не|ne)\s+(?:(?:го|go|и|i|ja|ја|ми|mi|му|mu)\s+){0,2}(?:можам\s+да\s+се\s+сет|mozam\s+da\s+se\s+set|памт\p{L}*|pamt\p{L}*|се\s+сет\p{L}*|se\s+set\p{L}*|се\s+сек\p{L}*|se\s+sek\p{L}*|текнува|teknuva|знам|znam)/iu;
   const unknown = /(?:не\s+го\s+знам|не\s+и\s+го\s+знам|не\s+ми\s+текнува|ne\s+go\s+znam|ne\s+mi\s+teknuva|не\s+знам\s+(?:точно\s+)?(?:кој|koja|која)|ne\s+znam\s+(?:tochno\s+)?(?:koj|koja))/iu;
   const number = /(?:бро\p{L}*|bro\p{L}*|eb|движност\p{L}*|dviznost)/iu;
   return (forget.test(flat) || unknown.test(flat)) && number.test(flat);
@@ -3079,6 +3096,40 @@ export function detectToldYouNag(text: string): boolean {
   return TOLD_YOU_RE.test(text) || TOLD_YOU_RE.test(cyr);
 }
 
+/** THE CLIENT RELEASED THE PRICE («BILO KOLKU» / «било која цена»).
+ *
+ *  A released criterion is an ANSWER, never a blank (the discovery contract):
+ *  without this the money question was simply asked AGAIN. The [04:14] capture
+ *  is the field case — «BILO KOLKU» answered «до која сума?» and the funnel
+ *  repeated «Која е горната граница на цената…» instead of serving the pair it
+ *  already had.
+ *
+ *  NARROW ON PURPOSE. A real figure anywhere in the message is a CAP, not a
+ *  waiver («bilo kolku do 100000»), and a SIZE noun makes «било колку» the size
+ *  waiver it has always been («spalni bilo kolku» → sizeWaived), so neither may
+ *  land here. Only the price itself is named (or the sentence clearly waives
+ *  it) — «било која цена», «цената не ми е битна», «парите не се проблем»,
+ *  «нема ограничување за цена». */
+export function detectBudgetWaived(text: string): boolean {
+  if (detectBudget(text)) return false;
+  const cyr = normalizeMc(text);
+  // A SIZE noun means the bare «било колку» is about the flat's size.
+  if (/(?<![\p{L}])(?:спалн|соб|собен|квадрат|м2|м²|големин|површин)(?![\p{L}])/iu.test(text)
+    || /(?<![\p{L}])(?:spaln|sob|kvadrat|golemin|povrsin)/iu.test(text)) return false;
+  const W = '(?:^|[^\\p{L}])';
+  const E = '(?=$|[^\\p{L}])';
+  // «било колку» / «колку и да е» / «kolku i da e» — any amount.
+  if (new RegExp(`${W}(?:(?:било|bilo)\\s+)?колку(?:\\s+и)?(?:\\s+да\\s+е)?${E}`, 'iu').test(text)) return true;
+  if (new RegExp(`${W}kolku(?:\\s+i)?(?:\\s+da\\s+e)?${E}`, 'iu').test(text)) return true;
+  // A NAMED price waiver.
+  if (new RegExp(`${W}(?:било|bilo)\\s+(?:која|koja|кој|koj|каков|kakov)\\s*(?:било|bilo)?\\s*(?:цена|цената|cena|cenata|буџет|budzet)${E}`, 'iu').test(text)) return true;
+  if (/(?:цената|цена|cena|cenata)\s+(?:не\s+(?:ми\s+)?(?:е|e)\s+)?(?:битн|важн|bitn|vazn)/iu.test(cyr)) return true;
+  if (/(?:парите|парата|parite|parata|цената)\s+(?:не\s+(?:се|se)\s+)?(?:проблем|problem)/iu.test(cyr)) return true;
+  // «нема ограничување за цена/буџет» / «без ограничување на цената».
+  if (/(?:нема|без|nema|bez)\s+(?:никакво\s+)?(?:ограничување|ogranicuvanje)\s*(?:за|на|на\s+)?\s*(?:цена|цената|буџет|cena|budzet)/iu.test(cyr)) return true;
+  return false;
+}
+
 /** True when the client says "anywhere" — no location preference. */
 export function detectAnywhere(text: string): boolean {
   if (matchesBoth(_anywhereSlotsRe, text)) return true;
@@ -3708,14 +3759,52 @@ export function detectPropertyDescription(text: string): boolean {
 // just described. The determiner is REQUIRED (the SEEN_HAD rule): «имавте ли
 // стан во Центар?» is a search, «имавте ЕДНА куќа» names a unit. Present
 // tense («имате стан») never matches — that is always a search.
-const SEEN_LISTING_RECALL_RE =
-  /(?<![\p{L}\p{N}])(?:имавте|имаше|имав|imavte|imase|imav)(?![\p{L}\p{N}])[^.!?\n]{0,18}(?<![\p{L}\p{N}])(?:еден|една|едно|некој|некоја|некое|eden|edna|edno|nekoj|nekoja|nekoe)(?![\p{L}\p{N}])[^.!?\n]{0,14}(?<![\p{L}\p{N}])(?:куќа|куќата|кука|kukja|kuka|kukata|стан|станот|stan|stanot|гарсоњера|гарсоњерата|garsonjera|garsonjerata|плац|плацот|plac|placot|lokal|локал|деловен)(?![\p{L}\p{N}])/iu;
+// THE CLIENT ALSO DESCRIBES THE KIND BEFORE THE «имавте» (the operator's
+// 2026-11-13 [02:39] capture): «ГЛЕДАВ КУЌИ И ИМАВТЕ ЕДНА ВО СКОПЈЕ СЕВЕР» —
+// plural «куќи», the verb AFTER the category, and «една» standing on its own.
+// The old shape demanded «имавте … една … куќа» in that order, so the message
+// that says «I saw your house in Skopje North» read as a brand-new search and
+// the funnel re-asked buy-or-rent. A VIEWING VERB makes that order free: the
+// category word only has to sit in the same clause as the possessive verb.
+const SEEN_LISTING_CATEGORY = '(?:куќ[аи]|куќата|кука|kukj[ai]|kuka|kukata|стан|станови|станот|stan|stanot|гарсоњер[аи]|garsonjer[ai]|плац|плацови|плацот|plac|placot|lokal|локал|деловен|апартман|apartman)';
+
+/** A MESSAGE THAT IS OUR OWN SCREEN, NOT A CLIENT (the operator's 2026-11-13
+ *  [02:04] capture).
+ *
+ *  The running TUI ingested part of a PAINTED FRAME as an inbound message:
+ *  «[02:50] ЛИНА [без LLM]: Да, имаме деловни простори во близина   │\n│» arrived
+ *  as a client turn, was routed as fee traffic, and Lina answered her own
+ *  line with the per-property fee — the «some message popped out from nowhere»
+ *  the operator saw. A web terminal that echoes the canvas back at the pty (or
+ *  a reconnect replay) can deliver frame bytes, and frame bytes are NEVER a
+ *  client: they carry the layout gutters (│ ─ ┌ ┐ └ ┘ …) and the chat log's own
+ *  `[HH:MM] ЛИНА [без LLM]:` header. Such a message is dropped with no reply
+ *  and no state change — answering it is the defect, not the extra guard.
+ *
+ *  Two or more box-drawing / block runes, or a chat-log header line, is the
+ *  whole test: a human message has neither, and a broker garble always has the
+ *  gutters (that is what the frame is drawn with). */
+export function looksLikeScreenEcho(text: string): boolean {
+  const t = String(text ?? '');
+  if (!t) return false;
+  const gutters = (t.match(/[\u2500-\u257F\u2580-\u259F]/gu) ?? []).length;
+  if (gutters >= 2) return true;
+  return /(?:^|\n)\s*\[\d{1,2}:\d{2}\]\s*(?:ЛИНА|КЛИЕНТ|LINA|CLIENT)\b/iu.test(t);
+}
 
 /** True when the client RECALLS a listing he saw with the agency («имавте една
  *  куќа накај Скопје Север»). The recalled place/price is the description —
  *  the funnel must find that listing, never ask him to describe it again. */
 export function detectSeenListingRecall(text: string): boolean {
-  return SEEN_LISTING_RECALL_RE.test(text);
+  const flat = text.replace(/\s+/g, ' ');
+  const past = '(?:имавте|имаше|имав|imavte|imase|imav)';
+  const unit = '(?:еден|една|едно|некој|некоја|некое|eden|edna|edno|nekoj|nekoja|nekoe)';
+  const B = (re: string): RegExp => new RegExp(re, 'iu');
+  // (a) «имавте една куќа» — the verb first.
+  if (B(`(?<![\\p{L}\\p{N}])${past}(?![\\p{L}\\p{N}])[^.!?\\n]{0,18}(?<![\\p{L}\\p{N}])${unit}(?![\\p{L}\\p{N}])[^.!?\\n]{0,14}(?<![\\p{L}\\p{N}])${SEEN_LISTING_CATEGORY}(?![\\p{L}\\p{N}])`).test(flat)) return true;
+  // (b) «гледав куќи и имавте една» — the category first, the unit after the
+  // verb. Still ONE unit recall: the determiner follows the verb that owns it.
+  return B(`(?<![\\p{L}\\p{N}])${SEEN_LISTING_CATEGORY}(?![\\p{L}\\p{N}])[^.!?\\n]{0,25}(?<![\\p{L}\\p{N}])${past}(?![\\p{L}\\p{N}])[^.!?\\n]{0,18}(?<![\\p{L}\\p{N}])${unit}(?![\\p{L}\\p{N}])`).test(flat);
 }
 
 /** One category of a recall that names SEVERAL (see splitRecallCategories). */
@@ -8997,7 +9086,7 @@ export function detectUnknownLandmark(text: string, lastLandmark?: string): bool
  *  оддалечено / метри / минути / пешки) so an ordinary „kolku“ never lands
  *  here. */
 export function isDistanceQuestion(text: string): boolean {
-  if (detectPriceAsk(text) || detectBudget(text)) return false;
+  if (detectBudget(text)) return false;
   // NOTE: `\b` is ASCII-word-based in Node 18 and never matches around a
   // Cyrillic letter — every boundary below is therefore written as an explicit
   // whitespace/edge class, or dropped where the surrounding words already
@@ -9012,7 +9101,22 @@ export function isDistanceQuestion(text: string): boolean {
   // is the NOUN for distance — the most literal way a client asks, and it was
   // missing from the cue list, so the question fell through to the where-is
   // rotation and was answered with the NEXT landmark instead of a measurement.
-  if (matchesBoth(new RegExp(`${W}(?:daleku|далеку|oddalec\\p{L}*|оддалеч\\p{L}*|dalecina|далечина|rastojan\\p{L}*|растојан\\p{L}*|distanc\\p{L}*|дистанц\\p{L}*)`, 'iu'), text)) {
+  // «KOLKU SE RAZDALECENI OD KATOLICKA ?» (the 2026-11-13 [02:51] capture):
+  // the client asked how far the two дukjan offers are from the cathedral, and
+  // the cue list knew «оддалечени» but not «раздалечени» — so the distance lane
+  // never fired, the turn was routed INFO_ASK and the reply quoted the РЕНТ of
+  // one property. Every spelling of the same adjective answers the same
+  // question: раздалечен/раздалечени, razdalecen/razdaleceni, dalecen/dalecni.
+  // AN EXPLICIT DISTANCE WORD OUTRANKS THE PRICE-ASK GUARD (the operator's
+  // 2026-11-13 [02:51] capture): «KOLKU SE RAZDALECENI OD KATOLICKA ?» is read
+  // as a PRICE ask by the «kolku se …» shape, so the guard at the top of this
+  // function vetoed the distance lane and the turn answered a rent. A message
+  // that names distance (далеку / раздалечени / оддалечено / растојание) is a
+  // measurement request whatever else it looks like; only the AMBIGUOUS arms
+  // below (a bare «kolku…» + a unit) keep deferring to the price reader.
+  const explicitDistance = matchesBoth(new RegExp(`${W}(?:daleku|далеку|oddalec\\p{L}*|оддалеч\\p{L}*|razdalec\\p{L}*|раздалеч\\p{L}*|dalecn\\p{L}*|далечн\\p{L}*|dalecina|далечина|rastojan\\p{L}*|растојан\\p{L}*|distanc\\p{L}*|дистанц\\p{L}*)`, 'iu'), text);
+  if (!explicitDistance && (detectPriceAsk(text) || detectBudget(text))) return false;
+  if (explicitDistance) {
     // …but only as a QUESTION. A bare „da ne e daleku“ („it isn't far, is
     // it?“) is a statement and keeps its own lane — so the cue is a question
     // mark, a „kolku/kolkavo“, or an explicit „dali/дали“, never a bare copula.
@@ -9178,6 +9282,13 @@ export function distanceAskIsPlural(text: string): boolean {
   if (matchesBoth(new RegExp(`${W}(?:rastojan\\p{L}*|растојан\\p{L}*|dalecin\\p{L}*|далечин\\p{L}*|distanc\\p{L}*|дистанц\\p{L}*)${E}\\s*(?:se|се)${E}`, 'iu'), text)) return true;
   // An explicit plural SUBJECT.
   if (matchesBoth(new RegExp(`${W}(?:dvata|dvete|двата|двете|ovie|овие|tie|тие|site|сите|stanovite|становите|neizvnostite|неизвесностите)${E}`, 'iu'), text)) return true;
+  // THE PLURAL ADJECTIVE IS THE PLURAL SUBJECT (the operator's 2026-11-13
+  // [02:51] capture): «KOLKU SE RAZDALECENI OD KATOLICKA ?» asks about BOTH
+  // served offers — «раздалечени» is the plural of «раздалечен», exactly like
+  // «оддалечени», and the singular arm answered only the last card (and the
+  // client got one rent number in the field). The singular «колку е далеку»
+  // keeps its own lane; only the -и ending is read as plural.
+  if (matchesBoth(new RegExp(`${W}(?:oddaleceni|оддалечени|razdaleceni|раздалечени|udaleceni|удалечени|dalecni|далечни)${E}`, 'iu'), text)) return true;
   // «KOLKU SE OD …» — how far ARE THEY (the plural frame with the verb dropped).
   return matchesBoth(new RegExp(`${W}(?:kolku|колку)\\s+(?:se|се)\\s+(?:od|од|do|до)${E}`, 'iu'), text);
 }

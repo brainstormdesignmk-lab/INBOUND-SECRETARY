@@ -20,7 +20,7 @@ import { QUICK_INTROS } from './intros';
 import { buildLayout, esc, guardGlyphs, hhmm, wrapMarked, paneTextWidth, visibleWidth, CHAT_PANE_FRACTION } from './layout';
 import { FramePainter, paneAtBottom, owedHeal } from './paint';
 import type { OwnerVerdict } from '../backoffice/ownerAgent';
-import { detectOwnerVerdict, detectOwnerAddressReply } from '../llm/deterministic';
+import { detectOwnerVerdict, detectOwnerAddressReply, looksLikeScreenEcho } from '../llm/deterministic';
 import { buildOwnerAskAgain } from '../llm/prompts';
 import { LandmarkService } from '../geo/landmarks';
 import { OfflineMapStore } from '../geo/offlineMap';
@@ -607,6 +607,17 @@ export class TuiApp {
     const text = this.inputBuf.trim();
     if (!lead || !text) return;
     this.inputBuf = '';
+    // A REFLECTED FRAME IS NOT TYPING (the operator's 2026-11-13 [02:04]
+    // capture): a web terminal can echo the canvas back at the pty, so a slice
+    // of the painted screen lands in the input line and Enter sends it as a
+    // client message — the handler would then answer Lina's own sentence. Drop
+    // the buffer, say so in the system line, and never route it. (InboundHandler
+    // refuses the same shape, so no channel can be fooled.)
+    if (looksLikeScreenEcho(text)) {
+      this.appendMsg(lead.chatId, { role: 'system', text: '⚠ терминалот врати дел од екранот — не е испратено.' , at: Date.now() });
+      this.renderAll();
+      return;
+    }
     if (text === '/help') {
       this.appendMsg(lead.chatId, { role: 'system', text: HELP, at: Date.now() });
       this.renderAll();

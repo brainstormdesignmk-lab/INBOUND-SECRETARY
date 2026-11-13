@@ -76,7 +76,13 @@ async function reachOwnerChecking(send: (m: string) => Promise<ReturnType<Sessio
   await send('DA');
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
-  const s = await send('UTRE VO 4');
+  // A WORKING-DAY TERM, NOT «УТРЕ» (the fixture fix, 2026-11-13): the agency
+  // works Monday–Friday, so on a Friday «утре» lands on a Saturday and the
+  // WEEKEND protocol answers it — correctly, and before the owner is ever
+  // asked. That is the product's rule, not this test's subject (the term is
+  // relayed and counter-offered), so the fixture names a weekday instead of
+  // depending on the day the suite happens to run.
+  const s = await send('VO PONEDELNIK VO 4');
   assert.equal(s.state, 'owner_checking', `setup failed: ${s.state}`);
   return s;
 }
@@ -159,7 +165,7 @@ test('[10:00] the owner\'s «да» OPENS the offer — the CLIENT confirms befo
   await reachOwnerChecking(send);
   // The setup left the CLIENT's own term on the table (stored verbatim, as he
   // typed it — the slot carries the client's shape, the renderer names it).
-  assert.equal(sessions.get(chatId)!.slots.visitTime, 'UTRE VO 4');
+  assert.equal(sessions.get(chatId)!.slots.visitTime, 'VO PONEDELNIK VO 4');
 
   const before = sent.length;
   assert.equal(handler.ownerAnswer(chatId, 91, { status: 'ok', ownerTime: 'Утре во 5' }), true,

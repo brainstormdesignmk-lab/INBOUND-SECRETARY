@@ -28,7 +28,7 @@ import {
   detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk,
   detectFeePaymentAgreement, detectArrangementRecall, detectToldYouNag,
   detectNumberUnknownRecall, detectSimilarAsk, detectBusiness, EB_NAMED_RE,
-  isFeeTraffic, detectNearCenter, extractPoiWishCandidates,
+  isFeeTraffic, detectNearCenter, extractPoiWishCandidates, looksLikeScreenEcho,
 } from '../llm/deterministic';
 import type { ChatSession } from '../fsm/session';
 
@@ -63,6 +63,12 @@ export interface RouteRule {
 
 // ORDER IS SEMANTIC — do not reorder without reading the notes.
 export const ROUTING_ORDER: RouteRule[] = [
+  // A TERMINAL ECHO IS NOT A CLIENT — the intake guard in processMessage runs
+  // before the session is even read, so it precedes even the offensive check
+  // (frame bytes must not spend a strike on the client either). Mirrored so the
+  // calibration registry sees the lane instead of a silent early return.
+  { intent: 'ECHO_IGNORED', note: 'our own painted frame delivered as input ([02:04] capture: «[02:50] ЛИНА [без LLM]: … │») — dropped with no reply and no state change, before the zero-output policy',
+    fires: t => looksLikeScreenEcho(t) },
   { intent: 'OFFENSIVE', note: 'zero-output policy wins over everything',
     fires: t => classifyOffensive(t).isOffensive },
   { intent: 'WORKDAYS_QUESTION', note: 'agency-hours question ("VO NEDELA RABOTITE?") — answered from the bank, never forwarded to the owner as a proposed term; must beat the visit-time capture (the day token inside it used to reach the owner)',
@@ -315,6 +321,7 @@ const P = (note: string): LaneEntry => ({ intent: null, note: `pending migration
  *  tag (a silent lane) or a mirrored intent name that ROUTING_ORDER lacks. */
 export const ROUTE_LANES: Record<string, LaneEntry> = {
   // --- already mirrored by a ROUTING_ORDER row ---
+  ECHO_IGNORED: M('ECHO_IGNORED', 'a painted frame delivered as input — dropped at intake, before the session is read (the [02:04] capture: the funnel answered her own sentence with the fee)'),
   OFFENSIVE: M('OFFENSIVE', 'zero-output policy beats everything (logged for drift)'),
   WORKDAYS_QUESTION: M('WORKDAYS_QUESTION', 'agency hours, never an owner term'),
   BUSINESS_BUDGET_ASK: M('BUSINESS_BUDGET_ASK', 'state-gated money/lane in intake states'),

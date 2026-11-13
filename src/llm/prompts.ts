@@ -1105,7 +1105,10 @@ function buildDiscoveryAskDetailed(slots: SlotData, recent: string[] = []): Disc
   // A €/m² ceiling IS the money answer (the [02:09] capture): «PO 1500E ZA
   // KVADRAT» already capped the rate, so asking «до која цена» would re-ask
   // what the client just said.
+  // A RELEASED PRICE IS AN ANSWER («BILO KOLKU», the [04:14] capture): the same
+  // discovery contract the anywhere/size waivers obey — asking again is the loop.
   if (serviceKnown && !typeHeld && locationKnown && !slots.budget && !slots.sqmRate && !slots.pricePriority
+    && !slots.budgetWaived
     && !(dual && (slots.rentBudget !== undefined || slots.buyBudget !== undefined))) {
     // RENT asks about the MONTHLY rent (месечна кирија), not a purchase price —
     // "колку е киријата?" is the client's question, and the budget slot is the

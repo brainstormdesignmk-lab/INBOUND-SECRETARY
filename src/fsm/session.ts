@@ -131,6 +131,11 @@ export interface SlotData {
   waiverAcked?: boolean;       // the banked discovery.waiver.ack intro was served for THIS waiver
   exactLocationTurns?: number; // consecutive EXACT-address demands (turn 2 = agency protocol)
   pricePriority?: boolean;     // "што поевтино" — sort by price, skip budget question
+  /** «BILO KOLKU» / «било која цена» — the client RELEASED the price. A released
+   *  criterion is an ANSWER (the discovery contract), so the money question is
+   *  never asked again and the search runs uncapped. Distinct from
+   *  pricePriority (cheapest first): a waived price has no order at all. */
+  budgetWaived?: boolean;
   garsonjera?: boolean;        // "гарсоњера mi treba" — explicit studio category (NOT "1 спална")
   /** The client NAMED a flat (стан/апартман/гарсоњера). Flats are the one
    *  category with no flag of their own, so without this slot the discovery ask
