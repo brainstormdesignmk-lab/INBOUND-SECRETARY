@@ -1,7 +1,10 @@
 node_modules/
 dist/
-# Compiled test bundles (scripts/run-tests-compiled.sh) — build output, ~100 MB.
+# Compiled test bundles (scripts/test-run.mjs) — build output, ~100 MB.
 dist-test/
+# Test-run scratch: per-file TAP (.bench/tap/) and the --profile table. Evidence,
+# not source; the runner recreates both on every run.
+.bench/
 data/*.db
 data/*.db-*
 .env

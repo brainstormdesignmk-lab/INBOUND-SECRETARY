@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { pickLiveDb, REVIEW_MASTER_DB } from '../src/bank/liveDb';
+import { findProjectRoot } from './helpers/project-root';
 
 function sandbox(): { dir: string; make: (name: string, at: number) => string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lina-live-db-'));
@@ -42,6 +43,9 @@ test('no database at all names the canonical master path', () => {
 });
 
 test('the real project resolves to the canonical review DB', () => {
-  const picked = pickLiveDb(path.resolve(__dirname, '..'));
+  // findProjectRoot, not `__dirname/..`: the bundled runner would hand
+  // pickLiveDb dist-test/ and this assertion (which only checks the TAIL of the
+  // path) would pass while naming a directory the review never reads.
+  const picked = pickLiveDb(findProjectRoot());
   assert.match(picked, /data[\\/]tui\.db$/);
 });

@@ -37,21 +37,34 @@ npm run bank:audit-seeds                # contracts + offensive false positives
 
 ### The fast loop (do NOT spend 5 minutes per fix)
 
-`npm test` stays the authoritative gate, but it pays `tsx` boot + transpile for
-all 116 files. While iterating:
+`npm test` stays the authoritative gate and is untouched: it is the original
+command (`tsx --test tests/*.test.ts`, all 276 files) and the independent path
+the safety net is measured on. It pays `tsx` boot + transpile per file and takes
+~30 min. The four levels below are the door you actually use daily:
 
 ```bash
-npx tsx --test tests/<the files you touched>.test.ts   # seconds
-npm run test:fast                                      # compiled, no PTY file
-npm run test:c                                         # compiled, everything
+npm run test:smoke                                     # ~7 s  grammar/lexicon/router core
+npm run test:t -- tests/<the files you touched>.test.ts # seconds, exactly those files
+npm run test:integration                               # handler + sqlite + geo + net
+npm run test:c                                         # ALL files, sharded, ~14 min
+npm run test:fast                                      # all but the PTY-funnel file
 ```
 
-`test:c`/`test:fast` bundle each file with esbuild and run plain
-`node --test` (same tests, same assertions; ~40% faster on 4 cores because the
-per-file transpile disappears and the runner oversubscribes the cores, since
-the suite is latency-bound). The PTY funnel file owns ~60 s of wall by itself —
-that is why `test:fast` leaves it out; it MUST run before a deploy, together
-with the full `npm test`.
+All levels run through `scripts/test-run.mjs`: esbuild bundles the selected
+files (one invocation, the `require.main` define keeps CLI bodies from running),
+then each FILE runs in its own process with its own TAP file under
+`.bench/tap/` — so a parallel run can never shred a `not ok` block between two
+files' output, which is why the gate used to be run serially at ~55 min. The
+runner also kills any file that overruns `TEST_FILE_TIMEOUT` (default 300 s)
+and reports it FAILED, so a hang cannot wedge the gate, and it reports a file
+that produced zero passing subtests as FAILED, so a crash cannot read as green.
+`TEST_CONCURRENCY=n` sets files in flight (default `cores*2`).
+
+`npm run test:profile` runs the full suite and writes `.bench/test-profile.json`
+(per-file wall time) — use it to pick the next target instead of guessing.
+
+The PTY funnel file boots the real TUI twice (~25 s) — that is why `test:fast`
+leaves it out; it MUST run before a deploy, together with the full `npm test`.
 
 Every one of these must pass. `npm run bank:audit-seeds` also runs the P5
 offensive sweep over all seeds and learned variants.

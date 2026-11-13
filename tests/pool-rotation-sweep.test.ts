@@ -23,6 +23,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import * as path from 'path';
+import { findProjectRoot } from './helpers/project-root';
 import {
   FIXED_SEEDS, POOL_CONTRACTS, pickVariant, seedVariants, normalizeVariant,
 } from '../src/data/responseBank';
@@ -158,7 +159,10 @@ function stripComments(src: string): string {
 }
 
 test('every serve site tells the picker what was already served', () => {
-  const root = path.resolve(__dirname, '..', 'src');
+  // findProjectRoot, not `__dirname/..`: under the bundled runner this file
+  // lives in dist-test/tests/ and `..` is the BUNDLE dir, which has no src/
+  // (the sweep failed with ENOENT: dist-test/src). The assertions are the same.
+  const root = path.join(findProjectRoot(), 'src');
   const missing: string[] = [];
   let sites = 0;
   for (const file of walk(root)) {
