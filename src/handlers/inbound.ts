@@ -53,7 +53,7 @@ import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extr
 import { toLatin, toCyrillic, translitToLatin, officialPlaceName, canonicalWordKey, wordsAlmostEqual } from '../geo/offlineMap';
 import { walkMinutes, distM } from '../geo/precision';
 import { routeLog, resolveIntent, refinePrediction, dispatchSimple } from './router';
-import { ambientTurn, clipReply, currentTurn, noteTurnFact, runInTurn, startTurn, type TurnContext } from './turn';
+import { ambientTurn, clipReply, currentTurn, currentTurnAudit, noteTurnFact, runInTurn, startTurn, type TurnContext } from './turn';
 import { focusClarifyAsk, resolvePropertyFocus } from './focus';
 import { BARE_REFUSAL_ONLY_RE, NEAR_ANCHOR_SCOPE_M, pickDescribed } from './locate-pick';
 // PER-CATEGORY MONEY (the [19:14] capture): the pair detectors live beside the
@@ -1217,6 +1217,22 @@ function boundFlatIdentity(p: Property): string {
 // ./locate-pick: they are PURE text gates that the routing mirror ALSO reads
 // (router.ts ROUTING_ORDER, rows LOCATE_CONTINUE/PICK_DESCRIBED). One copy, so
 // the mirror and the executor can never disagree about what a pick is.
+
+/** THE AUTHORITATIVE FLIP (Phase 4): the lane the ROUTER named for this turn.
+ *
+ *  Until now the mirror was telemetry: `routeLog(..., 'predict')` wrote the
+ *  prediction and `routeLog(...)` wrote what served, and comparing the two was
+ *  an operator's job. A branch that reads this value instead of re-deriving its
+ *  own gate cannot drift from the mirror BY CONSTRUCTION — the two sides are
+ *  one predicate with two readers (§4q slice 6).
+ *
+ *  Only lanes whose gate the mirror reproduces EXACTLY may read it; a lane
+ *  whose gate needs the feed (PICK_DESCRIBED also admits a detail mention via
+ *  `pickByDetail`, which needs the described ROWS) keeps its own entry and
+ *  says so — a flip there would silently drop a served answer. */
+function routedLane(): string | undefined {
+  return currentTurnAudit()?.predicted;
+}
 
 /** A PRONOUN PICK («КАЖИ МИ ИНФОРМАЦИИ ЗА НЕЈЗЕ» — the [22:30] capture): the
  *  client refers to the flat he just named by its GENDER, which is a real
@@ -9469,6 +9485,11 @@ export class InboundHandler {
         return;
       }
     }
+    // NOT FLIPPED to `routedLane()` ON PURPOSE: this entry gate also admits the
+    // DETAIL mention (`pickByDetail` — «онаа со дворот», which matches the
+    // described ROWS' own fields). The mirror cannot read the feed, so its row
+    // documents that limit instead of predicting it; flipping here would drop a
+    // served answer to keep a log tidy.
     if (session.slots.describedEbs?.length) {
       const describedRows = (await Promise.all(
         session.slots.describedEbs.map(eb => this.deps.properties.getByEb(eb).catch(() => undefined))))
@@ -9769,9 +9790,11 @@ export class InboundHandler {
     // nothing he wanted and she asked about other parts of town — «да» releases
     // the area lock and the SAME hunt continues there (service, category and
     // budget unchanged; only the neighborhood is dropped).
-    if ((session.slots.describedEbs?.length ?? 0) > 0
-        && session.slots.areaExhausted === true
-        && (detectAgreement(text) || detectWidenIntent(text) || detectExplicitWiden(text))) {
+    // THE ROUTER OWNS THIS GATE (Phase 4 authoritative flip): the widen row's
+    // predicate IS these two slot tests plus these three detectors, and both
+    // sides read them from one place — so the branch asks the router instead of
+    // repeating the conjunction.
+    if (routedLane() === 'LOCATE_WIDEN') {
       routeLog(chatId, text, 'LOCATE_WIDEN');
       session.slots.areaExhausted = false;
       session.slots.location = undefined;
@@ -9795,7 +9818,10 @@ export class InboundHandler {
       return;
     }
 
-    if ((session.slots.describedEbs?.length ?? 0) > 0 && BARE_REFUSAL_ONLY_RE.test(text.trim())) {
+    // THE ROUTER OWNS THIS GATE (Phase 4 authoritative flip): the row and this
+    // branch share `BARE_REFUSAL_ONLY_RE` and the described-batch slot, so the
+    // branch reads the router's answer rather than re-testing them.
+    if (routedLane() === 'LOCATE_CONTINUE') {
       routeLog(chatId, text, 'LOCATE_CONTINUE');
       const next = await this.locateNextOptions(session);
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);

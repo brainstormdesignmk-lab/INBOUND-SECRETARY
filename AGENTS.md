@@ -1721,6 +1721,30 @@ line order (pick 9489 → widen 9813 → bare refusal 9790). The executor's loca
 block runs BEFORE the bye/soft-refusal lanes (9976/9996), which is why «не» with
 a batched hunt is the funnel's answer and not the farewell.
 
+THE FLIP — WHAT "AUTHORITATIVE" MEANS, and where it stops. A mirrored row that
+nothing reads is telemetry: the prediction was written by
+`routeLog(..., 'predict')`, the served lane by `routeLog(...)`, and comparing
+them was the operator's job. `routedLane()` (`inbound.ts`, reading
+`currentTurnAudit()?.predicted`) makes the branch ASK the router:
+
+```
+if (routedLane() === 'LOCATE_WIDEN') { …serve the widen… }
+```
+
+For a flipped lane the two sides are one predicate with two readers, so drift is
+impossible by construction rather than by discipline. Two branches are flipped
+today (`LOCATE_WIDEN`, `LOCATE_CONTINUE`). `PICK_DESCRIBED` is NOT, and the
+reason is the rule that governs the rest of the backlog: **flip only where the
+mirror reproduces the gate EXACTLY.** `pickByDetail` matches a DETAIL mention
+(«онаа со дворот») against the described ROWS' own fields; the mirror cannot
+read the feed, so its row documents the limit. Flipping there would drop a
+served answer to make a log tidy — the wrong trade, and the same wall the four
+map/feed lanes hit (see the evidence-channel note below).
+
+The residual risk of a flip is the mirror becoming STRICTER than the executor
+for an unlisted reason; that shows up as a turn that serves one row lower, never
+as a wrong answer, and `route:gap-audit`/`route:health` measure it.
+
 STILL PENDING, with the reason each needs its own slice: `INFO_ASK_PAIR*` and
 `INFO_ASK_FLOORS` (the pair/batch referent and its criteria parse), `MORE_STOCK`
 (9520: an eleven-clause veto list plus a criteria veto built from
