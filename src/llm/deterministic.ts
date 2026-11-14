@@ -1,12 +1,25 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase, placeLooseKey } from '../data/properties';
-import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, DIGIT_MINUTES_RE, QUARTER_PAST_RE, QUARTER_TO_RE, HALF_TO_RE, TIME_RANGE_RE, ASSENT_HOUR_RE, visitClockHour } from '../visits/time';
+import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, DIGIT_MINUTES_RE, QUARTER_PAST_RE, QUARTER_TO_RE, HALF_TO_RE, TIME_RANGE_RE, ASSENT_HOUR_RE, visitClockHour, DAY_LOOKALIKE_RE } from '../visits/time';
 
 // Re-export: the handler's split-intake gates (day-only vs clock-completion)
 // live on this module's surface; the canonical implementation is visits/time.
 export { hasClockHint };
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
+// THE SHARED LEXICON (AGENTS.md §4r): a word family has ONE definition. Every
+// category/service/past/place reader below reads these modules instead of
+// spelling the vocabulary out again — two lists of the same family drift, and
+// a drifted list answers the wrong question for one spelling only.
+import {
+  BUY_RE, RENT_RE,
+  PROPERTY_TYPE_LOOSE_RE, looseTypePattern, typeFormPattern, typeFormAlternation,
+  typeSingularAlternation, typePluralAlternation, propertyCategoriesIn, readPropertyCategory,
+  readPropertyNoun, categoryLabel,
+  MEMORY_HAD, MEMORY_WAS, MEMORY_SIGHT, MEMORY_UNIT, MEMORY_AD_NOUN, MEMORY_AD_SAID, adNounPattern,
+  selectionPattern, negatedSelectionPattern, questionedSelectionPattern,
+  NB, NA,
+} from './lexicon';
 import { extFires } from './detectorExt';
 import { firstEbNumber, EB_NUMBER_SOURCE } from './ebNumber';
 // The recommendation grammar lives in its own module (the [11:39] family).
@@ -404,7 +417,9 @@ export interface DetectedSlots {
 // kupovinata, kupovno, kupvam/kupva (the dropped vowel), kupuvajne (the -ajne
 // spelling), kupe/kupev (bought). «kupatilo» must stay a bathroom: no bare
 // `kup` stem is added, every form is written out.
-const BUY_RE = /(купува|купам|купи|купн|куп|продажба|продава|продав|\bbuy\b|kupuvam|kupam|kupan|kupi|kupn|kupuvanje|kupuvanjе|kupuvane|kupovin|kupovn|kupv|kupuvaj|kupen|kupev|prodazba|prodava|prodv)/i;
+// BUY_RE / RENT_RE are the SHARED service lexicon (src/llm/lexicon/service.ts),
+// imported above. The old local copies had no word boundary, so «МНОГУ СКУПО»
+// matched the buy stem «куп» and armed service=buy on a value complaint.
 // «RENTANJE» IS A RENT WORD (the [20:56] capture): „ZA RENTANJE“ only matched
 // the bounded `\brent\b` before, so detectService returned nothing and the
 // funnel re-asked „купување или изнајмување?“ about a house the client had
@@ -416,7 +431,7 @@ const BUY_RE = /(купува|купам|купи|купн|куп|продажб
 // through untouched, so the funnel asked «купување или изнајмување?» twice
 // more about a rental the client had already declared. The stems are spelled
 // per vowel so «рентген» (an X-ray, not a lease) can never match.
-const RENT_RE = /(изнајмува|изнајмам|изнајми|изнајм|кирија|под кирија|кирја|под кирја|крија|под крија|издава|издад|рента(?!бил)|ренти|ренте|ренто|рентањ|\brent\b|rentanj|rentira|renta(?!bil)|renti|\brenta\b|iznajmuvam|iznajmam|iznajmi|iznajm|iznajmuvanje|iznajmuvanjе|kirija|pod kirija|krija|pod krija|izdava|izdad)/i;
+
 
 const BED_NUM_RE = /(\d+)[-\s]*(?:спални|спална|соби|соба|спа|собен|собни|sob|sobi|soben|sobni|spalni|spalna)/i;
 // Bedroom-specific words (need +1 to convert to room count)
@@ -749,8 +764,8 @@ export function extractInventoryPlace(text: string): string | undefined {
 // inventory ask is answered by asking WHAT he wants before anything is served
 // (the [02:15] capture), and each type then gets its OWN characteristics
 // questions (спални + цена for стан/куќа, м² + цена for дуќан/плац).
-const PROPERTY_TYPE_WORD_RE =
-  /(?<![\p{L}])(?:стан\p{L}*|stan\p{L}*|stn\p{L}*|апартман\p{L}*|apartman\p{L}*|гарсоњер\p{L}*|garsonjer\p{L}*|куќ\p{L}*|кук\p{L}*|kukj\p{L}*|kuka\p{L}*|вил\p{L}*|vila\p{L}*|дуќан\p{L}*|dukjan\p{L}*|dukan\p{L}*|локал\p{L}*|lokal\p{L}*|деловен\p{L}*|deloven\p{L}*|канцелари\p{L}*|kancelari\p{L}*|магацин\p{L}*|magacin\p{L}*|плац\p{L}*|plac\p{L}*|земјишт\p{L}*|zemjist\p{L}*|гараж\p{L}*|garaz\p{L}*)/iu;
+const PROPERTY_TYPE_WORD_RE = new RegExp(
+  looseTypePattern(['house', 'flat', 'garsonjera', 'apartment', 'land', 'business', 'garage']), 'iu');
 
 // THE FLAT WORD — the one category with no flag of its own. `house`/`business`/
 // `plac` carry booleans; a flat carried NOTHING, so a funnel that did not know
@@ -769,10 +784,12 @@ const PROPERTY_TYPE_WORD_RE =
 // see that the type was KNOWN: it served a pair before asking the category's
 // own questions (the exact order the owner fixed). A plural of «стан» is a
 // flat the same way the singular is, so the endings carry it.
-const FLAT_WORD_RE = /(?<![\p{L}])(?:стан(?:от|ов|а|и|ови|овите|че|чето|це|цеви|цевите)?|апартман\p{L}*|гарсоњер\p{L}*)(?![\p{L}])/iu;
+const FLAT_WORD_RE = new RegExp(typeFormPattern(['flat', 'garsonjera', 'apartment']), 'iu');
 // `stn` is the client's own shorthand for стан ("STN MI TREBA", the [00:34] capture);
 // the boundary guards keep it from matching inside a longer word.
-const FLAT_WORD_LATIN_RE = /(?<![a-z])(?:stan(?:ot|ov|a|i|ovi|ovite|ce|cevi|cevite)?|stn(?:a|i|o|ot)?|apartman[a-z]*|garsonjer[a-z]*)(?![a-z])/iu;
+// The shared FORM list carries the Latin spellings itself, so one matcher
+// covers both scripts (the old pair existed only because the lists were local).
+const FLAT_WORD_LATIN_RE = FLAT_WORD_RE;
 
 // THE NEGATED CATEGORY IS NOT THE CATEGORY (the [19:07] capture): «SAKAM DUKJAN
 // DA ZEMAM , NE STAN» IS a business search — but `detectBusiness` vetoes itself
@@ -790,11 +807,7 @@ const NEGATED_CATEGORY_RE = new RegExp(
   // dative clitic the spoken language puts there («не МИ треба стан»).
   + '(?:(?:sakam|сакам|baram|барам|treba|треба|sum|сум|sme|сме|taka|така'
   + '|mi|ми|ni|ни|ti|ти|vi|ви|go|го|ja|ја|mu|му)\\s+){0,2}'
-  + '(?:стан\\p{L}*|stan\\p{L}*|апартман\\p{L}*|apartman\\p{L}*|гарсоњер\\p{L}*|garsonjer\\p{L}*'
-  + '|куќ\\p{L}*|кук\\p{L}*|kukj\\p{L}*|kuka\\p{L}*|вил\\p{L}*|vila\\p{L}*'
-  + '|дуќан\\p{L}*|dukjan\\p{L}*|dukan\\p{L}*|локал\\p{L}*|lokal\\p{L}*'
-  + '|деловен\\p{L}*|deloven\\p{L}*|канцелари\\p{L}*|kancelari\\p{L}*|магацин\\p{L}*|magacin\\p{L}*'
-  + '|плац\\p{L}*|plac\\p{L}*|земјишт\\p{L}*|zemjist\\p{L}*|гараж\\p{L}*|garaz\\p{L}*)(?![\\p{L}\\p{N}])',
+  + typeFormPattern(['house', 'flat', 'garsonjera', 'apartment', 'land', 'business', 'garage']),
   'giu');
 
 /** The message with every NEGATED category mention removed — the input every
@@ -3801,6 +3814,23 @@ export function detectUnderstatedPositive(text: string): boolean {
   return matchesBoth(POSITIVE_EVAL_RE, text);
 }
 
+/** THE CLIENT COMMITTED (the [10:06] capture): «GO IZBRAV STANOT SO EB 63»,
+ *  «SE ODLUCIV ZA STANOT 63», «OSTANUVAM NA STANOT 63», «TOJ E MOJOT IZBOR».
+ *  None of these matched ANY detector — no interest word, no visit verb — so
+ *  the turn fell into the funnel and the choice went unacknowledged. A choice
+ *  is where the fee protocol starts (the owner's rule: «Ви честитам на
+ *  изборот», then the visit-fee explanation), so it must be read as its own
+ *  event: the congratulation + the fee disclosure, never a criteria ask.
+ *  NEGATED («не избрав») and UNDECIDED («уште не сум одлучил») forms are not
+ *  a commitment — the lexicon's own negation guard handles the first, and the
+ *  stems only carry first-person DECIDED forms for the second. */
+export function detectPropertySelection(text: string): boolean {
+  if (detectRejection(text)) return false;
+  if (matchesBoth(negatedSelectionPattern(), text)) return false;
+  if (matchesBoth(questionedSelectionPattern(), text)) return false;
+  return matchesBoth(selectionPattern(), text);
+}
+
 // "MI FATI OKO 94" / "ми фати окото" — the property CAUGHT THE CLIENT'S EYE
 // (they saw the ad on the site). Written Cyrillic-only: matchesBoth() folds
 // Latin input through normalizeMc, so "mi fati oko" resolves to "ми фати око".
@@ -3867,7 +3897,8 @@ export function detectPropertyDescription(text: string): boolean {
 // that says «I saw your house in Skopje North» read as a brand-new search and
 // the funnel re-asked buy-or-rent. A VIEWING VERB makes that order free: the
 // category word only has to sit in the same clause as the possessive verb.
-const SEEN_LISTING_CATEGORY = '(?:куќ[аи]|куќата|кука|kukj[ai]|kuka|kukata|стан|станови|станот|stan|stanot|гарсоњер[аи]|garsonjer[ai]|плац|плацови|плацот|plac|placot|lokal|локал|деловен|апартман|apartman)';
+const SEEN_LISTING_CATEGORY = typeFormAlternation(
+  ['house', 'flat', 'garsonjera', 'land', 'business', 'apartment']);
 
 /** A MESSAGE THAT IS OUR OWN SCREEN, NOT A CLIENT (the operator's 2026-11-13
  *  [02:04] capture).
@@ -3898,14 +3929,100 @@ export function looksLikeScreenEcho(text: string): boolean {
  *  the funnel must find that listing, never ask him to describe it again. */
 export function detectSeenListingRecall(text: string): boolean {
   const flat = text.replace(/\s+/g, ' ');
-  const past = '(?:имавте|имаше|имав|imavte|imase|imav)';
-  const unit = '(?:еден|една|едно|некој|некоја|некое|eden|edna|edno|nekoj|nekoja|nekoe)';
+  // THE LEXICON (AGENTS.md §4r): a question family is a LIST OF WORDINGS, never
+  // one sentence. The [06:46] field capture reached this detector with «IMAVTE
+  // EDNA KUKJA VO SKOPJE SEVER NA PRODAZBA» (no price, no size) and «DALI E USTE
+  // AKTIVEN OGLASOT ?», while the family only knew «имавте една <category>» —
+  // so the turn fell to the criteria grill. Every sibling wording that means the
+  // same thing belongs HERE, and the sweep in
+  // tests/field-0646-recall-variants.test.ts is the contract.
+  //
+  // THE FAMILY IS NARROWER THAN «ANY SENTENCE WITH A PAST VERB» — the sweep and
+  // the pre-existing lanes pin four exclusions, each of them a turn another lane
+  // already answers better:
+  //   • a POSSESSION QUESTION («имавте ли куќа?») is a search for any unit;
+  //   • a SEARCH-shaped description («go gledav OGLASOT ZA stan vo karpos») is
+  //     the number-first locate funnel — the flat is not the object of the
+  //     sighting verb, the AD is (the [zoki] pins);
+  //   • a category without a unit and without a MEMORY marker («imavte
+  //     garsonjera kaj …») asks whether we have any at that place (the [11:29]
+  //     pin) — «имавте» is only a past possession there, not a recollection;
+  //   • «уште активен?» about the batch on the table is the availability lane.
+  // THE WORDS COME FROM THE SHARED MEMORY LEXICON (src/llm/lexicon/memory.ts):
+  // the market-memory lane, the availability lane and this detector used to own
+  // three different lists of the same past markers.
+  const inflect = (list: readonly string[]): string => list.map((w) => `${w}\\p{L}*`).join('|');
+  const had = `(?:${inflect(MEMORY_HAD)})`;
+  // A MEMORY MARKER NARRATES A LISTING («беше», «имаше»); a bare «имавте» can
+  // also just ask about stock, so only these may carry a unit-less recall.
+  const was = `(?:${inflect(MEMORY_WAS)})`;
+  const saw = `(?:${inflect(MEMORY_SIGHT)})`;
+  const seen = `(?:${inflect([...MEMORY_HAD, ...MEMORY_WAS, ...MEMORY_SIGHT])})`;
+  const unit = `(?:${MEMORY_UNIT.join('|')})`;
+  // SINGULAR categories only for the unit-less arms: «имавте куќИ во Центар?» is
+  // a stock question, not a recall of one listing.
+  const sg = typeSingularAlternation(
+    ['house', 'flat', 'garsonjera', 'land', 'business', 'apartment']);
+  // The AD noun — the thing whose «active?» state he asks about.
+  const oglas = `(?:${inflect(MEMORY_AD_NOUN)})`;
+  const still = '(?:уште ли|уште|се уште|сеуште|uste|se uste|seuste)';
+  // INFLECTED (AGENTS §4b-2): «активен/активна/активно/активни», «стои/стојт».
+  const active = '(?:актив|aktiv|стои|стој|stoi|stoj)\\p{L}*';
   const B = (re: string): RegExp => new RegExp(re, 'iu');
-  // (a) «имавте една куќа» — the verb first.
-  if (B(`(?<![\\p{L}\\p{N}])${past}(?![\\p{L}\\p{N}])[^.!?\\n]{0,18}(?<![\\p{L}\\p{N}])${unit}(?![\\p{L}\\p{N}])[^.!?\\n]{0,14}(?<![\\p{L}\\p{N}])${SEEN_LISTING_CATEGORY}(?![\\p{L}\\p{N}])`).test(flat)) return true;
-  // (b) «гледав куќи и имавте една» — the category first, the unit after the
-  // verb. Still ONE unit recall: the determiner follows the verb that owns it.
-  return B(`(?<![\\p{L}\\p{N}])${SEEN_LISTING_CATEGORY}(?![\\p{L}\\p{N}])[^.!?\\n]{0,25}(?<![\\p{L}\\p{N}])${past}(?![\\p{L}\\p{N}])[^.!?\\n]{0,18}(?<![\\p{L}\\p{N}])${unit}(?![\\p{L}\\p{N}])`).test(flat);
+  const NB = '(?<![\\p{L}\\p{N}])';
+  const NA = '(?![\\p{L}\\p{N}])';
+  const GAP = '[^.!?\\n]';
+  // A POSSESSION QUESTION IS NOT A RECALL: «имавте ли куќа?» / «дали имавте …» is
+  // a NEW search for a category and it keeps the funnel. Both scripts («li»).
+  if (B(`${NB}${had}${NA}\\s*(?:ли|li)${NA}`).test(flat)) return false;
+  if (B(`${NB}(?:дали|dali)${NA}${GAP}{0,10}${NB}${had}${NA}`).test(flat)) return false;
+  // (a) «имавте една куќа» — the verb first, the unit right after it.
+  if (B(`${NB}${seen}${NA}${GAP}{0,18}${NB}${unit}${NA}${GAP}{0,14}${NB}${SEEN_LISTING_CATEGORY}${NA}`).test(flat)) return true;
+  // (b) «гледав куќи и имавте една» — the category first, the unit after the verb.
+  if (B(`${NB}${SEEN_LISTING_CATEGORY}${NA}${GAP}{0,25}${NB}${seen}${NA}${GAP}{0,18}${NB}${unit}${NA}`).test(flat)) return true;
+  // (c) THE UNIT IS OPTIONAL AFTER A MEMORY MARKER («имаше куќа», «беше куќа»):
+  // the narration itself names one listing, even without «една».
+  if (B(`${NB}${was}${NA}${GAP}{0,24}${NB}${sg}${NA}`).test(flat)) return true;
+  // (c2) THE SIGHTING VERB OWNS ITS DIRECT OBJECT: «видов куќа» / «VIDOV KUKJA
+  // NA VASNIOT SAJT». The category must FOLLOW THE VERB IMMEDIATELY — in «go
+  // gledav oglasot za stan» the direct object is the AD, and that sentence is
+  // the number-first locate funnel (the [zoki] pins), not a recall.
+  if (B(`${NB}${saw}${NA}\\s*${sg}${NA}`).test(flat)) return true;
+  // (d) …and the mirror: «куќата во Скопје Север за 130000 беше».
+  if (B(`${NB}${sg}${NA}${GAP}{0,40}${NB}${was}${NA}`).test(flat)) return true;
+  // (f) THE AD ITSELF SPOKE (the [10:01] capture): «PISUVASE VO BLIZINA NA
+  // CRNOGORSKA AMBASADA» + «OKOLU 30 000 EVRA CENA» — the client quotes the
+  // listing's own text, which names the place and the money but no category
+  // noun («MALA BESE»). Without this arm the turn fell into the criteria grill
+  // and asked a client reading an ad which bedrooms he wants.
+  const adSaid = `(?:${inflect(MEMORY_AD_SAID)})`;
+  const placeOrMoney = `${NB}(?:во|vo|на|na|кај|kaj|до|do|близу|blizu)${NA}|${NB}\\d{2,6}${NA}|(?:евра|евро|evra|evro|eur)${NA}`;
+  if (B(`${NB}${adSaid}${NA}${GAP}{0,40}(?:${placeOrMoney})`).test(flat)) return true;
+  // (e) THE AD-IS-STILL-ON HALF — the AD noun must be there, or the sentence is
+  // the availability question about the batch on the table (its own lane).
+  // Both word orders: «уште ли стои огласот за куќата …» / «огласот за куќата …
+  // е се уште активен» / «дали е уште активен огласот за куќата …».
+  if (!B(`${NB}${oglas}${NA}`).test(flat)) return false;
+  if (B(`${NB}${still}${NA}${GAP}{0,20}${NB}${active}${NA}${GAP}{0,40}${NB}${sg}${NA}`).test(flat)) return true;
+  return B(`${NB}${sg}${NA}${GAP}{0,40}${NB}${still}${NA}${GAP}{0,10}${NB}${active}${NA}`).test(flat);
+}
+
+/** THE RECALL'S OWN CATEGORY LEXICON (AGTENTS §4r) — extractSlots() misses a
+ *  definite-form noun («куќата», «огласот за куќата»), so a recall that names the
+ *  category only that way reached the lane with no type and was answered with
+ *  «колку квадрати има станот» about a house. Reads the SAME singular lexicon the
+ *  recall detector owns, so the two can never drift. */
+export function detectRecallCategory(text: string): { house?: boolean; garsonjera?: boolean; plac?: boolean; business?: boolean } {
+  // THE SHARED READER, not another list: this function and the recall detector
+  // used to hold two copies of the same category vocabulary («куќ[аи]» here,
+  // «куќа|куќата|кука…» there), and two copies drift.
+  const named = propertyCategoriesIn(text.replace(/\s+/g, ' '));
+  const out: { house?: boolean; garsonjera?: boolean; plac?: boolean; business?: boolean } = {};
+  if (named.includes('house')) out.house = true;
+  if (named.includes('garsonjera')) out.garsonjera = true;
+  if (named.includes('land')) out.plac = true;
+  if (named.includes('business')) out.business = true;
+  return out;
 }
 
 /** One category of a recall that names SEVERAL (see splitRecallCategories). */
@@ -3983,6 +4100,12 @@ export function splitRecallCategories(text: string): RecallPart[] {
 const VISIT_TIME_RE =
   /(утре|задутре|денес|денеска|вечерва|попладне|напладне|претпладне|утрово|наутро|вечер|викенд|во\s*\d{1,2}([.:]\d{2})?|околу\s*\d{1,2}|(?<![а-џ])(?:накај)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|после\s*\d{1,2}|по\s*\d{1,2}|(?<![а-џ])(?:на|од)\s*\d{1,2}(?![0-9а-џ])(?!\s*(?:евр|кв|метар|е(?![а-џ])))|понеделник|понеделок|вторник|среда|четврток|петок|сабота|недела|понеделни|вторни|среди|четврто|петочни|саботи|недели|\b\d{1,2}:\d{2}\b|utre|zadutre|denes|vecer|popladne|napladne|utrovo|vikend|posle\s*\d{1,2}|okolu\s*\d{1,2}|okolo\s*\d{1,2}|(?<![a-zа-џ])nakaj\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|po\s*\d{1,2}|(?<![a-zа-џ])(?:na|od)\s*\d{1,2}(?![0-9a-zа-џ])(?!\s*(?:evr|eur|kvadrat|kv|m2|metar|e\b))|vo\s*\d{1,2}([.:]\d{2})?|ponedelnik|ponednik|ponedelok|vtornik|sreda|cetvrtok|petok|sabota|nedela)/i;
 
+/** A REFUSAL THAT STILL ASKS FOR ANOTHER TIME (the [04:05] pin): «NE MOZAM VO
+ *  18:00 DALI MOZE POKASNO» is ONE clause — the refusal and the counter are in
+ *  the same sentence, so dropping the clause would drop the request. A pure
+ *  refusal («NE MOZAM VO VTORNIK») carries no such tail and stays no term. */
+const TERM_REQUEST_TAIL_RE = /(?<![\p{L}])(?:дали\s+може|dali\s+moze|може\s+ли|moze\s+li|покасно|pokasno|порано|porano|друг\s+термин|drug\s+termin)(?![\p{L}])/iu;
+
 /** A CLAUSE THAT REFUSES A TERM — never the term (see visitTermClause). */
 const TERM_REFUSAL_RE = /(?<![\p{L}])(?:ne\s+mi\s+odgovara|ne\s+mi\s+e|ne\s+odgovara|ne\s+mozam|ne\s+moze|ne\s+sakam|ne\s+sum\s+vo\s+moznost|не\s+ми\s+одговара|не\s+ми\s+е|не\s+одговара|не\s+можам|не\s+може|не\s+сакам|не\s+сум\s+во\s+можност)(?![\p{L}])/iu;
 
@@ -4001,10 +4124,19 @@ export function visitTermClause(text: string): string {
   const t = (text ?? '').trim();
   if (!t || !TERM_REFUSAL_RE.test(t)) return t;
   const clauses = t.split(/[.?!;,\n]+/u).map(c => c.trim()).filter(Boolean);
-  if (clauses.length < 2) return t;
   const kept = clauses.filter(c => !TERM_REFUSAL_RE.test(c));
+  // A PURE REFUSAL PROPOSES NOTHING (the [10:06] capture): «NE MOZAM VO
+  // VTORNIK» is the client saying no to a term, and the old single-clause
+  // shortcut handed the sentence back as HIS OWN PROPOSAL — the owner was then
+  // asked about a term the client had just refused. Empty means "no term here";
+  // the caller asks for the new one instead of relaying the refusal.
   const joined = kept.join(', ').trim();
-  return joined || t;
+  if (joined) return joined;
+  // NOTHING SURVIVED — but the refusal itself may still carry the counter
+  // («…DALI MOZE POKASNO»): that sentence IS the client's word about the term,
+  // and the owner ping-pong reads it. Only a refusal with no request tail is
+  // no term at all.
+  return TERM_REQUEST_TAIL_RE.test(t) ? t : '';
 }
 
 export function detectVisitTime(text: string): string | undefined {
@@ -4012,7 +4144,13 @@ export function detectVisitTime(text: string): string | undefined {
   // "nedela" and matched — the question was then forwarded to the OWNER as a
   // proposed visit term. A question about agency hours is never a slot.
   if (detectWorkdaysQuestion(text)) return undefined;
-  if (VISIT_TIME_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  // A REFUSAL IS NOT A PROPOSAL: visitTermClause returns '' when the message
+  // only refuses a term, and that is no term at all — undefined, never ''.
+  const clause = (): string | undefined => {
+    const c = visitTermClause(text).trim().slice(0, 80);
+    return c || undefined;
+  };
+  if (VISIT_TIME_RE.test(text)) return clause();
   // DAY + TRAILING BARE HOUR ("PONEDELIK 6", "сабота 6") — the digit after a
   // day word IS the clock (the [12:42] transcript: only the day was captured,
   // the funnel re-asked the hour the client had already given, and the bare
@@ -4020,46 +4158,46 @@ export function detectVisitTime(text: string): string | undefined {
   // hour-digit message in the visit protocol ("6") — with a day already in
   // the stored slot, classify merges them; without one, the vague-time ask
   // collects the day. Guarded: no clock/date tail (11.06), no money tail.
-  if (DAY_TRAILING_HOUR_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  if (DAY_TRAILING_HOUR_RE.test(text)) return clause();
   // BARE hour-word clock ("6 SAAT", "6 саати", "6 casot") — the split
   // [14:35] message: the client gave the day ("VO PONEDELNIK MOZAM") in one
   // message and the clock in the next. The hour noun anchors the digits as a
   // clock; a bare "6" alone (no hour word) still parses as nothing.
-  if (HOUR_WORD_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  if (HOUR_WORD_RE.test(text)) return clause();
   // SPOKEN HALF-HOUR ("пет и пол" / "pet i pol" = 5:30, PM-shifted to 17:30
   // for afternoon viewings) — the [22:50] transcript: the client refined a
   // vague "VO VTORNIK POSLE 5" with "PA NEKA BIDE PET I POL" and the LLM
   // classifier alone read it as bare 5:30, dropping the day. Deterministic so
   // the day-donation merge can keep ВТОРНИК.
-  if (HALF_CLOCK_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  if (HALF_CLOCK_RE.test(text)) return clause();
   // DIGIT HALF-HOUR («6IPOL», «7 и пол») — the SAME half-hour said with a
   // digit, which is how the [17:43] client answered the exact-hour ask
   // («NEKA BIDE 6IPOL» = 18:30). The owner's counter form («Cetvrtok vo
   // 7ipol») was already read by parseVisitDateTime, but the CLIENT-side slot
   // builder only knew the spoken «пет и пол», so without an LLM the answer was
   // not recognized as a time at all and the funnel re-asked the term.
-  if (DIGIT_HALF_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  if (DIGIT_HALF_RE.test(text)) return clause();
   // DIGIT + «и» + MINUTES («5 I 30» = 5:30) — the [13:16] capture: the client
   // answered the exact-hour ask with «NEKA BIDE 5 I 30» and the funnel re-asked
   // the whole term question, because no family read an hour digit, a
   // conjunction and the minutes as a clock. One family, one source: the regex
   // lives in visits/time.ts beside the half-hour siblings so the validator and
   // the parser can never disagree with this detector.
-  if (DIGIT_MINUTES_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  if (DIGIT_MINUTES_RE.test(text)) return clause();
   // SPOKEN QUARTERS, THE HALF-TO and RANGES — the rest of the same clock
   // family (visits/time.ts owns every pattern): «пет и четврт» = 5:15,
   // «без четврт пет» = 4:45, «пол 6» = 5:30, «од 5 до 7» = a WINDOW (the
   // funnel asks the exact hour instead of relaying the first number). One arm
   // per shape, all from the shared constants, so the detector, the validator
   // and the parser can never disagree about what names a clock.
-  if (QUARTER_PAST_RE.test(text) || QUARTER_TO_RE.test(text) || HALF_TO_RE.test(text)) return visitTermClause(text).slice(0, 80);
-  if (TIME_RANGE_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  if (QUARTER_PAST_RE.test(text) || QUARTER_TO_RE.test(text) || HALF_TO_RE.test(text)) return clause();
+  if (TIME_RANGE_RE.test(text)) return clause();
   // ASSENT + BARE HOUR («PA NEKA BIDE 5» = 17:00) — the [18:49] capture: the
   // client answered the exact-hour ask («Во колку часот планирате да
   // дојдете?») with a consent frame and a naked digit, and NO family read it
   // as a clock, so the whole visit question was asked again. Same family as
   // the hour word — the frame anchors the digit — one source in visits/time.
-  if (ASSENT_HOUR_RE.test(text)) return visitTermClause(text).slice(0, 80);
+  if (ASSENT_HOUR_RE.test(text)) return clause();
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.
@@ -4069,8 +4207,13 @@ export function detectVisitTime(text: string): string | undefined {
   // The Cyrillic form rides the existing substring arms (понеделни).
   // “ponedelik/понеделк” — the n→k / dropped-n slips ([12:42] transcript)
   // are pinned here too: three day-typo spellings, all meaning понеделник.
-  if (fuzzyHasToken(text, ['понеделник', 'понеделк', 'вторник', 'четврток', 'сабота', 'недела',
-    'попладне', 'напладне', 'претпладне', 'викенд', 'задутре'])) return visitTermClause(text).slice(0, 80);
+  // A LOOKALIKE IS NOT A TYPO (the [10:06] capture): «RABOTA» is distance 1
+  // from «SABOTA», so «CEL DEN SUM NA RABOTA» («I am at work all day», a BUSY
+  // REASON) was read as a Saturday proposal and relayed to the owner. The
+  // false-friend guard is one reader, applied to the whole fuzzy arm.
+  if (!DAY_LOOKALIKE_RE.test(text)
+    && fuzzyHasToken(text, ['понеделник', 'понеделк', 'вторник', 'четврток', 'сабота', 'недела',
+      'попладне', 'напладне', 'претпладне', 'викенд', 'задутре'])) return clause();
   return undefined;
 }
 
@@ -4170,13 +4313,14 @@ export function detectTimeRejection(text: string): boolean {
 // WEAK terms (кафе/ресторан/салон/хотел are often LANDMARKS — "сакам стан до
 // кафе") require a need/transaction context so a landmark mention never
 // flips a residential search into a business one.
-const BUSINESS_STRONG_RE = /(деловен|деловни|деловна|деловно|канцелар|локал|магацин|склад|хала|бизнис|офис|дукјан|дукан|дуќан|продавниц|ателје|деловен|деловни|деловна|канцелари|канцелариски|локал|магацин|склад|хала|бизнис|офис|дуќан|дукан|продавниц|атеље|пословен|пословн|оффице|бусинесс|цоммерциал)/i;
+const BUSINESS_STRONG_RE = new RegExp(looseTypePattern(['business']), 'iu');
 const BUSINESS_WEAK_RE = /(ресторан|кафуле|кафич|кафе|салон|хотел|ресторан|кафуле|кафиц|кафе|салон|хотел)/i;
 const BUSINESS_NEED_RE = /(ми треба|барам|сакам|треба|потребен|потребна|неед|треба|барам|сакам|за изнајмување|за издавање|под кирија|за изнајмува|за изнајмување|за издавање|под кирија|за изнајмув|рент|изнајмувам)/i;
 // An explicit RESIDENTIAL word (стан/куќа/гаража стамбен) means the weak
 // term is a LANDMARK, not the property type: "сакам стан до кафе" is an
 // apartment search, "барам локал до кафе" is a business search.
-const RESIDENTIAL_WORD_RE = /(стан|стани|станче|куќ|кука|хоусе|стан|станце|апартмент|гаража|гараза|стамбен|стамбен)/i;
+const RESIDENTIAL_WORD_RE = new RegExp(
+  looseTypePattern(['house', 'flat', 'garsonjera', 'apartment', 'garage']), 'iu');
 
 export function detectBusiness(text: string): boolean {
   // THE NEGATED SPAN IS STRIPPED FIRST (the [19:07] capture «SAKAM DUKJAN DA
@@ -4200,8 +4344,13 @@ export function detectBusiness(text: string): boolean {
 // "kukuca" (22:53 sweep corpus) is a Latin-typed куќа with a doubled k;
 // normalizeMc maps it to "кукуца", which CONTAINS no "кука" — the word is
 // added verbatim so Latin house typos keep their category.
-const HOUSE_RE = /(куќ|кукја|кукји|кука|кукуца|хоусе|вила)/i;
-const APARTMENT_RE = /(стан|стани|станче|стан|станце|апартмент|апартман)/i;
+const HOUSE_RE = new RegExp(typeFormPattern(['house']), 'iu');
+// THE EITHER/OR SIDE IS «стан/апартман», NOT «гарсоњера» ('flat', 'apartment') —
+// a гapсоњера is a studio FLAT for the flat lock (`FLAT_WORD_RE` knows it), but
+// it must not cancel a named куќа here: the [22:26] two-part recall
+// («гарсоњера … ИЛИ куќа») names BOTH, and `detectHouse` answering false made
+// `extractSlots` drop the house half the split lane exists for.
+const APARTMENT_RE = new RegExp(typeFormPattern(['flat', 'apartment']), 'iu');
 
 /**
  * House intent: true = куќа, false = explicit стан, UNDEFINED when the message
@@ -9991,8 +10140,7 @@ const MARKET_SQM_UNIT_RE =
 // `stn` is the client's own shorthand for стан (the [00:34]/[01:16] captures:
 // «STN MI TREBA», «KOLKU IDAT TAMU STNOVITE») — the same family as the flat
 // word, so the plural must know it too.
-const MARKET_TYPE_PLURAL_RE =
-  /(?<![\p{L}\p{N}])(?:stanovi|станови|stanovite|становите|stnovi|стнови|stnovite|стновите|kukji|куќи|kukjite|куќите|lokali|локали|lokalite|локалите|garazhi|гаражи|garsoњeri|гарсоњери|apartmani|апартмани)(?![\p{L}\p{N}])/iu;
+const MARKET_TYPE_PLURAL_RE = new RegExp(`${NB}${typePluralAlternation()}${NA}`, 'iu');
 // Movement of prices — „se dvizat“, „odat“, „se menuvaat“, „rastat“, „padat“.
 // The KAKO scaffold is optional but FUSED-tolerant: Viber typing runs the
 // words together — „KAKOODAT“ / „какоодат“ ([17:34]) is „како одат“, and a
@@ -10134,14 +10282,15 @@ const MEMORY_AGENCY_RE =
   /(?<![\p{L}\p{N}])(?:kaj\s+(?:vas|nas)|кај\s+(?:вас|нас)|у\s+вас|u\s+vas)(?![\p{L}\p{N}])/iu;
 // Existence in the PAST: имаше/имашеч (long-press noise included via the stem),
 // Latin imashe/imasech/imaše, беше/беш, Latin bese/beshe.
-const MEMORY_PAST_RE =
-  /(?<![\p{L}\p{N}])(?:imas\p{L}*|imaš\p{L}*|имаш\p{L}*|беш\p{L}*|bes\p{L}*)/iu;
+const MEMORY_PAST_RE = new RegExp(
+  `${NB}(?:${MEMORY_HAD.map((w) => w + '\\p{L}*').join('|')}`
+  + `|${MEMORY_WAS.map((w) => w + '\\p{L}*').join('|')})${NA}`, 'iu');
 // The recollected property noun — stems open-ended; the start boundary keeps
 // „перуќа“-style accidents out, and the MEMORY gate below does the precision
 // work (agency anchor + past tense + money). The «ч» spelling rides with «ќ» —
 // the [02:00] capture itself typed „КУчА“.
-const MEMORY_NOUN_RE =
-  /(?<![\p{L}\p{N}])(?:куќ\p{L}*|куч\p{L}*|kuk\p{L}*|kuc\p{L}*|станов\p{L}*|стан\p{L}*|stan\p{L}*|гарсоњер\p{L}*|garsonj?er\p{L}*|локал\p{L}*|lokal\p{L}*|деловен(?:\s+простор)?|deloven(?:\s+prostor)?)(?![\p{L}\p{N}])/iu;
+const MEMORY_NOUN_RE = new RegExp(
+  looseTypePattern(['house', 'flat', 'garsonjera', 'business']), 'iu');
 // A money figure: digits + currency, digits + the rent noun, or a budget
 // preposition + digits („DO 12000“). One of the three is the money signal.
 const MEMORY_MONEY_RE =
@@ -10165,12 +10314,9 @@ export function detectMarketMemoryAsk(text: string): boolean {
 /** The recollected property noun, for the ack wording („Таа куќа е стара
  *  понуда…“). Undefined when the memory line names none. */
 export function memoryTypeNoun(text: string): string | undefined {
-  if (matchesBoth(/(?<![\p{L}\p{N}])гарсоњер\p{L}*|garsonj?er\p{L}*/iu, text)) return 'гарсоњера';
-  if (matchesBoth(/(?<![\p{L}\p{N}])локал\p{L}*|lokal\p{L}*/iu, text)) return 'локал';
-  if (matchesBoth(/деловен|deloven/iu, text)) return 'деловен простор';
-  if (matchesBoth(/(?<![\p{L}\p{N}])(?:куќ|куч|kuk|kuc)\p{L}*/iu, text)) return 'куќа';
-  if (matchesBoth(/(?<![\p{L}\p{N}])(?:стан|stan|станов)\p{L}*/iu, text)) return 'стан';
-  return undefined;
+  // One reader for the noun, so the ack says the SAME category the gates read —
+  // and the FINEST name in it («локал» stays локал, not «деловен простор»).
+  return readPropertyNoun(text);
 }
 
 /** True when the recall carries a RENT context („400 ЕВРА КИРИЈА“) — the

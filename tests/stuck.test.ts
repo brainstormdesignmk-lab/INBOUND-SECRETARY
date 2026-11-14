@@ -993,7 +993,12 @@ test('owner_checking: the client rejects the proposed time -> new time collected
   await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
-  let s = await send('UTRE POPLADNE POSLE 6');
+  // A WEEKDAY-ANCHORED TERM ON PURPOSE: the appliance refuses weekend terms
+  // (the [10:33] working-hours rule), and «утре» is a Saturday/Sunday whenever
+  // this suite runs on a Friday or a Saturday — a date-dependent pin. The
+  // ping-pong under test (a clock-only counter inherits the day under
+  // negotiation) is what matters, and a named weekday keeps it deterministic.
+  let s = await send('VO PONEDELNIK VO 18:00');
   assert.equal(s.state, 'owner_checking');
   assert.equal(ownerAsks.length, 1);
   // The [14:22] contract: the owner reads the TRANSLATED term (canonical
@@ -1170,13 +1175,16 @@ test('owner refusal "denes nema da mozam" is a COUNTER — the visit is never co
   await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
-  let s = await send('deneska vo 18:00');
+  // WEEKDAY-ANCHORED START (see the ping-pong test): the counter below inherits
+  // the day under negotiation, and on a Friday/Saturday run «денеска» resolves
+  // to a weekend the agency refuses — a date-dependent pin, not a defect.
+  let s = await send('VO PONEDELNIK VO 18:00');
   assert.equal(s.state, 'owner_checking');
 
   // THE PASTE: the owner says he CAN'T today but proposes tomorrow 16:00.
   // The refusal must NEVER resolve to ok (that closed the deal in the field)
   // and the raw owner text must never become the stored visit time.
-  handler.ownerAnswer(chatId, 78, detectOwnerVerdict('denes nema da mozam. utre vo 16:00 ?', 'deneska vo 18:00')!);
+  handler.ownerAnswer(chatId, 78, detectOwnerVerdict('denes nema da mozam. utre vo 16:00 ?', 'VO PONEDELNIK VO 18:00')!);
   await new Promise(r => setTimeout(r, 50)); // let the enqueued verdict land
   s = sessions.get(chatId)!;
   assert.equal(s.state, 'time_confirm');
@@ -1212,11 +1220,14 @@ test('owner BARE refusal (no alternative time): no fabricated "по догово
   await send('DA'); // confirm owner contact
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
-  let s = await send('UTRE VO 18:00');
+  // WEEKDAY-ANCHORED START (see the ping-pong test): «утре» is a weekend on a
+  // Friday/Saturday run, and the weekday makes the clock-only counter below
+  // deterministic.
+  let s = await send('VO PONEDELNIK VO 18:00');
   assert.equal(s.state, 'owner_checking');
 
   // THE FIELD: the owner refuses the proposed time without offering another
-  handler.ownerAnswer(chatId, 78, detectOwnerVerdict('ne mozam vo toj termin', 'UTRE VO 18:00')!);
+  handler.ownerAnswer(chatId, 78, detectOwnerVerdict('ne mozam vo toj termin', 'VO PONEDELNIK VO 18:00')!);
   await new Promise(r => setTimeout(r, 50)); // let the enqueued verdict land
   s = sessions.get(chatId)!;
   const relay = sent[sent.length - 1];

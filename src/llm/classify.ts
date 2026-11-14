@@ -3,7 +3,7 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, DetectedSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectFeeNag, detectFeeAmountAsk, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, DetectedSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectPropertySelection, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectFeeNag, detectFeeAmountAsk, GREETING_ONLY_RE } from './deterministic';
 import { hasClockHint } from '../visits/time';
 
 import { extractDayWord, mergeVisitTerm, detectSameTimeReference } from '../visits/time';
@@ -566,6 +566,16 @@ export class Classifier {
     // operable again while the correction event keeps its budget untouched.
     if (barePid && ev.budget === undefined) {
       ev = { type: 'PROPERTY_ID_REQUESTED', propertyId: barePid };
+    }
+    // A COMMITMENT THAT NAMES THE EB IS INTERESTED, NOT AN ID LOOKUP (the
+    // [10:06] protocol): «GO IZBRAV STANOT SO EB 66» carries a number, and the
+    // promotion above made it a request to SEE the card — so the choice was
+    // answered with the flat's specs. The number is the SUBJECT of the
+    // decision here, not a question about it: the event is INTERESTED, the
+    // closing funnel runs, and the handler serves the congratulation + the
+    // visit-fee explanation.
+    if (ev.type === 'PROPERTY_ID_REQUESTED' && detectPropertySelection(text)) {
+      ev = { type: 'INTERESTED', propertyId: ev.propertyId };
     }
 
     // Session-merge completeness: buildEvent sees only THIS message's slots,
@@ -1428,7 +1438,10 @@ export class Classifier {
       && !session.slots.dualService && detectService(text) !== undefined;
     if (!marketAnswer && parsed.event.type !== 'REJECTED' && parsed.event.type !== 'ESCALATE'
       && parsed.event.type !== 'INTERESTED'
-      && detectPropertyInterest(text)
+      // A COMMITMENT IS AN INTEREST THAT HAS DECIDED (the [10:06] protocol):
+      // «го избрав станот 63» must reach the closing funnel — the congratulation
+      // and the visit-fee explanation live there — never fall through as STAY.
+      && (detectPropertyInterest(text) || detectPropertySelection(text))
       && PROP_INTAKE_STATES.has(session.state)
       && propertyOnTable(session)) {
       parsed.event = { type: 'INTERESTED',

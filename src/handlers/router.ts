@@ -589,7 +589,10 @@ export const ROUTING_ORDER: RouteRule[] = [
       && !detectFeeSurprise(t) && !detectProvisionAsk(t) && !detectProvisionWho(t)
       && inferPropertyId(t) === undefined
       && extractSlots(t).bedrooms === undefined
-      && !/(?<![\p{L}])(?:stanovi|станови|kuki|куќи|garsonjeri|гарсоњери|placa|плацеви|lokali|локали|prostori|простори)(?![\p{L}])/iu.test(t)
+      // The plural MARKET noun is one family (the shared property lexicon): the
+      // local list here and `hasMarketTypePlural`'s had already diverged —
+      // «плацеви»/«простори» vetoed here and were invisible there.
+      && !hasMarketTypePlural(t)
       && !detectInventoryAsk(t) && !detectAreaHaveAsk(t)
       && !sl.viewingFeeAgreed },
   // PROXY CONTACT (inbound.ts 8342, after the info block) — the client asks the

@@ -14,14 +14,15 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
-import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, pad2, isWeekendTerm } from '../visits/time';
+import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, pad2, isWeekendTerm,
+  isCompleteVisitTerm, missingTermPiece } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
 import { dayStartOf, slotStartOf, isSlotTaken, freeHoursNear, buildSlotTakenLine, type CalendarInput } from '../visits/calendar';
 import { solveChain, type VisitPlanState } from '../visits/chain';
@@ -129,13 +130,14 @@ const LANDMARK_OPPOSITE_RE = /(?:спроти|наспроти|sproti|nasproti)/
 // The seen-listing recall lane yields to the number funnel when the client names
 // one. EB_NAMED_RE lives in deterministic.ts (imported above): the ROUTE MIRROR
 // applies the same exclusion, and two copies of the guard would drift.
-/** «ТАМУ» — THE PLACE THE CHAT IS ALREADY AT (the [20:47] capture).
- *  «IMAVTE EDNA GARSONJERA TAMU SO KIRIJA OD 200 EVRA» points back at the place
- *  bound one turn earlier (Католичка): no second place name, no кај/до/близу,
- *  just the adverb. Every lane that reads a place from the MESSAGE alone missed
- *  it — the recall had no anchor, so the criteria funnel asked him how many
- *  bedrooms he wants in a flat he had already seen. One reader, both lanes. */
-const ANCHOR_WORD_RE = /(?<![\p{L}\p{N}])(?:таму|тамо|там|tamu|tamo|tam)(?![\p{L}\p{N}])/iu;
+// «ТАМУ» (the place the chat is already at, [20:47]) and «кај/до/близу + a
+// place» (a LANDMARK reading, «во + an area» is not — the [11:29] rule) come
+// from the SHARED PLACE LEXICON: the one-place reading in inferPropertyId(),
+// the description-vs-recall precedence and the price-less recall gate all read
+// ONE definition, so a local copy can never drift. The module also carries the
+// guards the first local copy lacked: «до 130.000 евра» is a PRICE, not a
+// landmark, and «кај вас/нас» is the AGENCY anchor, not a place.
+import { ANCHOR_ADVERB_RE, LANDMARK_PREP_RE, isLandmarkAnchored } from '../llm/lexicon';
 // «дали се продава УШТЕ?» — the trailing-adverb word order puts «уште» AFTER
 // the verb, which detectAvailabilityAsk's strict arms do not read (the [20:11]
 // capture: «dali se prodava uste ?» was answered with the same card again).
@@ -1461,6 +1463,18 @@ export interface OwnerMessageResult {
   replay?: boolean;
 }
 
+/** DOES THE RECALL NAME ITS OWN FIGURE? The [10:01] capture: «IMAVTE EDNA MALA
+ *  GARSONJERA KAJ CRNOGORSKA AMBASADA , OKOLU 30 000 EVRA BESE» already answers
+ *  the description lane's question («колку квадрати, по која цена»), so that
+ *  lane must stand down and let the recall serve. A price-less recall at a
+ *  landmark keeps the description lane (the [11:29] cold pin). */
+function recallCarriesFigure(text: string): boolean {
+  const slots = extractSlots(text);
+  return slots.budget !== undefined || slots.bedrooms !== undefined
+    || slots.bedroomsMin !== undefined || slots.bedroomsMax !== undefined
+    || slots.sqm !== undefined;
+}
+
 export class InboundHandler {
   readonly ownerAgent: OwnerAgent;
   readonly agents: AgentStore;
@@ -1804,7 +1818,6 @@ export class InboundHandler {
     // „имате нешто во Центар?“ names an AREA, not a landmark — it keeps the
     // funnel, exactly like a search.
     const OFFER_ASK_RE = /(?<![\p{L}\p{N}])(?:imate|imavte|imase|ima\s+li|имате|имавте|имаше|има\s+ли)(?![\p{L}\p{N}])/iu;
-    const LANDMARK_PREP_RE = /(?<![\p{L}\p{N}])(?:kaj|do|blizu|кај|до|близу|во\s+близина\s+на)(?![\p{L}\p{N}])/iu;
     const pointsAtOne = POINTS_AT_ONE_RE.test(text) || detectAvailabilityAsk(text);
     let poi: MentionPoi | undefined;
     // THE PLACE IS READ THE SAME WAY EVERY OTHER LANDMARK SEAM READS IT (the
@@ -1837,12 +1850,12 @@ export class InboundHandler {
     // preposition, just the anchor the session already holds. Reading it as a
     // fresh search asked him how many bedrooms he wants in a flat he had
     // already seen, at a price he had already quoted.
-    if (!poi && ANCHOR_WORD_RE.test(text) && typeof session.slots.poiAnchor === 'string') {
+    if (!poi && ANCHOR_ADVERB_RE.test(text) && typeof session.slots.poiAnchor === 'string') {
       const held = this.landmarks?.findPlace(session.slots.poiAnchor);
       if (held) poi = { name: held.name, lat: held.lat, lon: held.lon };
     }
     const offerAtPlace = opts?.offerAtPlace === true
-      && OFFER_ASK_RE.test(text) && (LANDMARK_PREP_RE.test(text) || ANCHOR_WORD_RE.test(text)) && !!poi;
+      && OFFER_ASK_RE.test(text) && (LANDMARK_PREP_RE.test(text) || ANCHOR_ADVERB_RE.test(text)) && !!poi;
     // «ГО БАРАМ СТАНОТ СПРОТИ X» IS A ONE-PROPERTY READING TOO (the [12:24]
     // capture): the client names the flat by the place it faces and asks to find
     // it — no availability word, no demonstrative, no have-verb, so neither
@@ -3535,6 +3548,18 @@ export class InboundHandler {
       }
     }
     return undefined;
+  }
+
+  /** Does this clause read a POINT (кај/до/близу/таму) rather than a district?
+   *  One predicate, three consumers: the one-place reading in inferPropertyId(),
+   *  the description-vs-recall precedence, and the price-less recall gate. The
+   *  distinction is a CONTRACT, not a detail — «имавте гарсоњера кај Црногорска
+   *  амбасада» names a landmark the map resolves (the place lane answers it with
+   *  that one row's availability), while «имавте куќа во Скопје Север» names an
+   *  area no lane read (the [06:46] miss). The list itself lives in the shared
+   *  place lexicon; this only names the question. */
+  private landmarkAnchoredClause(text: string): boolean {
+    return isLandmarkAnchored(text);
   }
 
   private placeWish(text: string): { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined {
@@ -7362,7 +7387,14 @@ export class InboundHandler {
     // Sits with the other money lanes, before any search/INFO lane can claim
     // the message; resistance is vetoed inside the detector, so the nag ladder
     // still owns every pushback.
-    if (detectFeePerPropertyAsk(text) && !session.slots.viewingFeeAgreed) {
+    if (detectFeePerPropertyAsk(text)
+      // A COUNT QUESTION SURVIVES AN AGREED FEE (the [10:03] capture): «KOLKU BI
+      // PLATIL ZA DA VIDAM DVA STANA NA PRIMER?» asks the TOTAL for two visits,
+      // which the disclosure never stated. With the fee already agreed it fell
+      // to the term re-ask; with the ladder climbing it climbed and answered a
+      // money question with the agency-rules copy. A how-much-for-N question is
+      // neither resistance nor a re-disclosure — it is arithmetic.
+      && (!session.slots.viewingFeeAgreed || feeArithmeticCount(text) !== undefined)) {
       const feeSvc = session.slots.service;
       const feeCnt = feeArithmeticCount(text);
       const confirmation = buildFeePerProperty(feeSvc, feeCnt);
@@ -7385,7 +7417,16 @@ export class InboundHandler {
       // question («500 DEN PO STAN?») still burns nothing.
       const arithmeticPushback = detectFeeNag(text)
         || /\b(?:samo|samo\s+toa)\b|\b(?:mnogu|mnogu\s+e)\b|(?:скап\p{L}*|skap\p{L}*)/iu.test(text);
-      const rung = (alreadyClimbing || arithmeticPushback) ? this.serveFeeNagLadder(session) : undefined;
+      // THE TOTAL IS NEW INFORMATION, THE RATE IS NOT (the two field rules,
+      // both pinned): once the ladder climbs, re-confirming the RATE
+      // («ZA SEKOJ STAN STO KE SE POSETI PO 500 ?», [19:40]) must climb with it —
+      // she cannot explain the terms forever. But a COUNT question
+      // («…DVA STANA…», [10:03]) asks a total the ladder never gave, so it is
+      // answered with the sum (500 each, 1.000 for two) and burns nothing.
+      const totalAsk = feeCnt !== undefined && feeCnt > 1;
+      const rung = (arithmeticPushback || (alreadyClimbing && !totalAsk))
+        ? this.serveFeeNagLadder(session)
+        : undefined;
       // A CLIMBING ladder answers with the rung ALONE — a maths prefix turns the
       // turn back into the explanation. The confirmation stays for the FIRST
       // arithmetic pushback (the [02:43] capture), where the client's own sum is
@@ -9025,8 +9066,27 @@ export class InboundHandler {
     // is there NOW: entering property_locate answered it with «дали го знаете
     // Евидентен број на тој стан?», while its sibling opening served the
     // inventory. Inventory asks are funnel traffic — the see-offers serve owns
-    // them, in every opening.
+    // them, in every opening.    // THE RECALL OUTRANKS A DESCRIPTION (the [06:46] variant «уште ли стои
+    // огласот за куќата во Скопје Север»): detectPropertyDescription() reads any
+    // «куќа …» sentence as the client's OWN listing and runs the locate-specs
+    // ask — but a message that describes a listing HE SAW is answered with that
+    // listing (helpful mode), never with «колку квадрати има».
+    // THE SCOPE IS THE ANCHOR, never the verb alone (the [11:29] cold pin): a
+    // recall anchored by a LANDMARK («имавте една гарсоњера кај Црногорска
+    // амбасада?») is answered by the place lane with the availability of the one
+    // row standing there, so this block must keep that turn. Only the recall it
+    // can serve itself — an AREA, with no кај/до/близу point — outranks the
+    // description. Same predicate as the recall gate below, one definition.
+    // …AND WHEN THE RECALL DESCRIBES ITSELF THE DESCRIPTION STANDS DOWN EVEN AT
+    // A LANDMARK (the [10:01] capture): «IMAVTE EDNA MALA GARSONJERA KAJ
+    // CRNOGORSKA AMBASADA , OKOLU 30 000 EVRA BESE» carries the figure the
+    // description lane would otherwise ask him to supply («колку квадрати… по
+    // која цена»), so the question is already answered. A PRICE-LESS recall at a
+    // landmark keeps this lane (the [11:29] cold pin: the place lane answers the
+    // availability of the one row there).
+    const recallFigure = detectSeenListingRecall(text) && recallCarriesFigure(text);
     if ((detectPropertyDescription(text) || placeOfferAsk) && !detectInventoryAsk(text)
+        && !(recallFigure || (detectSeenListingRecall(text) && !this.landmarkAnchoredClause(text)))
         && inferPropertyId(text) === undefined
         && !session.slots.service
         && !detectService(text) && !detectBothServices(text)
@@ -9187,6 +9247,11 @@ export class InboundHandler {
         if (slots.sizeWaived) session.slots.sizeWaived = true;
         if (slots.pricePriority) session.slots.pricePriority = true;
         if (slots.garsonjera) session.slots.garsonjera = true;
+        // The category noun the ask uses (the [06:46] variant asked «колку
+        // квадрати има СТАНОТ» about a house): extractSlots' own flags were
+        // never written back, only plac/yard were.
+        if (slots.house) session.slots.house = true;
+        if (slots.business) { session.slots.business = true; session.slots.house = undefined; }
         if (slots.plac) { session.slots.plac = true; session.slots.house = undefined; session.slots.business = undefined; }
         if (slots.yard) { session.slots.yard = true; if (!slots.business) session.slots.house = true; }
         // "та цена" / "та cenа" — client references a previously discussed price
@@ -9234,12 +9299,21 @@ export class InboundHandler {
     // on the table keeps its own funnel.
     if (!EB_NAMED_RE.test(text) && detectSeenListingRecall(text)) {
       const recallSlots = extractSlots(text);
+      // THE DEFINITE FORM COUNTS (the [06:46] variant «уште ли стои огласот за
+      // КУЌАТА во Скопје Север»): extractSlots() flags «куќа» but not «куќата»,
+      // so the lane asked «колку квадрати има СТАНОТ» about a house. The recall
+      // detector's own category lexicon fills the gap.
+      const recallCat = detectRecallCategory(text);
+      if (!recallSlots.house && recallCat.house) recallSlots.house = true;
+      if (!recallSlots.business && recallCat.business) recallSlots.business = true;
+      if (!recallSlots.plac && recallCat.plac) recallSlots.plac = true;
+      if (!recallSlots.garsonjera && recallCat.garsonjera) recallSlots.garsonjera = true;
       const recallPrice = recallSlots.budget
         ? Number(recallSlots.budget.replace(/[^\d]/g, '')) : undefined;
       // …and «ТАМУ» is the anchor on file (the [20:47] capture): the listing he
       // describes is the one at the place the chat already holds, so the recall
       // is anchored even though this sentence names no place of its own.
-      const heldAnchor = ANCHOR_WORD_RE.test(text) && typeof session.slots.poiAnchor === 'string'
+      const heldAnchor = ANCHOR_ADVERB_RE.test(text) && typeof session.slots.poiAnchor === 'string'
         ? this.landmarks?.findPlace(session.slots.poiAnchor)
         : undefined;
       const recallPlace = this.placeWish(text)
@@ -9325,10 +9399,29 @@ export class InboundHandler {
       // (a landmark AND the remembered price or size) owns the turn outright;
       // any other recall keeps the old guard, because a card under discussion
       // keeps its own funnel (the [20:11] availability turn).
+      // CATEGORY + AREA IS A DESCRIPTION ON ITS OWN (the [06:46] field capture):
+      // «IMAVTE EDNA KUKJA VO SKOPJE SEVER NA PRODAZBA» + «DALI E USTE AKTIVEN
+      // OGLASOT ?» names neither a size nor a price, and the gate below demanded
+      // one of them — so the turn fell out of the recall lane into the criteria
+      // grill («колку спални соби… кој е максималниот буџет»), a NEW-search
+      // questionnaire about a listing he had already seen. The protocol is
+      // HELPFUL MODE: what he remembers is answered with the listing, so a
+      // price-less recall scoped by an AREA is self-describing too.
+      //
+      // A LANDMARK KEEPS ITS OWN SERVE: «имавте една куќа кај Олимпико» (and
+      // «кај Броз Кафе», «кај Црногорска амбасада», «кај СЈО») is answered by
+      // the place lane, which ranks the rows AT the point, probes the price he
+      // has not given («по која цена беше») and binds the single match for the
+      // availability turn. Claiming those here would serve a two-row batch with
+      // no probe — a narrower answer to a question that lane already answers
+      // fully (the [18:41]/[20:17]/[22:03]/[11:29] pins). Only a named AREA
+      // (no кај/до/близу place) had no lane at all, which is the [06:46] miss.
+      const landmarkAnchored = anchoredRecall && this.landmarkAnchoredClause(text);
+      const bareRecall = anchoredRecall && !landmarkAnchored && noSizeGiven;
       const selfDescribing = anchoredRecall && (recallPrice !== undefined ? noSizeGiven : sizedAtPlace);
-      if ((selfDescribing || !propertyOnTable(session))
+      if ((selfDescribing || bareRecall || !propertyOnTable(session))
           && anchoredRecall
-          && (recallPrice !== undefined ? noSizeGiven : sizedAtPlace)) {
+          && (recallPrice !== undefined ? noSizeGiven : (sizedAtPlace || bareRecall))) {
         // TWO LISTINGS IN ONE RECALL (the [22:26] capture) — SERVE BOTH.
         // «IMAVTE EDNA GARSONJERA TAMU SO KIRIJA OKOLU 200E ILI KUKJA IMASE ZA
         // 250»: extractSlots merges the halves into one set of flags and keeps
@@ -9467,9 +9560,18 @@ export class InboundHandler {
           ? pool.filter(p => distTo(p) <= LANDMARK_NEAR_M)
             .sort((a, b) => roomTier(a) - roomTier(b) || distTo(a) - distTo(b) || a.eb - b.eb)
           : [];
-        const atPlace = nearPlace.filter(p => roomTier(p) === 0);
+        // THE PRICE HE REMEMBERS IS A CHARACTERISTIC, NOT A TIE-BREAKER (the
+        // [10:01] capture): «MALA BESE , OKOLU 30 000 EVRA CENA … VO BLIZINA NA
+        // CRNOGORSKA AMBASADA» was answered with the гapсоњера at 36.000 AND a
+        // 99.000 flat in Водно — «the nearest properties that match what you
+        // described» offered a listing three times the money he said. Rows
+        // outside the band are not candidates at all; the honest turn says
+        // what is there instead of padding the pair.
+        const priced = (rows: Property[]): Property[] =>
+          recallPrice === undefined ? rows : rows.filter(p => withinRememberedPrice(p.price, recallPrice));
+        const atPlace = priced(nearPlace).filter(p => roomTier(p) === 0);
         const placeAnchored = atPlace.length > 0;
-        let matches = (placeAnchored ? atPlace : pool.filter(inRecallArea)).slice(0, 2);
+        let matches = (placeAnchored ? atPlace : priced(pool.filter(inRecallArea))).slice(0, 2);
         session.slots.location = recallArea;
         if (recallPlace) {
           session.slots.poiAnchor = recallPlace.name;
@@ -9484,6 +9586,18 @@ export class InboundHandler {
         if (recallSlots.service) session.slots.service = recallSlots.service;
         session.state = 'property_locate';
         let answer: string;
+        // ONE DEAL AT THE ANCHOR IS THE ANSWER (the [06:46] helpful-mode rule):
+        // «IMAVTE KUKJA VO SKOPJE SEVER BESE ?» names no deal, and asking
+        // «продажба или изнајмување?» hands the turn back to him for something
+        // the feed already knows — when every match at that place is one
+        // service, adopt it and serve, exactly as if he had said it. The
+        // question stays for the genuinely two-deal pool, where guessing would
+        // show a for-rent premise as the house he saw for sale.
+        if (!typeSlots.service && matches.length > 0
+            && new Set(matches.map(p => p.service)).size === 1) {
+          typeSlots.service = matches[0].service;
+          session.slots.service = matches[0].service;
+        }
         if (!typeSlots.service) {
           // THE DEAL IS STILL OPEN: with no «се продава» / «се издава» in the
           // recall, a for-sale and a for-rent premise of the same category both
@@ -9516,7 +9630,12 @@ export class InboundHandler {
               ? (matches.length === 1
                 ? `Во ${areaLabel} имам ${kind}${deal} околу ${priceLabel} евра:`
                 : `Во ${areaLabel} имам две недвижности${deal} околу ${priceLabel} евра:`)
-              : `Во ${areaLabel} имам недвижности што одговараат на она што го опишавте:`;
+              // ONE MATCH IS ONE LISTING (the [06:46] capture): a plural lead over
+              // a single card reads as a batch offer and buries the fact that
+              // this IS the house he saw.
+              : matches.length === 1
+                ? `Во ${areaLabel} имам недвижност што одговара на она што го опишавте:`
+                : `Во ${areaLabel} имам недвижности што одговараат на она што го опишавте:`;
           // THE SEARCH BUDGET NEVER SILENTLY DROPS THE RECALLED FLATS: they are
           // over the cap he set for his search, and saying nothing would claim
           // they fit it (the [09:07] capture).
@@ -13140,7 +13259,11 @@ export class InboundHandler {
               || (price === undefined ? 0 : Math.abs((a.price ?? Number.POSITIVE_INFINITY) - price) - Math.abs((b.price ?? Number.POSITIVE_INFINITY) - price))
               || distTo(a) - distTo(b) || a.eb - b.eb);
           };
-        let matches = await ranked({ location: session.slots.location });
+        // THE REMEMBERED PRICE IS A CHARACTERISTIC HERE TOO (the [10:01]
+        // capture, the other serve of the same family): «околу 30.000» must not
+        // be padded with a 99.000 flat that merely sits near the landmark.
+        const inPriceBand = (p: Property): boolean => withinBudgetCeiling(p.price, price);
+        let matches = (await ranked({ location: session.slots.location })).filter(inPriceBand);
         // The ring never serves out-of-category: a two-room flat must not
         // take a near-ring slot ahead of the three-room match further away
         // because it happens to be closer to the bar — distance breaks ties
@@ -13332,7 +13455,7 @@ ${contactReminder}`;
       reply = this.criteriaAsk(session) ?? await this.discoveryServe(session);
       bankKey = session.slots.inventoryPending ? 'both.ask.type' : 'discovery.ask.service.any';
     } else if (next === 'closing'
-        && detectPropertyInterest(text)
+        && (detectPropertyInterest(text) || detectPropertySelection(text))
         // A MARKET ANSWER IS NOT PROPERTY INTEREST (the [10:16] follow-on): the
         // funnel had just asked «дали Ве интересира купување или изнајмување?»
         // and «ZA KUPUVANJE SUM ZAINTERESIRAN» answered IT — «заинтересиран» is
@@ -13892,7 +14015,7 @@ ${contactReminder}`;
       // штом потврдам» and never asked the owner anything — a promise with
       // nobody behind it. The batch tail is the same subject the cards on
       // screen show, so it is read here (and pinned as the interested flat).
-      const { eb, t } = this.ownerCheckSubject(session);
+      const { eb, t: subjectTerm } = this.ownerCheckSubject(session);
       // THE PROMISE NEEDS A PENDING ASK BEHIND IT (the [05:23]–[05:53] capture,
       // second half): «Ќе Ве известам штом потврдам» AND «Терминот сè уште го
       // проверувам со сопственикот» were both served with NOBODY asked — once
@@ -13901,7 +14024,24 @@ ${contactReminder}`;
       // check in flight is therefore gated on dispatching it first; when it
       // cannot be dispatched, the MISSING PIECE is the question (flat or term),
       // never a promise. tests/capture-1111-owner-confirm-info-card.test.ts.
-      const canAskOwner = eb !== 0 && t !== '';
+      // A TERM IS A DAY **AND** A TIME (the owner's standing rule, the [10:06]
+      // capture): «CEL DEN SUM NA RABOTA» reached the owner as «Има друг
+      // предлог: Цел ден сум на работа. Дали би Ви одговарал тој термин?».
+      // Nothing incomplete is ever relayed — the missing half is the question.
+      // THE DAY UNDER NEGOTIATION SURVIVES A CLOCK-ONLY COUNTER (the [10:06]
+      // rule «ask the time and CONNECT the owner with the ping pong»): after
+      // «NE MOZAM VO 18:00 DALI MOZE POKASNO» the client answers «MOZAM VO
+      // 19:00» — the SAME day, a later hour. The day is the dated term the owner
+      // was asked about (`ownerAskTime`, canonical «Понеделник, 16.11.2026 во
+      // 18:00»); its DATE — never its clock, so the rejected 18:00 cannot come
+      // back (the [12:43] rule) — completes the counter for the owner. Asking
+      // the client for a day he already named is the loop the owner forbade.
+      const carriedDay = missingTermPiece(subjectTerm) === 'day'
+        ? /(\d{2}\.\d{2}\.\d{4})/u.exec(session.slots.ownerAskTime ?? '')?.[1]
+        : undefined;
+      const t = carriedDay ? `${carriedDay} ${subjectTerm.trim()}` : subjectTerm;
+      const termGap = t === '' ? 'both' : missingTermPiece(t);
+      const canAskOwner = eb !== 0 && termGap === undefined;
       const dispatchOwnerAsk = (): boolean => {
         if (!canAskOwner) return false;
         // SEVERAL FLATS ON ONE DAY = ONE CHAIN (the owner's 2026-11-11 brief):
@@ -13913,10 +14053,18 @@ ${contactReminder}`;
       };
       /** The sincere turn when the owner cannot be asked: name what is missing. */
       const askMissingPiece = (): void => {
-        reply = eb === 0
-          ? buildLocateFirstAsk(session.slots) // no flat anywhere: which one?
-          : VISIT_TIME_QUESTION;               // a flat but no term: which hour?
-        bankKey = undefined;
+        if (eb === 0) {
+          reply = buildLocateFirstAsk(session.slots); // no flat anywhere: which one?
+          bankKey = undefined;
+        } else if (termGap === 'time') {
+          // The DAY is his, the CLOCK is missing — ask exactly that.
+          reply = pickVariant('vague.time', { recent: assistantTexts(session) })
+            ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го договорам терминот со сопственикот.';
+          bankKey = 'vague.time';
+        } else {
+          reply = VISIT_TIME_QUESTION; // a flat, but no day and no clock yet
+          bankKey = undefined;
+        }
         session.state = 'visit_scheduling';
         next = 'visit_scheduling';
       };
@@ -14018,7 +14166,11 @@ ${contactReminder}`;
         // by another route (a restored session, the [05:53] patience line) and
         // used to promise a check nobody was running.
         const subject = this.ownerCheckSubject(session);
-        const canAsk = subject.eb !== 0 && subject.t !== '';
+        // THE [10:06] CONTRACT, second leg: a check is only "in flight" for a
+        // COMPLETE term. A day-only slot cannot be relayed, so the patience
+        // line would promise a check that must never be dispatched.
+        const subjectGap = subject.t === '' ? 'both' : missingTermPiece(subject.t);
+        const canAsk = subject.eb !== 0 && subjectGap === undefined;
         if (canAsk && this.ownerCheckPending(session.chatId) === false) {
           void this.runOwnerCheck(session, subject.eb, subject.t);
         }
@@ -14027,10 +14179,17 @@ ${contactReminder}`;
           reply = pickVariant('patience.line', { recent: assistantTexts(session) }) ?? PATIENCE_LINE;
           bankKey = 'patience.line';
         } else {
-          reply = subject.eb === 0
-            ? buildLocateFirstAsk(session.slots)
-            : VISIT_TIME_QUESTION;
-          bankKey = undefined;
+          if (subject.eb === 0) {
+            reply = buildLocateFirstAsk(session.slots);
+            bankKey = undefined;
+          } else if (subjectGap === 'time') {
+            reply = pickVariant('vague.time', { recent: assistantTexts(session) })
+              ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го договорам терминот со сопственикот.';
+            bankKey = 'vague.time';
+          } else {
+            reply = VISIT_TIME_QUESTION;
+            bankKey = undefined;
+          }
           session.state = 'visit_scheduling';
         }
       }
@@ -14406,6 +14565,12 @@ ${contactReminder}`;
         // property states. Excluded here as belt-and-braces so a guard slip
         // can never resurrect the re-render.
         && !detectPositiveEval(text)
+        // A COMMITMENT IS NOT A CARD REQUEST (the [10:06] protocol): «го избрав
+        // станот 66» names the EB but the client is not asking what the flat
+        // is — he has DECIDED. Rendering the card answers a question he did not
+        // ask and drops the choice; the closing branch below serves the
+        // congratulation + the visit-fee explanation instead.
+        && !detectPropertySelection(text)
         && !detectProvisionAsk(text) && !detectProvisionWho(text)
         && !session.slots.ownerContactPending) {
       // The client asked about a known EB ("кажи ми нешто за 57", "што е со
@@ -15714,6 +15879,27 @@ ${contactReminder}`;
     if (detectUnderstatedPositive(text)) {
       return { reply: buildRecommendClose(assistantTexts(session)), bankKey: 'recommend.close' };
     }
+    // THE CLIENT COMMITTED (owner-dictated protocol, the [10:06] capture):
+    // «го избрав станот 63» is not interest, it is the DECISION — and the
+    // protocol is «Ви честитам на изборот» THEN the visit-fee explanation in
+    // the same turn. Interest keeps property.liked (enthusiasm + visit offer,
+    // fee later, the [21:02]/[02:31] rules); a commitment skips straight to the
+    // disclosure, because the fee is what stands between him and the viewing.
+    // The disclosure burns NO rung (§2): only resistance climbs the ladder,
+    // and the disclosure turn clears any earlier agreement by design.
+    const selSvc = session.slots.service;
+    if (selSvc && detectPropertySelection(text)) {
+      const key = selSvc === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
+      const congrats = pickVariant('choice.congrats', { recent: assistantTexts(session) })
+        ?? 'Ви честитам на изборот!';
+      const feeLine = pickVariant(key, { recent: assistantTexts(session) })
+        ?? (selSvc === 'rent'
+          ? 'Пред да го повикам сопственикот, мора да Ве известам за политиката: разгледувањето чини 300 денари (5 евра). Дали се согласувате да продолжиме?'
+          : 'Како купувач кај нас не плаќате провизија (0%), а единствениот трошок е 500 денари (10 евра) за организирање на посетата. Дали се согласувате да продолжиме?');
+      session.slots.feeDisclosed = true;
+      session.slots.viewingFeeAgreed = undefined;
+      return { reply: `${congrats}\n\n${feeLine}`, bankKey: key };
+    }
     return {
       reply: pickVariant('property.liked', { recent: assistantTexts(session) })
         ?? 'Одличен избор! Дали би сакале да организирам посета, за да го погледнете во живо?',
@@ -15811,6 +15997,22 @@ ${contactReminder}`;
 
   private async runOwnerCheck(session: ChatSession, eb: number, proposedTime: string): Promise<void> {
     try {
+      // NOTHING INCOMPLETE REACHES THE OWNER (the [10:06] capture, last line of
+      // defence): every caller is meant to gate on isCompleteVisitTerm, but this
+      // is the one place that actually talks to the owner — a busy reason or a
+      // bare day must become a question to the CLIENT, never a proposal.
+      if (!isCompleteVisitTerm(proposedTime) && !session.slots.ownerClockDay) {
+        session.state = 'visit_scheduling';
+        const gap = missingTermPiece(proposedTime);
+        const ask = gap === 'time'
+          ? (pickVariant('vague.time', { recent: assistantTexts(session) })
+            ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го договорам терминот со сопственикот.')
+          : VISIT_TIME_QUESTION;
+        pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, ask);
+        return;
+      }
       // normalizeOwnerTime (the [14:22] transcript): the owner never reads
       // client shorthand — the raw term ("VO PONEDELNIK MOZAM 6 SAAT") is
       // resolved to the concrete date and rewritten canonically

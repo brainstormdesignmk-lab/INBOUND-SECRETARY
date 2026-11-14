@@ -222,6 +222,25 @@ const SPEC: GenerationKey[] = [
     required: /(?:посета|предлози|организираме|одговара)/iu,
     question: true,
   },
+  // choice.congrats — THE PROTOCOL OPENING (owner-dictated, the [10:06]
+  // capture): when the client COMMITS to a property («го избрав станот 63»,
+  // «се одлучив за станот», «тој е мојот избор») the turn opens with «Ви
+  // честитам на изборот» and then serves the visit-fee explanation — the fee
+  // line is `fee.ask.<service>`, appended by the handler. This pool carries
+  // ONLY the congratulation: no figures (the fee pool holds the sanctioned
+  // ones), no question (the fee ask ends the turn with its consent question).
+  {
+    key: 'choice.congrats',
+    sources: [
+      'Ви честитам на изборот! Тоа беше вистинска одлука — горд сум што Ве водам низ овој процес.',
+      'Ви честитам на изборот — оваа недвижност е навистина за Вас.',
+    ],
+    count: 4,
+    instructions: 'Клиентот ГО ИЗБРА недвижноста (рекол «го избрав», «се одлучив», «тој е мојот избор»). Честитај на изборот — топло и професионално. БЕЗ прашање, БЕЗ износи, БЕЗ надомест (тој доаѓа во следната реченица), БЕЗ Евидентен броеви.',
+    required: /честит/iu,
+    banned: [/\d/, /надомест/, /денари|евра/, /провизи/, /\?$/u],
+    question: false,
+  },
   {
     key: 'fee.ask.buy',
     sources: [buildFeeAsk('buy')],

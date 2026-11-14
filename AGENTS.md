@@ -1485,6 +1485,108 @@ One chat, six turns, one root cause per turn:
   are excluded.
   Pins: `tests/capture-2226-bunjakovec.test.ts`.
 
+## 4s. The shared lexicon: one word family, one definition
+
+`src/llm/lexicon/` owns every word family that more than one detector needs:
+`property.ts` (the categories), `service.ts` (buy/rent), `memory.ts` (past,
+sighting, the ad noun, the ad's own «пишуваше»), `place.ts` (point vs area),
+`commitment.ts` (the client CHOSE — see §4s-bis), `text.ts` (the regex
+primitives `or`/`stems`/`NB`/`NA`). A detector that answers "which category is
+this / which deal / what does «беше» mean / is this a point?" IMPORTS from here.
+It does not spell the words out again — the pre-existing copies had already
+drifted, and each drift was a lane answering the wrong question for one
+spelling:
+
+- `HOUSE_RE` knew «куќ/кука/вила» and NOT latin `kukj*`, while the memory lane
+  accepted `kuk*` — «kukja» was a house for one reader and nothing for another;
+- three copies of the flat vocabulary: strict (`станче/станцеви`), loose
+  (`стан\p{L}*` — also «станбен», «стандарт») and the negated-span stripper
+  (no «апартман» at all);
+- `BUY_RE` had no word boundary, so «МНОГУ СКУПО» matched the stem «куп» and
+  armed `service=buy` on a value complaint;
+- the router's plural list and `hasMarketTypePlural` disagreed about
+  «плацеви»/«простори».
+
+READINGS — the same table, four named questions. Use the one that matches the
+decision, never "whatever regex I had":
+
+- **LOOSE** (`looseTypePattern`) — "is this message about a стан?" (mention,
+  prose). Stems + forms, inflected. Matches «станбена површина».
+- **FORM** (`typeFormPattern` / `typeFormAlternation`) — "did the client NAME
+  the category?". Every category lock, funnel slot and negated-span stripper.
+  Enumerated surface forms, whole word, plus the `formStems` that are
+  identity-safe (`куќ`, `kukj`, `куч`, `stn` — a doubled-letter typo like «KUKJAA»
+  stays a house). «стан» is deliberately NOT a form stem: it builds «станбен».
+- **SINGULAR** (`typeSingularAlternation`) — one listing. The unit-less recall
+  arms only (`«имавте куќИ»` is a market question, `«една куќа»` is a recall).
+- **PLURAL** (`typePluralAlternation`) — the market signal.
+
+A form belongs to EXACTLY ONE of singular/plural, and both are subsets of
+`forms`; `tests/lexicon-agreement.test.ts` enforces the partition. Do not DERIVE
+one from the other: deriving plural as `forms − singularForms` read the definite
+singular «СТАНОВ» as a plural, and an ordinary «STO MOZES DA MI KAZES ZA STANOV?»
+was answered with the €/m² market band.
+
+GUARDS THAT LIVE IN THE MODULE (encode them once, never locally):
+
+- `place.ts`: a landmark preposition must be followed by a NON-NUMERIC word
+  («до 130.000 евра» is a PRICE) and never by the AGENCY pronoun («кај вас/нас»
+  is a memory anchor, not a place on the map).
+- `service.ts`: `рент` carries its own lookahead («рентабил» is a yield word)
+  and is inflected AFTER it — `рент(?!абил)(?!\p{L})` refused «РЕНТАЊЕ».
+- `property.ts`: a `subNouns` entry keeps the copy honest — a message that says
+  «локал» is answered with «локал», not «деловен простор».
+
+THE CONTRACT TEST is behavioural, not textual: every vector of every family is
+driven through EVERY consumer (`detectHouse`, `detectFlat`, `detectBusiness`,
+`detectService`, `detectRecallCategory`, `detectSeenListingRecall`, the place
+predicate) and must get the same verdict. Add the new word to the family's list
+when a capture introduces it; the sweep then proves every consumer sees it.
+
+## 4s-bis. The [10:0x] batch: the choice, the ad said it, the remembered price
+
+Three field defects that all came from a word class the appliance did not know.
+Each fix lives in the LEXICON first, never at the call site.
+
+1. A VISIT TERM IS A DAY **AND** A CLOCK (`isCompleteVisitTerm`,
+   `missingTermPiece` in `src/visits/time.ts`). A day-only answer
+   («MOZAM VO PONEDELNIK»), a clock-only answer, a busy REASON («CEL DEN SUM NA
+   RABOTA») and a pure refusal («NE MOZAM VO VTORNIK») are NOT terms: Lina asks
+   the CLIENT for the missing half (`vague.time`) and never hands an undefined
+   sentence to the owner. «RABOTA» is edit-distance 1 from «SABOTA» — the
+   `DAY_LOOKALIKE_RE` guard keeps a workday reason from reading as a Saturday.
+2. A PRICE THE CLIENT REMEMBERS IS A CHARACTERISTIC, NOT A CEILING
+   (`withinRememberedPrice` in `src/data/properties.ts`): «MALA BESE, OKOLU
+   30.000» recalls a listing NEAR that money (symmetric ±60%) and must never
+   serve a 99.000 flat that merely fits a budget. A BUDGET is the other shape —
+   a one-sided ceiling (`withinBudgetCeiling`, 1.3×). Both lanes that serve a
+   recall (area-anchored and landmark-anchored) filter through them, and the
+   description lane stands down for a recall that already carries its figure.
+3. THE AD SPOKE (`MEMORY_AD_SAID` in `lexicon/memory.ts`): «PISUVASE VO
+   BLIZINA NA CRNOGORSKA AMBASADA» is the client QUOTING the listing, so the
+   sentence is a recall even with no category noun and no sighting verb. The
+   arm needs the narration verb plus a place or a money figure — «пишува» alone
+   is not a recall.
+
+THE CHOICE IS AN EVENT OF ITS OWN (`lexicon/commitment.ts`,
+`detectPropertySelection`): «GO IZBRAV STANOT», «SE ODLUCIV ZA STANOT», «TOJ E
+MOJOT IZBOR», «KE GO ZEMAM» match NO interest word and NO visit verb, so they
+used to fall through the funnel and a client who had just decided was asked how
+many bedrooms he wants. The protocol is the owner's, verbatim:
+
+    ВИ ЧЕСТИТАМ НА ИЗБОРОТ  …  па објаснување на надоместот за посета
+
+so a commitment is served `choice.congrats` + `fee.ask.<service>` in ONE turn,
+state `closing`, the flat bound as `interestedPropertyId`, `feeDisclosed` set and
+`viewingFeeAgreed` CLEARED (the disclosure turn is never consent, §2). It burns
+NO rung — only resistance climbs. Guessed forms are part of the family too:
+`normalizeMc` folds `c` to «ц», so «odluciv» arrives as «одлуцив» and that
+spelling is listed beside «одлучив» (the same rule as «privlachn» beside
+«привлачн»). A QUESTION («ДАЛИ ДА ГО ЗЕМАМ?») and a NEGATION («НЕ ИЗБРАВ») are
+not commitments — `questionedSelectionPattern` / `negatedSelectionPattern`
+carry that, and interest («ми се допаѓа») keeps `property.liked` with the fee
+coming later.
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.
@@ -2026,3 +2128,69 @@ client asked three questions and got the same pair back twice:
   state — and the ROUTING_ORDER mirror carries the executor's own list, because a
   narrower gate there predicts FALLTHROUGH for a turn the lane really serves.
 Pins: `tests/capture-0941-batch.test.ts`, `tests/route-coverage.test.ts`.
+
+## 4r. Helpful mode: a remembered listing is ANSWERED with the listing, and a question family is a LEXICON
+
+The owner's standing protocol, written down after the [06:46] capture so it does
+not have to be repeated:
+
+> When the client names a listing he has ALREADY SEEN — category, place, deal,
+> price, size, "bese", "vidov", "na vasiot sajt" — she gives him THAT listing
+> back. She never answers a recollection with the new-search questionnaire
+> («колку спални соби… кој е максималниот буџет»).
+
+The lane is `SEEN_LISTING_RECALL` (inbound.ts, the `0-c)` block). Its rules:
+
+1. **The trigger is the INTENT, not a memory field.** It used to require a
+   remembered price or size, so «имавте куќа во Скопје Север на продажба» — a
+   complete description — fell out of the lane into the discovery grill. A
+   recall scoped by an AREA owns the turn outright; size and price only refine
+   the serve (a LANDMARK anchor keeps the place lane — see the anchor rule
+   below).
+2. **The deal is answered from the feed when the feed knows it — inside the
+   lane.** If every match at that anchor is one service, adopt it and serve;
+   outside a lane that has already claimed the turn, never write a criterion
+   the client did not state (`slots.service` stays undefined — the [11:29]/СЈО
+   pins). Only a genuinely two-deal pool earns «продажба или изнајмување?».
+3. **A recall outranks a property DESCRIPTION — when it can serve it.**
+   `detectPropertyDescription()` reads «куќа …» as the client's own listing and
+   runs the locate-specs ask, so an AREA-anchored recall vetoes it; a
+   LANDMARK-anchored one («имавте една гарсоњера кај Црногорска амбасада?»)
+   must leave the turn to the place lane, whose answer is the availability of
+   the one row standing there (the [11:29] cold pin). A blanket veto here cost
+   exactly that turn.
+4. **One match is one listing.** A plural lead («имам недвижности што
+   одговараат») over a single card buries the fact that this IS the house he saw.
+
+**A WIDER LEXICON MUST NOT SWALLOW A LANE THAT ANSWERS BETTER.** Widening the
+recall trigger broke ten pinned turns in one run; the narrowing below is the
+rule (each line is a test):
+
+- **The ANCHOR decides which lane owns a price-less recall.** `кај/до/близу`
+  (or «таму») names a POINT: the place lane ranks the rows there, probes the
+  price («по која цена беше») and binds the single match for the availability
+  turn. A bare «во + area» names a district no other lane reads — that is the
+  shape the recall lane serves. `this.landmarkAnchoredClause()` is the ONE
+  predicate (three consumers: the one-place reading, the description
+  precedence, and the recall gate).
+- **«имавте» alone is not a recollection.** A category with no unit and no
+  MEMORY marker (`беше/имаше/bese/imase`) is the stock question about a place.
+- **A sighting verb owns its DIRECT object.** «видов к‹уќа›» is a recall;
+  «go gledav OGLASOT ZA stan vo karpos» is the number-first locate funnel (the
+  flat is the ad's subject, not the verb's object).
+- **«уште активен?» needs the AD noun** (`оглас/oglas`) to be a recall; the same
+  question about the batch on the table belongs to the availability lane.
+
+**THE LEXICON RULE (applies to every detector, not just this one):** a question
+family is a LIST of wordings, never one sentence. When a fix recognises a
+wording, the same commit must enumerate its siblings — every past tense
+(`имавте/имаше/имавме/беше/bese/imase`), every sighting verb
+(`видов/видев/гледав/најдов/vidov/gledav`), every word order, both scripts, both
+the unit-ful and the unit-less form, and the follow-up half («уште ли стои
+огласот», «дали е се уште активен», «seuste aktivna»). Inflect the stems
+(`\p{L}*`), never the bare nominative — §4b-2. And ship the SWEEP: a test that
+drives the real handler for every variant and names the one that regressed
+(`tests/field-0646-recall-variants.test.ts`). A fix that pins a single sentence
+is not a fix, and a lane whose trigger is narrower than the intent silently
+donates the turn to a generic lane that always has something fluent to say —
+which is invisible in the transcript and in the log.

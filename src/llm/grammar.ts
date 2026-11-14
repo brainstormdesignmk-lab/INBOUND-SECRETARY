@@ -36,24 +36,17 @@
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Build a non-capturing alternation: (?:a|b|c)
- *  Every word class is boundary-guarded with Unicode lookarounds. JS \b is
- *  ASCII-only (never binds around Cyrillic), and unguarded classes match
- *  SUBSTRINGS inside longer words: "lokaciJA IMA" → ja+ima (clitic+have →
- *  the 22:05 "DOBRA LOKACIJA IMA" availability ack), "ima LI ft" → li inside
- *  "lift". A clitic/pronoun/verb is a whole word — matching its letters
- *  inside another word is always wrong. */
-function or(words: string[]): string {
-  return '(?<![\\p{L}\\p{N}])(?:' + words.join('|') + ')(?![\\p{L}\\p{N}])';
-}
+// The regex primitives come from the shared lexicon layer (src/llm/lexicon/
+// text.ts) — ONE definition of the boundary guard. A second copy here is how
+// the two families drifted: one author adds the Unicode lookarounds, another
+// forgets them, and a word class starts matching SUBSTRINGS inside longer words
+// ("lokaciJA IMA" → ja+ima, the 22:05 availability ack; "ima LI ft" → li in
+// "lift").
+import { or, opt, WS as SHARED_WS } from './lexicon/text';
 
-/** Optional non-capturing group: (?:…)? */
-function opt(group: string): string {
-  return '(?:' + group + ')?';
-}
 
 /** Required whitespace separator */
-const WS = '\\s+';
+const WS = SHARED_WS;
 /** Optional whitespace (may include punctuation like ?) */
 const GAP = '[^.!?\\n]{0,40}';
 

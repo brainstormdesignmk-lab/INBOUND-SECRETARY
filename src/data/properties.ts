@@ -1496,6 +1496,33 @@ export function budgetAmount(s: string | undefined): number | undefined {
   return s === undefined ? undefined : parseBudgetMax(s);
 }
 
+/** How far a candidate may sit from the price the client REMEMBERS and still be
+ *  «the listing he described». 60% either way: «околу 30.000» covers 12.000–
+ *  48.000 (EB 63 at 36.000 belongs there), while a 99.000 flat is a different
+ *  property and must never be offered as his answer — the [10:01] capture
+ *  served exactly that pair. `closestMatches` still RANKS by price distance;
+ *  this is the sanity band around that ranking, used by the serve lanes. */
+export const REMEMBERED_PRICE_TOLERANCE = 0.6;
+
+/** A BUDGET is a CEILING, not a remembered figure: a row up to 30% over it may
+ *  still be offered (with the above-budget note), but a row at three times the
+ *  cap is a different property — the [10:01] serve padded a «околу 30.000»
+ *  recall with a 99.000 flat. One-sided on purpose: a cheaper row is always a
+ *  legitimate answer to a cap. */
+export const BUDGET_CEILING_FACTOR = 1.3;
+
+export function withinBudgetCeiling(price: number | undefined, cap: number | undefined): boolean {
+  if (price === undefined || cap === undefined || cap <= 0) return true;
+  return price <= cap * BUDGET_CEILING_FACTOR;
+}
+
+/** Is this row within the band of the remembered price? No remembered price
+ *  (or no row price) = no opinion — never a silent exclusion. */
+export function withinRememberedPrice(price: number | undefined, remembered: number | undefined): boolean {
+  if (price === undefined || remembered === undefined || remembered <= 0) return true;
+  return Math.abs(price - remembered) <= remembered * REMEMBERED_PRICE_TOLERANCE;
+}
+
 function parseBudgetMax(s: string): number | undefined {
   const nums: number[] = [];
   const re = /(\d[\d\s.]*)/g;

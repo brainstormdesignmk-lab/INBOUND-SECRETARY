@@ -168,4 +168,13 @@ test('lost-reply sweep: the candidate list is finite and reviewed', () => {
 // different lane's answer. Both are append-to-`reply` writers, the same shape
 // as the money lead read on the 26th–30th passes, and neither can run on the
 // LLM-responder arm's key.
-const REVIEWED = 32;
+// 32nd read 2026-11-14: the [10:0x] batch added ONE pair (@14009→@14045); the
+// sibling @14053→@14070 replaced an older one that the new `askMissingPiece`
+// branch made exclusive. Both READ and benign: every writer in them lives in
+// the SAME `askMissingPiece` closure, whose branches are one `if / else if /
+// else` chain (a day-only term asks the clock, no flat asks which one, no term
+// at all re-asks the term) — the closure is CALLED from the owner_checking lane
+// and cannot overwrite a lane that has already run. The sweep sees the closure
+// from the outside (its `return`s are not the turn's), which is why it reports
+// the neighbours; the count is the ratchet, not a verdict.
+const REVIEWED = 33;

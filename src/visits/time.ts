@@ -592,6 +592,46 @@ const RELATIVE_DAY_RE =
  *  when it cannot be a clock (first part > 12) or carries a year — «18.10» is
  *  both shapes, and an ambiguous pair is safer read as a clock that inherits a
  *  day than as a date that invents one. */
+/**
+ * WORDS THAT ONLY LOOK LIKE A DAY (the [10:06] capture).
+ *
+ * «CEL DEN SUM NA RABOTA» — «I am at work all day» — reached the fuzzy day arm
+ * and «RABOTA» is edit-distance 1 from «SABOTA» (Saturday). Lina therefore sent
+ * the OWNER «Клиентот не е во можност … Има друг предлог: Цел ден сум на работа.
+ * Дали би Ви одговарал тој термин?» — a busy reason offered as a visit term.
+ * The same class: «собата» (the room) vs «сабота», «работата»/«rabotata».
+ *
+ * One reader, used by every fuzzy day arm: a token that is an ordinary word of
+ * the language is never a typo of a weekday.
+ */
+export const DAY_LOOKALIKE_RE =
+  /(?<![\p{L}])(?:работа|работата|работa|rabota|rabotata|rabotaтa|собата|sobata|соба|soba)(?![\p{L}])/iu;
+
+/**
+ * WHAT A TERM STILL LACKS — `undefined` when it is complete.
+ *
+ * A VISIT TERM IS A DAY **AND** A TIME. Nothing else may travel to the owner:
+ * the [10:06] capture had Lina relay a busy sentence as «друг предлог», and a
+ * day-only «MOZAM VO PONEDELNIK» had no clock at all. The gap is named, so the
+ * caller can ask exactly for the missing half instead of repeating the whole
+ * term question.
+ */
+export function missingTermPiece(term: string): 'day' | 'time' | 'both' | undefined {
+  const t = String(term ?? '').trim();
+  if (!t) return 'both';
+  const day = namesADay(t);
+  const clock = hasClockHint(t);
+  if (day && clock) return undefined;
+  if (day) return 'time';
+  if (clock) return 'day';
+  return 'both';
+}
+
+/** A term that can be offered to an owner: it names the day AND the clock. */
+export function isCompleteVisitTerm(term: string): boolean {
+  return missingTermPiece(term) === undefined;
+}
+
 export function namesADay(s: string): boolean {
   if (!s) return false;
   if (extractDayWord(s) !== undefined) return true;

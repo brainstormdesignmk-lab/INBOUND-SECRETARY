@@ -132,8 +132,17 @@ test('e2e [13:16/13:20]: the client clock goes to the owner, the owner clock com
   await send('DA, SE SOGLASUVAM');
   await send('ZORAN 078/914 196');
 
-  // [13:16] the client's clock — the term question must NOT come back.
-  const s = await send('NEKA BIDE 5 I 30');
+  // A CLOCK ALONE IS NOT A TERM (the owner's [10:06] rule): «NEKA BIDE 5 I 30»
+  // names the hour and no day, so the missing half is the question — nothing
+  // incomplete reaches the owner. The pin below is the WEEKDAY-qualified
+  // version, which is the shape this test is about.
+  const noonly = await send('NEKA BIDE 5 I 30');
+  assert.equal(noonly.state, 'visit_scheduling', `a clock-only term asks the day: ${noonly.state}`);
+  assert.match(sent[sent.length - 1] ?? '', /\?/u, 'the day is the question');
+  assert.equal(ownerAgent.pendingEb(chatId), null, 'no owner check for a day-less term');
+
+  // [13:16] the client's term — the term question must NOT come back.
+  const s = await send('VO PONEDELNIK NEKA BIDE 5 I 30');
   assert.equal(s.state, 'owner_checking', `the term goes to the owner, got: ${s.state}`);
   assert.equal(hasClockHint(s.slots.visitTime ?? ''), true, `the clock survived: ${s.slots.visitTime}`);
   // runOwnerCheck is fire-and-forget (it awaits the property row first), so the

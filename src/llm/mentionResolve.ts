@@ -17,6 +17,7 @@
 // options — never a silent guess, never a silent wrong property.
 
 import { normalizeMc } from './normalize';
+import { propertyCategoriesIn } from './lexicon';
 
 // ---------------------------------------------------------------------------
 // Signals
@@ -67,7 +68,10 @@ export function extractMentionSignals(text: string): MentionSignals {
     if (Number.isFinite(p) && p >= (denar ? 10000 : 100)) s.price = p;
   }
 
-  if (/гарсоњер|студио/.test(norm)) s.garsonjera = true;
+  // THE SHARED CATEGORY READER (src/llm/lexicon/property.ts): the гapсоњера /
+  // студио fork used to live here too, so a spelling one list knew («студио»)
+  // was invisible to the other.
+  if (propertyCategoriesIn(norm).includes('garsonjera')) s.garsonjera = true;
 
   // Room-count words: "еднособен" → 1, "двособен" → 2 …
   // "соб" + any tail, not the bare nominative "собен": the DEFINITE forms drop
