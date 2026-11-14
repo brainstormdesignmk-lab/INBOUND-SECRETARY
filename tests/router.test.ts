@@ -351,6 +351,42 @@ test('a describe ask over a table is DESCRIBE_TABLE; without a table it is not',
     'nothing on the table: there is no card to describe');
 });
 
+// ── the locate funnel rows (Phase 4, locate family) ───────────────────────────
+// All three were `P(...)`. Each row imports the executor's OWN gate now
+// (`./locate-pick`): the funnel's gates lived in inbound.ts, which the router
+// cannot import, so a mirror row could only have been a second copy. The
+// negatives matter as much as the positives — they are the cases where the
+// funnel must NOT take the turn (a bare «NE» with no hunt is the goodbye, a
+// plain «DA» with no exhausted area is not a widen).
+test('a pick among described flats is PICK_DESCRIBED', () => {
+  const sl = { describedEbs: [78, 63] };
+  assert.equal(resolveIntent('PRVATA', 'presentation', sl), 'PICK_DESCRIBED');
+  assert.equal(resolveIntent('VTORATA', 'presentation', sl), 'PICK_DESCRIBED');
+  // An EB picks ONLY when it is one of the described set (a stranger EB is a
+  // fresh card, not a pick).
+  assert.equal(resolveIntent('KAZI MI ZA 63', 'presentation', sl), 'PICK_DESCRIBED');
+  assert.notEqual(resolveIntent('KAZI MI ZA 90', 'presentation', sl), 'PICK_DESCRIBED');
+  assert.notEqual(resolveIntent('PRVATA', 'presentation'), 'PICK_DESCRIBED',
+    'nothing described: there is no set to pick from');
+});
+
+test('a bare «NE» over a described batch is LOCATE_CONTINUE; without one it is the goodbye', () => {
+  assert.equal(resolveIntent('NE', 'presentation', { describedEbs: [78, 63] }), 'LOCATE_CONTINUE');
+  // «NE FALA» is a farewell even with the hunt open (the funnel's regex is a
+  // BARE refusal on purpose).
+  assert.notEqual(resolveIntent('NE FALA', 'presentation', { describedEbs: [78, 63] }), 'LOCATE_CONTINUE');
+  assert.equal(resolveIntent('NE', 'presentation'), 'BYE');
+});
+
+test('«DA» after the exhausted-area question is LOCATE_WIDEN', () => {
+  assert.equal(resolveIntent('DA', 'presentation', { describedEbs: [78], areaExhausted: true }), 'LOCATE_WIDEN');
+  // The area lock is only released when the funnel ASKED about other parts of
+  // town: a plain agreement mid-hunt is not a widen.
+  assert.notEqual(resolveIntent('DA', 'presentation', { describedEbs: [78] }), 'LOCATE_WIDEN');
+  assert.notEqual(resolveIntent('DOBRO', 'presentation', { presentedIds: [78], areaExhausted: true }), 'LOCATE_WIDEN',
+    'an agreement with no described batch is not the funnel\'s answer');
+});
+
 test('an extreme price ask is PRICE_EXTREME', () => {
   assert.equal(resolveIntent('KOJ TI E TOJ STAN PO 1286E PO M2', 'closing', { presentedIds: [78] }), 'PRICE_EXTREME');
   // A SUPERLATIVE is the lane; a plain budget cap («DO 1000 EVRA KUCA») is not

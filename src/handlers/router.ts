@@ -41,7 +41,7 @@ import {
   detectLocation, hasMarketTypePlural, isMarketRentWordAsk, detectMarketLevelFollowUp,
   detectExitCheck, detectSoftRefusal, detectWaitingAck, detectAgentAttendanceAsk,
   detectContactRequest, detectEyeCatch, detectPositiveEval, detectDescribeAsk,
-  extractPriceExtremeQuery,
+  extractPriceExtremeQuery, detectWidenIntent, detectExplicitWiden,
 } from '../llm/deterministic';
 import { detectInfoFacets } from '../llm/infoAnswer';
 import { detectGlossaryAsk } from '../llm/glossary';
@@ -49,6 +49,7 @@ import { detectRecommendAsk, detectValueAsk } from '../llm/recommend';
 import { arbitrateMoney, isFeeAmountClaim } from '../llm/moneyArbitration';
 import { inferPropertyId } from '../llm/classify';
 import { resolvePropertyFocus } from './focus';
+import { BARE_REFUSAL_ONLY_RE, pickDescribed } from './locate-pick';
 import type { ChatSession } from '../fsm/session';
 
 /** The session memory a rule may consult. Slots are the ONLY state a lane reads
@@ -389,6 +390,22 @@ export const ROUTING_ORDER: RouteRule[] = [
       && ((sl.describedEbs?.length ?? 0) > 0 || (sl.currentBatch?.length ?? 0) > 0
         || (sl.presentedIds?.length ?? 0) > 0
         || sl.interestedPropertyId != null || sl.propertyId != null) },
+  // ── THE LOCATE FUNNEL (Phase 4, locate family) ────────────────────────────
+  // These three read the HUNT'S OWN MEMORY (`describedEbs`) and the executor's
+  // text gates IMPORTED FROM ./locate-pick — one copy, so the mirror cannot
+  // drift from the funnel. Position: immediately after DESCRIBE_TABLE and in
+  // the executor's own order (pick 9489 → widen 9813 → bare refusal 9790); a
+  // facet ask over a described flat was claimed by INFO_ASK above.
+  { intent: 'PICK_DESCRIBED', note: 'a pick among the flats she just described — by Евидентен број or ordinal — answered with the availability answer (inbound.ts 9489). KNOWN LIMIT: the executor also admits a DETAIL mention («онаа со дворот», pickByDetail) which needs the described ROWS; the mirror cannot read the feed, so such a turn is predicted one row lower',
+    fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
+      && pickDescribed(t, sl.describedEbs!) !== undefined },
+  { intent: 'LOCATE_WIDEN', note: '«да» to the other-neighbourhoods question — the area lock is released and the same hunt continues (inbound.ts 9813). Requires the whole exhausted-hunt state (describedEbs + areaExhausted), never a plain agreement',
+    fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
+      && sl.areaExhausted === true
+      && (detectAgreement(t) || detectWidenIntent(t) || detectExplicitWiden(t)) },
+  { intent: 'LOCATE_CONTINUE', note: 'a bare «не» while choosing among described flats — the rejection of the offer, never a farewell; the hunt serves the next options (inbound.ts 9790)',
+    fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
+      && BARE_REFUSAL_ONLY_RE.test(t.trim()) },
   // «ВО КОЈА НАСЕЛБА СЕ НАЈЕВТИНИ СТАНОВИТЕ» compares NEIGHBOURHOODS, never rows
   // (inbound.ts 6146): cheapest mode + the word «населба» in the ask + buy + no
   // area named (naming an area is a row listing). KNOWN LIMIT: the lane also
@@ -739,9 +756,9 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   AVAILABILITY_TABLE: M('AVAILABILITY_TABLE', 'an availability ask that points at ONE flat already on the table by its type/price («GARSONJERATA ZA 200E DALI E DOSTAPNA?») — the ack + the owner question for THAT flat, never a fresh criteria grill ([22:27] capture)'),
   CONTACT_MECHANICS: P('the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» — the number she holds + the mechanism, never the DEFER line ([22:28] capture)'),
   STOCK_CONTRADICTION: P('the client quotes a card she served against a «нема» she said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?») — admission + the row\'s own facts + the next step, never a location line ([02:12] capture)'),
-  PICK_DESCRIBED: P('a pick among the flats she just described → the availability answer'),
-  LOCATE_CONTINUE: P('bare «не» while choosing among described flats — the hunt continues'),
-  LOCATE_WIDEN: P('«да» to the other-neighbourhoods question — the area lock is released'),
+  PICK_DESCRIBED: M('PICK_DESCRIBED', 'a pick among the flats she just described → the availability answer'),
+  LOCATE_CONTINUE: M('LOCATE_CONTINUE', 'bare «не» while choosing among described flats — the hunt continues'),
+  LOCATE_WIDEN: M('LOCATE_WIDEN', '«да» to the other-neighbourhoods question — the area lock is released'),
   LOCATE_REJECT_PLACE: P('«не е таа» after the only flat at a NAMED place — the place lock holds, other areas only after the ask'),
   CONTACT_AFTER_FEE: P('the fee question answered with a name + phone — consent and the visit-time ask'),
   AGENCY_IDENTITY: P('«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (client OR owner): the agency is named and the interrupted question repeated — never the pending-traffic line ([19:36] capture)'),

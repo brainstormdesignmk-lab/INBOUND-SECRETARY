@@ -1683,14 +1683,72 @@ written down instead of guessed:
   e?» (it matched), so a mirror row would predict a lane the executor skips.
 - `WHERE_LANDMARK` (5049): served only on a `landmarks.findPlace` hit; the text
   part is mirrorable, the hit is not. 260 production gaps stay labelled GAP —
-  visible in `route:health`, never a false DRIFT.
-
-The rest of the family (`INFO_ASK_PAIR`, `INFO_ASK_PAIR_IDENTITY`,
-`INFO_ASK_FLOORS`, `DESCRIBE_TABLE`, `MORE_STOCK`, `DISTANCE_BATCH`,
-`PRICE_AVG_NASELBA`) stays `P(...)`: each gate is a multi-clause condition over
+  visible in `route:health`, never a false DRIFT.The rest of the family (`INFO_ASK_PAIR`, `INFO_ASK_PAIR_IDENTITY`,
+`INFO_ASK_FLOORS`, `MORE_STOCK`, `DISTANCE_BATCH`) stays `P(...)`:
+each gate is a multi-clause condition over
 the batch, the referent and the criteria parse, and each one gets its own
 replayed slice — a `P(...)` row with an honest note is a labelled backlog, a
 mirror row guessed from a comment is a lie the drift log then repeats.
+
+SLICE 6 — THE LOCATE FUNNEL, AND THE LIFT THAT MADE IT POSSIBLE. The funnel's
+two pure text gates (`BARE_REFUSAL_ONLY_RE`, `pickDescribed`) lived as
+module-local consts in `inbound.ts`, which the router cannot import (inbound →
+router is the edge; the reverse is a cycle). That is why the three locate lanes
+sat in `P(...)` for so long: a mirror row could only have been a SECOND COPY of
+the gate. They now live in `src/handlers/locate-pick.ts` and BOTH sides import
+them — the regex and the picker moved without a byte of change.
+
+The rule this establishes: **when a lane is unmirrorable because its gate is
+private to the executor, lift the gate — do not paraphrase it.** A paraphrase is
+the drift the log then repeats; a lift is one predicate with two readers.
+
+Promoted by this slice (`tests/router.test.ts`):
+
+- `PICK_DESCRIBED` — by Евидентен број (only when it IS in `describedEbs`) or by
+  ordinal. KNOWN LIMIT: the executor also admits a DETAIL mention («онаа со
+  дворот» → `pickByDetail`), which needs the described ROWS; that turn is
+  predicted one row lower.
+- `LOCATE_CONTINUE` — a BARE «не» over a described batch. «NE FALA» keeps the
+  farewell lane, which is the whole reason the gate is a bare-refusal regex: the
+  bye lanes read a plain «NE» as goodbye and closed the chat with offers
+  unexplored (the [10:01] capture).
+- `LOCATE_WIDEN` — the exhausted-area question's «да» (`describedEbs` +
+  `areaExhausted`), never a plain agreement: `MORE_STOCK` (9548) already vetoes
+  `detectAgreement`, so «да» can only mean the widen.
+
+ORDERING: the rows sit right after `DESCRIBE_TABLE` and in the executor's own
+line order (pick 9489 → widen 9813 → bare refusal 9790). The executor's locate
+block runs BEFORE the bye/soft-refusal lanes (9976/9996), which is why «не» with
+a batched hunt is the funnel's answer and not the farewell.
+
+STILL PENDING, with the reason each needs its own slice: `INFO_ASK_PAIR*` and
+`INFO_ASK_FLOORS` (the pair/batch referent and its criteria parse), `MORE_STOCK`
+(9520: an eleven-clause veto list plus a criteria veto built from
+`extractSlots`), `DISTANCE_BATCH` (a measured line per row), `LANDMARK_LADDER`
+and `LOCATE_REJECT_PLACE` (both read the last ASSISTANT line, which the mirror
+has no channel for — the same reason `POI_CONFIRM`/`WHERE_LANDMARK` stay out),
+`PLACE_PIVOT` (the whole `slotsComplete` conjunction), `SLOT_TAKEN`,
+`CHAIN_READY`, `PROPERTY_CHOICE`, `FEE_PER_PROPERTY`, `GOLEM_*`.
+
+THE MAP/FEED CHANNEL IS A DESIGN DECISION, and it is written down here rather
+than half-built: the four data-gated lanes (`POI_CONFIRM`, `WHERE_LANDMARK`,
+`AREA_OF_PLACE`, `PRICE_AVG_NASELBA`) need a value the mirror cannot compute
+from (text, state, slots) — a `landmarks.findPlace` hit, a named-landmark match
+inside the row, a resolved area polygon, or "the feed has rankable per-m²
+rows". The honest shapes, in ascending cost:
+
+1. **A post-prediction refinement** (`refinePrediction(chatId, text, state,
+   slots, evidence)`), where `evidence` is filled by the executor AFTER it has
+   already done the lookup for the turn — zero extra map calls, and the recorded
+   prediction becomes the truth for that turn. This is the shape to build: the
+   resolution is what the executor already paid for.
+2. A `RouteEvidence` parameter the executor fills up-front — correct but pays a
+   second lookup on every turn, including the 70 % that never reach these lanes.
+3. A mirror row that calls the map itself — rejected: it puts geo I/O inside a
+   pure function and makes `resolveIntent` untestable without a database.
+
+Until that channel exists these four stay `P(...)` with their honest notes: a
+labelled GAP in `route:health`, never a guessed DRIFT.
 
 ### 5a. THE TURN CORPUS — five dimensions, not prose (proposal Phase 1)
 

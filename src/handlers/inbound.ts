@@ -55,6 +55,7 @@ import { walkMinutes, distM } from '../geo/precision';
 import { routeLog, resolveIntent, refinePrediction, dispatchSimple } from './router';
 import { ambientTurn, clipReply, currentTurn, noteTurnFact, runInTurn, startTurn, type TurnContext } from './turn';
 import { focusClarifyAsk, resolvePropertyFocus } from './focus';
+import { BARE_REFUSAL_ONLY_RE, NEAR_ANCHOR_SCOPE_M, pickDescribed } from './locate-pick';
 // PER-CATEGORY MONEY (the [19:14] capture): the pair detectors live beside the
 // budget family so a cap and the budget read can never disagree.
 import { detectCategoryBudgets } from '../llm/deterministic';
@@ -1212,27 +1213,10 @@ function boundFlatIdentity(p: Property): string {
  *  rejection of the offer, never a farewell: the bye/soft-refusal lanes read
  *  «NE» as goodbye and ended the whole chat with offers still unexplored (the
  *  [10:01] capture). «NE FALA» / «CAO» are NOT this — those stay goodbyes. */
-const BARE_REFUSAL_ONLY_RE = /^(?:ne|no|не)[\s.!?,]*$/iu;
-
-/** How far from the named landmark the continuation of a locate hunt may serve
- *  before the other-neighbourhoods question is asked (the [09:59] embassy pair
- *  and its 300–700 m neighbours are in; another municipality's stock is out). */
-const NEAR_ANCHOR_SCOPE_M = 900;
-
-function pickDescribed(text: string, ebs: number[]): number | undefined {
-  const pid = inferPropertyId(text);
-  if (pid !== undefined && ebs.includes(pid)) return pid;
-  // The ordinal forms carry suffixes (првата, prvata, втората, vtorata), so
-  // the stem is what is matched — but «прв пат» (first time) is not a choice.
-  const ORDINALS: Array<[RegExp, number]> = [
-    [/(?<![\p{L}\p{N}])(?:прв|prv)(?!\p{L}*(?:пат|pat))\p{L}*/iu, 0],
-    [/(?<![\p{L}\p{N}])(?:втор|vtor)\p{L}*/iu, 1],
-  ];
-  for (const [re, idx] of ORDINALS) {
-    if (re.test(text) && ebs[idx] !== undefined) return ebs[idx];
-  }
-  return undefined;
-}
+// BARE_REFUSAL_ONLY_RE, NEAR_ANCHOR_SCOPE_M and pickDescribed live in
+// ./locate-pick: they are PURE text gates that the routing mirror ALSO reads
+// (router.ts ROUTING_ORDER, rows LOCATE_CONTINUE/PICK_DESCRIBED). One copy, so
+// the mirror and the executor can never disagree about what a pick is.
 
 /** A PRONOUN PICK («КАЖИ МИ ИНФОРМАЦИИ ЗА НЕЈЗЕ» — the [22:30] capture): the
  *  client refers to the flat he just named by its GENDER, which is a real
