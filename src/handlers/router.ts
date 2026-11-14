@@ -61,6 +61,22 @@ import type { ChatSession } from '../fsm/session';
 export type RouteSlots = ChatSession['slots'];
 const NO_SLOTS = {} as RouteSlots;
 
+/** THE EVIDENCE CHANNEL (Phase 4): the facts a lane's gate needs that are NOT in
+ *  (text, state, slots) — a map hit, a feed row's own fields, the number of
+ *  rankable per-м² rows. They are computed by the EXECUTOR's probe
+ *  (`InboundHandler.probeRouteEvidence`) because the router must stay pure and
+ *  testable without a database; every field is optional, so a caller that has
+ *  no probe (a unit test, a cold harness) simply predicts one lane lower.
+ *
+ *  COST RULE: the probe is gated on the lane's own cheap wording test first, so
+ *  a turn that cannot reach these lanes performs NO map or feed work. That is
+ *  the property a blanket up-front evidence object cannot have. */
+export interface RouteEvidence {
+  /** POI_CONFIRM: the confirm block would build an answer (map hit that is not
+   *  city-level, or a neighbourhood reading of the candidate). */
+  poiConfirm?: boolean;
+}
+
 /** The two lanes below are the ones whose executor gates read the CLIENT'S
  *  MEMORY (does this chat hold a business space? a category? a place?), and a
  *  mirror that cannot see that memory predicts the wrong lane for a turn whose
@@ -99,7 +115,10 @@ export interface RouteRule {
   /** Guard mirroring the inbound.ts condition for this branch. `slots` is the
    *  live session memory (empty when a caller only has text + state); a rule
    *  that ignores it deliberately stays pure-text. */
-  fires: (text: string, state: string, slots: RouteSlots) => boolean;
+  /** `ev` is the resolved EVIDENCE for the turn (see `RouteEvidence`); a row
+   *  whose gate needs a map/feed fact reads it here and refuses itself when the
+   *  caller supplied none. */
+  fires: (text: string, state: string, slots: RouteSlots, ev?: RouteEvidence) => boolean;
 }
 
 // ORDER IS SEMANTIC — do not reorder without reading the notes.
@@ -482,6 +501,21 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'RECOMMEND_ASK', note: '“koj bi mi go preporacale?” — the pick among the flats already discussed, with the reason, never the same cards again',
     fires: (t, s) => detectRecommendAsk(t)
       && ['idle', 'intent', 'discovery', 'property_query', 'presentation', 'closing'].includes(s) },
+  // ── THE EVIDENCE-GATED LANES (Phase 4, the channel the backlog needed) ────
+  // Each row below is the executor's OWN gate, with the one condition the
+  // router cannot see delegated to `RouteEvidence`: `o...` rows refuse
+  // themselves when the probe is absent, so a unit test never gets a confident
+  // wrong answer.
+  // POI_CONFIRM precedes INFO_ASK: the executor reaches it at 6792, before the
+  // info block, and it owns «да не е во карпош?»/«овај кај кипер ?».
+  { intent: 'POI_CONFIRM', note: '«ДА НЕ Е ВО КАРПОШ?» / «ОВОЈ КАЈ КИПЕР, КОЈА АДРЕСА ЈА ИМА?» — the property\'s place confirmed or corrected from the map/neighbourhood, never a landmark invented for a place the client never asked about (inbound.ts 6792). EVIDENCE: the answer must exist (map hit not city-level, or a neighbourhood reading)',
+    fires: (t, s, sl, ev) => ev?.poiConfirm === true },
+  // INFO_ASK_PAIR / INFO_ASK_FLOORS are NOT here yet: their gate sits inside the
+  // INFO block, whose entry condition is a long conjunction over the facet
+  // parse, the quote memory and the year arms. A probe that reproduced only
+  // part of it would predict the pair lane for turns the block never enters,
+  // which is the guessed-row failure this section exists to avoid. They stay
+  // `P(...)` until their own slice lifts that entry condition.
   { intent: 'INFO_ASK', note: 'a fact ask about the flat on the table — one answer per facet from the feed\'s own data, never the LLM (scope C)',
     fires: (t, s, sl) => {
       const facets = detectInfoFacets(t);
@@ -499,10 +533,21 @@ export const ROUTING_ORDER: RouteRule[] = [
       && ['closing', 'property_query', 'presentation', 'discovery', 'intent', 'idle'].includes(s) },
   { intent: 'FEE_SURPRISE', note: '«OVA E NESTO NOVO» / «AUUU» at the disclosure — closing-only in the executor, and it serves the fee.why rationale WITHOUT a rung (§2: surprise is not resistance). Mirrors that gate instead of widening it: «imate nesto novo vo karpos?» is a property ask',
     fires: (t, s) => detectFeeSurprise(t) && s === 'closing' },
+  // THE FEE FAST PATH IS FLIPPED (Phase 4, money family): the executor's block
+  // at 10534 evaluates exactly these three rows and now READS the answer
+  // instead of recomputing its own booleans. That is only sound because the rows
+  // are the booleans, so the two divergences the flip exposed are fixed here:
+  //  • every row carries `!fsmRequired` (the executor's intercept guard: when
+  //    the FSM forces the full path, its own fee.why legs serve — no double-talk)
+  //  • FEE_COMPLAINT vetoes on `feeWhyFast`, not on bare `detectFeeWhy`: with a
+  //    consent phrase present the executor's why leg stands down, the complaint
+  //    takes the turn, and the OLD row (bare `detectFeeWhy`) predicted the
+  //    opposite.
   { intent: 'FEE_RULES', note: '«KAKVI SE PRAVILATA NA AGENCIJATA?» — the rules-of-work script. The executor\'s intercept tries rules before why and total-cost, so a rules question is never re-explained as «why»',
-    fires: (t, s) => detectFeeRules(t) && FEE_MONEY_STATES.includes(s) },
+    fires: (t, s) => !fsmRequired(t) && detectFeeRules(t) && FEE_MONEY_STATES.includes(s) },
   { intent: 'FEE_COMPLAINT', note: 'the fee arithmetic complaint leg (`detectFeeTotalCost` — «ako gledam 10 stana toa se 5000 od moj djeb»): the client multiplies the fee, which the executor answers with the rationale (never the search, never a rung). The executor evaluates it after rules/why, hence the two vetoes',
-    fires: (t, s) => !detectFeeRules(t) && !detectFeeWhy(t) && detectFeeTotalCost(t)
+    fires: (t, s) => !fsmRequired(t) && !detectFeeRules(t) && detectFeeTotalCost(t)
+      && !(detectFeeWhy(t) && !detectFeePaymentAgreement(t))
       && FEE_MONEY_STATES.includes(s) },
   // THE EXIT FINAL-CHECK (inbound.ts 9951): one last-chance question before a
   // farewell, ONCE per session (slots.exitCheckServed). A second exit-shaped
@@ -599,8 +644,9 @@ export const ROUTING_ORDER: RouteRule[] = [
   // TOA E TOA» agrees to the fee and must be predicted as consent traffic, not
   // as an explanation request — the executor's why legs stand down on
   // detectFeePaymentAgreement, and the mirror has to say the same.
-  { intent: 'FEE_WHY', note: 'bare why-claim about the charge — never fee consent (must beat provision.ask)',
-    fires: (t) => detectFeeWhy(t) && !detectProvisionAsk(t) && !detectFeePaymentAgreement(t) },
+  { intent: 'FEE_WHY', note: 'bare why-claim about the charge — never fee consent (must beat provision.ask). The STATE list is the executor\'s: the fast intercept only serves a why in the money states',
+    fires: (t, s) => !fsmRequired(t) && detectFeeWhy(t) && !detectProvisionAsk(t)
+      && !detectFeePaymentAgreement(t) && FEE_MONEY_STATES.includes(s) },
   { intent: 'PROVISION_WHO', note: 'who pays the commission / the notary-inspector costs («KOJ JA PLAKJA PROVIZIJATA?», «KOJ GO PLAKJA DANOKOT?») — dispatchSimple\'s provision.who, which the executor reaches AFTER the commission ladder, so it sits below it and ABOVE the plain commission ask (the who-pays wording satisfies both detectors)',
     fires: (t, s) => detectProvisionWho(t)
       && ['closing', 'presentation', 'property_query', 'property_locate', 'discovery', 'intent', 'idle', 'contact_collection'].includes(s) },
@@ -663,9 +709,11 @@ export const ROUTING_ORDER: RouteRule[] = [
  *  FALLTHROUGH (LLM/classifier territory). Pass the live `session.slots`
  *  wherever they exist: the lanes gated on the client's memory can only be
  *  predicted when the mirror can see what that memory holds. */
-export function resolveIntent(text: string, state: string, slots: RouteSlots = NO_SLOTS): string {
+export function resolveIntent(
+  text: string, state: string, slots: RouteSlots = NO_SLOTS, evidence?: RouteEvidence,
+): string {
   for (const r of ROUTING_ORDER) {
-    try { if (r.fires(text, state, slots)) return r.intent; } catch { /* never let the mirror crash callers */ }
+    try { if (r.fires(text, state, slots, evidence)) return r.intent; } catch { /* never let the mirror crash callers */ }
   }
   return 'FALLTHROUGH';
 }
@@ -758,8 +806,10 @@ export function recentRoutes(n = 50): RouteEntry[] {
  *  ROUTING_ORDER over text + state + slots, it is simply made with the slots
  *  the load has filled in. It replaces (never appends to) the entry prediction
  *  for this chat, because the later pass is strictly better informed. */
-export function refinePrediction(chatId: string, text: string, state: string, slots: RouteSlots): string {
-  const intent = resolveIntent(text, state, slots);
+export function refinePrediction(
+  chatId: string, text: string, state: string, slots: RouteSlots, evidence?: RouteEvidence,
+): string {
+  const intent = resolveIntent(text, state, slots, evidence);
   const pending = PENDING_PREDICT.get(chatId);
   PENDING_PREDICT.set(chatId, { intent, at: pending?.at ?? Date.now() });
   return intent;
@@ -865,7 +915,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   NEARBY_ASK: M('NEARBY_ASK', 'what is near the building — the interceptor runs before every funnel branch'),
   NEARBY_THREAD: P('what-else-is-near (rotation → protocol → lifecycle)'),
   'OWNER_HOLD:fast': P('owner unreachable continuation'),
-  POI_CONFIRM: P('a place-confirm question about the bound flat («da ne e vo karpos ?») — the executor answers it only when the MAP resolves the named place (inbound.ts 6861: a landmark hit or a named area). The map is data, not text: a mirror row would have to guess, and the probe showed exactly that — «DA NE E VO SKOPJANKA ?» is a POI-confirm by wording while the executor served nothing. Labelled backlog, not a guessed row'),
+  POI_CONFIRM: M('POI_CONFIRM', 'a place-confirm question about the bound flat («da ne e vo karpos ?») — the executor answers it only when the MAP resolves the named place (inbound.ts 6861: a landmark hit or a named area). The map is data, not text: a mirror row would have to guess, and the probe showed exactly that — «DA NE E VO SKOPJANKA ?» is a POI-confirm by wording while the executor served nothing. Labelled backlog, not a guessed row'),
   PLACE_PIVOT: P('same search at a different named place (“a neshto kaj X?”)'),
   PLACE_RING_ASK: M('PLACE_RING_ASK', 'the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question (predicted on the refinement pass, from the pool\'s own poiTooFarAsk verdict)'),
   PLACE_RING_ROW: P('the identity of the flat the place ring measured (“koj e toj stan na 1,4 km?”)'),

@@ -428,3 +428,23 @@ test('a district question about a named place is AREA_OF_PLACE; a where-question
   // A price question keeps the price lane (the lane's own veto).
   assert.notEqual(resolveIntent('KOJA E CENATA NA STANOT?', 'closing'), 'WHERE_LANDMARK');
 });
+
+// ── the fee fast path (Phase 4, money family — the FLIP) ────────────────────
+// The block at 10534 now READS these rows instead of recomputing its booleans,
+// so the rows must be the booleans exactly. Two divergences the flip exposed:
+// FEE_WHY was missing the money-state list and `!fsmRequired` (when the FSM
+// forces the full path, its own fee.why leg serves — the fast block must not),
+// and FEE_COMPLAINT vetoed on bare `detectFeeWhy` where the executor vetoes on
+// `feeWhyFast`. With a consent phrase present the why leg stands down, so the
+// arithmetic complaint takes the turn — the case that used to predict the wrong
+// lane. Nothing here changes what is served; it pins WHICH row owns each turn.
+test('the fee fast path rows are the executor booleans', () => {
+  assert.equal(resolveIntent('KAKVI SE PRAVILATA NA AGENCIJATA?', 'closing'), 'FEE_RULES');
+  assert.equal(resolveIntent('AKO GLEDAM 10 STANA TOA SE 5000 OD MOJ DJEB', 'closing'), 'FEE_COMPLAINT');
+  // Consent does NOT move the arithmetic complaint back to the why leg.
+  assert.equal(resolveIntent('AKO GLEDAM 10 STANA TOA SE 5000 OD MOJ DJEB, DOBRO SE SOGLASUVAM', 'closing'), 'FEE_COMPLAINT');
+  // A why that forces the FSM path is not the FAST lane (the FSM leg serves it).
+  assert.notEqual(resolveIntent('ZOSTO ZEMATE PARI ZA POSETA?', 'closing'), 'FEE_WHY');
+  // …and rules never become a why.
+  assert.notEqual(resolveIntent('KAKVI SE PRAVILATA NA AGENCIJATA?', 'closing'), 'FEE_WHY');
+});

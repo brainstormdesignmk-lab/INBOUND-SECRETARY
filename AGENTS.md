@@ -1812,8 +1812,41 @@ row), `INFO_ASK_PAIR` and `INFO_ASK_FLOORS` (the feed's EB list plus the rows'
 own facts). Five lanes, ~7 k turns a month — the channel is still the next
 batch, and it is a predicate-plus-probe job, not forty more rows.
 
-Until that channel exists these seven stay `P(...)` with their honest notes: a
-labelled GAP in `route:health`, never a guessed DRIFT.
+THE CHANNEL IS BUILT (Phase 4, evidence batch). `RouteEvidence` lives in
+`router.ts`; `resolveIntent`/`refinePrediction` take it as an optional last
+argument and every row receives it as a fourth parameter. The executor fills it
+in `InboundHandler.probeRouteEvidence` at the PREDICT SEAM, once per turn, and
+the SAME object is passed to the refined prediction after `loadProps`, so the
+two predictions can never disagree about the facts they were given.
+
+Properties of the design, each pinned by construction rather than by hope:
+
+- `POI_CONFIRM` is mirrored on it: the probe replicates the block's own chain
+  (scheduling veto → area-probe veto → anchor on the table → a non-city map hit
+  or a neighbourhood reading), so the mirror and the executor answer the same
+  question with the same inputs. Its row refuses itself when no evidence was
+  supplied, which is why a unit test can never get a confident wrong answer.
+- The probe is GATED ON THE LANE'S OWN WORDING TEST, so a turn that cannot reach
+the lane does no map/feed work at all — the cost property that makes an
+up-front evidence object unacceptable here (~127 k turns/month).
+- THE ROUTER STAYS PURE: no map or feed call inside `resolveIntent`, so the
+  mirror is still testable without a database. The probe is the executor's half
+  of the contract.
+
+STILL PENDING, with the exact wall each one hits (not a guess, not a shrug):
+
+- `PRICE_AVG_NASELBA` — its gate is `q.mode === 'cheapest'` plus the parsed
+  `areaNames` and `segment` from the price-extreme query object; reproducing
+  that parse in the probe is a second copy of the query layer, which is exactly
+  what the lift rule forbids. Needs the query object exposed, not a paraphrase.
+- `DISTANCE_BATCH` — one `findPlace` per candidate row over the batch, and the
+  batch's own subject rule (`batchOwnsSubject`, the singular-ask guard). The
+  probe would have to load the batch rows at the predict seam; doable, but it
+  pays a feed load on every plural-distance ask and needs its own measurement.
+- `INFO_ASK_PAIR` / `INFO_ASK_FLOORS` — their gate sits INSIDE the INFO block,
+  behind a long entry conjunction over the facet parse, the quote memory and the
+  year arms. A partial replica would predict the pair lane for turns the block
+  never enters: the guessed-row failure this file exists to prevent.
 
 ### 5a. THE TURN CORPUS — five dimensions, not prose (proposal Phase 1)
 

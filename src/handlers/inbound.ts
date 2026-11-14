@@ -52,7 +52,7 @@ import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extractDetailsLandmark, resolveSearchCenter, FEED_LANDMARK_MAX_M, type PropertyRow, type Center } from '../geo/landmarks';
 import { toLatin, toCyrillic, translitToLatin, officialPlaceName, canonicalWordKey, wordsAlmostEqual } from '../geo/offlineMap';
 import { walkMinutes, distM } from '../geo/precision';
-import { routeLog, resolveIntent, refinePrediction, dispatchSimple } from './router';
+import { routeLog, resolveIntent, refinePrediction, dispatchSimple, type RouteEvidence } from './router';
 import { ambientTurn, clipReply, currentTurn, currentTurnAudit, noteTurnFact, runInTurn, startTurn, type TurnContext } from './turn';
 import { focusClarifyAsk, resolvePropertyFocus } from './focus';
 import { BARE_REFUSAL_ONLY_RE, NEAR_ANCHOR_SCOPE_M, pickDescribed } from './locate-pick';
@@ -4223,6 +4223,58 @@ export class InboundHandler {
       + ` replies=${audit.replies.length}${audit.source ? ` src=${audit.source}` : ''}`);
   }
 
+  /** THE EVIDENCE CHANNEL (Phase 4). The router stays pure: it never calls the
+   *  map or the feed, and a row whose gate needs one REFUSES ITSELF when no
+   *  evidence was supplied. This probe is the executor's side of that contract,
+   *  and it is cheap by construction — each lane's own wording test runs first.
+   *
+   *  POI_CONFIRM (inbound.ts 6792) is the first lane on the channel. Its answer
+   *  exists only when the MAP resolves the named place to a non-city landmark,
+   *  or when the feed knows the candidate as a neighbourhood — the two facts no
+   *  reading of (text, state, slots) can produce. The replica below is the
+   *  block's own chain: same vetoes, same anchor order, same city exclusion.
+   */
+  private async probeRouteEvidence(session: ChatSession, text: string): Promise<RouteEvidence> {
+    const ev: RouteEvidence = {};
+    if (isPoiConfirmQuestion(text)
+      && !(VISIT_WINDOW_STATES.includes(session.state)
+        && (!!detectVisitTime(text) || hasDayWord(text) || hasClockHint(text)))
+      && !detectAreaHaveAsk(text)
+      && (session.slots.propertyId || session.slots.interestedPropertyId
+        || session.slots.presentedIds?.length)) {
+      // The demonstrative binds what is ON THE TABLE; otherwise the flat the
+      // chat already bound owns the question (the [12:47]/[02:19] pair).
+      const pointsAtTable = /(?<![\p{L}\p{N}])(?:овој|тој|оваа|таа|ова|тоа|ovoj|toj|ovaa|taa|ova|toa)(?![\p{L}\p{N}])/iu.test(text);
+      const tableTail = pointsAtTable
+        ? (session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
+          ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1])
+        : undefined;
+      const poiEb = inferPropertyId(text) ?? tableTail
+        ?? session.slots.interestedPropertyId ?? session.slots.propertyId
+        ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
+        ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1];
+      const poiProp = poiEb != null
+        ? await this.deps.properties.getByEb(poiEb).catch(() => undefined)
+        : undefined;
+      if (poiProp?.location) {
+        const candidate = extractPoiConfirmPlace(text);
+        if (candidate && this.landmarks) {
+          const hit = this.landmarks.findPlace(candidate,
+            poiProp.lat != null && poiProp.lon != null
+              ? { lat: poiProp.lat, lon: poiProp.lon } : undefined);
+          if (hit && !isCityLevelPlace(hit.type) && !namesOnlyTheCity(candidate)) ev.poiConfirm = true;
+        }
+        // The neighbourhood reading («da ne e vo karpos ?») — only with a real
+        // candidate, never from marker words alone.
+        if (!ev.poiConfirm && candidate) {
+          const namedLoc = await this.areaNamed(candidate);
+          if (namedLoc) ev.poiConfirm = true;
+        }
+      }
+    }
+    return ev;
+  }
+
   private async processTurn(channel: string, chatId: string, text: string, opts: HandleOpts): Promise<void> {
     const pipelineStart = Date.now();
     // History helpers (presentCheaperBatch) read the raw message — set before
@@ -4451,6 +4503,10 @@ export class InboundHandler {
     // + permanent blocklist. Strike 1 decays on the next clean message; strike
     // 2 never decays. applyStrike is called on EVERY message (offenses strike,
     // clean messages decay).
+    // Declared for the WHOLE turn: filled at the predict seam (below) and read
+    // again by the refined prediction after `loadProps`, so the two predictions
+    // cannot disagree about the map/feed facts they were given.
+    let routeEvidence: RouteEvidence | undefined;
     const offense = detectOffensive(text);
     const outcome = applyStrike(session, offense);
     if (outcome === 'none') {
@@ -4470,11 +4526,16 @@ export class InboundHandler {
       const lastAssistant = [...session.history].reverse().find(h => h.role === 'assistant')?.text ?? '';
       const responseEb = Number(lastAssistant.match(/Евидентен број (\d+)/u)?.[1]) || undefined;
       const lastTargetEb = session.lastTurn?.targetEb ?? responseEb;
+      // THE EVIDENCE CHANNEL (Phase 4): the map/feed facts a lane's own gate
+      // needs are probed HERE, gated on the lane's cheap wording test, so a turn
+      // that cannot reach those lanes pays no lookup. The refined prediction
+      // below gets the same evidence — one probe per turn, two readers.
+      routeEvidence = await this.probeRouteEvidence(session, text);
       routeLog(chatId, text, resolveIntent(text, session.state, {
         ...session.slots,
         mirrorPriorUserText: priorUserText,
         mirrorLastTargetEb: lastTargetEb,
-      }), 'predict');
+      }, routeEvidence), 'predict');
     }
     if (outcome !== 'none') {
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -10525,12 +10586,19 @@ export class InboundHandler {
     // dispatchSimple runs pre-classifier, so the ownership must live HERE.
     // fsmRequired guard: when the FSM forces the full path, the fee.why FSM
     // legs already own the serve — no double-talk.
-    const feeRulesQ = detectFeeRules(text);
-    // Consent outranks the why lane here too — same contract as the fast leg
-    // above: a client who already said yes is moved on, never re-lectured.
-    const feeWhyFast = !feeRulesQ && !detectFeePaymentAgreement(text) && detectFeeWhy(text);
-    const feeTotalCost = !feeRulesQ && !feeWhyFast && detectFeeTotalCost(text);
-    if (!fsmRequired(text) && (feeRulesQ || feeWhyFast || feeTotalCost)) {
+    // THE ROUTER OWNS THIS DECISION (Phase 4 authoritative flip, money family).
+    // The three rows (FEE_RULES / FEE_WHY / FEE_COMPLAINT) carry the executor's
+    // own booleans — rules → why (with the consent veto: «a client who already
+    // said yes is moved on, never re-lectured») → complaint — plus the
+    // `!fsmRequired` guard and the money-state list, so the block below reads
+    // the ROUTER's answer instead of recomputing it. The answer each lane serves
+    // is unchanged; the `if` chain that chose it is now one predicate with two
+    // readers, and the branch can no longer drift from the log.
+    const feeLane = routedLane();
+    const feeRulesQ = feeLane === 'FEE_RULES';
+    const feeWhyFast = feeLane === 'FEE_WHY';
+    const feeTotalCost = feeLane === 'FEE_COMPLAINT';
+    if (feeRulesQ || feeWhyFast || feeTotalCost) {
       const beforeWhy = session.state;
       // property_locate + contact_collection too: an explanation mid-locate
       // must never advance the locate funnel (the [12:40] idle→closing leg
@@ -12303,7 +12371,7 @@ export class InboundHandler {
     // text, and loadProps has just filled in slots.poiTooFarAsk — re-predict now
     // so the shadow router names the lane this turn is about to serve instead of
     // the search it was before the pool spoke (the [21:05] similarity ask).
-    refinePrediction(chatId, text, session.state, session.slots);
+    refinePrediction(chatId, text, session.state, session.slots, routeEvidence);
     // The blank batch stops steering once the typed answer has used it: the next
     // batch is this type's own, and the exclusion rule is back in force.
     if (typedAnswer && blankBatchBefore) {
