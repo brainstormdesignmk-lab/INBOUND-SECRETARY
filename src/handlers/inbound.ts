@@ -9244,11 +9244,19 @@ export class InboundHandler {
         : undefined;
       const recallPlace = this.placeWish(text)
         ?? (heldAnchor ? { name: heldAnchor.name, lat: heldAnchor.lat, lon: heldAnchor.lon } : undefined);
+      // THE NAME IN HIS SENTENCE OUTRANKS THE PLACE'S CONTAINING AREA (the
+      // [06:19] field capture). This used to ask `areaAtPlace(place)` FIRST: the
+      // map's «Скопје Север» point is resolved to whichever naselba contains it,
+      // and the recall then filtered the feed by THAT area — so a house whose
+      // own `naselba` IS «Скопје Север» (filed at adresa «Визбегово») matched
+      // nothing and the client was told «немам куќа … во близина на Скопје
+      // Север». The area the CLIENT named is the scope; the place's containing
+      // area is only a fallback for a recall that names a landmark, not an area.
       const recallArea = recallSlots.location
+        ?? await this.areaNamed(text).catch(() => undefined)
         ?? (recallPlace
           ? await this.areaAtPlace({ lat: recallPlace.lat, lon: recallPlace.lon, name: recallPlace.name }).catch(() => undefined)
-          : undefined)
-        ?? await this.areaNamed(text).catch(() => undefined);
+          : undefined);
       // A RECALL THAT NAMES AN AREA RETIRES A PLACE ANCHOR FROM ANOTHER AREA
       // (the [04:14] capture). The funnel keeps this turn when the price is
       // still unwritten (the [madjari] money-anchor gate), but the geography in
@@ -9435,7 +9443,14 @@ export class InboundHandler {
           house: typeSlots.house, business: typeSlots.business, plac: typeSlots.plac,
           service: typeSlots.service,
         });
-        const inArea = (p: Property): boolean => !recallArea || locMatches(String(p.location ?? ''), recallArea);
+        // THE AD'S OWN WORDS COUNT (the [04:52] field capture): this predicate
+        // used to read `p.location` ALONE, so a house whose naselba column says
+        // one thing while its ad names the district was invisible — «имавте една
+        // куќа во Скопје Север околу 130.000» got «немам таква», and the very
+        // next turn («А 44?») read the same row out by number. `inArea` is the
+        // data layer's predicate: the ad text first, then the naselba column,
+        // then the area derived from its own words.
+        const inRecallArea = (p: Property): boolean => !recallArea || inArea(p, recallArea);
         // NEAREST THE PLACE FIRST (distance, then the remembered price): the
         // house he saw «кај Олимпико» is the one standing by it, not the one
         // that merely costs the same in the same municipality.
@@ -9454,7 +9469,7 @@ export class InboundHandler {
           : [];
         const atPlace = nearPlace.filter(p => roomTier(p) === 0);
         const placeAnchored = atPlace.length > 0;
-        let matches = (placeAnchored ? atPlace : pool.filter(inArea)).slice(0, 2);
+        let matches = (placeAnchored ? atPlace : pool.filter(inRecallArea)).slice(0, 2);
         session.slots.location = recallArea;
         if (recallPlace) {
           session.slots.poiAnchor = recallPlace.name;

@@ -1536,6 +1536,11 @@ const FEE_PER_VIEW_NOUN_RE = /(?:gledanj\p{L}*|гледањ\p{L}*|poset\p{L}*|п
 // VISIT fee.
 const FEE_PER_VIEW_ANCHOR_RE = /(?:poset\p{L}*|посет\p{L}*|razgled\p{L}*|разглед\p{L}*|gleda\p{L}*|гледа\p{L}*|gledanj\p{L}*|гледањ\p{L}*|vizit\p{L}*|визит\p{L}*|vid\p{L}*|вид\p{L}*)/iu;
 
+// «КОЛКУ ТРЕБА ДА ПЛАТАМ» / «kolku treba da platam» — the question word that
+// makes the count a FEE question rather than a price one.
+const FEE_QUESTION_RE = /(?<![\p{L}])(?:kolku|колку)(?![\p{L}])/iu;
+// The PAY VERB, so «kolku e cenata za 3 stana» (a price ask) stays out.
+const FEE_PAY_VERB_RE = /(?:plat|плат|plakj|плаќ|naplat|наплат)/iu;
 /** True when the client is CHECKING THE FEE MATHS — per property, or the sum
  *  for the flats on the table. Never true for resistance (see the vetoes), for
  *  a bare amount ask («500 denari?» — no unit, no plural) or for any amount
@@ -1569,6 +1574,17 @@ export function detectFeePerPropertyAsk(text: string): boolean {
         if (n >= 50 && n <= 2000) return true;
       }
     }
+    // THE COUNT QUESTION WITH NO FIGURE (the [05:13] field capture): «KOLKU
+    // TREBA DA PLATAM ZA 3 KUKJI DA VIDAM?» asks the TOTAL for three viewings and
+    // names neither a currency nor an amount, so every arm below demanded
+    // something the client did not say and the turn fell to the search machinery
+    // («немам куќи до 130.000 во Центар») instead of 3 × 500. A fee question (or
+    // a pay verb) + a COUNT of the things a visit is sold for + a viewing anchor
+    // IS that question; the serve multiplies the per-property rule by the count
+    // (`feeArithmeticCount`), so the total is stated, never guessed.
+    if ((FEE_QUESTION_RE.test(flat) || FEE_PAY_VERB_RE.test(flat))
+      && feeArithmeticCount(flat) !== undefined
+      && FEE_PER_VIEW_ANCHOR_RE.test(flat)) return true;
     // THE AMOUNTLESS PER-VISIT QUESTION (the [19:40] capture): a PER-UNIT marker
     // + a VIEWING anchor + a fee-sized bare number — «ZA SEKOJ STAN STO KE SE
     // POSETI PO 500 ?», «по секој стан што ќе го видам 500», «za sekoja poseta
@@ -1606,9 +1622,16 @@ export function detectFeePerPropertyAsk(text: string): boolean {
 export function feeArithmeticCount(text: string): number | undefined {
   const cyr = normalizeMc(text.replace(/\n/g, ' ')).toLowerCase();
   if (/(?<![\p{L}])(?:двата|двете)(?![\p{L}])/u.test(cyr)) return 2;
-  // «dva stana» / «две посети» — the count the client multiplies the fee by.
-  if (/(?<![\p{L}])(?:два|две)\s+(?:недвижности|стана|станот|посети|објекти)/u.test(cyr)) return 2;
-  const m = cyr.match(/(?<![\p{L}])(\d{1,2})\s*(?:недвижности|недвижност|стана|станот|посети|посета|објекти|објект)/u);
+  // THE OBJECT IS ANY THING A VISIT IS PAID FOR (the [05:13] field capture):
+  // «KOLKU TREBA DA PLATAM ZA 3 KUKJI DA VIDAM?» is three visits — 3 × 500 —
+  // and the count missed it because the noun list held only стан/посета/објект
+  // words. The whole family the agency sells a visit for belongs here: flats,
+  // houses, plots, business premises. Copied nouns are a bug by construction,
+  // so the list is ONE constant used by both arms below.
+  const VISIT_OBJECTS = '(?:недвижности|недвижност|стана|станот|станови|посети|посета|објекти|објект|куќи|куќа|куќата|плацови|плацот|плац|деловни простори|деловен простор)';
+  // «dva stana» / «две посети» / «две куќи» — the count the client multiplies.
+  if (new RegExp(`(?<![\\p{L}])(?:два|две)\\s+${VISIT_OBJECTS}`, 'u').test(cyr)) return 2;
+  const m = cyr.match(new RegExp(`(?<![\\p{L}])(\\d{1,2})\\s*${VISIT_OBJECTS}`, 'u'));
   if (!m) return undefined;
   const n = Number(m[1]);
   return n >= 1 && n <= 9 ? n : undefined;
