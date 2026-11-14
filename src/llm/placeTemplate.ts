@@ -79,6 +79,13 @@ const SCANNED_AREAS = KNOWN_NEIGHBORHOODS
 export function feedAreasIn(text: string): string[] {
   let hay = ` ${placeWordKey(text)} `;
   if (!hay.trim()) return [];
+  // «ТРГОВСКИ ЦЕНТАР» IS A BUILDING, NOT THE DISTRICT (the [11:54] capture):
+  // the map files the mall «Трговски центар Капитол», and «центар» is also a
+  // feed area — so the sentence naming the mall read as «borrowed area:
+  // Центар» and the operator's own place prose for it could never serve (nor
+  // be templated). The qualifier is unambiguous: a neighbourhood is never
+  // «трговски», so the phrase is consumed before any area may claim the word.
+  hay = hay.replace(/(?<![\p{L}])(?:gradski\s+)?trgovski\p{L}*\s+centar\p{L}*/gu, ' § ');
   const found: string[] = [];
   for (const { area, key } of SCANNED_AREAS) {
     const re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(key)}(?![\\p{L}\\p{N}])`, 'gu');

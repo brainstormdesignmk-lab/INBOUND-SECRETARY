@@ -136,7 +136,11 @@ test('[03:42] the confirmation names BOTH caps — one figure per category', asy
   const confirm = await say('A NESTO OKOLU KAPITOL');
   assert.match(confirm, /120\.000/u, `the small tier's own cap must survive the echo: ${confirm}`);
   assert.match(confirm, /250\.000/u, `the big tier's cap is named too: ${confirm}`);
-  assert.match(confirm, /ТЦ Капитол/u, `in the place the client named: ${confirm}`);
+  // The place the client named, under the map's own label for the MALL: the
+  // map files the stop that serves Капитол as «ТЦ Капитол», but a stop is never
+  // the place it is named after — either spelling names the same corner, and
+  // the long form is the centre itself.
+  assert.match(confirm, /ТЦ Капитол|Трговски центар Капитол/u, `in the place the client named: ${confirm}`);
   // One tier is «една спална», the other «две спални» — never a merged range.
   assert.match(confirm, /една спална/u, confirm);
   assert.match(confirm, /две спални/u, confirm);

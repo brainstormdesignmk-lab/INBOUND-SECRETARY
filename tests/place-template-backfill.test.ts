@@ -72,6 +72,11 @@ const ANSWER =
 const Q_CLAIM = 'STO IMTE INTERESNO KAJ OLYMPICO ?';
 const ANSWER_CLAIM =
   'Здраво! Имаме одлични опции во регионот околу ТЦ Олимпико. За да можам да ви издвојам соодветни понуди, дали Ве интересира купување или изнајмување?';
+/** The place the map resolves «KAPITOL MOL» to — the MALL, under its own long
+ *  label. The store's lookup is a literal name lookup, so these assertions use
+ *  it; the handler is what maps «ТЦ …» and «Трговски центар …» onto one place. */
+const ANCHOR = 'Трговски центар Капитол';
+
 /** District-bound: true only in Аеродром, so it must NEVER become a template. */
 const Q_DISTRICT = 'STO IMATE VO AERODROM ?';
 const ANSWER_DISTRICT =
@@ -82,15 +87,18 @@ test('the backfill templates a stored capture and refuses a district-bound one',
   bank.addDynamic('dynamic:idle:sto-imte-interesno', 'idle', Q, ANSWER);
   bank.addDynamic('dynamic:idle:sto-aerodrom', 'idle', Q_DISTRICT, ANSWER_DISTRICT);
   bank.addDynamic('dynamic:idle:sto-olympico', 'idle', Q_CLAIM, ANSWER_CLAIM);
-  assert.equal(bank.retrievePlaceTemplate('ТЦ Капитол'), undefined, 'nothing templated yet (an older capture)');
+  assert.equal(bank.retrievePlaceTemplate(ANCHOR), undefined, 'nothing templated yet (an older capture)');
 
   // DRY RUN — reports, writes nothing.
   const dry = await handler.backfillPlaceTemplates();
   const placeRow = dry.find(r => r.msg === Q)!;
   assert.ok(placeRow.template, `the capture is derivable: ${JSON.stringify(placeRow)}`);
   assert.equal(placeRow.written, false, 'a dry run writes nothing');
-  assert.equal(placeRow.anchor, 'ТЦ Капитол');
-  assert.equal(bank.retrievePlaceTemplate('ТЦ Капитол'), undefined);
+  // THE MALL, not the stop that carries the short «ТЦ» label: the captured
+  // answer says «ТЦ Капитол», and the anchor recorded is the place the map
+  // resolves it to — a stop is never the place it is named after.
+  assert.equal(placeRow.anchor, ANCHOR);
+  assert.equal(bank.retrievePlaceTemplate(ANCHOR), undefined);
 
   const districtRow = dry.find(r => r.msg === Q_DISTRICT)!;
   assert.equal(districtRow.template, undefined, 'a district-bound answer is never templated');
@@ -107,12 +115,12 @@ test('the backfill templates a stored capture and refuses a district-bound one',
   const applied = await handler.backfillPlaceTemplates({ apply: true });
   assert.equal(applied.find(r => r.msg === Q)!.written, true);
   assert.equal(applied.find(r => r.msg === Q_DISTRICT)!.written, false);
-  assert.ok(bank.retrievePlaceTemplate('ТЦ Капитол'), 'the capture now carries its template');
+  assert.ok(bank.retrievePlaceTemplate(ANCHOR), 'the capture now carries its template');
 
   // …and the row now serves the SAME place in different words, no model call.
   await handler.handle('test', 'b1', 'STO IMA KAJ KAPITOL MOL ?');
   const served = sent[sent.length - 1] ?? '';
-  assert.match(served, /ТЦ Капитол/u, `the backfilled template serves: ${served}`);
+  assert.match(served, /Трговски центар Капитол/u, `the backfilled template serves: ${served}`);
   assert.ok(!/\{place\}/u.test(served), `the slot is rendered, never served raw: ${served}`);
 });
 
@@ -124,5 +132,5 @@ test('a processed row is audit history — the backfill leaves it alone', async 
   bank.markDynamicProcessedIfMatches(row.id, Q, ANSWER);
   const report = await handler.backfillPlaceTemplates({ apply: true });
   assert.equal(report.find(r => r.id === row.id), undefined, 'processed rows are not in the report at all');
-  assert.equal(bank.retrievePlaceTemplate('ТЦ Капитол'), undefined);
+  assert.equal(bank.retrievePlaceTemplate(ANCHOR), undefined);
 });

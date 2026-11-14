@@ -1587,6 +1587,75 @@ not commitments — `questionedSelectionPattern` / `negatedSelectionPattern`
 carry that, and interest («ми се допаѓа») keeps `property.liked` with the fee
 coming later.
 
+## 4s-ter. The [11:47]–[12:00] batch: the answer is already on the table
+
+Six defects, one pattern: the turn had everything it needed and asked again, or
+answered from the wrong row. Pinned in `tests/field-1200-market-fee-visit.test.ts`.
+
+1. A BARE WHEN-QUESTION IS THE VISIT PROTOCOL's. `detectVisitTimingQuestion`
+   demands a visit reference in the sentence — «КОГА БИ МОЖЕЛО ?» has none
+   (the visit IS the subject; a card is on the table), so the line fell to the
+   model. The bare arm (`кога` + at most «би/па/тоа/ќе/е» + `може/можело`) is
+   part of the family, and the lane answers `visit.confirm.ask` — stored copy,
+   no LLM, no money.
+2. A VISIT WITH A COUNT IS A VISIT COUNT, NOT BEDROOMS. `feeArithmeticCount`
+   reads the count in digits AND words, with the object optional when a visit
+   verb carries the figure («АКО ПОСЕТАМ 3», «АКО ПОСЕТАМ ТРИ», «ЗА ТРИ
+   ПОСЕТИ»). A figure outside 1–9 is an Евидентен број, and a money word keeps
+   the amount lanes. The same message must never reach the bare-bedroom branch
+   in `detectBedrooms` — it did, and «АКО ПОСЕТАМ 3 ?» silently moved the
+   session's size criterion to 4 rooms while the fee question died. A count
+   question after the disclosure is ARITHMETIC: it serves the total
+   (`buildFeePerProperty`, 3 × 500 = 1.500), burns no rung, and never asks for
+   a name and phone.
+3. THE NAG'S OWN WORDS ARE AN ANSWER. The told-you lane apologised, read the
+   notebook back and then asked «купи или изнајми?» — the exact question
+   «КУПУВАЊЕ ТИ КАЖАВ ПРЕЕСКА» had just answered. A market named inside the
+   nag is applied BEFORE the recall (`detectService` → slot, `serviceInferred`
+   cleared), so the follow-up ask is the next missing criterion.
+4. A PURCHASE-SIZED BUDGET IS A MARKET ANSWER. `serviceCriterionKnown` reads a
+   budget at or above `PURCHASE_MIN_PLAUSIBLE_EUR` as «buy» even when the
+   market slot came from a served row (`serviceInferred`, the [10:16] pin) — no
+   rent is 160.000, so the figure is the client's own evidence and the funnel
+   must not ask the market again.
+5. A MALL IS THE LANDMARK, NOT THE SHOP NAMED AFTER IT. «Капитол» matched
+   «Трговски центар Капитол» (mall) and «Ramstore - Kapitol» (supermarket);
+   the shortest-name tie-break answered «Растојанието до Ramstore - Kapitol».
+   `findPoiByNameCore` now drops CONTAINS-tier rows when a mall-class row also
+   matches (never an exact/prefix hit, and never when the query asks for the
+   tenant class with a market/pharmacy word). The acknowledged abbreviation is
+   the same place: `marketAbbreviationForms` tries «ТЦ X» ↔ «Трговски центар
+   X», so the bus stop filed as «ТЦ Капитол» can no longer answer for the mall.
+6. THE 1 KM RING IS A SEARCH OFFER, NOT AN ANSWER. «ДВАТА БИ ГИ ПОСЕТИЛ АКО СЕ
+   ДОСТАПНИ НОРМАЛНО ?» and «НА КОЕ РАСТОЈАНИЕ СЕ ОД КАПИТОЛ ?» were both
+   answered «немам недвижност во непосредна близина … да Ви покажам подалеку?».
+   The ring ask (`poiTooFarAsk`) now stands down for a visit intent/request, a
+   distance question and fee traffic — the lane answers an empty SEARCH; the
+   question stays armed for the next stock message.
+
+Three consequences the full gate then taught us, all pinned by the suites named
+next to them:
+
+- A COUNT IS NOT A FEE QUESTION BY ITSELF. «двата/двете» is also the client's
+  word for the pair on the table, so the count lane requires the visit anchor
+  the arithmetic family uses (`namesVisitAnchor`, the `FEE_PER_VIEW_ANCHOR_RE`
+  family). Without it, «koja e podobra vrednost megu dvete ?» in `closing`
+  answered 1.000 денари for two visits instead of ranking the flats
+  (`tests/recommend-value.test.ts`).
+- «ТРГОВСКИ ЦЕНТАР» IS A BUILDING, NOT THE DISTRICT. «Центар» is a feed area,
+  so the mall's own name read as a district claim («borrowed area: Центар»),
+  which refused the operator's place prose AND its `{place}` template
+  (`feedAreasIn` consumes the shopping-centre phrase before any area may claim
+  the word; `tests/place-template-serve.test.ts`). A neighbourhood is never
+  «трговски»; venue names that merely CONTAIN an area word stay district-bound
+  on purpose — refusing a template is the safe direction.
+- A TAUGHT PLACE IS RETRIEVED BY PLACE, NOT BY SPELLING. A row taught while
+  the lookup answered the stop carries «ТЦ Капитол», and the resolve now names
+  the mall «Трговски центар Капитол»; `placeTemplateAnswer` tries
+  `marketAbbreviationForms` too, so the operator's stored prose keeps serving
+  across the renaming (`tests/place-template-backfill.test.ts`). New rows store
+  the resolved (long) name, so copy, anchor and map agree.
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.

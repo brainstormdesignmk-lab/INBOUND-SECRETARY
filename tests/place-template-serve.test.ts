@@ -89,6 +89,14 @@ const ANSWER_SAFE =
 const TMPL_SAFE =
   'Здраво! Во врска со {place}, дали Ве интересира купување на недвижност или претпочитате изнајмување?';
 
+/** The map's own name for the place «KAPITOL MOL» resolves to: the MALL. The
+ *  map also files the bus stop that serves it under the short «ТЦ Капитол»
+ *  label, and a stop is never the place it is named after (the Лептокарија
+ *  rule), so the prose names the centre. The taught rows below deliberately
+ *  keep the SHORT anchor: retrieval is by place, not by spelling, and the
+ *  operator's stored prose must survive either label. */
+const PLACE_NOW = 'Трговски центар Капитол';
+
 /** The phrasing the row was TAUGHT under. */
 const Q_TAUGHT = 'STO IMTE INTERESNO KAJ KAPITOL MOL ?';
 /** The SAME place, different words — the exact recall would miss this one. */
@@ -134,7 +142,7 @@ test('A: the stored template serves the same place in OTHER words — no LLM', a
   // Different wording, same place: exact recall cannot help, the template can.
   await handler.handle('test', 'a1', Q_REWORDED);
   const served = sent[sent.length - 1] ?? '';
-  assert.equal(served, TMPL_SAFE.split('{place}').join('ТЦ Капитол'),
+  assert.equal(served, TMPL_SAFE.split('{place}').join(PLACE_NOW),
     `the stored prose must serve with the map's own place name: ${served}`);
   const s = sessions.get('a1')!;
   assert.equal(s.slots.inventoryPending, true, 'the type ask is owed on the next turn');
@@ -195,7 +203,7 @@ test('[10:16] where the feed has no cards, the TAUGHT prose answers the stock as
 
   await handler.handle('test', 'p1', Q_REWORDED);
   const served = sent[sent.length - 1] ?? '';
-  assert.equal(served, TMPL_SAFE.split('{place}').join('ТЦ Капитол'),
+  assert.equal(served, TMPL_SAFE.split('{place}').join(PLACE_NOW),
     `the stored prose answers where no card can: ${served}`);
   const s = sessions.get('p1')!;
   // The serve can come from the pre-classifier lane, which leaves the opening
@@ -208,7 +216,7 @@ test('[10:16] where the feed has no cards, the TAUGHT prose answers the stock as
   // reaches the pre-classifier lane — this one proves the drained/empty-pool
   // leg serves the same prose (the capture that started it all).
   await handler.handle('test', 'p2', 'ZDRAVO , STO INTERESNO IMATE OKOLU KAPITOL MOL ?');
-  assert.equal(sent[sent.length - 1] ?? '', TMPL_SAFE.split('{place}').join('ТЦ Капитол'),
+  assert.equal(sent[sent.length - 1] ?? '', TMPL_SAFE.split('{place}').join(PLACE_NOW),
     `the classified stock ask still gets the taught prose: ${sent[sent.length - 1]}`);
 
   await handler.handle('test', 'p1', 'ZA KUPUVANJE SUM ZAINTERESIRAN');

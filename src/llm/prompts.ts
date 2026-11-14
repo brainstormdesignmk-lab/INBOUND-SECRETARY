@@ -2,6 +2,7 @@ import { State, Service } from '../fsm/machine';
 import { SlotData, ChatSession } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
+import { PURCHASE_MIN_PLAUSIBLE_EUR } from './deterministic';
 import { Property, locPrep, mkTimePhrase, normalizeTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent, availabilityOf } from '../data/properties';
 import { firstLandmarkProblem } from '../geo/landmarks';
 import { distM } from '../geo/precision';
@@ -995,7 +996,18 @@ export function locationCriterionKnown(slots: SlotData): boolean {
  *  (or a dual deal) answers «купување или изнајмување?»; a market pinned from a
  *  served row (`serviceInferred`, the [10:16] rule) does not. */
 export function serviceCriterionKnown(slots: SlotData): boolean {
-  return (!!slots.service && !slots.serviceInferred) || !!slots.dualService;
+  if ((!!slots.service && !slots.serviceInferred) || !!slots.dualService) return true;
+  // A PURCHASE-SIZED BUDGET IS A MARKET ANSWER (the [11:48] capture): «ТРОСОБЕН
+  // МИ ТРЕБА ДО 160 000 ВО ТОЈ РЕОН» — no rent on this market is that high, so
+  // the money itself says «buy». The funnel still asked «дали планирате да
+  // купите стан или барате стан под закуп?» because the market slot had been
+  // pinned from a served row (`serviceInferred`, the [10:16] rule) and a pin is
+  // not a declaration. A figure above the rental-plausible band is the client's
+  // OWN evidence, so it answers the question a pin cannot. The threshold is the
+  // canonical purchase constant — never a new number here.
+  const budget = Number(String(slots.budget ?? '').replace(/[^\d]/g, ''));
+  return !!slots.service && !!slots.budget
+    && Number.isFinite(budget) && budget >= PURCHASE_MIN_PLAUSIBLE_EUR;
 }
 
 /** WHICH CRITERION AN ASK IS ABOUT — the funnel's own axis names, in the order

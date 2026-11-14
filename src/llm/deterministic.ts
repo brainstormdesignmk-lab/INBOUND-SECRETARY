@@ -1629,6 +1629,18 @@ export function detectFeePerPropertyAsk(text: string): boolean {
   return FEE_PER_PLURAL_RE.test(normalizeMc(flat));
 }
 
+/** True when the burst names the ACT a visit fee is paid for — «посета»,
+ *  «гледање», «видам» — the same anchor family the per-property arithmetic
+ *  uses. A COUNT ALONE IS NOT A FEE QUESTION (the [11:47] value-compare turn):
+ *  «koja e podobra vrednost megu dvete ?» names «двете» and asks which of two
+ *  flats is the better buy — «двата/двете» is the client's normal word for the
+ *  pair on the table, so the count must be tied to a visit before it can be
+ *  read as fee arithmetic.
+ */
+export function namesVisitAnchor(text: string): boolean {
+  return FEE_PER_VIEW_ANCHOR_RE.test((text ?? '').replace(/\n/g, ' '));
+}
+
 /** HOW MANY properties the client is multiplying the fee by — «dvata»/«dvete»
  *  → 2, «3 poseti» → 3. Undefined when the burst names no count: the serve
  *  then states the per-property rule without inventing a total. */
@@ -1645,9 +1657,32 @@ export function feeArithmeticCount(text: string): number | undefined {
   // «dva stana» / «две посети» / «две куќи» — the count the client multiplies.
   if (new RegExp(`(?<![\\p{L}])(?:два|две)\\s+${VISIT_OBJECTS}`, 'u').test(cyr)) return 2;
   const m = cyr.match(new RegExp(`(?<![\\p{L}])(\\d{1,2})\\s*${VISIT_OBJECTS}`, 'u'));
-  if (!m) return undefined;
-  const n = Number(m[1]);
-  return n >= 1 && n <= 9 ? n : undefined;
+  if (m) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= 9) return n;
+  }
+  // WORDED COUNTS COUNT TOO (the [12:00] capture): «АКО ПОСЕТАМ ТРИ ?» is the
+  // same question as «АКО ПОСЕТАМ 3 ?», and «три посети» the same as «3 посети».
+  // A COUNT IS A DIGIT OR ITS WORD — reading only the digit is the same defect
+  // as listing one spelling of a word family.
+  const WORDS: Record<string, number> = {
+    еден: 1, една: 1, едно: 1, два: 2, две: 2, три: 3, четири: 4, пет: 5,
+    шест: 6, седум: 7, осум: 8, девет: 9,
+  };
+  const wordObject = cyr.match(new RegExp(`(?<![\\p{L}])([\\p{L}]+)\\s+${VISIT_OBJECTS}`, 'u'));
+  if (wordObject && WORDS[wordObject[1]] !== undefined) return WORDS[wordObject[1]];
+  // THE BARE VISIT-COUNT QUESTION (the [12:00] capture): «АКО ПОСЕТАМ 3 ?» names
+  // the visits with a VERB and a figure — no object noun at all, because the
+  // subject is the visits already on the table. A MONEY word anywhere keeps the
+  // amount lanes (a rate question is not arithmetic), and a figure outside 1–9
+  // is an Евидентен број («АКО ПОСЕТАМ 82») — a visit TO 82, not eighty-two
+  // visits.
+  if (/(?:€|евр|evr|ден|den)/u.test(cyr)) return undefined;
+  const bare = cyr.match(/(?<![\p{L}])(?:посетам|посетиме|посети|посетил|посетиле|посетувам|посетуваме|posetam|posetime|poseti|posetil|posetile|posetuvam|posetuvame|видам|vidam|видиме|vidime)\s+(?:уште\s+|uste\s+)?(\d{1,2}|[\p{L}]+)(?![\p{L}\d])/u);
+  if (!bare) return undefined;
+  const raw = bare[1];
+  const n = /^\d+$/u.test(raw) ? Number(raw) : WORDS[raw];
+  return n !== undefined && n >= 1 && n <= 9 ? n : undefined;
 }
 
 // ── Which property / property choice (the [00:06]–[00:08] live burst) ────────
@@ -1972,6 +2007,15 @@ export function detectVisitTimingQuestion(text: string): boolean {
   // JS \\b is ASCII-only. \p{L} lookarounds replace the dead arms.
   if (/(?<![\p{L}\p{N}])(?:закаж|zakazh?|zakaz)\p{L}*|(?<![\p{L}\p{N}])(?:договор[еи]|dogovor[ei])\s*(?:ми|me)(?![\p{L}\p{N}])/iu.test(flat)) return false; // imperative command
   if (/(?:надомест|nadomest|такс|taks|плат|plakj|plat|денар\p{L}*|denar\p{L}*|ден(?!\p{L})|\bden\b|евр\p{L}*|evr\p{L}*|proviz|провизи)/iu.test(flat)) return false; // fee traffic
+  // A BARE WHEN-QUESTION IS THE SAME QUESTION (the [09:56] field capture):
+  // «КОГА БИ МОЖЕЛО ?» — no visit noun, no viewing verb, because the visit IS
+  // the subject of the turn (a card is on the table). The lane used to demand a
+  // visit reference, so the line fell through to the model and the client got a
+  // generated paragraph instead of the protocol. AGENTS §4r: the family is the
+  // QUESTION, not one of its spellings — strip the fillers and read what is
+  // left. Guards above already sent concrete times and fee traffic away.
+  const bareWhen = /^(?:[аa]\s+)?(?:па\s+)?(?:кога|koga)(?:\s+(?:би|па|тоа|ке|ќе|е|bi|toa)){0,2}(?:\s+(?:може|можело|можеше|биде|moze|mozelo|mozese|bide))?\s*[?!.…]*$/iu;
+  if (bareWhen.test(flat) || bareWhen.test(normalizeMc(flat))) return true;
   const timingQ = '(?:кога|koga)';
   // Visit NOUN (poseta/pokaz/vlez/…) OR visit VERB (poglednam/gledam) —
   // "koga mozam da ja poglednam?" has no noun but is the same timing question.
@@ -2454,6 +2498,12 @@ export function detectBedrooms(text: string): number | undefined {
     // A bedroom/room NOUN means the noun paths above own the answer (e.g.
     // "dve spalni") — the bare branch is only for noun-less funnel replies.
     && !/спалн|spaln|соб|sob/iu.test(text)
+    // A VISIT WITH A COUNT IS A VISIT COUNT, NOT BEDROOMS (the [12:00]
+    // capture): «АКО ПОСЕТАМ 3 ?» asked how much three VISITS cost, and the
+    // bare-number branch read the 3 as «3 спални» — bedrooms silently moved to
+    // four mid-conversation while the fee question went unanswered. A visit
+    // verb/noun in the message owns its figure (the fee arithmetic lane).
+    && !/(?:посет|poset|видам|vidam|видиме|vidime|гледам|gledam|гледаме|gledame)/iu.test(text)
     && !detectBudget(text)
     && !/\d+\s*(?:м2|м²|m2)/iu.test(text)
     // A MEASURE IS NOT A COUNT (the [04:05] capture): «STO TI E TOA NA 1.4KM ?»
