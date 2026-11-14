@@ -53,3 +53,8 @@ data/tui.pid
 
 # Local full-database snapshots created by bank:tui's backup/export workflow.
 data/master-snapshots/
+
+# esbuild bundles + TAP output from scripts/run-tests-compiled.sh — regenerated
+# by every gate run (185 files rewritten), so tracking them would dirty the tree
+# after each suite. `npm test` runs the sources directly and never reads this.
+.test-run-tmp/
