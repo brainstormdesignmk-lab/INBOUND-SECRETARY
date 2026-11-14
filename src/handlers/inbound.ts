@@ -9540,32 +9540,20 @@ export class InboundHandler {
     // defect this closes with the exclusion, not with a new search. A drained
     // pool gets the honest exhausted line and the pivot, never a silent junk
     // refill and never the visit protocol.
-    if (detectMoreStockRequest(text)
-        && ((session.slots.presentedIds?.length ?? 0) > 0)
-        && !isFeeTraffic(text) && !detectFeeNag(text) && !detectProvisionAsk(text)
-        && !detectProvisionWho(text) && !session.slots.ownerContactPending
-        && !session.slots.viewingFeeAgreed
-        // THE FIELD MESSAGE CONTAINS «ДА ВИДАМ», WHICH IS ALSO THE VISIT VERB
-        // («НЕ СЕ ЛОШИ АМА САКАМ ДА ВИДАМ УШТЕ АКО ИМАТЕ»): a blanket
-        // detectVisitInterest / detectVisitRequest veto sent it straight back to
-        // the visit lane — exactly the booking protocol this lane exists to
-        // prevent. A VISIT ASK NAMES A VISIT: a term, a day, a visit noun. Those
-        // keep their lane here, and the more-word itself is the discriminator
-        // («сакам да видам УШТЕ» is stock; «сакам да ја видам» is not).
-        && !detectVisitTime(text) && !proposesVisitTerm(text)
-        && !detectCheaperSearch(text) && !detectPomaloAsk(text) && !detectBudgetUpAsk(text)
-        && !detectAgreement(text) && !detectExplicitCancel(text) && !detectBye(text)
-        && inferPropertyId(text) === undefined
-        // A NEW CRITERION IS A NEW SEARCH, NOT «MORE» («уште нешто до 300
-        // евра» must APPLY the 300, not re-serve the old pool). applySlots runs
-        // AFTER this lane, so the criteria are read from the message itself.
-        && (() => {
-          const es = extractSlots(text);
-          return es.bedrooms === undefined && es.bedroomsMin === undefined && es.bedroomsMax === undefined
-            && es.sqm === undefined && !es.budget && !es.priceMin && !es.location
-            && es.house === undefined && !es.business && !es.plac && !es.garsonjera
-            && !es.yard && !es.anywhere && !es.sizeWaived;
-        })()) {
+    // THE ROUTER OWNS THIS GATE (Phase 4 authoritative flip): the MORE_STOCK
+    // row is this exact conjunction (eleven vetoes + the criteria parse), built
+    // from the executor's own comment below — so the branch reads the router's
+    // answer instead of repeating it. The comment stays: it is the REASON the
+    // vetoes exist, and it is now also the row's note.
+    // THE FIELD MESSAGE CONTAINS «ДА ВИДАМ», WHICH IS ALSO THE VISIT VERB
+    // («НЕ СЕ ЛОШИ АМА САКАМ ДА ВИДАМ УШТЕ АКО ИМАТЕ»): a blanket
+    // detectVisitInterest / detectVisitRequest veto sent it straight back to
+    // the visit lane — exactly the booking protocol this lane exists to
+    // prevent. A VISIT ASK NAMES A VISIT: a term, a day, a visit noun. Those
+    // keep their lane here, and the more-word itself is the discriminator
+    // («сакам да видам УШТЕ» is stock; «сакам да ја видам» is not). The vetoes
+    // now live in the ROUTER's row (same order, same reason).
+    if (routedLane() === 'MORE_STOCK') {
       routeLog(chatId, text, 'MORE_STOCK');
       const morePool = await this.deps.properties.candidates({
         location: session.slots.location,

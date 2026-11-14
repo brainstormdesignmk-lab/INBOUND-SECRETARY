@@ -1745,6 +1745,28 @@ The residual risk of a flip is the mirror becoming STRICTER than the executor
 for an unlisted reason; that shows up as a turn that serves one row lower, never
 as a wrong answer, and `route:gap-audit`/`route:health` measure it.
 
+SLICE 7 — `MORE_STOCK`, AND THE TWO WALLS THE SWEEP HIT. `MORE_STOCK` is the
+first NON-locate lane flipped: its gate is eleven text/slot vetoes plus the
+`extractSlots` criteria parse, all of which the router can evaluate, so the row
+is the executor's own conjunction and the branch reads `routedLane()`. The
+test's negatives are the lane's whole reason to exist: the VISIT verb inside
+«сакам да видам уште», and a NEW criterion («уште нешто до 300 евра»), which is
+a fresh search rather than a re-serve.
+
+The sweep also found two lanes that CANNOT be flipped from text alone, which is
+why they stay pending instead of getting a guessed row:
+
+- `DISTANCE_BATCH` (5296): one measured line per flat requires
+  `landmarks.findPlace(place, {lat,lon})` per row — a MAP call per candidate.
+  Its text half is trivial; its gate is the hit, exactly like `POI_CONFIRM`.
+- The FEE LEGS (`FEE_RULES`/`FEE_WHY`/`FEE_COMPLAINT` at 10551, and the FSM leg
+  in `moneyArbitration.ts`): the fast path computes ONE tag from three booleans
+  and serves from the same block, so flipping is not a one-line swap — it is
+  splitting that block into three router-gated branches, in the money area §2
+  calls the most expensive to get wrong, and it must land with the fee isolation
+  tests in the same gate. Deliberately not attempted in this batch: a rushed
+  split there is the one change that could burn a rung on the wrong fee.
+
 STILL PENDING, with the reason each needs its own slice: `INFO_ASK_PAIR*` and
 `INFO_ASK_FLOORS` (the pair/batch referent and its criteria parse), `MORE_STOCK`
 (9520: an eleven-clause veto list plus a criteria veto built from
@@ -1761,17 +1783,28 @@ from (text, state, slots) — a `landmarks.findPlace` hit, a named-landmark matc
 inside the row, a resolved area polygon, or "the feed has rankable per-m²
 rows". The honest shapes, in ascending cost:
 
-1. **A post-prediction refinement** (`refinePrediction(chatId, text, state,
-   slots, evidence)`), where `evidence` is filled by the executor AFTER it has
-   already done the lookup for the turn — zero extra map calls, and the recorded
-   prediction becomes the truth for that turn. This is the shape to build: the
-   resolution is what the executor already paid for.
-2. A `RouteEvidence` parameter the executor fills up-front — correct but pays a
-   second lookup on every turn, including the 70 % that never reach these lanes.
-3. A mirror row that calls the map itself — rejected: it puts geo I/O inside a
-   pure function and makes `resolveIntent` untestable without a database.
+1. **A post-prediction refinement** — REJECTED BY MEASUREMENT, not by taste:
+   the refine call sits at 12292, and `POI_CONFIRM` (6883), `WHERE_LANDMARK`
+   (5071), `AREA_OF_PLACE` (5018/5028) and `PRICE_AVG_NASELBA` (6188) all run
+   BEFORE it. A prediction written after the lane already served is not a
+   prediction — it would make a wrong first guess invisible instead of right.
+2. **A cheap-text-gated async probe before the predict** — the shape to build.
+   At the predict seam the executor awaits `routeEvidence(session, text)`, which
+   NO-OPS unless the lane's own cheap wording test fires (`isPoiConfirmQuestion`,
+   the каде-shape, the «населба»+superlative shape) and then performs the ONE
+   lookup that lane needs. Turns that never reach these lanes pay nothing, which
+   is the property a blanket up-front evidence object cannot have (it would pay
+   a map/feed lookup on all ~127 k turns a month).
+3. A mirror row that calls the map itself — still rejected: geo I/O inside a
+   pure function makes `resolveIntent` untestable without a database.
 
-Until that channel exists these four stay `P(...)` with their honest notes: a
+The blocker is bigger than the four: the SLICE 7 survey found `DISTANCE_BATCH`
+(one `findPlace` per candidate row), `INFO_ASK_PAIR` and `INFO_ASK_FLOORS` (the
+feed's EB list plus the rows' own facts) gated the same way. That is SEVEN lanes
+and ~10 k turns a month on one missing channel — so the channel is the next
+batch, and it is a predicate-plus-probe job, not forty more rows.
+
+Until that channel exists these seven stay `P(...)` with their honest notes: a
 labelled GAP in `route:health`, never a guessed DRIFT.
 
 ### 5a. THE TURN CORPUS — five dimensions, not prose (proposal Phase 1)

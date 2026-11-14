@@ -42,6 +42,8 @@ import {
   detectExitCheck, detectSoftRefusal, detectWaitingAck, detectAgentAttendanceAsk,
   detectContactRequest, detectEyeCatch, detectPositiveEval, detectDescribeAsk,
   extractPriceExtremeQuery, detectWidenIntent, detectExplicitWiden,
+  detectMoreStockRequest, detectVisitTime, proposesVisitTerm, detectPomaloAsk,
+  detectBudgetUpAsk, detectExplicitCancel,
 } from '../llm/deterministic';
 import { detectInfoFacets } from '../llm/infoAnswer';
 import { detectGlossaryAsk } from '../llm/glossary';
@@ -403,6 +405,33 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
       && sl.areaExhausted === true
       && (detectAgreement(t) || detectWidenIntent(t) || detectExplicitWiden(t)) },
+  // «ШТО УШТЕ ИМАТЕ ?» / «САКАМ ДА ВИДАМ УШТЕ» — the next UNSHOWN pair, never a
+  // re-serve, never the booking protocol (inbound.ts 9524). The gate is ELEVEN
+  // vetoes plus a criteria parse, and every one of them is text/slot state, so
+  // the row is the executor's own conjunction — which is what let the branch
+  // below it flip to `routedLane()`.
+  // The «да видам» trap is the reason the visit vetoes are spelled out here: a
+  // field message («НЕ СЕ ЛОШИ АМА САКАМ ДА ВИДАМ УШТЕ АКО ИМАТЕ») carries the
+  // VISIT verb, and a blanket visit veto sent it to the booking lane.
+  // Position: after the describe/locate rows (the executor reaches this block at
+  // 9524, after them) and before the availability/bye lanes.
+  { intent: 'MORE_STOCK', note: 'a stock ask after a pair was served — the NEXT unshown pair from the same search, or the honest drained line; never the availability table, never the booking protocol, never a repeat of a flat already served ([12:41] capture)',
+    fires: (t, s, sl) => detectMoreStockRequest(t)
+      && (sl.presentedIds?.length ?? 0) > 0
+      && !isFeeTraffic(t) && !detectFeeNag(t) && !detectProvisionAsk(t)
+      && !detectProvisionWho(t) && !sl.ownerContactPending
+      && !sl.viewingFeeAgreed
+      && detectVisitTime(t) === undefined && !proposesVisitTerm(t)
+      && !detectCheaperSearch(t) && !detectPomaloAsk(t) && !detectBudgetUpAsk(t)
+      && !detectAgreement(t) && !detectExplicitCancel(t) && !detectBye(t)
+      && inferPropertyId(t) === undefined
+      && (() => {
+        const es = extractSlots(t);
+        return es.bedrooms === undefined && es.bedroomsMin === undefined && es.bedroomsMax === undefined
+          && es.sqm === undefined && !es.budget && !es.priceMin && !es.location
+          && es.house === undefined && !es.business && !es.plac && !es.garsonjera
+          && !es.yard && !es.anywhere && !es.sizeWaived;
+      })() },
   { intent: 'LOCATE_CONTINUE', note: 'a bare «не» while choosing among described flats — the rejection of the offer, never a farewell; the hunt serves the next options (inbound.ts 9790)',
     fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
       && BARE_REFUSAL_ONLY_RE.test(t.trim()) },
@@ -752,7 +781,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   PROPERTY_DESCRIPTION: M('PROPERTY_DESCRIPTION', 'remembered-property flow'),
   SEEN_LISTING_RECALL: M('SEEN_LISTING_RECALL', 'a recalled listing («имавте една куќа накај Скопје Север, околу 130 000 беше») served from the bank by category+area+price in helpful mode — never the criteria ask ([18:41] capture)'),
   DESCRIBE_TABLE: M('DESCRIBE_TABLE', '“опиши ги?” — the flats she just offered, answered from the bank rows (inbound.ts 9414)'),
-  MORE_STOCK: P('a stock ask after a pair was served («сакам да видам уште», «што уште имате ?») — the NEXT unshown pair from the same search, or the honest drained line; never the availability table, never the booking protocol, never a repeat of a flat already served ([12:41] capture)'),
+  MORE_STOCK: M('MORE_STOCK', 'a stock ask after a pair was served («сакам да видам уште», «што уште имате ?») — the NEXT unshown pair from the same search, or the honest drained line; never the availability table, never the booking protocol, never a repeat of a flat already served ([12:41] capture)'),
   AVAILABILITY_TABLE: M('AVAILABILITY_TABLE', 'an availability ask that points at ONE flat already on the table by its type/price («GARSONJERATA ZA 200E DALI E DOSTAPNA?») — the ack + the owner question for THAT flat, never a fresh criteria grill ([22:27] capture)'),
   CONTACT_MECHANICS: P('the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» — the number she holds + the mechanism, never the DEFER line ([22:28] capture)'),
   STOCK_CONTRADICTION: P('the client quotes a card she served against a «нема» she said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?») — admission + the row\'s own facts + the next step, never a location line ([02:12] capture)'),

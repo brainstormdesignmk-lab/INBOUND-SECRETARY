@@ -396,3 +396,21 @@ test('an extreme price ask is PRICE_EXTREME', () => {
   // A plain price question keeps the price lane.
   assert.notEqual(resolveIntent('KOLKU E CENATA?', 'closing', { propertyId: 78 }), 'PRICE_EXTREME');
 });
+
+// ── MORE_STOCK (Phase 4, stock family) ──────────────────────────────────────
+// The row is the executor's ELEVEN-veto conjunction, so the branch at 9524 was
+// flipped to read `routedLane()` in the same commit: the row and the branch are
+// now one predicate. The negatives are the ones that made the lane necessary —
+// the visit verb inside «сакам да видам уште» and a NEW criterion («уште нешто
+// до 300 евра»), which is a fresh search and must not re-serve the old pool.
+test('a stock ask after a served pair is MORE_STOCK; a new criterion is not', () => {
+  const sl = { presentedIds: [78, 63] };
+  assert.equal(resolveIntent('ШТО УШТЕ ИМАТЕ ?', 'presentation', sl), 'MORE_STOCK');
+  assert.equal(resolveIntent('НЕ СЕ ЛОШИ АМА САКАМ ДА ВИДАМ УШТЕ АКО ИМАТЕ', 'presentation', sl), 'MORE_STOCK');
+  // A new criterion is a NEW SEARCH (the 300 must be applied, not ignored).
+  assert.notEqual(resolveIntent('уште нешто до 300 евра', 'presentation', sl), 'MORE_STOCK');
+  // A visit ask keeps the visit lane.
+  assert.notEqual(resolveIntent('сакам да ја видам во сабота', 'presentation', sl), 'MORE_STOCK');
+  // Nothing served yet: there is no pair to continue from.
+  assert.notEqual(resolveIntent('ШТО УШТЕ ИМАТЕ ?', 'presentation'), 'MORE_STOCK');
+});
