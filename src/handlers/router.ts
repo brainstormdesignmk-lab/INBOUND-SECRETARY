@@ -75,6 +75,17 @@ export interface RouteEvidence {
   /** POI_CONFIRM: the confirm block would build an answer (map hit that is not
    *  city-level, or a neighbourhood reading of the candidate). */
   poiConfirm?: boolean;
+  /** DISTANCE_BATCH: at least TWO flats of the on-table batch measure against
+   *  the named place (one `findPlace` hit each). */
+  distanceBatch?: boolean;
+  /** INFO_ASK_PAIR_IDENTITY: a message naming several Евидентен броеви, with no
+   *  facet asked, where both named rows exist in the feed. */
+  infoPairIdentity?: boolean;
+  /** INFO_ASK_PAIR: a facet ask over the TWO flats on the table, both rows
+   *  resolving in the feed (inbound.ts 7972). */
+  infoPair?: boolean;
+  /** INFO_ASK_FLOORS: the plain-floor pair variant (two rows, floor clause). */
+  infoFloors?: boolean;
 }
 
 /** The two lanes below are the ones whose executor gates read the CLIENT'S
@@ -243,6 +254,8 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectOwnerContact(t) },
   { intent: 'WHERE_IS', note: 'any каде-question → landmark rotation. Beats EXACT_ADDRESS by the guard above and beats description routing below',
     fires: t => !!detectWhereIs(t) },
+  { intent: 'DISTANCE_BATCH', note: 'the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat\'s number came back). EVIDENCE: at least two rows of the batch measure against the named place',
+    fires: (t, s, sl, ev) => ev?.distanceBatch === true },
   { intent: 'DISTANCE', note: '"KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?" ([22:25]) — how far the discussed property is from a place the client names. Sits after WHERE_IS (каде owns those), and BEFORE every funnel branch: the classifier read „STANOT“ as PROPERTY_ID_REQUESTED and answered a distance question with the property card',
     fires: t => isDistanceQuestion(t) },
   { intent: 'NEAREST_OF_SHOWN', note: '«KOJ E NAJBLISKU DO KAFICOT?» ([22:03]) — which of the flats ALREADY OFFERED is nearest to the place the client names. Sits after WHERE_IS/DISTANCE (which own their questions) and before the funnel branches: the location-nag lane answered it with the last flat\'s nearby landmark, because «најблиску» contains «блиску»',
@@ -510,12 +523,12 @@ export const ROUTING_ORDER: RouteRule[] = [
   // info block, and it owns «да не е во карпош?»/«овај кај кипер ?».
   { intent: 'POI_CONFIRM', note: '«ДА НЕ Е ВО КАРПОШ?» / «ОВОЈ КАЈ КИПЕР, КОЈА АДРЕСА ЈА ИМА?» — the property\'s place confirmed or corrected from the map/neighbourhood, never a landmark invented for a place the client never asked about (inbound.ts 6792). EVIDENCE: the answer must exist (map hit not city-level, or a neighbourhood reading)',
     fires: (t, s, sl, ev) => ev?.poiConfirm === true },
-  // INFO_ASK_PAIR / INFO_ASK_FLOORS are NOT here yet: their gate sits inside the
-  // INFO block, whose entry condition is a long conjunction over the facet
-  // parse, the quote memory and the year arms. A probe that reproduced only
-  // part of it would predict the pair lane for turns the block never enters,
-  // which is the guessed-row failure this section exists to avoid. They stay
-  // `P(...)` until their own slice lifts that entry condition.
+  { intent: 'INFO_ASK_PAIR_IDENTITY', note: 'SEVERAL flats named in one ask, no facet — each named Евидентен број gets its own identity line, never only the first (inbound.ts 7849). EVIDENCE: both named rows exist in the feed',
+    fires: (t, s, sl, ev) => ev?.infoPairIdentity === true },
+  { intent: 'INFO_ASK_PAIR', note: 'a facet ask over the TWO flats on the table — one answer per flat, in the order the client met them (inbound.ts 7972). EVIDENCE: both rows resolve, and the ask is not the plain-floor variant',
+    fires: (t, s, sl, ev) => ev?.infoPair === true },
+  { intent: 'INFO_ASK_FLOORS', note: 'one floor question naming TWO flats — one clause per Евидентен број (inbound.ts 8002). EVIDENCE: two rows with a floor clause',
+    fires: (t, s, sl, ev) => ev?.infoFloors === true },
   { intent: 'INFO_ASK', note: 'a fact ask about the flat on the table — one answer per facet from the feed\'s own data, never the LLM (scope C)',
     fires: (t, s, sl) => {
       const facets = detectInfoFacets(t);
@@ -844,10 +857,10 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   OWNER_CONTACT: M('OWNER_CONTACT', 'name/phone capture first'),
   WHERE_IS: M('WHERE_IS', 'каде owns those questions'),
   DISTANCE: M('DISTANCE', 'how far the discussed flat is from X'),
-  DISTANCE_BATCH: P('the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat’s number came back)'),
-  INFO_ASK_FLOORS: P('one floor question naming TWO flats («na koj sprat e 94 ? a na koj 90 ?») — one clause per Евидентен број (the [11:38] capture: only the bound flat was answered)'),
-  INFO_ASK_PAIR_IDENTITY: P('SEVERAL flats named in one ask («za stan so evidenten broj 82 i 75») — every named Евидентен број gets its own card, never only the first (the [10:58] capture: 82 described and 75 dropped)'),
-  INFO_ASK_PAIR: P('a facet ask over the TWO flats on the table («sporedba na cena po kvadrat za dvata stana», «na koj sprat e 94 ? a na koj 90 ?») — one answer per flat; the pair-on-table referent («dvata») makes the batch without re-naming the EBs'),
+  DISTANCE_BATCH: M('DISTANCE_BATCH', 'the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat’s number came back)'),
+  INFO_ASK_FLOORS: M('INFO_ASK_FLOORS', 'one floor question naming TWO flats («na koj sprat e 94 ? a na koj 90 ?») — one clause per Евидентен број (the [11:38] capture: only the bound flat was answered)'),
+  INFO_ASK_PAIR_IDENTITY: M('INFO_ASK_PAIR_IDENTITY', 'SEVERAL flats named in one ask («za stan so evidenten broj 82 i 75») — every named Евидентен број gets its own card, never only the first (the [10:58] capture: 82 described and 75 dropped)'),
+  INFO_ASK_PAIR: M('INFO_ASK_PAIR', 'a facet ask over the TWO flats on the table («sporedba na cena po kvadrat za dvata stana», «na koj sprat e 94 ? a na koj 90 ?») — one answer per flat; the pair-on-table referent («dvata») makes the batch without re-naming the EBs'),
   WHICH_OF_BATCH_PLACE: M('WHICH_OF_BATCH_PLACE', 'which of the offered flats stands in the place the client names — answered per row, from each row\'s own words'),
   NEAREST_OF_SHOWN: M('NEAREST_OF_SHOWN', 'which of the offered flats is nearest to X'),
   NEAREST_OF_BATCH: M('NEAREST_OF_BATCH', '«ova bese blisku» — the one nearest of the batch, with its measured distance'),

@@ -4272,6 +4272,123 @@ export class InboundHandler {
         }
       }
     }
+
+    // ── DISTANCE_BATCH (inbound.ts 5261) ──────────────────────────────────
+    // One measured line per flat of the batch. The probe repeats the block's
+    // OWN chain: the ask's place extraction, the EB-named-here veto, the batch
+    // subject rule and the singular-ask guard — then counts the flats whose
+    // coordinates actually resolve against the place. Two is the lane.
+    if ((isDistanceQuestion(text) || (session.slots.lastDistanceEb !== undefined
+        && extractBareDistancePlace(text) !== undefined))
+      && !detectService(text) && !detectBothServices(text)) {
+      const placeNames = isDistanceQuestion(text)
+        ? extractDistancePlaces(text)
+        : [extractBareDistancePlace(text)!];
+      const placeName = placeNames[0];
+      if (placeName) {
+        const restOfText = text.replace(
+          new RegExp(placeName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'iu'), ' ');
+        const namedEb = inferPropertyId(restOfText);
+        const namedProp = namedEb != null
+          ? await this.deps.properties.getByEb(namedEb).catch(() => undefined)
+          : undefined;
+        if (!namedProp && this.landmarks) {
+          const batchEbs = [...new Set(session.slots.currentBatch?.length
+            ? session.slots.currentBatch
+            : (session.slots.presentedIds ?? []))].slice(-4);
+          const discussedEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+          const batchOwnsSubject = discussedEb === undefined || batchEbs.includes(discussedEb);
+          const singularAsk = discussedEb !== undefined && !distanceAskIsPlural(text);
+          if (batchEbs.length >= 2 && batchOwnsSubject && !singularAsk) {
+            const rows = (await Promise.all(batchEbs.map(eb =>
+              this.deps.properties.getByEb(eb).catch(() => undefined))))
+              .filter((p): p is Property => !!p);
+            let measured = 0;
+            for (const p of rows) {
+              const c = resolveSearchCenter({
+                id: p.id, eb: p.eb, address: p.address, lat: p.lat, lon: p.lon,
+                geo_source: p.geo_source ?? null,
+              } as PropertyRow);
+              if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lon)
+                || (c.lat === 0 && c.lon === 0)) continue;
+              if (!this.landmarks.findPlace(placeName, { lat: c.lat, lon: c.lon })) continue;
+              measured += 1;
+            }
+            if (measured >= 2) ev.distanceBatch = true;
+          }
+        }
+      }
+    }
+
+    // ── INFO_ASK_PAIR_IDENTITY (inbound.ts 7849) ────────────────────────────
+    // Several Евидентен броеви in one message, no facet: each gets its own line.
+    // The CHEAP GATE is the two-number shape (the lane needs two EBs, so a text
+    // without two numerals can never reach it) — that is what keeps the feed
+    // lookup off every ordinary turn.
+    if ((text.match(/\d{1,3}/gu)?.length ?? 0) >= 2
+      && !detectAvailabilityAsk(text) && !detectExactAddressAsk(text)
+      && !isFeeTraffic(text) && !detectPriceAsk(text) && !detectBudget(text)
+      && !detectVisitRequest(text) && !detectMultiVisitIntent(text)
+      && !detectVisitInterest(text) && !detectVisitTimingQuestion(text)
+      && !detectInfoFacets(text)) {
+      const calledEbs = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
+      if (calledEbs.length >= 2) {
+        const calledRows = (await Promise.all(calledEbs.map(eb =>
+          this.deps.properties.getByEb(eb).catch(() => undefined))))
+          .filter((p): p is Property => !!p);
+        if (calledRows.length >= 2) ev.infoPairIdentity = true;
+      }
+    }
+
+    // ── INFO_ASK_PAIR / INFO_ASK_FLOORS (inbound.ts 7952) ──────────────────
+    // The gate is the INFO BLOCK's entry conjunction (facet parse with the
+    // floor-on-table hint, the fee/more-options/commission/smaller-by-rate/
+    // total-cost vetoes, then a bound flat or a cold named EB) followed by the
+    // pair resolution: named EBs, else the «двата/споредба» referent over the
+    // table. This replica is the one place in the probe where the conjunction
+    // is COPIED rather than shared — the block is ~40 lines of prose-heavy
+    // predicate and splitting it is its own slice. If that block's entry ever
+    // changes, this must change with it: a miss here predicts one lane lower
+    // and shows up as a gap, never as a wrong answer.
+    {
+      const lastAssistantLine = [...session.history].reverse()
+        .find(h => h.role === 'assistant')?.text ?? '';
+      const facets = detectInfoFacets(text, {
+        floorOnTable: /(?:кат|спрат|приземје|сутерен)/iu.test(lastAssistantLine),
+      });
+      if (facets
+        && !detectFeeComplaint(text) && !detectMoreOptions(text)
+        && !isFeeTraffic(text) && !detectProvisionAsk(text) && !detectProvisionWho(text)
+        && !detectSmallerPerM2Ask(text) && !detectTotalCostAsk(text)
+        && (session.slots.propertyId || session.slots.interestedPropertyId
+          || session.slots.presentedIds?.length
+          || (session.slots.describedEbs?.length ?? 0) > 0
+          || inferPropertyId(text) !== undefined
+          || this.lastQuotedEb(session) !== undefined
+          || facets.yearBuilt || facets.renovation)) {
+        const plainFloorAsk = facets.floor && !facets.price && !facets.pricePerSqm
+          && !facets.sqm && !facets.rooms && !facets.totalFloors
+          && !facets.lastFloor && !facets.yearBuilt && !facets.renovation
+          && !facets.features?.length;
+        const namedEbs = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
+        const pairAsked = /(?<![\p{L}\p{N}])(?:двата|двете|овие\s+(?:два|две)|двете\s+стана|the\s+two|both)/iu.test(text)
+          || detectComparison(text);
+        const pairEbs = namedEbs.length >= 2
+          ? namedEbs
+          : pairAsked
+            ? [...new Set([...(session.slots.describedEbs ?? []),
+              ...(session.slots.currentBatch ?? []),
+              ...(session.slots.presentedIds ?? [])])].slice(-2)
+            : [];
+        if (pairEbs.length >= 2) {
+          const pairRows = (await Promise.all(pairEbs.map(eb =>
+            this.deps.properties.getByEb(eb).catch(() => undefined))))
+            .filter((p): p is Property => !!p);
+          if (pairRows.length === pairEbs.length && !plainFloorAsk) ev.infoPair = true;
+          if (pairRows.length >= 2 && plainFloorAsk) ev.infoFloors = true;
+        }
+      }
+    }
     return ev;
   }
 

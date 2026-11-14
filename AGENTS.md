@@ -1833,20 +1833,33 @@ up-front evidence object unacceptable here (~127 k turns/month).
   mirror is still testable without a database. The probe is the executor's half
   of the contract.
 
-STILL PENDING, with the exact wall each one hits (not a guess, not a shrug):
+FIVE LANES RIDE THE CHANNEL NOW, each with the replica written where the gate
+actually lives:
 
-- `PRICE_AVG_NASELBA` — its gate is `q.mode === 'cheapest'` plus the parsed
-  `areaNames` and `segment` from the price-extreme query object; reproducing
-  that parse in the probe is a second copy of the query layer, which is exactly
-  what the lift rule forbids. Needs the query object exposed, not a paraphrase.
-- `DISTANCE_BATCH` — one `findPlace` per candidate row over the batch, and the
-  batch's own subject rule (`batchOwnsSubject`, the singular-ask guard). The
-  probe would have to load the batch rows at the predict seam; doable, but it
-  pays a feed load on every plural-distance ask and needs its own measurement.
-- `INFO_ASK_PAIR` / `INFO_ASK_FLOORS` — their gate sits INSIDE the INFO block,
-  behind a long entry conjunction over the facet parse, the quote memory and the
-  year arms. A partial replica would predict the pair lane for turns the block
-  never enters: the guessed-row failure this file exists to prevent.
+- `POI_CONFIRM` — scheduling veto → area-probe veto → table anchor → non-city
+  map hit or neighbourhood reading.
+- `DISTANCE_BATCH` — the ask's place extraction, the EB-named-here veto, the
+  batch-subject rule, the singular-ask guard, then a count of the flats whose
+  coordinates actually `findPlace`-resolve against the place. Two is the lane.
+- `INFO_ASK_PAIR_IDENTITY` — the two-numeral cheap gate, the veto list, then
+  `collectMentionedEbs` ≥ 2 and both rows present. The numeral gate is what
+  keeps the feed lookup off ordinary turns.
+- `INFO_ASK_PAIR` / `INFO_ASK_FLOORS` — the INFO block's entry conjunction plus
+  the pair resolution (named EBs, else the «двата/спредба» referent over the
+  table). THIS IS THE ONE COPY in the probe (`infoPair`/`infoFloors`), written
+  down as such: the block's entry is ~40 lines of prose-heavy predicate, and
+  splitting it is its own slice. A miss here predicts one lane lower and shows
+  as a gap, never as a wrong answer.
+
+`PRICE_AVG_NASELBA` IS THE ONE LEFT, and the reason is structural, not
+stylistic: its gate reads `q.mode`, `areaNames`, `segment` AND `rows` — and
+`rows`/`segment` are bound in the ENCLOSING market-band block (they are not
+locals of the naselba comparison at all), so a probe would have to re-run the
+whole band scope: area resolution, the numbered-area collapse, type inheritance,
+room criteria. That is a second copy of the query layer by any name, and the
+honest fix is to lift the band's scope into a method both sides call. Until that
+lift happens the lane stays `P(...)` with its note — a labelled GAP in
+`route:health`, never a guessed DRIFT.
 
 ### 5a. THE TURN CORPUS — five dimensions, not prose (proposal Phase 1)
 
