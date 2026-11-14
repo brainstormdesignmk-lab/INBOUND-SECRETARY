@@ -69,9 +69,14 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
   const original = console.log;
   console.log = (...args: unknown[]) => { logs.push(args.join(' ')); };
   try {
-    // a pending lane serves after FALLTHROUGH — a GAP
-    routeLog('tax-gap', 'DA NE E VO SKOPJANKA ?', 'FALLTHROUGH', 'predict');
-    routeLog('tax-gap', 'DA NE E VO SKOPJANKA ?', 'POI_CONFIRM');
+    // a pending lane serves after FALLTHROUGH — a GAP.
+    // THE FIXTURE MOVED (Phase 4 evidence batch): this used `POI_CONFIRM`, which
+    // has since been mirrored on the evidence channel — a gap fixture whose lane
+    // gains a row stops testing gaps and starts failing for the wrong reason.
+    // `PRICE_AVG_NASELBA` is the one lane that is still `P(...)` and will stay so
+    // until the band scope is lifted, so it is the honest fixture here.
+    routeLog('tax-gap', 'VO KOJA NASELBA SE NAJEFTINI STANOVITE ?', 'FALLTHROUGH', 'predict');
+    routeLog('tax-gap', 'VO KOJA NASELBA SE NAJEFTINI STANOVITE ?', 'PRICE_AVG_NASELBA');
     // the classifier's own route — not a divergence at all
     routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'FALLTHROUGH', 'predict');
     routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'ROUTE_UNKNOWN:unknown.unknown.assert');
@@ -81,7 +86,7 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
   } finally {
     console.log = original;
   }
-  assert.ok(ROUTE_LANES.POI_CONFIRM && ROUTE_LANES.POI_CONFIRM.intent === null,
+  assert.ok(ROUTE_LANES.PRICE_AVG_NASELBA && ROUTE_LANES.PRICE_AVG_NASELBA.intent === null,
     'the gap fixture must be a lane with no mirror row');
   assert.ok(logs.some(l => l.includes('[route-gap] tax-gap')), `a pending lane is a gap: ${logs.join(' | ')}`);
   assert.ok(!logs.some(l => l.includes('[route-drift] tax-gap')), 'a gap is never a drift');
@@ -447,4 +452,43 @@ test('the fee fast path rows are the executor booleans', () => {
   assert.notEqual(resolveIntent('ZOSTO ZEMATE PARI ZA POSETA?', 'closing'), 'FEE_WHY');
   // …and rules never become a why.
   assert.notEqual(resolveIntent('KAKVI SE PRAVILATA NA AGENCIJATA?', 'closing'), 'FEE_WHY');
+});
+
+// ── THE EVIDENCE CONTRACT (Phase 4, evidence lanes) ─────────────────────────
+// A row that needs a map/feed fact must REFUSE ITSELF when the caller supplied
+// no evidence. Without this, a unit test (or a cold harness) would get a
+// confident wrong lane; with it, the failure is a missing prediction, which is
+// visible as a gap instead of a lie. The positive side pins that the row really
+// reads each flag — the second half of the contract, because a row wired to the
+// wrong field would otherwise still look green here.
+test('the evidence lanes refuse themselves without evidence', () => {
+  const cases: Array<[string, string]> = [
+    ['POI_CONFIRM', 'da ne e vo karpos ?'],
+    ['DISTANCE_BATCH', 'na kolkavo rastojanie se do ekonomskoto ?'],
+    ['INFO_ASK_PAIR', 'sporedba na cena po kvadrat za dvata stana'],
+    ['INFO_ASK_FLOORS', 'na koj sprat e 94 ? a na koj 90 ?'],
+    ['INFO_ASK_PAIR_IDENTITY', 'sakam da prasam za stan so evidenten broj 82 i 75'],
+  ];
+  for (const [lane, text] of cases) {
+    assert.notEqual(resolveIntent(text, 'property_query', { presentedIds: [78, 63] }), lane,
+      `${lane} needs a map/feed fact: with no evidence it must not claim the turn`);
+  }
+});
+
+test('each evidence lane fires on its own flag', () => {
+  assert.equal(
+    resolveIntent('da ne e vo karpos ?', 'property_query', { propertyId: 78 }, { poiConfirm: true }),
+    'POI_CONFIRM');
+  assert.equal(
+    resolveIntent('na kolkavo rastojanie se do ekonomskoto ?', 'property_query', { presentedIds: [78, 63] }, { distanceBatch: true }),
+    'DISTANCE_BATCH');
+  assert.equal(
+    resolveIntent('sporedba na cena po kvadrat za dvata stana', 'property_query', { presentedIds: [78, 63] }, { infoPair: true }),
+    'INFO_ASK_PAIR');
+  assert.equal(
+    resolveIntent('na koj sprat e 94 ? a na koj 90 ?', 'property_query', { presentedIds: [78, 63] }, { infoFloors: true }),
+    'INFO_ASK_FLOORS');
+  assert.equal(
+    resolveIntent('sakam da prasam za stan so evidenten broj 82 i 75', 'property_query', {}, { infoPairIdentity: true }),
+    'INFO_ASK_PAIR_IDENTITY');
 });
