@@ -34,6 +34,9 @@ const EXPLICIT: Record<string, CodeSource> = {
   'info.no.year': { file: 'src/llm/infoAnswer.ts', symbol: 'INFO_NO_YEAR_LINE' },
   'info.no.renovation': { file: 'src/llm/infoAnswer.ts', symbol: 'INFO_NO_RENOVATION_LINE' },
   'price.ask': { file: 'src/handlers/inbound.ts', symbol: "'price.ask'" },
+  // The availability claim is composed from the feed column `dostapno_od`
+  // (buildAvailabilityClaim) — there is no pool to edit, by design.
+  'availability.claim': { file: 'src/llm/prompts.ts', symbol: 'buildAvailabilityClaim' },
   'where.landmark': { file: 'src/store/bank.ts', symbol: "'where.landmark'" },
 };
 

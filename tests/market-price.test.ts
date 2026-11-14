@@ -133,7 +133,14 @@ test('detectMarketPriceAsk: a single property\'s price is NOT a market question'
 
 test('the router mirror predicts MARKET_PRICE for the capture line', () => {
   assert.equal(resolveIntent('KAZI MI KAKO SE DVIZAT CENIVE ZA STANOVI VO AERODROM (NASELBA)', 'idle'), 'MARKET_PRICE');
-  assert.equal(resolveIntent('KOLKU E CENATA?', 'property_locate'), 'FALLTHROUGH');
+  // EXPECTATION CORRECTED (Phase 4, price slice): this was FALLTHROUGH while
+  // the plain price ask had no mirror row. The executor really serves
+  // PRICE_ASK:fast for it — verified through the handler in property_locate
+  // with an empty session (.bench/price-mirror.ts) — so FALLTHROUGH was the
+  // pre-migration placeholder, not the truth. Detecting the market ask is what
+  // this file is about, and it still must not fire here.
+  assert.equal(detectMarketPriceAsk('KOLKU E CENATA?'), false);
+  assert.equal(resolveIntent('KOLKU E CENATA?', 'property_locate'), 'PRICE_ASK');
 });
 
 // ── 2. THE ANSWER: measured bands, agency wording ───────────────────────────

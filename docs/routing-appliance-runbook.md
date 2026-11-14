@@ -132,8 +132,8 @@ Split the welded flags:
    editing the answer; it does not forbid re-homing the question to `learn.*`.
 2. **Auto-suggestion:** `suggestKey` returns `learn.<slug>` for enrichment /
    dynamic turns whose served key is frozen-but-routable. Code constants
-   (`info.no.*`, `price.ask`) and data-carried keys (`address.exact`,
-   `availability.ack`) stay refused — there is no wording to bank.
+   (`info.no.*`, `price.ask`, `availability.claim`) and data-carried keys
+   (`address.exact`) stay refused — there is no wording to bank.
 3. **TUI one path:** `K` opens on the usable key, `E` rewrites the answer, `A`
    stages, `STAGED` approval writes the original question into `bank_examples`.
 4. **Route correction is first-class:** the operator action is "this question

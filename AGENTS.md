@@ -33,6 +33,7 @@ npm test                                # the whole suite (tsx, authoritative)
 npx tsx scripts/tui-frame-check.ts      # headless layout/painter invariants
 npx tsx scripts/tui-pty-check.ts        # the REAL TUI under a REAL pty
 npm run bank:audit-seeds                # contracts + offensive false positives
+npm run exam:offline -- --strict        # the free-mode measurement (Phase 7)
 ```
 
 ### The fast loop (do NOT spend 5 minutes per fix)
@@ -427,6 +428,101 @@ FOURTH explanation, and the legitimate contact ask never ran.
   owner_checking), so when that turn asked nothing the state's standing line
   (`patience.line`) says where the deal really stands.
   Pins: `tests/dual-rent-buy-serve.test.ts`, `tests/owner-relay.test.ts`.
+
+## 2g. THE TURN RECORD: per-turn values and ONE audit (proposal Phase 2)
+
+`src/handlers/turn.ts` owns the per-turn context. Three values used to be
+FIELDS on the `InboundHandler` instance — `lastUserText`, `detGaveUp`,
+`feeServiceHint` — and the TUI runs ONE handler for EVERY chat: the per-chat
+queue only serializes turns INSIDE one chat, so two clients mid-turn (both
+waiting on a classifier) overwrote each other's values and a lane could answer
+flow A from flow B's message. The values now live in an `AsyncLocalStorage`
+record created once per turn (`startTurn` + `runInTurn` in `processMessage`),
+and the handler's accessors kept every one of the ~120 call sites unchanged.
+NEVER reintroduce a per-turn field on the handler; read `this.turn.*`.
+
+The same record is the AUDIT, and it is written at the seams that can lie:
+
+- `sendRaw` appends EVERY delivered text (`audit.replies`, in order) — the one
+  function that hands bytes to the transport, so the record cannot disagree
+  with the client (the proposal's claim G). A new send path must go through it.
+- `routeLog` records `predicted` (the shadow router) and every actual `lane`,
+  which is why 117 call sites did not need a new signature.
+- `closeTurn` stamps `stateBefore → stateAfter`, `targetEb`, and stores the
+  record on the session: `lastTurn` (one deep) plus `recentTurns` (the last
+  FIVE — the wrong answer and the client's challenge to it were four turns
+  apart in the [12:26]–[12:35] chain). It rides every `sessions.set()` and
+  survives restarts.
+- `noteTurnFact(audit, key, value)` records the figures an answer leaned on
+  (`price=`, `sqm=`, `perM2=`, `availability=`) — a claim the client can point
+  at must be in the record or the explanation lane has nothing truthful.
+
+Pins: `tests/turn-context.test.ts` (two chats interleaved on one handler; the
+record equals what was delivered; the next turn carries the previous one).
+
+## 2h. AVAILABILITY IS A COLUMN, NEVER A PRESENCE TEST
+
+`Property.dostapnoOd` ← the feed's `dostapno_od` (mapped from `available_from`
+by the public-properties edge function, which defaults it to „Веднаш“). The
+appliance used to DROP that field and answer availability from "the row exists
+in our database" — a hedge („би треало сè уште да е слободна, бидејќи сè уште
+постои во нашата база“) that called a live in-feed property (EB 44) archived
+while the feed said „Веднаш“.
+
+- `availabilityOf(p)` is the ONE reader: `now` / `from` (the `when` carries its
+  own preposition) / `unknown`. `unknown` is not `now` — an empty column hands
+  the confirmation to the owner, it never invents a promise.
+- `buildAvailabilityClaim(p, { recent })` builds the claim from that state and
+  rotates honest phrasings (repeat-avoidance is part of the ack contract).
+- The bank pool `availability.ack` is RETIRED, not merely unused: its 35
+  variants (two gender pools) all justified availability by database presence.
+  The keys are gone from `src/data/responses.ts`, the generator, the pool
+  contracts and `DATA_DRIVEN_KEYS`, and `availability.claim` is registered as a
+  CODE-owned key (`src/store/bank.ts`, `src/bank/codeSource.ts`) so the review
+  screen names `buildAvailabilityClaim` instead of offering an edit. Do not
+  route a new lane back to it, and do not resurrect the pool: the same text
+  under a new key is the same defect.
+
+## 2i. A FILTER IS NOT A REGISTRY — and an ABSENCE CLAIM IS NEVER A GUESS
+
+The [12:26] capture: «околу 130000 беше» was answered «Токму во близина на
+Скопје Север моментално немам недвижност што одговара точно на тие
+податоци» — and then listed EB 44, in that area, at that price. The query
+behind it was FILTERED (radius + segment + price band); a zero result means
+"no row survived my filter", never "we hold nothing".
+
+- `buildLocateLandmarkFallback(place, area, { inPlaceCount })`: when the offered
+  cards stand in the named place, the sentence says so («имам понуди во X»);
+  otherwise the miss is about the DESCRIPTION («точно таква недвижност»), never
+  about the stock. A new absence line must pass the same test: WHAT was filtered
+  — if the same sentence lists the row it denied, the filter was the problem.
+
+## 2j. ANSWERING IS NOT FUNNEL MOVEMENT (proposal Phase 5)
+
+A factual question is ANSWERED and the funnel does not move: no `state` change,
+no `ownerContactPending`, no fee. Three lanes exist because of this rule:
+
+- `SUBJECT_PER_M2` — «kolku bi mu dosla cenata po kvadrat?» about the flat on
+  the table is ARITHMETIC (`pricePerM2`: 137.000 ÷ 79 = 1.734 €/м²), never the
+  neighbourhood band (`detectSubjectPerM2Ask` excludes market asks, and any
+  figure in the message is a cap, not a question).
+- `OWN_CLAIM_EXPLAIN` — a challenge about OUR OWN words («зошто ми кажа дека е
+  стара понуда…», «па зошто уште ја имате во понуда на страницата») is
+  answered FROM THE TURN RECORD: it quotes what was actually said, reads the
+  subject from the challenged sentence (the first Евидентен број it named — not
+  the batch tail), checks the live feed, and admits the error only when the
+  record shows we made one (`detectOwnClaimChallenge`; money words are a veto,
+  and the price-freshness arm yields to it).
+- `AVAILABILITY_WHICH` — an availability ask with two flats on the table and no
+  identity signal is the QUESTION («за која од двете?»), never a guess between
+  them.
+
+`detectAvailabilityAsk` also reads the typed present-tense sale stem
+(`продааа/prodaa`) — «дали се продааа уште?» used to fall to the nearby-thread
+lane and be answered with a LOCATION.
+
+Pins: `tests/claim-chain-eb44.test.ts` (all five rules, driven through
+`InboundHandler.handle`), `tests/capture-0855-availability-lane.test.ts`.
 
 ## 3. TUI rendering: one emulator, two harnesses
 
@@ -1401,6 +1497,308 @@ One chat, six turns, one root cause per turn:
 - When a test fails, read the failure: the last two mis-fires in this repo were
   a typo in a test string (`PLALKA`) and a collapse-comparison without case
   folding (capital `Дали`), not product bugs. Fix the test with a comment.
+
+### 4p. PROPERTY FOCUS: SUBJECT × PREDICATE × CERTAINTY (proposal Phase 3)
+
+`src/handlers/focus.ts` is the ONE resolution of "what is this turn about?":
+`resolvePropertyFocus(text, slots)` returns `{ predicate, certainty, eb,
+candidates, source }`, and `detectFocusPredicate` reads what is being asked
+(availability / perM2 / price / location / area / rooms / floor / features /
+documents). It exists because every identity defect (44/54/63) was the same
+bug: a lane answered a predicate about the wrong flat, or the right flat with
+the wrong predicate, because five sites each re-derived "which flat?" from the
+nearest field.
+
+- CERTAINTY IS THE CONTRACT: `bound` → answer about that flat; `ambiguous` →
+the message names something that could be either of the flats on the table, so
+ASK which (never a silent tail pick); `none` → nothing to be about, so ask or
+answer a market-level question. The €/m² lane obeys this: with no bound subject
+it serves `focusClarifyAsk`, never a city-wide band dressed as the flat's rate.
+- PRECEDENCE: a named EB (including the «ЕБ 66» form the mention resolver owns)
+> the card just SERVED (`presentedIds[last]`) > the slot pointers > the batch
+tail. A stale pointer must never outrank the card on screen ([04:15]).
+- Detectors normalise first (`normalizeMc`) and match STEMS (`достап`, `цен`),
+never nominatives: a Latin-only stem list missed «DOSTAPEN», and `цена` missed
+«цени». Both are the §4c rule, learned again.
+- Migrating a pinned lane onto focus is its own slice with its own gate: the
+availability-table lane still resolves its target inline, because its
+`bindMention` result (`mb.prop`, descriptor-bound) is richer than the focus
+module — that migration is Phase 4 slice 1, not a side effect of this file.
+
+### 4q. THE SHADOW ROUTER: a lane that serves must be a lane that predicts (Phase 4)
+
+The corpus is now a ROUTER instrument, not only a copy instrument: replaying
+`tests/corpus/turns.jsonl` printed the drift log for five of nine turns. The
+executor served `AVAILABILITY_TABLE`, `OWN_CLAIM_EXPLAIN`, `SUBJECT_PER_M2` and
+`FEE_PUSH` while the mirror predicted `FALLTHROUGH` / `MARKET_PRICE` /
+`PROPERTY_DESCRIPTION`. Both shapes are defects with different names — a serving
+path with NO `ROUTE_LANES` row is a GAP, a row that names the wrong lane is a
+DRIFT — and both train the operator to ignore the log.
+
+- A mirrored lane's registry row is `M(...)`; `P(...)` means "pending migration"
+  and makes every turn it serves re-report as a gap. Promoting a row is part of
+  adding its `ROUTING_ORDER` row, not a follow-up.
+- THE MIRROR GETS THE EXECUTOR'S MEMORY: `RouteSlots` may carry
+  `mirrorPriorUserText` and `mirrorLastTargetEb`, set at the predict call from
+  the session's own history. A continuation turn («околу 130000 беше» after
+  «гледав една куќа … на сајт») is served from that memory, so a prediction made
+  from the current sentence alone is wrong by construction. These fields are
+  never read by a serving path.
+- PRECEDENCE FOLLOWS THE EXECUTOR'S OWN LINE ORDER: own-claim (5409) before the
+  remembered-property flow (8821), per-m² (5572) before the market band (5894),
+  the fee ladder (7282) before every location/description row. A LEADING WHY is
+  the explanation lane, not a rung (§2) — `FEE_WHY` owns «NIKOJ NE ZEMA PARI ZA
+  POSETA?» and the ladder row refuses it.
+- The corpus declares the prediction (`predicted`) for every case, compared
+  through `ROUTE_LANES` normalisation (`FEE_PUSH:fast` → `FEE_PUSH`). A new
+  capture adds the lane AND the prediction it must come from.
+
+SLICE 2 — THE MONEY FAMILY. The fee legs are ONE region with a fixed order
+(feeAmount 7111 → provision 7212 → clarify 7242 → nag 7285 → agreement 7397 →
+first-time 10118 → why 10152 → complaint 10161 → surprise 10167), and each leg
+logs its OWN tag for the same words. The mirror now carries a row per leg
+(`FEE_AMOUNT_ASK`, `FEE_AGREED_FIRST`, `FEE_FIRST_TIME`, `FEE_SURPRISE`,
+`FEE_RULES`, `FEE_COMPLAINT`, `PROVISION_WHO`, `BYE`) with the executor's own
+gates, and `.bench/money-mirror.ts` (a probe that drives the REAL handler and
+compares `lastTurn.predicted` with `lastTurn.lanes`) shows 16/16 canonical money
+turns predicting what was served. Two rules the probe produced:
+
+- The feeAmount predicate is ONE function (`isFeeAmountClaim` in
+  `src/llm/moneyArbitration.ts`) read by the arbiter AND the mirror row: it owns
+the question shapes AND the amount-first statement («5 EVRA ZA POSETA?», which
+used to fall to `unknown.fee.ask` with no lane at all), but NOT resistance —
+with the wider predicate the claim (strength 7) outranked the nag (6) and a
+complaint got a second disclosure.
+- `detectFeeNag` now enforces the isolation contract at its own boundary: a
+  message whose only money object is the COMMISSION («NE SAKAM PROVIZIJA»,
+  «KOJ JA PLAKJA PROVIZIJATA?») is commission traffic and never a visit-fee
+  rung; and a neutral WHO-PAYS question («koј (ја/го/ги) плаќа …») is a request
+  to be informed, not resistance — §2's neutral-ask family, extended to the
+  payer shape (`NAG_PAYER_ASK_RE`, also honoured by `detectFeeChargePushback`,
+  whose charge-verb + money-noun arm used to read it as an accusation).
+- `LOC_CONFIRM_QUESTION_RE`'s preposition arm requires the preposition to OPEN
+  its clause (message start, after punctuation, or after a confirmation
+  filler): «KAKVI SE PRAVILATA NA AGENCIJATA?» matched the bare «на … ?» shape,
+  `fsmRequired` forced the FSM path and the CLASSIFIER answered a fee-rules
+  question with no lane tag at all.
+
+SLICE 3 — THE PRICE ANSWERS. The money ladder is not the only lane that talks
+about a number: `INFO_ASK` (the 7837–8130 block) quotes the flat on the table,
+the freshness lane hedges the quoted price, the rent-math lane adds the
+commission and deposit, and the plain price ask answers a cold «KOLKU E
+CENATA?». Replaying them through the real handler (`.bench/price-mirror.ts`,
+throwaway) showed the mirror claiming a MARKET BAND for the first three — the
+market arm has an INNER gate the row never carried (inbound.ts 5691):
+
+- `MARKET_PRICE` opens the band only when the scope is IN THE MESSAGE (a city,
+  an area, a numbered sub-area), the category rides in the plural («станови»),
+  or there is NO anchored flat to speak for. «KOLKU MU E KIRIJA ?» on a shown
+  flat is a question about THAT flat — the arm stands down, the INFO block
+  answers. The mirror now reads `detectLocation(t, [])` (the detector's own
+  known-neighbourhood pool; a place only the FEED knows is a known limit) and
+  `isMarketRentWordAsk`.
+- `PRICE_EVAL_EXPENSIVE` is predicted by CALLING THE ARBITER
+  (`arbitrateMoney(...).lane === 'expensive'`), not by re-deriving its evidence
+  boundary (explicit price noun + property on the table + property_query/
+  presentation + non-question + no other claim). One decision, one place.
+- `PRICE_FRESHNESS`, `RENT_TERMS`, `RENT_MATH`, `PRICE_ASK` and
+  `PRICE_CHANGE_DISCLAIMER` each carry the executor's own gate, including its
+  vetoes (`detectPriceAsk` matches on the currency word alone, `MONEY`
+  arbiter claims, fee traffic). `NEGOTIATE` moved ABOVE `INFO_ASK`: the
+  executor serves it at 7665, so a «DALI E VOZMOZNA KORENCIJA NA CENATA ?» with
+a flat on the table is a pushback, never a fact ask.
+- `PRICE_EVAL_EXPENSIVE_UNWIRED` stays `P(...)` ON PURPOSE: it logs and FALLS
+  THROUGH (7072) — a data-collector record, never a serve, so a mirror row for
+  it would predict an answer that never happens.
+
+SLICE 4 — THE SOCIAL AND SIMPLE LANES. A farewell, a soft decline, a patience
+line, a glossary ask and an attendance question are all "simple" lanes, and
+all five used to be `P(...)`. Each one now carries the executor's gate, and the
+slice replayed them through `.bench/price-mirror.ts` (5/6 exact, the sixth a
+wording the detector does not claim at all — parity, not drift):
+
+- `AGENT_ATTENDANCE_ASK` (4518) is SLOT-AWARE: the bare «ТИ ЌЕ ДОЈДЕШ СО МЕНЕ?»
+  is a viewing question only with a flat on the table (the executor's own
+  `attendanceContext`), and the row gives a question with no context nothing —
+  exactly what the executor does.
+- `EXIT_CHECK` (9951) fires ONCE per session (`slots.exitCheckServed`).
+  `EXIT_CHECK_REPEAT` stays `P(...)` because it LOGS AND FALLS THROUGH to the
+  farewell lanes: the answering lane is `BYE`/`SOFT_REFUSAL`, and a row for the
+  repeat would predict an answer that never happens.
+- `SOFT_REFUSAL` (9989) sits BELOW `BYE` (9969), and `WAITING` (10262) copies
+  both halves of its gate (the state exclusion AND "a flat is on the table") —
+  widening either one turns every «cekam» in a visit funnel into a patience
+  line.
+- `GLOSSARY` (7699) must beat the info block (which answered «sto znaci
+  suteren?» with the flat's floor line, the [08:52] transcript), so its row sits
+  between `NEGOTIATE` and `INFO_ASK`; `PROXY_CONTACT` (8342) is never served in
+  `closing` — there the fee protocol owns the contact.
+
+TWO ALIASES ARE REGISTRY WORK, NOT ROW WORK. `WAITING:fast` needed its own
+registry key: the executor logs the suffix, and an unregistered `:fast` tag made
+every correct patience line read as a route GAP.
+
+THE PRE-SERVE GUESS IS NOT A LANE (`routeLog`). The classifier records its guess
+BEFORE the deterministic block runs, and the guess is `ROUTE_UNKNOWN:<class>`.
+Comparing it to the prediction persisted a GAP for every correctly served price
+turn (`predicted=INFO_ASK, actual=ROUTE_UNKNOWN:unknown.property-price.ask`), so
+the gap log — the mirror backlog — filled with turns that were served right. A
+`ROUTE_UNKNOWN` tag now returns before any comparison: it carries no lane
+information in either direction. Pinned in `tests/router.test.ts` ('a
+ROUTE_UNKNOWN guess never records a gap, whatever the prediction').
+
+SLICE 5 — THE DESCRIBE FAMILY, first row: `INFO_ASK_YEAR` (8040–8049). A COLD
+year/renovation ask has no flat to read, so the executor serves the
+property-agnostic miss line under its own tag while the mirror predicted
+`INFO_ASK` — a GAP on a correct serve, every time. The row sits INSIDE the info
+block and before `INFO_ASK`, copies the facet parse, and stands down when a flat
+is bound (`propertyId` / `interestedPropertyId` / `presentedIds` /
+`describedEbs` / an EB in the text), which is exactly when the executor serves
+the fact under `INFO_ASK`. KNOWN LIMIT, in the row's comment: the executor's
+`infoProp` also consults the FEED, so a stale slot (a row the feed dropped) is
+still predicted `INFO_ASK`. Verified by replay, not by reading:
+`.bench/year-mirror.ts` (3 cold shapes → `INFO_ASK_YEAR`, bound → `INFO_ASK`),
+pinned in `tests/router.test.ts` ('a cold year/renovation ask is INFO_ASK_YEAR').
+Same slice, two more rows verified by replay (`.bench/place-mirror.ts`):
+
+- `RECOMMEND_ASK` (10432) — a judgment over the flats already discussed, in the
+  six states the executor admits. KNOWN LIMIT in the row: the executor also
+  admits a doubt phrase that `choiceAboutTable` saves from the FSM path, which
+  needs the mention binder; the mirror cannot read that.
+- `ENTHUSIASM` (10196) — praise of a flat on the table: `detectPositiveEval` +
+  a bound flat + `state !== closing || ownerContactPending`, predicted LAST but
+  one so every fee/visit/price/where lane above claims first (that is exactly
+  why the executor's own veto list exists — the ORDER does the excluding).
+  Two wrong drafts were caught by the probe before they shipped: `detectEyeCatch`
+  instead of `detectPositiveEval` (fires on «ova mi fati oko», which the
+  executor does NOT serve) and a slot-only binding test (the executor's branch
+  needs the flat on the table). Both are the reason a row is never written from
+  a comment.
+
+TWO LANES DELIBERATELY STAY `P(...)` BECAUSE THEIR GATE IS DATA, NOT TEXT —
+written down instead of guessed:
+
+- `POI_CONFIRM` (6861): served only when the MAP resolves the named place.
+  `isPoiConfirmQuestion` is a wording test that fires on «ova mi fati oko, kolku
+  e?» (it matched), so a mirror row would predict a lane the executor skips.
+- `WHERE_LANDMARK` (5049): served only on a `landmarks.findPlace` hit; the text
+  part is mirrorable, the hit is not. 260 production gaps stay labelled GAP —
+  visible in `route:health`, never a false DRIFT.
+
+The rest of the family (`INFO_ASK_PAIR`, `INFO_ASK_PAIR_IDENTITY`,
+`INFO_ASK_FLOORS`, `DESCRIBE_TABLE`, `MORE_STOCK`, `DISTANCE_BATCH`,
+`PRICE_AVG_NASELBA`) stays `P(...)`: each gate is a multi-clause condition over
+the batch, the referent and the criteria parse, and each one gets its own
+replayed slice — a `P(...)` row with an honest note is a labelled backlog, a
+mirror row guessed from a comment is a lie the drift log then repeats.
+
+### 5a. THE TURN CORPUS — five dimensions, not prose (proposal Phase 1)
+
+A prose assertion ("the reply sounds like availability") cannot catch a turn
+that answers correctly and quietly moves the funnel. Every captured field turn
+gets a line in `tests/corpus/turns.jsonl`, replayed by
+`tests/turn-corpus.test.ts` on the REAL pipeline, and each line declares:
+
+| dimension | what it pins |
+| --- | --- |
+| `intent` | the lane(s) `routeLog` must record for the turn |
+| `target` | the Евидентен број the answer must be about |
+| `facts` | literals from the data that must appear |
+| `prohibited` | regexes that must never match — the defect's own signature |
+| `stateDelta` | the FSM state and the money counters after the turn |
+
+The engine also enforces the §2g contract on every case: the audit record must
+exist and must carry the text the client actually received.
+
+Rules:
+
+- **THE FILE IS APPEND-ONLY, AND IT IS COMMITTED THE MOMENT IT EXISTS.** A new
+  capture is a new line. Never `parse`+`stringify` the file, never reformat it,
+  never "tidy" the header: a re-serialiser turns `\s` into `\\s`, reorders keys
+  and rewrites escapes, and a re-authored header is invented prose wearing the
+  original's clothes. This rule is written in blood — the first corpus was
+  created untracked, its 24-line header was re-authored from memory and its rows
+  were round-tripped by a script; the original header is now unrecoverable (the
+  file was never committed, and no dangling blob contains it).
+  `tests/data-append-only.test.ts` pins the shipped three-line header byte for
+  byte and requires every non-comment line to parse on its own, so a rewrite
+  fails there instead of in a capture six weeks later.
+- A new capture is a new JSONL line, never a new test file, and never a change
+  to `tests/helpers/turn-corpus.ts`.
+- `intent` names the LIVE tag from `routeLog`, not a wish. When the engine says
+"expected lane X, logged nothing", the serving path is untagged — tag it at the
+site that answers (the [12:26] locate re-rank arm was exactly that), never
+downgrade the case.
+- `stateDelta.state` may be a named state instead of `unchanged`: the locate
+re-rank serve legitimately enters `property_locate`, and the availability ack on
+a single card moves to `closing` because its own tail asks the owner question.
+What such a case still pins is what must NOT happen (no fee rung, no fee copy).
+- A case that fails is a finding, not a flake: fix the cause in the handler, or
+fix the expectation with a comment saying which contract makes it the truthful
+one (the [12:31] case's lane is `AVAILABILITY_TABLE`, because that describe-one-
+card-already-shown lane owns the turn).
+
+## 5b. THE REVIEW GATE, THE EXAM, AND THE RELEASE DRILLS (Phases 6–8)
+
+### Phase 6 — the learning loop stores nothing it may serve unreviewed
+
+An answer the LLM writes is stored in `bank_dynamic` with `reviewed = 0`. It IS
+served to the client whose question produced it (that is the live turnaround),
+and it may NOT be recalled for anyone else until a human approves the row:
+
+```bash
+npm run bank:review-dynamic                 # the queue
+npm run bank:review-dynamic -- approve 42   # recallable from now on
+npm run bank:review-dynamic -- reject 42    # retired, kept as audit history
+```
+
+Why the gate exists, in one line: `validateDynamicAnswer` is *hygiene* (no
+invented EB, no borrowed place, no promise), not *truth*, and a stored row is
+served to a client who never saw the question it was written for. `data/tui.db`
+held 24 such rows, reusable immediately.
+
+- The flag records WHOSE words they are: a row seeded by an operator or a tool
+  (`addDynamic` without `unreviewed`) is trusted and `reviewed = 1`; only the LLM
+  path passes the flag. That is why 47 existing seeds did not need updating, and
+  why an operator writing a variant is not asked to approve her own sentence.
+- The column DEFAULT is 1 for exactly one reason: every row that existed before
+  the gate was already serving, and silently emptying the recall bank on deploy
+  is a behaviour change no review covers. New model rows set 0 explicitly.
+- `retrievePlaceTemplate` is gated on the SAME flag: a `{place}` template is a
+  sentence another client will read (rendered for a different place), so an
+  unreviewed row may not offer one. Pinned in
+  `tests/dynamic-review-gate.test.ts` and `tests/dynamic-fallback.test.ts`.
+
+### Phase 7 — "free" is measured, never asserted
+
+`npm run exam:offline` replays the corpus turns plus the everyday battery through
+the REAL handler with a brain that fails on every call (429), each turn in a
+fresh session, and prints: code share, bank share, **LLM calls per 100 turns**,
+silent turns, audit coverage, lanes per 100. `--strict` fails the run when silent
+> 5% or code+bank < 80%. The classification is honest by construction: a
+`dynamic-recall` row counts as BANK (a human approved it), and a served reply
+with no `source` counts as a MISS, never as code.
+
+### Phase 8 — the three drills the suite was missing
+
+`tests/release-gate.test.ts` drives the real handler under the conditions the
+appliance actually meets:
+
+1. **Parallel chats.** Two chats interleaved: services, areas and budgets stay
+   per session, fee rungs are per session, and each `lastTurn` carries its OWN
+   text — the per-turn context (not an instance field) is what makes that true.
+2. **Degraded feed.** The feed throws. The client still receives a sentence, no
+   EB/price/area is invented, and the turn is audited.
+   **This drill found a real defect and it is fixed:** a feed failure inside the
+   mention binder threw out of `processTurn`, and `enqueue`'s catch only logged
+   `[pipeline] …` — the client got SILENCE and the turn left no record.
+   `processMessage` now catches a failed turn and serves `FEED_UNAVAILABLE_LINE`
+   through `serveOutage` (only when the turn produced no reply), so a failure is
+   an outage with an honest sentence, never an empty chat.
+3. **Restart / rollback.** A mid-funnel session (state, service, area, budget,
+   flat, fee rungs, audit) is read back by a NEW `SessionStore` over the same
+   SQLite file; a session that is not in the file starts at rung zero with no
+   flat, instead of pretending progress that a restart lost.
 
 ## 6. Data and environment
 

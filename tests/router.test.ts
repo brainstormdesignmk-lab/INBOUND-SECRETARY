@@ -96,12 +96,84 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
   await fs.rm(dir, { recursive: true, force: true });
 });
 
+// THE PRE-SERVE GUESS IS NOT A LANE (regression, Phase 4 slice 3/4): the
+// classifier logs `ROUTE_UNKNOWN:unknown.property-price.ask` before the
+// deterministic block, so a correctly served price turn (predicted=INFO_ASK)
+// used to be persisted as a GAP. Gaps are the mirror backlog — filling it with
+// turns that were served correctly makes the backlog unreadable.
+test('a ROUTE_UNKNOWN guess never records a gap, whatever the prediction', async () => {
+  const dir = await fs.mkdtemp(path.join(tmpdir(), 'route-guess-'));
+  setRouteDriftDir(dir);
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.join(' ')); };
+  try {
+    routeLog('guess-c1', 'KOLKU E CENATA NA STANOT ?', 'INFO_ASK', 'predict');
+    routeLog('guess-c1', 'KOLKU E CENATA NA STANOT ?', 'ROUTE_UNKNOWN:unknown.property-price.ask');
+    routeLog('guess-c1', 'KOLKU E CENATA NA STANOT ?', 'INFO_ASK');
+  } finally {
+    console.log = original;
+  }
+  assert.ok(!logs.some(l => l.includes('[route-gap] guess-c1') || l.includes('[route-drift] guess-c1')),
+    `the guess carries no lane information: ${logs.join(' | ')}`);
+  await flushRouteDrift();
+  const rows = await readRouteDrift();
+  assert.equal(rows.find(r => r.chatId === 'guess-c1'), undefined, 'nothing is persisted for the guess');
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
 test('PRICE_EVAL_CHEAP beats the fee ladder for a compliment on the quoted price', () => {
   assert.equal(resolveIntent('MNOGU EFTINA CENA E TOA', 'closing'), 'PRICE_EVAL_CHEAP');
   assert.equal(resolveIntent('MNOGU EFTINA CENA E TOA', 'property_query'), 'PRICE_EVAL_CHEAP');
   // a question or a search is not the remark lane
   assert.notEqual(resolveIntent('DALI E DOBRA CENATA?', 'closing'), 'PRICE_EVAL_CHEAP');
   assert.notEqual(resolveIntent('MNOGU EFTINA CENA E TOA', 'discovery'), 'PRICE_EVAL_CHEAP');
+});
+
+// ── THE PRICE FAMILY (Phase 4, slice 3) ────────────────────────────────────
+// Every assertion below was RED before the rows existed: the mirror claimed a
+// market band (or nothing at all) for turns the executor answers from the flat
+// that is actually on the table.
+test('a price ask about the flat on the table is the INFO block, never a market band', () => {
+  const onTable = { propertyId: 78, presentedIds: [78], lastPrice: '185000' } as any;
+  // the arm stood down here (anchored flat + rent-only wording) and the INFO
+  // block answered with the flat's own rent — the mirror called it a market ask
+  assert.equal(resolveIntent('KOLKU MU E KIRIJA ?', 'idle',
+    { ...onTable, service: 'rent' } as any), 'INFO_ASK');
+  assert.equal(resolveIntent('KOLKU E CENATA NA STANOT?', 'presentation', onTable), 'INFO_ASK');
+  // a FACETLESS chat has no flat to quote
+  assert.equal(resolveIntent('KOLKU E CENATA?', 'idle'), 'PRICE_ASK');
+  // …and the market band itself is untouched
+  assert.equal(resolveIntent('KAKO SE DVIZAT CENIVE ZA STANOVI VO AERODROM?', 'idle'), 'MARKET_PRICE');
+});
+
+test('PRICE_FRESHNESS owns «is the price still current»', () => {
+  const onTable = { propertyId: 78, presentedIds: [78], lastPrice: '185000' } as any;
+  for (const t of ['A DALI MU E USTE TAA CENA?', 'DALI CENATA E AKTUALNA?']) {
+    assert.equal(resolveIntent(t, 'closing', onTable), 'PRICE_FRESHNESS', t);
+  }
+  // nothing on the table → no price that can be «still» current
+  assert.notEqual(resolveIntent('A DALI MU E USTE TAA CENA?', 'idle'), 'PRICE_FRESHNESS');
+});
+
+test('the negative price evaluation is predicted through the arbiter, not a private gate', () => {
+  const onTable = { propertyId: 78, presentedIds: [78], lastPrice: '185000' } as any;
+  assert.equal(resolveIntent('SKAPA E CENATA', 'presentation', onTable), 'PRICE_EVAL_EXPENSIVE');
+  // a bare valence without the price NOUN keeps its own lane (the arbiter's
+  // evidence boundary), and a fee objection is never a price evaluation
+  assert.notEqual(resolveIntent('SKAPA E CENATA', 'presentation'), 'PRICE_EVAL_EXPENSIVE');
+  assert.notEqual(resolveIntent('PARI ZA POSETA ZEMATE ?', 'presentation', onTable), 'PRICE_EVAL_EXPENSIVE');
+});
+
+test('the rent-math and rent-terms lanes never fall to the fee or the band', () => {
+  assert.equal(resolveIntent('kirijata e 400, polovina za vas?', 'closing'), 'RENT_MATH');
+  assert.equal(resolveIntent('KAKVI SE USLOVITE ZA IZNAJMUVANJE ?', 'idle'), 'RENT_TERMS');
+});
+
+test('NEGOTIATE sits above the info block, as the executor orders them', () => {
+  const n = ROUTING_ORDER.findIndex(x => x.intent === 'NEGOTIATE');
+  const i = ROUTING_ORDER.findIndex(x => x.intent === 'INFO_ASK');
+  assert.ok(n >= 0 && n < i, 'a price pushback is served before the info block');
 });
 
 test('BUSINESS_BUDGET_ASK is an explicit intake-gated route', () => {
@@ -227,4 +299,64 @@ test('contact-request family counts as agreement (stapi vo kontakt)', () => {
   ]) {
     assert.equal(detectAgreement(t), true, `agreement expected: "${t}"`);
   }
+});
+
+// ── the year/renovation mirror row (Phase 4, describe family) ────────────────
+// The executor serves a COLD year/renovation ask under its own tag
+// (inbound.ts 8040–8049: no flat bound → the property-agnostic miss line) and a
+// BOUND one under INFO_ASK. Without the row the cold case predicted INFO_ASK and
+// the registry logged a gap on a correct serve (probe: .bench/year-mirror.ts).
+test('a cold year/renovation ask is INFO_ASK_YEAR; a bound one stays INFO_ASK', () => {
+  for (const t of ['od koja godina e zgradata?', 'КОЈА ГОДИНА Е ИЗГРАДЕНА?', 'koga e renovirana?']) {
+    assert.equal(resolveIntent(t, 'idle'), 'INFO_ASK_YEAR', t);
+    assert.equal(resolveIntent(t, 'closing', { propertyId: 78, interestedPropertyId: 78 }), 'INFO_ASK',
+      `${t} with a flat bound`);
+    assert.equal(resolveIntent(t, 'closing', { presentedIds: [79] }), 'INFO_ASK',
+      `${t} with a presented flat`);
+  }
+});
+
+// ── the enthusiasm and recommendation rows (Phase 4, place/reaction family) ──
+// Both were `P(...)`; the replay probe (.bench/place-mirror.ts) is what settled
+// their gates, and it caught two wrong drafts (detectEyeCatch instead of
+// detectPositiveEval, and a slot-only binding test the executor does not use).
+test('praise of a flat on the table is ENTHUSIASM; a bare compliment is not', () => {
+  assert.equal(resolveIntent('ODLICNA LOKACIJA IMA', 'presentation', { presentedIds: [78] }), 'ENTHUSIASM');
+  assert.notEqual(resolveIntent('ODLICNA LOKACIJA IMA', 'presentation'), 'ENTHUSIASM',
+    'nothing on the table: the executor has no flat to praise');
+  // «ova mi fati oko» is an eye-catch phrase, NOT the praise lane (the probe:
+  // the executor served nothing for it) — the row must not claim it either.
+  assert.notEqual(resolveIntent('OVA MI FATI OKO', 'presentation', { presentedIds: [78] }), 'ENTHUSIASM');
+  // closing only with an owner check pending (the executor's own condition).
+  assert.notEqual(resolveIntent('ODLICNA LOKACIJA IMA', 'closing', { presentedIds: [78] }), 'ENTHUSIASM');
+});
+
+test('a recommendation ask is RECOMMEND_ASK only where the executor admits it', () => {
+  assert.equal(resolveIntent('koj bi mi go preporacale?', 'presentation'), 'RECOMMEND_ASK');
+  assert.equal(resolveIntent('koj bi mi go preporacale?', 'closing'), 'RECOMMEND_ASK');
+  assert.notEqual(resolveIntent('koj bi mi go preporacale?', 'contact_collection'), 'RECOMMEND_ASK',
+    'past the funnel the pick has been made — the executor does not admit the state');
+});
+
+// ── the describe / price-extreme rows (Phase 4, describe family) ─────────────
+// Both were `P(...)`; the replay probe (.bench/describe-probe.ts) settled them:
+// 5/5 exact after two corrections (the slot set for DESCRIBE_TABLE, and
+// PRICE_AVG_NASELBA reverted to P because its gate is the FEED's per-м² data —
+// when the feed cannot rank, the executor serves PRICE_EXTREME, and a row for
+// the aggregate would predict the answer that does not happen).
+test('a describe ask over a table is DESCRIBE_TABLE; without a table it is not', () => {
+  assert.equal(resolveIntent('OPISI MI GI ?', 'presentation', { describedEbs: [78, 63] }), 'DESCRIBE_TABLE');
+  assert.equal(resolveIntent('OPISI MI GO 78', 'presentation', { presentedIds: [78, 63] }), 'DESCRIBE_TABLE');
+  assert.notEqual(resolveIntent('OPISI MI GI ?', 'presentation'), 'DESCRIBE_TABLE',
+    'nothing on the table: there is no card to describe');
+});
+
+test('an extreme price ask is PRICE_EXTREME', () => {
+  assert.equal(resolveIntent('KOJ TI E TOJ STAN PO 1286E PO M2', 'closing', { presentedIds: [78] }), 'PRICE_EXTREME');
+  // A SUPERLATIVE is the lane; a plain budget cap («DO 1000 EVRA KUCA») is not
+  // (`extractPriceExtremeQuery` returns undefined — it is a criteria search).
+  assert.equal(resolveIntent('NAJEVTINI STANOVI DO 500 EVRA', 'discovery'), 'PRICE_EXTREME');
+  assert.notEqual(resolveIntent('DO 1000 EVRA KUCA', 'discovery'), 'PRICE_EXTREME');
+  // A plain price question keeps the price lane.
+  assert.notEqual(resolveIntent('KOLKU E CENATA?', 'closing', { propertyId: 78 }), 'PRICE_EXTREME');
 });

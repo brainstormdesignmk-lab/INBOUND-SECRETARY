@@ -89,8 +89,10 @@ export interface Assertion {
 export const ASSERTIONS: Assertion[] = [
   {
     id: 'availability-ask-not-availability',
-    why: 'client asks if the property is available; key is not availability.ack',
-    violates: r => detectAvailabilityAsk(r.userMsg) && r.bankKey !== null && r.bankKey !== 'availability.ack',
+    why: 'client asks if the property is available; key is not the availability claim',
+    // The key is `availability.claim` — the claim is code (feed column
+    // `dostapno_od`); the retired availability.ack pools no longer exist.
+    violates: r => detectAvailabilityAsk(r.userMsg) && r.bankKey !== null && r.bankKey !== 'availability.claim',
   },
   {
     id: 'price-ask-not-price',
@@ -108,7 +110,7 @@ export const ASSERTIONS: Assertion[] = [
     why: 'client asks to contact the owner; served an info/fee key instead of the contact protocol',
     violates: r => /stapi|stapete|kontaktiraj|контактирај|zakazi|закажи|dogovori|договари|договори/i.test(r.userMsg)
       && r.bankKey !== null
-      && !['availability.ack', 'fee.ask.buy', 'fee.ask.rent'].includes(r.bankKey),
+      && !['availability.claim', 'fee.ask.buy', 'fee.ask.rent'].includes(r.bankKey),
   },
   {
     id: 'why-question-under-info-key',
@@ -268,8 +270,8 @@ async function main(): Promise<void> {
         bankKey: row.bankKey, verdict: 'fit', source: 'assertion', why: 'owner-relay exchange consistent with its verdict' });
       continue;
     }
-    // Deterministic FIT evidence first — an availability ask served by
-    // availability.ack with the availability wording is a textbook fit.
+    // Deterministic FIT evidence first — an availability ask served by the
+    // availability claim with the availability wording is a textbook fit.
     const hit = ASSERTIONS.find(a => {
       try { return a.violates(row); } catch { return false; }
     });

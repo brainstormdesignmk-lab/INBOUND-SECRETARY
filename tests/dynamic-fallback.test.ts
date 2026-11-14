@@ -171,14 +171,22 @@ function fakeSession(): ChatSession {
   } as unknown as ChatSession;
 }
 
-test('generate: clean LLM answer is served AND stored; recall hits next time', async () => {
+// EXPECTATION CHANGED WITH PHASE 6 (the review gate): a generated answer is
+// served to the client whose question produced it and stored QUARANTINED — it is
+// not recallable for anyone else until a human approves the row. The old test
+// asserted "stored ⇒ recall hits", which is exactly the unsafe default the gate
+// removes; the two assertions below split it into the honest halves.
+test('generate: clean LLM answer is served, stored quarantined, recallable only after approval', async () => {
   const { bank, dir } = fresh();
   try {
     const first = await dynamicAnswer(new ScriptedLlm(CLEAN), fakeSession(), 'kakvi dokumenti se potrebni za kupuvanje?', bank);
     assert.ok(first, 'clean answer must serve');
     assert.equal(first!.source, 'dynamic');
-    // second call: recall (no LLM needed) — ThrowingLlm fails the test if called
-    void fail;
+    // THE GATE: another client asking the same thing gets NO free answer yet.
+    const gated = await dynamicAnswer(new ThrowingLlm(), fakeSession(), 'kakvi dokumenti se potrebni za kupuvanje?', bank);
+    assert.equal(gated, undefined, 'an unreviewed row must not serve another client');
+    // A human approves it → recall (no LLM needed; ThrowingLlm fails the test if called).
+    assert.ok(bank.approveDynamic(bank.dynamicRows()[0]!.id));
     const second = await dynamicAnswer(new ThrowingLlm(), fakeSession(), 'kakvi dokumenti se potrebni za kupuvanje?', bank);
     assert.ok(second);
     assert.equal(second!.source, 'dynamic-recall');
@@ -222,8 +230,13 @@ test('A: a stock-at-a-place answer is stored as a {place} template', async () =>
     const answer = 'Здраво! Во близина на Капитол Мол имаме одлични понуди, па со задоволство би Ви помогнала да ги најдеме вистинските опции. Кажете ми, дали Ве интересира купување или изнајмување на недвижност?';
     const res = await generateDynamic(new ScriptedLlm(answer), session, 'STO IMTE INTERESNO KAJ KAPITOL MOL ?', bank);
     assert.ok(res, 'the clean answer serves');
+    // Phase 6: a place template is read by ANOTHER client (it renders for a
+    // different place), so an unreviewed row offers none — approve first.
+    assert.equal(bank.retrievePlaceTemplate('ТЦ Капитол'), undefined,
+      'a quarantined row must not lend its sentence to another client');
+    assert.ok(bank.approveDynamic(bank.dynamicRows()[0]!.id));
     const tpl = bank.retrievePlaceTemplate('ТЦ Капитол');
-    assert.ok(tpl, 'the row carries a place template for its anchor');
+    assert.ok(tpl, 'the approved row carries a place template for its anchor');
     assert.match(tpl!.template, /\{place\}/u);
     assert.ok(!/капитол|kapitol/iu.test(tpl!.template),
       `no word of the old place may survive in the template: ${tpl!.template}`);

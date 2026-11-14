@@ -45,7 +45,7 @@ import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LandmarkService } from '../src/geo/landmarks';
 import { LlmClient } from '../src/llm/types';
-import { seedVariants, poolContractViolations, pickVariant } from '../src/data/responseBank';
+import { buildAvailabilityClaim } from '../src/llm/prompts';
 import {
   isPoiConfirmQuestion, detectAvailabilityAsk, detectSendToOwnerAsk,
 } from '../src/llm/deterministic';
@@ -139,31 +139,49 @@ test('[08:55] the arrow («ПА ВИДИ ПРАШАЈ…») is the owner check, 
   }
 });
 
-// ── 2. the masculine ack pool ────────────────────────────────────────────────
+// ── 2. the masculine claim ───────────────────────────────────────────────────
 
-test('[08:55] the masculine ack pool exists, rotates, and honours its contract', () => {
-  const pool = seedVariants('availability.ack.masc');
-  assert.ok(pool.length >= 10, `a real pool is owed, got ${pool.length}`);
-  assert.deepEqual(poolContractViolations('availability.ack.masc'), [],
-    'every masculine ack keeps the availability claim, the owner question and no fee');
-  assert.ok(new Set(pool).size === pool.length, 'no duplicate variants — a repeat is what the client heard');
-  // The family every availability-ack assertion in the suite reads (the card
-  // tests can only see ONE random variant per run). A new variant outside this
-  // vocabulary would make those assertions flaky instead of failing honestly.
-  const CLAIM = /(?:достап|слобод|актив|располага|фигурира|води|база|понуда|систем|евиденц)/iu;
-  for (const v of pool) assert.match(v, CLAIM, `outside the claim family: ${v}`);
-
-  // ROTATION AGAINST A COMPOSITE (deterministic — no reliance on the draw):
-  // the ack is served as the TAIL of a reply whose head is the flat's identity
-  // card, and history only ever holds that composite. The freshness test must
-  // recognise the variant inside it, or the pool serves the same sentence again
-  // (the [08:55] field repeat) — the exact-set comparison missed every prefixed
-  // serve, so this loop covers EVERY variant, not one lucky pair.
-  for (const v of pool) {
-    const served = `Евидентен број 79 · двособен стан, 35 м² · 300 евра месечно · Водно\n\n${v}`;
-    for (let i = 0; i < 12; i++) {
-      const again = pickVariant('availability.ack.masc', { recent: [served] });
-      assert.notEqual(again, v, `the composite serve must retire its own variant: ${v}`);
+test('[08:55] the masculine claim rotates and honours its contract', () => {
+  // THE POOL IS RETIRED (the [12:35] capture): availability is the feed column
+  // `dostapno_od`, so the phrasings are composed in code. Sweeping a pool the
+  // handler no longer calls certifies nothing — that is the orphaned-pool defect
+  // (35 variants validated, none reachable), so this test drives the builder the
+  // handler actually serves from.
+  const claimVariants = (p: Property): string[] => {
+    const seen: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const v = buildAvailabilityClaim(p, { recent: seen });
+      if (seen.includes(v)) break;
+      seen.push(v);
+    }
+    return seen;
+  };
+  // Every feed state the lane distinguishes: available now, available from a
+  // date, and no datum at all.
+  for (const dostapnoOd of ['Веднаш', '01.12.2026', '']) {
+    const row = { ...DVOSOBEN_79, dostapnoOd } as Property;
+    const variants = claimVariants(row);
+    assert.ok(variants.length >= 2, `a masculine row must rotate, got ${variants.length}`);
+    for (const v of variants) {
+      // The family every availability assertion in the suite reads (a card test
+      // can only see ONE phrasing per run): a claim outside this vocabulary
+      // would make those assertions flaky instead of failing honestly.
+      assert.match(v, /(?:достап|слобод|актив|располага|понуда)/iu, `outside the claim family: ${v}`);
+      // A стан is MASCULINE: «достапна» after an EB-number ask read wrong-gender.
+      assert.ok(!/(?<![\p{L}])(?:достапна|слободна|активна)(?![\p{L}])/iu.test(v),
+        `feminine agreement on a стан: ${v}`);
+      // No fee, no money, and never "let me connect you with the owner".
+      assert.ok(!/(?:надомест|денар|провизи|поврзам)/iu.test(v), `fee/connect copy in a claim: ${v}`);
+    }
+    // ROTATION AGAINST A COMPOSITE (deterministic — no reliance on the draw):
+    // the served reply is the flat's identity card followed by the claim, and
+    // history only ever holds the composite. The freshness test must recognise
+    // the phrasing INSIDE it, or the lane serves the same sentence again (the
+    // [08:55] field repeat).
+    for (const v of variants) {
+      const served = `Евидентен број 79 · двособен стан, 35 м² · 300 евра месечно · Водно\n\n${v}`;
+      const again = buildAvailabilityClaim(row, { recent: [served] });
+      assert.notEqual(again, v, `the composite serve must retire its own phrasing: ${v}`);
     }
   }
 });
@@ -179,7 +197,13 @@ test('[08:55] the availability thread answers the flat, rotates, then closes on 
   assert.match(first, /Евидентен број 79/u, `the flat must be named: ${first}`);
   assert.doesNotMatch(first, /Точната адреса се открива на денот на посетата/u,
     `a place answer is the [08:55] defect: ${first}`);
-  assert.match(first, /(достапен|слободен|активен|располага|база|фигурира)/iu, first);
+  // CONTRACT, not wording: an availability answer must speak about the flat's
+  // availability. The claim now quotes the feed's own column (`dostapno_od`)
+  // instead of hedging «би требало … постои во нашата база», so the pool of
+  // sanctioned words grew by the two shapes the honest answer uses — «понуда»
+  // and «достапност» — while the forbidden thing (a location answer) is still
+  // asserted absent right above.
+  assert.match(first, /(достапен|слободен|активен|располага|база|фигурира|понуда|достапност)/iu, first);
   assert.doesNotMatch(first, /достапна(?![а-ш])/u, `a стан takes the masculine ack: ${first}`);
   let s = sessions.get(chatId)!;
   assert.equal(s.slots.interestedPropertyId, 79);

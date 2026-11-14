@@ -1,6 +1,10 @@
 import { State, Service } from './machine';
 import { randomGreeting } from '../data/greetings';
 import { Db } from '../store/db';
+// TYPE-ONLY: the audit record is produced by the handler, but the next turn
+// reads it off the session (the "why did you tell me X?" lane explains the turn
+// it is asking about). Erased at runtime — no module cycle.
+import type { TurnAudit } from '../handlers/turn';
 
 export interface SlotData {
   service?: Service;
@@ -213,6 +217,19 @@ export interface SlotData {
    *  re-uses these characteristics verbatim in the other naselbi. */
   cheaperAnchor?: { bedrooms?: number; sqm?: number; house?: boolean; business?: boolean; price?: number };
   viewingFeeAgreed?: boolean;
+  /** MIRROR-ONLY MEMORY (proposal Phase 4): the client's PREVIOUS message,
+   *  copied onto the slots view the shadow router predicts with. A handful of
+   *  lanes are continuations of the last turn — «околу 130000 беше» after
+   *  «гледав една куќа … на сајт» is the remembered-property flow — and the
+   *  predicate is text+state+memory, so a mirror that only sees the current
+   *  sentence predicts FALLTHROUGH for a turn the executor serves. Never read
+   *  by a serving path. */
+  mirrorPriorUserText?: string;
+  /** MIRROR-ONLY MEMORY: the evident number the PREVIOUS answer was about. The
+   *  executor reads it off the turn record to continue a conversation about a
+   *  flat it described one message ago («околу 130000 беше»); the mirror needs
+   *  the same fact or it predicts FALLTHROUGH for that continuation. */
+  mirrorLastTargetEb?: number;
   /** THE FEE HAS BEEN TOLD ONCE (the [20:40] capture): the visit-fee figure
    *  (300/500 денари) was disclosed and the client has not answered yet. This
    *  is what makes the NEXT «да» the agreement — without it the funnel
@@ -432,6 +449,18 @@ export interface ChatSession {
    *  inbound ALWAYS gets the greeting, even a business-shaped message (the
    *  [12:32] no-eat rule applies only to ordinary idle resets). */
   resetFromTerminated?: boolean;
+  /** THE PREVIOUS TURN, exactly as it happened (see src/handlers/turn.ts): what
+   *  the client sent, which lane served, which facts were used and the text that
+   *  was ACTUALLY delivered. One record, not N per-lane beliefs. Survives
+   *  restarts with the session, so a client coming back hours later can still
+   *  ask about an answer this appliance gave. */
+  lastTurn?: TurnAudit;
+  /** THE LAST FEW TURNS, newest last (bounded to 3). One record deep is enough
+   *  to answer «what did you just say?»; «why did you tell me it was gone?» is
+   *  asked one or two turns AFTER the wrong answer, so the explanation lane has
+   *  to see past the immediate predecessor. Each entry's own `previous` is
+   *  dropped for storage — the chain lives here, not nested inside records. */
+  recentTurns?: TurnAudit[];
 }
 
 export function freshSession(channel: string, chatId: string): ChatSession {

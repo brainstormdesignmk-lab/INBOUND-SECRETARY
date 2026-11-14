@@ -1158,7 +1158,13 @@ export function detectAvailabilityAsk(text: string): boolean {
   // whether THE FLAT is still on offer. Reflexive «se» is what makes it about a
   // property — „(дали) продавате станови?“ (you sell, no «se») stays a service
   // question — and it matches both spellings, «prodava» and the typed «prodva».
-  if (/(?:^|\s)(?:se|се)\s+(?:продав|prodav|prodv)\p{L}*(?![\p{L}\p{N}])/iu.test(text)) return true;
+  // THE TYPED STEM IS PART OF THE FAMILY (the [12:31] capture): «дали се
+  // ПРОДААА уште?» — the client's extra «а» — matched no arm, so the turn
+  // fell to the NEARBY-THREAD lane and an AVAILABILITY question was answered
+  // with «Тоа се наоѓа во населбата Скопје Север». The present-tense stem is
+  // accepted with its typo twins; the PAST forms («продаден/продаде» — was it
+  // sold) are deliberately still outside, they are a different question.
+  if (/(?:^|\s)(?:se|се)\s+(?:продав|продаа|prodav|prodv|prodaa)\p{L}*(?![\p{L}\p{N}])/iu.test(text)) return true;
   if (AVAILABILITY_ASK_RE.test(text)) return true;
   // Sweep availability 24:09 companion classes (taken/gone/standing/raspolaganje)
   if (matchesBoth(AVAILABILITY_RE2, text)) return true;
@@ -1349,6 +1355,13 @@ const FEE_CHARGE_PUSH_RE = new RegExp(
 // them (or with no accusation token at all) = the explanation lane.
 const _whyWordPosRe = /(?:зошто|зосто|зашто|засто)/iu;
 const _accusationTokenPosRe = /(?:пар[аие]|надомест|такс|зема|наплат|бара|плаќ|дава)/iu;
+// THE WHO-PAYS QUESTION — «кој (ја/го/ги) плаќа/наплаќа/зема/бара/чини» — asks
+// WHO BEARS the charge: a request to be informed (the same family as «kolku e
+// za poseta?» / «zosto naplatuvate?», §2 "not nags"), never an accusation.
+// The clitic gap is bounded on purpose: «кој ви дава право да наплаќате» is a
+// rhetoric that must keep its rung and does not have this adjacency.
+// normalizeMc has already mapped Latin «koj ja plakja» onto this form.
+const NAG_PAYER_ASK_RE = /(?:^|[^\p{L}])кој\s+(?:(?:ја|го|ги|му|ми|ви|ни)\s+)?(?:плаќ|наплаќ|зема|бара|чини)\p{L}*/iu;
 
 /** True when the message asks "why" about something OTHER than an accusation
  *  already made — i.e. the why-word comes before every charge/money token
@@ -1395,7 +1408,12 @@ export function detectFeeChargePushback(text: string): boolean {
   const clauses = flat.split(/[.!?\n]+/u).map(c => c.trim()).filter(Boolean);
   const accusations = clauses.filter(c => FEE_CHARGE_PUSH_RE.test(c));
   if (accusations.length === 0) return false;
-  return accusations.some(c => !/(?:колку|kolku|дали|dali)/iu.test(c));
+  // A WHO-PAYS QUESTION IS NOT AN ACCUSATION («KOJ JA PLAKJA TAKSATA ZA
+  // POSETA?»): the charge verb + fee noun shape matched the accusation family
+  // and the turn burned a rung for asking who bears the fee — the neutral-ask
+  // family §2 excludes. It rides the same per-clause question test as колку/дали.
+  return accusations.some(c => !/(?:колку|kolku|дали|dali)/iu.test(c)
+    && !NAG_PAYER_ASK_RE.test(normalizeMc(c)));
 }
 
 // FIRST TIME HEARING THE FEE — "OVA PRV PAT SLUSAM", "prv pat slusam da se
@@ -2712,6 +2730,38 @@ export function detectBudget(text: string): string | undefined {
  *  The rate is a BUY metric. On a rent search the same words are a monthly cap
  *  the client happens to spell oddly, so the caller only stores it for a buy
  *  funnel (a rent rate is meaningless and would empty every pool). */
+/** «KOLKU BI MU DOSLA CENATA PO KVADRAT ?» — THE €/m² OF THE FLAT ON THE
+ *  TABLE (the [13:15] capture).
+ *
+ *  The client had just been given EB 66 (a 79 m² trоsoben at 137.000 €) and asked
+ *  for its price per square metre. The turn served the NEIGHBOURHOOD's band
+ *  («цените варираат од 1.286 до 2.889 евра за м²») — a market statistic about
+ *  СЈО, not an answer about his flat — because the market lane saw a per-m²
+ *  marker and no Евидентен број in the text. A per-m² question about the SUBJECT
+ *  is arithmetic on two feed facts (price ÷ м²); it must never be answered with
+ *  someone else's average.
+ *
+ *  NARROW ON PURPOSE, and the exclusions are the whole point:
+ *    • a stated RATE is not a question («1500 evra za kvadrat» is a CAP —
+ *      detectSqmRate owns it, and any figure in the message disqualifies this);
+ *    • a MARKET/AREA ask keeps its own lane (просек, населба, цел град,
+ *      општина, «во Скопје», «како се движат»);
+ *    • no per-m² marker at all (a plain «колку е цената?») is the price lane.
+ *  The caller additionally requires a property the session is actually pointing
+ *  at — the predicate is pure text, the subject is the caller's business. */
+export function detectSubjectPerM2Ask(text: string): boolean {
+  // A figure in the message is a cap/offer, never a question about a rate.
+  if (collectMoneyMentions(text).length > 0) return false;
+  const marker = /(?:^|[\s,.;:!?„“"'(])(?:po|za|na|по|за|на)\s*(?:m2|m²|м2|м²|kvadrat\p{L}*|квадрат\p{L}*)(?![\p{L}\p{N}])/iu;
+  if (!marker.test(text)) return false;
+  // A market/area ask is a different question — it gets its own (band) answer.
+  const market = /(?<![\p{L}\p{N}])(?:prosek\p{L}*|prosecn\p{L}*|просек\p{L}*|просечн\p{L}*|najevtin\p{L}*|најевтин\p{L}*|naselb\p{L}*|населб\p{L}*|opstin\p{L}*|општин\p{L}*|cel\s+grad|цел\s+град|vo\s+skopje|во\s+скопје|kako\s+se\s+dviz\p{L}*|како\s+се\s+движ\p{L}*|pazar\p{L}*|пазар\p{L}*)(?![\p{L}\p{N}])/iu;
+  if (market.test(text)) return false;
+  // THE ASK: a question word, or the noun «цената» used as the subject of one.
+  const ask = /(?<![\p{L}\p{N}])(?:kolku|koja|koj|koe|kolkav\p{L}*|колку|која|кој|кое|колкав\p{L}*)(?![\p{L}\p{N}])/iu;
+  return ask.test(text);
+}
+
 export function detectSqmRate(text: string): number | undefined {
   const mentions = collectMoneyMentions(text);
   if (mentions.length === 0) return undefined;
@@ -3088,6 +3138,34 @@ const TOLD_YOU_RE = new RegExp(
 /** The negated claim is the opposite one — never a recall complaint. */
 const NOT_TOLD_YOU_RE = new RegExp(
   `(?:^|[^\\p{L}])(?:не|ne)\\s+(?:(?:ти|ве|ви|ti|ve|vi)\\s+)?(?:${TOLD_YOU_VERB})(?=$|[^\\p{L}])`, 'iu');
+
+/** «ЗОШТО МИ КАЖА ДЕКА Е СТАРА ПОНУДА И ДЕКА ЈА НЕМА ВЕЌЕ ?» — A CHALLENGE
+ *  ABOUT OUR OWN WORDS (the [12:35] capture).
+ *
+ *  The client is not negotiating a fee and not asking about the market: he is
+ *  quoting an answer this appliance gave him and asking us to account for it.
+ *  That turn was served the 500-ден visit-fee disclosure — because no predicate
+ *  recognised it, the closing arm owned the state, and a pending fee answered a
+ *  question it had nothing to do with.
+ *
+ *  THE SHAPE: a LEADING why-word PLUS either a first-person TOLD verb («ми
+ *  кажа», «ми рече», «пиша», «велиш», «тврдиш») or a reference to our own
+ *  listing («во понуда», «на страницата», «на сајтот»). Money words are a veto:
+ *  «зошто наплаќате 500?» is fee traffic, not this lane. */
+export function detectOwnClaimChallenge(text: string): boolean {
+  const W = '(?:^|[^\\p{L}\\p{N}])';
+  const E = '(?=$|[^\\p{L}\\p{N}])';
+  const why = new RegExp(`${W}(?:zosto|зошто|zaso|зашо|kako\\s+toa|како\\s+тоа)${E}`, 'iu');
+  if (!why.test(text)) return false;
+  // FEE TRAFFIC IS NEVER THIS LANE (isFeeTraffic owns it, and the ladder must
+  // not lose a rung to an explanation).
+  if (/(?:провизи|provizi|надомест|nadomest|наплаќ|naplak|наплат|naplat|накнад|naknad|fee|пари|pari|посета|poseta)/iu.test(text)) return false;
+  const told = new RegExp(`${W}(?:ми\\s+)?(?:кажа|каже|каж|рече|велиш|velis|kaza|rece|pisa|пиша|tvrdis|тврди)\\p{L}*${E}`, 'iu');
+  if (told.test(text)) return true;
+  // «ПА ЗОШТО УШТЕ ЈА ИМАТЕ ВО ПОНУДА НА СТРАНИЦАТА» — the same challenge about
+  // our listing, with no told-verb at all.
+  return /(?:во\s+понуда|понудата|на\s+страница|на\s+сајт|ponuda|stranica|sajt|сајтот)/iu.test(text);
+}
 
 export function detectToldYouNag(text: string): boolean {
   if (NOT_TOLD_YOU_RE.test(text)) return false;
@@ -7411,6 +7489,11 @@ const NAG_VALUE_RE = buildFeeValueComplaintSlots();
 // digraph only fires for "sh"). Missing this variant made "zosto naplatuvate
 // poseta?" a NAG and burned a rung on a genuine why-question.
 const NAG_NEUTRAL_ASK_RE = /(?:колку|која е цената|која е цена|зошто|зосто|зашто|засто|дали)\p{L}*/iu;
+// The commission nouns (the OTHER money topic, §2) and the nouns that name the
+// visit fee. A commission-only message must never reach the fee ladder.
+const PROVISION_ONLY_NOUN_RE = /(?:провизи|комиси|provizi|komisi)\p{L}*/iu;
+const VISIT_FEE_NOUN_RE = new RegExp(
+  `(?:${VIEWING_NOUN_SRC})|(?:надомест|такс|гледа|разгледува|посет|влез)\\p{L}*`, 'iu');
 const NAG_DOUBT_RE = /(?:не знам|незнам|не ми е јасно|не разбирам|не сум сигурен|се мислам)/iu;
 // RHETORICAL CHALLENGE — a place-word (каде/кај, also "од каде") plus an
 // ATTRIBUTION verb: the client asks where WE saw/wrote the fee. Normalised to
@@ -7710,10 +7793,20 @@ export function detectFeeNag(text: string, opts: FeeNagOptions = {}): boolean {
   // climbs. detectTotalCostAsk is digital-amount-free, so a message stating a
   // rent («kirijata e 1200 … kolku ke me kosta») stays with extractRentMath.
   if (detectTotalCostAsk(flat)) return false;
+  const cyr = normalizeMc(flat);
+  // THE ISOLATION CONTRACT (§2): a message whose ONLY money object is the
+  // COMMISSION is commission traffic — `detectProvisionResistance` /
+  // `detectProvisionWho` own it, each with its own counter — and it must never
+  // burn a visit-fee rung. «провизија»/«комисија» sit in the fee-object noun
+  // class below, so «KOJ JA PLAKJA PROVIZIJATA?» and «NE SAKAM PROVIZIJA» both
+  // climbed the FEE ladder: a commission turn pushed the visit-fee ladder one
+  // rung ahead, the cross-topic burn the contract forbids (found while
+  // mirroring the money lanes, 2026-11-13). A message that names the visit
+  // as well («NE SAKAM PROVIZIJA, A I ZA POSETA») keeps its fee lane.
+  if (PROVISION_ONLY_NOUN_RE.test(cyr) && !VISIT_FEE_NOUN_RE.test(cyr)) return false;
   // The fixed-phrase accusation family stays the first gate (it owns the
   // "PARI ZA POSETA" shape with no charge verb at all).
   if (detectFeeChargePushback(flat)) return true;
-  const cyr = normalizeMc(flat);
   const hasVisit = NAG_VISIT_RE.test(cyr) || NAG_VIEW_VERB_RE.test(cyr);
   const hasFeeObject = NAG_FEE_OBJECT_RE.test(cyr);
   const negated = NAG_NEGATION_RE.test(cyr);
@@ -7744,6 +7837,12 @@ export function detectFeeNag(text: string, opts: FeeNagOptions = {}): boolean {
 
   // 2) CHARGE + OBJECT in either order. A neutral how-much/why question is
   //    explanation traffic unless it also carries a complaint frame.
+  //    A NEUTRAL WHO-PAYS QUESTION IS THE SAME FAMILY («koj e za poseta?»,
+  //    «zosto naplatuvate?» — the §2 "not nags" list): «KOJ JA PLAKJA TAKSATA
+  //    ZA POSETA?» asks who bears the fee, it does not resist it. Only the
+  //    narrow payer shape is exempt, and never beside an accusation
+  //    (universal / value complaint / negation) — those keep their rung.
+  if (!universal && !valueComplaint && !negated && NAG_PAYER_ASK_RE.test(cyr)) return false;
   if (NAG_CHARGE_STEM_RE.test(cyr) && (hasVisit || hasFeeObject)) {
     const neutralAsk = NAG_NEUTRAL_ASK_RE.test(cyr) && !universal && !valueComplaint && !negated;
     if (!neutralAsk) return true;
@@ -8693,8 +8792,15 @@ const LOC_CONFIRM_MARKERS_RE =
 const B = '(?<!\\p{L})(?<!\\p{N})';
 const E = '(?!\\p{L})(?!\\p{N})';
 const LOC_CONFIRM_QUESTION_RE = new RegExp(
-  // "na vodno e?" / "vo karpos?" — preposition + area + '?'
-  B + '(?:na|vo|на|во)' + E + '[^.?!\\n]{0,30}\\?'
+  // "na vodno e?" / "vo karpos?" — preposition + area + '?'. THE PREPOSITION
+  // MUST OPEN ITS CLAUSE (start of the message, after punctuation, or after a
+  // confirmation filler): a preposition ANYWHERE plus a question mark is a
+  // location confirm in name only — «KAKVI SE PRAVILATA NA AGENCIJATA?» matched
+  // the «на … ?» shape, `fsmRequired` forced the FSM path for a rules question
+  // and the CLASSIFIER answered it (DETAILS_PROVIDED, no lane tag) while the
+  // fee-rules lane never ran (found by the money mirror, 2026-11-13).
+  '(?:^|[.!?,\\n]\\s*|' + B + '(?:znaci|значи|dakle|дакле|togas|togash|тогаш|ustvari|всушност|pa|па|a|а|e|е)' + E + '\\s+)'
+  + B + '(?:na|vo|на|во)' + E + '[^.?!\\n]{0,30}\\?'
   // "dali e vo vodno?" — дали + filler + preposition + '?'
   + '|' + B + '(?:dali|дали)' + E + '[^.?!\\n]{0,30}' + B + '(?:vo|na|во|на)' + E + '[^.?!\\n]{0,20}\\?'
   // "vo vodno li e?" — the ли-particle
@@ -8704,6 +8810,15 @@ const LOC_CONFIRM_QUESTION_RE = new RegExp(
 // Wh-question openers — a message STARTING with one is a content question
 // ("sto ima vo blizina?", "kade e?"), never a yes/no area confirmation.
 const LOC_CONFIRM_WH_RE = /^\s*(?:sto|shto|што|штo|kade|каде|kolku|колку|kako|како|zosto|зошто|зощо|koj|кој|koja|која|koe|кое)\S*/iu;
+// A NAMED AREA AFTER THE PREPOSITION — the mid-sentence confirm form. Built from
+// the feed's own neighborhood list so the class is «an area is named», not «a
+// preposition appeared».
+const KNOWN_AREA_AFTER_PREP_RE = new RegExp(
+  B + '(?:во|на)(?![\\p{L}])[^.?!\\n]{0,24}?(?<!\\p{L})(?:'
+  + KNOWN_NEIGHBORHOODS.map(n => n.replace(/\s*\(.*\)$/, '')).join('|')
+  + ')\\p{L}*',
+  'iu',
+);
 
 /**
  * True when the message looks like a location CONFIRMATION about the property
@@ -8733,7 +8848,14 @@ export function detectLocationConfirm(text: string): boolean {
   // Wh-questions are a different class ("sto ima vo blizina?" must not be a
   // confirm just because it contains "vo … ?")
   if (LOC_CONFIRM_WH_RE.test(text)) return false;
-  return matchesBoth(LOC_CONFIRM_QUESTION_RE, text);
+  if (matchesBoth(LOC_CONFIRM_QUESTION_RE, text)) return true;
+  // THE AREA REQUIREMENT (mid-sentence): «a nesto poskapo vo centar?» belongs to
+  // the confirm/FSM class because it names a REAL AREA after the preposition,
+  // while «KAKVI SE PRAVILATA NA AGENCIJATA?» names an institution — a plain
+  // content question the fee-rules lane must own. Before this arm the bare
+  // «preposition … ?» shape made the agency question look like an area confirm
+  // (fsmRequired forced the FSM, the classifier answered, no lane tag).
+  return matchesBoth(KNOWN_AREA_AFTER_PREP_RE, normalizeMc(text));
 }
 
 /** Marker-form check for callers distinguishing the two sub-classes. */
@@ -10762,8 +10884,34 @@ export function detectContactRequest(text: string): boolean {
  *  (fee-before-contact is the judged-correct order) while direct phone asks
  *  are always refused. */
 export function detectOwnerContact(text: string): boolean {
-  return matchesBoth(OWNER_CONTACT_RE, text) || extFires('owner-contact', text);
+  // BOTH SCRIPTS AND THE DEFINITE FORMS (the 2026-11-13 dynamic-gate find): the
+  // family list is Cyrillic-indefinite («телефон на сопственик»), while the live
+  // captures are Latin («DAJ MI GO TELEFONOT NA SOPSTVENIKOT») — the detector
+  // said false, so the owner-contact lane never fired and the ask fell to
+  // generated prose. normalizeMc maps the Latin typing; the request arm below
+  // carries the definite/inflected forms the noun list cannot enumerate.
+  const cyr = normalizeMc(text);
+  return matchesBoth(OWNER_CONTACT_RE, text) || matchesBoth(OWNER_CONTACT_RE, cyr)
+    || matchesBoth(OWNER_PHONE_REQUEST_RE, cyr)
+    || extFires('owner-contact', text);
 }
+
+// «дај(те) ми го телефонот/бројот/контактот (на сопственикот)» — the direct phone
+// ask in any inflection. `број` alone is the ЕВИДЕНТЕН БРОЈ ask («дај ми го
+// бројот на станот»), so the номер noun requires the OWNER noun beside it;
+// телефон/контакт/мобилен/мејл carry the owner implicitly.
+const OWNER_PHONE_REQUEST_RE = new RegExp(
+  // «сакам контакт со сопственикот» — the want-contact noun shape (the verb list
+  // below carries «сакам да контактирам», which this wording does not use).
+  B + '(?:сакам|sakam)\\s+(?:да\\s+)?контакт\\p{L}*\\s*(?:со|so|на|na)?\\s*'
+  + B + '(?:сопственик|власник|sopstvenik|vlasnik)\\p{L}*' + E
+  + '|' + B + '(?:да[јд]|daj|dajte|дајте)\\p{L}*' + E + '[^.!?\\n]{0,24}'
+  + '(?:телефон|мобилен|контакт|мејл|e-пошта|е-пошта)\\p{L}*'
+  + '|' + B + '(?:да[јд]|daj|dajte|дајте)\\p{L}*' + E + '[^.!?\\n]{0,24}'
+  + B + '(?:број|broj|brojot|бројот)' + E + '[^.!?\\n]{0,20}'
+  + B + '(?:сопственик|власник|sopstvenik|vlasnik)\\p{L}*',
+  'iu',
+);
 
 // OWNER-CONTACT HOLD — the client pumps the brakes on the owner contact or
 // says the deal is not agreed yet (the [22:47] transcript): "NE GO KONTAKTIRAJ

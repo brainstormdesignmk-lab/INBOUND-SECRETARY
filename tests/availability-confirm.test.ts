@@ -18,52 +18,77 @@ import { EscalationStore } from '../src/store/escalations';
 import { MetaStore } from '../src/store/meta';
 import { ChannelRegistry } from '../src/channels/types';
 import { LandmarkService } from '../src/geo/landmarks';
-import { AVAILABILITY_CLAIM, MASCULINE_AGREEMENT } from './helpers/availability-contract';
-// THE CONTRACT IS PINNED AGAINST THE WHOLE POOL, not just the variant that
-// happened to rotate during this run: a bank variant worded with a claim the
-// helper's stems do not know must fail HERE, before it fails an e2e flow three
-// files away. Both pools, because a стан and a недвижност answer with different
-// genders of the same claim.
-test('the availability contract covers EVERY shipped variant of both pools', () => {
-  for (const key of ['availability.ack', 'availability.ack.masc']) {
-    const seeds = RESPONSE_BANK[key] ?? [];
-    assert.ok(seeds.length >= 5, `${key} must be a real pool, got ${seeds.length}`);
-    for (const v of seeds) {
-      assert.match(v, AVAILABILITY_CLAIM, `${key} variant carries no availability claim: ${v}`);
+import { AVAILABILITY_CLAIM, FEMININE_AGREEMENT, MASCULINE_AGREEMENT } from './helpers/availability-contract';
+// THE CLAIM IS CODE (the [12:35] capture): availability is the feed column
+// `dostapno_od`, so there is no seed pool left to sweep. The old two-pool
+// `availability.ack` family was retired — and it was retired because a pool the
+// handler no longer calls is copy this suite could not certify any more (the
+// orphaned-pool defect: 35 variants validated, none reachable). The contract is
+// therefore pinned against EVERY phrasing the builder can serve, for all three
+// feed states and both genders.
+const claimVariants = (p: Property): string[] => {
+  const seen: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const v = buildAvailabilityClaim(p, { recent: seen });
+    if (seen.includes(v)) break;
+    seen.push(v);
+  }
+  return seen;
+};
+// Lazy: ROWS is declared further down the module (a const, so touching it at
+// import time would be a TDZ ReferenceError).
+const FLAT = (): Property => ({ ...ROWS[0], eb: 47, id: 47 } as Property);
+const HOUSE = (): Property => ({ ...ROWS[0], eb: 55, id: 55, house: true } as Property);
+const FEED_STATES = [
+  { name: 'now', dostapnoOd: 'Веднаш' },
+  { name: 'from', dostapnoOd: '01.12.2026' },
+  { name: 'no datum', dostapnoOd: '' },
+] as const;
+
+test('the availability contract covers EVERY code-built claim (three feed states, both genders)', () => {
+  const kinds = new Set<string>();
+  for (const state of FEED_STATES) {
+    for (const base of [FLAT(), HOUSE()]) {
+      const p = { ...base, dostapnoOd: state.dostapnoOd } as Property;
+      kinds.add(availabilityOf(p).kind);
+      const variants = claimVariants(p);
+      // The rotation contract is "never the same sentence twice in a row", so
+      // each state needs at least TWO phrasings (the 'from' state carries two).
+      assert.ok(variants.length >= 2, `${state.name}: the lane must rotate, got ${variants.length}`);
+      for (const v of variants) {
+        assert.match(v, AVAILABILITY_CLAIM, `${state.name}: no availability claim: ${v}`);
+        assert.ok(!FORBIDDEN_CONNECT.test(v), `${state.name}: connect-phrasing: ${v}`);
+      }
     }
   }
+  assert.deepEqual([...kinds].sort(), ['from', 'now', 'unknown'],
+    'every feed state must be exercised — a claim shape nothing tests is a blind spot');
 });
 
 import { Db } from '../src/store/db';
 import { loadConfig } from '../src/config';
 import { Property } from '../src/data/properties';
+import { availabilityOf } from '../src/data/properties';
 import { RESPONSE_BANK } from '../src/data/responses';
-import { setLearnedBank } from '../src/data/responseBank';
 import { detectAgreement, detectSendToOwnerAsk } from '../src/llm/deterministic';
-import { buildOwnerAsk, ownerPropertyLabels, AVAILABILITY_ACK, AVAILABILITY_ACK_FEM } from '../src/llm/prompts';
+import { buildAvailabilityClaim, buildOwnerAsk, ownerPropertyLabels, AVAILABILITY_ACK, AVAILABILITY_ACK_FEM } from '../src/llm/prompts';
 
-// Every availability.ack seed/learned variant must be owner-contact phrasing,
-// never client↔owner "connecting".
+// Every served claim is owner-contact phrasing, never client↔owner
+// "connecting".
 const FORBIDDEN_CONNECT = /да\s+Ве\s+поврзам\s+со\s+сопственикот|да\s+Ве\s+поврзам\s+со\s+сопственикот|Сакате\s+ли\s+да\s+Ве\s+поврзам/iu;
 
-test('availability.ack variants never "connect" the client with the owner', () => {
-  const seeds: string[] = RESPONSE_BANK['availability.ack'] ?? [];
-  assert.ok(seeds.length >= 10, `expected a real pool, got ${seeds.length}`);
-  for (const v of seeds) {
-    assert.ok(!FORBIDDEN_CONNECT.test(v), `connect-phrasing in availability.ack: ${v}`);
-    assert.ok(/(?:исконтактирам|контактирам|стапам|поврзам|разговор|слушам)/iu.test(v), `no owner-contact verb: ${v}`);
-  }
-});
-
-// „Недвижност“ is FEMININE. The mass имот→недвижност replacement left
-// masculine agreement behind ("недвижноста е активен", "го имаме"), and the
-// [20:14] owner ping said "за Вашиот куќа … кој … е внесен" — a куќа is
-// feminine too (Вашата / која / внесена / достапна).
-test('availability.ack seeds agree with the feminine „недвижност“', () => {
-  const seeds: string[] = RESPONSE_BANK['availability.ack'] ?? [];
-  for (const v of seeds) {
-    assert.ok(!MASCULINE_AGREEMENT.test(v), `masculine agreement on „недвижност“: ${v}`);
-    assert.ok(!/(?<![\p{L}])го\s+имаме(?![\p{L}])/iu.test(v), `„го имаме“ for a feminine property: ${v}`);
+// A house is FEMININE (Вашата / која / внесена / достапна) and a стан is
+// MASCULINE; the mass имот→недвижност replacement once left masculine agreement
+// on feminine nouns. Both directions are pinned over every claim phrasing.
+test('the claim agrees with the ROW gender in every phrasing', () => {
+  for (const state of FEED_STATES) {
+    for (const v of claimVariants({ ...HOUSE(), dostapnoOd: state.dostapnoOd } as Property)) {
+      assert.ok(!MASCULINE_AGREEMENT.test(v), `masculine agreement on a куќа (${state.name}): ${v}`);
+      assert.ok(!/(?<![\p{L}])го\s+имаме(?![\p{L}])/iu.test(v), `„го имаме“ for a feminine property: ${v}`);
+    }
+    for (const v of claimVariants({ ...FLAT(), dostapnoOd: state.dostapnoOd } as Property)) {
+      assert.ok(!FEMININE_AGREEMENT.test(v), `feminine agreement on a стан (${state.name}): ${v}`);
+    }
   }
 });
 
@@ -213,7 +238,7 @@ test('availability ack agrees with the ROW gender (an EB ask is a masculine fram
   assert.ok(!FORBIDDEN_CONNECT.test(ack), ack);
 });
 
-test('availability ack for a куќа row serves the feminine pool', async () => {
+test('availability ack for a куќа row serves a feminine claim', async () => {
   const femLine = AVAILABILITY_ACK_FEM;
   assert.ok(/достапна(?![\p{L}])/iu.test(femLine), femLine);
   const houseRows: Property[] = [
@@ -223,11 +248,31 @@ test('availability ack for a куќа row serves the feminine pool', async () =>
   const chatId = 'gender-fem';
   await handler.handle('test', chatId, 'DALI USTE E NA PRODAZBA 55?');
   const ack = sent[sent.length - 1] ?? '';
-  // The bank pool rotates — the contract is feminine agreement (all its
-  // variants speak „недвижноста“), never a masculine-ending claim.
+  // The claim rotates per feed state — the contract is feminine agreement
+  // (a куќа is „достапна“), never a masculine-ending claim.
   assert.match(ack, AVAILABILITY_CLAIM, `availability ack expected, got: ${ack}`);
   assert.ok(!MASCULINE_AGREEMENT.test(ack), `masculine agreement leaked: ${ack}`);
   assert.ok(!FORBIDDEN_CONNECT.test(ack), ack);
+});
+
+// THE LABEL MUST NAME WHAT SERVED THE TEXT (the [12:3x] half-migration): the
+// ack set bankKey='availability.ack' while the sentence was code-built, so the
+// audit/enrichment record credited a bank key the handler had stopped calling —
+// and the review screen offered an edit to a pool no client could receive.
+// Pinned here so a future move back to a pool (or a new label) cannot be silent.
+test('the ack audit names the CODE claim, and the retired pool is gone', async () => {
+  assert.ok(!('availability.ack' in RESPONSE_BANK), 'the retired pool must not come back');
+  assert.ok(!('availability.ack.masc' in RESPONSE_BANK), 'nor its masculine twin');
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'label-truth';
+  await handler.handle('test', chatId, 'DALI USTE E NA PRODAZBA 78?');
+  const audit = sessions.get(chatId)?.lastTurn;
+  assert.ok(audit, 'the turn must be audited');
+  assert.equal(audit.bankKey, 'availability.claim', `audit label: ${audit.bankKey}`);
+  const reply = sent[sent.length - 1] ?? '';
+  assert.match(reply, AVAILABILITY_CLAIM, `the claim served: ${reply}`);
+  assert.ok(audit.facts.some(f => f.startsWith('availability=')),
+    `the claim's datum must be in the record: ${audit.facts.join(',')}`);
 });
 
 test('detectAgreement: short confirmation vs purpose clauses', () => {

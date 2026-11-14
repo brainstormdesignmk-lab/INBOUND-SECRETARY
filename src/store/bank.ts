@@ -89,6 +89,13 @@ export const FROZEN_BANK_KEYS = new Set([
   // loop must never grow them; listing them here is what makes the review
   // screen paint those rows as CODE and name their source file.
   'info.no.data', 'info.no.floors', 'info.no.year', 'info.no.renovation',
+  // THE AVAILABILITY CLAIM (the [12:35] capture): availability is a FEED
+  // COLUMN (`dostapno_od`), so the sentence is composed in code from that
+  // datum. It has no seed pool on purpose — the retired `availability.ack` /
+  // `.masc` families (35 variants) asserted availability from "the row still
+  // exists in our base", which is exactly the claim the [12:35] field capture
+  // disproved (a feed row listed as „Веднаш“ was answered with a hedge).
+  'availability.claim',
 ]);
 
 /** Data-driven keys: the answer's FACTS come from the property row, the owner
@@ -99,8 +106,6 @@ export const FROZEN_BANK_KEYS = new Set([
  *  forever: never enriched, never learned, never served from the bank. */
 export const DATA_DRIVEN_KEYS = new Set([
   'price.ask',          // price is read from the property row
-  'availability.ack',   // availability comes from owner verdict / DB flag
-  'availability.ack.masc', // the masculine twin (стан/плац/деловен простор)
   'address.exact',      // address privacy protocol
   'queued.confirm',     // queue position is live data
   'vague.time.owner',   // the owner's proposed time is live data
@@ -201,6 +206,7 @@ export class BankStore {
         answer     TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         processed  INTEGER NOT NULL DEFAULT 0,
+        reviewed   INTEGER NOT NULL DEFAULT 1,
         UNIQUE(key, msg)
       );
       CREATE INDEX IF NOT EXISTS idx_bank_dynamic_key ON bank_dynamic(key);
@@ -208,6 +214,17 @@ export class BankStore {
     const dynamicCols = this.db.db.prepare(`PRAGMA table_info(bank_dynamic)`).all() as Array<{ name: string }>;
     if (!dynamicCols.some(c => c.name === 'processed')) {
       this.db.db.exec(`ALTER TABLE bank_dynamic ADD COLUMN processed INTEGER NOT NULL DEFAULT 0`);
+    }
+    // PHASE 6 — THE REVIEW GATE (proposal: "learning loop on safe units").
+    // An answer the LLM wrote is QUARANTINED (`reviewed = 0`) and never recalled
+    // for a different client until a human approves it: `validateDynamicAnswer`
+    // is hygiene, not truth, and a stored row is served to someone who never
+    // saw the question it was written for. The DEFAULT is 1 for exactly one
+    // reason — every row that already exists was serving before this gate
+    // landed, and silently emptying the recall bank on deploy is a behaviour
+    // change no review covers. New LLM rows set 0 explicitly (addDynamic meta).
+    if (!dynamicCols.some(c => c.name === 'reviewed')) {
+      this.db.db.exec(`ALTER TABLE bank_dynamic ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 1`);
     }
     // PLACE-TEMPLATED CAPTURES (A of the closed loop): a generated answer about
     // a NAMED PLACE is true only for that place, so the verbatim `answer` can
@@ -319,23 +336,52 @@ export class BankStore {
    *  no place at all); a place without a template is meaningless and dropped. */
   addDynamic(
     key: string, state: string, msg: string, answer: string,
-    meta?: { template?: string; place?: string },
+    meta?: { template?: string; place?: string; unreviewed?: boolean },
   ): boolean {
     if (!key.startsWith('dynamic:')) return false;
     const m = msg.trim(); const a = answer.trim();
     if (!m || !a) return false;
     const tmpl = meta?.template && meta.template.includes('{place}') ? meta.template : null;
     const place = tmpl && meta?.place ? meta.place.trim() || null : null;
+    // A MODEL-WRITTEN ROW IS UNREVIEWED (Phase 6). Only the LLM path passes
+    // `unreviewed`; an operator/tool seeding a row has already vouched for the
+    // prose, and that is the difference the flag records.
+    const reviewed = meta?.unreviewed ? 0 : 1;
     try {
       const res = this.db.db.prepare(
-        `INSERT INTO bank_dynamic (key, state, msg, answer, created_at, processed, tmpl, place, hits)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0)
+        `INSERT INTO bank_dynamic (key, state, msg, answer, created_at, processed, reviewed, tmpl, place, hits)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, 0)
          ON CONFLICT(key, msg) DO UPDATE SET state=excluded.state, answer=excluded.answer,
-           created_at=excluded.created_at, processed=0, tmpl=excluded.tmpl, place=excluded.place,
-           hits=0 WHERE bank_dynamic.processed=1`
-      ).run(key, state, m, a, Date.now(), tmpl, place);
+           created_at=excluded.created_at, processed=0, reviewed=excluded.reviewed,
+           tmpl=excluded.tmpl, place=excluded.place, hits=0 WHERE bank_dynamic.processed=1`
+      ).run(key, state, m, a, Date.now(), reviewed, tmpl, place);
       return res.changes > 0;
     } catch { return false; }
+  }
+
+  /** PHASE 6 — a human approved this row: it may now be recalled for OTHER
+   *  clients. Returns false when the row is missing or already retired. */
+  approveDynamic(id: number): boolean {
+    return this.db.db.prepare(
+      `UPDATE bank_dynamic SET reviewed = 1 WHERE id = ? AND processed = 0`
+    ).run(id).changes > 0;
+  }
+
+  /** PHASE 6 — a human refused this row: it stops serving AND leaves the review
+   *  queue (`processed = 1`), so the same question can be re-taught tomorrow.
+   *  The text stays as audit history — a refused answer is evidence, not trash. */
+  rejectDynamic(id: number): boolean {
+    return this.db.db.prepare(
+      `UPDATE bank_dynamic SET reviewed = 0, processed = 1 WHERE id = ?`
+    ).run(id).changes > 0;
+  }
+
+  /** Rows waiting for a human decision (Phase 6 review queue). */
+  dynamicAwaitingReview(): Array<{ id: number; key: string; state: string; msg: string; answer: string; createdAt: number }> {
+    return this.db.db.prepare(
+      `SELECT id, key, state, msg, answer, created_at AS createdAt FROM bank_dynamic
+       WHERE processed = 0 AND reviewed = 0 ORDER BY id DESC`
+    ).all() as Array<{ id: number; key: string; state: string; msg: string; answer: string; createdAt: number }>;
   }
 
   /** F9 WRITE-BACK — the dynamic row that owns this exact question.
@@ -381,7 +427,10 @@ export class BankStore {
   retrieveDynamic(userMsg: string, minScore = 0.55): { key: string; answer: string; msg: string } | undefined {
     const msg = userMsg.trim();
     if (msg.length < 4) return undefined;
-    const rows = this.db.db.prepare(`SELECT key, msg, answer FROM bank_dynamic WHERE processed = 0`).all() as
+    // Phase 6: ONLY AN APPROVED ROW IS RECALLABLE. A quarantined answer is
+    // served to the client whose question produced it (the same turn returns the
+    // generated text directly), never to a different one.
+    const rows = this.db.db.prepare(`SELECT key, msg, answer FROM bank_dynamic WHERE processed = 0 AND reviewed = 1`).all() as
       Array<{ key: string; msg: string; answer: string }>;
     if (rows.length === 0) return undefined;
     const low = foldScript(msg);
@@ -473,11 +522,11 @@ export class BankStore {
 
   /** ROW-LEVEL dynamic captures for the review UI (newest first). The digest
    *  groups by key; editing needs the individual row. */
-  dynamicRows(limit = 200): Array<{ id: number; key: string; state: string; msg: string; answer: string; createdAt: number; processed: number }> {
+  dynamicRows(limit = 200): Array<{ id: number; key: string; state: string; msg: string; answer: string; createdAt: number; processed: number; reviewed: number }> {
     return this.db.db.prepare(
-      `SELECT id, key, state, msg, answer, created_at AS createdAt, processed
+      `SELECT id, key, state, msg, answer, created_at AS createdAt, processed, reviewed
        FROM bank_dynamic ORDER BY processed ASC, id DESC LIMIT ?`
-    ).all(limit) as Array<{ id: number; key: string; state: string; msg: string; answer: string; createdAt: number; processed: number }>;
+    ).all(limit) as Array<{ id: number; key: string; state: string; msg: string; answer: string; createdAt: number; processed: number; reviewed: number }>;
   }
 
   /** Captures awaiting review/promotion. Processed rows remain visible as gray audit history. */
@@ -510,9 +559,11 @@ export class BankStore {
     const p = (place ?? '').trim();
     if (!p) return undefined;
     return this.db.db.prepare(
+      // Phase 6: a place template is a sentence ANOTHER client will read (it is
+      // rendered for a different place), so an unreviewed row may not offer one.
       `SELECT id, key, tmpl AS template FROM bank_dynamic
        WHERE tmpl IS NOT NULL AND place IS NOT NULL
-         AND lower(place) = lower(?) AND processed = 0
+         AND lower(place) = lower(?) AND processed = 0 AND reviewed = 1
        ORDER BY hits DESC, id ASC LIMIT 1`
     ).get(p) as { id: number; key: string; template: string } | undefined;
   }

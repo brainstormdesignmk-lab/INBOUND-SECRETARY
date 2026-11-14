@@ -572,13 +572,10 @@ test('[11:07] a house for rent at Олимпико: the area is the house’s ow
   assert.equal(s3.slots.propertyId, 62, 'the pick binds the house that was served');
   assert.equal(s3.state, 'closing', `the pick opens the closing lane: ${s3.state}`);
   assert.ok(/300 денари/.test(sent[sent.length - 1]), `the rent fee is the one disclosed: ${sent[sent.length - 1]}`);
-  // …and availability is answered from the row, not from a guess.
-  // The ACK rotates through the bank's availability.ack variants, and they word
-  // the same fact in several ways («сè уште е достапна», «се води како активна»,
-  // «е сè уште во базата», «е на располагање», «во нашата понуда»). Asserting
-  // one family of words made this line a coin flip — a variant that said «во
-  // базата» failed a passing turn. The contract is: an availability answer, and
-  // never another card batch.
+  // …and availability is answered from the FEED COLUMN, not from a guess.
+  // The claim rotates per feed state (available now / from a date / no datum),
+  // so asserting one phrasing made this line a coin flip. The contract is: an
+  // availability answer, and never another card batch.
   const s4 = await send('ДАЛИ Е УШТЕ СЛОБОДНА?');
   const ack = sent[sent.length - 1];
   assert.match(ack, AVAILABILITY_CLAIM, `availability is answered: ${ack}`);

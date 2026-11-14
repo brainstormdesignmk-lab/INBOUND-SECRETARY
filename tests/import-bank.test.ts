@@ -39,14 +39,17 @@ test('import-bank: dedupe levels, poison retirement, cap — full run + idempote
 
   // SOURCE (a "tui.db"-shaped bank): 6 variants. Keys chosen to exercise the
   // real policy: warn.1/location.unknown are TEACHABLE (learned in prod);
-  // availability.ack is data-driven (frozen skip); fee.ask.buy is FROZEN.
+  // address.exact is data-driven (frozen skip); fee.ask.buy is FROZEN.
+  // (The key used for the frozen-skip leg was `availability.ack`; it is retired
+  // — availability is composed from the feed column now — so the leg reads a
+  // data-driven key that is still served.)
   const src = new Db(srcPath);
   new BankStore(src); // creates tables + lifecycle column
   src.db.prepare(`INSERT INTO bank_variants (key, text, source, created_at) VALUES (?,?,?,?)`).run('warn.1', 'Ве молам водете се прилично — ова е последно предупредување.', 'gapfill', 1);
   src.db.prepare(`INSERT INTO bank_variants (key, text, source, created_at) VALUES (?,?,?,?)`).run('warn.1', 'Ве молам водете се прилично — ова е последното предупредување од мене.', 'gapfill', 2); // L3 near-twin (one-word drift, NOT an L2 twin)
   src.db.prepare(`INSERT INTO bank_variants (key, text, source, created_at) VALUES (?,?,?,?)`).run('warn.1', 'Почитајте го разговорот — повеќе нема да одговарам.', 'gapfill', 3);
   src.db.prepare(`INSERT INTO bank_variants (key, text, source, created_at) VALUES (?,?,?,?)`).run('warn.1', 'Точно, Станот со Евидентен број 69 е во Центар.', 'learned:tui', 4); // poison → retired
-  src.db.prepare(`INSERT INTO bank_variants (key, text, source, created_at) VALUES (?,?,?,?)`).run('availability.ack', 'Сè уште е достапен и се води како слободен.', 'gapfill', 5); // data-driven → frozen skip
+  src.db.prepare(`INSERT INTO bank_variants (key, text, source, created_at) VALUES (?,?,?,?)`).run('address.exact', 'Точната адреса се открива на денот на посетата.', 'gapfill', 5); // data-driven → frozen skip
   src.db.prepare(`INSERT INTO bank_variants (key, text, source, created_at) VALUES (?,?,?,?)`).run('location.unknown', 'Сè уште не го кажавте реонот — во кој дел од градот барате?', 'gapfill', 6);
   src.close();
 

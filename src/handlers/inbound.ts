@@ -14,12 +14,12 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest,  detectPropertyDescription, detectSeenListingRecall, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
-import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho } from '../llm/deterministic';
+import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
 import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, pad2, isWeekendTerm } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
@@ -53,6 +53,8 @@ import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extr
 import { toLatin, toCyrillic, translitToLatin, officialPlaceName, canonicalWordKey, wordsAlmostEqual } from '../geo/offlineMap';
 import { walkMinutes, distM } from '../geo/precision';
 import { routeLog, resolveIntent, refinePrediction, dispatchSimple } from './router';
+import { ambientTurn, clipReply, currentTurn, noteTurnFact, runInTurn, startTurn, type TurnContext } from './turn';
+import { focusClarifyAsk, resolvePropertyFocus } from './focus';
 // PER-CATEGORY MONEY (the [19:14] capture): the pair detectors live beside the
 // budget family so a cap and the budget read can never disagree.
 import { detectCategoryBudgets } from '../llm/deterministic';
@@ -72,7 +74,7 @@ import {
   buildLocateLandmarkIntro, buildLocateLandmarkEntry, buildLocateLandmarkFallback, LOCATE_LANDMARK_PRICE_PROBE, buildAboveBudgetNote,
   locateNoun,  buildLocateFirstAsk, buildLocateServiceAsk, buildLocateMoreSpecsAsk,
   buildLocateLandmarkPriceProbe, buildDescribeIntro,
-  AVAILABILITY_ACK, AVAILABILITY_ACK_FEM, AVAILABILITY_CLAIM, AVAILABILITY_CLAIM_FEM,
+  buildAvailabilityClaim, AVAILABILITY_ASK_TAIL,
   buildPriceRelay, buildFeeAsk, buildFeePerProperty, extendFeeAskForCount, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildDiscoveryAsk, discoveryAskCriteria, locationCriterionKnown, serviceCriterionKnown,
@@ -1503,25 +1505,36 @@ export class InboundHandler {
    *  can be TESTED standalone. Server runs are always teacher. */
   brainMode?: () => string;
 
-  /** True while THIS turn's deterministic pre-classify gave up (undefined →
-   *  the LLM classifier fired). Set at the classify seam, consumed at the
-   *  turn-end capture hook. Never read anywhere else. */
-  private detGaveUp = false;
-
-  /** THE [09:0x] BUG: a fee-refusal turn in an IDLE session — dispatchSimple
-   *  (which runs BEFORE the classifier) resolved 'provision.ask' with
-   *  service === undefined and the ternary defaulted to the BUY script
-   *  (500 ден/0% провизија) at a RENT client. This per-turn field records the
-   *  service the message itself declares; the provision lanes consult it so
-   *  a burst can backfill the slot before the copy is picked. Semantics:
-   *  undefined = message says nothing about market, NOT "buy". */
-  private feeServiceHint: Service | undefined = undefined;
+  /** THE PER-TURN VALUES (proposal Phase 2). These used to be instance fields;
+   *  ONE handler serves EVERY chat in the TUI, so two clients mid-turn shared
+   *  them. They now live in an AsyncLocalStorage record (see
+   *  src/handlers/turn.ts) and the accessors below keep every call site
+   *  unchanged — including lanes a future commit adds.
+   *
+   *  `detGaveUp`: true while THIS turn's deterministic pre-classify gave up
+   *  (undefined → the LLM classifier fired); set at the classify seam, consumed
+   *  at the turn-end capture hook.
+   *
+   *  `feeServiceHint`: THE [09:0x] BUG — a fee-refusal turn in an IDLE session
+   *  resolved 'provision.ask' with service === undefined and the ternary
+   *  defaulted to the BUY script at a RENT client. Records the service the
+   *  message ITSELF declares. Semantics: undefined = says nothing about market,
+   *  NOT "buy".
+   *
+   *  `lastUserText`: the raw inbound message of the turn in flight, for history
+   *  helpers (presentCheaperBatch) that run outside processMessage. */
+  private fallbackTurn: TurnContext = ambientTurn();
+  private get turn(): TurnContext {
+    return currentTurn() ?? this.fallbackTurn;
+  }
+  private get detGaveUp(): boolean { return this.turn.detGaveUp; }
+  private set detGaveUp(v: boolean) { this.turn.detGaveUp = v; }
+  private get feeServiceHint(): Service | undefined { return this.turn.feeServiceHint; }
+  private set feeServiceHint(v: Service | undefined) { this.turn.feeServiceHint = v; }
+  private get lastUserText(): string { return this.turn.audit.text; }
+  private set lastUserText(v: string) { this.turn.audit.text = v; }
 
   private chains = new Map<string, Promise<void>>();
-  /** The raw inbound message of the in-flight processMessage call — history
-   *  helpers outside processMessage (presentCheaperBatch) push it into the
-   *  session log. */
-  private lastUserText = '';
 
   /** TYPED-RESIDENTIAL POOL LOCK (the [20:33] capture): a funnel whose ask was
    *  explicitly residential (the client typed a category that is NOT деловен —
@@ -2572,10 +2585,14 @@ export class InboundHandler {
     // простор is masculine, and the feminine pool above could never serve it —
     // the handler fell back to ONE code-built sentence, so two availability asks
     // in a row were answered with the identical text. Both pools rotate now.
-    const fem = ownerPropertyLabels(p).dostapen === 'достапна';
-    const ack = fem
-      ? pickVariant('availability.ack', { recent: assistantTexts(session) }) ?? AVAILABILITY_ACK_FEM
-      : pickVariant('availability.ack.masc', { recent: assistantTexts(session) }) ?? AVAILABILITY_ACK;
+    // THE CLAIM IS THE FEED'S, THE QUESTION IS OURS (the [12:35] capture):
+    // availability is a column (`dostapno_od`), not an inference from "the row
+    // is in our base". `buildAvailabilityClaim` quotes the column and says so
+    // when it is empty; the tail asks the owner-contact question the funnel
+    // needs. Nothing here can claim a live feed property is gone, and nothing
+    // can claim a sold one is free.
+    noteTurnFact(this.turn.audit, 'availability', availabilityOf(p).kind);
+    const ack = `${buildAvailabilityClaim(p, { recent: assistantTexts(session) })} ${AVAILABILITY_ASK_TAIL}`;
     const namedInText = inferPropertyId(text) !== undefined;
     const wasShown = (session.slots.presentedIds ?? []).includes(p.eb)
       || (session.slots.currentBatch ?? []).includes(p.eb);
@@ -4135,7 +4152,78 @@ export class InboundHandler {
     return true;
   }
 
+  /** THE TURN BOUNDARY (proposal Phase 2): create the one record for this
+   *  turn, run the body inside it (so every helper and every lane — present
+   *  and future — reads THIS client's values), and write the audit onto the
+   *  session in `finally`, so a turn that throws still leaves the record of
+   *  what the client was told. */
   private async processMessage(channel: string, chatId: string, text: string, opts: HandleOpts): Promise<void> {
+    const existing = this.deps.sessions.get(chatId);
+    const ctx = startTurn({
+      chatId, channel, text,
+      stateBefore: existing?.state ?? 'idle',
+      previous: existing?.lastTurn,
+    });
+    return runInTurn(ctx, async () => {
+      try {
+        await this.processTurn(channel, chatId, text, opts);
+      } catch (e) {
+        // NEVER SILENCE (Phase 8 drill, degraded feed): an internal failure used
+        // to end the turn with nothing sent — the pipeline's own catch only
+        // logged a line, so a client whose search hit a dead feed heard nothing
+        // at all, and the turn had no record. A failed turn is an OUTAGE, and an
+        // outage has an honest sentence; if the turn already answered, nothing
+        // more is sent (a second message would be the handler arguing with
+        // itself).
+        console.error('[pipeline]', chatId, (e as Error).message);
+        await this.serveOutage(channel, chatId, ctx).catch(() => { /* advisory */ });
+      } finally {
+        this.closeTurn(ctx);
+      }
+    });
+  }
+
+  /** THE OUTAGE TURN: an internal failure still owes the client a sentence.
+   *  Sends `FEED_UNAVAILABLE_LINE` (the honest "I cannot see my data right now")
+   *  exactly when the failed turn produced no reply, and makes sure a session
+   *  exists so `closeTurn` can record what happened — a turn with no record is
+   *  a turn the explain lane and the operator can never see. */
+  private async serveOutage(channel: string, chatId: string, ctx: TurnContext): Promise<void> {
+    if (ctx.audit.replies.length > 0) return;
+    const session = this.deps.sessions.get(chatId) ?? freshSession(channel, chatId);
+    this.deps.sessions.set(session);
+    await this.sendRaw(session, FEED_UNAVAILABLE_LINE, 'deterministic:outage');
+  }
+
+  /** Finish the record: end state, the property the session points at, and one
+   *  operator line. `lastTurn` rides the next `sessions.set()` (sendRaw always
+   *  writes one) and survives restarts, so the NEXT turn can explain the answer
+   *  it is being asked about instead of guessing at it. */
+  private closeTurn(ctx: TurnContext): void {
+    const audit = ctx.audit;
+    try {
+      const session = this.deps.sessions.get(audit.chatId);
+      if (!session) return;
+      audit.stateAfter = session.state;
+      audit.targetEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      // ONE level of `previous` on the record itself (cheap "what did you just
+      // say"), and the DEEPER chain in a bounded ring — nesting records inside
+      // records would grow the session row without bound.
+      const stored = { ...audit, previous: audit.previous ? { ...audit.previous, previous: undefined } : undefined };
+      session.lastTurn = stored;
+      // FIVE: the wrong answer and the client's challenge to it were four turns
+      // apart in the [12:26]–[12:35] chain (absence claim → availability ask →
+      // «why is it still on your site» → the EB → «why did you say it was gone»).
+      // A ring of three had already forgotten the sentence being apologised for.
+      session.recentTurns = [...(session.recentTurns ?? []), stored].slice(-5);
+      this.deps.sessions.set(session);
+    } catch { /* advisory: the record must never break a turn */ }
+    console.log(`[turn] ${audit.chatId} ${audit.stateBefore}→${audit.stateAfter}`
+      + ` lanes=${audit.lanes.join(',') || '-'} target=${audit.targetEb ?? '-'}`
+      + ` replies=${audit.replies.length}${audit.source ? ` src=${audit.source}` : ''}`);
+  }
+
+  private async processTurn(channel: string, chatId: string, text: string, opts: HandleOpts): Promise<void> {
     const pipelineStart = Date.now();
     // History helpers (presentCheaperBatch) read the raw message — set before
     // any early return that reaches the cheaper-search batch presentation.
@@ -4374,7 +4462,19 @@ export class InboundHandler {
       // holds (a business space, a category + place) are unpredictable from text
       // and state alone, and a shadow router that cannot see the notebook logs
       // drift against a lane that was right.
-      routeLog(chatId, text, resolveIntent(text, session.state, session.slots), 'predict');
+      // THE MIRROR GETS THE SAME MEMORY THE EXECUTOR READS (proposal Phase 4): a
+      // continuation turn («околу 130000 беше») is served from the previous
+      // message, so a prediction made from the current sentence alone reported
+      // FALLTHROUGH→PROPERTY_DESCRIPTION as drift.
+      const priorUserText = [...session.history].reverse().find(h => h.role === 'user')?.text;
+      const lastAssistant = [...session.history].reverse().find(h => h.role === 'assistant')?.text ?? '';
+      const responseEb = Number(lastAssistant.match(/Евидентен број (\d+)/u)?.[1]) || undefined;
+      const lastTargetEb = session.lastTurn?.targetEb ?? responseEb;
+      routeLog(chatId, text, resolveIntent(text, session.state, {
+        ...session.slots,
+        mirrorPriorUserText: priorUserText,
+        mirrorLastTargetEb: lastTargetEb,
+      }), 'predict');
     }
     if (outcome !== 'none') {
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -5306,6 +5406,69 @@ export class InboundHandler {
       }
     }
 
+    // ── OUR OWN WORDS, EXPLAINED (the [12:35] capture) ─────────────────────
+    // «зошто ми кажа дека е стара понуда и дека ја нема веќе ?» was answered
+    // with the 500-ден visit fee: no predicate recognised the turn, the closing
+    // state owned it, and the pending money question swallowed a client asking
+    // us to justify an answer we had given. This is the first lane in the
+    // appliance that CONSUMES THE PREVIOUS TURN'S RECORD (turn.ts): it quotes
+    // what was actually said, checks the subject against the live feed, and
+    // corrects the wrong claim instead of describing a price.
+    //
+    // PHASE 5 CONTRACT: an explanation never moves the funnel — no state change,
+    // no ownerContactPending, no fee. The one question at the end is the offer
+    // to continue, never a rung of a money ladder.
+    if (detectOwnClaimChallenge(text)) {
+      const prev = this.turn.audit.previous;
+      // THE SUBJECT OF THE CHALLENGE IS THE SUBJECT OF THE CLAIM. Reaching for
+      // the tail of the batch picked the wrong flat twice in the [12:26]–[12:35]
+      // chain (the challenged answer was about EB 44; the tail was 55). The
+      // record says which property the offending sentence was about — the first
+      // Евидентен број it named — so that is the one the correction is written
+      // about, with the session's own pointer only as the fallback.
+      const goneRe = /(?:немам|нема\s+недвижност|не\s+е\s+активн|стара\s+понуда|веќе\s+не|не\s+ја\s+имаме)/iu;
+      const recentTurns = session.recentTurns ?? [];
+      const claimTurn = [...recentTurns].reverse()
+        .find(t => (t.replies ?? []).some(r => goneRe.test(r)));
+      const claimEbText = claimTurn ? (claimTurn.replies ?? []).join(' ') : '';
+      const claimEb = claimEbText.match(/Евидентен број (\d+)/u)?.[1];
+      const subjectEb = inferPropertyId(text)
+        ?? (claimEb !== undefined ? Number(claimEb) : undefined)
+        ?? session.slots.propertyId ?? session.slots.interestedPropertyId
+        ?? prev?.targetEb;
+      const subject = subjectEb !== undefined
+        ? await this.deps.properties.getById(subjectEb).catch(() => undefined)
+        : undefined;
+      if (subject) {
+        routeLog(chatId, text, 'OWN_CLAIM_EXPLAIN');
+        const money = (n: number): string => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        // THE EVIDENCE: did the record we hold actually tell him it was gone?
+        // A correction that apologises for something we never said is its own
+        // kind of wrong, so the admission is read off the RECORDED REPLIES —
+        // and off the last few turns, because the wrong answer and the question
+        // about it are usually one or two turns apart (the [12:26] answer, the
+        // [12:35] challenge).
+        const saidGone = claimTurn !== undefined || (prev?.replies ?? []).some(r => goneRe.test(r));
+        const identity = `Евидентен број ${subject.eb} · ${subject.sqm ?? '—'} м²`
+          + `${subject.price !== undefined ? ` · ${money(subject.price)} евра` : ''}`
+          + `${subject.location ? ` · ${displayPlaceName(subject.location)}` : ''}`;
+        const claim = buildAvailabilityClaim(subject, { recent: assistantTexts(session) });
+        const lead = saidGone
+          ? 'Извинете — она што го реков претходно не беше точно.'
+          : 'Да разјаснам.';
+        const answer = `${lead} ${identity}. ${claim}`
+          + ' Дали сакате да Ви покажам и други понуди во истата населба?';
+        noteTurnFact(this.turn.audit, 'explains', prev?.at ?? 'no-previous');
+        noteTurnFact(this.turn.audit, 'subject', subject.eb);
+        noteTurnFact(this.turn.audit, 'availability', availabilityOf(subject).kind);
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
+    }
+
     // ── MARKET MEMORY — a recall of an OLD agency listing ([02:00]:
     // „ИМАШЕчЕ ЕДНА КУчА ПРЕД НЕКОЕ ВРЕМЕ КАЈ ВАС КАЈ ОЛИМПИКО ОКОЛУ 400 ЕВРА
     // КИРИЈА / ДАЛИ Е СЛОБОДНА МОМЕНТАЛНО?”). The rent noun + the ask shape
@@ -5398,6 +5561,81 @@ export class InboundHandler {
       this.deps.sessions.set(session);
       await this.sendRaw(session, answer, 'deterministic');
       return;
+    }
+
+    // ── THE SUBJECT'S €/m² (the [13:15] capture) ────────────────────────────
+    // «KOLKU BI MU DOSLA CENATA PO KVADRAT ?» right after EB 66 was described
+    // was answered with the НАСЕЛБА's band — «цените варираат од 1.286 до 2.889
+    // евра за м²» — a statistic about the district, not the flat the client was
+    // holding. The €/m² of the flat on the table is ARITHMETIC on two feed facts
+    // (price ÷ м²), so it is answered from the row itself, before the market
+    // lane can see the per-m² marker. A market ask (просек/населба/цел град) is
+    // excluded by the predicate, and a message naming an AREA stays with the
+    // band lane — this arm only answers the subject, never the neighbourhood.
+    //
+    // PHASE 5 CONTRACT: a factual answer does not move the funnel. No state
+    // change, no ownerContactPending, no fee — the turn answers and asks ONE
+    // neutral follow-up.
+    // A NAMED ЕВИДЕНТЕН БРОЈ KEEPS ITS OWN LANE: «CENA PO KVADRAT ZA 53» is the
+    // INFO_ASK rate answer (pinned by tests/market-price.test.ts [20:11]), which
+    // also moves the pointer to the flat he priced. This arm exists for the gap
+    // that contract left: the SAME question with NO number — «kolku bi mu dosla
+    // cenata po kvadrat?» about the flat the chat is holding. It reuses the info
+    // family's wording («односно X евра за м² (N м²)») instead of forking copy.
+    if (detectSubjectPerM2Ask(text) && inferPropertyId(text) === undefined) {
+      // THE SUBJECT OF «колку му доаѓа» IS THE FLAT ON THE TABLE — resolved by
+      // the ONE focus module (proposal Phase 3), never by a local read of the
+      // slots: a card that was PRESENTED and never promoted into `propertyId`
+      // is still the only flat the client can mean, and without that precedence
+      // the question fell through to MARKET_PRICE and answered a single 79 m²
+      // flat with a city-wide band (the EB 66 capture).
+      const focus = resolvePropertyFocus(text, session.slots);
+      // …BUT AN ANCHORED FUNNEL HAS A SUBJECT EVEN WITH NO FLAT NAMED (the
+      // [16:57] follow-up): inside an area the client already chose, «како е
+      // цената за м²?» is a MARKET question about that area, and interrupting it
+      // with «за која недвижност?» is the amnesia the band lane exists to fix.
+      // The clarify is for a turn with NO subject at all.
+      const anchoredToArea = !!session.slots.location || !!session.slots.poiAnchor;
+      if (focus.certainty !== 'bound' && focus.candidates.length === 0 && !anchoredToArea) {
+        // CERTAINTY IS THE CONTRACT: with no bound subject the €/m² figure has
+        // nothing to be about, so the honest answer is the one-question ask —
+        // never a market band served as if it were the flat's own rate (the
+        // capture that started this: «цените варираат од 1.286 до 2.889» for a
+        // 79 m² flat at 137.000).
+        const ask = focusClarifyAsk(focus);
+        routeLog(chatId, text, 'SUBJECT_PER_M2');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, ask, 'deterministic');
+        return;
+      }
+      const subjectEb = focus.eb;
+      const subject = subjectEb !== undefined
+        ? await this.deps.properties.getById(subjectEb).catch(() => undefined)
+        : undefined;
+      const rate = subject ? pricePerM2(subject) : undefined;
+      if (subject && rate !== undefined) {
+        routeLog(chatId, text, 'SUBJECT_PER_M2');
+        const money = (n: number): string => n.toLocaleString('mk-MK');
+        const rent = (session.slots.service ?? subject.service) === 'rent';
+        const labels = ownerPropertyLabels(subject);
+        const answer = rent
+          ? `${labels.type} со Евидентен број ${subject.eb} — киријата изнесува ${money(subject.price as number)} евра, односно ${money(rate)} евра за м² (${subject.sqm} м²). Дали сакате да го споредам со останатите понуди во истата населба?`
+          : `${labels.type} со Евидентен број ${subject.eb} чини ${money(subject.price as number)} евра, односно ${money(rate)} евра за м² (${subject.sqm} м²). Дали сакате да го споредам со останатите понуди во истата населба?`;
+        // THE ARITHMETIC IS THE ANSWER, SO IT IS ALSO THE AUDIT: the two figures
+        // the client can point at are recorded, and anyone asking later «зошто
+        // ми кажа 1.734?» is answered from this record, not from a re-query.
+        this.turn.audit.bankKey = undefined;
+        noteTurnFact(this.turn.audit, 'price', subject.price);
+        noteTurnFact(this.turn.audit, 'sqm', subject.sqm);
+        noteTurnFact(this.turn.audit, 'perM2', rate);
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
     }
 
     // ── MARKET PRICE LEVELS (the [16:57] capture) ───────────────────────────
@@ -6243,13 +6481,19 @@ export class InboundHandler {
           // X» would claim rows stand at a place they do not. Without a POI the
           // area the client named IS the place (already passed as the area, so
           // it is not repeated in brackets).
+          // Same rule as the locate lane: a filtered miss never claims the
+          // stock is empty when the cards themselves stand in the place.
+          const sameArea = (x?: string, y?: string): boolean =>
+            !!x && !!y && placeLooseKey(x) === placeLooseKey(y);
+          const inPlaceCount = cards.filter(p =>
+            sameArea(areaOnly, p.location) || sameArea(a?.name, p.location)).length;
           const lead = !a
             ? (inAreaOnly
               ? buildLocateLandmarkEntry(areaOnly as string, undefined, session.slots, cards.length)
-              : buildLocateLandmarkFallback(areaOnly as string))
+              : buildLocateLandmarkFallback(areaOnly as string, undefined, { inPlaceCount }))
             : near
               ? buildLocateLandmarkEntry(a.name, session.slots.location, session.slots, cards.length)
-              : buildLocateLandmarkFallback(a.name, session.slots.location);
+              : buildLocateLandmarkFallback(a.name, session.slots.location, { inPlaceCount });
           const answer = `${lead}\n\n${buildLocateMatches(cards, session.history.length)}`
             + (session.slots.budget ? '' : `\n\n${buildLocateLandmarkPriceProbe(session.slots)}`);
           routeLog(chatId, text, 'SEEN_RECALL_HELP');
@@ -7332,7 +7576,14 @@ export class InboundHandler {
       && !detectFeeComplaint(text)
       && !detectFeePaymentAgreement(text)
       && !detectNegotiate(text) // a reduction/discount ask ("korekcija na cenata?") wants the fixed-prices policy, never the freshness disclaimer
-      && !detectService(text) && !detectBothServices(text)) {
+      && !detectService(text) && !detectBothServices(text)
+      // A CHALLENGE ABOUT OUR OWN WORDS IS NOT A PRICE QUESTION (the [12:31]
+      // capture): «па зошто уште ја имате во понуда на страницата» carries the
+      // price-freshness shape, and the disclaimer it served — «последната цена…
+      // сопствениците менуваат без да не известат» — answered a question about
+      // honesty with a hedge about the price, then moved the chat to closing and
+      // armed the owner check. The explanation lane owns that turn.
+      && !detectOwnClaimChallenge(text)) {
       const mbFresh = await this.bindMention(text, session, { historyFallback: true });
       if (await this.sendIfClarify(mbFresh, text, session)) return;
       const ebFresh = mbFresh?.prop?.eb
@@ -9043,7 +9294,14 @@ export class InboundHandler {
             ? (recallPrice !== undefined
               ? (placeAnchored
                 ? buildLocateLandmarkEntry(placeName, areaLabel, typeSlots, matches.length)
-                : buildLocateLandmarkFallback(placeName, areaLabel))
+                : buildLocateLandmarkFallback(placeName, areaLabel, {
+                  // (`inArea` is the LOCAL recall predicate in this scope —
+                  // shadows the imported helper, so the row's own area is read
+                  // directly.)
+                  inPlaceCount: matches.filter(p =>
+                    (!!areaLabel && placeLooseKey(areaLabel) === placeLooseKey(String(p.location ?? '')))
+                    || placeLooseKey(placeName) === placeLooseKey(String(p.location ?? ''))).length,
+                }))
               : buildLocateLandmarkIntro(placeName, areaLabel, typeSlots, matches.length))
             : recallPrice !== undefined
               ? (matches.length === 1
@@ -9368,8 +9626,10 @@ export class InboundHandler {
           routeLog(chatId, text, 'AVAILABILITY_PLURAL');
           const svc = session.slots.service ?? rows[0].service ?? 'buy';
           const lines = rows.map(p => {
-            const labels = ownerPropertyLabels(p);
-            const claim = labels.dostapen === 'достапна' ? AVAILABILITY_CLAIM_FEM : AVAILABILITY_CLAIM;
+            // EACH ROW ANSWERS FROM ITS OWN COLUMN: a plural ask is where the
+            // appliance used to answer two properties from one guess.
+            noteTurnFact(this.turn.audit, `availability:${p.eb}`, availabilityOf(p).kind);
+            const claim = buildAvailabilityClaim(p).replace(/\.$/u, '');
             return `${boundFlatIdentity(p)} — ${claim}.`;
           });
           // The fee is PER PROPERTY, and a plural ask is exactly where a client
@@ -9498,8 +9758,7 @@ export class InboundHandler {
           // owner check is what the fee gate protects, so the fee is disclosed
           // now (the same serve the FSM's confirm-arrow arm makes).
           const arrow = detectSendToOwnerAsk(text);
-          const claim = ownerPropertyLabels(target).dostapen === 'достапна'
-            ? AVAILABILITY_CLAIM_FEM : AVAILABILITY_CLAIM;
+          const claim = buildAvailabilityClaim(target).replace(/\.$/u, '');
           const answer = arrow
             ? feeLine
             : arranging
@@ -12479,7 +12738,13 @@ export class InboundHandler {
           session.slots.interestedPropertyId = only.eb;
           session.slots.ownerContactPending = true;
           reply = this.availabilityReply(only, session, text);
-          bankKey = 'availability.ack';
+          // The reply is composed in code (buildAvailabilityClaim); the label
+          // names the CODE source, never the retired availability.ack pools.
+          // It also rides the AUDIT record: the explanation lane answers «зошто
+          // ми кажа…?» from there, and a label that names a pool the handler
+          // stopped calling is worse than no label at all.
+          bankKey = 'availability.claim';
+          this.turn.audit.bankKey = bankKey;
         }
       }
       // Interest expressed while locating a property — route to closing if
@@ -12684,7 +12949,32 @@ export class InboundHandler {
           // [13:28] owner rule); a wrong-room flat is shown only when the
           // bank holds literally nothing else that matches.
           const same = matches.filter((p) => roomTier(p) === 0);
-          reply = `${buildLocateLandmarkFallback(anchor.name, session.slots.location)}\n\n${present((same.length > 0 ? same : matches).slice(0, 2))}`;
+          // A FILTERED MISS IS NOT AN EMPTY REGISTRY (the [12:26] capture): the
+          // rows that came back may well sit in the place he named — the ring
+          // is measured in metres and a district like Скопје Север is wider than
+          // it. Passing that count makes the sentence say «имам понуди во X»
+          // instead of «немам недвижност» over the client's own listing.
+          // STRICT AREA, not ad-text overlap: «имам понуди во X» is a claim about
+          // where the rows ARE. `inArea` also reads the ad prose, and a row in
+          // Центар whose description mentions Автокоманда is not in Автокоманда
+          // (tests/locate-landmark.test.ts [13:28] pins the honest alternatives
+          // line for exactly that pairing).
+          const placeArea = session.slots.location;
+          // SAME AREA, not "within the municipality": locMatches('Автокоманда',
+          // 'Центар') is TRUE (Автокоманда sits in Центар), and a card that says
+          // «во Центар» cannot be introduced as «понуди во Автокоманда».
+          const sameArea = (a?: string, b?: string): boolean =>
+            !!a && !!b && placeLooseKey(a) === placeLooseKey(b);
+          // COUNT THE ROWS ACTUALLY SHOWN, never the whole pool: the sentence
+          // introduces the cards that follow it, and the pool may hold an
+          // in-place row that the room filter kept OUT of the pair (the [13:28]
+          // capture: an Автокоманда 2-room stayed in `matches` while the card
+          // was the Центар 3-room — the lead then promised «понуди во
+          // Автокоманда» above a card that says «во Центар»).
+          const shownPair = (same.length > 0 ? same : matches).slice(0, 2);
+          const inPlaceCount = shownPair.filter(p =>
+            sameArea(placeArea, p.location) || sameArea(anchor.name, p.location)).length;
+          reply = `${buildLocateLandmarkFallback(anchor.name, placeArea, { inPlaceCount })}\n\n${present(shownPair)}`;
         } else {
           reply = LOCATE_REFINE_ASK;
         }
@@ -12708,6 +12998,13 @@ export class InboundHandler {
         // wearing the same question. One in-area match = one card (the closer
         // is already singular); nothing at all = ask about other areas, never
         // swap them in silently (the same lock locateNextOptions enforces).
+        // THE HUNT PATH TAGS ITS LANE (corpus case eb44-1226): this arm answers
+        // the turn, yet the whole locate re-rank served with NO lane tag, so the
+        // turn record could not say what answered and the explain lane had
+        // nothing to quote. `PROPERTY_DESCRIPTION` is this flow's own name in
+        // ROUTE_LANES ("remembered-property flow"): a new identifying detail
+        // re-ranks the pool, then the pair (or the drained line) is served.
+        routeLog(chatId, text, 'PROPERTY_DESCRIPTION');
         const pool = await this.deps.properties.closestMatches(locateOpts);
         const inArea = session.slots.location
           ? pool.filter(p => locMatches(String(p.location ?? ''), session.slots.location!))
@@ -14117,13 +14414,12 @@ ${contactReminder}`;
           }
         }
         // GENDER-AGREED ACK (the [00:49] "ЕВИДЕНТЕН БРОЈ 47" capture): the
-        // bank pool is written for the feminine noun ("недвижноста …
-        // достапна") and stays for куќа/гарсоњера asks. Every other type —
-        // стан, плац, деловен простор, and the EB-number frame itself (an
-        // ask BY number points at a masculine noun) — takes the code-built
-        // masculine line; serving "достапна" after "ЕВИДЕНТЕН БРОЈ 47" read
-        // wrong-gender.
-        bankKey = 'availability.ack';
+        // claim agrees with the row's own gender (ownerPropertyLabels), and the
+        // EB-number frame itself is a masculine ask. Serving "достапна" after
+        // "ЕВИДЕНТЕН БРОЈ 47" read wrong-gender. The claim is code (the
+        // availability.ack pools were retired with the [12:35] fix).
+        bankKey = 'availability.claim';
+        this.turn.audit.bankKey = bankKey;
         // NO landmark line here — location is revealed ONLY when the client
         // explicitly asks ("каде се наоѓа?"). The availability ack is just
         // about contacting the owner. The answer itself (with the cold-read
@@ -15067,7 +15363,21 @@ ${contactReminder}`;
         try { return { ...(JSON.parse(prior) as OwnerMessageResult), replay: true }; } catch { /* unreadable — recompute */ }
       }
     }
-    const result = await this.ownerMessageOnce(session, liveEb, text);
+    // AN OWNER TURN IS A TURN TOO (the same isolation the client path gets):
+    // the per-turn values are async-local, and an owner seam that ran OUTSIDE
+    // the scope would write to the handler's shared fallback context — i.e. the
+    // very cross-chat leak Phase 2 removed, just on the owner side.
+    const ctx = startTurn({
+      chatId, channel: session.channel, text,
+      stateBefore: session.state, previous: session.lastTurn,
+    });
+    const result = await runInTurn(ctx, async () => {
+      try {
+        return await this.ownerMessageOnce(session, liveEb, text);
+      } finally {
+        this.closeTurn(ctx);
+      }
+    });
     if (key) this.deps.meta.setText(key, JSON.stringify(result));
     return result;
   }
@@ -18410,6 +18720,14 @@ ${contactReminder}`;
     if (session.slots.categoryDrainNote && /Евидентен број/u.test(text)) {
       text = `${session.slots.categoryDrainNote}\n\n${text}`;
       session.slots.categoryDrainNote = undefined;
+    }
+    // THE AUDIT HOLDS WHAT WAS SENT, NOT WHAT A LANE MEANT TO SEND: this is the
+    // only function that hands bytes to the transport, so the record is appended
+    // here — after every rewrite (the drain note above), never before it.
+    const audit = currentTurn()?.audit;
+    if (audit) {
+      audit.replies.push(clipReply(text));
+      if (!audit.source) audit.source = source;
     }
     // PERSIST the outbound clock ([01:17]/[01:20]): the ping-pong's ask window
     // is measured from lastOutboundAt on the NEXT read — a non-persisted clock

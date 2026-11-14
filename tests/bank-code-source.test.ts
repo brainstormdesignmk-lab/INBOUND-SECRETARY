@@ -71,7 +71,10 @@ test('orange is reserved for code constants, not seeded frozen keys', () => {
   assert.equal(isCodeConstant('price.ask'), true);
   assert.equal(isCodeConstant('contact.ask.name.phone'), false, '17 seed variants — bank material');
   assert.equal(isCodeConstant('fee.ask.buy'), false);
-  assert.equal(isCodeConstant('availability.ack'), false);
+  // The availability claim has NO pool: it is composed from the feed column
+  // `dostapno_od` (the [12:35] capture), so it is code-owned like info.no.*.
+  assert.equal(isCodeConstant('availability.claim'), true);
+  assert.equal(codeSourceLine('availability.claim'), 'src/llm/prompts.ts → buildAvailabilityClaim');
   assert.equal(isCodeConstant('learn.kade-e-stanot'), false);
 });
 

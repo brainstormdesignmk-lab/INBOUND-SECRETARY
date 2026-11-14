@@ -10,7 +10,7 @@ import {
   detectSuggestAlternatives, detectPropertyInterest, detectOwnerContact,
   isPlausibleName, isValidPhone, isValidVisitTime, detectSizeWaived,
   detectNearCenter, detectRingElimination, CENTER_RING, detectGarsonjera,
-  detectFeeSurprise, detectProvisionWho, detectLocationConfirm,
+  detectFeeSurprise, detectProvisionWho, detectLocationConfirm, fsmRequired,
   detectResultSetQuestion, detectBedroomsRange, detectExplicitWiden,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
   detectDocumentsAsk, detectOwnerContactHold, extractPoiWish, extractPoiWishCandidates,
@@ -1135,6 +1135,30 @@ test('location-confirm boundary: "NOVO ?" is not a "vo … ?" area question (08:
   assert.equal(detectLocationConfirm('vo vodno li e?'), true);
   // a digit directly before the area token no longer passes the boundary
   assert.equal(detectLocationConfirm('stan 2vo vodno?'), false);
+  // A PREPOSITION ANYWHERE + "?" IS NOT AN AREA QUESTION (the 2026-11-13
+  // money-mirror find): «KAKVI SE PRAVILATA NA AGENCIJATA?» matched the bare
+  // «на … ?» leg, fsmRequired forced the FSM path and the CLASSIFIER answered a
+  // fee-rules question (DETAILS_PROVIDED, no lane tag) while the rules lane
+  // never ran. The preposition must OPEN its clause (message start, after
+  // punctuation, or after a confirmation filler) — the area tokens below stay.
+  assert.equal(detectLocationConfirm('KAKVI SE PRAVILATA NA AGENCIJATA?'), false);
+  assert.equal(detectLocationConfirm('sto pravmime so parite na poseta?'), false);
+  assert.equal(detectLocationConfirm('znaci na vodno e ?'), true);
+  assert.equal(detectLocationConfirm('dakle vo karpos?'), true);
+  // ...and a MID-SENTENCE area question is still the confirm/FSM class because
+  // it names a REAL AREA (the discovery boundary tests/budget-up.test.ts pins):
+  // the class is «an area is named», not «a preposition appeared».
+  assert.equal(detectLocationConfirm('a nesto poskapo vo centar?'), true);
+  assert.equal(fsmRequired('a nesto poskapo vo centar?'), true, 'the bare upward ask in an area stays on the FSM path');
+  // The OWNER-PHONE ask (the same find, via tests/dynamic-top.test.ts): the
+  // family list is Cyrillic-indefinite while the captures are Latin and carry
+  // the definite forms — the detector said false, so the ask fell to generated
+  // prose in the dynamic gate and to no lane in the handler.
+  assert.equal(detectOwnerContact('DAJ MI GO TELEFONOT NA SOPSTVENIKOT'), true);
+  assert.equal(detectOwnerContact('daj mi go brojot na sopstvenikot?'), true);
+  assert.equal(detectOwnerContact('sakam kontakt so sopstvenikot'), true);
+  // ...while the ЕВИДЕНТЕН БРОЈ ask stays a property question, not a phone ask.
+  assert.equal(detectOwnerContact('daj mi go brojot na stanot'), false);
 
   // The ROOT bug: the provision-who detector's _cb() helper left every
   // alternative after the first UNGUARDED, so bare "plakja" substring-matched

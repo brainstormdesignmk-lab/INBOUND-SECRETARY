@@ -2,7 +2,7 @@ import { State, Service } from '../fsm/machine';
 import { SlotData, ChatSession } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
-import { Property, locPrep, mkTimePhrase, normalizeTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent } from '../data/properties';
+import { Property, locPrep, mkTimePhrase, normalizeTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent, availabilityOf } from '../data/properties';
 import { firstLandmarkProblem } from '../geo/landmarks';
 import { distM } from '../geo/precision';
 import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint, extractDayWord, namesADay } from '../visits/time';
@@ -35,8 +35,9 @@ export const PATIENCE_LINE =
 // the client saw the ad on the website and knows the details — Lina does NOT
 // re-describe the property. She answers that it should still be available and
 // ASKS if the client wants her to contact the owner. The fee is disclosed ONLY
-// after the client confirms they want to proceed. Bank-backed (availability.ack)
-// with this exact line as the code-built fallback.
+// after the client confirms they want to proceed. The code-built FALLBACK (the
+// `availability.ack` seed pools were retired with the [12:35] claim, see
+// buildAvailabilityClaim); this line is what a caller with no row at hand uses.
 export const AVAILABILITY_ACK =
   'Би требало да е сеуште достапен. Дали сакате да го исконтактирам сопственикот за да ги потврдиме моменталната достапност и цената?';
 
@@ -56,6 +57,61 @@ export const AVAILABILITY_CLAIM =
   'Би требало да е сеуште достапен';
 export const AVAILABILITY_CLAIM_FEM =
   'Би требало да е сеуште достапна';
+
+/** THE OWNER-CONTACT QUESTION of an availability answer. One wording, because
+ *  it is the question the funnel needs answered, not decoration. */
+export const AVAILABILITY_ASK_TAIL =
+  'Дали да го контактирам сопственикот за да ги потврдиме моменталната достапност и цената?';
+
+/** THE AVAILABILITY CLAIM — built from the feed's OWN column, never from
+ *  "the row is in our database".
+ *
+ *  The old answer family (bank key `availability.ack`, 35 variants in two
+ *  gender pools) hedged identically: «би требало сè уште да е слободна,
+ *  бидејќи сè уште постои во нашата база». It is RETIRED, not orphaned: the
+ *  pools are gone from src/data/responses.ts and the key is registered as
+ *  code-owned, because every one of those sentences asserted availability
+ *  from base presence. A row survives in the base after a sale, so that sentence is
+ *  a guess wearing a fact's clothes — and the [12:35] capture served it over a
+ *  property the live feed listed as „Веднаш“. The feed already answers this
+ *  question (`dostapno_od`); the appliance now quotes it. Where the column is
+ *  empty the sentence says exactly that and hands the confirmation to the
+ *  owner — the three shapes of `availabilityOf`. */
+export function buildAvailabilityClaim(p: Property, opts: { recent?: string[] } = {}): string {
+  const labels = ownerPropertyLabels(p);
+  const a = availabilityOf(p);
+  // ROTATION IS PART OF THIS LANE'S CONTRACT (the [08:55] capture): two
+  // availability asks in a row once came back word for word, and the client
+  // heard a parrot. Each state therefore carries several HONEST phrasings —
+  // never a different FACT — and the picker skips what the chat already heard.
+  const variants = a.kind === 'now'
+    ? [
+      `Според податокот од агенцијата, ${labels.def} е ${labels.dostapen} веднаш.`,
+      `Во агенциската евиденција ${labels.def} се води како ${labels.dostapen} веднаш.`,
+      `Последниот податок од агенцијата вели дека ${labels.def} е ${labels.dostapen} веднаш.`,
+    ]
+    : a.kind === 'from'
+      ? [
+        `Според податокот од агенцијата, ${labels.def} е ${labels.dostapen} ${a.when}.`,
+        `Во агенциската евиденција ${labels.def} се води како ${labels.dostapen} ${a.when}.`,
+      ]
+      // NO COLUMN: the row IS in our offer (true), the availability is the
+      // owner's to confirm. The agreeing adjective is kept in every variant —
+      // a стан hears «достапен/активен/слободен», a куќа «достапна/…», the same
+      // gender contract the ack family has always had.
+      : [
+        `${labels.def} сè уште е ${labels.dostapen === 'достапна' ? 'активна' : 'активен'} во нашата понуда; конечната достапност ја потврдува сопственикот.`,
+        `${labels.def} сè уште се води како ${labels.dostapen} во нашата понуда; достапноста ја потврдува сопственикот.`,
+        `${labels.def} немам податок кога е ${labels.dostapen === 'достапна' ? 'слободна' : 'слободен'}; тоа го потврдува сопственикот.`,
+      ];
+  // A SERVED CLAIM IS ALMOST NEVER THE CLAIM ALONE: the ack is delivered under
+  // the flat's identity line, and history holds the composite. Containment (not
+  // equality) is therefore the repeat test — the same shape the bank's own
+  // picker uses, for the same reason.
+  const norm = (t: string): string => t.replace(/\s+/gu, ' ').trim().toLowerCase();
+  const recent = (opts.recent ?? []).map(norm);
+  return variants.find(v => !recent.some(t => t.includes(norm(v)))) ?? variants[0]!;
+}
 
 /** The owner dictated a NEW price — relayed to the client (code-built, exact). */
 export function buildPriceRelay(eb: number, newPrice: number, oldPrice?: number): string {
@@ -365,8 +421,26 @@ export function buildLocateLandmarkEntry(
 // answer is the closest alternatives with the criteria the client himself
 // described (the operator's rule: "if she does not find the apartment wanted
 // she must offer him different ones with the characteristics discussed").
-export function buildLocateLandmarkFallback(place: string, area?: string): string {
-  return `Токму во близина на ${placeWithArea(place, area)} моментално немам недвижност што одговара точно на тие податоци. Еве ги најблиските алтернативи со истите карактеристики:`;
+export function buildLocateLandmarkFallback(
+  place: string, area?: string, opts: { inPlaceCount?: number } = {},
+): string {
+  const label = placeWithArea(place, area);
+  // AN ABSENCE CLAIM IS ABOUT THE DESCRIPTION, NEVER ABOUT THE STOCK (the
+  // [12:26] capture): the sentence used to read «немам недвижност што одговара
+  // точно на тие податоци» and then list EB 44 — in the very place and at the
+  // very price the client had just named. The query behind it was FILTERED
+  // (radius + segment + price band), so a zero result meant «no row survived
+  // my filter», not «we hold nothing»: a filter is not a registry. Two shapes
+  // now, and neither claims the stock is empty:
+  //   • rows DO match the place but stand outside the proximity ring → say so
+  //     and offer them (the district case: Скопје Север is kilometres wide, so
+  //     its own rows fail a metres-based ring);
+  //   • no row matches at all → the miss is about «точно тоа што го опишавте»
+  //     (the description), which is what a filtered search can honestly say.
+  if ((opts.inPlaceCount ?? 0) > 0) {
+    return `Не најдов точно тоа што го опишавте, но имам понуди во ${label} што се блиску до тие карактеристики:`;
+  }
+  return `Точно таква недвижност во близина на ${label} моментално немам — еве ги најблиските алтернативи со истите карактеристики:`;
 }
 
 // The client remembers WHERE the property was, not how much it cost — the

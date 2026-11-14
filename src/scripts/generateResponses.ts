@@ -101,24 +101,11 @@ const SPEC: GenerationKey[] = [
     required: /(?:сопственик|достапност|известам|одговор|контактирам)/iu,
     question: false,
   },
-  // availability.ack: the client asks about a KNOWN property's availability
-  // ("дали е сеуште достапен?") — he saw the ad on the website, so Lina does
-  // NOT re-describe it. She answers that it should still be available / exists
-  // in the database and ASKS if the client wants her to contact the owner.
-  // The fee is NOT disclosed yet — it comes AFTER the client confirms.
-  // Must end with a QUESTION ("Дали сакате…?").
-  {
-    key: 'availability.ack',
-    sources: [
-      'Би требало да е сеуште достапна. Дали сакате да го исконтактирам сопственикот за да ги потврдиме моменталната достапност и цената?',
-      'Сеуште постои во нашата база на податоци. Дали би сакале да контактирам со сопственикот за да ја потврдиме достапноста и цената?',
-    ],
-    count: 12,
-    instructions: 'Клиентот прашува дали конкретна недвижност (чиј Евидентен број го знае од огласот) е сеуште достапна — одговори дека би требало да е достапна / сеуште постои во базата, па ПРАШАЈ дали сакаат да контактираш со сопственикот. „Недвижност“ е ЖЕНСКИ род: секогаш достапна / слободна / активна / евидентирана, „ја имаме во базата“ — НИКОГАШ достапен / слободен / активен / евидентиран / „го имаме“. Мора да заврши со ПРАШАЊЕ (Дали сакате…? / Дали би сакале…?). БЕЗ износи, БЕЗ надомест, БЕЗ спомнување на стан/куќа/деловен простор, БЕЗ Евидентен броеви. Природен, смирувачки тон. Варирај го воведот (Би требало / Според нашата база / Недвижноста постои / …) и прашањето (Дали сакате да Ве поврзам / Дали би сакале да контактирам / Дали сакате да стапам во контакт).',
-    required: [/(?:достапна|постои|база|слободна|активна|на располагање|понуда)/iu, /\?$/u],
-    banned: [/\d/, /Евидентен|ID|ИД/, /евра|денари/, /надомест/, /стан|куќ|деловен|апартман/, /(?<![\p{L}])(?:слободен|активен|достапен|евидентиран)(?![\p{L}])/iu],
-    question: true,
-  },
+  // availability.ack WAS generated here. The family is retired: availability
+  // is the feed column `dostapno_od`, so the sentence is composed in code
+  // (src/llm/prompts.ts, buildAvailabilityClaim) and must never hedge "it is in
+  // our base" over a row the feed marks as available — the [12:35] capture.
+  // Regenerating this file must not bring the pool back.
   // property.liked: enthusiasm + visit offer — the client expressed interest
   // in a SPECIFIC property ("mi se svigja 89", "mi fati oko 94", "go sakam")
   // or asked about it by EB. Acknowledge the choice, OFFER a visit. The fee

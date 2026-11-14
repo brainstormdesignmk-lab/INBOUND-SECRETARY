@@ -424,7 +424,7 @@ export async function generateDynamic(
   session: ChatSession,
   userMsg: string,
   store: {
-    addDynamic: (key: string, state: string, msg: string, answer: string, meta?: { template?: string; place?: string }) => boolean;
+    addDynamic: (key: string, state: string, msg: string, answer: string, meta?: { template?: string; place?: string; unreviewed?: boolean }) => boolean;
   },
 ): Promise<DynamicResult | undefined> {
   const facts = knownFacts(session);
@@ -489,8 +489,13 @@ export async function generateDynamic(
     const template = detectInventoryAsk(userMsg) && anchor
       ? placeTemplateFrom(answer, [anchor, extractPoiWish(userMsg)])
       : undefined;
+    // PHASE 6 — QUARANTINED (review gate): the answer is served THIS turn (the
+    // caller returns it directly), and it may not be recalled for anyone else
+    // until a human approves the row (`npm run bank:review-dynamic`). Validation
+    // is hygiene, not truth: this sentence was written for THIS question and
+    // validated against it, which is no warrant for the next client.
     store.addDynamic(key, session.state, userMsg, answer,
-      template && anchor ? { template, place: anchor } : undefined);
+      { ...(template && anchor ? { template, place: anchor } : {}), unreviewed: true });
     return { text: answer, source: 'dynamic', key };
   } catch {
     // Quota, network, timeout — degrade to the pre-existing path silently.
@@ -509,7 +514,7 @@ export async function dynamicAnswer(
   userMsg: string,
   store: {
     retrieveDynamic: (m: string) => { key: string; answer: string; msg?: string } | undefined;
-    addDynamic: (key: string, state: string, msg: string, answer: string, meta?: { template?: string; place?: string }) => boolean;
+    addDynamic: (key: string, state: string, msg: string, answer: string, meta?: { template?: string; place?: string; unreviewed?: boolean }) => boolean;
   },
 ): Promise<DynamicResult | undefined> {
   const recalled = recallDynamic(store, userMsg, typeEstablished(session.slots, userMsg), sessionPlaces(session));

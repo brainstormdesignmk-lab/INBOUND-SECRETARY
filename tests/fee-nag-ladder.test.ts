@@ -1038,3 +1038,99 @@ test('e2e [19:40]: after two rungs the per-visit maths question serves the DECIS
   assert.ok(!inAskPool(r3.reply), 'never a re-disclosure');
   assert.equal(r3.s.state, 'closing', 'the decision keeps the fee question open');
 });
+
+// ── THE ISOLATION CONTRACT AT THE DETECTOR BOUNDARY (§2) ────────────────────
+// Found while mirroring the money lanes (proposal Phase 4, 2026-11-13). The
+// visit-fee nag grammar and the commission family shared their objects:
+// `NAG_FEE_OBJECT_RE` carries «провизија»/«комисија» and the charge-accusation
+// family carries the charge verb + money noun, so a COMMISSION sentence reached
+// the visit-fee ladder. The probe that found it drove the real handler with the
+// disclosure on the table: «KOJ JA PLAKJA PROVIZIJATA?» (a neutral who-pays
+// question about the commission) was served `FEE_PUSH:fast` — rung 1 of the
+// VISIT fee — and «NE SAKAM PROVIZIJA» was one claim away from the same burn.
+// A WHO-PAYS QUESTION is also not resistance for the FEE itself: «KOJ JA PLAKJA
+// TAKSATA ZA POSETA?» asks who bears the charge, the «not nags» neutral ask of
+// §2, and it burned a rung in the field because the accusation family matched
+// the verb + noun shape. Both are the expensive direction: a rung the client
+// never earned pushes the ladder toward the graceful close.
+test('e2e: commission traffic + who-pays questions never burn a visit-fee rung', async () => {
+  // Detector level first — one predicate decides the ladder, so it must refuse
+  // both cross-topic shapes and keep every real resistance.
+  assert.equal(detectFeeNag('KOJ JA PLAKJA PROVIZIJATA?'), false,
+    'a who-pays question about the commission is a request to be informed, and the commission family owns it');
+  assert.equal(detectFeeNag('NE SAKAM PROVIZIJA'), false,
+    'a commission refusal belongs to detectProvisionResistance — never a visit-fee rung');
+  assert.equal(detectFeeNag('ПРОВИЗИЈАТА НЕ ЈА ПРИФАЌАМ'), false);
+  assert.equal(detectFeeNag('KOJ JA PLAKJA TAKSATA ZA POSETA?'), false,
+    'who pays the visit fee = the neutral ask family (§2 "not nags")');
+  assert.equal(detectFeeNag('NIKOJ NE ZEMA PARI ZA POSETA?'), true,
+    'a universal claim about the visit is still a nag');
+  assert.equal(detectFeeNag('MNOGU NEKAKO 500DEN ZA POSETA'), true,
+    'a value complaint about the visit fee is still a nag');
+  assert.equal(detectFeeNag('NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA'), true,
+    'practice disapproval is still a nag');
+
+  // Then the real pipeline: disclosure → commission question → commission
+  // refusal, with BOTH counters asserted (the isolation contract is a pair).
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'isolation-contract';
+  const send = async (m: string) => {
+    await Promise.race([
+      handler.handle('test', chatId, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return { s: sessions.get(chatId)!, reply: sent[sent.length - 1] ?? '' };
+  };
+
+  await send('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 78');
+  const disclosed = await send('SAKAM DA JA VIDAM');
+  assert.ok(inAskPool(disclosed.reply), `the disclosure must come first: ${disclosed.reply.slice(0, 90)}`);
+
+  const who = await send('KOJ JA PLAKJA PROVIZIJATA?');
+  assert.equal(who.s.slots.feeRejections, undefined,
+    'the commission question is not visit-fee resistance (isolation contract)');
+  assert.equal(who.s.slots.provisionRejections, undefined,
+    'and a who-pays question is not commission resistance either — the commission ask answers it');
+  assert.ok(!inPersuadePool(who.reply) && !inAskPool(who.reply),
+    `never the visit-fee ladder or a second disclosure: ${who.reply.slice(0, 120)}`);
+  // CONTRACT, not one wording: the bank rotates variants and the provision.who
+  // copy names the cost items it covers rather than the word «провизија» in
+  // every variant. What must hold is that the answer is the COST/commission
+  // lane (notary/inspector/tax/commission) and never the visit-fee script.
+  assert.match(who.reply, /(?:провизи|адвокат|нотар|данок|трошок|commission)/iu,
+    `the commission question is answered as cost/commission traffic: ${who.reply.slice(0, 120)}`);
+  assert.ok(!/500\s*ден/iu.test(who.reply),
+    `never the visit-fee figure: ${who.reply.slice(0, 120)}`);
+
+  // A buy client has NO commission (0%), so this refusal must burn NEITHER
+  // counter — the commission family answers it with the tier fact.
+  const buyRefusal = await send('NE SAKAM PROVIZIJA');
+  assert.equal(buyRefusal.s.slots.feeRejections, undefined,
+    'resisting the commission never burns a visit-fee rung (§2)');
+  assert.equal(buyRefusal.s.slots.provisionRejections, undefined,
+    'and with 0% for buyers there is no commission rung to burn — the tier fact is the answer');
+
+  // Now the RENT listing, where the commission IS owed: the same refusal must
+  // burn exactly ONE commission rung and leave the visit-fee counter untouched.
+  const rent = makeHandler([
+    ...ROWS,
+    { eb: 91, id: 91, location: 'Капиштец', price: 350, service: 'rent', bedrooms: 2, size: '60 м²', address: 'Партенија' },
+  ]);
+  const rentChat = 'isolation-contract-rent';
+  const rentSend = async (m: string) => {
+    await Promise.race([
+      rent.handler.handle('test', rentChat, m),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`turn timeout (>10s): ${m.slice(0, 40)}`)), 10_000).unref()),
+    ]);
+    return { s: rent.sessions.get(rentChat)!, reply: rent.sent[rent.sent.length - 1] ?? '' };
+  };
+  await rentSend('ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 91');
+  await rentSend('SAKAM DA JA VIDAM');
+  const rentRefusal = await rentSend('NE SAKAM PROVIZIJA');
+  assert.equal(rentRefusal.s.slots.feeRejections, undefined,
+    'a RENT commission refusal never burns a visit-fee rung either (§2 isolation)');
+  assert.equal(rentRefusal.s.slots.provisionRejections, 1,
+    'it burns the commission rung instead — its own counter');
+  assert.ok(!inRentPersuadePool(rentRefusal.reply) && !inAskPool(rentRefusal.reply),
+    `never the visit-fee ladder or a second disclosure: ${rentRefusal.reply.slice(0, 120)}`);
+});

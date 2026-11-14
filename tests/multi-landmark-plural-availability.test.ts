@@ -147,9 +147,9 @@ test('«А 42?» is answered from the row, not the brain', async () => {
   assert.equal(detectBareEbFollowup('А 42 ?'), 42);
   const answer = await h.say('А 42 ?');
   assert.match(answer, /42/u, `the named flat is answered: ${answer}`);
-  // CONTRACT, not a wording: `availability.ack.masc` rotates («достапен»,
-  // «слободен», «активен», «фигурира», «на располагање»), so pinning «достап»
-  // made a false failure on the sanctioned «се води како активен» variant.
+  // CONTRACT, not a wording: the claim rotates per feed state («достапен» now,
+  // «достапен од <датум>», and the no-datum shape «се води како активен»), so
+  // pinning «достап» alone made a false failure on a sanctioned phrasing.
   assert.match(answer, /достап|слобод|актив|располага|фигурира|база/iu,
     `with the availability answer: ${answer}`);
   assert.match(answer, /сопственик/iu, `the owner-confirm question is owed: ${answer}`);

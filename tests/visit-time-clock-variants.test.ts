@@ -159,8 +159,15 @@ test('e2e [13:16/13:20]: the client clock goes to the owner, the owner clock com
 
   // The owner's real answer NAMES a clock → it is relayed to the client, not
   // re-asked ("POSLE 6" resolves to 18:00 inside the visit window).
-  assert.ok(parseVisitDateTime('POSLE 6', NOW), 'an owner clock resolves');
-  handler.ownerAnswer(chatId, 78, { status: 'counter', ownerTime: 'POSLE 6' });
+  //
+  // THE OWNER'S CLOCK IS WEEKDAY-QUALIFIED, because a bare «POSLE 6» is not a
+  // fixed instant: it means «today at 18:00», or TOMORROW's 18:00 once the real
+  // clock is past 18:00 — and tomorrow may be a Saturday, which the visit
+  // window refuses, so the counter stayed in owner_checking and this test
+  // expired at 19:35 on its own date (2026-11-13) with no code change behind
+  // it. «PONEDELNIK 18:00» names the instant the assertion is about.
+  assert.ok(parseVisitDateTime('PONEDELNIK 18:00', NOW), 'an owner clock resolves');
+  handler.ownerAnswer(chatId, 78, { status: 'counter', ownerTime: 'PONEDELNIK 18:00' });
   await tick(150);
   const s3 = sessions.get(chatId)!;
   assert.equal(s3.state, 'time_confirm', `the counter reaches the client for acceptance: ${s3.state}`);

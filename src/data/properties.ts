@@ -93,6 +93,14 @@ export interface Property {
    *  resolver's answer, stamped onto the property before it reaches any reply
    *  builder. The EXACT street must never be shown to the client. */
   landmark?: string;
+  /** ДОСТАПНО ОД — the feed's own availability column (`dostapno_od`, mapped
+   *  from `available_from` by the public-properties edge function, which
+   *  defaults it to „Веднаш“). The app used to IGNORE this field entirely and
+   *  answer «би требало сè уште да е слободна, бидејќи сè уште постои во нашата
+   *  база» — a guess dressed as a fact, and the [12:35] field capture is exactly
+   *  that sentence over EB 44 while the feed said „Веднаш“. Availability is a
+   *  FACT WITH A SOURCE; see availabilityOf(). */
+  dostapnoOd?: string;
   /** RANKED approximate-location list, resolved ONCE at ANA's import and stored
    *  next to the property in Supabase (a `landmarks` JSONB column). Each entry
    *  is a PUBLIC place with its distance from the address — the 100m…1000m
@@ -439,6 +447,10 @@ export function mapRow(r: Record<string, unknown>): Property | null {
     geo_source: lat !== undefined && lon !== undefined && GEO_SOURCES.has(geoRaw)
       ? geoRaw as GeoSource : undefined,
     geocoded_at: str(r.geocoded_at) || undefined,
+    // The availability column the feed already emits (see Property.dostapnoOd).
+    // Accept both spellings until the graph settles; an absent value stays
+    // undefined so availabilityOf() can say "no datum" instead of guessing.
+    dostapnoOd: str(r.dostapno_od) || str(r.available_from) || undefined,
     bedrooms: isBusiness(r) ? undefined : parseBedrooms(r.tip_na_sobi),
     // povrsina_m2 = 0 means MISSING (the scraper writes 0 when the ad has no
     // area). A 0 m² property does not exist — treat as absent so the card
@@ -847,6 +859,47 @@ export function pricePerM2(p: Property): number | undefined {
   const v = Math.round(price / sqm);
   if (!Number.isFinite(v) || v < 50 || v > 50000) return undefined;
   return v;
+}
+
+/** WHAT THE FEED SAYS ABOUT AVAILABILITY — one typed answer, never a guess.
+ *
+ *  `dostapno_od` is a real column (the edge function maps `available_from` into
+ *  it and defaults it to „Веднаш“), and it was being dropped on import, so the
+ *  only availability source the appliance had was "the row exists in our DB".
+ *  That is a PRESENCE test, not an availability fact: a listing stays in the
+ *  base after it is sold until the next import, which is why the answer had to
+ *  hedge („би требало“) and why a client could be told a live, in-feed property
+ *  was gone.
+ *
+ *  Three shapes, and no fourth:
+ *    'now'     — the feed says it is available now („Веднаш“)
+ *    'from'    — the feed names when (a date, „од 01.12.2026“, „по договор“);
+ *                `when` carries its own preposition, ready to be quoted
+ *    'unknown' — no datum (the column is empty/„Не е наведено“): then the answer
+ *                must say so and route the confirmation to the owner */
+export type AvailabilityState =
+  | { kind: 'now' }
+  | { kind: 'from'; when: string }
+  | { kind: 'unknown' };
+
+const AVAILABILITY_DATE_RE = /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2}/;
+const AVAILABILITY_NOW_RE = /(?<![\p{L}])(?:веднаш|веднага|сега|одма|одмах|достапн\p{L}*|слободн\p{L}*|dostapn\p{L}*|slobodn\p{L}*|sega|vednas|immediately|available)(?![\p{L}])/iu;
+const AVAILABILITY_EMPTY_RE = /(?:не\s*е\s*наведено|nema|нема|unknown|n\/a)/iu;
+const AVAILABILITY_PREPOSITION_RE = /^(?:од|по|со|from|od|po)\b/iu;
+
+export function availabilityOf(p: Property): AvailabilityState {
+  const raw = (p.dostapnoOd ?? '').trim();
+  // ORDER MATTERS: an empty marker is "no datum", not "available now" — the
+  // feed writes „Не е наведено“ for a column it could not fill.
+  if (!raw || AVAILABILITY_EMPTY_RE.test(raw)) return { kind: 'unknown' };
+  if (AVAILABILITY_DATE_RE.test(raw)) {
+    return { kind: 'from', when: AVAILABILITY_PREPOSITION_RE.test(raw) ? raw : `од ${raw}` };
+  }
+  if (AVAILABILITY_PREPOSITION_RE.test(raw)) return { kind: 'from', when: raw };
+  if (AVAILABILITY_NOW_RE.test(raw)) return { kind: 'now' };
+  // ANY OTHER TEXT IS QUOTED, never interpreted: a free-form promise we cannot
+  // date („по договор со сопственикот“) must not be upgraded to "веднаш".
+  return { kind: 'from', when: `од ${raw}` };
 }
 
 // ── RENT UNIT: read from the feed, never assumed ─────────────────────────────

@@ -86,14 +86,33 @@ test('the pending backlog is explicit and finite (migration fuel, not a graveyar
   // PRICE_CHANGE_DISCLAIMER (a complaint after the owner moved the clean price).
   // None of them had a row before, so the count goes 63 → 68 and the ceiling
   // 66 → 71. It must keep falling as lanes are mirrored.
-  assert.ok(pending.length < 71, `backlog too large to be honest: ${pending.length}`);
+  // TWO genuinely new executors landed with the Phase 2/5 batch, so the
+  // ceiling moves 71 → 73 for exactly those rows: OWN_CLAIM_EXPLAIN (a
+  // challenge about our own earlier answer — explained from the turn record)
+  // and SUBJECT_PER_M2 (the €/m² of the flat on the table). It must keep
+  // falling as they are mirrored; never raise it for a row that is not a new
+  // lane.
+  assert.ok(pending.length < 73, `backlog too large to be honest: ${pending.length}`);
 });
 
 // R1 part 2 — the three lanes that moved from dispatchSimple into the mirror.
 test('the newly mirrored lanes resolve through ROUTING_ORDER on canonical texts', () => {
-  assert.equal(resolveIntent('I LI SVAKOJA KUKJA I STAN, KOJA E PODOBRA?', 'presentation'), 'COMPARISON');
+  // EXPECTATION CHANGED (with the RECOMMEND_ASK row, Phase 4): the executor's
+  // recommend block (inbound.ts 10432) runs BEFORE dispatchSimple's COMPARISON,
+  // and a replay of this exact text through the real handler logs
+  // RECOMMEND_ASK (.bench/place-mirror.ts: pred=actual=RECOMMEND_ASK). COMPARISON
+  // was the mirror's wish while the lane had no row — the probe, not the note,
+  // decides which one is true.
+  assert.equal(resolveIntent('I LI SVAKOJA KUKJA I STAN, KOJA E PODOBRA?', 'presentation'), 'RECOMMEND_ASK');
   assert.equal(resolveIntent('DALI STANOT IMA PARKING?', 'presentation'), 'FEATURE_ASK');
-  assert.equal(resolveIntent('NIKOJ NE ZEMA PARI ZA POSETA?', 'closing'), 'FEE_WHY');
+  // EXPECTATION FIXED (2026-11-13, with the money mirror): the executor serves
+  // this turn from the ARBITER'S NAG CLAIM (inbound.ts 7285, before the fee.why
+  // legs at 10118+) — the probe drove the real handler and the turn logged
+  // FEE_PUSH:fast. The R1 expectation said FEE_WHY, i.e. the mirror predicted a
+  // lane the executor never ran for this text. The universal-claim wording is a
+  // NAG (§2 nag order); the why-word precedence rule only decides the LEADING-why
+  // shape, which the row above pins separately.
+  assert.equal(resolveIntent('NIKOJ NE ZEMA PARI ZA POSETA?', 'closing'), 'FEE_PUSH');
   // The same-word collision stays two-directional: provision wording must NOT
   // steal the bare WHY claim, and a genuine provision ask must NOT lose it.
   assert.equal(resolveIntent('KOLKU E PROVIZIJATA?', 'closing'), 'PROVISION_ASK');

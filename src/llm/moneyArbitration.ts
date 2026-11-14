@@ -32,6 +32,8 @@ import {
   detectPriceEval, detectBudget, detectProvisionResistance,
   detectService, detectBothServices, detectHouse, detectBusiness, detectPlac,
   detectNegotiate, isMoneyWithoutTarget, isFeeFrame, detectFeeWhy,
+  detectAmountFeeQuestion, detectFeePaymentAgreement, detectFeeComplaint,
+  detectFeeChargePushback,
 } from './deterministic';
 
 export type RouteTuple = {
@@ -189,6 +191,27 @@ export function unknownBucket(tuple: RouteTuple): string {
  * order used to refuse: `expensive` (detected, previously unwired), gated to
  * the narrowest evidence boundary.
  */
+/** THE FEE-AMOUNT ASK, as ONE predicate for the arbiter AND the router mirror.
+ *  `detectFeeAmountAsk` owns the question shapes («kolku e za poseta?»); the
+ *  AMOUNT-FIRST sibling («500DEN ZA POSETA ?», «5 EVRA ZA POSETA?») names the
+ *  figure and the viewing noun with no how-much word, and `detectAmountFeeQuestion`
+ *  owns it — but only the provision ask read that detector, so the turn reached
+ *  the money region with no claim at all and was filed as `unknown.fee.ask`
+ *  (the [12:31] residue class: fee traffic with no lane). A committed amount
+ *  («ke platam 500 den za poseta») is CONSENT, not an ask — excluded, exactly
+ *  as `detectProvisionAsk` excludes it. */
+export function isFeeAmountClaim(text: string): boolean {
+  if (detectFeeAmountAsk(text)) return true;
+  // …and the amount-first statement is an ASK only while it is NEUTRAL: «MNOGU
+  // NEKAKO 500DEN ZA POSETA» carries the figure and the viewing noun too, but it
+  // is a complaint — with the wider predicate the feeAmount claim (strength 7)
+  // OUTRANKED the nag claim (6) and the ladder served a second disclosure to a
+  // client who had just objected (the re-disclosure bug §2 forbids). Resistance
+  // keeps its rung; the disclose/full statement keeps the disclosure.
+  return detectAmountFeeQuestion(text) && !detectFeePaymentAgreement(text)
+    && !detectFeeNag(text) && !detectFeeComplaint(text) && !detectFeeChargePushback(text);
+}
+
 export function arbitrateMoney(text: string, ctx: MoneyArbiterCtx): MoneyVerdict {
   const claims: MoneyClaim[] = [];
   const nonQuestion = !/\?/.test(text);
@@ -207,7 +230,7 @@ export function arbitrateMoney(text: string, ctx: MoneyArbiterCtx): MoneyVerdict
     claims.push({ lane: 'cheap', strength: 8, evidence: ['valence:cheap — the fee is never cheap', 'target:property-on-table', `state:${ctx.state}`] });
   }
 
-  if (detectFeeAmountAsk(text) && feeStates && !ctx.feeBlocked) {
+  if (isFeeAmountClaim(text) && feeStates && !ctx.feeBlocked) {
     claims.push({ lane: 'feeAmount', strength: 7, evidence: ['referent:visit-fee', 'act:ask', `state:${ctx.state}`] });
   }
   if (detectProvisionResistance(text) && feeStates && !ctx.provisionBlocked) {

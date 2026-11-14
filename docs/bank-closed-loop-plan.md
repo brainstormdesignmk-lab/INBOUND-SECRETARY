@@ -11,7 +11,7 @@ variants *within per-key constraints*, a human approves protocol keys in one bat
 variants go live immediately (no restart). Manual correction work drops from per-answer to per-batch.
 
 **Non-goals / invariants (never violated, in any phase):**
-- DATA_DRIVEN_KEYS (`price.ask`, `availability.ack`, `address.exact`, …): facts come from the property
+- DATA_DRIVEN_KEYS (`price.ask`, `address.exact`, `queued.confirm`, …): facts come from the property
   row. Gemini may only write the carrier sentence with `{price}`-style placeholders. No amounts, ever.
 - Every serve site keeps its hardcoded fallback — an empty bank degrades to today's behavior, never
   to silence.

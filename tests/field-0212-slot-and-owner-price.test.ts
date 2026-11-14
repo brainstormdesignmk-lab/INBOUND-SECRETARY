@@ -29,6 +29,27 @@ import { buildOwnerPublishedPriceQuestion } from '../src/pricing/cleanPrice';
 
 const cfg = loadConfig();
 
+/** NEXT Friday 19:00 — the capture's own slot, COMPUTED instead of pinned.
+ *
+ *  The two slot tests below used to pin «Петок, 13.11.2026 во 19:00» and
+ *  `new Date(2026, 10, 13, 19, 0, 0)`. 13.11.2026 IS a Friday, so the pair
+ *  expired the moment the real clock passed 19:00 that day: «Петок во 19:00»
+ *  then resolves to the NEXT Friday, the stored booking is a past instant, and
+ *  the conflict rule never fires — both tests failed at 19:33 on their own
+ *  date (2026-11-13) with no code change behind them. The rule under test is
+ *  "a booking at that hour blocks", so the fixture has to be the hour the
+ *  client's sentence resolves to: the next Friday at 19:00. */
+function nextFriday19(): { label: string; at: number } {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0, 0, 0);
+  let delta = (5 - now.getDay() + 7) % 7;
+  if (delta === 0 && d.getTime() <= now.getTime()) delta = 7;
+  d.setDate(d.getDate() + delta);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return { label: `Петок, ${dd}.${mm}.${d.getFullYear()} во 19:00`, at: d.getTime() };
+}
+
 class FailingLlm implements LlmClient {
   async complete(): Promise<string> { throw new Error('probe: LLM disabled'); }
 }
@@ -118,11 +139,12 @@ test('[field] the chat’s own visit is not a «зафатен» hour', async ()
     chatId: h.chatId, clientName: 'Марко', clientPhone: '076845234', propertyId: 66,
     service: 'Купување', viewingFee: '500 MKD', time: '', agentPhone: '076247467',
   });
-  h.appointments.markFinalized(appt, 'Петок, 13.11.2026 во 19:00');
+  const slot = nextFriday19();
+  h.appointments.markFinalized(appt, slot.label);
   // The scheduler pins the concrete instant when the visit is arranged; the
   // calendar reads only rows that carry it.
   h.db.db.prepare('UPDATE appointments SET visit_at = ? WHERE id = ?')
-    .run(new Date(2026, 10, 13, 19, 0, 0).getTime(), appt);
+    .run(slot.at, appt);
 
   const answer = await h.say('Петок во 19:00');
   assert.doesNotMatch(answer, /веќе зафатен|веќе е зафатен|зафатен/iu,
@@ -138,9 +160,10 @@ test('[field] ANOTHER chat’s booking at that hour still blocks', async () => {
     chatId: 'someone-else', clientName: 'Ана', clientPhone: '070111222', propertyId: 66,
     service: 'Купување', viewingFee: '500 MKD', time: '', agentPhone: '076247467',
   });
-  h.appointments.markFinalized(other, 'Петок, 13.11.2026 во 19:00');
+  const slot = nextFriday19();
+  h.appointments.markFinalized(other, slot.label);
   h.db.db.prepare('UPDATE appointments SET visit_at = ? WHERE id = ?')
-    .run(new Date(2026, 10, 13, 19, 0, 0).getTime(), other);
+    .run(slot.at, other);
   const answer = await h.say('Петок во 19:00');
   assert.match(answer, /зафатен/iu, `the agent cannot hold two visits: ${answer}`);
 });
