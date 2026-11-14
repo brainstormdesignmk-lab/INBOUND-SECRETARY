@@ -414,3 +414,17 @@ test('a stock ask after a served pair is MORE_STOCK; a new criterion is not', ()
   // Nothing served yet: there is no pair to continue from.
   assert.notEqual(resolveIntent('ШТО УШТЕ ИМАТЕ ?', 'presentation'), 'MORE_STOCK');
 });
+
+// ── the place lanes that turned out to be TEXT-only (Phase 4, place family) ──
+// Both were filed as "map-gated" and that stopped being true when each branch
+// gained an honest MISS arm: the map picks the WORDING, the wording test picks
+// the lane. The pin below also holds the precedence that matters — a где-
+// question about a place SHE named must not become the property rotation.
+test('a district question about a named place is AREA_OF_PLACE; a where-question is WHERE_LANDMARK', () => {
+  assert.equal(resolveIntent('TE PRASUVAM VO KOJA NASELBA E TC LEPTOKARIJA', 'property_query'), 'AREA_OF_PLACE');
+  assert.equal(resolveIntent('KADE TI E TOA 26 JULI TC ?', 'property_query'), 'WHERE_LANDMARK');
+  // A search that names an area is a search, not a place question.
+  assert.notEqual(resolveIntent('DALI IMATE STAN VO KARPOS?', 'discovery'), 'AREA_OF_PLACE');
+  // A price question keeps the price lane (the lane's own veto).
+  assert.notEqual(resolveIntent('KOJA E CENATA NA STANOT?', 'closing'), 'WHERE_LANDMARK');
+});

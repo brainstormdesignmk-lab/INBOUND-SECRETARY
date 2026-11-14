@@ -1681,9 +1681,15 @@ written down instead of guessed:
 - `POI_CONFIRM` (6861): served only when the MAP resolves the named place.
   `isPoiConfirmQuestion` is a wording test that fires on «ova mi fati oko, kolku
   e?» (it matched), so a mirror row would predict a lane the executor skips.
-- `WHERE_LANDMARK` (5049): served only on a `landmarks.findPlace` hit; the text
-  part is mirrorable, the hit is not. 260 production gaps stay labelled GAP —
-  visible in `route:health`, never a false DRIFT.The rest of the family (`INFO_ASK_PAIR`, `INFO_ASK_PAIR_IDENTITY`,
+- `WHERE_LANDMARK` and `AREA_OF_PLACE` were filed here too, and the filing went
+  STALE: each branch gained an honest MISS arm («тоа место го немам во мојата
+  евиденција» / the place-exists-but-far line), so the map decides the WORDING
+  and the wording test decides the LANE. Both are mirrored now, pinned in
+  `tests/router.test.ts` — including the precedence that matters: a где-question
+  about a place she NAMED is not the property rotation, so both rows sit before
+  `WHERE_IS`. The lesson is in the mechanism: **a `P(...)` note is a claim about
+  the executor as it was that day** — when a branch gains a miss arm, the note
+  is a lie until someone re-reads it. `route:health`'s GAP count was the tell.The rest of the family (`INFO_ASK_PAIR`, `INFO_ASK_PAIR_IDENTITY`,
 `INFO_ASK_FLOORS`, `MORE_STOCK`, `DISTANCE_BATCH`) stays `P(...)`:
 each gate is a multi-clause condition over
 the batch, the referent and the criteria parse, and each one gets its own
@@ -1798,10 +1804,12 @@ rows". The honest shapes, in ascending cost:
 3. A mirror row that calls the map itself — still rejected: geo I/O inside a
    pure function makes `resolveIntent` untestable without a database.
 
-The blocker is bigger than the four: the SLICE 7 survey found `DISTANCE_BATCH`
-(one `findPlace` per candidate row), `INFO_ASK_PAIR` and `INFO_ASK_FLOORS` (the
-feed's EB list plus the rows' own facts) gated the same way. That is SEVEN lanes
-and ~10 k turns a month on one missing channel — so the channel is the next
+What is LEFT for the channel, after `WHERE_LANDMARK`/`AREA_OF_PLACE` turned out
+to be text-only: `POI_CONFIRM` (the answer exists only when the map or the
+neighbourhood match produces it — 6861), `PRICE_AVG_NASELBA` (the feed must hold
+rankable per-м² rows — 6188), `DISTANCE_BATCH` (one `findPlace` per candidate
+row), `INFO_ASK_PAIR` and `INFO_ASK_FLOORS` (the feed's EB list plus the rows'
+own facts). Five lanes, ~7 k turns a month — the channel is still the next
 batch, and it is a predicate-plus-probe job, not forty more rows.
 
 Until that channel exists these seven stay `P(...)` with their honest notes: a

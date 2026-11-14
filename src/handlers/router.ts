@@ -44,6 +44,8 @@ import {
   extractPriceExtremeQuery, detectWidenIntent, detectExplicitWiden,
   detectMoreStockRequest, detectVisitTime, proposesVisitTerm, detectPomaloAsk,
   detectBudgetUpAsk, detectExplicitCancel,
+  isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,
+  isWhereLandmarkQuestion, extractWhereLandmarkPlace,
 } from '../llm/deterministic';
 import { detectInfoFacets } from '../llm/infoAnswer';
 import { detectGlossaryAsk } from '../llm/glossary';
@@ -192,6 +194,30 @@ export const ROUTING_ORDER: RouteRule[] = [
       }).lane === 'expensive' },
   { intent: 'BUSINESS_BUDGET_ASK', note: 'a commercial price question in the intake states ("kolku cini deloven prostor?", "koja e cenata za lokal?") gets the BUSINESS budget question from discovery.ask.budget.business — Lina has no number to quote, and the residential lanes would ask about спални/станот. State-gated: once a flat is on the table its price and the fee protocol own the money talk',
     fires: (t, s) => detectBusinessBudgetAsk(t) && ['idle', 'intent', 'discovery'].includes(s) },
+  // ── THE MAP LANES THAT ARE TEXT-ONLY (Phase 4, place family) ──────────────
+  // Both were written down as "served only on a map hit" and that stopped being
+  // true: each branch now has a MISS arm that answers honestly («тоа место го
+  // немам во мојата евиденција» / the place-exists-but-far line), so the MAP
+  // decides the WORDING, not whether the lane runs. The gate is the wording test
+  // plus the vetoes the executor applies, exactly as written below.
+  // ORDER: the executor reaches these at 5010/5049, BEFORE the каде lanes, so the
+  // rows must precede WHERE_IS — a где-question about a PLACE she named is not
+  // the property's landmark rotation.
+  // KNOWN LIMIT: WHERE_LANDMARK also needs the map service to exist (always in
+  // the appliance, absent in a bare unit harness) — a limit of the harness, not
+  // of the lane.
+  { intent: 'AREA_OF_PLACE', note: '«ВО КОЈА НАСЕЛБА Е TC ЛЕПТОКАРИЈА» — the PLACE\'s own district from the map, never the card\'s landmark ([17:26] capture); a map miss is stated honestly rather than answered with some other location',
+    fires: t => isAreaOfPlaceQuestion(t)
+      && !detectAreaHaveAsk(t)
+      && !detectPriceAsk(t) && !detectBudget(t)
+      && !detectService(t) && !detectBothServices(t)
+      && extractAreaOfPlaceQuestion(t) !== undefined },
+  { intent: 'WHERE_LANDMARK', note: '«КАДЕ ТИ Е ТОА 26 ЈУЛИ TC?» — where a place SHE named is located: the honest distance/direction line from the map, the discussed flat stays anchored ([12:48] push-back)',
+    fires: t => isWhereLandmarkQuestion(t)
+      && !detectAreaHaveAsk(t)
+      && !detectPriceAsk(t) && !detectBudget(t)
+      && !detectService(t) && !detectBothServices(t)
+      && extractWhereLandmarkPlace(t) !== undefined },
   { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT каде enters the deterministic privacy ladder. Must sit before WHERE_IS only via the !whereIs guard — каде-prefixed questions fall through',
     fires: (t) => detectExactAddressAsk(t) && !isKadeTocno(t) && !detectWhereIs(t) },
   { intent: 'OWNER_CONTACT', note: 'client leaves name/phone — captured before any other reply',
@@ -891,9 +917,9 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   FEE_PER_PROPERTY: P('the per-visit fee arithmetic («ZA SEKOJ STAN STO KE SE POSETI PO 500 ?») — the confirmation, then the ladder if a rung has already burned (inbound.ts 7209)'),
   CHAIN_READY: P('a session/chains readiness MARKER logged by routeLog(chatId, \'chain\', …) at inbound.ts 2498 — it answers nothing, so a mirror row would predict an answer that never happens'),
   'WAITING:fast': M('WAITING', 'the same lane on the fast path (the executor logs the suffix — an unregistered alias would read as a route gap)'),
-  AREA_OF_PLACE: P('„во која населба е X“ — the place\'s own map quarter'),
+  AREA_OF_PLACE: M('AREA_OF_PLACE', '„во која населба е X“ — the place\'s own map quarter'),
   AREA_HAVE_SEARCH: P('„а во која населба има?“ — the area-availability ask: the criteria are released and the pair is served, with the neighbourhoods that hold it named ([19:46] capture)'),
-  WHERE_LANDMARK: P('каде + a NAMED place — served only on a MAP HIT (inbound.ts 5049: `landmarks.findPlace`). The text part is mirrorable, the hit is not: a row would predict the lane for every unresolved name and report a drift the map caused. Labelled backlog until the mirror may consult the map'),
+  WHERE_LANDMARK: M('WHERE_LANDMARK', 'каде + a NAMED place — the honest distance/direction line when the map knows it and the honest «не е во евиденција» line when it does not, so the MAP decides the wording and the Wording test decides the lane (inbound.ts 5049)'),
   'WHICH_PROPERTY:fast': P('which EB are you talking about'),
   'VISIT_CANCEL:WHICH': P('a cancel that names no arranged visit — asks which Евидентен број instead of guessing'),
   VISIT_RECALL: M('VISIT_RECALL', 'which flat the arrangement was for — answered from the appointment, never contact collection'),
