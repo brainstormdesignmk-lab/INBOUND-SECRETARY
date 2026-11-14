@@ -56,6 +56,7 @@ import { routeLog, resolveIntent, refinePrediction, dispatchSimple, type RouteEv
 import { ambientTurn, clipReply, currentTurn, currentTurnAudit, noteTurnFact, runInTurn, startTurn, type TurnContext } from './turn';
 import { focusClarifyAsk, resolvePropertyFocus } from './focus';
 import { BARE_REFUSAL_ONLY_RE, NEAR_ANCHOR_SCOPE_M, pickDescribed } from './locate-pick';
+import { areaNamesOf, naselbaComparisonGate, perM2RankableOf, priceRateOk, priceRoomOk, priceSegment, priceTypeOk, priceTypeSources } from './priceScope';
 // PER-CATEGORY MONEY (the [19:14] capture): the pair detectors live beside the
 // budget family so a cap and the budget read can never disagree.
 import { detectCategoryBudgets } from '../llm/deterministic';
@@ -4340,6 +4341,48 @@ export class InboundHandler {
       }
     }
 
+    // ── PRICE_AVG_NASELBA (inbound.ts 6314) ─────────────────────────────────
+    // «VO KOJA NASELBA SE NAJEFTINI STANOVITE» compares NEIGHBOURHOODS. The
+    // gate is the naselba word + a cheapest ask + NO area named + buy + a
+    // rankable per-м² pool — and the pool lives in the market band's scope, so
+    // the predicates were LIFTED (`./priceScope`) rather than copied: this probe
+    // and the block call the same type/room/rate/segment/naselba functions. The
+    // cheap text gate above keeps the feed query off ordinary turns.
+    if (detectPriceExtremeAsk(text)
+      && /(?<![\p{L}\p{N}])(?:населб|naselb)\p{L}*/iu.test(text)) {
+      const q = extractPriceExtremeQuery(text);
+      if (q) {
+        const feedLocs = await this.areaLocs(text);
+        const cityAsk = /(?<![\p{L}\p{N}])(?:скопје|skopje|skopju|скопју)(?![\p{L}\p{N}])/iu.test(text);
+        const numbered = numberedAreasNamed(text, feedLocs);
+        const pinnedTypedFunnel = !!session.slots.location && !session.slots.anywhere
+          && (!!session.slots.business || session.slots.house !== undefined
+            || !!session.slots.plac || !!session.slots.yard || !!session.slots.dualService);
+        const namedArea = numbered.length > 0 ? numbered.join(', ') : await this.areaNamed(text);
+        const areaRaw = cityAsk ? undefined
+          : namedArea ?? (pinnedTypedFunnel ? session.slots.location : undefined);
+        const areaNames = areaNamesOf(areaRaw, namedArea, numbered);
+        const slots = extractSlots(text);
+        const typeOk = priceTypeOk(slots, session.slots);
+        const roomOk = priceRoomOk(slots, session.slots);
+        const rateOk = priceRateOk(session.slots);
+        const allRows = (await this.deps.properties.getAll()).filter(p =>
+          typeOk(p) && roomOk(p) && rateOk(p)
+          && typeof p.price === 'number' && p.price > 0);
+        const inScope = areaNames.length > 0
+          ? areaNames.flatMap(a => rowsInArea(allRows, a))
+          : allRows;
+        const dualServe = session.slots.dualService === true
+          && slots.service === undefined && q.mode !== 'value';
+        const segment = dualServe ? undefined
+          : priceSegment(slots.service, session.slots.service, inScope);
+        const rows = inScope.filter(p => p.service === segment);
+        if (naselbaComparisonGate({
+          mode: q.mode, text, areaNames, segment, perM2Rankable: perM2RankableOf(rows),
+        })) ev.priceAvgNaselba = true;
+      }
+    }
+
     // ── INFO_ASK_PAIR / INFO_ASK_FLOORS (inbound.ts 7952) ──────────────────
     // The gate is the INFO BLOCK's entry conjunction (facet parse with the
     // floor-on-table hint, the fee/more-options/commission/smaller-by-rate/
@@ -6211,46 +6254,25 @@ export class InboundHandler {
         // family, not whichever numbered row the feed happens to hold first —
         // the same collapse the band lane makes. An explicit numeral (named in
         // the message) or an inherited price scope stays exact.
-        const areaForScope = (a: string): string =>
-          namedArea !== undefined && numbered.length === 0 && isNumberedArea(a)
-            ? a.replace(/\s+(?:I{1,3}V?|IV|[1-4])\s*$/u, '').trim() || a
-            : a;
-        const areaNames = [...new Set((areaRaw ?? '').split(/,\s*/u).map(s => s.trim()).filter(Boolean).map(areaForScope))];
+        const areaNames = areaNamesOf(areaRaw, namedArea, numbered);
         const slots = extractSlots(text);
         // TYPE INHERITANCE (the [12:34] capture): the message names no
         // property type — a mid-funnel stock ask rides the funnel's OWN type
         // (the деловен funnel served гарсоњера + трисобен стан apartments).
         // An explicit type word in THIS message keeps its own scope; with
         // nothing armed anywhere the residential default stands.
-        const msgTyped = !!slots.business || slots.house !== undefined || !!slots.plac || !!slots.yard || !!slots.garsonjera;
-        const srcBusiness = !!slots.business || (!msgTyped && !!session.slots.business);
-        const srcHouse = slots.house ?? (!msgTyped ? session.slots.house : undefined);
-        const srcPlac = !!slots.plac || (!msgTyped && !!session.slots.plac);
-        const yardWant = !msgTyped && !!session.slots.yard;
-        const isLand = srcPlac;
-        const typeOk = (p: Property): boolean => isLand
-          ? !!p.plac
-          : srcBusiness ? !!p.business
-            : srcHouse === true || yardWant ? !!p.house
-              : srcHouse === false ? !p.business && !p.house && !p.plac
-              : !p.business && !p.house && !p.plac;
+        const { srcBusiness, srcHouse, srcPlac, isLand } = priceTypeSources(slots, session.slots);
+        const typeOk = priceTypeOk(slots, session.slots);
         // THE ROOM COUNT IS A CRITERION TOO (the [10:24] capture): «КОИ ТИ СЕ
         // НАЈЕВТИНИ ДВОСОБНИ СТАНОВИ» served a ТРИСОБЕН in the lead — the lane
         // filtered by category (flat/house/shop) and ignored the rooms the
         // client had just named (the message's own count, else the funnel's).
-        const wantRooms = slots.bedrooms ?? session.slots.bedrooms;
-        const wantStudio = !!slots.garsonjera || (wantRooms === undefined && !!session.slots.garsonjera);
-        const roomOk = (p: Property): boolean => wantStudio
-          ? (p.studio === true || p.bedrooms === 1)
-          : wantRooms === undefined ? true
-            : p.studio === true ? wantRooms === 1 : p.bedrooms === wantRooms;
+        const roomOk = priceRoomOk(slots, session.slots);
         // A €/m² CEILING IS A CRITERION OF THE ASK (the [10:11] capture): the
         // band the client set must hold in the cheapest/dearest listing too —
         // «до 1500 евра за м²» then «најевтини двособни» is still the same
         // search, not a licence to serve a 1.700 €/m² row.
-        const rateCap = session.slots.sqmRate;
-        const rateOk = (p: Property): boolean => rateCap === undefined
-          || (pricePerM2(p) !== undefined && (pricePerM2(p) as number) <= rateCap);
+        const rateOk = priceRateOk(session.slots);
         const allRows = (await this.deps.properties.getAll()).filter(p =>
           typeOk(p) && roomOk(p) && rateOk(p) && typeof p.price === 'number' && p.price > 0);
         const inScope = areaNames.length > 0
@@ -6318,14 +6340,8 @@ export class InboundHandler {
         // RATE per neighbourhood — averaging whole prices said «72.000 ПО
         // МЕТАР КВАДРАТЕН». Its own ranking set, measured the same way the
         // wording claims.
-        const perM2Rankable = rows
-          .map(p => ({ p, m: pricePerM2(p) }))
-          .filter((x): x is { p: Property; m: number } => typeof x.m === 'number');
-        if (q.mode === 'cheapest'
-          && /(?<![\p{L}\p{N}])(?:населб|naselb)\p{L}*/iu.test(text)
-          && areaNames.length === 0
-          && segment === 'buy'
-          && perM2Rankable.length > 0) {
+        const perM2Rankable = perM2RankableOf(rows);
+        if (naselbaComparisonGate({ mode: q.mode, text, areaNames, segment, perM2Rankable })) {
           const byArea = new Map<string, { sum: number; n: number }>();
           for (const x of perM2Rankable) {
             const a = feedArea(x.p);

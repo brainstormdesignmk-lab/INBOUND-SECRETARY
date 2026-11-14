@@ -1851,15 +1851,22 @@ actually lives:
   splitting it is its own slice. A miss here predicts one lane lower and shows
   as a gap, never as a wrong answer.
 
-`PRICE_AVG_NASELBA` IS THE ONE LEFT, and the reason is structural, not
-stylistic: its gate reads `q.mode`, `areaNames`, `segment` AND `rows` — and
-`rows`/`segment` are bound in the ENCLOSING market-band block (they are not
-locals of the naselba comparison at all), so a probe would have to re-run the
-whole band scope: area resolution, the numbered-area collapse, type inheritance,
-room criteria. That is a second copy of the query layer by any name, and the
-honest fix is to lift the band's scope into a method both sides call. Until that
-lift happens the lane stays `P(...)` with its note — a labelled GAP in
-`route:health`, never a guessed DRIFT.
+`PRICE_AVG_NASELBA` IS MIRRORED TOO, and the lift is the interesting part. Its
+gate read `q.mode`, `areaNames`, `segment` AND `rows`, with `rows`/`perM2Rankable`
+bound in the market band's own scope — so a probe would have been a second copy
+of the price query layer. The predicates now live in `src/handlers/priceScope.ts`
+(`priceTypeOk`, `priceRoomOk`, `priceRateOk`, `priceSegment`, `perM2RankableOf`,
+`areaNamesOf`, `naselbaComparisonGate`, plus `priceTypeSources` for the reply
+LABELS) and BOTH sides import them: the extreme block calls the same functions
+it used to inline, and `probeRouteEvidence` calls them behind a cheap gate
+(`detectPriceExtremeAsk` + the naselba word) so the feed query never runs on an
+ordinary turn.
+
+THE PATTERN, now used three times and worth stating once: a lane is unmirrorable
+for exactly one of two reasons — its gate needs a FACT (→ `RouteEvidence`, the
+probe computes it) or its gate is tangled with the executor's scope (→ lift the
+predicates into a module both sides import). Neither is ever solved by a
+paraphrase in the row: that is the guessed row this file keeps refusing.
 
 ### 5a. THE TURN CORPUS — five dimensions, not prose (proposal Phase 1)
 

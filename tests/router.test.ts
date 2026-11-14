@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import * as path from 'path';
+import { naselbaComparisonGate } from '../src/handlers/priceScope';
 import { resolveIntent, ROUTING_ORDER, dispatchSimple, routeLog, ROUTE_LANES } from '../src/handlers/router';
 import { inferPropertyId } from '../src/llm/classify';
 import { detectEyeCatch, detectAgreement } from '../src/llm/deterministic';
@@ -75,8 +76,8 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
     // gains a row stops testing gaps and starts failing for the wrong reason.
     // `PRICE_AVG_NASELBA` is the one lane that is still `P(...)` and will stay so
     // until the band scope is lifted, so it is the honest fixture here.
-    routeLog('tax-gap', 'VO KOJA NASELBA SE NAJEFTINI STANOVITE ?', 'FALLTHROUGH', 'predict');
-    routeLog('tax-gap', 'VO KOJA NASELBA SE NAJEFTINI STANOVITE ?', 'PRICE_AVG_NASELBA');
+    routeLog('tax-gap', 'KOJ STAN BI GO ODBRALE ?', 'FALLTHROUGH', 'predict');
+    routeLog('tax-gap', 'KOJ STAN BI GO ODBRALE ?', 'PROPERTY_CHOICE');
     // the classifier's own route — not a divergence at all
     routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'FALLTHROUGH', 'predict');
     routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'ROUTE_UNKNOWN:unknown.unknown.assert');
@@ -86,7 +87,7 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
   } finally {
     console.log = original;
   }
-  assert.ok(ROUTE_LANES.PRICE_AVG_NASELBA && ROUTE_LANES.PRICE_AVG_NASELBA.intent === null,
+  assert.ok(ROUTE_LANES.PROPERTY_CHOICE && ROUTE_LANES.PROPERTY_CHOICE.intent === null,
     'the gap fixture must be a lane with no mirror row');
   assert.ok(logs.some(l => l.includes('[route-gap] tax-gap')), `a pending lane is a gap: ${logs.join(' | ')}`);
   assert.ok(!logs.some(l => l.includes('[route-drift] tax-gap')), 'a gap is never a drift');
@@ -491,4 +492,31 @@ test('each evidence lane fires on its own flag', () => {
   assert.equal(
     resolveIntent('sakam da prasam za stan so evidenten broj 82 i 75', 'property_query', {}, { infoPairIdentity: true }),
     'INFO_ASK_PAIR_IDENTITY');
+});
+
+// ── PRICE_AVG_NASELBA (Phase 4, the lift) ───────────────────────────────────
+// The comparison's gate reads the market band's pool, so its predicates were
+// LIFTED into ./priceScope (type inheritance, room count, €/м² ceiling, segment,
+// rankable per-м² set, the naselba gate itself) and both sides import them. The
+// row is therefore evidence-only: without the probe's pool it refuses the turn.
+test('the naselba comparison needs the feed evidence', () => {
+  const text = 'VO KOJA NASELBA SE NAJEFTINI STANOVITE ?';
+  assert.notEqual(resolveIntent(text, 'property_query'), 'PRICE_AVG_NASELBA');
+  assert.equal(resolveIntent(text, 'property_query', {}, { priceAvgNaselba: true }), 'PRICE_AVG_NASELBA');
+  // A NAMED AREA IS A ROW LISTING, NOT THE COMPARISON — but that is the PROBE's
+  // job, not the row's: the row is evidence-only, so asking resolveIntent with
+  // the flag set is asking "the probe said yes, does the row fire". The area
+  // veto is therefore pinned on the LIFTED gate itself.
+  assert.equal(naselbaComparisonGate({
+    mode: 'cheapest', text: 'NAJEVTINI STANOVI VO KARPOS',
+    areaNames: ['Карпош'], segment: 'buy', perM2Rankable: [{ p: { eb: 1 } as never, m: 900 }],
+  }), false, 'a named area is a listing, not the neighbourhood comparison');
+  assert.equal(naselbaComparisonGate({
+    mode: 'cheapest', text: 'VO KOJA NASELBA SE NAJEFTINI STANOVITE ?',
+    areaNames: [], segment: 'rent', perM2Rankable: [{ p: { eb: 1 } as never, m: 900 }],
+  }), false, 'a rent rate is not a €/м² measurement');
+  assert.equal(naselbaComparisonGate({
+    mode: 'cheapest', text: 'VO KOJA NASELBA SE NAJEFTINI STANOVITE ?',
+    areaNames: [], segment: 'buy', perM2Rankable: [],
+  }), false, 'no rankable per-м² row, no comparison');
 });

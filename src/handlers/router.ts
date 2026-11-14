@@ -81,6 +81,10 @@ export interface RouteEvidence {
   /** INFO_ASK_PAIR_IDENTITY: a message naming several Евидентен броеви, with no
    *  facet asked, where both named rows exist in the feed. */
   infoPairIdentity?: boolean;
+  /** PRICE_AVG_NASELBA: the neighbourhood comparison's own gate holds — a
+   *  cheapest ask naming «населба», no area named, buy, and a rankable per-м²
+   *  pool in the feed. */
+  priceAvgNaselba?: boolean;
   /** INFO_ASK_PAIR: a facet ask over the TWO flats on the table, both rows
    *  resolving in the feed (inbound.ts 7972). */
   infoPair?: boolean;
@@ -503,6 +507,8 @@ export const ROUTING_ORDER: RouteRule[] = [
   // is that the feed has rankable rows — so the mirror owns the TEXT half and
   // documents the rest (a feed with no м² figure serves the plain listing under
   // the same tag, which is why the row still matches).
+  { intent: 'PRICE_AVG_NASELBA', note: '«ВО КОЈА НАСЕЛБА СЕ НАЈЕВТИНИ СТАНОВИТЕ» — the cheapest NEIGHBOURHOOD by mean €/м², plus the flat beside that number (inbound.ts 6314). EVIDENCE: the gate is the lifted `naselbaComparisonGate` (naselba word, no area named, buy, rankable per-м² pool)',
+    fires: (t, s, sl, ev) => ev?.priceAvgNaselba === true },
   { intent: 'PRICE_EXTREME', note: 'an EXTREME price ask (“do 1000 evra kuca”, “koj ti e toj stan po … po m2”) — the cheapest/dearest listing under the client\'s own criteria, never the plain price ask (inbound.ts 6007). KNOWN LIMIT: the rankable pool comes from the feed',
     fires: t => extractPriceExtremeQuery(t) !== undefined },
   // «KOJ BI MI GO PREPORACALE ?» — a JUDGMENT over the flats the chat has
@@ -933,7 +939,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   PLACE_RING_ASK: M('PLACE_RING_ASK', 'the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question (predicted on the refinement pass, from the pool\'s own poiTooFarAsk verdict)'),
   PLACE_RING_ROW: P('the identity of the flat the place ring measured (“koj e toj stan na 1,4 km?”)'),
   'PRICE_ASK:fast': M('PRICE_ASK', 'the plain price ask in the !fsmRequired fast block — the flat named or the one on the table, else the Евидентен број question'),
-  PRICE_AVG_NASELBA: P('average €/m² per neighbourhood (“во која населба се најевтини становите”) — the aggregate branch (inbound.ts 6146) needs per-м² rows in the FEED and falls through to PRICE_EXTREME when it has none. A row would predict the aggregate for every cheapest+населба ask, including the ones the executor answers with the plain listing — a false drift, which is worse than a labelled gap. The text half is mirrored by PRICE_EXTREME, which is what serves when the data is thin'),
+  PRICE_AVG_NASELBA: M('PRICE_AVG_NASELBA', 'average €/m² per neighbourhood (“во која населба се најевтини становите”) — the aggregate branch (inbound.ts 6146) needs per-м² rows in the FEED and falls through to PRICE_EXTREME when it has none. A row would predict the aggregate for every cheapest+населба ask, including the ones the executor answers with the plain listing — a false drift, which is worse than a labelled gap. The text half is mirrored by PRICE_EXTREME, which is what serves when the data is thin'),
   'PRICE_EVAL_EXPENSIVE': M('PRICE_EVAL_EXPENSIVE', 'negative price remark about the flat on the table — the arbiter\'s own `expensive` lane'),
   // NOT A LANE: it logs and FALLS THROUGH (inbound.ts 7072) — a data-collector
   // record of every negative evaluation that the evidence boundary did NOT
