@@ -1,0 +1,939 @@
+{"at":1792779409582,"chatId":"gjorce-A","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792779413074,"chatId":"gjorce-B","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792779413613,"chatId":"gjorce-C","text":"VO KOJA NASELBA SE NAJEFTINI KUKJITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792779419776,"chatId":"per-m2-smaller","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779420790,"chatId":"per-m2-drained","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779420591,"chatId":"per-m2-inverted","text":"REKOV TAKVA CENA ZA KVADRAT AMA POMAL","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779420798,"chatId":"per-m2-drained","text":"REKOV TAKVA CENA ZA KVADRAT AMA POMAL","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779420811,"chatId":"per-m2-none","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779421111,"chatId":"golem-complaint","text":"GOLEM MI E NEKAKO","predicted":"FALLTHROUGH","actual":"GOLEM_SMALLER"}
+{"at":1792779421159,"chatId":"golem-none","text":"GOLEM MI E NEKAKO","predicted":"FALLTHROUGH","actual":"GOLEM_SMALLER_EMPTY"}
+{"at":1792779419978,"chatId":"pomalo-ask","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779420499,"chatId":"pomalo-garsonjera","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779421713,"chatId":"pomalo-1bed","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779422286,"chatId":"pomalo-2bed","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779422799,"chatId":"pomalo-once","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779430368,"chatId":"house-B","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779430932,"chatId":"house-D","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779430735,"chatId":"house-C","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779431078,"chatId":"house-D2","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779431330,"chatId":"biz-G","text":"DO 500 KVADRATI, IMAM 500000 EVRA BUDJET","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779431484,"chatId":"biz-F","text":"40 KVADRATI, DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779427114,"chatId":"house-A","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779421375,"chatId":"goran","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779425447,"chatId":"lina-2326","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779425737,"chatId":"lina-2326b","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779426564,"chatId":"jovan","text":"do 60000 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779426753,"chatId":"biz","text":"40 KVADRATI, DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779427451,"chatId":"vodno-confirm","text":"ZNACI NA VODNO E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792779427566,"chatId":"vodno-wrong","text":"ZNACI NA KARPOS E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792779427667,"chatId":"vodno-q","text":"dali e vo vodno?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792779427759,"chatId":"vodno-li","text":"vo vodno li e?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792779428484,"chatId":"zoki3","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792779428761,"chatId":"zoki3","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779428778,"chatId":"zoki3","text":"NE, NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779428922,"chatId":"zoki4","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779429128,"chatId":"zoki5","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792779429212,"chatId":"zoki5","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779429228,"chatId":"dogovori","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779429379,"chatId":"dogovori2","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779429641,"chatId":"budget","text":"SAKAM DA KUPAM STAN DO 50000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779432578,"chatId":"ping4","text":"NE MOZAM VO 18:00 DALI MOZE POKASNO","predicted":"VISIT_CANCEL","actual":"VISIT_CANCEL:owner_checking"}
+{"at":1792779436091,"chatId":"jane","text":"ZDRAVO\nMI TREBA STAN POD KIRIJA\nDO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779436735,"chatId":"poskapo","text":"A NESTO POSKAPO DO 1000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.evaluate"}
+{"at":1792779436793,"chatId":"kade","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779436869,"chatId":"adresa","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779436980,"chatId":"goran2","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779437708,"chatId":"prefixes","text":"DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779439058,"chatId":"kako1","text":"KAKO TOA ? DA PLATAM ZA POSETA ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792779440063,"chatId":"pres-nag","text":"SKAPO E TOA . ZA SEKOJ STAN PO 300DEN","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779440068,"chatId":"pres-nag","text":"MNOGU SE 300 DENARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779440073,"chatId":"pres-nag","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779440487,"chatId":"zoki","text":"okolu 70 000 evra bese","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779442238,"chatId":"marija","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779442664,"chatId":"ponuda","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779443014,"chatId":"malo","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779443817,"chatId":"eb-prefix-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779444061,"chatId":"eb-postverbal-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779445492,"chatId":"da-closing-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779445689,"chatId":"da-cyr-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779446783,"chatId":"garsonjera-client","text":"garsonjera mi treba do 250 evra mx","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779446935,"chatId":"garsonjera-miss","text":"garsonjera mi treba do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779447144,"chatId":"compliment","text":"DOBRA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792779447216,"chatId":"compliment-2","text":"dobra lokacija ima ovoj stan","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792779447390,"chatId":"enthusiasm-2102","text":"DO 185000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779447452,"chatId":"enthusiasm-2102","text":"ODLICNA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792779447461,"chatId":"enthusiasm-2102","text":"BAS TAKOV MI TREBA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792779449301,"chatId":"no-price-rent","text":"KOLKU E CENATA ZA STAN SO BROJ 90","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792779450258,"chatId":"lina-2253","text":"KOLKU MU E KIRIJA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792779450269,"chatId":"sweep-kukuca","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779450600,"chatId":"sweep-plac","text":"SAKAM DA KUPAM GARSONJERA VO KISELA VODA DO 60000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779450894,"chatId":"sweep-dvorce","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779451193,"chatId":"lina-1422-eval","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779451276,"chatId":"lina-1422-eval","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792779451285,"chatId":"lina-1422-renta","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779451358,"chatId":"lina-1422-renta","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792779451412,"chatId":"lina-1422-renta","text":"KOLKU MU E RENTA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792779451422,"chatId":"lina-1434-split","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779452829,"chatId":"lina-0923-ladder","text":"koja mu e lokacijata na 89?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792779453083,"chatId":"lina-0925-fee","text":"zematr provizija za poseta?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792779453094,"chatId":"lina-0905-pari","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779453223,"chatId":"lina-0905-pari","text":"ZEMATE PARI ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792779453505,"chatId":"lina-1242-time","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779453944,"chatId":"lina-1243-bare","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779454883,"chatId":"lina-1557-anchor","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779455173,"chatId":"lina-1605-ima","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779455373,"chatId":"lina-1605-switch","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779455625,"chatId":"lina-1606-waiting","text":"SAKAM DA IZNAJMAM STAN VO AERODROM DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779455780,"chatId":"lina-1606-waiting","text":"CEKAM USTE","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792779455786,"chatId":"lina-1606-waiting","text":"CEKAM","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792779455796,"chatId":"lina-2126-widen","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779456161,"chatId":"lina-2126-standdown","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779456349,"chatId":"lina-2215-protocol","text":"SAKAM DA KUPAM DVOSOBEN STAN VO NOVO LISICE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779456432,"chatId":"lina-2215-protocol","text":"TOCNATA ULICA I BROJ AKO MOZE?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792779457309,"chatId":"hold-owner","text":"NE GO KONTAKTIRAJ USTE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792779457313,"chatId":"hold-owner","text":"NE SME SE DOGOVORILE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792779457399,"chatId":"blixina","text":"STO USTE IMA VO BLIXINA NA STANOT","predicted":"PROPERTY_DESCRIPTION","actual":"NEARBY_ASK"}
+{"at":1792779476480,"chatId":"gjorce-A","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792779480324,"chatId":"gjorce-B","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792779481031,"chatId":"gjorce-C","text":"VO KOJA NASELBA SE NAJEFTINI KUKJITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792779487084,"chatId":"per-m2-smaller","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779488037,"chatId":"per-m2-inverted","text":"REKOV TAKVA CENA ZA KVADRAT AMA POMAL","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779488207,"chatId":"per-m2-drained","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779488213,"chatId":"per-m2-drained","text":"REKOV TAKVA CENA ZA KVADRAT AMA POMAL","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779488225,"chatId":"per-m2-none","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792779488530,"chatId":"golem-complaint","text":"GOLEM MI E NEKAKO","predicted":"FALLTHROUGH","actual":"GOLEM_SMALLER"}
+{"at":1792779488577,"chatId":"golem-none","text":"GOLEM MI E NEKAKO","predicted":"FALLTHROUGH","actual":"GOLEM_SMALLER_EMPTY"}
+{"at":1792779488143,"chatId":"pomalo-ask","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779488700,"chatId":"pomalo-garsonjera","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779489941,"chatId":"pomalo-1bed","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779490593,"chatId":"pomalo-2bed","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779491096,"chatId":"pomalo-once","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779494851,"chatId":"house-A","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779497989,"chatId":"house-B","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779498334,"chatId":"house-C","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779498540,"chatId":"house-D","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779498716,"chatId":"house-D2","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779498954,"chatId":"biz-G","text":"DO 500 KVADRATI, IMAM 500000 EVRA BUDJET","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779499136,"chatId":"biz-F","text":"40 KVADRATI, DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779488740,"chatId":"goran","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779492946,"chatId":"lina-2326","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779494086,"chatId":"jovan","text":"do 60000 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779494293,"chatId":"biz","text":"40 KVADRATI, DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779493236,"chatId":"lina-2326b","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779495070,"chatId":"vodno-wrong","text":"ZNACI NA KARPOS E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792779494968,"chatId":"vodno-confirm","text":"ZNACI NA VODNO E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792779495171,"chatId":"vodno-q","text":"dali e vo vodno?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792779496044,"chatId":"zoki3","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792779495319,"chatId":"vodno-li","text":"vo vodno li e?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792779496308,"chatId":"zoki3","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779496328,"chatId":"zoki3","text":"NE, NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779496458,"chatId":"zoki4","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779496677,"chatId":"zoki5","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792779496733,"chatId":"zoki5","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779496741,"chatId":"dogovori","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779496878,"chatId":"dogovori2","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779497125,"chatId":"budget","text":"SAKAM DA KUPAM STAN DO 50000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779499977,"chatId":"ping4","text":"NE MOZAM VO 18:00 DALI MOZE POKASNO","predicted":"VISIT_CANCEL","actual":"VISIT_CANCEL:owner_checking"}
+{"at":1792779503239,"chatId":"jane","text":"ZDRAVO\nMI TREBA STAN POD KIRIJA\nDO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779503824,"chatId":"poskapo","text":"A NESTO POSKAPO DO 1000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.evaluate"}
+{"at":1792779503879,"chatId":"kade","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779503949,"chatId":"adresa","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779504049,"chatId":"goran2","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779504711,"chatId":"prefixes","text":"DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779505973,"chatId":"kako1","text":"KAKO TOA ? DA PLATAM ZA POSETA ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792779506864,"chatId":"pres-nag","text":"SKAPO E TOA . ZA SEKOJ STAN PO 300DEN","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779506870,"chatId":"pres-nag","text":"MNOGU SE 300 DENARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779506874,"chatId":"pres-nag","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792779507276,"chatId":"zoki","text":"okolu 70 000 evra bese","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779508917,"chatId":"marija","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779509336,"chatId":"ponuda","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779509680,"chatId":"malo","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779510454,"chatId":"eb-prefix-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779510691,"chatId":"eb-postverbal-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779512075,"chatId":"da-closing-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779512262,"chatId":"da-cyr-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779513312,"chatId":"garsonjera-client","text":"garsonjera mi treba do 250 evra mx","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779513454,"chatId":"garsonjera-miss","text":"garsonjera mi treba do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779513669,"chatId":"compliment","text":"DOBRA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792779513740,"chatId":"compliment-2","text":"dobra lokacija ima ovoj stan","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792779513922,"chatId":"enthusiasm-2102","text":"DO 185000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779513991,"chatId":"enthusiasm-2102","text":"ODLICNA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792779514000,"chatId":"enthusiasm-2102","text":"BAS TAKOV MI TREBA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792779515825,"chatId":"no-price-rent","text":"KOLKU E CENATA ZA STAN SO BROJ 90","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792779516765,"chatId":"lina-2253","text":"KOLKU MU E KIRIJA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792779516776,"chatId":"sweep-kukuca","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779517092,"chatId":"sweep-plac","text":"SAKAM DA KUPAM GARSONJERA VO KISELA VODA DO 60000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779517389,"chatId":"sweep-dvorce","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779517673,"chatId":"lina-1422-eval","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779517746,"chatId":"lina-1422-eval","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792779517756,"chatId":"lina-1422-renta","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779517827,"chatId":"lina-1422-renta","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792779517876,"chatId":"lina-1422-renta","text":"KOLKU MU E RENTA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792779517886,"chatId":"lina-1434-split","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779519272,"chatId":"lina-0923-ladder","text":"koja mu e lokacijata na 89?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792779519524,"chatId":"lina-0925-fee","text":"zematr provizija za poseta?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792779519534,"chatId":"lina-0905-pari","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792779519651,"chatId":"lina-0905-pari","text":"ZEMATE PARI ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792779519925,"chatId":"lina-1242-time","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779520363,"chatId":"lina-1243-bare","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779521284,"chatId":"lina-1557-anchor","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779521551,"chatId":"lina-1605-ima","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779521751,"chatId":"lina-1605-switch","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779521995,"chatId":"lina-1606-waiting","text":"SAKAM DA IZNAJMAM STAN VO AERODROM DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779522152,"chatId":"lina-1606-waiting","text":"CEKAM USTE","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792779522157,"chatId":"lina-1606-waiting","text":"CEKAM","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792779522167,"chatId":"lina-2126-widen","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779522527,"chatId":"lina-2126-standdown","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779522712,"chatId":"lina-2215-protocol","text":"SAKAM DA KUPAM DVOSOBEN STAN VO NOVO LISICE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792779522790,"chatId":"lina-2215-protocol","text":"TOCNATA ULICA I BROJ AKO MOZE?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792779523642,"chatId":"hold-owner","text":"NE GO KONTAKTIRAJ USTE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792779523647,"chatId":"hold-owner","text":"NE SME SE DOGOVORILE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792779523728,"chatId":"blixina","text":"STO USTE IMA VO BLIXINA NA STANOT","predicted":"PROPERTY_DESCRIPTION","actual":"NEARBY_ASK"}
+{"at":1792779988849,"chatId":"gjorce-A","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792779992493,"chatId":"gjorce-B","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792779993038,"chatId":"gjorce-C","text":"VO KOJA NASELBA SE NAJEFTINI KUKJITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792780001136,"chatId":"per-m2-smaller","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792780001923,"chatId":"per-m2-inverted","text":"REKOV TAKVA CENA ZA KVADRAT AMA POMAL","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792780002093,"chatId":"per-m2-drained","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792780002112,"chatId":"per-m2-none","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792780002099,"chatId":"per-m2-drained","text":"REKOV TAKVA CENA ZA KVADRAT AMA POMAL","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792780002474,"chatId":"golem-complaint","text":"GOLEM MI E NEKAKO","predicted":"FALLTHROUGH","actual":"GOLEM_SMALLER"}
+{"at":1792780002516,"chatId":"golem-none","text":"GOLEM MI E NEKAKO","predicted":"FALLTHROUGH","actual":"GOLEM_SMALLER_EMPTY"}
+{"at":1792779999894,"chatId":"pomalo-ask","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780000499,"chatId":"pomalo-garsonjera","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780001869,"chatId":"pomalo-1bed","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780002508,"chatId":"pomalo-2bed","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780002990,"chatId":"pomalo-once","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780008763,"chatId":"house-A","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780012248,"chatId":"house-C","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780012497,"chatId":"house-D","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780012648,"chatId":"house-D2","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780012878,"chatId":"biz-G","text":"DO 500 KVADRATI, IMAM 500000 EVRA BUDJET","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780013044,"chatId":"biz-F","text":"40 KVADRATI, DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780011821,"chatId":"house-B","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780008379,"chatId":"goran","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780012228,"chatId":"lina-2326b","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780013155,"chatId":"jovan","text":"do 60000 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780011913,"chatId":"lina-2326","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780013996,"chatId":"vodno-confirm","text":"ZNACI NA VODNO E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792780013350,"chatId":"biz","text":"40 KVADRATI, DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780014183,"chatId":"vodno-q","text":"dali e vo vodno?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792780014095,"chatId":"vodno-wrong","text":"ZNACI NA KARPOS E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792780014274,"chatId":"vodno-li","text":"vo vodno li e?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792780014931,"chatId":"zoki3","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792780015182,"chatId":"zoki3","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780015326,"chatId":"zoki4","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780015201,"chatId":"zoki3","text":"NE, NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780015514,"chatId":"zoki5","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792780015567,"chatId":"zoki5","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780015574,"chatId":"dogovori","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780015722,"chatId":"dogovori2","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780015981,"chatId":"budget","text":"SAKAM DA KUPAM STAN DO 50000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780018426,"chatId":"ping4","text":"NE MOZAM VO 18:00 DALI MOZE POKASNO","predicted":"VISIT_CANCEL","actual":"VISIT_CANCEL:owner_checking"}
+{"at":1792780021646,"chatId":"jane","text":"ZDRAVO\nMI TREBA STAN POD KIRIJA\nDO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780022228,"chatId":"poskapo","text":"A NESTO POSKAPO DO 1000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.evaluate"}
+{"at":1792780022283,"chatId":"kade","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780022353,"chatId":"adresa","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780022452,"chatId":"goran2","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780023098,"chatId":"prefixes","text":"DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780024364,"chatId":"kako1","text":"KAKO TOA ? DA PLATAM ZA POSETA ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792780025248,"chatId":"pres-nag","text":"SKAPO E TOA . ZA SEKOJ STAN PO 300DEN","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780025253,"chatId":"pres-nag","text":"MNOGU SE 300 DENARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780025258,"chatId":"pres-nag","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780025648,"chatId":"zoki","text":"okolu 70 000 evra bese","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780027295,"chatId":"marija","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780027693,"chatId":"ponuda","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780028038,"chatId":"malo","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780028803,"chatId":"eb-prefix-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780029033,"chatId":"eb-postverbal-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780030424,"chatId":"da-closing-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780030610,"chatId":"da-cyr-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780031638,"chatId":"garsonjera-client","text":"garsonjera mi treba do 250 evra mx","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780031779,"chatId":"garsonjera-miss","text":"garsonjera mi treba do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780031978,"chatId":"compliment","text":"DOBRA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792780032045,"chatId":"compliment-2","text":"dobra lokacija ima ovoj stan","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792780032212,"chatId":"enthusiasm-2102","text":"DO 185000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780032272,"chatId":"enthusiasm-2102","text":"ODLICNA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792780032280,"chatId":"enthusiasm-2102","text":"BAS TAKOV MI TREBA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792780034049,"chatId":"no-price-rent","text":"KOLKU E CENATA ZA STAN SO BROJ 90","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792780034968,"chatId":"lina-2253","text":"KOLKU MU E KIRIJA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792780034979,"chatId":"sweep-kukuca","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780035281,"chatId":"sweep-plac","text":"SAKAM DA KUPAM GARSONJERA VO KISELA VODA DO 60000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780035568,"chatId":"sweep-dvorce","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780035852,"chatId":"lina-1422-eval","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780035930,"chatId":"lina-1422-eval","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792780035939,"chatId":"lina-1422-renta","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780036009,"chatId":"lina-1422-renta","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792780036057,"chatId":"lina-1422-renta","text":"KOLKU MU E RENTA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792780036068,"chatId":"lina-1434-split","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780037428,"chatId":"lina-0923-ladder","text":"koja mu e lokacijata na 89?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792780037676,"chatId":"lina-0925-fee","text":"zematr provizija za poseta?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792780037686,"chatId":"lina-0905-pari","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780037799,"chatId":"lina-0905-pari","text":"ZEMATE PARI ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792780038094,"chatId":"lina-1242-time","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780038527,"chatId":"lina-1243-bare","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780039426,"chatId":"lina-1557-anchor","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780039688,"chatId":"lina-1605-ima","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780039889,"chatId":"lina-1605-switch","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780040134,"chatId":"lina-1606-waiting","text":"SAKAM DA IZNAJMAM STAN VO AERODROM DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780040283,"chatId":"lina-1606-waiting","text":"CEKAM USTE","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792780040289,"chatId":"lina-1606-waiting","text":"CEKAM","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792780040299,"chatId":"lina-2126-widen","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780040644,"chatId":"lina-2126-standdown","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780040821,"chatId":"lina-2215-protocol","text":"SAKAM DA KUPAM DVOSOBEN STAN VO NOVO LISICE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780040900,"chatId":"lina-2215-protocol","text":"TOCNATA ULICA I BROJ AKO MOZE?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792780041727,"chatId":"hold-owner","text":"NE GO KONTAKTIRAJ USTE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792780041731,"chatId":"hold-owner","text":"NE SME SE DOGOVORILE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792780041816,"chatId":"blixina","text":"STO USTE IMA VO BLIXINA NA STANOT","predicted":"PROPERTY_DESCRIPTION","actual":"NEARBY_ASK"}
+{"at":1792780535346,"chatId":"drift-c1","text":"MNOGU EFTINA CENA E TOA","predicted":"FEE_PUSH","actual":"PRICE_EVAL_CHEAP"}
+{"at":1792780577432,"chatId":"v16k11-vlae","text":"BARAM STAN SO EDNA SPALNA DO 100000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780583157,"chatId":"v16k11-exit","text":"moram da prekina","predicted":"FALLTHROUGH","actual":"EXIT_CHECK"}
+{"at":1792780583166,"chatId":"v16k11-exit","text":"ne","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792780583175,"chatId":"v16k11-exit","text":"se predomisliv","predicted":"FALLTHROUGH","actual":"EXIT_CHECK"}
+{"at":1792780581076,"chatId":"ladder-live","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780581415,"chatId":"ladder-live","text":"OVA PRV PAT SLUSAM","predicted":"FEE_WHY","actual":"FEE_FIRST_TIME:fast"}
+{"at":1792780581530,"chatId":"ladder-live","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780581825,"chatId":"field-2312","text":"NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780581817,"chatId":"field-2312","text":"VIE STE PRVA AGENCIJA STO NAPLAKJA ZA POSETA","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792780581833,"chatId":"field-2312","text":"SKAPO E TOA . ZA SEKOJ STAN PO 300DEN","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582044,"chatId":"field-1025","text":"KAKO MOZE DA ZEMATE PARI ZA POKAZUVANJE NA IMOTI?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792780582038,"chatId":"field-1025","text":"NE SAKAM DA PLAKJAM ZA POSETI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582052,"chatId":"field-1025","text":"PA PROMENETE GI PRAVILATA ZOSTO OVA STVARNO NE E NORMALNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582247,"chatId":"ladder-no","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582267,"chatId":"ladder-no","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582273,"chatId":"ladder-no","text":"USTE MI BARATE PARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582281,"chatId":"ladder-no","text":"NE, NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582533,"chatId":"chain-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780582552,"chatId":"chain-78","text":"NEZNAM , OVA NE GO OCEKUVAV . SITE AGENCII PRAVAT POSETI BESPLATNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582560,"chatId":"chain-78","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792780582569,"chatId":"chain-78","text":"NE SAKAM DA PLATAM ZA POSETA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582832,"chatId":"positive-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780583159,"chatId":"bye-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780583165,"chatId":"bye-78","text":"NE FALA, CAO","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792780583402,"chatId":"chain-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780583411,"chatId":"chain-79","text":"NEZNAM , OVA NE GO OCEKUVAV . SITE AGENCII PRAVAT POSETI BESPLATNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780583417,"chatId":"chain-79","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792780583424,"chatId":"chain-79","text":"NE SAKAM DA PLATAM ZA POSETA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780583655,"chatId":"positive-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780584008,"chatId":"bye-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780584015,"chatId":"bye-79","text":"NE FALA, CAO","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792780584213,"chatId":"hesitation-buy","text":"NEZNAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780584549,"chatId":"ladder-kaj","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792780584778,"chatId":"ladder-yes","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780584788,"chatId":"ladder-yes","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780582630,"chatId":"business-budget-residential","text":"Колку чини стан во Центар?","predicted":"FALLTHROUGH","actual":"PRICE_ASK:fast"}
+{"at":1792780583001,"chatId":"v16k11-fee-amount","text":"KOLKU KE ME KOSTA 10 POSETI?","predicted":"NEGOTIATE","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792780582986,"chatId":"v16k11-fee-amount","text":"KOLKU E ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792780583055,"chatId":"v16k11-fee-agnostic","text":"KOLKU E ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792780583941,"chatId":"v16k11-multivisit","text":"PA AKO POSETAM 10 STANA TOA SE 5000DEN NA GLADNO?","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792780583365,"chatId":"v16k11-price-kept","text":"KOLKU E KIRIJATA ZA STANOT?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792780584014,"chatId":"v16k11-math-idle","text":"ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT"}
+{"at":1792780580594,"chatId":"agent-attendance-195","text":"TI KE DOJDES SO MENE NA POSETA AKO ODBERAM STAN?","predicted":"FALLTHROUGH","actual":"AGENT_ATTENDANCE_ASK"}
+{"at":1792780584472,"chatId":"v16k11-rules","text":"тоа се правилата на агенцијата кои важат и за мене и за Вас","predicted":"FALLTHROUGH","actual":"FEE_RULES"}
+{"at":1792780584871,"chatId":"v16k11-bye","text":"ne otkazi\nne sakam da plakjam za otvaranje na stan","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780584886,"chatId":"v16k11-bye","text":"ne fala ti\ncao","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792780584879,"chatId":"v16k11-bye","text":"ne sakam","predicted":"FALLTHROUGH","actual":"SOFT_REFUSAL"}
+{"at":1792780585886,"chatId":"v16k11-why","text":"samo vie rabotite taka\nnikoj ne zema pari za poseta","predicted":"FEE_WHY","actual":"ROUTE_UNKNOWN:unknown.fee.assert"}
+{"at":1792780586522,"chatId":"v16k11-math","text":"ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792780586931,"chatId":"v16k11-negpay","text":"ne otkazi\nne sakam da plakjam za otvaranje na stan","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780586986,"chatId":"prov-fresh-idle","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792780587039,"chatId":"v16k11-why-reversed","text":"Pari zemate za posetam?\nZosto?","predicted":"FEE_WHY","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792780587578,"chatId":"rent-300-ladder","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780587592,"chatId":"rent-300-ladder","text":"PA I TI VAKA RABOTIS. NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780587907,"chatId":"rent-300-nag-grammar","text":"PARI ZEMATE ZA POSETA ?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792780587918,"chatId":"rent-300-nag-grammar","text":"NIKOJ NE NAPLATUVA ZA POSETA SAMO KAJ VAS","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780587913,"chatId":"rent-300-nag-grammar","text":"MNOGU NEKAKO 300DEN ZA OTVARANJE NA STAN","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780587924,"chatId":"rent-300-nag-grammar","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780588260,"chatId":"buy-500-nag-grammar","text":"MNOGU NEKAKO 500DEN ZA OTVARANJE NA STAN","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780588266,"chatId":"buy-500-nag-grammar","text":"NIKOJ NE NAPLATUVA ZA POSETA SAMO KAJ VAS","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792780588273,"chatId":"buy-500-nag-grammar","text":"PA I TI VAKA RABOTIS. NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780588612,"chatId":"buy-500-ladder","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780588624,"chatId":"buy-500-ladder","text":"NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780589063,"chatId":"rent-300-cases","text":"AKO POSETAM 10 STANA TOA SE 3000 DEN OD MOJ DJEB","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792780589502,"chatId":"rent-commission-ladder","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780589202,"chatId":"rent-300-cases","text":"KOLKU MU E KIRIJATA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792780589509,"chatId":"rent-commission-ladder","text":"PROVIZIJATA E PREVISOKA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780589514,"chatId":"rent-commission-ladder","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780589519,"chatId":"rent-commission-ladder","text":"NEMA DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780589808,"chatId":"shape-0","text":"NE SAKAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780590100,"chatId":"shape-1","text":"NEMA DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780590427,"chatId":"shape-2","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780590802,"chatId":"shape-3","text":"PROVIZIJATA NE JA PLAKJAM","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780591457,"chatId":"shape-5","text":"нема да платам провизија","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780591133,"chatId":"shape-4","text":"ПРОВИЗИЈАТА НЕ ЈА ПРИФАЌАМ","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780591804,"chatId":"isolation-a","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780591811,"chatId":"isolation-a","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780592124,"chatId":"isolation-b","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780592879,"chatId":"v16k11-bye-again","text":"ne fala","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792780592883,"chatId":"v16k11-bye-again","text":"cao","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792780592129,"chatId":"isolation-b","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780592833,"chatId":"rent-commission-ask","text":"KOLKU E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792780592470,"chatId":"buy-commission","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792780595692,"chatId":"negated-agree-e2e","text":"ne se soglasuvam, skapo e","predicted":"FALLTHROUGH","actual":"PRICE_EVAL_EXPENSIVE_UNWIRED"}
+{"at":1792780595906,"chatId":"negated-agree-e2e","text":"da, se soglasuvam, ke platam","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fee.assert"}
+{"at":1792780626952,"chatId":"eb57-choice","text":"KE DADAM 400 E","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792780626939,"chatId":"eb57-choice","text":"KE DADAM 115000","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792780628567,"chatId":"goran","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780632893,"chatId":"lena","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780633268,"chatId":"ivo","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780640558,"chatId":"house-A","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780643826,"chatId":"house-B","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780644414,"chatId":"house-D","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780644572,"chatId":"house-D2","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780644193,"chatId":"house-C","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780644832,"chatId":"biz-G","text":"DO 500 KVADRATI, IMAM 500000 EVRA BUDJET","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780645019,"chatId":"biz-F","text":"40 KVADRATI, DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780638642,"chatId":"lina-2326","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780639813,"chatId":"jovan","text":"do 60000 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780640012,"chatId":"biz","text":"40 KVADRATI, DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780640728,"chatId":"vodno-confirm","text":"ZNACI NA VODNO E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792780640827,"chatId":"vodno-wrong","text":"ZNACI NA KARPOS E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792780640926,"chatId":"vodno-q","text":"dali e vo vodno?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792780641026,"chatId":"vodno-li","text":"vo vodno li e?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792780641758,"chatId":"zoki3","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792780642033,"chatId":"zoki3","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780642050,"chatId":"zoki3","text":"NE, NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780642210,"chatId":"zoki4","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780642417,"chatId":"zoki5","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792780642475,"chatId":"zoki5","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780642483,"chatId":"dogovori","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780642636,"chatId":"dogovori2","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780642916,"chatId":"budget","text":"SAKAM DA KUPAM STAN DO 50000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780634432,"chatId":"goran","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780638953,"chatId":"lina-2326b","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780645705,"chatId":"ping4","text":"NE MOZAM VO 18:00 DALI MOZE POKASNO","predicted":"VISIT_CANCEL","actual":"VISIT_CANCEL:owner_checking"}
+{"at":1792780649019,"chatId":"jane","text":"ZDRAVO\nMI TREBA STAN POD KIRIJA\nDO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780649612,"chatId":"poskapo","text":"A NESTO POSKAPO DO 1000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.evaluate"}
+{"at":1792780649666,"chatId":"kade","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780649737,"chatId":"adresa","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780649838,"chatId":"goran2","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780650521,"chatId":"prefixes","text":"DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780651782,"chatId":"kako1","text":"KAKO TOA ? DA PLATAM ZA POSETA ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792780652696,"chatId":"pres-nag","text":"SKAPO E TOA . ZA SEKOJ STAN PO 300DEN","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780652702,"chatId":"pres-nag","text":"MNOGU SE 300 DENARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780652707,"chatId":"pres-nag","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792780653125,"chatId":"zoki","text":"okolu 70 000 evra bese","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780654806,"chatId":"marija","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780655225,"chatId":"ponuda","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780655559,"chatId":"malo","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780656341,"chatId":"eb-prefix-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780656571,"chatId":"eb-postverbal-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780657971,"chatId":"da-closing-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780658169,"chatId":"da-cyr-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780659235,"chatId":"garsonjera-client","text":"garsonjera mi treba do 250 evra mx","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780659379,"chatId":"garsonjera-miss","text":"garsonjera mi treba do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780659573,"chatId":"compliment","text":"DOBRA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792780659638,"chatId":"compliment-2","text":"dobra lokacija ima ovoj stan","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792780659809,"chatId":"enthusiasm-2102","text":"DO 185000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780659871,"chatId":"enthusiasm-2102","text":"ODLICNA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792780659880,"chatId":"enthusiasm-2102","text":"BAS TAKOV MI TREBA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792780661666,"chatId":"no-price-rent","text":"KOLKU E CENATA ZA STAN SO BROJ 90","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792780662626,"chatId":"lina-2253","text":"KOLKU MU E KIRIJA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792780662637,"chatId":"sweep-kukuca","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780662960,"chatId":"sweep-plac","text":"SAKAM DA KUPAM GARSONJERA VO KISELA VODA DO 60000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780663247,"chatId":"sweep-dvorce","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780663531,"chatId":"lina-1422-eval","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780663608,"chatId":"lina-1422-eval","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792780663618,"chatId":"lina-1422-renta","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780663693,"chatId":"lina-1422-renta","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792780663744,"chatId":"lina-1422-renta","text":"KOLKU MU E RENTA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792780663753,"chatId":"lina-1434-split","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780665143,"chatId":"lina-0923-ladder","text":"koja mu e lokacijata na 89?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792780665398,"chatId":"lina-0925-fee","text":"zematr provizija za poseta?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792780665407,"chatId":"lina-0905-pari","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792780665524,"chatId":"lina-0905-pari","text":"ZEMATE PARI ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792780665804,"chatId":"lina-1242-time","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780666229,"chatId":"lina-1243-bare","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780667154,"chatId":"lina-1557-anchor","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780667424,"chatId":"lina-1605-ima","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780667618,"chatId":"lina-1605-switch","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780667860,"chatId":"lina-1606-waiting","text":"SAKAM DA IZNAJMAM STAN VO AERODROM DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780668013,"chatId":"lina-1606-waiting","text":"CEKAM USTE","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792780668019,"chatId":"lina-1606-waiting","text":"CEKAM","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792780668029,"chatId":"lina-2126-widen","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780668399,"chatId":"lina-2126-standdown","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780668586,"chatId":"lina-2215-protocol","text":"SAKAM DA KUPAM DVOSOBEN STAN VO NOVO LISICE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792780668664,"chatId":"lina-2215-protocol","text":"TOCNATA ULICA I BROJ AKO MOZE?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792780669516,"chatId":"hold-owner","text":"NE GO KONTAKTIRAJ USTE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792780669520,"chatId":"hold-owner","text":"NE SME SE DOGOVORILE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792780669600,"chatId":"blixina","text":"STO USTE IMA VO BLIXINA NA STANOT","predicted":"PROPERTY_DESCRIPTION","actual":"NEARBY_ASK"}
+{"at":1792786980307,"chatId":"client-1","text":"a 44 dali se prodava uste. taa kukja bese vo vizbegovo ako dobro pamtam","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792787097080,"chatId":"client-1","text":"koja i bese cenata uste ednas?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792787523700,"chatId":"client-1","text":"cenata za 44 ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792787582896,"chatId":"client-1","text":"44 e 130000 evra kaj vas na stranicata","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792797472345,"chatId":"eb44-repro","text":"sakam da kupam kuka vo skopje sever do 170000 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792797475500,"chatId":"eb44-repro","text":"koja i bese cenata uste ednas?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792797475661,"chatId":"eb44-repro","text":"cenata za 44 ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792797475827,"chatId":"eb44-repro","text":"44 e 130000 evra kaj vas na stranicata","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798895004,"chatId":"budget-up","text":"SAKAM DA KUPAM STAN VO KISELA VODA, 2 SPALNI, DO 50000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792798895004,"chatId":"cap-e2e","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792798911367,"chatId":"closing-more-ask-cena","text":"a drugi stanovi do taa cena imate?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792798911773,"chatId":"closing-fee-lane","text":"pari za poseta / nesto novo","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fee.assert"}
+{"at":1792798914166,"chatId":"contact-req-e2e-2","text":"javete se na sopstvenikot","predicted":"FALLTHROUGH","actual":"PROXY_CONTACT"}
+{"at":1792798920380,"chatId":"counter-offer-test","text":"dali moze za 150 e","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792798919621,"chatId":"v16k11-vlae","text":"BARAM STAN SO EDNA SPALNA DO 100000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792798925330,"chatId":"v16k11-exit","text":"moram da prekina","predicted":"FALLTHROUGH","actual":"EXIT_CHECK"}
+{"at":1792798925335,"chatId":"v16k11-exit","text":"ne","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792798925341,"chatId":"v16k11-exit","text":"se predomisliv","predicted":"FALLTHROUGH","actual":"EXIT_CHECK"}
+{"at":1792798931575,"chatId":"capture-1611-noplace","text":"KOLKU E DALEKU OD STANOT?","predicted":"DISTANCE","actual":"INFO_ASK"}
+{"at":1792798941797,"chatId":"eb57-choice","text":"KE DADAM 115000","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792798941806,"chatId":"eb57-choice","text":"KE DADAM 400 E","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792798943456,"chatId":"eb57-e2e","text":"deloven prostor do 1000 evra vo centar","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798952529,"chatId":"eb63-control","text":"stan do 40000 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792798961098,"chatId":"p4-e2e","text":"proba test edna dva tri","predicted":"FALLTHROUGH","actual":"TEST_ORPHAN"}
+{"at":1792798961275,"chatId":"p4-e2e","text":"proba test cetiri pet sest","predicted":"FALLTHROUGH","actual":"TEST_SEEDED"}
+{"at":1792798955703,"chatId":"invest-cyr","text":"DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798957486,"chatId":"invest-cyr","text":"MISLAM DEKA CENITE SE PREVISOKI ZA TOJ REON","predicted":"FALLTHROUGH","actual":"PRICE_EVAL_EXPENSIVE_UNWIRED"}
+{"at":1792798958723,"chatId":"invest-lat","text":"DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798959751,"chatId":"closing-digress","text":"MISLAM DEKA CENITE SE PREVISOKI","predicted":"FALLTHROUGH","actual":"PRICE_EVAL_EXPENSIVE_UNWIRED"}
+{"at":1792798959477,"chatId":"closing-digress","text":"DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798960055,"chatId":"fee-log","text":"DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798961204,"chatId":"gate-check","text":"DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798961635,"chatId":"prov-danok-buy","text":"DO 90000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798961838,"chatId":"prov-danok-buy","text":"KOJ GO PLAKJA DANOKOT ?","predicted":"FALLTHROUGH","actual":"PROVISION_WHO"}
+{"at":1792798962073,"chatId":"prov-who-buy","text":"DO 90000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798962238,"chatId":"prov-who-buy","text":"KOJ GO PLAKJA ADVOKATOT ?","predicted":"FALLTHROUGH","actual":"PROVISION_WHO"}
+{"at":1792798962358,"chatId":"prov-danok-rent","text":"DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798962455,"chatId":"prov-danok-rent","text":"KOJ GO PLAKJA ADVOKATOT ?","predicted":"FALLTHROUGH","actual":"PROVISION_WHO"}
+{"at":1792798962680,"chatId":"prov-ask-buy","text":"DO 90000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798962870,"chatId":"prov-ask-buy","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792798963136,"chatId":"prov-ask-rent","text":"DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792798963243,"chatId":"prov-ask-rent","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792798973548,"chatId":"fee-counter-test","text":"10 EVRA NE E BAS SIMBOLICNA CENA . 1 EVRO E SIMBOLICNA CENA ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792798974856,"chatId":"ladder-live","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798975072,"chatId":"ladder-live","text":"OVA PRV PAT SLUSAM","predicted":"FEE_WHY","actual":"FEE_FIRST_TIME:fast"}
+{"at":1792798975234,"chatId":"ladder-live","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798975800,"chatId":"field-2312","text":"VIE STE PRVA AGENCIJA STO NAPLAKJA ZA POSETA","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792798975809,"chatId":"field-2312","text":"NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798975816,"chatId":"field-2312","text":"SKAPO E TOA . ZA SEKOJ STAN PO 300DEN","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976030,"chatId":"field-1025","text":"NE SAKAM DA PLAKJAM ZA POSETI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976038,"chatId":"field-1025","text":"KAKO MOZE DA ZEMATE PARI ZA POKAZUVANJE NA IMOTI?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792798976051,"chatId":"field-1025","text":"PA PROMENETE GI PRAVILATA ZOSTO OVA STVARNO NE E NORMALNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976276,"chatId":"ladder-no","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976283,"chatId":"ladder-no","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976290,"chatId":"ladder-no","text":"USTE MI BARATE PARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976299,"chatId":"ladder-no","text":"NE, NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976552,"chatId":"chain-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798976572,"chatId":"chain-78","text":"NEZNAM , OVA NE GO OCEKUVAV . SITE AGENCII PRAVAT POSETI BESPLATNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976581,"chatId":"chain-78","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792798976589,"chatId":"chain-78","text":"NE SAKAM DA PLATAM ZA POSETA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798976849,"chatId":"positive-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798977302,"chatId":"bye-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798977320,"chatId":"bye-78","text":"NE FALA, CAO","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792798977556,"chatId":"chain-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798977565,"chatId":"chain-79","text":"NEZNAM , OVA NE GO OCEKUVAV . SITE AGENCII PRAVAT POSETI BESPLATNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798977571,"chatId":"chain-79","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792798977577,"chatId":"chain-79","text":"NE SAKAM DA PLATAM ZA POSETA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798977756,"chatId":"positive-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798978029,"chatId":"bye-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798978033,"chatId":"bye-79","text":"NE FALA, CAO","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792798978227,"chatId":"hesitation-buy","text":"NEZNAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798978571,"chatId":"ladder-kaj","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792798978753,"chatId":"ladder-yes","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798978759,"chatId":"ladder-yes","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798985872,"chatId":"nesto-novo","text":"OVA E NESTO NOVO ?","predicted":"FALLTHROUGH","actual":"FEE_SURPRISE:fast"}
+{"at":1792798978461,"chatId":"business-budget-residential","text":"Колку чини стан во Центар?","predicted":"FALLTHROUGH","actual":"PRICE_ASK:fast"}
+{"at":1792798976257,"chatId":"agent-attendance-195","text":"TI KE DOJDES SO MENE NA POSETA AKO ODBERAM STAN?","predicted":"FALLTHROUGH","actual":"AGENT_ATTENDANCE_ASK"}
+{"at":1792798978867,"chatId":"v16k11-fee-amount","text":"KOLKU E ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792798978883,"chatId":"v16k11-fee-amount","text":"KOLKU KE ME KOSTA 10 POSETI?","predicted":"NEGOTIATE","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792798978958,"chatId":"v16k11-fee-agnostic","text":"KOLKU E ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792798979356,"chatId":"v16k11-price-kept","text":"KOLKU E KIRIJATA ZA STANOT?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792798979798,"chatId":"v16k11-multivisit","text":"PA AKO POSETAM 10 STANA TOA SE 5000DEN NA GLADNO?","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792798979868,"chatId":"v16k11-math-idle","text":"ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT"}
+{"at":1792798980335,"chatId":"v16k11-rules","text":"тоа се правилата на агенцијата кои важат и за мене и за Вас","predicted":"FALLTHROUGH","actual":"FEE_RULES"}
+{"at":1792798980768,"chatId":"v16k11-bye","text":"ne otkazi\nne sakam da plakjam za otvaranje na stan","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798980775,"chatId":"v16k11-bye","text":"ne sakam","predicted":"FALLTHROUGH","actual":"SOFT_REFUSAL"}
+{"at":1792798980783,"chatId":"v16k11-bye","text":"ne fala ti\ncao","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792798981853,"chatId":"v16k11-why","text":"samo vie rabotite taka\nnikoj ne zema pari za poseta","predicted":"FEE_WHY","actual":"ROUTE_UNKNOWN:unknown.fee.assert"}
+{"at":1792798982499,"chatId":"v16k11-math","text":"ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792798982891,"chatId":"v16k11-negpay","text":"ne otkazi\nne sakam da plakjam za otvaranje na stan","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798982929,"chatId":"prov-fresh-idle","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792798982985,"chatId":"v16k11-why-reversed","text":"Pari zemate za posetam?\nZosto?","predicted":"FEE_WHY","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792798983588,"chatId":"rent-300-ladder","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798983601,"chatId":"rent-300-ladder","text":"PA I TI VAKA RABOTIS. NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798983916,"chatId":"rent-300-nag-grammar","text":"PARI ZEMATE ZA POSETA ?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792798983923,"chatId":"rent-300-nag-grammar","text":"MNOGU NEKAKO 300DEN ZA OTVARANJE NA STAN","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798983929,"chatId":"rent-300-nag-grammar","text":"NIKOJ NE NAPLATUVA ZA POSETA SAMO KAJ VAS","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798983935,"chatId":"rent-300-nag-grammar","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798984295,"chatId":"buy-500-nag-grammar","text":"MNOGU NEKAKO 500DEN ZA OTVARANJE NA STAN","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798984300,"chatId":"buy-500-nag-grammar","text":"NIKOJ NE NAPLATUVA ZA POSETA SAMO KAJ VAS","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792798984306,"chatId":"buy-500-nag-grammar","text":"PA I TI VAKA RABOTIS. NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798984630,"chatId":"buy-500-ladder","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798984640,"chatId":"buy-500-ladder","text":"NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798985038,"chatId":"rent-300-cases","text":"AKO POSETAM 10 STANA TOA SE 3000 DEN OD MOJ DJEB","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792798985121,"chatId":"rent-300-cases","text":"KOLKU MU E KIRIJATA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792798985524,"chatId":"rent-commission-ladder","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798985531,"chatId":"rent-commission-ladder","text":"PROVIZIJATA E PREVISOKA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798985536,"chatId":"rent-commission-ladder","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798985547,"chatId":"rent-commission-ladder","text":"NEMA DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798985870,"chatId":"shape-0","text":"NE SAKAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798986243,"chatId":"shape-1","text":"NEMA DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798986588,"chatId":"shape-2","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798986981,"chatId":"shape-3","text":"PROVIZIJATA NE JA PLAKJAM","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798987451,"chatId":"shape-4","text":"ПРОВИЗИЈАТА НЕ ЈА ПРИФАЌАМ","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798987764,"chatId":"shape-5","text":"нема да платам провизија","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798988110,"chatId":"isolation-a","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798988117,"chatId":"isolation-a","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798988455,"chatId":"isolation-b","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792798989120,"chatId":"rent-commission-ask","text":"KOLKU E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792798989177,"chatId":"v16k11-bye-again","text":"ne fala","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792798989196,"chatId":"v16k11-bye-again","text":"cao","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792798988777,"chatId":"buy-commission","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798988460,"chatId":"isolation-b","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792798992384,"chatId":"fd-praise","text":"odlicna lokacija","predicted":"FALLTHROUGH","actual":"FEEDDOWN:fast"}
+{"at":1792799003391,"chatId":"gjorce-B","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799003943,"chatId":"gjorce-C","text":"VO KOJA NASELBA SE NAJEFTINI KUKJITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799000135,"chatId":"gjorce-A","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799004893,"chatId":"gone-client","text":"ne, ne mi treba","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792799015872,"chatId":"info-year","text":"od koja godina e zgradata?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799016171,"chatId":"cold-year","text":"od koja godina e zgradata?","predicted":"FALLTHROUGH","actual":"INFO_ASK_YEAR"}
+{"at":1792799016242,"chatId":"cold","text":"ZDRAVO DALI STANOT 63 IMA GREJNO?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799016255,"chatId":"parking","text":"KAKO E RESENO PARKIRANJETO ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799016321,"chatId":"info-c","text":"kolku e garsonjerata ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799016649,"chatId":"info-d","text":"kaj 69 kolku kvadrati ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799016780,"chatId":"info-d","text":"kolku e ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799016811,"chatId":"info-f","text":"dali 69 ima klima ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799016947,"chatId":"gloss","text":"na koj kat e garsonjerata ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799016951,"chatId":"gloss","text":"sto znaci toa suteren ?","predicted":"FALLTHROUGH","actual":"GLOSSARY"}
+{"at":1792799016954,"chatId":"gloss","text":"dali e vkopan ?","predicted":"FALLTHROUGH","actual":"GLOSSARY"}
+{"at":1792799016958,"chatId":"gloss","text":"dali e pod zemja ?","predicted":"FALLTHROUGH","actual":"GLOSSARY"}
+{"at":1792799016962,"chatId":"gloss","text":"dali e podrum ?","predicted":"FALLTHROUGH","actual":"GLOSSARY"}
+{"at":1792799017001,"chatId":"gloss","text":"na koj kat e ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799020544,"chatId":"perm2","text":"kolku mu e cena po m2 na 84 ?","predicted":"MARKET_PRICE","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799020552,"chatId":"perm2","text":"kolku kvadrati ima ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799031469,"chatId":"invest-verb-test","text":"MNOGU SE POSKAPEA STANOVIVE","predicted":"FALLTHROUGH","actual":"INVESTMENT_OPINION:fast"}
+{"at":1792799032509,"chatId":"ladder-client","text":"tocnata ulica i broj","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792799033020,"chatId":"ladder-client","text":"kade ima Градски парк tamu ?","predicted":"FALLTHROUGH","actual":"LANDMARK_LADDER"}
+{"at":1792799033178,"chatId":"ladder-client","text":"ne znam toa","predicted":"FALLTHROUGH","actual":"LANDMARK_LADDER"}
+{"at":1792799033185,"chatId":"ladder-client","text":"sto uste ima vo reonot?","predicted":"FALLTHROUGH","actual":"LANDMARK_LADDER"}
+{"at":1792799033922,"chatId":"i-sto-drugo","text":"I STO DRUGO?","predicted":"FALLTHROUGH","actual":"NEARBY_THREAD"}
+{"at":1792799044118,"chatId":"broz","text":"PISUVASE DO BROZ KAFE. BESE OKOLU 200 000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799053614,"chatId":"mention-client","text":"KOJA MU E LOKACIJATA NA STANOT KAJ DIMITAR MILADINOV ?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792799055727,"chatId":"mention-client","text":"koja mu e lokacijata na ovoj kaj ujp","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792799054084,"chatId":"bindaudit-client","text":"KOLKU E CENATA NA GARSONJERATA KAJ CRNOGORSKA AMBASADA?","predicted":"PROPERTY_DESCRIPTION","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799055470,"chatId":"bindaudit-client","text":"STO IMA VO BLIZINA NA GARSONJERATA KAJ CRNOGORSKA AMBASADA?","predicted":"PROPERTY_DESCRIPTION","actual":"NEARBY_ASK"}
+{"at":1792799055556,"chatId":"bindaudit-client","text":"KOLKU KVADRATI IMA GARSONJERATA KAJ CRNOGORSKA AMBASADA?","predicted":"PROPERTY_DESCRIPTION","actual":"INFO_ASK"}
+{"at":1792799056585,"chatId":"capture-1744","text":"KOJ TI E TOJ STAN PO 1286E PO M2","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799056709,"chatId":"capture-cheapest","text":"DAJ MI GO NAJEVTINIOT STAN VO AERODROM","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799056751,"chatId":"capture-dearest","text":"KOJ E NAJSKAPIOT STAN VO CENTAR?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799056804,"chatId":"capture-rent-cheapest","text":"KOJ E NAJEVTINIOT STAN ZA IZNAJMUVANJE VO AERODROM?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799056860,"chatId":"capture-cheapest-city","text":"POKAZI MI GO NAJEVTINIOT STAN","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799057034,"chatId":"karpos-1-nostrand","text":"KOJ E NAJEVTINIOT STAN?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799057047,"chatId":"karpos-3-dearest","text":"KOJ E NAJSKAPIOT STAN VO KARPOS 3?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799057081,"chatId":"no-sqm","text":"KOJ E NAJSKAPIOT STAN VO CENTAR?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799057282,"chatId":"scope-citywide","text":"KOJ E NAJEVTINIOT STAN?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799057344,"chatId":"cap-site","text":"POKAZI GI SITE NAJEVTINI STANOVI VO KARPOS","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799057419,"chatId":"comparative-cheaper","text":"DAJ MI POEVTINI STANOVI OD 1.200 EVRA ZA M2 VO AERODROM","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799057552,"chatId":"comparative-dearer","text":"POKAZI MI POSKAPI STANOVI OD 1.200 EVRA ZA M2 VO AERODROM","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799057648,"chatId":"value-total","text":"KOJ E STANOT OD 90.000 EVRA?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799058194,"chatId":"order-cheaper","text":"ПОЧНИ ОД ПОЕФТИНИТЕ ВО АЕРОДРОМ","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799058243,"chatId":"low-price","text":"KOJA E NAJNISKATA CENA VO AERODROM?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799058289,"chatId":"high-price","text":"KOJA E NAJVISOKATA CENA VO AERODROM?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799058352,"chatId":"naselba-avg","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799058395,"chatId":"naselba-avg-house","text":"VO KOJA NASELBA SE NAJEFTINI KUKJITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799058438,"chatId":"naselba-avg-guards","text":"KOJA E NAJNISKATA CENA VO AERODROM?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799058590,"chatId":"bare-value-21","text":"KOJ E STANOT OD 1250?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799058677,"chatId":"bare-value-18","text":"1250 EVRA — KOJ E?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799058728,"chatId":"rent-range","text":"KOJ E STANOT OD 300 EVRA?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799059092,"chatId":"fee-frame","text":"STANOT PO 1.200 EVRA ZA RAZGLEDUVANJE — KOJ E?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792799061033,"chatId":"list-paging","text":"POKAZI GI SITE STANOVI","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799061053,"chatId":"list-paging","text":"УШТЕ?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME_MORE"}
+{"at":1792799068106,"chatId":"misroute-e2e","text":"dali moze za 150 e","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792799068085,"chatId":"cap02","text":"DO 350 EVR","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799066938,"chatId":"cap02","text":"STO POBLISKU DO CENTAR","predicted":"FALLTHROUGH","actual":"LOCATION_NAG"}
+{"at":1792799086264,"chatId":"negated-agree-e2e","text":"ne se soglasuvam, skapo e","predicted":"FALLTHROUGH","actual":"PRICE_EVAL_EXPENSIVE_UNWIRED"}
+{"at":1792799086540,"chatId":"negated-agree-e2e","text":"da, se soglasuvam, ke platam","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fee.assert"}
+{"at":1792799096005,"chatId":"pin-1","text":"KOLKU E CENATA ZA STAN SO BROJ 90","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799103395,"chatId":"personal-1","text":"KAKO TI E IMETO?","predicted":"FALLTHROUGH","actual":"PERSONAL:name"}
+{"at":1792799103756,"chatId":"personal-1","text":"UBAVO IME IMAS","predicted":"FALLTHROUGH","actual":"PERSONAL:compliment"}
+{"at":1792799103885,"chatId":"personal-1","text":"KOLKU GODINI IMAS LINA ?","predicted":"FALLTHROUGH","actual":"PERSONAL:age"}
+{"at":1792799114644,"chatId":"eb77","text":"da ne e vo skopjanka ?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792799114922,"chatId":"eb77-kam","text":"da ne e kaj kam market ?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792799115215,"chatId":"eb77-area","text":"da ne e vo karpos ?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792799117691,"chatId":"pomalo-ask","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799118265,"chatId":"pomalo-garsonjera","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799119381,"chatId":"pomalo-1bed","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799120414,"chatId":"pomalo-2bed","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799121054,"chatId":"pomalo-once","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799121962,"chatId":"correction-test","text":"DALI E VOZMOZNA KOREKCIJA NA CENATA ?","predicted":"NEGOTIATE","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799122040,"chatId":"correction-test","text":"BI SAKAL DA SE NAMALI MALKU .","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792799127007,"chatId":"freshness-test","text":"a dali mu e uste taa cena ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799127967,"chatId":"cross-agreement-freshness","text":"a dali mu e uste taa cena ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799127800,"chatId":"freshness-negative-test","text":"kolku e cenata ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799128052,"chatId":"cross-agreement-freshness","text":"samo da proveram, taa cena od oglasot e ushte?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799129209,"chatId":"goran","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799133331,"chatId":"lena","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799133794,"chatId":"ivo","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799136817,"chatId":"burst-0005","text":"SAKAM DA KUPAM STAN VO AERODROM DO 150.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799137707,"chatId":"burst-0005","text":"E OVOJ MOZE","predicted":"FALLTHROUGH","actual":"PROPERTY_CHOICE:fast"}
+{"at":1792799137734,"chatId":"burst-0005","text":"ZA KOJ STAN STANUVA ZBOR ?","predicted":"FALLTHROUGH","actual":"WHICH_PROPERTY:fast"}
+{"at":1792799138136,"chatId":"burst-0005","text":"KOJA SIMBOLICNA CENA . 500DEN SE PARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799144536,"chatId":"rent-math-0036","text":"SAKAM STAN POD KIRIJA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799147303,"chatId":"rent-math-0036","text":"ZNACI 0D 250 EVRA 125 SE ZA VAS?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792799147323,"chatId":"rent-math-high","text":"SAKAM STAN POD KIRIJA VO CENTAR DO 1300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799147704,"chatId":"rent-math-high","text":"KOLKU E STANOT SO EVIDENTEN BROJ 42?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799147720,"chatId":"rent-math-high","text":"KOLKU TREBA DA NOSAM SO MENE ?","predicted":"DOCUMENTS_ASK","actual":"RENT_MATH:fast"}
+{"at":1792799160196,"chatId":"drift-c1","text":"MNOGU EFTINA CENA E TOA","predicted":"FEE_PUSH","actual":"PRICE_EVAL_CHEAP"}
+{"at":1792799168746,"chatId":"see-budget","text":"STO IMATE VO PONUDA DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799169768,"chatId":"pres-budget","text":"POMALO NESTO DO 300EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799172361,"chatId":"per-m2-smaller","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792799173097,"chatId":"per-m2-inverted","text":"REKOV TAKVA CENA ZA KVADRAT AMA POMAL","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792799173297,"chatId":"per-m2-drained","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792799173306,"chatId":"per-m2-drained","text":"REKOV TAKVA CENA ZA KVADRAT AMA POMAL","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792799173321,"chatId":"per-m2-none","text":"POMAL MI TREBA SO TAKVA CENA ZA KVADRAT","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.assert"}
+{"at":1792799173945,"chatId":"golem-complaint","text":"GOLEM MI E NEKAKO","predicted":"FALLTHROUGH","actual":"GOLEM_SMALLER"}
+{"at":1792799174009,"chatId":"golem-none","text":"GOLEM MI E NEKAKO","predicted":"FALLTHROUGH","actual":"GOLEM_SMALLER_EMPTY"}
+{"at":1792799197380,"chatId":"live-brain-shape","text":"kako izgleda okolinata, dali e mirno i zeleno ?","predicted":"FALLTHROUGH","actual":"NEARBY_ASK"}
+{"at":1792799184425,"chatId":"goran","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799189389,"chatId":"lina-2326","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799189838,"chatId":"lina-2326b","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799191140,"chatId":"jovan","text":"do 60000 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799191475,"chatId":"biz","text":"40 KVADRATI, DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799192499,"chatId":"vodno-confirm","text":"ZNACI NA VODNO E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792799192648,"chatId":"vodno-wrong","text":"ZNACI NA KARPOS E","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792799192775,"chatId":"vodno-q","text":"dali e vo vodno?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792799192897,"chatId":"vodno-li","text":"vo vodno li e?","predicted":"FALLTHROUGH","actual":"POI_CONFIRM"}
+{"at":1792799194120,"chatId":"zoki3","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792799194507,"chatId":"zoki3","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799194532,"chatId":"zoki3","text":"NE, NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799194761,"chatId":"zoki4","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799195139,"chatId":"zoki5","text":"zosto naplatuvate poseta ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792799195316,"chatId":"zoki5","text":"не сакам да платам","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799195342,"chatId":"dogovori","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799195678,"chatId":"dogovori2","text":"SAKAM DA KUPAM MALO STANCE VO AERODROM, DO 120.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799196076,"chatId":"budget","text":"SAKAM DA KUPAM STAN DO 50000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799200309,"chatId":"ping4","text":"NE MOZAM VO 18:00 DALI MOZE POKASNO","predicted":"VISIT_CANCEL","actual":"VISIT_CANCEL:owner_checking"}
+{"at":1792799206332,"chatId":"jane","text":"ZDRAVO\nMI TREBA STAN POD KIRIJA\nDO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799207410,"chatId":"poskapo","text":"A NESTO POSKAPO DO 1000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.evaluate"}
+{"at":1792799207509,"chatId":"kade","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799207653,"chatId":"adresa","text":"SAKAM DA KUPAM STAN VO CENTAR, 2 SPALNI, DO 40.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799207853,"chatId":"goran2","text":"SAKAM DA KUPAM MALO STANCE VO KISELA VODA, DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799209166,"chatId":"prefixes","text":"DO 60.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799211666,"chatId":"kako1","text":"KAKO TOA ? DA PLATAM ZA POSETA ?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792799213232,"chatId":"pres-nag","text":"SKAPO E TOA . ZA SEKOJ STAN PO 300DEN","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799213240,"chatId":"pres-nag","text":"MNOGU SE 300 DENARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799213247,"chatId":"pres-nag","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799214026,"chatId":"zoki","text":"okolu 70 000 evra bese","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799216548,"chatId":"marija","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799217136,"chatId":"ponuda","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799217666,"chatId":"malo","text":"do 500 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799218659,"chatId":"eb-prefix-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799218966,"chatId":"eb-postverbal-whereis","text":"do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799220748,"chatId":"da-closing-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799221019,"chatId":"da-cyr-regression","text":"SAKAM DA KUPAM STAN VO VODNO, DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799222522,"chatId":"garsonjera-client","text":"garsonjera mi treba do 250 evra mx","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799222757,"chatId":"garsonjera-miss","text":"garsonjera mi treba do 250 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799223016,"chatId":"compliment","text":"DOBRA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792799223100,"chatId":"compliment-2","text":"dobra lokacija ima ovoj stan","predicted":"FALLTHROUGH","actual":"REMARK:bank"}
+{"at":1792799223330,"chatId":"enthusiasm-2102","text":"DO 185000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799223463,"chatId":"enthusiasm-2102","text":"ODLICNA LOKACIJA IMA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792799223478,"chatId":"enthusiasm-2102","text":"BAS TAKOV MI TREBA","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792799226031,"chatId":"no-price-rent","text":"KOLKU E CENATA ZA STAN SO BROJ 90","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799227285,"chatId":"lina-2253","text":"KOLKU MU E KIRIJA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792799227297,"chatId":"sweep-kukuca","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799227720,"chatId":"sweep-plac","text":"SAKAM DA KUPAM GARSONJERA VO KISELA VODA DO 60000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799228073,"chatId":"sweep-dvorce","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799228454,"chatId":"lina-1422-eval","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799228602,"chatId":"lina-1422-eval","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792799228616,"chatId":"lina-1422-renta","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799228693,"chatId":"lina-1422-renta","text":"OVOJ 79 NE E LOS","predicted":"FALLTHROUGH","actual":"ENTHUSIASM:fast"}
+{"at":1792799228746,"chatId":"lina-1422-renta","text":"KOLKU MU E RENTA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792799228757,"chatId":"lina-1434-split","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799230706,"chatId":"lina-0923-ladder","text":"koja mu e lokacijata na 89?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792799231056,"chatId":"lina-0925-fee","text":"zematr provizija za poseta?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792799231067,"chatId":"lina-0905-pari","text":"SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799231229,"chatId":"lina-0905-pari","text":"ZEMATE PARI ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792799231699,"chatId":"lina-1242-time","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799232245,"chatId":"lina-1243-bare","text":"SAKAM DA IZNAJMAM DVOSOBEN STAN VO CENTAR DO 350 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799233559,"chatId":"lina-1557-anchor","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799233946,"chatId":"lina-1605-ima","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799234185,"chatId":"lina-1605-switch","text":"SAKAM DA IZNAJMAM STAN VO CENTAR DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799234535,"chatId":"lina-1606-waiting","text":"SAKAM DA IZNAJMAM STAN VO AERODROM DO 250 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799234717,"chatId":"lina-1606-waiting","text":"CEKAM USTE","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792799234723,"chatId":"lina-1606-waiting","text":"CEKAM","predicted":"FALLTHROUGH","actual":"WAITING:fast"}
+{"at":1792799234734,"chatId":"lina-2126-widen","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799235233,"chatId":"lina-2126-standdown","text":"SAKAM DA KUPAM DVOSOBEN STAN DO 120000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799235554,"chatId":"lina-2215-protocol","text":"SAKAM DA KUPAM DVOSOBEN STAN VO NOVO LISICE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799235651,"chatId":"lina-2215-protocol","text":"TOCNATA ULICA I BROJ AKO MOZE?","predicted":"WHERE_IS","actual":"EXACT_ADDRESS"}
+{"at":1792799236715,"chatId":"hold-owner","text":"NE GO KONTAKTIRAJ USTE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792799236720,"chatId":"hold-owner","text":"NE SME SE DOGOVORILE","predicted":"FALLTHROUGH","actual":"OWNER_HOLD:fast"}
+{"at":1792799236814,"chatId":"blixina","text":"STO USTE IMA VO BLIXINA NA STANOT","predicted":"PROPERTY_DESCRIPTION","actual":"NEARBY_ASK"}
+{"at":1792799257853,"chatId":"house-A","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799261483,"chatId":"house-C","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799261673,"chatId":"house-D","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799262014,"chatId":"biz-G","text":"DO 500 KVADRATI, IMAM 500000 EVRA BUDJET","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799261819,"chatId":"house-D2","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799262169,"chatId":"biz-F","text":"40 KVADRATI, DO 300 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799261111,"chatId":"house-B","text":"SAKAM DA KUPAM KUKJA VO VLAE DO 80000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799312088,"chatId":"budget-up","text":"SAKAM DA KUPAM STAN VO KISELA VODA, 2 SPALNI, DO 50000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799312829,"chatId":"cap-e2e","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792799328983,"chatId":"closing-more-ask-cena","text":"a drugi stanovi do taa cena imate?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799329500,"chatId":"closing-fee-lane","text":"pari za poseta / nesto novo","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fee.assert"}
+{"at":1792799331937,"chatId":"contact-req-e2e-2","text":"javete se na sopstvenikot","predicted":"FALLTHROUGH","actual":"PROXY_CONTACT"}
+{"at":1792799336392,"chatId":"counter-offer-test","text":"dali moze za 150 e","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792799337478,"chatId":"v16k11-vlae","text":"BARAM STAN SO EDNA SPALNA DO 100000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799342940,"chatId":"v16k11-exit","text":"moram da prekina","predicted":"FALLTHROUGH","actual":"EXIT_CHECK"}
+{"at":1792799342945,"chatId":"v16k11-exit","text":"ne","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792799342950,"chatId":"v16k11-exit","text":"se predomisliv","predicted":"FALLTHROUGH","actual":"EXIT_CHECK"}
+{"at":1792799348052,"chatId":"capture-1611-noplace","text":"KOLKU E DALEKU OD STANOT?","predicted":"DISTANCE","actual":"INFO_ASK"}
+{"at":1792799359094,"chatId":"eb57-choice","text":"KE DADAM 115000","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792799359109,"chatId":"eb57-choice","text":"KE DADAM 400 E","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792799360292,"chatId":"eb57-e2e","text":"deloven prostor do 1000 evra vo centar","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799369977,"chatId":"eb63-control","text":"stan do 40000 evra","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799378582,"chatId":"p4-e2e","text":"proba test edna dva tri","predicted":"FALLTHROUGH","actual":"TEST_ORPHAN"}
+{"at":1792799378705,"chatId":"p4-e2e","text":"proba test cetiri pet sest","predicted":"FALLTHROUGH","actual":"TEST_SEEDED"}
+{"at":1792799372227,"chatId":"invest-cyr","text":"DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799373806,"chatId":"invest-cyr","text":"MISLAM DEKA CENITE SE PREVISOKI ZA TOJ REON","predicted":"FALLTHROUGH","actual":"PRICE_EVAL_EXPENSIVE_UNWIRED"}
+{"at":1792799374906,"chatId":"invest-lat","text":"DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799375634,"chatId":"closing-digress","text":"DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799375905,"chatId":"closing-digress","text":"MISLAM DEKA CENITE SE PREVISOKI","predicted":"FALLTHROUGH","actual":"PRICE_EVAL_EXPENSIVE_UNWIRED"}
+{"at":1792799376182,"chatId":"fee-log","text":"DO 500 EVRA, DVOSOBEN","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799377125,"chatId":"gate-check","text":"DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799377461,"chatId":"prov-danok-buy","text":"DO 90000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799377698,"chatId":"prov-danok-buy","text":"KOJ GO PLAKJA DANOKOT ?","predicted":"FALLTHROUGH","actual":"PROVISION_WHO"}
+{"at":1792799377925,"chatId":"prov-who-buy","text":"DO 90000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799378085,"chatId":"prov-who-buy","text":"KOJ GO PLAKJA ADVOKATOT ?","predicted":"FALLTHROUGH","actual":"PROVISION_WHO"}
+{"at":1792799378192,"chatId":"prov-danok-rent","text":"DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799378281,"chatId":"prov-danok-rent","text":"KOJ GO PLAKJA ADVOKATOT ?","predicted":"FALLTHROUGH","actual":"PROVISION_WHO"}
+{"at":1792799378508,"chatId":"prov-ask-buy","text":"DO 90000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799378693,"chatId":"prov-ask-buy","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792799379000,"chatId":"prov-ask-rent","text":"DO 500 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.unknown.assert"}
+{"at":1792799379095,"chatId":"prov-ask-rent","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792799390206,"chatId":"fee-counter-test","text":"10 EVRA NE E BAS SIMBOLICNA CENA . 1 EVRO E SIMBOLICNA CENA ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799391669,"chatId":"ladder-live","text":"OVA PRV PAT SLUSAM","predicted":"FEE_WHY","actual":"FEE_FIRST_TIME:fast"}
+{"at":1792799392406,"chatId":"field-2312","text":"VIE STE PRVA AGENCIJA STO NAPLAKJA ZA POSETA","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792799391824,"chatId":"ladder-live","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799392420,"chatId":"field-2312","text":"NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799392680,"chatId":"field-1025","text":"NE SAKAM DA PLAKJAM ZA POSETI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799392427,"chatId":"field-2312","text":"SKAPO E TOA . ZA SEKOJ STAN PO 300DEN","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799392689,"chatId":"field-1025","text":"KAKO MOZE DA ZEMATE PARI ZA POKAZUVANJE NA IMOTI?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792799392697,"chatId":"field-1025","text":"PA PROMENETE GI PRAVILATA ZOSTO OVA STVARNO NE E NORMALNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799392916,"chatId":"ladder-no","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799391369,"chatId":"ladder-live","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799392922,"chatId":"ladder-no","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799392953,"chatId":"ladder-no","text":"NE, NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799392929,"chatId":"ladder-no","text":"USTE MI BARATE PARI","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799393213,"chatId":"chain-78","text":"NEZNAM , OVA NE GO OCEKUVAV . SITE AGENCII PRAVAT POSETI BESPLATNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799393193,"chatId":"chain-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799393221,"chatId":"chain-78","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792799393230,"chatId":"chain-78","text":"NE SAKAM DA PLATAM ZA POSETA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799393456,"chatId":"positive-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799393837,"chatId":"bye-78","text":"NE FALA, CAO","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792799393832,"chatId":"bye-78","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799394071,"chatId":"chain-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799394080,"chatId":"chain-79","text":"NEZNAM , OVA NE GO OCEKUVAV . SITE AGENCII PRAVAT POSETI BESPLATNO","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799394087,"chatId":"chain-79","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792799394093,"chatId":"chain-79","text":"NE SAKAM DA PLATAM ZA POSETA","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799394270,"chatId":"positive-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799394600,"chatId":"bye-79","text":"PARI ZA POSETA ZEMATE ? ZOSTO?","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799394606,"chatId":"bye-79","text":"NE FALA, CAO","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792799394791,"chatId":"hesitation-buy","text":"NEZNAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799395183,"chatId":"ladder-kaj","text":"KAJ SE VIDELO PARI ZA OTVARANJE STAN","predicted":"PROPERTY_DESCRIPTION","actual":"FEE_PUSH:fast"}
+{"at":1792799395407,"chatId":"ladder-yes","text":"PARI ZA POSETA BARATE","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799395417,"chatId":"ladder-yes","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799402505,"chatId":"nesto-novo","text":"OVA E NESTO NOVO ?","predicted":"FALLTHROUGH","actual":"FEE_SURPRISE:fast"}
+{"at":1792799393520,"chatId":"agent-attendance-195","text":"TI KE DOJDES SO MENE NA POSETA AKO ODBERAM STAN?","predicted":"FALLTHROUGH","actual":"AGENT_ATTENDANCE_ASK"}
+{"at":1792799395582,"chatId":"business-budget-residential","text":"Колку чини стан во Центар?","predicted":"FALLTHROUGH","actual":"PRICE_ASK:fast"}
+{"at":1792799395997,"chatId":"v16k11-fee-amount","text":"KOLKU E ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792799396016,"chatId":"v16k11-fee-amount","text":"KOLKU KE ME KOSTA 10 POSETI?","predicted":"NEGOTIATE","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792799396079,"chatId":"v16k11-fee-agnostic","text":"KOLKU E ZA POSETA?","predicted":"PROVISION_ASK","actual":"FEE_AMOUNT_ASK:fast"}
+{"at":1792799396318,"chatId":"v16k11-price-kept","text":"KOLKU E KIRIJATA ZA STANOT?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792799396762,"chatId":"v16k11-multivisit","text":"PA AKO POSETAM 10 STANA TOA SE 5000DEN NA GLADNO?","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792799396837,"chatId":"v16k11-math-idle","text":"ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT"}
+{"at":1792799397307,"chatId":"v16k11-rules","text":"тоа се правилата на агенцијата кои важат и за мене и за Вас","predicted":"FALLTHROUGH","actual":"FEE_RULES"}
+{"at":1792799397772,"chatId":"v16k11-bye","text":"ne otkazi\nne sakam da plakjam za otvaranje na stan","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799397779,"chatId":"v16k11-bye","text":"ne sakam","predicted":"FALLTHROUGH","actual":"SOFT_REFUSAL"}
+{"at":1792799397787,"chatId":"v16k11-bye","text":"ne fala ti\ncao","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792799398624,"chatId":"v16k11-why","text":"samo vie rabotite taka\nnikoj ne zema pari za poseta","predicted":"FEE_WHY","actual":"ROUTE_UNKNOWN:unknown.fee.assert"}
+{"at":1792799399183,"chatId":"v16k11-math","text":"ako gledam 10 stana toa se 5000 od moj djeb za razgleduvanje","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792799399639,"chatId":"v16k11-why-reversed","text":"Pari zemate za posetam?\nZosto?","predicted":"FEE_WHY","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792799400264,"chatId":"rent-300-ladder","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799400277,"chatId":"rent-300-ladder","text":"PA I TI VAKA RABOTIS. NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799400671,"chatId":"rent-300-nag-grammar","text":"MNOGU NEKAKO 300DEN ZA OTVARANJE NA STAN","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799400664,"chatId":"rent-300-nag-grammar","text":"PARI ZEMATE ZA POSETA ?","predicted":"PROVISION_ASK","actual":"FEE_PUSH:fast"}
+{"at":1792799400679,"chatId":"rent-300-nag-grammar","text":"NIKOJ NE NAPLATUVA ZA POSETA SAMO KAJ VAS","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799400686,"chatId":"rent-300-nag-grammar","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799401092,"chatId":"buy-500-nag-grammar","text":"MNOGU NEKAKO 500DEN ZA OTVARANJE NA STAN","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799401101,"chatId":"buy-500-nag-grammar","text":"NIKOJ NE NAPLATUVA ZA POSETA SAMO KAJ VAS","predicted":"FEE_WHY","actual":"FEE_PUSH:fast"}
+{"at":1792799401112,"chatId":"buy-500-nag-grammar","text":"PA I TI VAKA RABOTIS. NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799401421,"chatId":"buy-500-ladder","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799401432,"chatId":"buy-500-ladder","text":"NEMA DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799401906,"chatId":"rent-300-cases","text":"AKO POSETAM 10 STANA TOA SE 3000 DEN OD MOJ DJEB","predicted":"FALLTHROUGH","actual":"FEE_COMPLAINT:fast"}
+{"at":1792799401989,"chatId":"rent-300-cases","text":"KOLKU MU E KIRIJATA?","predicted":"MARKET_PRICE","actual":"INFO_ASK"}
+{"at":1792799402353,"chatId":"rent-commission-ladder","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799402360,"chatId":"rent-commission-ladder","text":"PROVIZIJATA E PREVISOKA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799402366,"chatId":"rent-commission-ladder","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799402373,"chatId":"rent-commission-ladder","text":"NEMA DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799402720,"chatId":"shape-0","text":"NE SAKAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799403096,"chatId":"shape-1","text":"NEMA DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799403451,"chatId":"shape-2","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799403804,"chatId":"shape-3","text":"PROVIZIJATA NE JA PLAKJAM","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799404110,"chatId":"shape-4","text":"ПРОВИЗИЈАТА НЕ ЈА ПРИФАЌАМ","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799404427,"chatId":"shape-5","text":"нема да платам провизија","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799404741,"chatId":"isolation-a","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799404747,"chatId":"isolation-a","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799399531,"chatId":"v16k11-negpay","text":"ne otkazi\nne sakam da plakjam za otvaranje na stan","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799405037,"chatId":"isolation-b","text":"NE SAKAM DA PLATAM","predicted":"FALLTHROUGH","actual":"FEE_PUSH:fast"}
+{"at":1792799405341,"chatId":"buy-commission","text":"NE SAKAM DA PLATAM PROVIZIJA","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799405663,"chatId":"rent-commission-ask","text":"KOLKU E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792799405762,"chatId":"v16k11-bye-again","text":"ne fala","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792799405767,"chatId":"v16k11-bye-again","text":"cao","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792799405042,"chatId":"isolation-b","text":"50% E MNOGU","predicted":"FALLTHROUGH","actual":"PROVISION_PUSH:fast"}
+{"at":1792799399569,"chatId":"prov-fresh-idle","text":"KOLKU VI E PROVIZIJATA?","predicted":"PROVISION_ASK","actual":"ROUTE_UNKNOWN:unknown.unknown.ask"}
+{"at":1792799408825,"chatId":"fd-praise","text":"odlicna lokacija","predicted":"FALLTHROUGH","actual":"FEEDDOWN:fast"}
+{"at":1792799417544,"chatId":"gjorce-A","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799421337,"chatId":"gjorce-B","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799421947,"chatId":"gjorce-C","text":"VO KOJA NASELBA SE NAJEFTINI KUKJITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799422155,"chatId":"gone-client","text":"ne, ne mi treba","predicted":"FALLTHROUGH","actual":"BYE"}
+{"at":1792799435335,"chatId":"info-year","text":"od koja godina e zgradata?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799435656,"chatId":"cold-year","text":"od koja godina e zgradata?","predicted":"FALLTHROUGH","actual":"INFO_ASK_YEAR"}
+{"at":1792799435723,"chatId":"cold","text":"ZDRAVO DALI STANOT 63 IMA GREJNO?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799435741,"chatId":"parking","text":"KAKO E RESENO PARKIRANJETO ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799435811,"chatId":"info-c","text":"kolku e garsonjerata ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799436422,"chatId":"info-d","text":"kaj 69 kolku kvadrati ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799436563,"chatId":"info-d","text":"kolku e ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799436612,"chatId":"info-f","text":"dali 69 ima klima ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799436765,"chatId":"gloss","text":"na koj kat e garsonjerata ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799436770,"chatId":"gloss","text":"sto znaci toa suteren ?","predicted":"FALLTHROUGH","actual":"GLOSSARY"}
+{"at":1792799436776,"chatId":"gloss","text":"dali e vkopan ?","predicted":"FALLTHROUGH","actual":"GLOSSARY"}
+{"at":1792799436781,"chatId":"gloss","text":"dali e pod zemja ?","predicted":"FALLTHROUGH","actual":"GLOSSARY"}
+{"at":1792799436786,"chatId":"gloss","text":"dali e podrum ?","predicted":"FALLTHROUGH","actual":"GLOSSARY"}
+{"at":1792799436817,"chatId":"gloss","text":"na koj kat e ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799440642,"chatId":"perm2","text":"kolku mu e cena po m2 na 84 ?","predicted":"MARKET_PRICE","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799440653,"chatId":"perm2","text":"kolku kvadrati ima ?","predicted":"FALLTHROUGH","actual":"INFO_ASK"}
+{"at":1792799450576,"chatId":"invest-verb-test","text":"MNOGU SE POSKAPEA STANOVIVE","predicted":"FALLTHROUGH","actual":"INVESTMENT_OPINION:fast"}
+{"at":1792799484860,"chatId":"freshness-test","text":"a dali mu e uste taa cena ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799485369,"chatId":"freshness-negative-test","text":"kolku e cenata ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799485493,"chatId":"cross-agreement-freshness","text":"a dali mu e uste taa cena ?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799485572,"chatId":"cross-agreement-freshness","text":"samo da proveram, taa cena od oglasot e ushte?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799481175,"chatId":"goran","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799485555,"chatId":"ivo","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799485274,"chatId":"lena","text":"SAKAM DA KUPAM STAN VO KISELA VODA, DVE SPALNI, DO 80.000 EVRA","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fact.assert"}
+{"at":1792799505931,"chatId":"correction-test","text":"DALI E VOZMOZNA KOREKCIJA NA CENATA ?","predicted":"NEGOTIATE","actual":"ROUTE_UNKNOWN:unknown.property-price.ask"}
+{"at":1792799506000,"chatId":"correction-test","text":"BI SAKAL DA SE NAMALI MALKU .","predicted":"NEGOTIATE","actual":"NEGOTIATE:fast"}
+{"at":1792799505198,"chatId":"capture-1744","text":"KOJ TI E TOJ STAN PO 1286E PO M2","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799505320,"chatId":"capture-dearest","text":"KOJ E NAJSKAPIOT STAN VO CENTAR?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799505393,"chatId":"capture-cheapest-city","text":"POKAZI MI GO NAJEVTINIOT STAN","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799505273,"chatId":"capture-cheapest","text":"DAJ MI GO NAJEVTINIOT STAN VO AERODROM","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799505536,"chatId":"karpos-1-nostrand","text":"KOJ E NAJEVTINIOT STAN?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799505357,"chatId":"capture-rent-cheapest","text":"KOJ E NAJEVTINIOT STAN ZA IZNAJMUVANJE VO AERODROM?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799505579,"chatId":"no-sqm","text":"KOJ E NAJSKAPIOT STAN VO CENTAR?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799505788,"chatId":"scope-citywide","text":"KOJ E NAJEVTINIOT STAN?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799505545,"chatId":"karpos-3-dearest","text":"KOJ E NAJSKAPIOT STAN VO KARPOS 3?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799505846,"chatId":"cap-site","text":"POKAZI GI SITE NAJEVTINI STANOVI VO KARPOS","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799505902,"chatId":"comparative-cheaper","text":"DAJ MI POEVTINI STANOVI OD 1.200 EVRA ZA M2 VO AERODROM","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799505948,"chatId":"comparative-dearer","text":"POKAZI MI POSKAPI STANOVI OD 1.200 EVRA ZA M2 VO AERODROM","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799506011,"chatId":"value-total","text":"KOJ E STANOT OD 90.000 EVRA?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799506407,"chatId":"order-cheaper","text":"ПОЧНИ ОД ПОЕФТИНИТЕ ВО АЕРОДРОМ","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799506499,"chatId":"naselba-avg","text":"VO KOJA NASELBA SE NAJEFTINI STANOVITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799506464,"chatId":"high-price","text":"KOJA E NAJVISOKATA CENA VO AERODROM?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799506533,"chatId":"naselba-avg-house","text":"VO KOJA NASELBA SE NAJEFTINI KUKJITE","predicted":"NEIGHBORHOOD_ASK","actual":"PRICE_AVG_NASELBA"}
+{"at":1792799506434,"chatId":"low-price","text":"KOJA E NAJNISKATA CENA VO AERODROM?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799506564,"chatId":"naselba-avg-guards","text":"KOJA E NAJNISKATA CENA VO AERODROM?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799506662,"chatId":"bare-value-21","text":"KOJ E STANOT OD 1250?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799506722,"chatId":"bare-value-18","text":"1250 EVRA — KOJ E?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799506756,"chatId":"rent-range","text":"KOJ E STANOT OD 300 EVRA?","predicted":"OFFTOPIC","actual":"PRICE_EXTREME"}
+{"at":1792799507040,"chatId":"fee-frame","text":"STANOT PO 1.200 EVRA ZA RAZGLEDUVANJE — KOJ E?","predicted":"FALLTHROUGH","actual":"ROUTE_UNKNOWN:unknown.fee.ask"}
+{"at":1792799508527,"chatId":"list-paging","text":"POKAZI GI SITE STANOVI","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME"}
+{"at":1792799508547,"chatId":"list-paging","text":"УШТЕ?","predicted":"FALLTHROUGH","actual":"PRICE_EXTREME_MORE"}
