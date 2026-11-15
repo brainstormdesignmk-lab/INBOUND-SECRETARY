@@ -136,3 +136,106 @@ test('the served business pair is MEASURED when the client asks how far it stand
   // …and it is never the area grill: he named the place, she knows the pair.
   assert.doesNotMatch(reply, /За кој дел од градот/u, `never the business-area question: ${reply}`);
 });
+
+// ── defects #3, #4, #5: the pair ON THE TABLE is the referent ───────────────
+// A stock that still holds an unshown unit at his SIZE: the 126/105 pair has
+// gone out, 57 is too small for «околу 100 квадрати» and 88 is the next one.
+const STOCK_MORE: Property[] = [
+  ...STOCK,
+  { eb: 88, id: 88, location: 'Центар', address: 'Ул. Г 4', price: 1200, sqm: 140, size: '140 м²', service: 'rent', business: true, lat: 41.9885, lon: 21.4385 },
+];
+
+test('«освен овие … дали имате други?» serves the NEXT unshown unit, never the same cards again', async () => {
+  // Defect #3 of the [05:20] capture. Two things went wrong: the detector read
+  // «дали … имате» as the SINGLE-FLAT availability question (the objectAsk
+  // veto), and the plural availability leg then re-answered the very two cards
+  // the client had just read — with the visit fee on top. He asked for OTHER
+  // properties and was quoted a viewing.
+  const { say, sessions, chatId } = makeHandler(STOCK_MORE, 'pair-more-stock');
+  await say('SAKAM DA IZNAJMAM DELOVEN PROSTOR');
+  await say('OKOLU 100 KVADRATI');
+  // THE SIZE IS NOT A BUDGET: «околу 100 квадрати» set a 100-euro monthly cap
+  // as well, and every later pool query filtered on it (the field answer was
+  // «нема деловни простори од 126 м² до 100 евра месечно»).
+  assert.equal(sessions.get(chatId)?.slots.budget, undefined,
+    'a size in м² is never stored as a money budget');
+  const pair = await say('PRVO AERODROM AMA MOZE I OKOLU RAMPA');
+  for (const eb of [59, 42]) {
+    assert.match(pair, new RegExp(`Евидентен број ${eb}`, 'u'), `the pair: ${pair}`);
+  }
+  const reply = await say('OSVEN OVIE STO MI GI POKAZA DALI IMATE DRUGI ?');
+  // The unshown unit is served…
+  assert.match(reply, /Евидентен број 88/u, `the next unshown unit: ${reply}`);
+  // …and NEITHER card he already read comes back.
+  for (const eb of [59, 42]) {
+    assert.doesNotMatch(reply, new RegExp(`Евидентен број ${eb}(?!\\d)`, 'u'),
+      `a card already served must not repeat: ${reply}`);
+  }
+  // No availability claim and no fee: this is stock, not a viewing.
+  assert.doesNotMatch(reply, /достапн/iu, `never the availability ack: ${reply}`);
+  assert.doesNotMatch(reply, /надомест|денари|провизиј/iu, `never the fee: ${reply}`);
+  // The session moved out of discovery: cards went out, so the next stock ask
+  // must not cross the state-lane guard that denies a property batch there.
+  assert.equal(sessions.get(chatId)?.state, 'presentation');
+});
+
+test('«освен овие … дали имате други?» with nothing left says so honestly', async () => {
+  // The drained arm. The stock here is EXACTLY the pair (expectation fixed
+  // while writing this: with the third 90 м² row in the feed the pool was not
+  // empty — the size filter relaxes rather than deny stock, so «околу 100
+  // квадрати» correctly continues to the 90 м² unit. Drained means the search
+  // has nothing else AT ALL, which is a two-row feed), so the answer is the
+  // honest exhausted line + the pivot, never a repeat of the served pair and
+  // never the fee.
+  const { say } = makeHandler(STOCK.slice(0, 2), 'pair-more-drained');
+  await say('SAKAM DA IZNAJMAM DELOVEN PROSTOR');
+  await say('OKOLU 100 KVADRATI');
+  await say('PRVO AERODROM AMA MOZE I OKOLU RAMPA');
+  const reply = await say('OSVEN OVIE STO MI GI POKAZA DALI IMATE DRUGI ?');
+  // CONTRACT-LEVEL, not one wording (AGENTS.md §2): the bank rotates variants,
+  // so the assertion is "it says the stock is ALL reviewed" plus "it offers the
+  // pivot" — pinning the sentence I happened to see would fail on the next
+  // variant.
+  assert.match(reply, /сите|исцрпив|повеќе немам/iu, `the honest drained line: ${reply}`);
+  assert.match(reply, /известам|друга населба/iu, `the pivot follows: ${reply}`);
+  assert.doesNotMatch(reply, /Евидентен број \d+ ·/u, `no card is re-served: ${reply}`);
+  assert.doesNotMatch(reply, /надомест|денари|провизиј/iu, `never the fee: ${reply}`);
+});
+
+test('«колку м² имаат двата дуќани?» answers BOTH rows, in business wording', async () => {
+  // Defect #4 of the [05:20] capture: one row was answered, and a BUSINESS
+  // space was called «станбена површина». The pair referent list was
+  // Cyrillic-only, so a Latin «DVATA» named no pair at all.
+  const { say } = makeHandler(STOCK, 'pair-both-sqm');
+  await say('SAKAM DA IZNAJMAM DELOVEN PROSTOR');
+  await say('OKOLU 100 KVADRATI');
+  await say('PRVO AERODROM AMA MOZE I OKOLU RAMPA');
+  const reply = await say('KOLKU M2 IMAAT DVATA DUKJANI ?');
+  // Both figures are on the table, each attached to its own Евидентен број.
+  assert.match(reply, /(?:Евидентен број 59|Евидентен број 42|Број 59|Број 42)/u, reply);
+  assert.match(reply, /105 м²/u, `the first row's surface: ${reply}`);
+  assert.match(reply, /126 м²/u, `the second row's surface: ${reply}`);
+  assert.equal(new Set(reply.match(/Евидентен број \d+/gu)).size, 2,
+    `each clause names its own row: ${reply}`);
+  // A дуќан has no living surface.
+  assert.doesNotMatch(reply, /станбена/iu, `a business space is never «станбена»: ${reply}`);
+  assert.match(reply, /деловна/iu, `the wording follows the row: ${reply}`);
+});
+
+test('«кој има 126 м²?» names the pair member, never a fresh search', async () => {
+  // Defect #5 of the [05:20] capture: the figure a served row carries was read
+  // as a SEARCH CRITERION, and the number became money («нема деловни простори
+  // од 126 м² до 100 евра месечно»). A figure on the table is an IDENTIFIER.
+  const { say, sessions, chatId } = makeHandler(STOCK, 'pair-which-figure');
+  await say('SAKAM DA IZNAJMAM DELOVEN PROSTOR');
+  await say('OKOLU 100 KVADRATI');
+  await say('PRVO AERODROM AMA MOZE I OKOLU RAMPA');
+  const reply = await say('KOJ IMA 126 M2 ?');
+  assert.match(reply, /Евидентен број 42/u, `the row carrying 126 м²: ${reply}`);
+  assert.doesNotMatch(reply, /Евидентен број 59(?!\d)/u, `not the other row: ${reply}`);
+  // …and it is an answer, not a search.
+  assert.doesNotMatch(reply, /нема деловни простори|до 100 евра|претпочитана локација/iu,
+    `never a fresh search: ${reply}`);
+  // The discussion moves to the row he pointed at.
+  assert.equal(sessions.get(chatId)?.slots.propertyId, 42);
+});

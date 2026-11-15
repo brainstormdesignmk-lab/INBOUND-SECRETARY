@@ -79,7 +79,17 @@ test('the pending backlog is explicit and finite (migration fuel, not a graveyar
   // counting it as "a lane nobody mirrored" inflated the backlog with work that
   // does not exist. The pending count is now the lanes that really wait.
   const pending = Object.entries(ROUTE_LANES).filter(([, r]) => !r || (!r.intent && !r.marker));
-  assert.ok(pending.length > 0, 'the backlog must exist until the migration ends (keep it honest)');
+  // EXPECTATION FLIPPED — THE MIGRATION IS FINISHED (2026-11-15). The assertion
+  // used to demand a NON-empty backlog ("it must exist until the migration
+  // ends"), and the last five lanes just landed their rows: the place pivot and
+  // the locate-reject (a resolved place each), the taken slot (the day
+  // calendar) and the GOLEM pair (the size-down ladder's own pool). Each of
+  // them needed one fact the router cannot compute, so `RouteEvidence` carries
+  // those facts from the executor's probe and the row is the fact alone. With
+  // nothing left to promote, a NEW pending lane is a regression, not fuel —
+  // which is why the assertion is an equality against the empty list.
+  assert.deepEqual(pending.map(([tag]) => tag), [],
+    `a pending lane reappeared — every lane must carry a row or a marker: ${pending.map(([t]) => t).join(', ')}`);
   // THE CEILING MOVED WITH A REAL LANE, NOT WITH INFLATION: the place ring
   // (PLACE_RING_ASK / PLACE_RING_ROW, the [04:05] capture) used to log to the
   // enrichment table ONLY, so the calibration registry never saw the lane at

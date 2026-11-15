@@ -512,6 +512,13 @@ test('detectBudget: currencies, илјади, and no false positives', () => {
   assert.equal(detectBudget('80 илјади евра'), '80000');
   assert.equal(detectBudget('do 2500 евра'), '2500');
   assert.equal(detectBudget('40 KVADRATI, DO 500 EVRA'), '500'); // Latin currency + sqm side by side
+  // A SIZE IS NOT MONEY (the [05:20] field capture): «околу 100 квадрати» set a
+  // 100-euro cap beside the 100 м², and every later pool query filtered on it —
+  // the answer became «нема деловни простори од 126 м² до 100 евра месечно».
+  assert.equal(detectBudget('okolu 100 kvadrati'), undefined);
+  assert.equal(detectBudget('ОКОЛУ 100 КВАДРАТИ'), undefined);
+  assert.equal(detectBudget('okolu 100 m2'), undefined);
+  assert.equal(detectBudget('do 100 м²'), undefined);
   // The k shorthand (LLM-down path): "do 120k" was slotted as a 120 EUR
   // budget and the hard filter emptied every search — the multiplier arms.
   assert.equal(detectBudget('ke kupam dvosoben stan aerodrom do 120k'), '120000');

@@ -1482,6 +1482,30 @@ export function buildAnywhereBareSlots(): RegExp {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  THE PAIR ON THE TABLE — «двата», «овие две», «both»
+// ══════════════════════════════════════════════════════════════════════════════
+// A client points at the two rows just served with a QUANTIFIER, never with a
+// number (defect #4 of the [05:20] capture: «KOLKU M2 IMAAT DVATA DUKJANI ?»
+// bound ONE row because the referent list knew only the Cyrillic spelling).
+// The forms are ENUMERATED, not stemmed: «два-» as a stem also matches
+// «дваесет» (twenty — a price) and «двајца» (two people), and this is a closed
+// class of pronouns, so the whole list is knowable. Latin spellings are not
+// listed — every caller reads through `matchesBoth`, which normalises them.
+const PAIR_REFERENT_FORMS = [
+  'двата', 'двете', 'овие два', 'овие две', 'овие двата', 'овие двете',
+  'тие два', 'тие две', 'тие двата', 'тие двете', 'двете стана', 'двата стана',
+  'двете куќи', 'двата простора', 'двете недвижности', 'двата деловни простора',
+  'првиот и вториот', 'првата и втората',
+  // English spellings are listed because they are NOT transliterable: the
+  // normaliser maps Latin letters to Cyrillic ones, so «the two» never becomes
+  // «двата» and would otherwise match nothing.
+  'the two', 'both', 'these two', 'those two',
+];
+export function buildPairReferentSlots(): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${PAIR_REFERENT_FORMS.join('|')})(?![\\p{L}\\p{N}])`, 'iu');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  PRACTICE DISAPPROVAL — the client rejects the FEE MODEL, not a property
 // ══════════════════════════════════════════════════════════════════════════════
 // [23:12] "NE MI SE DOPAGJA VAKOV PRINCIP NA RABOTA". Grammar: a DISLIKE verb

@@ -434,7 +434,12 @@ export function buildInfoAnswer(p: Property, facets: InfoFacets): string | undef
     answered = true;
   }
   if (facets.sqm && p.sqm !== undefined) {
-    sentences.push(`Има ${p.sqm} м² станбена површина.`);
+    // A BUSINESS SPACE HAS NO «станбена површина» (defect #4 of the [05:20]
+    // capture: «KOLKU M2 IMAAT DVATA DUKJANI ?» was answered «Има 126 м²
+    // станбена површина»). The card builder already speaks this way
+    // («Има X м² деловна површина», prompts.ts), so the info answer is the
+    // ONE place that disagrees with it; the wording follows the row.
+    sentences.push(`Има ${p.sqm} м² ${p.business ? 'деловна' : 'станбена'} површина.`);
     answered = true;
   }
   if (facets.rooms) {

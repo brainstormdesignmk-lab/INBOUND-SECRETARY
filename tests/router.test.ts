@@ -70,15 +70,16 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
   const original = console.log;
   console.log = (...args: unknown[]) => { logs.push(args.join(' ')); };
   try {
-    // a pending lane serves after FALLTHROUGH — a GAP.
-    // THE FIXTURE MOVED AGAIN (2026-11-15, the backlog promotion): this used
-    // `PROPERTY_CHOICE`, which is now MIRRORED. A gap fixture whose lane gains a
-    // row stops testing gaps and starts failing for the wrong reason — the
-    // fixture is whichever lane is still `P(...)`, and `PLACE_PIVOT` stays
-    // pending on purpose (it needs the MAP to decide, which the mirror does not
-    // yet receive as evidence).
+    // an UNLISTED lane serves after FALLTHROUGH — a GAP.
+    // THE FIXTURE MOVED FOR THE LAST TIME (2026-11-15, the migration finished):
+    // every executor lane now has a row or a marker, so there is no `P(...)`
+    // left to borrow. The gap branch itself is NOT dead — it is the shape a NEW
+    // lane takes when it logs before its registry row lands (route-coverage
+    // hard-fails that in CI; production still needs the line, and its readout
+    // is `route:health`). So the fixture is an unregistered tag, which is
+    // exactly what "a lane with no mirror row" means now.
     routeLog('tax-gap', 'A NESTO KAJ BROZ KAFE ?', 'FALLTHROUGH', 'predict');
-    routeLog('tax-gap', 'A NESTO KAJ BROZ KAFE ?', 'PLACE_PIVOT');
+    routeLog('tax-gap', 'A NESTO KAJ BROZ KAFE ?', 'NEW_LANE_NO_ROW');
     // the classifier's own route — not a divergence at all
     routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'FALLTHROUGH', 'predict');
     routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'ROUTE_UNKNOWN:unknown.unknown.assert');
@@ -88,7 +89,14 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
   } finally {
     console.log = original;
   }
-  assert.ok(ROUTE_LANES.PLACE_PIVOT && ROUTE_LANES.PLACE_PIVOT.intent === null,
+  // THE PREMISE THAT MAKES THE FIXTURE HONEST: nothing is pending any more. If
+  // a lane ever goes back to `P(...)`, this assertion fails first and the
+  // fixture can borrow it again.
+  const stillPending = Object.entries(ROUTE_LANES)
+    .filter(([, r]) => !r || (!r.intent && !r.marker)).map(([tag]) => tag);
+  assert.deepEqual(stillPending, [],
+    `no lane may be pending — the gap fixture is an unlisted tag: ${stillPending.join(', ')}`);
+  assert.equal(ROUTE_LANES.NEW_LANE_NO_ROW, undefined,
     'the gap fixture must be a lane with no mirror row');
   assert.ok(logs.some(l => l.includes('[route-gap] tax-gap')), `a pending lane is a gap: ${logs.join(' | ')}`);
   assert.ok(!logs.some(l => l.includes('[route-drift] tax-gap')), 'a gap is never a drift');

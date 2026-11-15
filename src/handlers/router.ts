@@ -48,7 +48,7 @@ import {
   detectAgencyIdentityAsk, detectWhichPropertyAsk, detectPropertyChoice,
   detectBareEbFollowup, detectAvailabilityPlural, detectLocationNag,
   detectStockContradiction, detectContactMechanicsChallenge, detectOwnerContactHold,
-  detectRingNearestAsk,
+  detectRingNearestAsk, detectIdentifyByFigure,
   isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
 } from '../llm/deterministic';
@@ -112,6 +112,25 @@ export interface RouteEvidence {
   /** FEED_DOWN: the feed itself is unhealthy, so an unconfirmed EB is NOT a
    *  ghost — the honest not-found line names the EB and clears nothing. */
   feedDown?: boolean;
+  /** PLACE_PIVOT: a pivot-shaped search («а нешто кај X?») whose place
+   *  resolves, whose criteria are already in the slots and which is not the
+   *  place the pair was ranked from. The probe carries the executor's whole
+   *  gate, so the row is this fact alone. */
+  placePivot?: boolean;
+  /** SMALLER_PER_M2 / SMALLER_PER_M2_EMPTY: the size-down ladder's own PLAN
+   *  for a rate-anchored ask — 'served' when a smaller row exists at or under
+   *  the anchor's €/м², 'empty' when the feed has nothing smaller there. The
+   *  plan is the executor's, so the two tags can never be guessed apart. */
+  perM2Smaller?: 'served' | 'empty';
+  /** GOLEM_SMALLER / GOLEM_SMALLER_EMPTY: the same plan for a bare TOO-BIG
+   *  complaint (size ranks first, the rate is not a ceiling). */
+  golemSmaller?: 'served' | 'empty';
+  /** SLOT_TAKEN: the proposed hour is already on the day's books, so the free
+   *  hours around it are named before any owner is asked. Needs the calendar. */
+  slotTaken?: boolean;
+  /** LOCATE_REJECT_PLACE: «не е таа» about the flat the chat bound, and that
+   *  flat really stands at the place the chat locked — the hunt stays there. */
+  locateRejectPlace?: boolean;
 }
 
 /** The two lanes below are the ones whose executor gates read the CLIENT'S
@@ -333,6 +352,15 @@ export const ROUTING_ORDER: RouteRule[] = [
   // (production: NEARBY_ASK) and «IMAVTE EDNA KUKJA NAKAJ AERODROM …» was
   // predicted SURROUNDINGS (production: SEEN_LISTING_RECALL). A missing row is
   // not cosmetic: the drift log then blames the lane that was right.
+  // THE PIVOT OUTRANKS THE NEARBY READ (2026-11-15): «A NESTO OKOLU DAJMOND
+  // MOL» carries the nearby grammar («нешто … околу X»), but the executor's
+  // pivot block runs BEFORE its nearby interceptor, so the confirm question is
+  // what the client actually gets. Reading NEARBY_ASK here predicted a lane the
+  // executor never ran — and now that the pivot BRANCH reads the router's answer
+  // the misprediction also silenced the correct reply (the anchored batch was
+  // served with no confirm). Order is the executor's order.
+  { intent: 'PLACE_PIVOT', note: 'a pivot-shaped search («а нешто кај X?») — the criteria stand, ONE question confirms them, and the agreement serves the pair nearest the new place; never a location confirmation about the flat on the table ([18:51] capture). The place lock is the evidence',
+    fires: (t, s, sl, ev) => ev?.placePivot === true },
   { intent: 'NEARBY_ASK', note: 'what else is around the discussed/named building («sto ima vo blizina na …?») — the executor intercepts it before every funnel branch, so it must beat PROPERTY_DESCRIPTION here too',
     fires: t => detectNearbyAsk(t) },
   { intent: 'SEEN_LISTING_RECALL', note: 'a RECALLED listing («imavte edna kukja nakaj … okolu 130 000 bese») — past-tense had + determiner + property noun; the archive ack owns it, never the criteria funnel or a surroundings read',
@@ -460,7 +488,12 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'AVAILABILITY_PLURAL', note: 'an availability ask over SEVERAL flats («se slobodni ?», «dvata ?», inbound.ts 9985) — the ack for the set plus the owner confirm. The executor\'s veto list is copied (fee legs, a named EB, a bedroom count, an inventory/area ask, an agreed fee): each of those owns its own lane',
     fires: (t, s, sl) => {
       const ebs = new Set([...(sl.currentBatch ?? []), ...(sl.presentedIds ?? [])]);
-      return ebs.size >= 2 && detectAvailabilityPlural(t)
+      // AN ASK FOR OTHER STOCK IS NOT AN AVAILABILITY ASK (defect #3 of the
+      // [05:20] capture): «освен овие … дали имате други?» carries «овие …
+      // имате», which this row read as the plural availability question. The
+      // stock lane owns that sentence, and this row must not claim it — the
+      // executor leg carries the same veto (inbound.ts).
+      return ebs.size >= 2 && !detectMoreStockRequest(t) && detectAvailabilityPlural(t)
         && !detectFeeWhy(t) && !detectFeeNag(t) && !detectFeeComplaint(t)
         && !detectFeeSurprise(t) && !detectProvisionAsk(t) && !detectProvisionWho(t)
         && !isFeeTraffic(t) && inferPropertyId(t) === undefined
@@ -618,11 +651,37 @@ export const ROUTING_ORDER: RouteRule[] = [
   // VISIT verb, and a blanket visit veto sent it to the booking lane.
   // Position: after the describe/locate rows (the executor reaches this block at
   // 9524, after them) and before the availability/bye lanes.
+  // ── THE EVIDENCE-ONLY CLUSTER (2026-11-15, the last five pending lanes) ──
+  // Each of these needs one fact the router cannot compute — a resolved place,
+  // the day calendar, the size-down ladder's own pool — so the PROBE carries
+  // the executor's WHOLE gate and the row is that one fact. No text is
+  // re-tested here on purpose: a second copy of a conjunction is how the two
+  // sides start disagreeing.
+  { intent: 'SMALLER_PER_M2', note: 'the €/м²-anchored size-down ask («pomalo so takva cena za kvadrat») — a smaller row at or under the anchor\'s rate, same area first. EVIDENCE: the ladder\'s own plan found a row',
+    fires: (t, s, sl, ev) => ev?.perM2Smaller === 'served' },
+  { intent: 'SMALLER_PER_M2_EMPTY', note: 'the same ask with nothing smaller at or under the rate — the honest line plus the register step (never the same flat re-rendered)',
+    fires: (t, s, sl, ev) => ev?.perM2Smaller === 'empty' },
+  { intent: 'GOLEM_SMALLER', note: 'a bare TOO-BIG complaint («golem mi e nekako») — the size-down ladder anchored on SIZE, the closest smaller м² first',
+    fires: (t, s, sl, ev) => ev?.golemSmaller === 'served' },
+  { intent: 'GOLEM_SMALLER_EMPTY', note: 'the same complaint with nothing smaller in the feed — the honest empty line, never a bigger row'
+    , fires: (t, s, sl, ev) => ev?.golemSmaller === 'empty' },
+  { intent: 'SLOT_TAKEN', note: 'a proposed visit hour already taken in the day calendar — the free hours of that day are named before any owner is asked. EVIDENCE: the calendar read',
+    fires: (t, s, sl, ev) => ev?.slotTaken === true },
+  { intent: 'LOCATE_REJECT_PLACE', note: '«не е таа» after the only flat at a NAMED place — the place lock holds and the next options come from THERE; other areas only after the ask ([10:36] capture). EVIDENCE: the rejected row stands at the locked place',
+    fires: (t, s, sl, ev) => ev?.locateRejectPlace === true },
   { intent: 'MORE_STOCK', note: 'a stock ask after a pair was served — the NEXT unshown pair from the same search, or the honest drained line; never the availability table, never the booking protocol, never a repeat of a flat already served ([12:41] capture)',
     fires: (t, s, sl) => detectMoreStockRequest(t)
       && (sl.presentedIds?.length ?? 0) > 0
       && !isFeeTraffic(t) && !detectFeeNag(t) && !detectProvisionAsk(t)
-      && !detectProvisionWho(t) && !sl.ownerContactPending
+      && !detectProvisionWho(t)
+      // NO `!sl.ownerContactPending` HERE (defect #3 of the [05:20] capture):
+      // every card serve SETS that flag (the copy says the owner confirms
+      // availability), so vetoing on it made this lane unreachable in exactly
+      // the state it exists for — «OSVEN OVIE STO MI GI POKAZA DALI IMATE
+      // DRUGI ?» after a served pair fell to the availability table, which
+      // re-answered the same two cards and quoted the fee. A stock ask in the
+      // owner-relay phase is still a stock ask; only the AGREED VIEWING FEE
+      // ends the browsing part of the funnel, and that veto stays.
       && !sl.viewingFeeAgreed
       && detectVisitTime(t) === undefined && !proposesVisitTerm(t)
       && !detectCheaperSearch(t) && !detectPomaloAsk(t) && !detectBudgetUpAsk(t)
@@ -635,6 +694,18 @@ export const ROUTING_ORDER: RouteRule[] = [
           && es.house === undefined && !es.business && !es.plac && !es.garsonjera
           && !es.yard && !es.anywhere && !es.sizeWaived;
       })() },
+  // AN IDENTITY QUESTION ABOUT A FIGURE ON THE TABLE (defect #5 of the [05:20]
+  // capture): «KOJ IMA 126 M2 ?» named a surface the served pair carried, and
+  // the turn re-searched, reading the number as money. The row is the TEXT
+  // gate plus the presence of served rows; WHETHER a row carries that figure
+  // is a feed read the mirror cannot make. KNOWN LIMIT, same class as the
+  // price-extreme family: with no on-table match the executor falls through to
+  // the funnel (a genuine area search), so the row predicts a lane that a
+  // cold «кој има 300 м²?» does not serve. Documented rather than hidden.
+  { intent: 'IDENTIFY_BY_FIGURE', note: 'an identity question about a FIGURE the served rows carry («кој има 126 м² ?», «кое е 1.000 евра ?») — the row is named and the discussion moves to it, never a fresh search with the number read as money; a figure on no served row falls through to the funnel (inbound.ts 10084)',
+    fires: (t, s, sl) => ((sl.presentedIds?.length ?? 0) + (sl.currentBatch?.length ?? 0)) > 0
+      && detectIdentifyByFigure(t) !== undefined
+      && !isFeeTraffic(t) },
   { intent: 'LOCATE_CONTINUE', note: 'a bare «не» while choosing among described flats — the rejection of the offer, never a farewell; the hunt serves the next options (inbound.ts 9790)',
     fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
       && BARE_REFUSAL_ONLY_RE.test(t.trim()) },
@@ -742,6 +813,10 @@ export const ROUTING_ORDER: RouteRule[] = [
       // «плацеви»/«простори» vetoed here and were invisible there.
       && !hasMarketTypePlural(t)
       && !detectInventoryAsk(t) && !detectAreaHaveAsk(t)
+      // …AND AN ASK FOR OTHER STOCK STANDS THIS ROW DOWN TOO (defect #3 of the
+      // [05:20] capture): the executor leg carries the same veto, so the two
+      // sides stay one predicate.
+      && !detectMoreStockRequest(t)
       && !sl.viewingFeeAgreed },
   // PROXY CONTACT (inbound.ts 8342, after the info block) — the client asks the
   // AGENCY to reach the owner and report back. In `closing` the FSM fee
@@ -1056,7 +1131,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   PICK_DESCRIBED: M('PICK_DESCRIBED', 'a pick among the flats she just described → the availability answer'),
   LOCATE_CONTINUE: M('LOCATE_CONTINUE', 'bare «не» while choosing among described flats — the hunt continues'),
   LOCATE_WIDEN: M('LOCATE_WIDEN', '«да» to the other-neighbourhoods question — the area lock is released'),
-  LOCATE_REJECT_PLACE: P('«не е таа» after the only flat at a NAMED place — the place lock holds, other areas only after the ask'),
+  LOCATE_REJECT_PLACE: M('LOCATE_REJECT_PLACE', '«не е таа» after the only flat at a NAMED place — the place lock holds, other areas only after the ask (inbound.ts 10483)'),
   CONTACT_AFTER_FEE: M('CONTACT_AFTER_FEE', 'the fee question answered with a name + phone — consent and the visit-time ask (inbound.ts 10275); evidence-gated on the last line being the fee line'),
   AGENCY_IDENTITY: M('AGENCY_IDENTITY', '«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (client OR owner): the agency is named and the interrupted question repeated — never the pending-traffic line ([19:36] capture; inbound.ts 4820)'),
   'NEGOTIATE:fast': M('NEGOTIATE', 'commercial-state price pushback'),
@@ -1115,7 +1190,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   NEARBY_THREAD: M('NEARBY_THREAD', 'what-else-is-near (rotation → protocol → lifecycle; inbound.ts 8838) — evidence-gated on a last reply that NAMED a landmark'),
   'OWNER_HOLD:fast': M('OWNER_HOLD', '«NE GO KONTAKTIRAJ USTE» — acknowledge and stop, never proceed (inbound.ts 10460)'),
   POI_CONFIRM: M('POI_CONFIRM', 'a place-confirm question about the bound flat («da ne e vo karpos ?») — the executor answers it only when the MAP resolves the named place (inbound.ts 6861: a landmark hit or a named area). The map is data, not text: a mirror row would have to guess, and the probe showed exactly that — «DA NE E VO SKOPJANKA ?» is a POI-confirm by wording while the executor served nothing. Labelled backlog, not a guessed row'),
-  PLACE_PIVOT: P('same search at a different named place (“a neshto kaj X?”)'),
+  PLACE_PIVOT: M('PLACE_PIVOT', 'same search at a different named place («а нешто кај X?») — the criteria stand and one question confirms them (inbound.ts 7156)'),
   PLACE_RING_ASK: M('PLACE_RING_ASK', 'the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question (predicted on the refinement pass, from the pool\'s own poiTooFarAsk verdict)'),
   PLACE_RING_ROW: M('PLACE_RING_ROW', 'the identity of the flat the place ring measured (“koj e toj stan na 1,4 km?”, inbound.ts 12640) — predicted from the ring\'s own slots (a pending ask, an unmoved anchor, a measured row)',),
   'PRICE_ASK:fast': M('PRICE_ASK', 'the plain price ask in the !fsmRequired fast block — the flat named or the one on the table, else the Евидентен број question'),
@@ -1152,8 +1227,10 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // The smaller-by-rate lane has a detector but no ROUTING_ORDER row yet, so its
   // GOLEM variants cannot be mirrored without inventing one: pending, and the
   // test that every mirrored intent exists in the order stays honest.
-  GOLEM_SMALLER: P('the smaller-by-rate search for a GOLEM (a large flat) — same lane as SMALLER_PER_M2, which has no mirror row yet (inbound.ts 16533)'),
-  GOLEM_SMALLER_EMPTY: P('the smaller-by-rate search for a GOLEM with nothing smaller in the feed — the honest empty line (inbound.ts 16561)'),
+  GOLEM_SMALLER: M('GOLEM_SMALLER', 'the size-down ladder for a bare TOO-BIG complaint (a large flat) — the closest smaller м² first (inbound.ts 17257)'),
+  GOLEM_SMALLER_EMPTY: M('GOLEM_SMALLER_EMPTY', 'the same complaint with nothing smaller in the feed — the honest empty line (inbound.ts 17285)'),
+  SMALLER_PER_M2: M('SMALLER_PER_M2', 'the €/м²-anchored size-down ask («pomalo so takva cena za kvadrat») — a smaller row at or under the anchor rate (inbound.ts 17257). It had NO row at all, which is why the GOLEM note called it the unmirrored sibling'),
+  SMALLER_PER_M2_EMPTY: M('SMALLER_PER_M2_EMPTY', 'the same ask with nothing smaller at or under the rate — the honest line plus the register step (inbound.ts 17285)'),
   // NOT A CLIENT LANE: the executor logs the session→chain readiness marker with
   // a three-argument routeLog (`routeLog(chatId, 'chain', 'CHAIN_READY')`,
   // inbound.ts 2498) and serves nothing under it. It is registered so the audit
@@ -1177,7 +1254,8 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   DISTANCE_MATRIX: M('DISTANCE_MATRIX', 'several places × every flat on the table («kolku e daleku od X i od Y ?») — one measured line per place and flat, nearest first (inbound.ts 5470). Predicted on the EVIDENCE channel (`distanceBatch`): the map decides whether two flats really measure against the named place'),
   AVAILABILITY_PLURAL: M('AVAILABILITY_PLURAL', 'an availability ask over SEVERAL flats («se slobodni ?», «dvata ?») — the ack for the set plus the owner-confirm question, with the fee quoted per property (inbound.ts 9985)'),
   BARE_EB_FOLLOWUP: M('BARE_EB_FOLLOWUP', 'a bare Евидентен број follow-up («А 42?») after cards were shown — the answer about THAT flat only, never a fresh search (inbound.ts 9750)'),
-  SLOT_TAKEN: P('a proposed visit hour already taken in the day calendar — the free hours of that day are named before any owner is asked'),
+  IDENTIFY_BY_FIGURE: M('IDENTIFY_BY_FIGURE', 'an identity question about a FIGURE the served rows carry («кој има 126 м² ?») — the row carrying it is named, never a fresh search (inbound.ts 10084)'),
+  SLOT_TAKEN: M('SLOT_TAKEN', 'a proposed visit hour already taken in the day calendar — the free hours of that day are named before any owner is asked (inbound.ts 9924)'),
   PRICE_CHANGE_DISCLAIMER: M('PRICE_CHANGE_DISCLAIMER', 'a complaint about a price that moved mid-exchange (owner corrected the clean price) — the owners-may-reprice line, verbatim'),
 };
 

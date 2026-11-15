@@ -17,6 +17,7 @@ import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent,
+  detectPairReferent, detectIdentifyByFigure,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
@@ -4499,8 +4500,11 @@ export class InboundHandler {
           && !facets.lastFloor && !facets.yearBuilt && !facets.renovation
           && !facets.features?.length;
         const namedEbs = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
-        const pairAsked = /(?<![\p{L}\p{N}])(?:двата|двете|овие\s+(?:два|две)|двете\s+стана|the\s+two|both)/iu.test(text)
-          || detectComparison(text);
+        // THE SAME REFERENT PREDICATE THE SERVE USES (defect #4 of the [05:20]
+        // capture): the probe carried its own Cyrillic-only copy, so a Latin
+        // «DVATA» made the executor serve the pair while the mirror kept
+        // predicting INFO_ASK — a route-drift line on every correct turn.
+        const pairAsked = detectPairReferent(text) || detectComparison(text);
         const pairEbs = namedEbs.length >= 2
           ? namedEbs
           : pairAsked
@@ -4593,6 +4597,86 @@ export class InboundHandler {
           && (mentionsMore(text) || /(?:реон|близин|близу|околу|reon|blizin|blizu|okolu)/iu.test(text));
         if (named || bareAfterLandmark || areaAsk) ev.landmarkLadder = true;
       }
+    }
+
+    // ── THE LAST FIVE LANES' FACTS (2026-11-15) ────────────────────────────
+    // Each of these lanes needs ONE fact the router cannot compute — a resolved
+    // place, the day calendar, the size-down ladder's own pool. The probe
+    // carries the executor's WHOLE gate (so the row is that fact alone, never a
+    // second copy of the conjunction) and the wording test comes FIRST, keeping
+    // the channel's cost rule: a turn that cannot reach the lane does no work.
+
+    // A SEARCH MOVED TO ANOTHER NAMED PLACE (inbound.ts PLACE_PIVOT). The place
+    // is what needs the resolver: a wish candidate the map knows.
+    if (isPlaceSearchPivot(text) && !detectAgreement(text)) {
+      const pv = extractSlots(text);
+      const pivotIsIntake = !!pv.service || pv.bedrooms !== undefined || !!pv.budget
+        || pv.house !== undefined || !!pv.business || !!pv.plac || !!pv.garsonjera
+        || /(?:sakam|сакам|baram|барам)\s+da\s+(?:kup|куп|iznajm|изнајм)/iu.test(text);
+      const pivotPlace = !pivotIsIntake ? this.placesWish(text)[0] : undefined;
+      const criteria = pivotPlace ? this.criteriaPhrase(session) : undefined;
+      const anchoredHere = !!pivotPlace && !!session.slots.poiAnchor
+        && textNamesPlace(pivotPlace.name, session.slots.poiAnchor);
+      if (pivotPlace && criteria && this.slotsComplete(session) && !anchoredHere) ev.placePivot = true;
+    }
+
+    // THE SIZE-DOWN LADDER (inbound.ts presentSmallerPerM2): two text shapes
+    // reach it, and only its own PLAN knows whether the answer is cards or the
+    // honest empty line. The plan is read here so the two tags cannot be
+    // guessed apart; the serve re-runs it on the turn that needs the cards
+    // themselves (a rare turn — this lane fires on a complaint about one flat).
+    if (detectSmallerPerM2Ask(text) || (detectGolemComplaint(text) && !/\?/.test(text)
+      && !/колку\s*(?:е\s*)?(?:голем|gol)/iu.test(text)
+      && !/golemina|големина/iu.test(text)
+      && !detectFeeComplaint(text) && !detectFeeSurprise(text))) {
+      const golem = !detectSmallerPerM2Ask(text);
+      const plan = await this.smallerPerM2Plan(session, text, golem ? 'golem' : 'perM2');
+      if (plan) {
+        const tag = plan.pool.length > 0 ? 'served' : 'empty';
+        if (golem) ev.golemSmaller = tag; else ev.perM2Smaller = tag;
+      }
+    }
+
+    // A TAKEN HOUR (inbound.ts SLOT_TAKEN): the calendar is the fact.
+    if (!isFeeTraffic(text) && propertyOnTable(session)
+      && ['closing', 'visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state)
+      && !detectWorkdaysQuestion(text) && !detectFeeWhy(text) && !detectFeeNag(text)
+      && !isWeekendTerm(text)
+      && (hasClockHint(text) || detectVisitTime(text) !== undefined)) {
+      const wanted = parseVisitDateTime(text, new Date());
+      if (wanted) {
+        const onTable = session.slots.propertyId ?? session.slots.interestedPropertyId
+          ?? (session.slots.currentBatch?.length ? session.slots.currentBatch[0] : undefined)
+          ?? (session.slots.presentedIds?.length ? session.slots.presentedIds[session.slots.presentedIds.length - 1] : undefined);
+        const cal = this.dayCalendar(wanted, onTable !== undefined
+          ? { chatId: session.chatId, ebs: [onTable] } : undefined);
+        if (isSlotTaken(wanted, cal)) ev.slotTaken = true;
+      }
+    }
+
+    // A REJECTION OF THE FLAT SHE STANDS AT (inbound.ts LOCATE_REJECT_PLACE):
+    // the lock and the rejected row's own coordinates decide it.
+    if (session.state !== 'property_locate'
+      && !(VISIT_WINDOW_STATES.includes(session.state)
+        && (!!detectVisitTime(text) || hasDayWord(text) || hasClockHint(text)))
+      && detectRejection(text)
+      && !detectFeeNag(text) && !detectFeeWhy(text) && !detectFeeComplaint(text)
+      && !detectFeeSurprise(text) && !detectVisitCancellation(text)
+      && !detectCheaperSearch(text)) {
+      const rejectedEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+      const rejectedProp = rejectedEb != null
+        ? await this.deps.properties.getByEb(rejectedEb).catch(() => undefined)
+        : undefined;
+      const ownPlace = rejectedProp?.landmarks?.[0]?.landmark ?? rejectedProp?.landmark;
+      const lock = session.slots.clarifyAnchor
+        ?? (session.slots.poiAnchor ? this.resolvePlace(session.slots.poiAnchor) : undefined)
+        ?? (rejectedProp && ownPlace && rejectedProp.lat != null && rejectedProp.lon != null
+          ? { name: ownPlace, lat: rejectedProp.lat, lon: rejectedProp.lon }
+          : undefined);
+      const atPlace = !!lock && !!rejectedProp
+        && rejectedProp.lat != null && rejectedProp.lon != null
+        && distM(lock.lat, lock.lon, rejectedProp.lat, rejectedProp.lon) <= NEAR_ANCHOR_SCOPE_M;
+      if (atPlace && lock) ev.locateRejectPlace = true;
     }
     return ev;
   }
@@ -6971,7 +7055,14 @@ export class InboundHandler {
         if (cards.length > 0) {
           session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...cards.map(p => p.id)])];
           session.slots.currentBatch = cards.map(p => p.id);
-          if (session.state === 'idle' || session.state === 'intent') session.state = 'presentation';
+          // CARDS WENT OUT — THE CHAT IS IN PRESENTATION (defect #3 of the [05:20]
+          // capture). The old guard moved the state only from idle/intent, so a
+          // business pair served DURING discovery left the session in
+          // `discovery`; the state-lane guard denies a property batch there, and
+          // the very next stock ask («освен овие… дали имате други?») was
+          // answered with the generic ack. A client who has just been shown
+          // cards is past discovery by definition.
+          session.state = 'presentation';
           const answer = `${lead}\n\n${cards.map(p => buildBusinessOfferLine(p)).join('\n')}`
             + (cards.length > 1
               ? '\n\nДали некој од нив Ви одговара, или да погледнеме во друга населба?'
@@ -7119,7 +7210,10 @@ export class InboundHandler {
     // The contract: criteria stand, ONE short question confirms them, and the
     // agreement serves the pair nearest the new place (see the pendingPivot
     // seam in the funnel, which promotes the confirmed turn to the serve).
-    if (isPlaceSearchPivot(text) && !detectAgreement(text)) {
+    // THE ROUTER OWNS THE GATE (2026-11-15): the PLACE_PIVOT row is this block's
+    // own conjunction plus the resolved place, computed by the probe — so the
+    // branch reads the router's answer instead of repeating the gate.
+    if (routedLane() === 'PLACE_PIVOT') {
       // A FIRST ASK is not a pivot: «SAKAM DA KUPAM KUKJA KAJ OLIMPICO» carries
       // its own service/type/budget, so it belongs to the funnel's intake (the
       // place is the geography of a NEW search, and the anchored entry serve
@@ -8390,8 +8484,12 @@ export class InboundHandler {
             && !infoFacets.lastFloor && !infoFacets.yearBuilt && !infoFacets.renovation
             && !infoFacets.features?.length;
           const namedEbs = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
-          const pairAsked = /(?<![\p{L}\p{N}])(?:двата|двете|овие\s+(?:два|две)|двете\s+стана|the\s+two|both)/iu.test(text)
-            || detectComparison(text);
+          // THE REFERENT IS READ THROUGH THE GRAMMAR (defect #4 of the [05:20]
+          // capture): the inline list knew only the Cyrillic spelling, so
+          // «KOLKU M2 IMAAT DVATA DUKJANI ?» named no pair at all and one row
+          // was answered. detectPairReferent normalises the script, and the
+          // pair forms live in grammar.ts for the mirror to read.
+          const pairAsked = detectPairReferent(text) || detectComparison(text);
           const pairEbs = namedEbs.length >= 2
             ? namedEbs
             : pairAsked
@@ -8404,9 +8502,18 @@ export class InboundHandler {
               this.deps.properties.getByEb(eb).catch(() => undefined))))
               .filter((p): p is Property => !!p);
             if (rows.length === pairEbs.length && !plainFloorAsk) {
-              // Every clause of buildInfoAnswer names its own Евидентен број,
-              // so the pair reads as two answers, not one muddled sentence.
-              const clauses = rows.map(p => buildInfoAnswer(p, infoFacets));
+              // Every clause of the pair must name its own Евидентен број, so
+              // it reads as two answers, not one muddled sentence.
+              // buildInfoAnswer's bare SIZE line is the one that does not
+              // («Има 126 м² деловна површина.») — joined under nothing it
+              // cannot be attributed to a row, so the pair supplies the number
+              // here, the same rewrite the INFO_ASK visit leg makes.
+              const clauses = rows.map(p => {
+                const c = buildInfoAnswer(p, infoFacets);
+                return c === undefined || /Евидентен број/u.test(c)
+                  ? c
+                  : `Евидентен број ${p.eb} — ${c.replace(/^Има(?![\p{L}])/u, 'има')}`;
+              });
               if (clauses.every(c => !!c)) {
                 const answer = clauses.join(' ');
                 routeLog(chatId, text, 'INFO_ASK_PAIR');
@@ -9882,11 +9989,9 @@ export class InboundHandler {
     // AFTER — never a bare «не може» and never a silent owner check for an hour
     // nobody can hold. The chain solver builds on the same calendar, so a
     // proposed hour is always one that keeps a contiguous run possible.
-    if (!isFeeTraffic(text) && propertyOnTable(session)
-      && ['closing', 'visit_scheduling', 'owner_checking', 'time_confirm'].includes(session.state)
-      && !detectWorkdaysQuestion(text) && !detectFeeWhy(text) && !detectFeeNag(text)
-      && !isWeekendTerm(text)
-      && (hasClockHint(text) || detectVisitTime(text) !== undefined)) {
+    // THE ROUTER OWNS THE GATE: the SLOT_TAKEN row is this block's conjunction
+    // plus the CALENDAR read, which the probe performs (2026-11-15).
+    if (routedLane() === 'SLOT_TAKEN') {
       const wanted = parseVisitDateTime(text, new Date());
       if (wanted) {
         const onTable = session.slots.propertyId ?? session.slots.interestedPropertyId
@@ -10071,6 +10176,45 @@ export class InboundHandler {
       }
     }
 
+    // 0-c2k) «КОЈ ИМА 126 м² ?» — AN IDENTITY QUESTION ABOUT A FIGURE THAT IS
+    // ALREADY ON THE TABLE (defect #5 of the [05:20] capture): the pair had
+    // just been served (105 м² and 126 м²) and the client pointed at ONE of
+    // them BY ITS SURFACE. The turn fell through to a fresh search and the
+    // number was read as money — «нема деловни простори од 126 м² до 100 евра
+    // месечно». A figure a served row CARRIES is an identifier, never a
+    // criterion: the row is named and the discussion moves to it.
+    // No match on the table falls through on purpose — «кој има 300 м²?» then
+    // is a genuine area search and belongs to the funnel.
+    if (routedLane() === 'IDENTIFY_BY_FIGURE') {
+      const fig = detectIdentifyByFigure(text);
+      const ebsHere = [...new Set([
+        ...(session.slots.currentBatch ?? []),
+        ...(session.slots.presentedIds ?? []),
+      ])];
+      if (fig !== undefined && ebsHere.length > 0) {
+        const rows = (await Promise.all(ebsHere
+          .map(eb => this.deps.properties.getByEb(eb).catch(() => undefined))))
+          .filter((p): p is Property => !!p)
+          .filter(p => (fig.kind === 'sqm' ? p.sqm === fig.value : p.price === fig.value));
+        if (rows.length > 0) {
+          routeLog(chatId, text, 'IDENTIFY_BY_FIGURE');
+          const measure = fig.kind === 'sqm'
+            ? `${fig.value} м²`
+            : `${fig.value.toLocaleString('mk-MK')} евра`;
+          const answer = rows.length === 1
+            ? `Тоа е ${boundFlatIdentity(rows[0]!)}.`
+            : `Со ${measure} има ${rows.length} недвижности:\n${rows.map(p => boundFlatIdentity(p)).join('\n')}`;
+          session.slots.propertyId = rows[0]!.eb;
+          session.slots.interestedPropertyId = rows[0]!.eb;
+          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, answer, 'deterministic');
+          return;
+        }
+      }
+    }
+
     // 0-c2m) «SHOW ME MORE» AFTER A SERVED PAIR — SERVE THE NEXT PAIR, NEVER A
     // BOOKING PROTOCOL (the operator's [12:41]/[13:08] capture). The pair went
     // out ending with «…дали некоја од нив Ви одговара за да организирам
@@ -10156,6 +10300,13 @@ export class InboundHandler {
         && inferPropertyId(text) === undefined
         && extractSlots(text).bedrooms === undefined
         && !detectInventoryAsk(text) && !detectAreaHaveAsk(text)
+        // AN ASK FOR OTHER STOCK IS NEVER AN AVAILABILITY ASK (defect #3 of the
+        // [05:20] capture): «OSVEN OVIE STO MI GI POKAZA DALI IMATE DRUGI ?»
+        // carries «овие … имате», so the plural ask claimed it and answered the
+        // SAME two cards with the fee — the client asked for other properties
+        // and was quoted a viewing. MORE_STOCK owns that sentence; this lane
+        // must stand down whatever the reason that lane did not claim it.
+        && !detectMoreStockRequest(text)
         && !session.slots.viewingFeeAgreed) {
         const rows = (await Promise.all(pluralEbs
           .map(eb => this.deps.properties.getById(eb).catch(() => undefined))))
@@ -10225,6 +10376,11 @@ export class InboundHandler {
           && askSlots.bedrooms === undefined
           && !pluralType
           && !detectInventoryAsk(text) && !detectAreaHaveAsk(text)
+          // SAME STAND-DOWN AS THE PLURAL LEG (defect #3 of the [05:20] capture):
+          // «OSVEN OVIE … ДАЛИ ИМАТЕ ДРУГИ ?» is an ask for OTHER stock, and a
+          // one-flat availability ack for the last card is the wrong answer to
+          // it. Whenever the stock lane stands down, this one must too.
+          && !detectMoreStockRequest(text)
           && !session.slots.viewingFeeAgreed) {
         const mb = await this.bindMention(text, session);
         if (await this.sendIfClarify(mb, text, session)) return;
@@ -10372,7 +10528,9 @@ export class InboundHandler {
     // proximity claim. The place the client named is a LOCK: the next options
     // come from THERE, and when it is drained she asks about other areas
     // BEFORE leaving it (the same contract as the property_locate hunt).
-    if (session.state !== 'property_locate'
+    // THE ROUTER OWNS THE GATE: the LOCATE_REJECT_PLACE row is this block's
+    // conjunction plus the place lock, which the probe resolves (2026-11-15).
+    if (routedLane() === 'LOCATE_REJECT_PLACE'
         // A VISIT-WINDOW TERM IS NEVER A PROPERTY REJECTION (the [04:05]
         // capture): «NE MI ODGOVARA PETOK VOOPSTO. DA OSTAVIME ZA PONEDNIK VO
         // 6 MOZE?» reached this lane on its «NE …», the chat was moved into
@@ -17117,7 +17275,8 @@ ${contactReminder}`;
   /** mode 'perM2': the rate ceiling is the client's own spec (≤ anchor's €/м²).
    *  mode 'golem': no ceiling — "golem mi e" anchors on SIZE, so the closest
    *  smaller м² ranks first (a bigger-rate row may honestly serve). */
-  private async presentSmallerPerM2(session: ChatSession, text: string, mode: 'perM2' | 'golem' = 'perM2'): Promise<boolean> {
+  private async smallerPerM2Plan(session: ChatSession, text: string, mode: 'perM2' | 'golem'):
+    Promise<{ anchor: Property; anchorRate: number; pool: Property[] } | undefined> {
     const isGolem = mode === 'golem';
     const mbAnchor = await this.bindMention(text, session, { historyFallback: true });
     const anchor = mbAnchor?.prop
@@ -17130,9 +17289,9 @@ ${contactReminder}`;
       ?? (session.slots.presentedIds?.length
         ? await this.deps.properties.getByEb(session.slots.presentedIds[session.slots.presentedIds.length - 1]).catch(() => undefined)
         : undefined);
-    if (!anchor) return false;
+    if (!anchor) return undefined;
     const anchorRate = pricePerM2(anchor);
-    if (anchorRate === undefined) return false;
+    if (anchorRate === undefined) return undefined;
     // "Smaller" needs a size basis: the anchor's own м², else its bedroom
     // grid. A garsonjera anchor (1 спална) has nothing smaller under it — the
     // honest empty line is the correct answer, never a bigger row.
@@ -17159,6 +17318,18 @@ ${contactReminder}`;
         || (isGolem ? (b.sqm ?? 0) - (a.sqm ?? 0) : (rate(b) as number) - (rate(a) as number))
         || a.eb - b.eb)
       .slice(0, 2);
+    return { anchor, anchorRate, pool };
+  }
+
+  /** THE SERVE built on that plan — the pool is already decided, so this half
+   *  only speaks. The split exists for the routing mirror: a SMALLER row must
+   *  predict the SERVED tag or the EMPTY tag, and only the plan knows which.
+   *  Reading the same plan from both sides is what keeps them one predicate. */
+  private async presentSmallerPerM2(session: ChatSession, text: string, mode: 'perM2' | 'golem' = 'perM2'): Promise<boolean> {
+    const plan = await this.smallerPerM2Plan(session, text, mode);
+    if (!plan) return false;
+    const { anchor, anchorRate, pool } = plan;
+    const isGolem = mode === 'golem';
     const fmt = (n: number): string => n.toLocaleString('mk-MK');
     if (pool.length > 0) {
       session.slots.presentedIds = [...(session.slots.presentedIds ?? []), ...pool.map(p => p.eb)];

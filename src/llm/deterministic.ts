@@ -33,7 +33,7 @@ import { buildAvailabilitySlots, buildVisitSlots, buildSeenSlots, buildSizeWaive
   buildFeeWhySlots, buildFeePracticeSlots, buildFeeTotalCostSlots, buildFeeRulesSlots,
   buildByeSlots, buildSoftRefusalSlots, buildExitCheckSlots, EXIT_OFFER_VETO_L,
   buildAnywhereSlots, buildAnywhereBareSlots, buildFeePracticeDislikeSlots, buildFeeValueComplaintSlots,
-  buildSqmRateMarkerSlot, ANYWHERE_TYPO_TOKENS } from './grammar';
+  buildSqmRateMarkerSlot, ANYWHERE_TYPO_TOKENS, buildPairReferentSlots } from './grammar';
 
 /** Dual-chance regex test: the raw text first, then the normalized
  *  (Latin→Cyrillic) form. New Cyrillic-only regex branches automatically cover
@@ -2772,7 +2772,7 @@ function collectMoneyMentions(text: string): MoneyMention[] {
   // (`isFeeFrame` already states this invariant for the price lanes), so a
   // figure carrying a denar unit is fee money: it is scanned here only so the
   // NEXT figure is not glued onto it, and then dropped.
-  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d+)?)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(еура|евра|евро|eura|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}])|денари|денар|ден\.?|denari|denar|den\.?|мкд|mkd)?/giu;
+  const re = /(?<![\p{L}\p{N}])((?:до|околу|под|do|okolu|oko|pod|za|за)\s+)?(\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d+)?)\s*(илјади|хилјади|iljadi|hiljadi|[kкKК](?![\p{L}]))?\s*(еура|евра|евро|eura|evra|evro|eur|€|[eE](?!\s*[\p{L}\p{N}])|денари|денар|ден\.?|denari|denar|den\.?|мкд|mkd)?(?!\s*(?:м2|м²|m2|квадрат\p{L}*|kvadrat\p{L}*))/giu;
   const out: MoneyMention[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(cleaned)) !== null) {
@@ -2791,6 +2791,12 @@ function collectMoneyMentions(text: string): MoneyMention[] {
     // Fee-context small figures: "10 evra ne e bas simbolichna" disputes the
     // viewing fee — it must never seed a budget slot.
     if ((n < 100 || hasCur) && FEE_CTX_RE.test(cleaned)) continue;
+    // (THE LOOKAHEAD IN THE SCAN IS THE SIZE GUARD: «ОКОЛУ 100 КВАДРАТИ» and
+    // «околу 100 м²» are AREAS — the money scan ends before the unit and skips
+    // the figure. Without it the cap prefix («околу») made 100 a MONEY budget
+    // as well, and every later pool query filtered on a 100-euro ceiling: the
+    // [05:20] field turn answered «нема деловни простори од 126 м² до 100 евра
+    // месечно» because the client's 100 м² had become his 100-euro budget.)
     // Cap-prefixed figures need a sanity floor ("до 3 соби" is bedrooms) but
     // no currency — "до 250" is a rent price in a rent funnel.
     if (!(n >= 1000 || hasCur || (capped && n >= 100))) continue;
@@ -6997,6 +7003,40 @@ export function detectMoreOptions(text: string): boolean {
     && matchesBoth(/(?<![\p{L}])(?:нов|novo|nov|друг|drugo|druga)/iu, text);
 }
 
+/** THE PAIR ON THE TABLE — a client points at the two rows just served with a
+ *  QUANTIFIER, not with a number (defect #4 of the [05:20] capture). The list
+ *  lives in grammar.ts so the executor and the mirror read ONE definition. */
+const PAIR_REFERENT_RE = buildPairReferentSlots();
+export function detectPairReferent(text: string): boolean {
+  return matchesBoth(PAIR_REFERENT_RE, text);
+}
+
+/** «КОЈ ИМА 126 м² ?» — an IDENTITY question about a FIGURE (defect #5 of the
+ *  [05:20] capture). The client names a measurement instead of a number, and
+ *  the pair just served contains exactly that measurement: the answer is the
+ *  row, never a new search (the field turn re-searched and read 126 as money:
+ *  «нема деловни простори од 126 м² до 100 евра месечно»).
+ *
+ *  NARROW ON PURPOSE: the identity word must GOVERN the verb and the number
+ *  must follow the verb directly («кој ИМА 126 м²», «кое Е 126 м²»), so
+ *  «која е цената за 126 м²» — a price question ABOUT a surface — is not read
+ *  as an identity question. Both scripts read through matchesBothCapture. */
+const ID_FIG_SQM = /(?<![\p{L}\p{N}])(?:кој|која|кое|кои)(?![\p{L}\p{N}])[^.?]{0,24}?(?<![\p{L}\p{N}])(?:има|имаат|е)(?![\p{L}\p{N}])[\s:,-]*(\d{2,4})\s*(?:м2|м²|m2|квадрат\p{L}*)(?![\p{L}\p{N}])/iu;
+const ID_FIG_PRICE = /(?<![\p{L}\p{N}])(?:кој|која|кое|кои)(?![\p{L}\p{N}])[^.?]{0,24}?(?<![\p{L}\p{N}])(?:има|имаат|е)(?![\p{L}\p{N}])[\s:,-]*(\d{1,3}(?:[.,]\d{3})+|\d{2,6})\s*(?:евра|евро|evra|evro|денари|ден\.|mkd)(?![\p{L}\p{N}])/iu;
+export function detectIdentifyByFigure(text: string): { kind: 'sqm' | 'price'; value: number } | undefined {
+  const sqm = matchesBothCapture(ID_FIG_SQM, text);
+  if (sqm !== undefined) {
+    const v = Number(sqm);
+    if (Number.isFinite(v) && v > 0) return { kind: 'sqm', value: v };
+  }
+  const price = matchesBothCapture(ID_FIG_PRICE, text);
+  if (price !== undefined) {
+    const v = Number(price.replace(/[.,]/gu, ''));
+    if (Number.isFinite(v) && v > 0) return { kind: 'price', value: v };
+  }
+  return undefined;
+}
+
 /** "SHOW ME MORE" AFTER A SERVED PAIR — the operator's [12:41] field capture:
  *  a pair went out ending with «…дали некоја од нив Ви одговара за да организирам
  *  посета?» and the client answered «НЕ СЕ ЛОШИ АМА САКАМ ДА ВИДАМ УШТЕ АКО
@@ -7012,6 +7052,18 @@ export function detectMoreOptions(text: string): boolean {
  *  one flat) and in «уште колку време» — those keep their own lanes. */
 export function detectMoreStockRequest(text: string): boolean {
   const t = normalizeMc(text);
+  // «ОСВЕН ОВИЕ ШТО МИ ГИ ПОКАЖА — ДАЛИ ИМАТЕ ДРУГИ ?» (defect #3 of the [05:20]
+  // capture): the client asks for the stock BEYOND what he was already shown.
+  // The objectAsk veto below reads the «дали … имате» shape as the SINGLE-FLAT
+  // availability question («дали ГО ИМАТЕ уште?») and threw the message to the
+  // availability lane, which re-answered the same two cards and moved the turn
+  // to the fee — the client asked for other properties and was sold a viewing.
+  // The OBJECT is the discriminator: a plural of the stock («други», «нови»,
+  // «дополнителни», «другите станови») is MORE STOCK, a pronoun («го/ја/ги») or
+  // a bare verb is the availability question. Read first, veto after.
+  const otherObjectAsk = /(?<![\p{L}\p{N}])(?:имате|има|имаат)(?:\s+ли)?\s+(?:уште\s+)?(?:други(?:те|ве|от|а|о)?|нови(?:те|ве)?|дополнителни(?:те)?|друго|ново|опции(?:те)?|понуди(?:те)?|станови(?:те)?|куќи(?:те)?|недвижности(?:те)?|имоти(?:те)?|простори(?:те)?)(?![\p{L}\p{N}])/iu.test(t)
+    || /(?<![\p{L}\p{N}])(?:освен|покрај)\s+(?:[\p{L}\p{N}']+\s+){0,6}(?:овие|оваа|ова|тие|тоа|покаж|вид|даден|горенаведен|наведен)/iu.test(t);
+  if (otherObjectAsk) return true;
   // «ГО ИМАТЕ УШТЕ ?» / «ДАЛИ ЈА ИМА УШТЕ ?» IS THE SAME VERB AND THE OTHER
   // QUESTION (the [07:06]/[04:14] captures): both ask whether ONE flat is
   // still available, and the availability lane owns them. The «има» family
