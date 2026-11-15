@@ -12,6 +12,8 @@
 // ordering constraint fails a test instead of shipping silently.
 
 import { classifyOffensive } from '../antiabuse/offensive';
+import { detectPersonalAsk } from '../llm/personal';
+import { isLandmarkAnchored } from '../llm/lexicon';
 import { detectWhichOfBatchPlace } from '../data/properties';
 import { recordRouteDrift } from '../store/routeDrift';
 import { currentTurnAudit } from './turn';
@@ -26,7 +28,9 @@ import {
   detectMarketPriceAsk, detectMarketMemoryAsk,
   detectBusinessBudgetAsk,
   detectPriceEval, adviceLaneAdmits,
-  detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk,
+  detectNearbyAsk, detectSeenListingRecall, detectInventoryAsk, hasWhereWord,
+  extractDistancePlaces, detectWhichAreaHas, detectPlaceOfferAsk, recallCarriesFigure,
+  isGenuineQuestion,
   detectFeePaymentAgreement, detectArrangementRecall, detectToldYouNag,
   detectNumberUnknownRecall, detectSimilarAsk, detectBusiness, EB_NAMED_RE,
   isFeeTraffic, detectNearCenter, extractPoiWishCandidates, looksLikeScreenEcho,
@@ -232,6 +236,16 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => looksLikeScreenEcho(t) },
   { intent: 'OFFENSIVE', note: 'zero-output policy wins over everything',
     fires: t => classifyOffensive(t).isOffensive },
+  // THE PERSONAL LANE (inbound.ts 5022) — the client asking about LINA herself
+  // (her name, her age, a compliment, her origin). Closed-class and
+  // deterministic, served BEFORE the question gate so the age ask never reaches
+  // the classifier and the dynamic generate+store door (which is how «Јас сум
+  // дигитален асистент» got banked forever). The executor logs the KIND with the
+  // tag (`PERSONAL:name`), so the registry row keys the base lane and
+  // `laneForTag` resolves every kind to it. No row here meant the 2026-11-15 day
+  // file reported four gaps a day on turns that were served exactly right.
+  { intent: 'PERSONAL', note: 'her name / her age / a compliment / her origin — the closed-class persona lane, answered deterministically before any classifier or funnel lane',
+    fires: t => detectPersonalAsk(t) !== undefined },
   // AGENT ATTENDANCE (inbound.ts 4518) — an informational question, handled
   // BEFORE the broad visit detector so «ТИ ЌЕ ДОЈДЕШ СО МЕНЕ?» is never read as
   // a request to schedule (the [22:08] capture heard «300 денари» instead of a
@@ -262,6 +276,12 @@ export const ROUTING_ORDER: RouteRule[] = [
       && !['pending', 'queued', 'owner_checking', 'time_confirm', 'visit_scheduling',
         'contact_collection'].includes(s)
       && (sl.business === true || detectBusiness(t))
+      // A RECALL IS NOT A SEARCH (the 2026-11-15 replay): «imavte eden lokal kaj
+      // olimpiko … bese dali uste se prodava?» asks whether the listing he
+      // REMEMBERS is still for sale. The executor's business block stands down
+      // for that shape (same veto, inbound.ts 7014) so the recall lane owns it;
+      // reading it as a pair-serve search reported a drift on every such turn.
+      && !detectSeenListingRecall(t)
       && (extractPoiWishCandidates(t, { withCriteria: true }).length > 0
         || (detectSimilarAsk(t) && !!sl.poiAnchor)) },
   // THE OWNERS-MAY-REPRICE DISCLAIMER (inbound.ts 7012): a clean-price
@@ -320,16 +340,36 @@ export const ROUTING_ORDER: RouteRule[] = [
       && !detectPriceAsk(t) && !detectBudget(t)
       && !detectService(t) && !detectBothServices(t)
       && extractWhereLandmarkPlace(t) !== undefined },
-  { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT каде enters the deterministic privacy ladder. Must sit before WHERE_IS only via the !whereIs guard — каде-prefixed questions fall through',
-    fires: (t) => detectExactAddressAsk(t) && !isKadeTocno(t) && !detectWhereIs(t) },
+  // THE DEFERRAL IS TO A REAL WHERE-WORD, NOT TO EVERY whereIs HIT (the
+  // 2026-11-15 replay): the executor's gate is `detectWhereIs && hasWhereWord`
+  // — the where-is EXTENSION also fires on the address family without any каде
+  // word («TOCNATA ULICA I BROJ», «KOJA MU E LOKACIJATA NA 89?»), and those
+  // must ride the privacy ladder in EXACT_ADDRESS. A bare `!detectWhereIs`
+  // here predicted WHERE_IS for five served EXACT_ADDRESS turns a day.
+  { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT a where-word enters the deterministic privacy ladder — same guard as the executor: !isKadeTocno and !(detectWhereIs && hasWhereWord), so каде-prefixed questions fall through',
+    fires: (t) => detectExactAddressAsk(t) && !isKadeTocno(t)
+      && !(detectWhereIs(t) && hasWhereWord(t)) },
   { intent: 'OWNER_CONTACT', note: 'client leaves name/phone — captured before any other reply',
     fires: t => detectOwnerContact(t) },
-  { intent: 'WHERE_IS', note: 'any каде-question → landmark rotation. Beats EXACT_ADDRESS by the guard above and beats description routing below',
-    fires: t => !!detectWhereIs(t) },
+  // A NEARBY ASK IS NOT A WHERE-IS (the 2026-11-15 replay): the executor's
+  // nearby interceptor (inbound.ts 9095) runs BEFORE the where-is lane (9286),
+  // and «kazi mi sto ima vo blizina poznato?» carries a where-word without
+  // asking where anything is. Without the veto the mirror predicted WHERE_IS
+  // for a turn the near-by read served.
+  // …BUT THE INTERCEPTOR IS BEHIND THE QUESTION GATE (inbound.ts 5162): a
+  // GENUINE question skips it, and «a sto drugo ima vo blizina» was served by
+  // WHERE_IS exactly that way. Same conjunction, both readers.
+  { intent: 'WHERE_IS', note: 'any каде-question → landmark rotation. Beats EXACT_ADDRESS by the guard above and beats description routing below; a NEARBY ask keeps its own lane (the executor intercepts it first, unless the question gate skips interceptors)',
+    fires: t => !!detectWhereIs(t)
+      && !(detectNearbyAsk(t) && !nearbyInterceptorSkipped(t)) },
   { intent: 'DISTANCE_BATCH', note: 'the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat\'s number came back). EVIDENCE: at least two rows of the batch measure against the named place',
     fires: (t, s, sl, ev) => ev?.distanceBatch === true },
-  { intent: 'DISTANCE', note: '"KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?" ([22:25]) — how far the discussed property is from a place the client names. Sits after WHERE_IS (каде owns those), and BEFORE every funnel branch: the classifier read „STANOT“ as PROPERTY_ID_REQUESTED and answered a distance question with the property card',
-    fires: t => isDistanceQuestion(t) },
+  // THE TARGET MUST BE A PLACE (the 2026-11-15 replay): «kolku e daleku od
+  // stanot?» names the FLAT, not a destination — the executor finds no place,
+  // no map hit and falls through to the near-by read. Same extractor the
+  // executor calls, so the row is the block's own text gate, not a re-derivation.
+  { intent: 'DISTANCE', note: '"KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?" ([22:25]) — how far the discussed property is from a place the client names (a real destination in the message, `extractDistancePlaces`). Sits after WHERE_IS (каде owns those), and BEFORE every funnel branch: the classifier read „STANOT“ as PROPERTY_ID_REQUESTED and answered a distance question with the property card',
+    fires: t => isDistanceQuestion(t) && extractDistancePlaces(t).length > 0 },
   { intent: 'NEAREST_OF_SHOWN', note: '«KOJ E NAJBLISKU DO KAFICOT?» ([22:03]) — which of the flats ALREADY OFFERED is nearest to the place the client names. Sits after WHERE_IS/DISTANCE (which own their questions) and before the funnel branches: the location-nag lane answered it with the last flat\'s nearby landmark, because «најблиску» contains «блиску»',
     fires: t => detectNearestOfShown(t) },
 
@@ -398,8 +438,26 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: (t, s, sl, ev) => ev?.placePivot === true },
   { intent: 'NEARBY_ASK', note: 'what else is around the discussed/named building («sto ima vo blizina na …?») — the executor intercepts it before every funnel branch, so it must beat PROPERTY_DESCRIPTION here too',
     fires: t => detectNearbyAsk(t) },
-  { intent: 'SEEN_LISTING_RECALL', note: 'a RECALLED listing («imavte edna kukja nakaj … okolu 130 000 bese») — past-tense had + determiner + property noun; the archive ack owns it, never the criteria funnel or a surroundings read',
-    fires: t => detectSeenListingRecall(t) },
+  // …AND THE REMEMBERED-PROPERTY BLOCK OUTRANKS IT WHERE THE EXECUTOR SAYS SO
+  // (the 2026-11-15 replay): the block at inbound.ts 9516 runs BEFORE the recall
+  // serve and keeps a LANDMARK-ANCHORED recall that carries NO figure — «имавте
+  // една гарсоњера кај Црногорска амбасада» is answered by the guided place
+  // serve (PROPERTY_DESCRIPTION), exactly as the [11:29] cold pin says. The
+  // three facts are the same three the executor reads: a description-shaped or
+  // place-offer message, a landmark anchor (кај/до/близу) and no figure of its
+  // own. A FIGURE-carrying recall («…околу 30 000 евра беше») keeps this lane.
+  // A RECALL THAT NAMES ITS OWN PRICE **AND** SIZE IS THE LOCATE FUNNEL'S (the
+  // [madjari] money-anchor gate, inbound.ts 9849): with both figures in hand the
+  // funnel can rank the pool by room count AND price, and the recall block
+  // declines it — «имавте еден стан во Маџар Маало со две спални, цена околу
+  // 180 000, дали уште се продава?» was predicted SEEN_LISTING_RECALL while the
+  // funnel re-rank (tagged PROPERTY_DESCRIPTION) served it. One fact, read by
+  // both rows below.
+  { intent: 'SEEN_LISTING_RECALL', note: 'a RECALLED listing («imavte edna kukja nakaj … okolu 130 000 bese») — past-tense had + determiner + property noun; the archive ack owns it, never the criteria funnel or a surroundings read. Stands down for the landmark-anchored, figure-less recall the remembered-property block serves, in the executor\'s own order',
+    fires: (t, s, sl) => detectSeenListingRecall(t)
+      && !((detectPropertyDescription(t) || detectPlaceOfferAsk(t))
+        && isLandmarkAnchored(t) && !recallCarriesFigure(t) && !sl.service)
+      && !pricedSizedRecall(t) },
   { intent: 'SURROUNDINGS', note: 'which-side / relative-to-the-named-places ask ("od stranata na trgovskiot ili odkaj pazarceto") — a LOCATION question the classifier settled with the closing fee pitch ([01:29] capture). Sits after WHERE_IS, which owns the каде questions, and before every funnel branch. THE EXECUTOR\'S OWN VETO: a near-centre refinement («poblisku do centar ili do aerodrom?») and a SIMILARITY ask («имаш нешто слично?») are searches, not side questions, so the block refuses both — the mirror must refuse them too, or it predicts this lane for a turn the executor never runs here (the [21:05] residential similarity ask was predicted SURROUNDINGS while the pool decided the turn)',
     fires: t => !detectNearCenter(t) && !detectSimilarAsk(t) && !!detectSurroundingsAsk(t) },
   // ── THE FOUR LANES THE CORPUS CAUGHT WITHOUT A MIRROR ROW (proposal Phase 4)
@@ -483,8 +541,17 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectContactMechanicsChallenge(t)
       && !detectFeeWhy(t) && !detectFeeNag(t) && !detectFeeComplaint(t)
       && !detectProvisionAsk(t) && !detectProvisionWho(t) },
-  { intent: 'AREA_HAVE_SEARCH', note: '«а во која населба има?» (inbound.ts 5210) — the criteria are released and the pair is served with the neighbourhoods that hold it. Fee traffic is a money question, not a stock question',
-    fires: t => detectAreaHaveAsk(t) && !isFeeTraffic(t) },
+  // THE CRITERIA ARE THE EXECUTOR'S GATE (the 2026-11-15 replay): the block at
+  // inbound.ts 5490 only serves when the session HOLDS something to search
+  // with, and a cold «а во која населба има?» is the neighbourhood-advice lane
+  // instead. The mirror read the bare detector, so it predicted this lane for
+  // a turn the advice row served.
+  { intent: 'AREA_HAVE_SEARCH', note: '«а во која населба има?» (inbound.ts 5490) — the criteria are released and the pair is served with the neighbourhoods that hold it. SLOT-AWARE: the executor needs a criterion in the notebook (service, rooms, budget or a type), so the mirror reads the same memory and a cold ask keeps its own lane. Fee traffic is a money question, not a stock question',
+    fires: (t, s, sl) => detectWhichAreaHas(t) && !isFeeTraffic(t)
+      && (!!sl.service || sl.bedrooms !== undefined
+        || sl.bedroomsMin !== undefined || sl.bedroomsMax !== undefined
+        || sl.budget !== undefined || sl.garsonjera === true
+        || sl.house === true || sl.plac === true || sl.business === true) },
   { intent: 'DISTANCE_MATRIX', note: 'several places × every flat on the table («kolku e daleku od X i od Y ?», inbound.ts 5470) — one measured line per place and flat. EVIDENCE: the executor only serves when at least TWO flats of the batch actually measure against a named place, which is the probe\'s `distanceBatch` (the mirror cannot reach the map)',
     fires: (t, s, sl, ev) => ev?.distanceBatch === true },
   { intent: 'OWNER_HOLD', note: '«NE GO KONTAKTIRAJ USTE» / «NE SME SE DOGOVORILE» (inbound.ts 10460) — acknowledge and DO NOT proceed, and never on a funnel message (a search entry keeps the funnel). Tagged `OWNER_HOLD:fast` by the executor',
@@ -538,8 +605,8 @@ export const ROUTING_ORDER: RouteRule[] = [
     } },
   { intent: 'REMARK', note: 'a generic remark (inbound.ts 10699 bank / 10722 deterministic) — acknowledged and moved on, never a fee lane and never a search. One intent for both tags: `REMARK:bank` and `REMARK:fast` are the same lane with different wording sources',
     fires: t => detectRemark(t) },
-  { intent: 'INVESTMENT_OPINION', note: 'an investment-advice ask (inbound.ts 10573) — the honest «investment is a judgement, here is what the figures say» answer, never a price promise',
-    fires: t => detectInvestmentOpinion(t) },
+  { intent: 'INVESTMENT_OPINION', note: 'an investment-advice ask (inbound.ts 11041, the fast leg) — the honest «investment is a judgement, here is what the figures say» answer, never a price promise. The PRICE-EXTREME serve (6455) runs long before this leg, so a «koja e najvisokata cena vo aerodrom?» is the price lane: the mirror must refuse it here or it reports a drift on a correct serve',
+    fires: t => detectInvestmentOpinion(t) && !detectPriceExtremeAsk(t) },
   { intent: 'FEE_PUSH', note: 'fee charge pushback — the nag ladder, incl. the rhetorical «KAJ SE VIDELO PARI ZA OTVARANJE STAN» ([22:03]). Sits after SURROUNDINGS and before the where-is/description rows, because a fee nag is NEVER a place question (§2: the location lanes stand down on fee traffic) — without this row the challenge was predicted PROPERTY_DESCRIPTION. The options-ask veto is the executor\'s own: a choice about the flats on the table keeps the recommendation lane, never the ladder. NO WHY-WORD VETO: the executor\'s nag claim (inbound.ts 7285) runs BEFORE the fee.why legs (10118+), so «NIKOJ NE ZEMA PARI ZA POSETA?» / «PARI ZA POSETA ZEMATE ? ZOSTO?» / «MNOGU NEKAKO 500DEN ZA POSETA» climb rung 1 — the R1 row predicted FEE_WHY for them and reported a drift the ladder never caused',
     fires: (t, s, sl) => detectFeeNag(t, { feeContext: s === 'closing' || s === 'presentation' })
       && FEE_NAG_STATES.includes(s)
@@ -727,6 +794,17 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'MORE_STOCK', note: 'a stock ask after a pair was served — the NEXT unshown pair from the same search, or the honest drained line; never the availability table, never the booking protocol, never a repeat of a flat already served ([12:41] capture)',
     fires: (t, s, sl) => detectMoreStockRequest(t)
       && (sl.presentedIds?.length ?? 0) > 0
+      // AN EITHER-OR BUDGET HAS ITS OWN DRAIN (the [20:08] capture): «еден до
+      // 80.000 или два до 140.000» leaves `countBudget` in the notebook, and the
+      // drain of that plan states BOTH caps and offers the pricier pair, a
+      // neighbouring area and a criteria change (the FSM lane at inbound.ts
+      // 12930, which arms `moreChoicePending`). The next-pair serve knows
+      // nothing about the two counts, so it re-served pairs until the pool ran
+      // out — «DRUGO NESTO IMA , OSVEN OVIE DVA ?» heard «немаме други понуди»
+      // instead of the pair he was told exists. (This row used to be shadowed
+      // by the loose AREA_HAVE_SEARCH row ahead of it, which is why the defect
+      // only surfaced once that row was narrowed to the executor's real gate.)
+      && !sl.countBudget
       && !isFeeTraffic(t) && !detectFeeNag(t) && !detectProvisionAsk(t)
       && !detectProvisionWho(t)
       // NO `!sl.ownerContactPending` HERE (defect #3 of the [05:20] capture):
@@ -925,10 +1003,25 @@ export const ROUTING_ORDER: RouteRule[] = [
     // ZEBRA ?»): that is a present-tense show-me ask, the see-offers sell owns
     // it, and reading it as a remember-which-flat turn is the [01:45] defect
     // (two clients, one question, two answers). Same exclusion as the executor.
-    fires: (t, s, sl) => (detectPropertyDescription(t) || isBarePriceReference(t, sl))
+    // …AND THE PLACE-OFFER READING IS THE SAME BLOCK (the 2026-11-15 replay):
+    // «zdravo imavte nesto kaj crnogorska ambasada?» carries no category word,
+    // so `detectPropertyDescription` is false while the executor's one-place
+    // reading serves it — predicted FALLTHROUGH here. Same predicate both sides.
+    // …AND THE PRICE-AND-SIZE RECALL IS THE FUNNEL'S TURN, NOT A SERVICE INTENT
+    // (the 2026-11-15 replay): «имавте еден стан во Маџар Маало со две спални,
+    // цена околу 180 000, дали уште се продава?» carries «се продава», which
+    // `detectService` reads as a deal — so the row fell through while the
+    // locate re-rank served it under THIS tag (inbound.ts 13873). The recall
+    // block refuses the shape itself (price AND size = the funnel can rank by
+    // both, the [madjari] money-anchor gate), so the deal word inside a recall
+    // is evidence ABOUT the listing, never a new search's service slot.
+    fires: (t, s, sl) => ((detectPropertyDescription(t) || detectPlaceOfferAsk(t)
+      || isBarePriceReference(t, sl))
+      && !detectService(t) && !detectBothServices(t)
+      || pricedSizedRecall(t))
       && !detectInventoryAsk(t)
       && !isFeeTraffic(t) && !detectOwnClaimChallenge(t)
-      && !detectService(t) && !detectBothServices(t) && !detectDrugAlternative(t) && !detectInvestmentOpinion(t) },
+      && !detectDrugAlternative(t) && !detectInvestmentOpinion(t) },
   { intent: 'VISIT_CANCEL', note: 'cancellation only meaningful in visit states',
     fires: (t, s) => detectVisitCancellation(t) &&
       ['visit_scheduling', 'owner_checking', 'time_confirm'].includes(s) },
@@ -1047,6 +1140,53 @@ const ROUTE_LOG_MAX = 500;
 const PENDING_PREDICT = new Map<string, { intent: string; at: number }>();
 const DRIFT_WINDOW_MS = 60_000;
 
+/** THE EXECUTOR'S QUESTION GATE (inbound.ts 5162) — a genuine question skips
+ *  every deterministic interceptor, the NEARBY read included. One definition:
+ *  the where-is row asks it whether the near-by lane could have claimed the
+ *  turn, exactly as the executor does before its interceptor. */
+const nearbyInterceptorSkipped = (t: string): boolean =>
+  isGenuineQuestion(t) && !detectService(t) && !detectBothServices(t)
+  && !detectPropertyDescription(t) && !detectExactAddressAsk(t);
+
+/** A RECALL THAT NAMES BOTH A REMEMBERED PRICE AND A SIZE. The recall block's
+ *  claim gate requires the size to be MISSING whenever a price is present
+ *  (inbound.ts 9849, the [madjari] money-anchor gate: with both figures the
+ *  locate funnel ranks the pool by room count *and* price), so such a message
+ *  falls through to the funnel. Text-only — no map, no feed. */
+const pricedSizedRecall = (t: string): boolean => {
+  if (!detectSeenListingRecall(t)) return false;
+  const s = extractSlots(t);
+  return s.budget !== undefined
+    && (s.bedrooms !== undefined || s.bedroomsMin !== undefined
+      || s.bedroomsMax !== undefined || s.sqm !== undefined);
+};
+
+/** RESOLVE A SERVED TAG TO ITS REGISTRY ROW. The executor names the WORDING
+ *  SOURCE after a colon on the same lane (`FEE_WHY:fast`, `FEE_SURPRISE:fast`,
+ *  `PROPERTY_CHOICE:fast`) and even puts the state there
+ *  (`VISIT_CANCEL:visit_scheduling`) — every one of them is the lane the base
+ *  tag names, and `ROUTE_LANES` keys one spelling or the other. Without this
+ *  resolution the comparison read a suffixed tag as an UNREGISTERED LANE and
+ *  logged a gap on a correct turn: the 2026-11-15 day file carried 191 such
+ *  rows (`VISIT_CANCEL:visit_scheduling` ×169, `VISIT_CANCEL:owner_checking`
+ *  ×12, `PROPERTY_CHOICE:fast` ×10). Both readers — `routeLog` here and
+ *  `scripts/route-gap-audit.ts` — call THIS function, so a served tag and the
+ *  audit's day file can never disagree about what lane ran. */
+export function laneForTag(tag: string): LaneEntry | undefined {
+  // THE REGISTRY KEYS EITHER SPELLING: some lanes are registered by their BASE
+  // name (`WHERE_IS`) and some only by the tag the executor logs
+  // (`'FEE_PUSH:fast'`, `'OWNER_HOLD:fast'`), so BOTH directions are tried —
+  // exact, then the `:fast`/`:bank` wording sources, then the base lane of a
+  // `:kind`/`:state` tag and its sources again.
+  const lookup = (k: string): LaneEntry | undefined =>
+    ROUTE_LANES[k] ?? ROUTE_LANES[`${k}:fast`] ?? ROUTE_LANES[`${k}:bank`];
+  const exact = lookup(tag);
+  if (exact) return exact;
+  const base = tag.replace(/:+[^:]*$/u, '');
+  if (base === tag) return undefined;
+  return lookup(base);
+}
+
 export function routeLog(chatId: string, text: string, intent: string, kind: 'actual' | 'predict' = 'actual'): void {
   // THE TURN RECORD (proposal Phase 2): until now the served lane existed only
   // as a console line (`[route]`), so "which lane answered this turn?" was
@@ -1086,7 +1226,7 @@ export function routeLog(chatId: string, text: string, intent: string, kind: 'ac
   // The tag is normalised through the registry first: the executor logs both
   // `FEE_WHY` and `FEE_WHY:fast`, and a mirrored row names the intent they
   // share.
-  const actualMirror = ROUTE_LANES[intent]?.intent ?? null;
+  const actualMirror = laneForTag(intent)?.intent ?? null;
   // A COLLISION MARKER IS A DIAGNOSTIC EVENT, NOT A LANE (2026-11-15): the
   // arbiter logs `LANE_COLLISION:nag|feeWhy` when two claims tie, and the lane
   // it then serves is tagged right after it in the same turn. Comparing the
@@ -1178,6 +1318,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   BUSINESS_BUDGET_ASK: M('BUSINESS_BUDGET_ASK', 'state-gated money/lane in intake states'),
   EXACT_ADDRESS: M('EXACT_ADDRESS', 'privacy ladder, !kade-guarded above WHERE_IS'),
   OWNER_CONTACT: M('OWNER_CONTACT', 'name/phone capture first'),
+  PERSONAL: M('PERSONAL', 'a question about Lina herself — the tag carries the KIND: PERSONAL:name / :age / :compliment / :origin (inbound.ts 5022)'),
   WHERE_IS: M('WHERE_IS', 'каде owns those questions'),
   DISTANCE: M('DISTANCE', 'how far the discussed flat is from X'),
   DISTANCE_BATCH: M('DISTANCE_BATCH', 'the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat’s number came back)'),

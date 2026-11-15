@@ -25,7 +25,7 @@ import '../src/compat/node16';
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { ROUTE_LANES } from '../src/handlers/router';
+import { laneForTag } from '../src/handlers/router';
 
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
@@ -67,8 +67,12 @@ for (const file of files) {
 // and the registry may key either form — the same alias rule that made
 // `WAITING:fast` a gap on every correct patience line. Resolve the tag through
 // every spelling the registry knows before calling it unlisted.
+// ONE RESOLVER, TWO READERS: `laneForTag` is the same function `routeLog` uses
+// to compare a served tag with the prediction, so the audit's day file and the
+// live drift log can never disagree about which lane a suffixed tag belongs to
+// (`VISIT_CANCEL:visit_scheduling`, `PROPERTY_CHOICE:fast`, `FEE_WHY:fast`).
 const laneFor = (tag: string): { intent: string | null; note: string } | undefined =>
-  ROUTE_LANES[tag] ?? ROUTE_LANES[`${tag}:fast`] ?? ROUTE_LANES[`${tag}:bank`];
+  laneForTag(tag);
 
 // A tag that no longer exists in `src` cannot be logged again: it is HISTORY
 // (renamed, retired, or a test artifact), not a silent lane. Only a tag that is

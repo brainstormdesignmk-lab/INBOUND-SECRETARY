@@ -9340,6 +9340,16 @@ export function extractWhereLandmarkPlace(text: string): string | undefined {
     place = m?.trim().replace(/[.?!,:;]+$/u, '').trim();
   }
   if (!place) return undefined;
+  // A FILLER, A PREDICATE OR A LOCATIVE PHRASE IS NOT A PLACE NAME (the
+  // 2026-11-15 day replay). Three shapes kept reaching the map as landmarks:
+  //   • the adverb «точно» — «kade tocno se naogja?» bound «tocno» and the lane
+  //     answered a where-is as a landmark miss;
+  //   • the VERB — «KAZI MI TOCNO KADE SE NAOGJA ?» backtracked the optional
+  //     «наоѓа» group and captured «NAOGJA» itself as the place name;
+  //   • a locative phrase — «ovoj 57 kade se naogja vo strog centar ?» names
+  //     WHERE the flat is, so the topic stays the flat (the WHERE_IS lane).
+  // All three are read as «no place named», which is the truth.
+  if (WHERE_LANDMARK_TAIL_REJECT_RE.test(place)) return undefined;
   // Drop trailing scaffold words
   let words = place.split(/\s+/);
   while (words.length > 1
@@ -9364,6 +9374,14 @@ export function extractWhereLandmarkPlace(text: string): string | undefined {
  *  to «Image Plus» and answered a two-bedroom request with a quarter of town). */
 const PLACE_TAIL_PREDICATE_RE =
   /^(?:има|имал|имала|имаме|имате|имаат|ima|imal|imala|imame|imate|imaat|нема|немате|nema|nemate|може|можам|можете|moze|mozam|mozete|морам|moram|би|bi|да|da|ќе|ke|ли|li|е|e|се|se|и|i|а|a|или|ili|знам|znam)(?![\p{L}\p{N}])/iu;
+
+/** A where-landmark tail that is NOT a place name — see extractWhereLandmarkPlace.
+ *  Three families: the adverb «точно» (it modifies the QUESTION), the
+ *  наоѓа/naogja predicate, and a locative opener (во/на/кај/до/близу…), which
+ *  turns the tail into the place the FLAT stands in rather than the place asked
+ *  about. */
+const WHERE_LANDMARK_TAIL_REJECT_RE =
+  /^(?:точно|tocno|tacno|поточно|potocno|potochno|наоѓа|naogja|наога|naoga|се\s+наоѓа|se\s+naogja|се\s+наога|se\s+naoga|во|vo|на|na|кај|kaj|до|do|близу|blizu|близина|blizina|околу|okolu|спроти|sproti|наспроти|nasproti)(?![\p{L}\p{N}])/iu;
 
 /** «ВО КОЈА НАСЕЛБА ИМА?» — WHICH neighbourhood holds what the client asked
  *  for. After «нема двособни до 300 евра месечно во Центар» this is the client
@@ -9589,6 +9607,35 @@ function readDistancePlace(text: string): string | undefined {
   // FROM-form ([16:11]): the property is the SUBJECT, the landmark follows
   // „од“. A property noun there („od stanot“) is the subject, not a place.
   return trimAsk(scanDistanceTail(text, PLACE_FROM_RE, DISTANCE_SUBJECT_WORDS));
+}
+
+/** «ИМАВТЕ НЕШТО КАЈ ЦРНОГОРСКА АМБАСАДА?» — a first message that names a PLACE
+ *  and asks whether we have ANYTHING there. It carries no category word, so
+ *  `detectPropertyDescription` never fires, and the discovery «купување или
+ *  издавање?» would be the answer to a place the bank can read.
+ *  ONE DEFINITION, TWO READERS (the 2026-11-15 replay): the executor's
+ *  remembered-property block reads it, and the router must predict that block
+ *  from the same predicate — otherwise a cold place offer (`FALLTHROUGH`) and a
+ *  landmark-anchored recall («имавте една гарсоњера кај …», predicted
+ *  SEEN_LISTING_RECALL while the description lane served it) disagree about
+ *  which lane the turn belongs to. */
+export function detectPlaceOfferAsk(text: string): boolean {
+  return extractPoiWishCandidates(text, { withCriteria: true }).length > 0
+    && /(?<![\p{L}\p{N}])(?:nesto|нешто)(?![\p{L}\p{N}])/iu.test(text)
+    && /(?<![\p{L}\p{N}])(?:imate|imavte|imase|ima\s+li|имате|имавте|имаше|има\s+ли)(?![\p{L}\p{N}])/iu.test(text);
+}
+
+/** Does the RECALL carry its own specs — a price, a room count, a surface?
+ *  The remembered-property block stands down for it («IMAVTE EDNA MALA
+ *  GARSONJERA KAJ CRNOGORSKA AMBASADA , OKOLU 30 000 EVRA BESE» already
+ *  answers the questions the guided search would ask), and the router must
+ *  read the SAME fact when it decides which of the two lanes owns the turn.
+ *  One definition, two readers (the 2026-11-15 replay). */
+export function recallCarriesFigure(text: string): boolean {
+  const slots = extractSlots(text);
+  return slots.budget !== undefined || slots.bedrooms !== undefined
+    || slots.bedroomsMin !== undefined || slots.bedroomsMax !== undefined
+    || slots.sqm !== undefined;
 }
 
 /** EVERY place a distance question names (the owner's 2026-11-11 brief):
