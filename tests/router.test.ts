@@ -199,6 +199,22 @@ test('the promoted backlog lanes predict what their executor serves', () => {
   assert.equal(resolveIntent('MNOGU SE POSKAPEA STANOVIVE', 'presentation', { presentedIds: [66] } as any), 'INVESTMENT_OPINION');
   assert.equal(resolveIntent('PA KAKO NEMA STANOVI KOGA OVOJ E EDEN OD NIV ?', 'closing', { presentedIds: [66] } as any), 'STOCK_CONTRADICTION');
   assert.equal(resolveIntent('NE GO KONTAKTIRAJ USTE', 'closing', { presentedIds: [66] } as any), 'OWNER_HOLD');
+  // THE EVIDENCE LANES (2026-11-15): these four are gated on what SHE just said,
+  // so the probe supplies the fact and the row reads it. Without the evidence
+  // the same text must NOT claim the lane — that is what keeps the mirror from
+  // predicting a turn the executor never runs.
+  const pairSlots = { presentedIds: [66, 42] } as any;
+  assert.equal(resolveIntent('A STO USTE ?', 'closing', pairSlots, { nearbyThread: true }), 'NEARBY_THREAD');
+  // EXPECTATION FIXED while writing this: without the nearby-thread evidence the
+  // bare «A STO USTE ?» claims NO lane at the mirror (FALLTHROUGH) — the
+  // continuation is the whole meaning of the sentence, so the probe is what
+  // makes it predictable. Pinning MORE_STOCK here would have been the mirror
+  // inventing a lane the executor does not run for this text.
+  assert.equal(resolveIntent('A STO USTE ?', 'closing', pairSlots), 'FALLTHROUGH');
+  assert.equal(resolveIntent('ZOSTO ?', 'closing', pairSlots, { addressWhy: true }), 'ADDRESS_WHY');
+  assert.equal(resolveIntent('NE ZNAM TOA', 'closing', pairSlots, { landmarkLadder: true }), 'LANDMARK_LADDER');
+  assert.equal(resolveIntent('PETAR 070123456', 'closing', pairSlots, { contactAfterFee: true }), 'CONTACT_AFTER_FEE');
+  assert.notEqual(resolveIntent('PETAR 070123456', 'closing', pairSlots), 'CONTACT_AFTER_FEE');
   assert.equal(resolveIntent('A VO KOJA NASELBA IMA ?', 'discovery', { house: true } as any), 'AREA_HAVE_SEARCH');
   // The vetoes the executor carries: a bare EB that was never SHOWN is not the
   // availability lane (a number in a budget answers names no property), and an

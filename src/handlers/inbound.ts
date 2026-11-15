@@ -4465,6 +4465,66 @@ export class InboundHandler {
         }
       }
     }
+    // ── THE LAST-REPLY LANES (2026-11-15): the mirror could not predict the
+    // lanes whose gate is "what did SHE just say?" — address-why, the
+    // nearby-thread continuation and the contact-after-fee hand-off. None of
+    // them is a text lane: the SAME sentence means a different thing after a
+    // landmark line than after a price card, which is why they sat in the
+    // backlog. Each probe below repeats the executor's own condition verbatim
+    // and is gated on its cheap wording test first (the COST RULE above).
+    {
+      const lastLine = [...session.history].reverse()
+        .find(h => h.role === 'assistant')?.text ?? '';
+      // ADDRESS_WHY (inbound.ts 8801): a bare why right after a privacy /
+      // landmark line gets the agency-rules explanation, not the options thread.
+      if (!ev.addressWhy && detectWhyFollowUp(text) && lastReplyWasNearby(lastLine)) {
+        ev.addressWhy = true;
+      }
+      // NEARBY_THREAD (inbound.ts 8838): a bare «more?» continues the nearby
+      // thread — but ONLY the branch the probe can prove: a reply that NAMED a
+      // landmark («во близин…»), which the executor admits even when the ask
+      // looks like a genuine question. The plain branch depends on
+      // `skipInterceptors` (a classifier verdict the probe does not have), so it
+      // stays unpredicted rather than guessed.
+      if (!ev.nearbyThread && mentionsMore(text) && !hasProximityAnchor(text)
+        && !detectWidenIntent(text) && !detectExplicitWiden(text)
+        && !detectAvailabilityAsk(text) && !detectPriceAsk(text)
+        && /во\s+бли[зж]ин/iu.test(lastLine)) {
+        ev.nearbyThread = true;
+      }
+      // CONTACT_AFTER_FEE (inbound.ts 10275): the LAST line was the fee line and
+      // this message carries a real name + phone for the flat already picked —
+      // that is the consent the fee gate waits for. The probe repeats the whole
+      // gate, including the vetoes, so a fee question with a phone in it is
+      // still a fee question.
+      if (!ev.contactAfterFee && session.state === 'closing'
+        && (session.slots.propertyId ?? session.slots.interestedPropertyId) != null
+        && !session.slots.name && !session.slots.phone
+        && /(?:денари|надомест|провизиј)/iu.test(lastLine)
+        && !detectWhereIs(text) && !detectExactAddressAsk(text)
+        && !detectFeeWhy(text) && !detectFeeNag(text) && !detectFeeComplaint(text)
+        && !detectVisitCancellation(text)) {
+        const c = detectContact(text);
+        if (c.phone && isValidPhone(c.phone) && c.name && isPlausibleName(c.name)) ev.contactAfterFee = true;
+      }
+      // LANDMARK_LADDER (inbound.ts 5062): the client cannot picture the anchor
+      // just named. The rotation index and the anchor live in the SLOTS, so the
+      // probe can repeat it exactly: an anchor named in this message (or a bare
+      // cue right after a landmark line, or the "what else is in the area?"
+      // close once the rotation is spent), never a distance question.
+      if (!ev.landmarkLadder && session.slots.lastLandmark && !isDistanceQuestion(text)) {
+        const lmList = session.slots.nearbyLandmarks ?? [];
+        const anchors = [...new Set([session.slots.lastLandmark, ...lmList])];
+        const named = anchors.some(n => mentionsLandmark(text, n) && detectUnknownLandmark(text, n));
+        const bareAfterLandmark = /во\s+бли[зж]ин/iu.test(lastLine)
+          && detectUnknownLandmark(text, session.slots.lastLandmark);
+        const idx = session.slots.landmarkIndex ?? 0;
+        const areaAsk = lmList.length > 0 && idx >= lmList.length
+          && /во\s+бли[зж]ин/iu.test(lastLine)
+          && (mentionsMore(text) || /(?:реон|близин|близу|околу|reon|blizin|blizu|okolu)/iu.test(text));
+        if (named || bareAfterLandmark || areaAsk) ev.landmarkLadder = true;
+      }
+    }
     return ev;
   }
 

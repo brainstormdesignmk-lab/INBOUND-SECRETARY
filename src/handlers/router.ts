@@ -94,6 +94,17 @@ export interface RouteEvidence {
   infoPair?: boolean;
   /** INFO_ASK_FLOORS: the plain-floor pair variant (two rows, floor clause). */
   infoFloors?: boolean;
+  /** ADDRESS_WHY: a bare why right after a landmark / privacy-protocol line
+   *  (the agency-rules explanation owns it, not the options thread). */
+  addressWhy?: boolean;
+  /** NEARBY_THREAD: a bare «more?» right after a reply that NAMED a landmark. */
+  nearbyThread?: boolean;
+  /** CONTACT_AFTER_FEE: the fee line was the last thing said and this message
+   *  carries a real name + phone for the flat already picked. */
+  contactAfterFee?: boolean;
+  /** LANDMARK_LADDER: the client cannot picture the anchor (the rotation's own
+   *  index and anchors are in the slots; the last line says where they stand). */
+  landmarkLadder?: boolean;
 }
 
 /** The two lanes below are the ones whose executor gates read the CLIENT'S
@@ -377,6 +388,19 @@ export const ROUTING_ORDER: RouteRule[] = [
   // index) stay pending on purpose — a row invented ahead of its evidence
   // would predict a lane the executor never runs, which is a DRIFT, a worse
   // signal than the gap.
+  // THE LAST-REPLY / ROTATION LANES, predicted on the EVIDENCE channel: each
+  // one's gate is "what did she just say?" — which is a fact the probe reads
+  // from the session and the mirror cannot invent. Their executor positions
+  // are inbound.ts 8801 (address-why), 8838 (nearby thread) and 5062 (the
+  // landmark ladder).
+  { intent: 'ADDRESS_WHY', note: 'a bare why after a privacy / landmark line — the agency-rules explanation (inbound.ts 8801). EVIDENCE: `addressWhy` (the bare-why detector AND a nearby-shaped last reply)',
+    fires: (t, s, sl, ev) => ev?.addressWhy === true },
+  { intent: 'NEARBY_THREAD', note: 'a bare «more?» after a reply that NAMED a landmark — the nearby thread continues into rotation → protocol → shut-down (inbound.ts 8838). EVIDENCE: `nearbyThread`; the branch that depends on the classifier verdict is deliberately unpredicted',
+    fires: (t, s, sl, ev) => ev?.nearbyThread === true },
+  { intent: 'LANDMARK_LADDER', note: '«kade ima reptil tamu?» / «ne znam toa» after an anchor was named — the NEXT landmark, then the third, then the clear-enough close (inbound.ts 5062). EVIDENCE: `landmarkLadder` (the slots carry the rotation index and the anchors; the last line carries what was said)',
+    fires: (t, s, sl, ev) => ev?.landmarkLadder === true },
+  { intent: 'CONTACT_AFTER_FEE', note: 'the fee question answered with a NAME + PHONE (inbound.ts 10275) — consent, so the visit protocol starts and the picked flat stays picked. EVIDENCE: `contactAfterFee` (state + the last line + a valid phone and a plausible name)',
+    fires: (t, s, sl, ev) => ev?.contactAfterFee === true },
   { intent: 'CONTACT_MECHANICS', note: 'the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» (inbound.ts 7140) — the EB she holds + the mechanism, never the DEFER line. The fee legs are vetoed exactly as the executor vetoes them (a fee question is not a doubt about the owner contact)',
     fires: t => detectContactMechanicsChallenge(t)
       && !detectFeeWhy(t) && !detectFeeNag(t) && !detectFeeComplaint(t)
@@ -1011,7 +1035,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   LOCATE_CONTINUE: M('LOCATE_CONTINUE', 'bare «не» while choosing among described flats — the hunt continues'),
   LOCATE_WIDEN: M('LOCATE_WIDEN', '«да» to the other-neighbourhoods question — the area lock is released'),
   LOCATE_REJECT_PLACE: P('«не е таа» after the only flat at a NAMED place — the place lock holds, other areas only after the ask'),
-  CONTACT_AFTER_FEE: P('the fee question answered with a name + phone — consent and the visit-time ask'),
+  CONTACT_AFTER_FEE: M('CONTACT_AFTER_FEE', 'the fee question answered with a name + phone — consent and the visit-time ask (inbound.ts 10275); evidence-gated on the last line being the fee line'),
   AGENCY_IDENTITY: M('AGENCY_IDENTITY', '«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (client OR owner): the agency is named and the interrupted question repeated — never the pending-traffic line ([19:36] capture; inbound.ts 4820)'),
   'NEGOTIATE:fast': M('NEGOTIATE', 'commercial-state price pushback'),
   PRICE_EVAL_CHEAP: M('PRICE_EVAL_CHEAP', 'positive price remark beats the fee ladder'),
@@ -1032,7 +1056,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   MORTGAGE_ASK: M('MORTGAGE_ASK', 'financing info'),
   NEIGHBORHOOD_ASK: M('NEIGHBORHOOD_ASK', 'area advice in early states'),
   // --- pending migration (explicit, not silent) ---
-  ADDRESS_WHY: P('privacy ladder — why the exact address stays private'),
+  ADDRESS_WHY: M('ADDRESS_WHY', 'privacy ladder — why the exact address stays private (inbound.ts 8801); evidence-gated, never a text-only guess'),
   FEE_RULES: M('FEE_RULES', 'agency fee rules ask (the rules-of-work script)'),
   'FEE_COMPLAINT': M('FEE_COMPLAINT', 'the fee-arithmetic complaint leg (detectFeeTotalCost)'),
   'AGENT_ATTENDANCE_ASK': M('AGENT_ATTENDANCE_ASK', 'does the agent attend the viewing — bank lane, before any visit/fee lane'),
@@ -1061,12 +1085,12 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   INFO_ASK: M('INFO_ASK', 'a fact ask about the flat on the table — the price facet is why the plain price ask rarely fires with a property on the table'),
   INFO_ASK_YEAR: M('INFO_ASK_YEAR', 'year of construction ask with nothing bound — the property-agnostic miss line; a bound flat keeps INFO_ASK (inbound.ts 8040–8049)'),
   'INVESTMENT_OPINION:fast': M('INVESTMENT_OPINION', 'investment-advice ask (inbound.ts 10573)'),
-  LANDMARK_LADDER: P('location-nag ladder rung'),
+  LANDMARK_LADDER: M('LANDMARK_LADDER', 'the rotation rung when the client cannot picture the anchor (inbound.ts 5062) — evidence-gated on the slots\' own rotation index'),
   LOCATION_NAG: M('LOCATION_NAG', 'location question refused again (inbound.ts 8578)'),
   TOLD_YOU_RECALL: M('TOLD_YOU_RECALL', '«па ти кажав каде» — the notebook read back (places/area on file, then only the missing criterion)'),
   MONEY_CLARIFY: M('MONEY_CLARIFY', 'money-without-target clarification — the arbiter\'s own clarify claim (inbound.ts 7530)'),
   NEARBY_ASK: M('NEARBY_ASK', 'what is near the building — the interceptor runs before every funnel branch'),
-  NEARBY_THREAD: P('what-else-is-near (rotation → protocol → lifecycle)'),
+  NEARBY_THREAD: M('NEARBY_THREAD', 'what-else-is-near (rotation → protocol → lifecycle; inbound.ts 8838) — evidence-gated on a last reply that NAMED a landmark'),
   'OWNER_HOLD:fast': M('OWNER_HOLD', '«NE GO KONTAKTIRAJ USTE» — acknowledge and stop, never proceed (inbound.ts 10460)'),
   POI_CONFIRM: M('POI_CONFIRM', 'a place-confirm question about the bound flat («da ne e vo karpos ?») — the executor answers it only when the MAP resolves the named place (inbound.ts 6861: a landmark hit or a named area). The map is data, not text: a mirror row would have to guess, and the probe showed exactly that — «DA NE E VO SKOPJANKA ?» is a POI-confirm by wording while the executor served nothing. Labelled backlog, not a guessed row'),
   PLACE_PIVOT: P('same search at a different named place (“a neshto kaj X?”)'),

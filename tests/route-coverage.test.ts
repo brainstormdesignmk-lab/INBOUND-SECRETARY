@@ -109,6 +109,11 @@ test('the pending backlog is explicit and finite (migration fuel, not a graveyar
   // and SUBJECT_PER_M2 (the €/m² of the flat on the table). It must keep
   // falling as they are mirrored; never raise it for a row that is not a new
   // lane.
+  // THE LAST-REPLY LANES NEEDED THE EVIDENCE CHANNEL (2026-11-15): address-why,
+  // the nearby thread, the landmark ladder and the contact-after-fee hand-off
+  // are gated on «what did SHE just say?», so they could not be mirrored from
+  // (text, state, slots) alone — `RouteEvidence` now carries those four facts,
+  // computed by the executor's own probe, and the backlog drops to nine.
   // THE COUNT FELL FOR REAL (2026-11-15): sixteen rows were promoted to M(...)
   // with their ROUTING_ORDER rows (agency identity, which-property, the pick
   // among presented cards, money clarify, location nag, the bare-EB follow-up,
@@ -118,7 +123,7 @@ test('the pending backlog is explicit and finite (migration fuel, not a graveyar
   // K(...), so the backlog goes from 33 to 13. The ceiling moves DOWN with it —
   // it must keep falling as the evidence-dependent lanes (the last-reply
   // history, the day calendar, the map) land their rows.
-  assert.ok(pending.length < 14, `backlog too large to be honest: ${pending.length}`);
+  assert.ok(pending.length < 10, `backlog too large to be honest: ${pending.length}`);
 });
 
 // R1 part 2 — the three lanes that moved from dispatchSimple into the mirror.
