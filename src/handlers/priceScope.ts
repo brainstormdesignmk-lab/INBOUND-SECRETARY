@@ -12,6 +12,37 @@
  */
 import type { Property } from '../data/properties';
 import { pricePerM2, isNumberedArea } from '../data/properties';
+import { namesPriceExtreme } from '../llm/deterministic';
+
+/** IS THIS JUST «GIVE ME WHATEVER YOU HAVE»? (the [04:43] capture) — lifted
+ *  from `InboundHandler.isUnrankedStockAsk` so the routing mirror's
+ *  PRICE_EXTREME row reads the SAME gate the executor's block reads. A stock
+ *  request with NO price figure and NO ranking word (најевтин/најскап/поефтин)
+ *  and with the funnel's criteria still unwritten is not a price extreme query:
+ *  the client wants stock in a segment, near a place. The extreme lane answered
+ *  it with «Еве ги сите станови:» — five cards, the place ignored, no question
+ *  asked — so the discovery funnel takes it and asks the two things it needs
+ *  (price limit, room count). A client who HAS written his budget/rooms keeps
+ *  the list he is entitled to, and every ranked ask (a figure, a superlative)
+ *  stays in the lane. */
+export function unrankedStockAsk(text: string, sessionSlots: PriceSlots): boolean {
+  const ranked = namesPriceExtreme(text);
+  // A figure is a ranking even without the superlative («do 400 evra»,
+  // «400e», «350 евра месечно»). Three digits alone also count: a chat that
+  // says «250» in this funnel means money, never a room count.
+  const money = /(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*(?:e|evra|evro|евра|евро|€)(?![\p{L}])/iu.test(text)
+    || /(?<![\p{L}\p{N}])\d{3,}(?![\p{L}\p{N}])/u.test(text);
+  if (ranked || money) return false;
+  if (sessionSlots.budget || sessionSlots.sqmRate) return false;
+  if (sessionSlots.bedrooms !== undefined) return false;
+  // THE STOCK ASK ITSELF — «DAJ MI STO IMA …», «STO IMATE ZA POD KIRIJA»,
+  // «имате ли нешто …». It asks WHAT IS THERE, not which end of a range, so
+  // it belongs to the funnel (ask the criteria, serve a pair). Deliberately
+  // NOT «site/сите»: «POKAZI GI SITE STANOVI» is the explicit whole-list ask
+  // and keeps the list lane (tests/market-price.test.ts pins the five-card
+  // page), and not a bare «daj mi» either — «DAJ MI SITE» is that same ask.
+  return /(?:^|[\s,.:;!?])(?:(?:sto|што)\s+(?:ima|има|imas|имаш|imate|имате)|(?:daj|дај|dajte|дајте)\s+mi\s+(?:sto|што)|imas\s+li\s+nesto|имаш\s+ли\s+нешто|imate\s+li\s+nesto|имате\s+ли\s+нешто)(?![\p{L}\p{N}])/iu.test(text);
+}
 
 /** The slot surface these predicates read (a structural copy of the session's
  *  slots, so this module stays free of the session type). */
@@ -24,6 +55,7 @@ export interface PriceSlots {
   bedrooms?: number;
   service?: 'buy' | 'rent';
   sqmRate?: number;
+  budget?: string;
 }
 
 /** WHERE THE TYPE CRITERIA COME FROM: the message's own type words, else the

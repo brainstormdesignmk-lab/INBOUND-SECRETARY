@@ -27,7 +27,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig } from '../src/config';
 import { Db } from '../src/store/db';
-import { SessionStore, freshSession } from '../src/fsm/session';
+import { SessionStore, freshSession, pushHistory } from '../src/fsm/session';
 import { Classifier } from '../src/llm/classify';
 import { Responder } from '../src/llm/respond';
 import { PropertyService, Property } from '../src/data/properties';
@@ -57,8 +57,16 @@ class FakeProps extends PropertyService {
 const FEED: Property[] = [
   { eb: 59, id: 59, location: 'Аеродром', address: 'Ул. А 1', price: 950, sqm: 105, size: '105 м²', service: 'rent', business: true, lat: 41.9840, lon: 21.4650 },
   { eb: 42, id: 42, location: 'Центар', address: 'Ул. Б 2', price: 1000, sqm: 126, size: '126 м²', service: 'rent', business: true, lat: 41.9870, lon: 21.4370 },
-  { eb: 78, id: 78, location: 'Центар', address: 'Ул. В 3', price: 800, bedrooms: 2, sqm: 60, size: '60 м²', service: 'rent', lat: 41.9880, lon: 21.4380 },
-  { eb: 63, id: 63, location: 'Центар', address: 'Ул. Г 4', price: 400, bedrooms: 2, sqm: 40, size: '40 м²', service: 'rent', lat: 41.9890, lon: 21.4390 },
+  { eb: 78, id: 78, location: 'Центар', address: 'Ул. В 3', price: 800, bedrooms: 2, sqm: 60, size: '60 м²', service: 'rent', details: 'стан со двор', lat: 41.9880, lon: 21.4380 },
+  { eb: 63, id: 63, location: 'Центар', address: 'Ул. Г 4', price: 400, bedrooms: 2, sqm: 40, size: '40 м²', service: 'rent', details: 'стан со тераса', lat: 41.9890, lon: 21.4390 },
+  // A MICRO-AREA ONLY THE FEED KNOWS: «Ново Маало» is not in the alias table nor
+  // in `detectLocation`, so the market band's scope test can only be predicted
+  // through the evidence channel (the borrowed LIMIT this table now pins).
+  { eb: 88, id: 88, location: 'Карпош', address: 'Ул. Д 5', price: 500, bedrooms: 1, sqm: 45, size: '45 м²', service: 'rent', details: 'Ново Маало, стан', lat: 42.0000, lon: 21.4100 },
+  // A ROW WITH NO STORED PRICE: «дали е уште таа цена?» must still be answered
+  // by PRICE_FRESHNESS (the honest «немам внесено цена» line), not by the plain
+  // price ask.
+  { eb: 902, id: 902, location: 'Центар', address: 'Ул. Ж 7', bedrooms: 1, sqm: 40, size: '40 м²', service: 'rent' },
   { eb: 37, id: 37, location: 'Кисела Вода', price: 117500, bedrooms: 4, sqm: 90, size: '90 м²', service: 'buy', lat: 41.9800, lon: 21.4500 },
   { eb: 41, id: 41, location: 'Кисела Вода', price: 70200, bedrooms: 3, sqm: 54, size: '54 м²', service: 'buy', lat: 41.9810, lon: 21.4510 },
 ] as unknown as Property[];
@@ -144,6 +152,90 @@ const rows: CustodyRow[] = [
     state: 'presentation',
   },
   {
+    id: 'which-property-cold',
+    // THE DOCUMENTED LIMITS ARE CLOSED BY THE SERVE, NOT BY A COMMENT: with no
+    // anchor flat the which-flat question is still this lane's turn — the bank's
+    // `property.which.none` line asks for the Евидентен број. It used to fall
+    // through to the funnel while the mirror predicted this lane.
+    setup: () => {},
+    text: 'ZA KOJ STAN STANUVA ZBOR ?',
+    lane: 'WHICH_PROPERTY',
+  },
+  {
+    id: 'stock-contradiction-cold',
+    // Same class: a caught contradiction with no card to correct from gets the
+    // apology + the EB ask, never the geography reader.
+    setup: () => {},
+    text: 'PA KAKO NEMA ? KOGA OVOJ E EDEN OD NIV ?',
+    lane: 'STOCK_CONTRADICTION',
+  },
+  {
+    id: 'price-freshness-no-price',
+    setup: s => { s.state = 'property_query'; s.slots.service = 'rent'; s.slots.propertyId = 902; s.slots.interestedPropertyId = 902; s.slots.presentedIds = [902]; },
+    text: 'A DALI MU E USTE TAA CENA ?',
+    lane: 'PRICE_FRESHNESS',
+    state: 'property_query',
+  },
+  {
+    id: 'price-freshness-gone',
+    // The row the offer no longer holds: «веќе не е во понудата», not «за кое
+    // станува збор?».
+    setup: s => { s.state = 'property_query'; s.slots.service = 'rent'; s.slots.propertyId = 999; s.slots.interestedPropertyId = 999; s.slots.presentedIds = [999]; },
+    text: 'A DALI MU E USTE TAA CENA ?',
+    lane: 'PRICE_FRESHNESS',
+    state: 'property_query',
+  },
+  {
+    id: 'info-stale-slot',
+    // A facet ask about a slot the feed no longer has — answered in-lane.
+    setup: s => { s.state = 'property_query'; s.slots.service = 'rent'; s.slots.propertyId = 999; s.slots.presentedIds = [999]; },
+    text: 'KOLKU E ?',
+    lane: 'INFO_ASK',
+    state: 'property_query',
+  },
+  {
+    id: 'market-micro-area',
+    // The market band's scope test reads the FEED's micro-areas: «Ново Маало» is
+    // in one ad's text and in no neighbourhood list, and only the evidence probe
+    // can see it (resolveIntent without the evidence predicts INFO_ASK here).
+    setup: s => { s.state = 'property_query'; s.slots.service = 'rent'; s.slots.propertyId = 78; s.slots.presentedIds = [78]; },
+    text: 'KOLKU E KIRIJATA VO NOVO MAALO ?',
+    lane: 'MARKET_PRICE',
+    state: 'property_query',
+  },
+  {
+    id: 'pick-by-detail',
+    // «онаа со дворот» picks by a row's OWN field — the arm the mirror can only
+    // reach through the evidence channel (which of the described rows has a yard).
+    setup: s => { s.state = 'property_locate'; s.slots.service = 'rent'; s.slots.describedEbs = [78, 63]; },
+    text: 'ONAA SO DVOROT ?',
+    lane: 'PICK_DESCRIBED',
+    state: 'closing',
+  },
+  {
+    id: 'facet-over-described-pair',
+    // A facet ask while a described pair is in memory is the INFO block's — the
+    // executor reaches it long before the pick, and the pick row must not claim
+    // the turn (it did: PICK_DESCRIBED→INFO_ASK drift).
+    setup: s => { s.state = 'property_locate'; s.slots.service = 'rent'; s.slots.describedEbs = [78, 63]; },
+    text: 'KOLKU E 78 ?',
+    lane: 'INFO_ASK',
+    state: 'property_locate',
+  },
+  {
+    id: 'elliptical-last-floor',
+    // «POSLEDEN ?» is a top-floor ask only after a line that named a кат: that
+    // fact now lives in `slots.lastReplyNamedFloor` (pushHistory records it), so
+    // the mirror reads the same memory the executor does.
+    setup: s => {
+      s.state = 'property_query'; s.slots.service = 'rent';
+      s.slots.propertyId = 78; s.slots.presentedIds = [78];
+      pushHistory(s, { role: 'assistant', text: 'Станот со Евидентен број 78 се наоѓа на 3 кат.' }, 20);
+    },
+    text: 'POSLEDEN ?',
+    lane: 'INFO_ASK',
+  },
+  {
     id: 'golem-smaller',
     setup: s => { s.state = 'presentation'; s.slots.service = 'buy'; s.slots.propertyId = 37; s.slots.presentedIds = [37]; },
     text: 'GOLEM MI E NEKAKO',
@@ -210,7 +302,7 @@ const servedLanes = (tags: string[]): string[] =>
   tags.filter(t => !t.startsWith('ROUTE_UNKNOWN') && !t.startsWith('LANE_COLLISION'))
     .map(t => t.split(':')[0]!);
 
-async function runCustody(row: CustodyRow): Promise<{ predicted?: string; served: string[]; state: string }> {
+async function runCustody(row: CustodyRow): Promise<{ predicted?: string; served: string[]; state: string; reply: string }> {
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
   const channels = new ChannelRegistry();
@@ -239,6 +331,7 @@ async function runCustody(row: CustodyRow): Promise<{ predicted?: string; served
     predicted: after.lastTurn?.predicted,
     served: servedLanes(after.lastTurn?.lanes ?? []),
     state: after.state,
+    reply: sent[sent.length - 1] ?? '',
   };
 }
 
@@ -258,4 +351,94 @@ test('the lane custody table — every decisive field turn keeps its owner', asy
   }
   assert.deepEqual(wrong, [],
     `a lane changed an older lane's answer — a deliberate edit to the custody table is required:\n${wrong.join('\n')}`);
+});
+
+/** A LAW OF THIS TABLE DOES NOT HOLD FOR EVERY TURN: the notebook recall
+ *  («ПА ТИ КАЖАВ КАДЕ») stands down when a flat is on the table (that makes it a
+ *  where-is/visit topic) and when the message carries a DIGIT (a figure IS the
+ *  criterion answer). Both facts are slots/text, so both sides could read them
+ *  — but the mirror did not, and predicted a lane the executor never served. */
+test('a told-you nag with a shown flat or a figure is not the notebook lane', async () => {
+  const cases: Array<{ id: string; setup: (s: ChatSession) => void; text: string }> = [
+    {
+      id: 'told-you-flat-on-table',
+      setup: s => { s.state = 'discovery'; s.slots.service = 'rent'; s.slots.propertyId = 78; s.slots.presentedIds = [78]; },
+      text: 'PA TI KAZAV KADE',
+    },
+    {
+      id: 'told-you-carries-a-figure',
+      setup: s => { s.state = 'discovery'; s.slots.service = 'rent'; },
+      text: 'PA TI KAZAV 2 SOBI',
+    },
+  ];
+  const wrong: string[] = [];
+  for (const c of cases) {
+    const out = await runCustody({ id: c.id, setup: c.setup, text: c.text, lane: 'TOLD_YOU_RECALL' });
+    if (out.predicted?.split(':')[0] === 'TOLD_YOU_RECALL') {
+      wrong.push(`${c.id}: the MIRROR predicted TOLD_YOU_RECALL for "${c.text}"`);
+    }
+    if (out.served.includes('TOLD_YOU_RECALL')) {
+      wrong.push(`${c.id}: the SERVE was TOLD_YOU_RECALL for "${c.text}"`);
+    }
+  }
+  assert.deepEqual(wrong, [], `the recall lane took a turn its own gate refuses:\n${wrong.join('\n')}`);
+});
+
+/** THE CLOSED LIMITS SERVE HONESTLY, not merely "own the turn".
+ *
+ *  A lane that keeps the turn with the wrong sentence is not a fix: each of
+ *  these used to fall through because the fact it needed was outside the
+ *  mirror's reach (a card that does not exist, a row the feed lost, a price
+ *  never entered), so the sentence that replaced the fall-through has to be
+ *  pinned: the absence stated, the next step asked, and NO fee, no search, and
+ *  no invented figure. */
+test('the closed limits answer with an honest line, never a fall-through', async () => {
+  const byId = async (id: string) => {
+    const row = rows.find(r => r.id === id)!;
+    return { row, out: await runCustody(row) };
+  };
+
+  // 1. WHICH flat, with nothing bound — the property.which.none line asks for
+  //    the number instead of guessing a flat.
+  {
+    const { out } = await byId('which-property-cold');
+    assert.match(out.reply, /Евидентен број/u, `the ask names the handle: ${out.reply}`);
+    assert.match(out.reply, /\?/u, `and it is a question: ${out.reply}`);
+    assert.doesNotMatch(out.reply, /(?:300|500)\s*(?:ден|den|евра)/iu,
+      `never the fee: ${out.reply}`);
+  }
+
+  // 2. A caught contradiction with no card — the apology + the EB ask, never a
+  //    landmark or an address-protocol line.
+  {
+    const { out } = await byId('stock-contradiction-cold');
+    assert.match(out.reply, /Извинете/u, `the apology: ${out.reply}`);
+    assert.match(out.reply, /Евидентниот број/u, `and the handle asked for: ${out.reply}`);
+    assert.doesNotMatch(out.reply, /адреса|населба|километри/iu,
+      `no geography answer to a caught mistake: ${out.reply}`);
+  }
+
+  // 3. A price freshness ask on a row with NO price on file — the absence of
+  //    the figure is stated and the owner check offered, never a bare amount.
+  {
+    const { out } = await byId('price-freshness-no-price');
+    assert.match(out.reply, /немам внесена цена/u, `the absent figure is named: ${out.reply}`);
+    assert.match(out.reply, /\?/u, `and the owner check is offered: ${out.reply}`);
+    assert.doesNotMatch(out.reply, /\d{2,}\.?\d*\s*евра/u, `no invented figure: ${out.reply}`);
+  }
+
+  // 4. The same ask about a row the offer no longer holds — said plainly.
+  {
+    const { out } = await byId('price-freshness-gone');
+    assert.match(out.reply, /веќе не е во понудата/u, `the row is gone, and that is said: ${out.reply}`);
+    assert.match(out.reply, /\?/u, `with the next step: ${out.reply}`);
+  }
+
+  // 5. A facet ask about a slot the feed lost — the honest absence, never a
+  //    card re-serve or another flat's fact.
+  {
+    const { out } = await byId('info-stale-slot');
+    assert.match(out.reply, /веќе не е во понудата/u, `the slot is stale: ${out.reply}`);
+    assert.doesNotMatch(out.reply, /Евидентен број \d+ ·/u, `no card: ${out.reply}`);
+  }
 });

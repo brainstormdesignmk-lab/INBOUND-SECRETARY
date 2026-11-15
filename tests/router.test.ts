@@ -203,7 +203,13 @@ test('the promoted backlog lanes predict what their executor serves', () => {
   assert.equal(resolveIntent('E OVOJ MOZE', 'presentation', { presentedIds: [66] } as any), 'PROPERTY_CHOICE');
   assert.equal(resolveIntent('A 42 ?', 'closing', pair), 'BARE_EB_FOLLOWUP');
   assert.equal(resolveIntent('DALI SE SLOBODNI DVATA ?', 'closing', pair), 'AVAILABILITY_PLURAL');
-  assert.equal(resolveIntent('NAJEVTINA KUCA DO 50000', 'intent'), 'PRICE_EXTREME');
+  // EXPECTATION FIXED with the same gate: «најевтина куќа до 50000» carries no
+  // €/m² and no «евра» suffix, so the executor's entry test is closed and the
+  // turn is a criteria search — the real handler answers it with the funnel and
+  // logs NO lane. Pinning PRICE_EXTREME here asserted a mirror row that was
+  // looser than the serve; the funnel owns the turn, so what this line has to
+  // assert is that the extreme lane does NOT claim it.
+  assert.notEqual(resolveIntent('NAJEVTINA KUCA DO 50000', 'intent'), 'PRICE_EXTREME');
   assert.equal(resolveIntent('MNOGU SE POSKAPEA STANOVIVE', 'presentation', { presentedIds: [66] } as any), 'INVESTMENT_OPINION');
   assert.equal(resolveIntent('PA KAKO NEMA STANOVI KOGA OVOJ E EDEN OD NIV ?', 'closing', { presentedIds: [66] } as any), 'STOCK_CONTRADICTION');
   assert.equal(resolveIntent('NE GO KONTAKTIRAJ USTE', 'closing', { presentedIds: [66] } as any), 'OWNER_HOLD');
@@ -509,9 +515,15 @@ test('«DA» after the exhausted-area question is LOCATE_WIDEN', () => {
 
 test('an extreme price ask is PRICE_EXTREME', () => {
   assert.equal(resolveIntent('KOJ TI E TOJ STAN PO 1286E PO M2', 'closing', { presentedIds: [78] }), 'PRICE_EXTREME');
-  // A SUPERLATIVE is the lane; a plain budget cap («DO 1000 EVRA KUCA») is not
-  // (`extractPriceExtremeQuery` returns undefined — it is a criteria search).
-  assert.equal(resolveIntent('NAJEVTINI STANOVI DO 500 EVRA', 'discovery'), 'PRICE_EXTREME');
+  // A SUPERLATIVE WITH A €/m² SHAPE is the lane; a plain budget cap is a
+  // criteria search. EXPECTATION FIXED while closing the mirror's feed-dependent
+  // limits: the row now carries the executor's OWN entry gate
+  // (`detectPriceExtremeAsk` + the fee frame + `unrankedStockAsk`), and for
+  // «најевтини станови до 500 евра» that gate is CLOSED — the real handler serves
+  // the discovery funnel there (the [04:43] rule: a budget with no ranking shape
+  // is a criteria ask). The old expectation encoded the mirror's older, looser
+  // row, i.e. a predicted lane the executor never ran.
+  assert.equal(resolveIntent('NAJEVTINI STANOVI DO 500 EVRA', 'discovery'), 'FALLTHROUGH');
   assert.notEqual(resolveIntent('DO 1000 EVRA KUCA', 'discovery'), 'PRICE_EXTREME');
   // A plain price question keeps the price lane.
   assert.notEqual(resolveIntent('KOLKU E CENATA?', 'closing', { propertyId: 78 }), 'PRICE_EXTREME');

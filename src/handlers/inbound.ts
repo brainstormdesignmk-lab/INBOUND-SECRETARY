@@ -58,7 +58,7 @@ import { routeLog, resolveIntent, refinePrediction, dispatchSimple, type RouteEv
 import { ambientTurn, clipReply, currentTurn, currentTurnAudit, noteTurnFact, runInTurn, startTurn, type TurnContext } from './turn';
 import { focusClarifyAsk, resolvePropertyFocus } from './focus';
 import { BARE_REFUSAL_ONLY_RE, NEAR_ANCHOR_SCOPE_M, pickDescribed } from './locate-pick';
-import { areaNamesOf, naselbaComparisonGate, perM2RankableOf, priceRateOk, priceRoomOk, priceSegment, priceTypeOk, priceTypeSources } from './priceScope';
+import { areaNamesOf, naselbaComparisonGate, perM2RankableOf, priceRateOk, priceRoomOk, priceSegment, priceTypeOk, priceTypeSources, unrankedStockAsk } from './priceScope';
 // PER-CATEGORY MONEY (the [19:14] capture): the pair detectors live beside the
 // budget family so a cap and the budget read can never disagree.
 import { detectCategoryBudgets } from '../llm/deterministic';
@@ -1738,6 +1738,12 @@ export class InboundHandler {
    *  a card list (which also carries Евидентен број) never becomes an anchor.
    *  Returns undefined when that turn quoted no price. */
   private lastQuotedEb(session: ChatSession): number | undefined {
+    // THE SLOT FIRST (see `rememberAssistantLine`): `pushHistory` records the
+    // quote when her line goes out, so this fact is part of the session memory
+    // the routing mirror reads. The history regex stays for a session that was
+    // written before the slot existed (or one whose history a test built by
+    // hand) — the two can never disagree, they read the same line.
+    if (session.slots.lastQuotedEb !== undefined) return session.slots.lastQuotedEb;
     const last = assistantTexts(session).at(-1) ?? '';
     const m = /Евидентен број\s+(\d{1,6})\s+чини\b/u.exec(last);
     return m ? Number(m[1]) : undefined;
@@ -2131,32 +2137,13 @@ export class InboundHandler {
    */
   /** IS THIS JUST «GIVE ME WHATEVER YOU HAVE»? (the [04:43] capture)
    *
-   *  A stock request with NO price figure and NO ranking word (најевтин/најскап/
-   *  поефтин) and with the funnel's criteria still unwritten is not a price
-   *  extreme query: the client wants stock in a segment, near a place. The
-   *  extreme lane answered it with «Еве ги сите станови:» — five cards, the
-   *  place ignored, no question asked — so the discovery funnel takes it and
-   *  asks the two things it needs (price limit, room count). A client who HAS
-   *  written his budget/rooms keeps the list he is entitled to, and every
-   *  ranked ask (a figure, a superlative) stays in the lane.
+   *  The predicate itself lives in ./priceScope (`unrankedStockAsk`): it is pure
+   *  text + slots, and the routing mirror's PRICE_EXTREME row reads the SAME
+   *  function — a second copy here is how the row and the serve start
+   *  disagreeing about a stock ask.
    */
   private isUnrankedStockAsk(text: string, session: ChatSession): boolean {
-    const ranked = namesPriceExtreme(text);
-    // A figure is a ranking even without the superlative («do 400 evra»,
-    // «400e», «350 евра месечно»). Three digits alone also count: a chat that
-    // says «250» in this funnel means money, never a room count.
-    const money = /(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*(?:e|evra|evro|евра|евро|€)(?![\p{L}])/iu.test(text)
-      || /(?<![\p{L}\p{N}])\d{3,}(?![\p{L}\p{N}])/u.test(text);
-    if (ranked || money) return false;
-    if (session.slots.budget || session.slots.sqmRate) return false;
-    if (session.slots.bedrooms !== undefined) return false;
-    // THE STOCK ASK ITSELF — «DAJ MI STO IMA …», «STO IMATE ZA POD KIRIJA»,
-    // «имате ли нешто …». It asks WHAT IS THERE, not which end of a range, so
-    // it belongs to the funnel (ask the criteria, serve a pair). Deliberately
-    // NOT «site/сите»: «POKAZI GI SITE STANOVI» is the explicit whole-list ask
-    // and keeps the list lane (tests/market-price.test.ts pins the five-card
-    // page), and not a bare «daj mi» either — «DAJ MI SITE» is that same ask.
-    return /(?:^|[\s,.:;!?])(?:(?:sto|што)\s+(?:ima|има|imas|имаш|imate|имате)|(?:daj|дај|dajte|дајте)\s+mi\s+(?:sto|што)|imas\s+li\s+nesto|имаш\s+ли\s+нешто|imate\s+li\s+nesto|имате\s+ли\s+нешто)(?![\p{L}\p{N}])/iu.test(text);
+    return unrankedStockAsk(text, session.slots);
   }
 
   private async areaNamed(text: string): Promise<string | undefined> {
@@ -4483,7 +4470,8 @@ export class InboundHandler {
       const lastAssistantLine = [...session.history].reverse()
         .find(h => h.role === 'assistant')?.text ?? '';
       const facets = detectInfoFacets(text, {
-        floorOnTable: /(?:кат|спрат|приземје|сутерен)/iu.test(lastAssistantLine),
+        floorOnTable: session.slots.lastReplyNamedFloor
+          ?? /(?:кат|спрат|приземје|сутерен)/iu.test(lastAssistantLine),
       });
       if (facets
         && !detectFeeComplaint(text) && !detectMoreOptions(text)
@@ -4519,6 +4507,72 @@ export class InboundHandler {
           if (pairRows.length === pairEbs.length && !plainFloorAsk) ev.infoPair = true;
           if (pairRows.length >= 2 && plainFloorAsk) ev.infoFloors = true;
         }
+      }
+    }
+
+    // ── MARKET_PRICE (inbound.ts 6133) ─────────────────────────────────────
+    // The band's scope test needs the FEED's own list of neighbourhoods: a
+    // numbered sub-area («KARPOS 2») and a place only the feed files rows
+    // under («Маџар Маало») are areas the mirror's `detectLocation` cannot
+    // know. One cheap text gate, then the executor's own resolution — no
+    // copy of the conjunction, just the fact the row was missing.
+    if (!ev.marketAreaScope && detectMarketPriceAsk(text)
+      && !detectBothServices(text) && inferPropertyId(text) === undefined) {
+      const cityAsk = /(?<![\p{L}\p{N}])(?:скопје|skopje|скопju|скопју)(?![\p{L}\p{N}])/iu.test(text);
+      if (!cityAsk) {
+        const feedLocs = await this.areaLocs(text);
+        if (numberedAreasNamed(text, feedLocs).length > 0
+          || (await this.areaNamed(text)) !== undefined) ev.marketAreaScope = true;
+      }
+    }
+
+    // ── PICK_DESCRIBED, THE DETAIL ARM (inbound.ts 10055) ──────────────────
+    // «онаа со дворот» names a flat by one of its OWN fields, so only the rows
+    // can say which — and only when nothing else asks a fact about it: the
+    // INFO block runs FIRST in the executor (inbound.ts 8380), so a facet ask
+    // with a detail word belongs to INFO_ASK, exactly as the row order says.
+    // …and the INFO block only takes a facet ask when it can BIND a flat to it
+    // (a slot, a presented row, or an EB in the text), so a facet word on a
+    // described-only chat still leaves the turn to the pick.
+    const detailFacets = detectInfoFacets(text, {
+      floorOnTable: session.slots.lastReplyNamedFloor === true,
+    });
+    const infoWouldBind = session.slots.propertyId != null
+      || session.slots.interestedPropertyId != null
+      || (session.slots.presentedIds?.length ?? 0) > 0
+      || session.slots.lastQuotedEb !== undefined
+      || inferPropertyId(text) !== undefined;
+    if (ev.pickByDetail === undefined && (session.slots.describedEbs?.length ?? 0) > 0
+      && DETAIL_POINT_RE.test(text) && DETAIL_LINK_RE.test(text)
+      && !isFeeTraffic(text) && !detectPriceAsk(text) && !detectBudget(text)
+      && !(detailFacets && infoWouldBind)) {
+      const describedRows = (await Promise.all((session.slots.describedEbs ?? []).map(eb =>
+        this.deps.properties.getByEb(eb).catch(() => undefined))))
+        .filter((p): p is Property => !!p);
+      const byDetail = pickByDetail(text, describedRows);
+      if (byDetail !== undefined) ev.pickByDetail = byDetail;
+    }
+
+    // ── RECOMMEND_ASK (inbound.ts 11181) ───────────────────────────────────
+    // The judgment needs a CHOICE SET: a flat on the table, or an Евидентен
+    // број named anywhere in the chat that still resolves (the mention binder
+    // reads the history). With none the executor falls through to the funnel,
+    // so the row must not claim the turn.
+    if (ev.recommendChoice === undefined
+      && (detectRecommendAsk(text) || detectValueAsk(text))
+      && ['idle', 'intent', 'discovery', 'property_query', 'presentation', 'closing'].includes(session.state)) {
+      if ((session.slots.presentedIds?.length ?? 0) > 0 || session.slots.propertyId != null) {
+        ev.recommendChoice = true;
+      } else {
+        const userMsgs = session.history.filter(m => m.role === 'user').map(m => m.text);
+        const ebs = collectMentionedEbs(userMsgs, await this.deps.properties.getAllEbs());
+        for (const eb of ebs) {
+          if (await this.deps.properties.getByEb(eb).catch(() => undefined)) {
+            ev.recommendChoice = true;
+            break;
+          }
+        }
+        if (ev.recommendChoice === undefined) ev.recommendChoice = false;
       }
     }
     // ── THE LAST-REPLY LANES (2026-11-15): the mirror could not predict the
@@ -7265,14 +7319,20 @@ export class InboundHandler {
     // row's own facts + the next step, before any lane reads the geography.
     if (detectStockContradiction(text)) {
       const correction = await this.contradictionCorrection(session);
-      if (correction) {
-        routeLog(chatId, text, 'STOCK_CONTRADICTION');
-        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
-        pushHistory(session, { role: 'assistant', text: correction }, this.cfg.maxHistory);
-        this.deps.sessions.set(session);
-        await this.sendRaw(session, correction, 'deterministic');
-        return;
-      }
+      // NO CARD TO CORRECT FROM IS STILL THIS LANE'S TURN (the mirror reads the
+      // detector alone — the card set is a feed read). Falling through here put
+      // the [02:12] client — who had just caught a real mistake — in the
+      // geography reader, which answered his «PA KAKO NEMA?» with «Точната
+      // адреса се открива на денот на посетата». Without a card the honest
+      // turn is the apology plus the ask for the Евидентен број.
+      const answer = correction
+        ?? 'Извинете, тогаш грешката е моја. Кажете ми го Евидентниот број од огласот што го гледате и веднаш го проверувам — ако е слободен, продолжуваме со посета.';
+      routeLog(chatId, text, 'STOCK_CONTRADICTION');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, answer, 'deterministic');
+      return;
     }
     if (isPoiConfirmQuestion(text)
         // A VISIT-WINDOW TERM IS NEVER A PLACE QUESTION (the [04:05] capture).
@@ -8149,6 +8209,27 @@ export class InboundHandler {
           await this.sendRaw(session, freshReply, 'deterministic:fast');
           return;
         }
+        // NO STORED PRICE, OR NO ROW AT ALL, IS STILL THIS LANE'S TURN: the
+        // mirror reads the detector plus the slot gate (the feed is not its to
+        // read, and requiring it predicted a lane the turn did not serve). The
+        // question is «дали е уште таа цена?» — so a row with no figure on file
+        // owes the honest «немам внесено цена» plus the owner check, and a row
+        // the offer no longer holds owes «веќе не е во понудата». Both used to
+        // fall through to the plain price ask, which answered «за кое станува
+        // збор?» to a client who had named the flat two turns earlier.
+        const freshMiss = !pFresh
+          ? (this.feedHealthy()
+            ? `Недвижноста со Евидентен број ${ebFresh} веќе не е во понудата. Дали да Ви покажам слични недвижности?`
+            : 'Во моментов не можам да ја проверам евиденцијата — ќе ја проверам цената и достапноста и веднаш ќе Ви се вратам.')
+          : `За недвижноста со Евидентен број ${ebFresh} во моментов немам внесена цена во евиденцијата. Морам да се консултирам со сопственикот — дали да го контактирам и да Ви ја потврдам цената?`;
+        session.slots.interestedPropertyId = ebFresh;
+        routeLog(chatId, text, 'PRICE_FRESHNESS:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: freshMiss }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'PRICE_FRESHNESS_FAST', userMsg: text, replyText: freshMiss, replySource: 'deterministic', bankKey: 'price.freshness' }); } catch { /* ignore */ } }
+        await this.sendRaw(session, freshMiss, 'deterministic:fast');
+        return;
       }
     }
 
@@ -8389,9 +8470,12 @@ export class InboundHandler {
       // The ELLIPTICAL last-floor follow-up ("POSLEDEN ?") carries its noun in
       // the previous answer — only when Lina's last line named a floor is the
       // bare word a top-floor yes/no rather than "the last property".
+      // …and it is read from the SLOT first for the same reason as
+      // `lastQuotedEb` above: the mirror must be able to predict this lane.
       const lastAssistant = [...session.history].reverse().find(h => h.role === 'assistant')?.text ?? '';
       const infoFacets = detectInfoFacets(text, {
-        floorOnTable: /(?:кат|спрат|приземје|сутерен)/iu.test(lastAssistant),
+        floorOnTable: session.slots.lastReplyNamedFloor
+          ?? /(?:кат|спрат|приземје|сутерен)/iu.test(lastAssistant),
       });
       // A fee complaint that ECHOES Lina's wording can contain "cena ?" (the
       // 10:18 line: "1 EVRO E SIMBOLICNA CENA ?") — that reads as a price ask
@@ -8686,6 +8770,26 @@ export class InboundHandler {
             pushHistory(session, { role: 'assistant', text: infoAnswer }, this.cfg.maxHistory);
             this.deps.sessions.set(session);
             await this.sendRaw(session, infoAnswer, 'deterministic');
+            return;
+          }
+        }
+        // A SLOT THE FEED DOES NOT HOLD IS STILL THIS LANE'S TURN: the mirror
+        // reads the slot gate, so it predicts INFO_ASK — the block must serve
+        // it instead of letting the turn fall into a later lane. Only a slot
+        // that NAMED a flat (never a cold facet ask, which is INFO_ASK_YEAR's)
+        // and only with a healthy feed: a broken feed means „непознато", not
+        // „повеќе не е во понудата".
+        if (!infoProp && namedEbHere === undefined && namedOnTable === undefined
+          && this.feedHealthy()) {
+          const goneEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+            ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+          if (goneEb !== undefined) {
+            const gone = `Недвижноста со Евидентен број ${goneEb} веќе не е во понудата — не можам да Ви го кажам тој податок за неа. Дали да Ви покажам слични недвижности?`;
+            routeLog(chatId, text, 'INFO_ASK');
+            pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+            pushHistory(session, { role: 'assistant', text: gone }, this.cfg.maxHistory);
+            this.deps.sessions.set(session);
+            await this.sendRaw(session, gone, 'deterministic');
             return;
           }
         }

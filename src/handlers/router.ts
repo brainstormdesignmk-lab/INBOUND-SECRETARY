@@ -41,7 +41,8 @@ import {
   detectLocation, hasMarketTypePlural, isMarketRentWordAsk, detectMarketLevelFollowUp,
   detectExitCheck, detectSoftRefusal, detectWaitingAck, detectAgentAttendanceAsk,
   detectContactRequest, detectEyeCatch, detectPositiveEval, detectDescribeAsk,
-  extractPriceExtremeQuery, detectWidenIntent, detectExplicitWiden,
+  extractPriceExtremeQuery, detectPriceExtremeAsk, isFeeFrame,
+  detectWidenIntent, detectExplicitWiden,
   detectMoreStockRequest, detectVisitTime, proposesVisitTerm, detectPomaloAsk,
   detectBudgetUpAsk, detectExplicitCancel,
   detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor,
@@ -58,6 +59,7 @@ import { detectRecommendAsk, detectValueAsk } from '../llm/recommend';
 import { arbitrateMoney, isFeeAmountClaim } from '../llm/moneyArbitration';
 import { inferPropertyId } from '../llm/classify';
 import { resolvePropertyFocus } from './focus';
+import { unrankedStockAsk } from './priceScope';
 import { BARE_REFUSAL_ONLY_RE, pickDescribed } from './locate-pick';
 import type { ChatSession } from '../fsm/session';
 
@@ -131,6 +133,20 @@ export interface RouteEvidence {
   /** LOCATE_REJECT_PLACE: «не е таа» about the flat the chat bound, and that
    *  flat really stands at the place the chat locked — the hunt stays there. */
   locateRejectPlace?: boolean;
+  /** MARKET_PRICE: the message names an AREA the FEED knows (a numbered
+   *  sub-area or a feed-only neighbourhood such as «Маџар Маало»). The mirror
+   *  has its own list of Skopje names; the feed's list is the executor's, so
+   *  the scope test is delegated rather than approximated. */
+  marketAreaScope?: boolean;
+  /** PICK_DESCRIBED: a DETAIL mention («онаа со дворот») resolves to exactly
+   *  ONE of the described rows. The arm needs those rows' own fields, so the
+   *  mirror reads the verdict here instead of guessing the lane below. */
+  pickByDetail?: number;
+  /** RECOMMEND_ASK: the judgment has a CHOICE SET — a flat on the table, or an
+   *  Евидентен број named anywhere in the chat that still resolves. Without one
+   *  the executor falls through to the funnel, so the row must not claim the
+   *  turn (the mention binder lives in the history). */
+  recommendChoice?: boolean;
 }
 
 /** The two lanes below are the ones whose executor gates read the CLIENT'S
@@ -156,6 +172,15 @@ const FEE_NAG_STATES = ['closing', 'presentation', 'property_locate'];
  *  evidence boundary can never disagree about what "on the table" means. */
 function moneyPropertyOnTable(sl: RouteSlots): boolean {
   return !!(sl.propertyId || sl.interestedPropertyId || sl.lastPrice || sl.presentedIds?.length);
+}
+
+/** `classify.ts propertyOnTable` over the SLOT surface (the mirror never holds a
+ *  full session): a shown card, a served batch, or an anchored flat. Rows that
+ *  stand down on a property on the table read this — the executor reads the
+ *  same four fields, so the two sides cannot disagree. */
+function tableHasProperty(sl: RouteSlots): boolean {
+  return sl.propertyId != null || sl.interestedPropertyId != null
+    || (sl.presentedIds?.length ?? 0) > 0 || (sl.currentBatch?.length ?? 0) > 0;
 }
 
 /** Does the chat hold a CATEGORY it can search by? (The executor's catKnown.) */
@@ -278,9 +303,11 @@ export const ROUTING_ORDER: RouteRule[] = [
   // ORDER: the executor reaches these at 5010/5049, BEFORE the каде lanes, so the
   // rows must precede WHERE_IS — a где-question about a PLACE she named is not
   // the property's landmark rotation.
-  // KNOWN LIMIT: WHERE_LANDMARK also needs the map service to exist (always in
-  // the appliance, absent in a bare unit harness) — a limit of the harness, not
-  // of the lane.
+  // The map service is constructed by every entry point (the TUI, the API and
+  // the funnel tests all build a LandmarkService), so the MISS arm is the only
+  // map outcome that can change the wording — not whether this lane runs. A
+  // bare harness without the map is a harness fact, not a prediction the
+  // appliance ever makes.
   { intent: 'AREA_OF_PLACE', note: '«ВО КОЈА НАСЕЛБА Е TC ЛЕПТОКАРИЈА» — the PLACE\'s own district from the map, never the card\'s landmark ([17:26] capture); a map miss is stated honestly rather than answered with some other location',
     fires: t => isAreaOfPlaceQuestion(t)
       && !detectAreaHaveAsk(t)
@@ -308,13 +335,19 @@ export const ROUTING_ORDER: RouteRule[] = [
 
   { intent: 'NEAREST_OF_BATCH', note: '«OVA BESE BLISKU» ([20:17]) — a DEICTIC closeness remark about the batch just listed. No interrogative and no place of its own, so it sits AFTER NEAREST_OF_SHOWN (which owns the explicit «koj e najblisku do …» ranking) and BEFORE the funnel: the classifier read it as a description of an unknown listing and asked which neighbourhood/price it was',
     fires: t => detectCloseRemarkToBatch(t) },
-  { intent: 'TOLD_YOU_RECALL', note: '«ПА ТИ КАЖАВ КАДЕ» ([23:48]) — the client says he already gave the criteria, so the turn reads the notebook back (places + area) and asks only what is missing. The executor runs it in the funnel states, after OWNER_CONTACT/PROXY_CONTACT (a contact capture inside the complaint keeps its lane) and before the where-is/location-nag branches, which is exactly where this row sits; the executor also requires NO property on the table (a shown flat makes «ти кажав» a where-is/visit topic) — a fact the mirror cannot see, so the state gate is the mirror\'s share',
+  { intent: 'TOLD_YOU_RECALL', note: '«ПА ТИ КАЖАВ КАДЕ» ([23:48]) — the client says he already gave the criteria, so the turn reads the notebook back (places + area) and asks only what is missing. The executor runs it in the funnel states, after OWNER_CONTACT/PROXY_CONTACT (a contact capture inside the complaint keeps its lane) and before the where-is/location-nag branches, which is exactly where this row sits; its other two conditions are mirrored too — NO property on the table (a shown flat makes «ти кажав» a where-is/visit topic) and no digit in the message (a figure IS a criterion)',
     // …BUT A BOOKING RECALL IS NOT THE NOTEBOOK: «ЗА КОЈ СТАН ТИ КАЖАВ ДА
     // ДОГОВОРИШ ПРЕЕСКА?» carries «ти кажав» and reads as the told-you nag, while
     // the executor serves VISIT_RECALL (6516) long before the funnel lane (7518).
     // The mirror has to refuse it here, or it predicts a lane that never runs.
-    fires: (t, s) => detectToldYouNag(t) && !detectArrangementRecall(t)
-      && ['idle', 'discovery'].includes(s) },
+    fires: (t, s, sl) => detectToldYouNag(t) && !detectArrangementRecall(t)
+      && ['idle', 'discovery'].includes(s)
+      // THE EXECUTOR'S OTHER TWO CONDITIONS ARE SLOTS AND TEXT (inbound.ts
+      // 9051): a property on the table makes «ти кажав» a where-is/visit topic,
+      // and a DIGIT in the message IS a criterion answer (the [23:5x] widen
+      // flow), so the funnel keeps that turn. Without them the mirror predicted
+      // this lane and the executor served something else.
+      && !/\d/u.test(t) && !tableHasProperty(sl) },
   { intent: 'WHICH_OF_BATCH_PLACE', note: '«KOJ OD NIV E VO MADJAR MAALO?» ([09:44]) — which of the flats ALREADY OFFERED stands in the place the client names. A comparison between the rows on the table, so it sits after NEAREST_OF_SHOWN/NEAREST_OF_BATCH (the rankings it must not steal) and before MARKET_MEMORY and every search branch: the recall path read the place as a NEW search and re-served the same pair it was asked about',
     fires: t => !!detectWhichOfBatchPlace(t) },
   { intent: 'MARKET_MEMORY', note: '„ИМАШЕчЕ ЕДНА КУчА ПРЕД НЕКОЕ ВРЕМЕ КАЈ ВАС… ОКОЛУ 400 ЕВРА КИРИЈА” ([02:00]) — a recall of an OLD agency listing. Sits BEFORE MARKET_PRICE: the rent noun + the ask shape make the market mirror claim the row, while the market arm does not capture it (landmark ≠ feed area, singular noun, rent-only guard) — the turn then fell to the discovery funnel. The archive ack owns it: the old offer is not in the feed, so no figure is quoted as live, and the recollected type/segment/amount land in slots for the follow-up search',
@@ -328,18 +361,20 @@ export const ROUTING_ORDER: RouteRule[] = [
   // about the market — and the INFO block serving the flat\'s own rent. The
   // mirror called that a market turn, so the row was looser than the serve.
   { intent: 'MARKET_PRICE', note: '"KAKO SE DVIZAT CENIVE ZA STANOVI VO AERODROM?" ([16:57]) — the €/m² range for a CATEGORY in an AREA, answered from the feed\'s own rows. Sits after WHERE_IS/DISTANCE (which own their questions) and before every property-price branch, which would otherwise quote the single flat on the table. Mirrors the arm\'s own three conditions: no both-services ask, no named Евидентен број, and a scope IN THE MESSAGE (an area/city/numbered sub-area), a plural category („станови“), or no anchored flat to speak for',
-    fires: (t, s, sl) => {
+    fires: (t, s, sl, ev) => {
       const asked = detectMarketPriceAsk(t)
         || (detectMarketLevelFollowUp(t) && !!(sl.poiAnchor || sl.location));
       if (!asked) return false;
       if (detectBothServices(t) || inferPropertyId(t) !== undefined) return false;
       const cityAsk = /(?<![\p{L}\p{N}])(?:скопје|skopje|скопју|skopju)(?![\p{L}\p{N}])/iu.test(t);
-      // The mirror has no feed, so the area pool is the detector's own known
-      // Skopje neighbourhoods (`detectLocation` always includes them: Latin
-      // transliteration included). A place only the FEED knows («Маџар Маало»)
-      // is a KNOWN LIMIT of this row — the executor's `placesNamedIn` reads the
-      // feed, the mirror cannot.
-      const areaInMessage = cityAsk || detectLocation(t, []) !== undefined;
+      // The mirror's own list of Skopje neighbourhoods (`detectLocation`,
+      // Latin transliteration included) covers the common wording; an area only
+      // the FEED knows («Маџар Маало», «Карпош III» from a numbered ask) comes
+      // from the EVIDENCE channel — the probe asks `areaNamed`, the same feed
+      // read the executor makes, so the scope test is one fact with two
+      // readers instead of an approximation.
+      const areaInMessage = cityAsk || detectLocation(t, []) !== undefined
+        || ev?.marketAreaScope === true;
       const anchoredEb = sl.propertyId ?? sl.interestedPropertyId;
       return areaInMessage || hasMarketTypePlural(t)
         || (anchoredEb === undefined && !isMarketRentWordAsk(t));
@@ -456,9 +491,9 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectOwnerContactHold(t) && !fsmRequired(t) },
   { intent: 'AGENCY_IDENTITY', note: '«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (inbound.ts 4820) — the agency is named, then the interrupted question repeated. It runs BEFORE the money region, so it sits above every fee row here',
     fires: t => detectAgencyIdentityAsk(t) },
-  { intent: 'STOCK_CONTRADICTION', note: 'the client quotes a card we served against a «нема» we said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?», inbound.ts 6990) — admission + the row\'s own facts. It beats every geography lane because it carries an area word. KNOWN LIMIT: the executor also needs a served card to correct from (the feed), which the mirror cannot see — with nothing shown, the prediction is still this lane',
+  { intent: 'STOCK_CONTRADICTION', note: 'the client quotes a card we served against a «нема» we said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?», inbound.ts 7267) — admission + the row\'s own facts, and without a card the apology plus the ask for the Евидентен број (never the geography reader). It beats every geography lane because it carries an area word',
     fires: t => detectStockContradiction(t) },
-  { intent: 'WHICH_PROPERTY', note: '«ZA KOJ STAN STANUVA ZBOR?» — the flat the chat has in hand, named by EB + neighbourhood + price (inbound.ts 7180). Gate copied: not while the fee is agreed and never in queued/terminated/escalated (there the account is over, not a pick to identify). KNOWN LIMIT: the executor only serves with an ANCHOR flat; the mirror cannot bind one',
+  { intent: 'WHICH_PROPERTY', note: '«ZA KOJ STAN STANUVA ZBOR?» — the flat the chat has in hand, named by EB + neighbourhood + price, and with nothing bound the honest «which Евидентен број?» line (bank key property.which.none) (inbound.ts 7449). Gate copied: not while the fee is agreed and never in queued/terminated/escalated (there the account is over, not a pick to identify)',
     fires: (t, s, sl) => !sl.viewingFeeAgreed
       && !['queued', 'terminated', 'escalated'].includes(s)
       && detectWhichPropertyAsk(t) && !detectPropertyChoice(t) },
@@ -556,11 +591,11 @@ export const ROUTING_ORDER: RouteRule[] = [
       && !detectFeeComplaint(t) && !detectFeePaymentAgreement(t)
       && !detectNegotiate(t) && !detectService(t) && !detectBothServices(t)
       && !detectOwnClaimChallenge(t) },
-  // KNOWN LIMIT: the executor then looks the EB up in the FEED and serves only
-  // when it finds a price. The mirror cannot read the feed, so a property on
-  // the table with no stored figure is still predicted here — the feed decides
-  // whether a row is price-less, and only then does the plain price ask keep
-  // the turn.
+  // THE FEED FACT IS ANSWERED IN-LANE: the executor used to serve only when the
+  // EB resolved WITH a price, so a row with no stored figure (or one the offer
+  // no longer holds) was predicted here and served by some later lane. The
+  // branch now owns all three legs — the quote, «немам внесено цена» + owner
+  // check, and «веќе не е во понудата» — so the mirror's prediction is true.
   // THE PRICE-NEGOTIATION FAST LANE (inbound.ts 7665) — moved here from the
   // tail: the executor serves it BEFORE the INFO block (7837), so a
   // «DALI E VOZMOZNA KORENCIJA NA CENATA ?» with a flat on the table is a
@@ -594,10 +629,14 @@ export const ROUTING_ORDER: RouteRule[] = [
   // traffic, the commission ask, the smaller-by-rate search, the cash-at-
   // signing total) and a binding signal (a slot, a described pair, an EB in the
   // text, or the year/renovation facet that every property can answer).
-  // KNOWN LIMIT: the executor also accepts `lastQuotedEb` (the price-quote
-  // shape of HER OWN last line) and the elliptical floor follow-up («POSLEDEN ?»
-  // after she named a floor) — both live in the chat history, which the mirror
-  // does not read, so the mirror asks for a slot or a number instead.
+  // HER OWN LAST LINE IS A SLOT TOO: the executor also accepts `lastQuotedEb`
+  // (the price-quote shape of her previous answer) and the elliptical floor
+  // follow-up («POSLEDEN ?», a top-floor ask only after a line that named a
+  // кат). Both used to live in `history` alone, which the mirror cannot read;
+  // `pushHistory` now records them as `slots.lastQuotedEb` /
+  // `slots.lastReplyNamedFloor` (fsm/session.ts `rememberAssistantLine`), so
+  // the rows below read the SAME memory the executor reads. The facet parse
+  // takes the floor context from the slot exactly as the executor does.
   // ── YEAR/RENOVATION WITH NOTHING BOUND (Phase 4, describe family) ─────────
   // The executor answers a year/renovation ask about a BOUND flat under
   // INFO_ASK, but with NO flat it cannot look the fact up and serves the
@@ -606,12 +645,14 @@ export const ROUTING_ORDER: RouteRule[] = [
   // predicted INFO_ASK and the registry recorded a GAP on a correct serve.
   // Position: INSIDE the info block and before it — the executor's miss branch
   // runs after the same facet parse, with the same vetoes.
-  // KNOWN LIMIT: the executor's `infoProp` also comes from the FEED (a slot may
-  // name a row the feed no longer has); the mirror cannot read the feed, so a
-  // stale slot is still predicted INFO_ASK here.
+  // A STALE SLOT IS ANSWERED, NOT DROPPED: the executor's `infoProp` comes from
+  // the feed, so a slot naming a row the feed no longer has used to fall out of
+  // the block entirely — predicted INFO_ASK, served by some later lane. The
+  // block now owns that turn with the honest «таа недвижност повеќе не е во
+  // понудата» line, which is what makes this row's prediction true.
   { intent: 'INFO_ASK_YEAR', note: 'year-of-construction / renovation ask with NO flat bound — the property-agnostic missing-fact line (inbound.ts 8040–8049), never the LLM',
     fires: (t, s, sl) => {
-      const facets = detectInfoFacets(t);
+      const facets = detectInfoFacets(t, { floorOnTable: sl.lastReplyNamedFloor === true });
       if (!facets || !(facets.yearBuilt || facets.renovation)) return false;
       return !(sl.propertyId || sl.interestedPropertyId
         || (sl.presentedIds?.length ?? 0) > 0 || (sl.describedEbs?.length ?? 0) > 0
@@ -634,9 +675,23 @@ export const ROUTING_ORDER: RouteRule[] = [
   // drift from the funnel. Position: immediately after DESCRIBE_TABLE and in
   // the executor's own order (pick 9489 → widen 9813 → bare refusal 9790); a
   // facet ask over a described flat was claimed by INFO_ASK above.
-  { intent: 'PICK_DESCRIBED', note: 'a pick among the flats she just described — by Евидентен број or ordinal — answered with the availability answer (inbound.ts 9489). KNOWN LIMIT: the executor also admits a DETAIL mention («онаа со дворот», pickByDetail) which needs the described ROWS; the mirror cannot read the feed, so such a turn is predicted one row lower',
-    fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
-      && pickDescribed(t, sl.describedEbs!) !== undefined },
+  { intent: 'PICK_DESCRIBED', note: 'a pick among the flats she just described — by Евидентен број or ordinal, or by one of their DETAILS («онаа со дворот») — answered with the availability answer (inbound.ts 10055). EVIDENCE: a detail mention resolves to exactly one described row',
+    fires: (t, s, sl, ev) => {
+      if ((sl.describedEbs?.length ?? 0) === 0) return false;
+      // A FACET ASK IS THE INFO BLOCK'S WHEN IT CAN BIND A FLAT: the executor
+      // reaches that block at 8380, long before the pick at 10055, so
+      // «КОЛКУ Е 78 ?» while a described pair is in memory is a fact question,
+      // not a pick (it was reported as a PICK_DESCRIBED→INFO_ASK drift). With
+      // NOTHING to bind, the info block falls through and the pick owns the
+      // turn even when the text carries a feature word.
+      const facetAsk = detectInfoFacets(t, { floorOnTable: sl.lastReplyNamedFloor === true });
+      const infoBinds = sl.propertyId != null || sl.interestedPropertyId != null
+        || (sl.presentedIds?.length ?? 0) > 0 || sl.lastQuotedEb !== undefined
+        || inferPropertyId(t) !== undefined;
+      if (facetAsk && infoBinds) return false;
+      return pickDescribed(t, sl.describedEbs!) !== undefined
+        || ev?.pickByDetail !== undefined;
+    } },
   { intent: 'LOCATE_WIDEN', note: '«да» to the other-neighbourhoods question — the area lock is released and the same hunt continues (inbound.ts 9813). Requires the whole exhausted-hunt state (describedEbs + areaExhausted), never a plain agreement',
     fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
       && sl.areaExhausted === true
@@ -710,15 +765,18 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
       && BARE_REFUSAL_ONLY_RE.test(t.trim()) },
   // «ВО КОЈА НАСЕЛБА СЕ НАЈЕВТИНИ СТАНОВИТЕ» compares NEIGHBOURHOODS, never rows
-  // (inbound.ts 6146): cheapest mode + the word «населба» in the ask + buy + no
-  // area named (naming an area is a row listing). KNOWN LIMIT: the lane also
-  // needs per-м² rows in the feed; the mirror cannot rank a feed it cannot read.
+  // (inbound.ts 6314): cheapest mode + the word «населба» in the ask + buy + no
+  // area named (naming an area is a row listing) + a rankable per-м² pool. The
+  // pool is a FEED fact, so it rides the evidence channel (`priceAvgNaselba`,
+  // whose probe calls the same lifted predicates the block calls) — the row is
+  // that fact alone.
   // THE PRICE-EXTREME FAMILY: one detector owns the whole block (inbound.ts
-  // 6007 `extractPriceExtremeQuery`), which serves cheapest/dearest listings,
-  // total-price asks and the «за колку најмалку» shapes. Its ONE data condition
-  // is that the feed has rankable rows — so the mirror owns the TEXT half and
-  // documents the rest (a feed with no м² figure serves the plain listing under
-  // the same tag, which is why the row still matches).
+  // 6455 `extractPriceExtremeQuery`), which serves cheapest/dearest listings,
+  // total-price asks and the «за колку најмалку» shapes. EVERY leg of the block
+  // ends in a serve — including «немам понуди», «без квадратура не можам да ги
+  // споредам» and the cheaper/dearer misses — so the text detector is the whole
+  // prediction and the feed decides only WHICH sentence comes back, never
+  // whether the lane runs.
   { intent: 'PRICE_AVG_NASELBA', note: '«ВО КОЈА НАСЕЛБА СЕ НАЈЕВТИНИ СТАНОВИТЕ» — the cheapest NEIGHBOURHOOD by mean €/м², plus the flat beside that number (inbound.ts 6314). EVIDENCE: the gate is the lifted `naselbaComparisonGate` (naselba word, no area named, buy, rankable per-м² pool)',
     fires: (t, s, sl, ev) => ev?.priceAvgNaselba === true },
   { intent: 'PRICE_EXTREME_MORE', note: '«УШТЕ?» after a price LIST (inbound.ts 6250) — the next three rows of the SAME ranked list, never the discovery ladder. Gate: the queue the list left behind is non-empty and the message carries a more-word',
@@ -728,17 +786,27 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: (t, s, sl) => !!sl.poiTooFarAsk
       && (sl.poiTooFarAnchor === undefined || sl.poiTooFarAnchor === sl.poiAnchor)
       && sl.poiNearestId !== undefined && detectRingNearestAsk(t) },
-  { intent: 'PRICE_EXTREME', note: 'an EXTREME price ask (“do 1000 evra kuca”, “koj ti e toj stan po … po m2”) — the cheapest/dearest listing under the client\'s own criteria, never the plain price ask (inbound.ts 6007). KNOWN LIMIT: the rankable pool comes from the feed',
-    fires: t => extractPriceExtremeQuery(t) !== undefined },
+  { intent: 'PRICE_EXTREME', note: 'an EXTREME price ask (“do 1000 evra kuca”, “koj ti e toj stan po … po m2”) — the cheapest/dearest listing under the client\'s own criteria, never the plain price ask (inbound.ts 6455); an empty or surface-less pool gets its own honest line under this same tag',
+    fires: (t, s, sl) => detectPriceExtremeAsk(t)
+      && inferPropertyId(t) === undefined && !isFeeFrame(t)
+      && !unrankedStockAsk(t, sl) },
   // «KOJ BI MI GO PREPORACALE ?» — a JUDGMENT over the flats the chat has
-  // discussed (inbound.ts 10432), never a card re-serve. KNOWN LIMIT: the
-  // executor also admits the turn when a doubt phrase («ne znam…») forces the
-  // FSM path but the doubt is about the table (`choiceAboutTable`, which needs
-  // the mention binder); the mirror cannot read that, so such a turn is
-  // predicted one row lower.
-  { intent: 'RECOMMEND_ASK', note: '“koj bi mi go preporacale?” — the pick among the flats already discussed, with the reason, never the same cards again',
-    fires: (t, s) => detectRecommendAsk(t)
-      && ['idle', 'intent', 'discovery', 'property_query', 'presentation', 'closing'].includes(s) },
+  // discussed (inbound.ts 11181), never a card re-serve. The executor also
+  // admits the doubt-that-is-about-the-table (`choiceAboutTable`): a VALUE ask
+  // («što e isplatlivo?») with flats on the table forces its answer past the
+  // FSM, and that half is pure slot state — so the row reads it too. Whether a
+  // CHOICE SET exists at all (a flat on the table, or an EB named earlier in
+  // the chat that still resolves) is the mention binder's fact: EVIDENCE
+  // `recommendChoice`, so a cold «koj bi mi go preporacale?» is not predicted
+  // here while the executor sends that turn to the funnel.
+  { intent: 'RECOMMEND_ASK', note: '“koj bi mi go preporacale?” — the pick among the flats already discussed, with the reason, never the same cards again. EVIDENCE: a choice set exists (a flat on the table, or an Евидентен број named earlier that still resolves)',
+    fires: (t, s, sl, ev) => (detectRecommendAsk(t)
+      || (detectValueAsk(t) && ((sl.presentedIds?.length ?? 0) > 0 || sl.propertyId != null)))
+      && ['idle', 'intent', 'discovery', 'property_query', 'presentation', 'closing'].includes(s)
+      // Without a probe a unit harness keeps the old prediction; WITH one the
+      // probe's answer is the truth (it only runs for these very texts, so a
+      // missing flag cannot mean "not computed").
+      && (ev === undefined || ev.recommendChoice === true) },
   // ── THE EVIDENCE-GATED LANES (Phase 4, the channel the backlog needed) ────
   // Each row below is the executor's OWN gate, with the one condition the
   // router cannot see delegated to `RouteEvidence`: `o...` rows refuse
@@ -754,9 +822,9 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: (t, s, sl, ev) => ev?.infoPair === true },
   { intent: 'INFO_ASK_FLOORS', note: 'one floor question naming TWO flats — one clause per Евидентен број (inbound.ts 8002). EVIDENCE: two rows with a floor clause',
     fires: (t, s, sl, ev) => ev?.infoFloors === true },
-  { intent: 'INFO_ASK', note: 'a fact ask about the flat on the table — one answer per facet from the feed\'s own data, never the LLM (scope C)',
+  { intent: 'INFO_ASK', note: 'a fact ask about the flat on the table — one answer per facet from the feed\'s own data, never the LLM (scope C); the binding signals include the flat HER LAST LINE quoted a price for (`slots.lastQuotedEb`)',
     fires: (t, s, sl) => {
-      const facets = detectInfoFacets(t);
+      const facets = detectInfoFacets(t, { floorOnTable: sl.lastReplyNamedFloor === true });
       if (!facets) return false;
       if (detectFeeComplaint(t) || detectMoreOptions(t) || isFeeTraffic(t)
         || detectProvisionAsk(t) || detectProvisionWho(t)
@@ -764,6 +832,7 @@ export const ROUTING_ORDER: RouteRule[] = [
       return !!(sl.propertyId || sl.interestedPropertyId
         || (sl.presentedIds?.length ?? 0) > 0 || (sl.describedEbs?.length ?? 0) > 0
         || inferPropertyId(t) !== undefined
+        || sl.lastQuotedEb !== undefined
         || facets.yearBuilt || facets.renovation);
     } },
   { intent: 'FEE_FIRST_TIME', note: '«OVA PRV PAT SLUSAM» ([00:28]) — the client never met the fee before, so the answer is the FACT (fee.rule.hold), not another rationale. The executor tests it BEFORE the why leg, so the row must precede FEE_WHY',

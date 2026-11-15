@@ -197,7 +197,10 @@ test('«освен овие … дали имате други?» with nothing l
   // pivot" — pinning the sentence I happened to see would fail on the next
   // variant.
   assert.match(reply, /сите|исцрпив|повеќе немам/iu, `the honest drained line: ${reply}`);
-  assert.match(reply, /известам|друга населба/iu, `the pivot follows: ${reply}`);
+  // …and the pivot's own wording rotates too: «поштo излезе нешто соодветно» /
+  // «известам» and the offer of ANOTHER part of the city («друга населба», «друг
+  // дел од градот»). Pinning only «друга населба» failed on a legitimate variant.
+  assert.match(reply, /известам|друга населба|друг дел од градот/iu, `the pivot follows: ${reply}`);
   assert.doesNotMatch(reply, /Евидентен број \d+ ·/u, `no card is re-served: ${reply}`);
   assert.doesNotMatch(reply, /надомест|денари|провизиј/iu, `never the fee: ${reply}`);
 });

@@ -397,6 +397,13 @@ export interface SlotData {
   addressProtocolIndex?: number;  // rotation index for address-privacy protocol variants
   addressProtocolEb?: number;     // WHICH property (Евидентен број) the protocol round count belongs to — the counter is PER PROPERTY: round 2 of EB 50 must never serve for EB 76
   lastPrice?: string;            // last price answered to the client (for "та цена" resolution)
+  /** WHAT HER LAST LINE SAID, AS A SLOT (see `rememberAssistantLine`): two
+   *  follow-up lanes bind to the SHAPE of the previous answer, and reading that
+   *  out of `history` is invisible to the routing mirror (it only ever sees
+   *  text, state and slots). Recording it when the line is pushed keeps ONE
+   *  source, so the mirror can predict the lane the executor serves. */
+  lastQuotedEb?: number;         // the flat her last line quoted a price for («… Евидентен број 69 чини …»)
+  lastReplyNamedFloor?: boolean; // her last line named a кат/спрат — what makes a bare «POSLEDEN ?» a top-floor ask
   /** The OWNER's own strike counter — the same 3-strike insult protocol the
    *  client runs, kept SEPARATE: a rude owner must never ban the client's
    *  chat, and the client's strikes must never silence the owner. */
@@ -511,6 +518,26 @@ export function resetToIdle(s: ChatSession): void {
 export function pushHistory(s: ChatSession, msg: HistoryMsg, max: number): void {
   s.history.push(msg);
   if (s.history.length > max) s.history = s.history.slice(s.history.length - max);
+  if (msg.role === 'assistant') rememberAssistantLine(s, msg.text);
+}
+
+/** THE NOTEBOOK REMEMBERS THE SHAPE OF HER OWN LAST LINE (§4q).
+ *
+ *  Two follow-up lanes bind their referent to the PREVIOUS ANSWER rather than
+ *  to a slot the client filled: the price-quote anaphor («„КОЛКУ Е ТОА
+ *  ПОКВАДРАТ"» after «Станот со Евидентен број 69 чини 99.000 евра») and the
+ *  elliptical floor question («POSLEDEN ?», a top-floor ask only after a line
+ *  that named a кат). The executor always read those out of `history`, which
+ *  the routing mirror cannot see (it gets text, state and slots), so both
+ *  turns were PREDICTED one row lower while the executor served INFO_ASK.
+ *  Recording the two facts here, where the line itself is pushed, gives the
+ *  mirror the same memory through the same channel as every other lane: the
+ *  slots. The history regexes stay as the fallback in `lastQuotedEb` /
+ *  `detectInfoFacets`, so a session written before these slots still answers. */
+function rememberAssistantLine(s: ChatSession, text: string): void {
+  const quote = /Евидентен број\s+(\d{1,6})\s+чини\b/u.exec(text);
+  s.slots.lastQuotedEb = quote ? Number(quote[1]) : undefined;
+  s.slots.lastReplyNamedFloor = /(?:кат|спрат|приземје|сутерен)/iu.test(text) || undefined;
 }
 
 /** Assistant texts already sent in this session — the response bank uses these
