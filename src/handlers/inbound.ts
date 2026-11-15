@@ -10176,42 +10176,76 @@ export class InboundHandler {
       }
     }
 
-    // 0-c2k) «КОЈ ИМА 126 м² ?» — AN IDENTITY QUESTION ABOUT A FIGURE THAT IS
-    // ALREADY ON THE TABLE (defect #5 of the [05:20] capture): the pair had
-    // just been served (105 м² and 126 м²) and the client pointed at ONE of
-    // them BY ITS SURFACE. The turn fell through to a fresh search and the
-    // number was read as money — «нема деловни простори од 126 м² до 100 евра
-    // месечно». A figure a served row CARRIES is an identifier, never a
-    // criterion: the row is named and the discussion moves to it.
-    // No match on the table falls through on purpose — «кој има 300 м²?» then
-    // is a genuine area search and belongs to the funnel.
+    // 0-c2k) «КОЈ ИМА 126 м² ?» — AN IDENTITY QUESTION ABOUT A FIGURE (defect
+    // #5 of the [05:20] capture): the pair had just been served (105 м² and
+    // 126 м²) and the client pointed at ONE of them BY ITS SURFACE. The turn
+    // fell through to a fresh search and the number was read as money — «нема
+    // деловни простори од 126 м² до 100 евра месечно». A figure a served row
+    // CARRIES is an identifier, never a criterion: the row is named and the
+    // discussion moves to it.
+    //
+    // THE COLD FIGURE IS THE SAME QUESTION (the limitation this closes): when
+    // no row on the table carries the figure, «кој има 300 м²?» is not an area
+    // search with 300 read as money — it asks WHICH property has that figure,
+    // so the answer is that question asked of the whole offer, in the funnel's
+    // own category. Rows that carry it are named; when the offer carries none
+    // the honest «нема» line says so and asks what to look for instead. It used
+    // to fall through here on purpose, which made the router's row a lie (it
+    // predicted this lane and the turn served a fresh search), so both legs now
+    // live in one branch and the lane owns every turn its text gate admits.
+    // THE IDENTITY LINES STAY THE ANSWER, never a card: a cold row was not
+    // shown to him, so re-selling it (ad text, owner-confirm) would be the
+    // disclosure of a property he never asked to browse.
     if (routedLane() === 'IDENTIFY_BY_FIGURE') {
       const fig = detectIdentifyByFigure(text);
-      const ebsHere = [...new Set([
-        ...(session.slots.currentBatch ?? []),
-        ...(session.slots.presentedIds ?? []),
-      ])];
-      if (fig !== undefined && ebsHere.length > 0) {
-        const rows = (await Promise.all(ebsHere
+      if (fig !== undefined) {
+        const carries = (p: Property): boolean =>
+          (fig.kind === 'sqm' ? p.sqm === fig.value : p.price === fig.value);
+        const ebsHere = [...new Set([
+          ...(session.slots.currentBatch ?? []),
+          ...(session.slots.presentedIds ?? []),
+        ])];
+        const onTable = (await Promise.all(ebsHere
           .map(eb => this.deps.properties.getByEb(eb).catch(() => undefined))))
           .filter((p): p is Property => !!p)
-          .filter(p => (fig.kind === 'sqm' ? p.sqm === fig.value : p.price === fig.value));
+          .filter(carries);
+        // THE COLD LEG: the funnel's OWN category (a дуќан exchange is never
+        // told about a flat), the whole city, and no money/location filter —
+        // the figure IS the question. A плац never rides an unnamed ask (the
+        // [20:15] rule); its own funnel still finds its plots.
+        const cold = onTable.length > 0 ? [] : (await this.deps.properties.candidates({
+          service: session.slots.service,
+          business: session.slots.business ? true : undefined,
+          house: session.slots.house ? true : undefined,
+          garsonjera: session.slots.garsonjera,
+          plac: session.slots.plac,
+        }))
+          .filter(carries)
+          .filter(p => session.slots.plac === true || p.plac !== true);
+        const rows = onTable.length > 0 ? onTable : cold;
+        const measure = fig.kind === 'sqm'
+          ? `${fig.value} м²`
+          : `${fig.value.toLocaleString('mk-MK')} евра`;
+        routeLog(chatId, text, 'IDENTIFY_BY_FIGURE');
+        const lines = rows.map(p => boundFlatIdentity(p)).join('\n');
+        const answer = rows.length === 0
+          ? `Во моментов во понудата нема недвижност со ${measure}. Дали да барам ${fig.kind === 'sqm' ? 'друга квадратура' : 'друга цена'} или да ги забележам Вашите критериуми?`
+          : onTable.length > 0
+            ? rows.length === 1
+              ? `Тоа е ${boundFlatIdentity(rows[0]!)}.`
+              : `Со ${measure} има ${rows.length} недвижности:\n${lines}`
+            : rows.length === 1
+              ? `Со ${measure} во понудата е ${boundFlatIdentity(rows[0]!)}. Дали да Ви дадам повеќе детали за него?`
+              : `Со ${measure} во понудата има ${rows.length} недвижности:\n${lines}\nДали да Ви дадам повеќе детали за некоја од нив?`;
         if (rows.length > 0) {
-          routeLog(chatId, text, 'IDENTIFY_BY_FIGURE');
-          const measure = fig.kind === 'sqm'
-            ? `${fig.value} м²`
-            : `${fig.value.toLocaleString('mk-MK')} евра`;
-          const answer = rows.length === 1
-            ? `Тоа е ${boundFlatIdentity(rows[0]!)}.`
-            : `Со ${measure} има ${rows.length} недвижности:\n${rows.map(p => boundFlatIdentity(p)).join('\n')}`;
           session.slots.propertyId = rows[0]!.eb;
           session.slots.interestedPropertyId = rows[0]!.eb;
-          pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
-          pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
-          this.deps.sessions.set(session);
-          await this.sendRaw(session, answer, 'deterministic');
-          return;
         }
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
       }
     }
 

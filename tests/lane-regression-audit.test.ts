@@ -124,6 +124,26 @@ const rows: CustodyRow[] = [
     lane: 'IDENTIFY_BY_FIGURE',
   },
   {
+    id: 'identify-figure-cold',
+    // THE COLD HALF OF THE SAME LANE: the figure is on NO served row (60 м² is
+    // EB 78, the table holds EB 63), so the answer comes from the offer. Before
+    // the fix this row was predicted here and SERVED as a fresh search — the
+    // drift the custody table exists to catch.
+    setup: s => { s.state = 'presentation'; s.slots.service = 'rent'; s.slots.currentBatch = [63]; s.slots.presentedIds = [63]; },
+    text: 'KOJ IMA 60 M2 ?',
+    lane: 'IDENTIFY_BY_FIGURE',
+    state: 'presentation',
+  },
+  {
+    id: 'identify-figure-none',
+    // …and a figure nothing in the offer carries is still the LANE's turn: the
+    // honest absence line, never a search with the figure read as money.
+    setup: s => { s.state = 'presentation'; s.slots.service = 'rent'; s.slots.currentBatch = [78, 63]; s.slots.presentedIds = [78, 63]; },
+    text: 'KOJ IMA 300 M2 ?',
+    lane: 'IDENTIFY_BY_FIGURE',
+    state: 'presentation',
+  },
+  {
     id: 'golem-smaller',
     setup: s => { s.state = 'presentation'; s.slots.service = 'buy'; s.slots.propertyId = 37; s.slots.presentedIds = [37]; },
     text: 'GOLEM MI E NEKAKO',

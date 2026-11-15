@@ -694,18 +694,18 @@ export const ROUTING_ORDER: RouteRule[] = [
           && es.house === undefined && !es.business && !es.plac && !es.garsonjera
           && !es.yard && !es.anywhere && !es.sizeWaived;
       })() },
-  // AN IDENTITY QUESTION ABOUT A FIGURE ON THE TABLE (defect #5 of the [05:20]
-  // capture): «KOJ IMA 126 M2 ?» named a surface the served pair carried, and
-  // the turn re-searched, reading the number as money. The row is the TEXT
-  // gate plus the presence of served rows; WHETHER a row carries that figure
-  // is a feed read the mirror cannot make. KNOWN LIMIT, same class as the
-  // price-extreme family: with no on-table match the executor falls through to
-  // the funnel (a genuine area search), so the row predicts a lane that a
-  // cold «кој има 300 м²?» does not serve. Documented rather than hidden.
-  { intent: 'IDENTIFY_BY_FIGURE', note: 'an identity question about a FIGURE the served rows carry («кој има 126 м² ?», «кое е 1.000 евра ?») — the row is named and the discussion moves to it, never a fresh search with the number read as money; a figure on no served row falls through to the funnel (inbound.ts 10084)',
-    fires: (t, s, sl) => ((sl.presentedIds?.length ?? 0) + (sl.currentBatch?.length ?? 0)) > 0
-      && detectIdentifyByFigure(t) !== undefined
-      && !isFeeTraffic(t) },
+  // AN IDENTITY QUESTION ABOUT A FIGURE (defect #5 of the [05:20] capture):
+  // «KOJ IMA 126 M2 ?» named a surface the served pair carried, and the turn
+  // re-searched, reading the number as money. A figure an on-table row carries
+  // is an IDENTIFIER, and a figure NO on-table row carries is the SAME question
+  // asked of the whole offer — the executor looks it up in the feed and answers
+  // with the rows that carry it, or with the honest «нема» line. Both legs are
+  // feed reads inside one branch, so the lane owns every turn its text gate
+  // admits and THE ROW IS THE TEXT GATE ALONE (plus the fee veto). It used to
+  // also require served rows, which made this row a lie: a cold «кој има 300
+  // м²?» was predicted here and then served as a fresh area search.
+  { intent: 'IDENTIFY_BY_FIGURE', note: 'an identity question about a FIGURE («кој има 126 м² ?», «кое е 1.000 евра ?») — the row carrying it is named out of the served table, or out of the whole offer when the table has none (the honest «нема» line when the offer has none either), and the discussion moves to it; never a fresh search with the number read as money (inbound.ts 10176)',
+    fires: t => detectIdentifyByFigure(t) !== undefined && !isFeeTraffic(t) },
   { intent: 'LOCATE_CONTINUE', note: 'a bare «не» while choosing among described flats — the rejection of the offer, never a farewell; the hunt serves the next options (inbound.ts 9790)',
     fires: (t, s, sl) => (sl.describedEbs?.length ?? 0) > 0
       && BARE_REFUSAL_ONLY_RE.test(t.trim()) },
@@ -1254,7 +1254,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   DISTANCE_MATRIX: M('DISTANCE_MATRIX', 'several places × every flat on the table («kolku e daleku od X i od Y ?») — one measured line per place and flat, nearest first (inbound.ts 5470). Predicted on the EVIDENCE channel (`distanceBatch`): the map decides whether two flats really measure against the named place'),
   AVAILABILITY_PLURAL: M('AVAILABILITY_PLURAL', 'an availability ask over SEVERAL flats («se slobodni ?», «dvata ?») — the ack for the set plus the owner-confirm question, with the fee quoted per property (inbound.ts 9985)'),
   BARE_EB_FOLLOWUP: M('BARE_EB_FOLLOWUP', 'a bare Евидентен број follow-up («А 42?») after cards were shown — the answer about THAT flat only, never a fresh search (inbound.ts 9750)'),
-  IDENTIFY_BY_FIGURE: M('IDENTIFY_BY_FIGURE', 'an identity question about a FIGURE the served rows carry («кој има 126 м² ?») — the row carrying it is named, never a fresh search (inbound.ts 10084)'),
+  IDENTIFY_BY_FIGURE: M('IDENTIFY_BY_FIGURE', 'an identity question about a FIGURE the served rows carry («кој има 126 м² ?») — the row carrying it is named (out of the whole offer when the table has none), never a fresh search (inbound.ts 10176)'),
   SLOT_TAKEN: M('SLOT_TAKEN', 'a proposed visit hour already taken in the day calendar — the free hours of that day are named before any owner is asked (inbound.ts 9924)'),
   PRICE_CHANGE_DISCLAIMER: M('PRICE_CHANGE_DISCLAIMER', 'a complaint about a price that moved mid-exchange (owner corrected the clean price) — the owners-may-reprice line, verbatim'),
 };

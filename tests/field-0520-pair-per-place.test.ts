@@ -239,3 +239,39 @@ test('«кој има 126 м²?» names the pair member, never a fresh search', 
   // The discussion moves to the row he pointed at.
   assert.equal(sessions.get(chatId)?.slots.propertyId, 42);
 });
+
+test('«кој има 90 м²?» is answered from the OFFER when the table has no such row', async () => {
+  // THE COLD LEG of defect #5. The pair on the table is 105 м² + 126 м²; the
+  // client asks about 90 м², a figure no served row carries. The old block fell
+  // through on purpose, so the same identity question was served as a fresh
+  // search (and, in the field, read as money). A figure is still an IDENTIFIER:
+  // the row that carries it is named, out of the whole offer, in the funnel's
+  // own category.
+  const { say, sessions, chatId } = makeHandler(STOCK, 'pair-which-figure-cold');
+  await say('SAKAM DA IZNAJMAM DELOVEN PROSTOR');
+  await say('OKOLU 100 KVADRATI');
+  await say('PRVO AERODROM AMA MOZE I OKOLU RAMPA');
+  const reply = await say('KOJ IMA 90 M2 ?');
+  assert.match(reply, /Евидентен број 57/u, `the row carrying 90 м²: ${reply}`);
+  assert.doesNotMatch(reply, /нема деловни простори|претпочитана локација/iu,
+    `never a fresh search: ${reply}`);
+  // The cold row was NOT served as a card (no ad text, no owner-confirm line);
+  // the identity line is the answer, and the discussion moves to it.
+  assert.doesNotMatch(reply, /достапна|сопственикот/iu, `an identity line, not a card: ${reply}`);
+  assert.equal(sessions.get(chatId)?.slots.propertyId, 57);
+});
+
+test('«кој има 300 м²?» says the offer has none — never a search with 300 as money', async () => {
+  const { say, sessions, chatId } = makeHandler(STOCK, 'pair-which-figure-none');
+  await say('SAKAM DA IZNAJMAM DELOVEN PROSTOR');
+  await say('OKOLU 100 KVADRATI');
+  await say('PRVO AERODROM AMA MOZE I OKOLU RAMPA');
+  const reply = await say('KOJ IMA 300 M2 ?');
+  assert.match(reply, /нема недвижност со 300 м²/iu, `the honest absence line: ${reply}`);
+  assert.match(reply, /\?\s*$/u, `and it ends with the question: ${reply}`);
+  assert.doesNotMatch(reply, /Евидентен број \d+ ·/u, `no card is invented: ${reply}`);
+  // The number is a figure, never a price ceiling.
+  assert.doesNotMatch(reply, /до 300 евра|300 евра месечно/iu, `300 is not money: ${reply}`);
+  // Nothing was re-pointed: the row under discussion stands.
+  assert.notEqual(sessions.get(chatId)?.slots.propertyId, 300);
+});
