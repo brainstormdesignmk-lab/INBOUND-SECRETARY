@@ -111,6 +111,31 @@ const LANDMARK_NEAR_M = 1000;
  *  COMPARISON — price per m² between two units — so the near ring for the
  *  business lane is wider than the 1 km «кај X» pin a flat uses. */
 const BUSINESS_PAIR_RING_M = 2000;
+
+/** ONE UNIT PER PLACE the client named (the [05:20] rule for business pairs).
+ *  A two-place ask («PRIMARY CENTAR … OKOLU RAMPA») is a comparison BETWEEN
+ *  PLACES: serving both rows from one of them answers a question nobody asked
+ *  and leaves the primary place unserved. Each place contributes its nearest
+ *  RATED unit (a row with no m² cannot quote the €/м² the client is comparing),
+ *  the same row is never served twice, and the order is the client's own — the
+ *  place he named first leads. A place with nothing inside the ring
+ *  contributes nothing: an honest short pair beats a row attributed to a place
+ *  it does not stand at. */
+function pickOnePerPlace(pool: Property[], places: Array<{ name: string; lat: number; lon: number }>, ringM: number): Property[] {
+  const dist = (p: Property, a: { lat: number; lon: number }): number =>
+    typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0
+      ? distM(a.lat, a.lon, p.lat, p.lon) : Number.POSITIVE_INFINITY;
+  const picked: Property[] = [];
+  for (const a of places) {
+    const at = pool
+      .filter(p => !picked.some(q => q.eb === p.eb) && dist(p, a) <= ringM)
+      .sort((x, y) => (x.sqm && x.sqm > 0 ? 0 : 1) - (y.sqm && y.sqm > 0 ? 0 : 1)
+        || dist(x, a) - dist(y, a) || x.eb - y.eb);
+    if (at[0]) picked.push(at[0]);
+    if (picked.length === 2) break;
+  }
+  return picked;
+}
 // LANDMARK_REF_M: the radius inside which a row may be read as THE property the
 // client just named by its place — «станот СПРОТИ Димитар Миладинов» points at
 // the building across the street, not at everything within a walk. A 1 km ring
@@ -3615,6 +3640,33 @@ export class InboundHandler {
    *  resolve to a REAL map place — a comma word that is only grammar dies here.
    *  A list that resolves to nothing returns [] (the single-anchor lanes keep
    *  their own guards). */
+  /** PLACES NAMED WITHOUT AN OPENER — clause by clause (the [05:20] rule).
+   *  Speech names a comparison's places flatly («PRVO AERODROM AMA MOZE I
+   *  OKOLU RAMPA», «PA CENTAR U GLOBALA … OKOLU RAMPA»), and the proximity
+   *  extractor only ever returns the last one. Each clause is tried from its
+   *  tail (a place name is the end of the phrase that names it) and only a
+   *  MAP HIT is returned, so ordinary words resolve to nothing. */
+  private clausePlaces(text: string): Array<{ name: string; lat: number; lon: number }> {
+    const out: Array<{ name: string; lat: number; lon: number }> = [];
+    const seen = new Set<string>();
+    const clauses = text.split(/(?:[.;!?\n]+|(?<![\p{L}])(?:ama|ама|но|no|ili|или|prvo|прво|potoa|потоа|plus|плус|pa|па)(?![\p{L}]))/iu);
+    for (const clause of clauses) {
+      const words = clause.trim().split(/\s+/).filter(Boolean);
+      for (let take = Math.min(3, words.length); take >= 1; take--) {
+        const cand = words.slice(words.length - take).join(' ').replace(/[\d€]+/gu, ' ').trim();
+        if (cand.replace(/[^\p{L}]/gu, '').length < 3) continue;
+        const hit = this.resolvePlace(cand);
+        if (!hit) continue;
+        const key = placeLooseKey(hit.name);
+        if (seen.has(key)) break;
+        seen.add(key);
+        out.push({ name: hit.name, lat: hit.lat, lon: hit.lon });
+        break;
+      }
+    }
+    return out;
+  }
+
   private placesWish(text: string): Array<{ name: string; lat: number; lon: number }> {
     const out: Array<{ name: string; lat: number; lon: number }> = [];
     const seen = new Set<string>();
@@ -6831,6 +6883,39 @@ export class InboundHandler {
           'contact_collection'].includes(session.state)
         && !session.slots.ownerContactPending) {
       const bizPlaces = this.placesWish(text);
+      // A SECOND PLACE THE OPENERS MISS (the [05:20] capture): «PA CENTAR U
+      // GLOBALA AMA MOZE I KISELA VODA OKOLU RAMPA» — the wish extractor only
+      // ever emitted the PLACE AFTER A PROXIMITY OPENER («околу Рампа»), so a
+      // client naming his primary place AND an option produced ONE anchor and
+      // the pair was ranked from the option alone (`extractPoiWishCandidates`
+      // returns ["рампа"] for the exact field sentence). The primary place is
+      // named the way places are named in speech — bare, before a contrast
+      // word — so the business serve reads the clauses and resolves what the
+      // openers left behind. Resolution is the map's own: a clause that names
+      // no place resolves nothing and changes nothing.
+      if (bizPlaces.length >= 1) {
+        for (const extra of this.clausePlaces(text)) {
+          if (bizPlaces.some(p => placeLooseKey(p.name) === placeLooseKey(extra.name))) continue;
+          bizPlaces.push(extra);
+          if (bizPlaces.length >= 3) break;
+        }
+      }
+      // HIS ORDER, NOT THE EXTRACTOR'S (the [05:20] rule): the client named his
+      // PRIMARY place first and the option second, and the serve must read the
+      // pair in that order — «център прв, Рампа втор» is what makes the first
+      // card his priority. The openers return their place last, so the anchors
+      // are re-sorted by where the client actually said them.
+      if (bizPlaces.length > 1) {
+        // THE MATCH IS SCRIPT-AGNOSTIC: the client writes «AERODROM» in Latin
+        // while the map files «Аеродром», so the position is looked for in the
+        // loose key the place identity itself uses — never in the raw string.
+        const hay = placeLooseKey(normalizeLocation(text));
+        const at = (n: string): number => {
+          const i = hay.indexOf(placeLooseKey(n));
+          return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+        };
+        bizPlaces.sort((a, b) => at(a.name) - at(b.name));
+      }
       const similarAsk = detectSimilarAsk(text);
       const bizAnchor = bizPlaces.length > 0
         ? (bizPlaces.length > 1 ? undefined : bizPlaces[0])
@@ -6851,7 +6936,17 @@ export class InboundHandler {
         // [20:59] turn with a single unit and nothing to compare it with. The
         // wording still says «во близина», and the pair is ordered by distance.
         const hasRate = (p: Property): number => (p.sqm && p.sqm > 0 ? 0 : 1);
-        const near = pool
+        // ONE UNIT PER PLACE, IN THE CLIENT'S OWN ORDER (the [05:20] capture):
+        // «PA CENTAR U GLOBALA AMA MOZE I KISELA VODA OKOLU RAMPA» names TWO
+        // places — Центар first, Рампа as the second option — and the pair came
+        // back with two rows near Рампа, so the client's primary place was
+        // never served. A two-place ask is a COMPARISON BETWEEN PLACES, so the
+        // pair is one unit each, ranked by the place the client named first.
+        // Only the multi-place arm changes: a single named place still gets the
+        // two nearest rows, which is the protocol it always had.
+        const near = bizPlaces.length >= 2
+          ? pickOnePerPlace(pool, bizPlaces, BUSINESS_PAIR_RING_M)
+          : pool
           .filter(p => distToAny(p) <= BUSINESS_PAIR_RING_M)
           // THE RATE IS THE COMPARISON (the operator's rule): between two units
           // at the same place, the pair prefers the ones the feed measured — a
