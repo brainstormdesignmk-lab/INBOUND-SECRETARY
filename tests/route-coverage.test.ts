@@ -60,8 +60,25 @@ test('every mirrored row points at an intent ROUTING_ORDER actually contains', (
   assert.deepEqual(dangling, [], `mirrored rows with no ROUTING_ORDER intent: ${dangling.join(', ')}`);
 });
 
+test('a MARKER is not backlog: it answers nothing, so it is never compared with a prediction', () => {
+  // K(...) rows exist so the audit can tell "not a lane" from "a lane nobody
+  // mirrored". Two rules keep that honest: a marker never carries an intent
+  // (it is not mirrored), and it is never counted as backlog fuel (it can never
+  // be promoted).
+  const markers = Object.entries(ROUTE_LANES).filter(([, r]) => r?.marker);
+  assert.ok(markers.length > 0, 'the marker kind exists and is used');
+  for (const [tag, row] of markers) {
+    assert.equal(row.intent, null, `${tag}: a marker is not a lane, so it has no intent`);
+    assert.match(row.note, /^not a lane:/, `${tag}: the note says so, so the audit report is readable`);
+  }
+});
+
 test('the pending backlog is explicit and finite (migration fuel, not a graveyard)', () => {
-  const pending = Object.entries(ROUTE_LANES).filter(([, r]) => !r || !r.intent);
+  // A MARKER IS NOT BACKLOG (2026-11-15): the filter excludes K(...) rows — a
+  // readiness flag or a log-and-continue tag could never be promoted, and
+  // counting it as "a lane nobody mirrored" inflated the backlog with work that
+  // does not exist. The pending count is now the lanes that really wait.
+  const pending = Object.entries(ROUTE_LANES).filter(([, r]) => !r || (!r.intent && !r.marker));
   assert.ok(pending.length > 0, 'the backlog must exist until the migration ends (keep it honest)');
   // THE CEILING MOVED WITH A REAL LANE, NOT WITH INFLATION: the place ring
   // (PLACE_RING_ASK / PLACE_RING_ROW, the [04:05] capture) used to log to the
@@ -92,7 +109,16 @@ test('the pending backlog is explicit and finite (migration fuel, not a graveyar
   // and SUBJECT_PER_M2 (the €/m² of the flat on the table). It must keep
   // falling as they are mirrored; never raise it for a row that is not a new
   // lane.
-  assert.ok(pending.length < 73, `backlog too large to be honest: ${pending.length}`);
+  // THE COUNT FELL FOR REAL (2026-11-15): sixteen rows were promoted to M(...)
+  // with their ROUTING_ORDER rows (agency identity, which-property, the pick
+  // among presented cards, money clarify, location nag, the bare-EB follow-up,
+  // the plural availability ack, remark, investment opinion, stock
+  // contradiction, extreme price, contact mechanics, the area-availability ask,
+  // the distance matrix, the owner-contact hold) and three markers moved to
+  // K(...), so the backlog goes from 33 to 13. The ceiling moves DOWN with it —
+  // it must keep falling as the evidence-dependent lanes (the last-reply
+  // history, the day calendar, the map) land their rows.
+  assert.ok(pending.length < 14, `backlog too large to be honest: ${pending.length}`);
 });
 
 // R1 part 2 — the three lanes that moved from dispatchSimple into the mirror.

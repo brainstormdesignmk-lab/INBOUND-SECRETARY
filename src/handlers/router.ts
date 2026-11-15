@@ -45,6 +45,9 @@ import {
   detectMoreStockRequest, detectVisitTime, proposesVisitTerm, detectPomaloAsk,
   detectBudgetUpAsk, detectExplicitCancel,
   detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor,
+  detectAgencyIdentityAsk, detectWhichPropertyAsk, detectPropertyChoice,
+  detectBareEbFollowup, detectAvailabilityPlural, detectLocationNag,
+  detectStockContradiction, detectContactMechanicsChallenge, detectOwnerContactHold,
   isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
 } from '../llm/deterministic';
@@ -364,6 +367,72 @@ export const ROUTING_ORDER: RouteRule[] = [
       return (detectFeePerPropertyAsk(t) || countAsk)
         && (!sl.viewingFeeAgreed || count !== undefined);
     } },
+  // ── THE PENDING BACKLOG, PROMOTED (2026-11-15) ────────────────────────────
+  // 33 rows were still `P(...)`, i.e. every correct turn of those lanes logged
+  // a GAP. Each row below carries its executor's OWN gate and sits where the
+  // executor runs it (inbound.ts line numbers in the note). The lanes that
+  // need CONVERSATION EVIDENCE the mirror does not yet receive (the last
+  // assistant line for ADDRESS_WHY/NEARBY_THREAD, the day calendar for
+  // SLOT_TAKEN, the map for PLACE_PIVOT/PLACE_RING_ROW, the landmark ladder
+  // index) stay pending on purpose — a row invented ahead of its evidence
+  // would predict a lane the executor never runs, which is a DRIFT, a worse
+  // signal than the gap.
+  { intent: 'CONTACT_MECHANICS', note: 'the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» (inbound.ts 7140) — the EB she holds + the mechanism, never the DEFER line. The fee legs are vetoed exactly as the executor vetoes them (a fee question is not a doubt about the owner contact)',
+    fires: t => detectContactMechanicsChallenge(t)
+      && !detectFeeWhy(t) && !detectFeeNag(t) && !detectFeeComplaint(t)
+      && !detectProvisionAsk(t) && !detectProvisionWho(t) },
+  { intent: 'AREA_HAVE_SEARCH', note: '«а во која населба има?» (inbound.ts 5210) — the criteria are released and the pair is served with the neighbourhoods that hold it. Fee traffic is a money question, not a stock question',
+    fires: t => detectAreaHaveAsk(t) && !isFeeTraffic(t) },
+  { intent: 'DISTANCE_MATRIX', note: 'several places × every flat on the table («kolku e daleku od X i od Y ?», inbound.ts 5470) — one measured line per place and flat. EVIDENCE: the executor only serves when at least TWO flats of the batch actually measure against a named place, which is the probe\'s `distanceBatch` (the mirror cannot reach the map)',
+    fires: (t, s, sl, ev) => ev?.distanceBatch === true },
+  { intent: 'OWNER_HOLD', note: '«NE GO KONTAKTIRAJ USTE» / «NE SME SE DOGOVORILE» (inbound.ts 10460) — acknowledge and DO NOT proceed, and never on a funnel message (a search entry keeps the funnel). Tagged `OWNER_HOLD:fast` by the executor',
+    fires: t => detectOwnerContactHold(t) && !fsmRequired(t) },
+  { intent: 'AGENCY_IDENTITY', note: '«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (inbound.ts 4820) — the agency is named, then the interrupted question repeated. It runs BEFORE the money region, so it sits above every fee row here',
+    fires: t => detectAgencyIdentityAsk(t) },
+  { intent: 'STOCK_CONTRADICTION', note: 'the client quotes a card we served against a «нема» we said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?», inbound.ts 6990) — admission + the row\'s own facts. It beats every geography lane because it carries an area word. KNOWN LIMIT: the executor also needs a served card to correct from (the feed), which the mirror cannot see — with nothing shown, the prediction is still this lane',
+    fires: t => detectStockContradiction(t) },
+  { intent: 'WHICH_PROPERTY', note: '«ZA KOJ STAN STANUVA ZBOR?» — the flat the chat has in hand, named by EB + neighbourhood + price (inbound.ts 7180). Gate copied: not while the fee is agreed and never in queued/terminated/escalated (there the account is over, not a pick to identify). KNOWN LIMIT: the executor only serves with an ANCHOR flat; the mirror cannot bind one',
+    fires: (t, s, sl) => !sl.viewingFeeAgreed
+      && !['queued', 'terminated', 'escalated'].includes(s)
+      && detectWhichPropertyAsk(t) && !detectPropertyChoice(t) },
+  { intent: 'PROPERTY_CHOICE', note: 'the pick among flats that were PRESENTED («E OVOJ MOZE», inbound.ts 7184) — the fee is disclosed first, and in CLOSING the fee lanes own the turn. A fee-sized amount disqualifies the choice reading (detectPropertyChoice carries that rule), so the mirrors cannot disagree about a fee question',
+    fires: (t, s, sl) => !sl.viewingFeeAgreed
+      && !['queued', 'terminated', 'escalated', 'closing'].includes(s)
+      && !detectWhichPropertyAsk(t) && detectPropertyChoice(t) },
+  { intent: 'MONEY_CLARIFY', note: 'a money word with NO target (inbound.ts 7530) — predicted through the money arbiter itself (lane === \'clarify\'), the same decision the executor reads: object unresolved + protocol states + nothing on the table + no agreed fee. The «не и го памтам бројот, ама … добра цена» recall is vetoed exactly as the executor vetoes it',
+    fires: (t, s, sl) => !detectNumberUnknownRecall(t)
+      && arbitrateMoney(t, {
+        state: s,
+        propertyOnTable: moneyPropertyOnTable(sl),
+        feeAgreed: !!sl.viewingFeeAgreed,
+        feeTold: !!sl.feeDisclosed || (sl.feeRejections ?? 0) > 0,
+        feeBlocked: false, provisionBlocked: false,
+      }).lane === 'clarify' },
+  { intent: 'LOCATION_NAG', note: 'a location question refused again (inbound.ts 8578) — the nag answer, with the executor\'s own vetoes: a FUNNEL entry that names a place is a search, not a nag (no property on the table), and a location confirm / a каде question keep their lanes',
+    fires: (t, s, sl) => detectLocationNag(t)
+      && !(!moneyPropertyOnTable(sl) && fsmRequired(t))
+      && !detectWhereIs(t) },
+  { intent: 'BARE_EB_FOLLOWUP', note: 'a bare Евидентен број follow-up («А 42?») about a flat this chat SHOWED (inbound.ts 9750) — the availability ack for THAT row, never a fresh search. Gate copied whole: the EB must be in the shown set, the fee must not be agreed, and fee traffic keeps its own lanes',
+    fires: (t, s, sl) => {
+      const eb = detectBareEbFollowup(t);
+      if (eb === undefined || sl.viewingFeeAgreed || isFeeTraffic(t)) return false;
+      return new Set([...(sl.currentBatch ?? []), ...(sl.presentedIds ?? [])]).has(eb);
+    } },
+  { intent: 'AVAILABILITY_PLURAL', note: 'an availability ask over SEVERAL flats («se slobodni ?», «dvata ?», inbound.ts 9985) — the ack for the set plus the owner confirm. The executor\'s veto list is copied (fee legs, a named EB, a bedroom count, an inventory/area ask, an agreed fee): each of those owns its own lane',
+    fires: (t, s, sl) => {
+      const ebs = new Set([...(sl.currentBatch ?? []), ...(sl.presentedIds ?? [])]);
+      return ebs.size >= 2 && detectAvailabilityPlural(t)
+        && !detectFeeWhy(t) && !detectFeeNag(t) && !detectFeeComplaint(t)
+        && !detectFeeSurprise(t) && !detectProvisionAsk(t) && !detectProvisionWho(t)
+        && !isFeeTraffic(t) && inferPropertyId(t) === undefined
+        && extractSlots(t).bedrooms === undefined
+        && !detectInventoryAsk(t) && !detectAreaHaveAsk(t)
+        && !sl.viewingFeeAgreed;
+    } },
+  { intent: 'REMARK', note: 'a generic remark (inbound.ts 10699 bank / 10722 deterministic) — acknowledged and moved on, never a fee lane and never a search. One intent for both tags: `REMARK:bank` and `REMARK:fast` are the same lane with different wording sources',
+    fires: t => detectRemark(t) },
+  { intent: 'INVESTMENT_OPINION', note: 'an investment-advice ask (inbound.ts 10573) — the honest «investment is a judgement, here is what the figures say» answer, never a price promise',
+    fires: t => detectInvestmentOpinion(t) },
   { intent: 'FEE_PUSH', note: 'fee charge pushback — the nag ladder, incl. the rhetorical «KAJ SE VIDELO PARI ZA OTVARANJE STAN» ([22:03]). Sits after SURROUNDINGS and before the where-is/description rows, because a fee nag is NEVER a place question (§2: the location lanes stand down on fee traffic) — without this row the challenge was predicted PROPERTY_DESCRIPTION. The options-ask veto is the executor\'s own: a choice about the flats on the table keeps the recommendation lane, never the ladder. NO WHY-WORD VETO: the executor\'s nag claim (inbound.ts 7285) runs BEFORE the fee.why legs (10118+), so «NIKOJ NE ZEMA PARI ZA POSETA?» / «PARI ZA POSETA ZEMATE ? ZOSTO?» / «MNOGU NEKAKO 500DEN ZA POSETA» climb rung 1 — the R1 row predicted FEE_WHY for them and reported a drift the ladder never caused',
     fires: (t, s, sl) => detectFeeNag(t, { feeContext: s === 'closing' || s === 'presentation' })
       && FEE_NAG_STATES.includes(s)
@@ -836,6 +905,11 @@ export function routeLog(chatId: string, text: string, intent: string, kind: 'ac
   // FEE_PUSH, gap logged anyway). Same class as the pre-serve guess below: the
   // line names a diagnostic, not an answer.
   if (intent.startsWith('LANE_COLLISION')) return;
+  // A MARKER ANSWERS NOTHING (ROUTE_LANES rows registered with K(...)): the
+  // readiness flag, the repeat of an exit check, an evaluation the evidence
+  // boundary did not wire — none of them is a lane, so comparing one with the
+  // prediction can only invent a gap.
+  if (ROUTE_LANES[intent]?.marker) return;
   // A ROUTE_UNKNOWN TAG IS A PRE-SERVE GUESS, NOT A LANE: the classifier logs
   // it BEFORE the deterministic block runs, and the real lane follows. Comparing
   // it to the prediction recorded a gap for turns that were served correctly
@@ -890,9 +964,18 @@ export interface LaneEntry {
   /** The ROUTING_ORDER intent that mirrors this lane, or null while pending. */
   intent: string | null;
   note: string;
+  /** NOT A LANE: a log-only marker (a readiness flag, a repeat of an exit
+   *  check, an evaluation the evidence boundary did not wire). It is registered
+   *  so the audit can tell "not a lane" from "a lane nobody mirrored", and it
+   *  is never compared with a prediction — see routeLog. */
+  marker?: true;
 }
 const M = (intent: string, note: string): LaneEntry => ({ intent, note });
 const P = (note: string): LaneEntry => ({ intent: null, note: `pending migration: ${note}` });
+/** A MARKER, NOT A LANE (see `marker`). Counting markers as backlog inflates
+ *  the pending count with tags that can never be mirrored, and comparing them
+ *  with a prediction logs a gap on a turn that was served correctly. */
+const K = (note: string): LaneEntry => ({ intent: null, marker: true, note: `not a lane: ${note}` });
 
 /** The R1 calibration surface: ONE row per lane tag the executor logs.
  *  Coverage test: tests/route-coverage.test.ts fails on a logged-but-unlisted
@@ -922,14 +1005,14 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   DESCRIBE_TABLE: M('DESCRIBE_TABLE', '“опиши ги?” — the flats she just offered, answered from the bank rows (inbound.ts 9414)'),
   MORE_STOCK: M('MORE_STOCK', 'a stock ask after a pair was served («сакам да видам уште», «што уште имате ?») — the NEXT unshown pair from the same search, or the honest drained line; never the availability table, never the booking protocol, never a repeat of a flat already served ([12:41] capture)'),
   AVAILABILITY_TABLE: M('AVAILABILITY_TABLE', 'an availability ask that points at ONE flat already on the table by its type/price («GARSONJERATA ZA 200E DALI E DOSTAPNA?») — the ack + the owner question for THAT flat, never a fresh criteria grill ([22:27] capture)'),
-  CONTACT_MECHANICS: P('the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» — the number she holds + the mechanism, never the DEFER line ([22:28] capture)'),
-  STOCK_CONTRADICTION: P('the client quotes a card she served against a «нема» she said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?») — admission + the row\'s own facts + the next step, never a location line ([02:12] capture)'),
+  CONTACT_MECHANICS: M('CONTACT_MECHANICS', 'the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» — the number she holds + the mechanism, never the DEFER line ([22:28] capture; inbound.ts 7140)'),
+  STOCK_CONTRADICTION: M('STOCK_CONTRADICTION', 'the client quotes a card she served against a «нема» she said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?») — admission + the row\'s own facts + the next step, never a location line ([02:12] capture; inbound.ts 6990)'),
   PICK_DESCRIBED: M('PICK_DESCRIBED', 'a pick among the flats she just described → the availability answer'),
   LOCATE_CONTINUE: M('LOCATE_CONTINUE', 'bare «не» while choosing among described flats — the hunt continues'),
   LOCATE_WIDEN: M('LOCATE_WIDEN', '«да» to the other-neighbourhoods question — the area lock is released'),
   LOCATE_REJECT_PLACE: P('«не е таа» after the only flat at a NAMED place — the place lock holds, other areas only after the ask'),
   CONTACT_AFTER_FEE: P('the fee question answered with a name + phone — consent and the visit-time ask'),
-  AGENCY_IDENTITY: P('«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (client OR owner): the agency is named and the interrupted question repeated — never the pending-traffic line ([19:36] capture)'),
+  AGENCY_IDENTITY: M('AGENCY_IDENTITY', '«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (client OR owner): the agency is named and the interrupted question repeated — never the pending-traffic line ([19:36] capture; inbound.ts 4820)'),
   'NEGOTIATE:fast': M('NEGOTIATE', 'commercial-state price pushback'),
   PRICE_EVAL_CHEAP: M('PRICE_EVAL_CHEAP', 'positive price remark beats the fee ladder'),
   'PROVISION_PUSH:fast': M('PROVISION_ASK', 'fee pushback resolves through the provision lane'),
@@ -959,7 +1042,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // NOT A LANE: the second exit-shaped turn logs and FALLS THROUGH to the
   // farewell lanes (inbound.ts 9967), so its mirror is BYE / SOFT_REFUSAL — the
   // lane that actually answers.
-  'EXIT_CHECK_REPEAT': P('the repeat of an exit-shaped turn — logs and continues into the farewell lanes, so it has no mirror row of its own'),
+  'EXIT_CHECK_REPEAT': K('the repeat of an exit-shaped turn — logs and CONTINUES into the farewell lanes, so it has no serve of its own'),
   'FEE_AMOUNT_ASK:fast': M('FEE_AMOUNT_ASK', 'exact fee amount asked (the arbiter feeAmount claim)'),
   'FEE_COMPLAINT:fast': M('FEE_COMPLAINT', 'fee resistance in the ladder'),
   'FEEDDOWN:fast': P('feed-down transparency lane'),
@@ -977,14 +1060,14 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   GLOSSARY: M('GLOSSARY', 'a term-definition ask — answered from the vocabulary, never re-rendered as a property facet'),
   INFO_ASK: M('INFO_ASK', 'a fact ask about the flat on the table — the price facet is why the plain price ask rarely fires with a property on the table'),
   INFO_ASK_YEAR: M('INFO_ASK_YEAR', 'year of construction ask with nothing bound — the property-agnostic miss line; a bound flat keeps INFO_ASK (inbound.ts 8040–8049)'),
-  'INVESTMENT_OPINION:fast': P('investment-advice ask'),
+  'INVESTMENT_OPINION:fast': M('INVESTMENT_OPINION', 'investment-advice ask (inbound.ts 10573)'),
   LANDMARK_LADDER: P('location-nag ladder rung'),
-  LOCATION_NAG: P('location question refused again'),
+  LOCATION_NAG: M('LOCATION_NAG', 'location question refused again (inbound.ts 8578)'),
   TOLD_YOU_RECALL: M('TOLD_YOU_RECALL', '«па ти кажав каде» — the notebook read back (places/area on file, then only the missing criterion)'),
-  MONEY_CLARIFY: P('money-without-target clarification'),
+  MONEY_CLARIFY: M('MONEY_CLARIFY', 'money-without-target clarification — the arbiter\'s own clarify claim (inbound.ts 7530)'),
   NEARBY_ASK: M('NEARBY_ASK', 'what is near the building — the interceptor runs before every funnel branch'),
   NEARBY_THREAD: P('what-else-is-near (rotation → protocol → lifecycle)'),
-  'OWNER_HOLD:fast': P('owner unreachable continuation'),
+  'OWNER_HOLD:fast': M('OWNER_HOLD', '«NE GO KONTAKTIRAJ USTE» — acknowledge and stop, never proceed (inbound.ts 10460)'),
   POI_CONFIRM: M('POI_CONFIRM', 'a place-confirm question about the bound flat («da ne e vo karpos ?») — the executor answers it only when the MAP resolves the named place (inbound.ts 6861: a landmark hit or a named area). The map is data, not text: a mirror row would have to guess, and the probe showed exactly that — «DA NE E VO SKOPJANKA ?» is a POI-confirm by wording while the executor served nothing. Labelled backlog, not a guessed row'),
   PLACE_PIVOT: P('same search at a different named place (“a neshto kaj X?”)'),
   PLACE_RING_ASK: M('PLACE_RING_ASK', 'the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question (predicted on the refinement pass, from the pool\'s own poiTooFarAsk verdict)'),
@@ -996,8 +1079,8 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // record of every negative evaluation that the evidence boundary did NOT
   // wire to a serve. The mirror predicts the lane that really answers the turn,
   // so giving this tag its own row would predict a serve that never happens.
-  'PRICE_EVAL_EXPENSIVE_UNWIRED': P('a NEGATIVE price evaluation the evidence boundary does not wire — logs and continues (no serve, no state change), so it has no mirror row of its own'),
-  'PRICE_EXTREME': P('extreme price search (“do 1000 evra kuca”)'),
+  'PRICE_EVAL_EXPENSIVE_UNWIRED': K('a NEGATIVE price evaluation the evidence boundary does not wire — logs and continues (no serve, no state change), so it has no serve of its own'),
+  'PRICE_EXTREME': M('PRICE_EXTREME', 'extreme price search (“do 1000 evra kuca”, inbound.ts 6485) — mirrored above; this tag carries no suffix'),
   'PRICE_EXTREME_MORE': P('extreme-price continuation'),
   'PRICE_FRESHNESS:fast': M('PRICE_FRESHNESS', 'is this price fresh? — last known price + the owners-reprice disclaimer + the owner-contact ask'),
   // PENDING MIGRATION — the Phase 2/5 lanes (turn record + answer-vs-funnel):
@@ -1009,8 +1092,8 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   RECOMMEND_ASK: M('RECOMMEND_ASK', '“koj bi mi go preporacale?” — a judgment over the discussed flats, never the same cards again (inbound.ts 10432)'),
   RENT_TERMS: M('RENT_TERMS', 'the conditions of renting (commission tiers, first rent + deposit, one-year minimum) — provision.ask.rent, never the viewing fee'),
   FEE_AGREED_FIRST: M('FEE_AGREED_FIRST', 'the first «да» after the fee disclosure — agreement opens contact collection'),
-  'REMARK:bank': P('bank-backed generic remark'),
-  'REMARK:fast': P('generic remark (deterministic)'),
+  'REMARK:bank': M('REMARK', 'bank-backed generic remark — the same lane as REMARK:fast, different wording source'),
+  'REMARK:fast': M('REMARK', 'generic remark (deterministic) — one intent for both tags'),
   'RENT_MATH:fast': M('RENT_MATH', 'total due at signing on a rental (first rent + deposit + commission) — arithmetic, never the viewing fee'),
   SOFT_REFUSAL: M('SOFT_REFUSAL', 'a bare soft decline — graceful close, never a fee rung'),
   WAITING: M('WAITING', 'the client is waiting for the details she promised — patience line, not remark/LLM traffic'),
@@ -1033,21 +1116,21 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // decision-shaped and need the upstream choice/arithmetic parse to mirror
   // honestly; the audit shows them as PENDING (visible backlog) instead of
   // UNLISTED (a silent lane), which is the difference that matters.
-  PROPERTY_CHOICE: P('the pick among flats that were PRESENTED («go sakam toj», a named card) — the fee is disclosed first, and in closing the fee lanes own the turn (inbound.ts 6994)'),
+  PROPERTY_CHOICE: M('PROPERTY_CHOICE', 'the pick among flats that were PRESENTED («go sakam toj», a named card) — the fee is disclosed first, and in closing the fee lanes own the turn (inbound.ts 7184)'),
   FEE_PER_PROPERTY: M('FEE_PER_PROPERTY', 'the per-visit fee arithmetic («ZA SEKOJ STAN STO KE SE POSETI PO 500 ?», «500 DEN PO STAN?», the count «АКО ПОСЕТАМ 3 ?») — the confirmation, then the ladder if a rung has already burned (inbound.ts 7477). It was P(...) for weeks, which is why the field logs are full of `predicted=FALLTHROUGH actual=FEE_PER_PROPERTY:fast`: a pending row re-reports every correct turn as a gap'),
-  CHAIN_READY: P('a session/chains readiness MARKER logged by routeLog(chatId, \'chain\', …) at inbound.ts 2498 — it answers nothing, so a mirror row would predict an answer that never happens'),
+  CHAIN_READY: K('a session/chains readiness marker logged by routeLog(chatId, \'chain\', …) at inbound.ts 2498 — it answers nothing, so a mirror row would predict an answer that never happens'),
   'WAITING:fast': M('WAITING', 'the same lane on the fast path (the executor logs the suffix — an unregistered alias would read as a route gap)'),
   AREA_OF_PLACE: M('AREA_OF_PLACE', '„во која населба е X“ — the place\'s own map quarter'),
-  AREA_HAVE_SEARCH: P('„а во која населба има?“ — the area-availability ask: the criteria are released and the pair is served, with the neighbourhoods that hold it named ([19:46] capture)'),
+  AREA_HAVE_SEARCH: M('AREA_HAVE_SEARCH', '„а во која населба има?“ — the area-availability ask: the criteria are released and the pair is served, with the neighbourhoods that hold it named ([19:46] capture; inbound.ts 5210)'),
   WHERE_LANDMARK: M('WHERE_LANDMARK', 'каде + a NAMED place — the honest distance/direction line when the map knows it and the honest «не е во евиденција» line when it does not, so the MAP decides the wording and the Wording test decides the lane (inbound.ts 5049)'),
-  'WHICH_PROPERTY:fast': P('which EB are you talking about'),
-  'VISIT_CANCEL:WHICH': P('a cancel that names no arranged visit — asks which Евидентен број instead of guessing'),
+  'WHICH_PROPERTY:fast': M('WHICH_PROPERTY', 'which EB are you talking about — the fast tag of the same lane (inbound.ts 7208)'),
+  'VISIT_CANCEL:WHICH': M('VISIT_CANCEL', 'a cancel that names no arranged visit — asks which Евидентен број instead of guessing; the same lane family as VISIT_CANCEL, carried by its own tag'),
   VISIT_RECALL: M('VISIT_RECALL', 'which flat the arrangement was for — answered from the appointment, never contact collection'),
   SEEN_RECALL_HELP: M('SEEN_RECALL_HELP', 'the listing he saw but cannot name — found from the held category + place, closed with the seen-property question'),
   BUSINESS_PLACE_SERVE: M('BUSINESS_PLACE_SERVE', 'business spaces at the named places by rate+distance (or an honest «нема» plus alternatives)'),
-  DISTANCE_MATRIX: P('several places × every flat on the table («kolku e daleku od X i od Y ?») — one measured line per place and flat, nearest first; every named place is measured, never only the first'),
-  AVAILABILITY_PLURAL: P('an availability ask over SEVERAL flats («se slobodni ?», «dvata ?») — the ack for the set plus the owner-confirm question, with the fee quoted per property'),
-  BARE_EB_FOLLOWUP: P('a bare Евидентен број follow-up («А 42?») after cards were shown — the answer about THAT flat only, never a fresh search'),
+  DISTANCE_MATRIX: M('DISTANCE_MATRIX', 'several places × every flat on the table («kolku e daleku od X i od Y ?») — one measured line per place and flat, nearest first (inbound.ts 5470). Predicted on the EVIDENCE channel (`distanceBatch`): the map decides whether two flats really measure against the named place'),
+  AVAILABILITY_PLURAL: M('AVAILABILITY_PLURAL', 'an availability ask over SEVERAL flats («se slobodni ?», «dvata ?») — the ack for the set plus the owner-confirm question, with the fee quoted per property (inbound.ts 9985)'),
+  BARE_EB_FOLLOWUP: M('BARE_EB_FOLLOWUP', 'a bare Евидентен број follow-up («А 42?») after cards were shown — the answer about THAT flat only, never a fresh search (inbound.ts 9750)'),
   SLOT_TAKEN: P('a proposed visit hour already taken in the day calendar — the free hours of that day are named before any owner is asked'),
   PRICE_CHANGE_DISCLAIMER: M('PRICE_CHANGE_DISCLAIMER', 'a complaint about a price that moved mid-exchange (owner corrected the clean price) — the owners-may-reprice line, verbatim'),
 };

@@ -71,13 +71,14 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
   console.log = (...args: unknown[]) => { logs.push(args.join(' ')); };
   try {
     // a pending lane serves after FALLTHROUGH — a GAP.
-    // THE FIXTURE MOVED (Phase 4 evidence batch): this used `POI_CONFIRM`, which
-    // has since been mirrored on the evidence channel — a gap fixture whose lane
-    // gains a row stops testing gaps and starts failing for the wrong reason.
-    // `PRICE_AVG_NASELBA` is the one lane that is still `P(...)` and will stay so
-    // until the band scope is lifted, so it is the honest fixture here.
-    routeLog('tax-gap', 'KOJ STAN BI GO ODBRALE ?', 'FALLTHROUGH', 'predict');
-    routeLog('tax-gap', 'KOJ STAN BI GO ODBRALE ?', 'PROPERTY_CHOICE');
+    // THE FIXTURE MOVED AGAIN (2026-11-15, the backlog promotion): this used
+    // `PROPERTY_CHOICE`, which is now MIRRORED. A gap fixture whose lane gains a
+    // row stops testing gaps and starts failing for the wrong reason — the
+    // fixture is whichever lane is still `P(...)`, and `PLACE_PIVOT` stays
+    // pending on purpose (it needs the MAP to decide, which the mirror does not
+    // yet receive as evidence).
+    routeLog('tax-gap', 'A NESTO KAJ BROZ KAFE ?', 'FALLTHROUGH', 'predict');
+    routeLog('tax-gap', 'A NESTO KAJ BROZ KAFE ?', 'PLACE_PIVOT');
     // the classifier's own route — not a divergence at all
     routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'FALLTHROUGH', 'predict');
     routeLog('tax-classifier', 'KOJ E NAJBOLJI STAN ?', 'ROUTE_UNKNOWN:unknown.unknown.assert');
@@ -87,7 +88,7 @@ test('a divergence is a drift only when both sides claim a mirrored lane', async
   } finally {
     console.log = original;
   }
-  assert.ok(ROUTE_LANES.PROPERTY_CHOICE && ROUTE_LANES.PROPERTY_CHOICE.intent === null,
+  assert.ok(ROUTE_LANES.PLACE_PIVOT && ROUTE_LANES.PLACE_PIVOT.intent === null,
     'the gap fixture must be a lane with no mirror row');
   assert.ok(logs.some(l => l.includes('[route-gap] tax-gap')), `a pending lane is a gap: ${logs.join(' | ')}`);
   assert.ok(!logs.some(l => l.includes('[route-drift] tax-gap')), 'a gap is never a drift');
@@ -181,6 +182,29 @@ test('the per-property fee arithmetic predicts the lane it serves', () => {
   // count still adds information (the [10:03] capture).
   assert.notEqual(resolveIntent('500 DEN PO STAN?', 'closing', { viewingFeeAgreed: true } as any), 'FEE_PER_PROPERTY');
   assert.equal(resolveIntent('АКО ПОСЕТАМ 3 ?', 'closing', { viewingFeeAgreed: true } as any), 'FEE_PER_PROPERTY');
+});
+
+// THE PROMOTED BACKLOG (2026-11-15): every lane below was `P(...)` — a lane
+// with no mirror row — so its correct turns re-reported as route gaps. Each
+// assertion is the executor's own gate at the line named in its ROUTING_ORDER
+// note; a lane that stops predicting here is a lane the mirror lost again.
+test('the promoted backlog lanes predict what their executor serves', () => {
+  const pair = { presentedIds: [66, 42], currentBatch: [66, 42] } as any;
+  assert.equal(resolveIntent('KOJA AGENCIJA STE VIE ?', 'closing'), 'AGENCY_IDENTITY');
+  assert.equal(resolveIntent('ZA KOJ STAN STANUVA ZBOR ?', 'presentation', { presentedIds: [66] } as any), 'WHICH_PROPERTY');
+  assert.equal(resolveIntent('E OVOJ MOZE', 'presentation', { presentedIds: [66] } as any), 'PROPERTY_CHOICE');
+  assert.equal(resolveIntent('A 42 ?', 'closing', pair), 'BARE_EB_FOLLOWUP');
+  assert.equal(resolveIntent('DALI SE SLOBODNI DVATA ?', 'closing', pair), 'AVAILABILITY_PLURAL');
+  assert.equal(resolveIntent('NAJEVTINA KUCA DO 50000', 'intent'), 'PRICE_EXTREME');
+  assert.equal(resolveIntent('MNOGU SE POSKAPEA STANOVIVE', 'presentation', { presentedIds: [66] } as any), 'INVESTMENT_OPINION');
+  assert.equal(resolveIntent('PA KAKO NEMA STANOVI KOGA OVOJ E EDEN OD NIV ?', 'closing', { presentedIds: [66] } as any), 'STOCK_CONTRADICTION');
+  assert.equal(resolveIntent('NE GO KONTAKTIRAJ USTE', 'closing', { presentedIds: [66] } as any), 'OWNER_HOLD');
+  assert.equal(resolveIntent('A VO KOJA NASELBA IMA ?', 'discovery', { house: true } as any), 'AREA_HAVE_SEARCH');
+  // The vetoes the executor carries: a bare EB that was never SHOWN is not the
+  // availability lane (a number in a budget answers names no property), and an
+  // agreed fee leaves the set-availability ack to the post-decision lanes.
+  assert.notEqual(resolveIntent('A 42 ?', 'closing', { presentedIds: [66] } as any), 'BARE_EB_FOLLOWUP');
+  assert.notEqual(resolveIntent('DALI SE SLOBODNI DVATA ?', 'closing', { ...pair, viewingFeeAgreed: true } as any), 'AVAILABILITY_PLURAL');
 });
 
 test('PRICE_EVAL_CHEAP beats the fee ladder for a compliment on the quoted price', () => {
