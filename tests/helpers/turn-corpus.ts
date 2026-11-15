@@ -292,6 +292,25 @@ export async function runCorpusCase(c: CorpusCase): Promise<CorpusRun> {
 const has = (haystack: string, needle: string): boolean =>
   haystack.toLowerCase().includes(needle.toLowerCase());
 
+/** Does the turn RECORD agree with what the transport received?
+ *
+ *  THE RECORD IS CLIPPED BY DESIGN: `clip()` in src/handlers/turn.ts keeps the
+ *  first 600 characters of every reply, because the audit rides the persisted
+ *  session (`set()` on every turn) — a storage guard, never a copy rule. A
+ *  bank variant longer than that therefore agrees with its record as a
+ *  PREFIX, and a plain containment check failed on it: the two-paragraph
+ *  [02:43] fee serve (confirmation + rung) reported «the record and the served
+ *  text disagree» whenever the rotator picked the long variant. The agreement
+ *  being asserted is unchanged — a record clipped at the guard's own marker,
+ *  then matching the served text up to that point. */
+function recordAgrees(record: string, served: string): boolean {
+  if (record.trim().length === 0) return false;
+  if (has(record, served) || has(served, record)) return true;
+  if (!record.endsWith('…')) return false;
+  const kept = record.slice(0, -1).toLowerCase();
+  return served.toLowerCase().startsWith(kept.trimEnd());
+}
+
 const namedEb = (reply: string, eb: number): boolean =>
   new RegExp(`(?:Евидентен број|EB|#)\\s*${eb}(?!\\d)`, 'i').test(reply);
 
@@ -305,7 +324,7 @@ export async function assertCorpusCase(c: CorpusCase): Promise<void> {
   assert.ok(run.reply.trim().length > 0, `${where}: the turn must answer${shown}`);
   assert.ok(run.auditText.trim().length > 0, `${where}: no audit record for the turn — the explain lane would have nothing to read${shown}`);
   assert.ok(
-    has(run.auditText, run.reply) || has(run.reply, run.auditText),
+    recordAgrees(run.auditText, run.reply),
     `${where}: the record and the served text disagree${shown}\n--- record ---\n${run.auditText}`,
   );
 

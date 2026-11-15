@@ -1723,6 +1723,26 @@ DRIFT — and both train the operator to ignore the log.
 - The corpus declares the prediction (`predicted`) for every case, compared
   through `ROUTE_LANES` normalisation (`FEE_PUSH:fast` → `FEE_PUSH`). A new
   capture adds the lane AND the prediction it must come from.
+- A `P(...)` ROW IS NOT A FIX — it is a visible backlog entry, and it makes
+  EVERY correct turn of that lane log a gap (`predicted=FALLTHROUGH
+  actual=FEE_PER_PROPERTY:fast` filled the field logs for weeks). Promoting it
+  is the same slice as adding its `ROUTING_ORDER` row.
+- THE `:fast` ALIAS IS PART OF THE ROW. `routeLog` resolves the tag the
+  executor actually logged, and it does NOT strip the suffix: every fast lane
+  needs its own `'TAG:fast': M(intent, …)` entry. With the intent row but no
+  alias, the lookup finds no mirror row at all (`actualMirror === null`) and a
+  perfect prediction still reads as a GAP — so both halves are pinned together
+  (`tests/router.test.ts`, the per-property arithmetic test).
+- A DIAGNOSTIC MARKER IS NOT A LANE: `ROUTE_UNKNOWN:…` is skipped and so is
+  `LANE_COLLISION:<a>|<b>` — the collision is an event, and the lane the
+  arbiter then serves is tagged right after it in the same turn. Comparing the
+  marker with the prediction recorded a gap on every turn that had a collision
+  to report.
+- THE TURN RECORD IS CLIPPED (600 chars, `clip()` in `src/handlers/turn.ts`)
+  and that is a storage guard, never a copy rule: a corpus case whose served
+  variant runs longer agrees with its record as a PREFIX. The harness compares
+  on those terms (`recordAgrees`), so a long variant cannot flake as
+  «the record and the served text disagree».
 
 SLICE 2 — THE MONEY FAMILY. The fee legs are ONE region with a fixed order
 (feeAmount 7111 → provision 7212 → clarify 7242 → nag 7285 → agreement 7397 →

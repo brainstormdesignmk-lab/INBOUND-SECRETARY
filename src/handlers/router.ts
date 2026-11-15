@@ -44,6 +44,7 @@ import {
   extractPriceExtremeQuery, detectWidenIntent, detectExplicitWiden,
   detectMoreStockRequest, detectVisitTime, proposesVisitTerm, detectPomaloAsk,
   detectBudgetUpAsk, detectExplicitCancel,
+  detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor,
   isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
 } from '../llm/deterministic';
@@ -331,6 +332,38 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectOwnClaimChallenge(t) },
   { intent: 'FEE_AMOUNT_ASK', note: 'what the VISIT costs («KOLKU E ZA POSETA?», «5 EVRA ZA POSETA?») — the fee disclosure, never the flat\'s rent or the owner-price policy. Mirrors the arbiter\'s feeAmount claim through the SAME predicate (`isFeeAmountClaim`, which carries the amount-first statement sibling the provision ask used to own): the executor serves it FIRST in the money region (inbound.ts 7111), so it must sit before PROVISION_ASK here — without the row «KOLKU E ZA POSETA?» was predicted PROVISION_ASK (the commission question) while the fee disclosure was on screen',
     fires: (t, s) => isFeeAmountClaim(t) && FEE_MONEY_STATES.includes(s) },
+  // THE PER-PROPERTY FEE ARITHMETIC (inbound.ts 7400, the [23:44]/[23:45] capture)
+  // — «500 DEN PO STAN?» and the visit count «АКО ПОСЕТАМ 3 ?». The registry row
+  // sat as P(...) ("pending migration") for weeks, so every correct arithmetic
+  // turn re-reported as a route GAP: `predicted=FALLTHROUGH actual=
+  // FEE_PER_PROPERTY:fast` is what the field logs are full of. A pending row is
+  // a visible backlog entry, not a fix — the lane had a predicate and no
+  // precedence story, which is what this row supplies.
+  // ORDER: BEFORE FEE_PUSH, exactly as the executor orders them (the arithmetic
+  // serve at 7477 precedes the nag leg at 7584). The detector vetoes resistance
+  // itself, so a nag cannot be predicted here — except the burst that rides its
+  // own arithmetic («…TOA SE 1000 ZA GLEDANJE SAMO»), which the executor serves
+  // as FEE_PER_PROPERTY + one rung, and the mirror must say the same.
+  { intent: 'FEE_PER_PROPERTY', note: 'the fee\'s own ARITHMETIC — per property («500 DEN PO STAN?», «ZA SEKOJ STAN STO KE SE POSETI PO 500 ?») and the sum for N visits («АКО ПОСЕТАМ 3 ?», «dvata → 1.000»). It sits after FEE_AMOUNT_ASK (the disclosure asks what the fee IS, not what N of them cost) and before FEE_PUSH, mirroring the executor\'s own line order (inbound.ts 7400 → 7584). SLOT-AWARE in the count arm: a count is arithmetic only while the FEE IS ON THE TABLE (disclosed, agreed, a rung burned, or closing/contact) AND the burst names the visit act — «koja e podobra vrednost megu dvete ?» is a value comparison and keeps its lane (§4s-ter)',
+    fires: (t, s, sl) => {
+      const count = feeArithmeticCount(t);
+      // The executor's own `feeOnTable` (inbound.ts 7425): the disclosure memory
+      // is cleared by the turn that serves it, so the agreement, a burned rung
+      // and the post-decision states count as "on the table" too.
+      const feeOnTable = sl.feeDisclosed === true || sl.viewingFeeAgreed === true
+        || (sl.feeRejections ?? 0) > 0
+        || s === 'closing' || s === 'contact_collection';
+      const countAsk = count !== undefined && feeOnTable
+        && /\?|(?:^|[^\p{L}])(?:ако|ako)(?![\p{L}])/iu.test(t)
+        && namesVisitAnchor(t)
+        && !detectFeeNag(t)
+        && !detectFeePaymentAgreement(t);
+      // A COUNT SURVIVES AN AGREED FEE (the [10:03] capture: the total for two
+      // visits was never stated); the plain per-property ask does not — with the
+      // fee agreed, a rate question is a term re-ask, not new arithmetic.
+      return (detectFeePerPropertyAsk(t) || countAsk)
+        && (!sl.viewingFeeAgreed || count !== undefined);
+    } },
   { intent: 'FEE_PUSH', note: 'fee charge pushback — the nag ladder, incl. the rhetorical «KAJ SE VIDELO PARI ZA OTVARANJE STAN» ([22:03]). Sits after SURROUNDINGS and before the where-is/description rows, because a fee nag is NEVER a place question (§2: the location lanes stand down on fee traffic) — without this row the challenge was predicted PROPERTY_DESCRIPTION. The options-ask veto is the executor\'s own: a choice about the flats on the table keeps the recommendation lane, never the ladder. NO WHY-WORD VETO: the executor\'s nag claim (inbound.ts 7285) runs BEFORE the fee.why legs (10118+), so «NIKOJ NE ZEMA PARI ZA POSETA?» / «PARI ZA POSETA ZEMATE ? ZOSTO?» / «MNOGU NEKAKO 500DEN ZA POSETA» climb rung 1 — the R1 row predicted FEE_WHY for them and reported a drift the ladder never caused',
     fires: (t, s, sl) => detectFeeNag(t, { feeContext: s === 'closing' || s === 'presentation' })
       && FEE_NAG_STATES.includes(s)
@@ -795,6 +828,14 @@ export function routeLog(chatId: string, text: string, intent: string, kind: 'ac
   // `FEE_WHY` and `FEE_WHY:fast`, and a mirrored row names the intent they
   // share.
   const actualMirror = ROUTE_LANES[intent]?.intent ?? null;
+  // A COLLISION MARKER IS A DIAGNOSTIC EVENT, NOT A LANE (2026-11-15): the
+  // arbiter logs `LANE_COLLISION:nag|feeWhy` when two claims tie, and the lane
+  // it then serves is tagged right after it in the same turn. Comparing the
+  // MARKER with the prediction reported a gap on every turn that had a
+  // collision to report — the [22:26] money case (predicted FEE_PUSH, served
+  // FEE_PUSH, gap logged anyway). Same class as the pre-serve guess below: the
+  // line names a diagnostic, not an answer.
+  if (intent.startsWith('LANE_COLLISION')) return;
   // A ROUTE_UNKNOWN TAG IS A PRE-SERVE GUESS, NOT A LANE: the classifier logs
   // it BEFORE the deterministic block runs, and the real lane follows. Comparing
   // it to the prediction recorded a gap for turns that were served correctly
@@ -924,6 +965,13 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'FEEDDOWN:fast': P('feed-down transparency lane'),
   'FEE_FIRST_TIME:fast': M('FEE_FIRST_TIME', 'first-time fee question'),
   'FEE_PUSH:fast': M('FEE_PUSH', 'fee charge pushback (the nag ladder; the mirror row arrived in Phase 4)'),
+  // THE ALIAS WAS THE WHOLE GAP (2026-11-15): the executor logs the fast tag
+  // (`FEE_PER_PROPERTY:fast`, inbound.ts 7477) and the registry resolved the
+  // lookup by its RAW string, so a mirrored lane with no `:fast` alias read as
+  // `actualMirror === null` — a GAP on every CORRECT arithmetic turn
+  // (`predicted=FALLTHROUGH actual=FEE_PER_PROPERTY:fast` filled the field
+  // logs). Every other fast lane already had its alias row; this one did not.
+  'FEE_PER_PROPERTY:fast': M('FEE_PER_PROPERTY', 'the per-visit fee arithmetic on the fast path (the executor logs the suffix — inbound.ts 7477); the row is the same lane'),
   'FEE_SURPRISE:fast': M('FEE_SURPRISE', 'fee surprise reaction'),
   'GHOST:fast': P('unknown EB one-off serve'),
   GLOSSARY: M('GLOSSARY', 'a term-definition ask — answered from the vocabulary, never re-rendered as a property facet'),
@@ -986,7 +1034,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // honestly; the audit shows them as PENDING (visible backlog) instead of
   // UNLISTED (a silent lane), which is the difference that matters.
   PROPERTY_CHOICE: P('the pick among flats that were PRESENTED («go sakam toj», a named card) — the fee is disclosed first, and in closing the fee lanes own the turn (inbound.ts 6994)'),
-  FEE_PER_PROPERTY: P('the per-visit fee arithmetic («ZA SEKOJ STAN STO KE SE POSETI PO 500 ?») — the confirmation, then the ladder if a rung has already burned (inbound.ts 7209)'),
+  FEE_PER_PROPERTY: M('FEE_PER_PROPERTY', 'the per-visit fee arithmetic («ZA SEKOJ STAN STO KE SE POSETI PO 500 ?», «500 DEN PO STAN?», the count «АКО ПОСЕТАМ 3 ?») — the confirmation, then the ladder if a rung has already burned (inbound.ts 7477). It was P(...) for weeks, which is why the field logs are full of `predicted=FALLTHROUGH actual=FEE_PER_PROPERTY:fast`: a pending row re-reports every correct turn as a gap'),
   CHAIN_READY: P('a session/chains readiness MARKER logged by routeLog(chatId, \'chain\', …) at inbound.ts 2498 — it answers nothing, so a mirror row would predict an answer that never happens'),
   'WAITING:fast': M('WAITING', 'the same lane on the fast path (the executor logs the suffix — an unregistered alias would read as a route gap)'),
   AREA_OF_PLACE: M('AREA_OF_PLACE', '„во која населба е X“ — the place\'s own map quarter'),

@@ -128,6 +128,61 @@ test('a ROUTE_UNKNOWN guess never records a gap, whatever the prediction', async
   await fs.rm(dir, { recursive: true, force: true });
 });
 
+// A COLLISION MARKER IS NOT A LANE EITHER (2026-11-15): the arbiter logs
+// `LANE_COLLISION:<a>|<b>` when two claims tie, and the lane it serves is tagged
+// in the same turn right after it. The marker was compared with the prediction,
+// so a correctly served money turn with a collision on it recorded a GAP — the
+// [22:26] case is flat in the field logs: predicted FEE_PUSH, served FEE_PUSH,
+// gap anyway. Same rule as the pre-serve guess above: the line names a
+// diagnostic, not an answer.
+test('a LANE_COLLISION marker never records a gap', async () => {
+  const dir = await fs.mkdtemp(path.join(tmpdir(), 'route-collision-'));
+  setRouteDriftDir(dir);
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.join(' ')); };
+  try {
+    routeLog('collide-c1', 'NIKOJ NE ZEMA PARI ZA POSETA?', 'FEE_PUSH', 'predict');
+    routeLog('collide-c1', 'NIKOJ NE ZEMA PARI ZA POSETA?', 'LANE_COLLISION:nag|feeWhy');
+    routeLog('collide-c1', 'NIKOJ NE ZEMA PARI ZA POSETA?', 'FEE_PUSH:fast');
+  } finally {
+    console.log = original;
+  }
+  assert.ok(!logs.some(l => l.includes('[route-gap] collide-c1') || l.includes('[route-drift] collide-c1')),
+    `the marker carries no lane information: ${logs.join(' | ')}`);
+  await flushRouteDrift();
+  assert.equal((await readRouteDrift()).find(r => r.chatId === 'collide-c1'), undefined,
+    'nothing is persisted for the marker');
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+// THE FEE ARITHMETIC IS A MIRRORED LANE (2026-11-15). Its registry row sat as
+// P(...) and its `:fast` alias did not exist, so `routeLog` resolved the served
+// tag to no mirror row at all and reported a GAP on every correct arithmetic
+// turn — `predicted=FALLTHROUGH actual=FEE_PER_PROPERTY:fast` in the field
+// logs. Both halves are pinned here: the alias row, and the prediction itself
+// on the texts the executor serves from inbound.ts 7400.
+test('the per-property fee arithmetic predicts the lane it serves', () => {
+  assert.ok(ROUTE_LANES.FEE_PER_PROPERTY?.intent === 'FEE_PER_PROPERTY',
+    'the registry row must be mirrored, not pending: a pending row re-reports every correct turn as a gap');
+  assert.equal(ROUTE_LANES['FEE_PER_PROPERTY:fast']?.intent, 'FEE_PER_PROPERTY',
+    'the executor logs the fast tag — without the alias the lookup finds no mirror row');
+  assert.equal(resolveIntent('500 DEN PO STAN?', 'closing'), 'FEE_PER_PROPERTY');
+  assert.equal(resolveIntent('ZA SEKOJ STAN STO KE SE POSETI PO 500 ?', 'closing'), 'FEE_PER_PROPERTY');
+  assert.equal(resolveIntent('АКО ПОСЕТАМ 3 ?', 'closing'), 'FEE_PER_PROPERTY');
+  assert.equal(resolveIntent('АКО ПОСЕТАМ ТРИ ?', 'contact_collection'), 'FEE_PER_PROPERTY');
+  // The disclosure asks what the fee IS; N of them is arithmetic. Order, not luck.
+  assert.equal(resolveIntent('КОЛКУ Е ЗА ПОСЕТА?', 'closing'), 'FEE_AMOUNT_ASK');
+  // A nag is the ladder's turn, never arithmetic (§2).
+  assert.equal(resolveIntent('NIKOJ NE ZEMA PARI ZA POSETA?', 'closing'), 'FEE_PUSH');
+  // A count with no fee on the table and no visit act is a VALUE comparison (§4s-ter).
+  assert.equal(resolveIntent('koja e podobra vrednost megu dvete ?', 'presentation'), 'RECOMMEND_ASK');
+  // With the fee already agreed a RATE question is a term re-ask — only the
+  // count still adds information (the [10:03] capture).
+  assert.notEqual(resolveIntent('500 DEN PO STAN?', 'closing', { viewingFeeAgreed: true } as any), 'FEE_PER_PROPERTY');
+  assert.equal(resolveIntent('АКО ПОСЕТАМ 3 ?', 'closing', { viewingFeeAgreed: true } as any), 'FEE_PER_PROPERTY');
+});
+
 test('PRICE_EVAL_CHEAP beats the fee ladder for a compliment on the quoted price', () => {
   assert.equal(resolveIntent('MNOGU EFTINA CENA E TOA', 'closing'), 'PRICE_EVAL_CHEAP');
   assert.equal(resolveIntent('MNOGU EFTINA CENA E TOA', 'property_query'), 'PRICE_EVAL_CHEAP');
