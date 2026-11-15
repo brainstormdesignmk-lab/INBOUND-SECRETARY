@@ -214,6 +214,17 @@ test('the promoted backlog lanes predict what their executor serves', () => {
   assert.equal(resolveIntent('ZOSTO ?', 'closing', pairSlots, { addressWhy: true }), 'ADDRESS_WHY');
   assert.equal(resolveIntent('NE ZNAM TOA', 'closing', pairSlots, { landmarkLadder: true }), 'LANDMARK_LADDER');
   assert.equal(resolveIntent('PETAR 070123456', 'closing', pairSlots, { contactAfterFee: true }), 'CONTACT_AFTER_FEE');
+  // THE SLOT-BACKED AND FEED-BACKED LANES (2026-11-15): no probe needed for the
+  // first two — the ring's pending ask and the price list's queue are already in
+  // the slots; the ghost guard needs one EB read, and a broken feed is never a
+  // ghost (the honest not-found line names the EB and clears nothing).
+  assert.equal(resolveIntent('Koj e toj stan ?', 'closing',
+    { poiTooFarAsk: true, poiAnchor: 'Рампа', poiTooFarAnchor: 'Рампа', poiNearestId: 77 } as any), 'PLACE_RING_ROW');
+  assert.equal(resolveIntent('USTE ?', 'presentation', { extremeQueue: [1, 2, 3] } as any), 'PRICE_EXTREME_MORE');
+  assert.equal(resolveIntent('ODLICNA LOKACIJA IMA', 'presentation',
+    { ...pairSlots, propertyId: 99 } as any, { ghostAnchor: true }), 'GHOST');
+  assert.equal(resolveIntent('ODLICNA LOKACIJA IMA', 'presentation',
+    { ...pairSlots, propertyId: 99 } as any, { ghostAnchor: true, feedDown: true }), 'FEEDDOWN');
   assert.notEqual(resolveIntent('PETAR 070123456', 'closing', pairSlots), 'CONTACT_AFTER_FEE');
   assert.equal(resolveIntent('A VO KOJA NASELBA IMA ?', 'discovery', { house: true } as any), 'AREA_HAVE_SEARCH');
   // The vetoes the executor carries: a bare EB that was never SHOWN is not the

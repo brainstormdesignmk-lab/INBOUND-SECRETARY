@@ -4507,6 +4507,23 @@ export class InboundHandler {
         const c = detectContact(text);
         if (c.phone && isValidPhone(c.phone) && c.name && isPlausibleName(c.name)) ev.contactAfterFee = true;
       }
+      // GHOST / FEED-DOWN (inbound.ts 10664): the enthusiasm lane ends in the
+      // ghost guard when the flat it would praise can no longer be confirmed —
+      // and a BROKEN FEED is not a ghost (the not-found line still names the
+      // EB, nothing is branded and no anchor is cleared). The probe repeats
+      // that guard: one EB read, gated on the enthusiasm wording first.
+      if (!ev.ghostAnchor && detectPositiveEval(text)) {
+        const anchorEb = this.namedOnTableEb(session, text)
+          ?? session.slots.propertyId ?? session.slots.interestedPropertyId
+          ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1];
+        if (anchorEb != null) {
+          const anchored = await this.deps.properties.getById(anchorEb).catch(() => undefined);
+          if (!anchored) {
+            ev.ghostAnchor = true;
+            if (!this.feedHealthy()) ev.feedDown = true;
+          }
+        }
+      }
       // LANDMARK_LADDER (inbound.ts 5062): the client cannot picture the anchor
       // just named. The rotation index and the anchor live in the SLOTS, so the
       // probe can repeat it exactly: an anchor named in this message (or a bare

@@ -48,6 +48,7 @@ import {
   detectAgencyIdentityAsk, detectWhichPropertyAsk, detectPropertyChoice,
   detectBareEbFollowup, detectAvailabilityPlural, detectLocationNag,
   detectStockContradiction, detectContactMechanicsChallenge, detectOwnerContactHold,
+  detectRingNearestAsk,
   isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
 } from '../llm/deterministic';
@@ -105,6 +106,12 @@ export interface RouteEvidence {
   /** LANDMARK_LADDER: the client cannot picture the anchor (the rotation's own
    *  index and anchors are in the slots; the last line says where they stand). */
   landmarkLadder?: boolean;
+  /** GHOST_ANCHOR: the flat the turn would serve can no longer be confirmed in
+   *  the feed (the executor's ghost guard). */
+  ghostAnchor?: boolean;
+  /** FEED_DOWN: the feed itself is unhealthy, so an unconfirmed EB is NOT a
+   *  ghost — the honest not-found line names the EB and clears nothing. */
+  feedDown?: boolean;
 }
 
 /** The two lanes below are the ones whose executor gates read the CLIENT'S
@@ -393,6 +400,14 @@ export const ROUTING_ORDER: RouteRule[] = [
   // from the session and the mirror cannot invent. Their executor positions
   // are inbound.ts 8801 (address-why), 8838 (nearby thread) and 5062 (the
   // landmark ladder).
+  // THE GHOST GUARD (inbound.ts 10664) sits INSIDE the enthusiasm lane and
+  // must be predicted BEFORE it, or a correct not-found turn reads as an
+  // ENTHUSIASM drift. The probe supplies the fact (one EB read, gated on the
+  // enthusiasm wording), and a broken feed is never a ghost.
+  { intent: 'GHOST', note: 'the flat the turn would praise is no longer in the feed (inbound.ts 10664) — the not-found pivot names the EB and clears the anchors. EVIDENCE: `ghostAnchor` with a healthy feed',
+    fires: (t, s, sl, ev) => ev?.ghostAnchor === true && ev?.feedDown !== true },
+  { intent: 'FEEDDOWN', note: 'the same guard with a BROKEN feed (inbound.ts 10675) — the EB is unconfirmed, not gone: the honest feed-unavailable line, no ghost branding. EVIDENCE: `ghostAnchor` + `feedDown`',
+    fires: (t, s, sl, ev) => ev?.ghostAnchor === true && ev?.feedDown === true },
   { intent: 'ADDRESS_WHY', note: 'a bare why after a privacy / landmark line — the agency-rules explanation (inbound.ts 8801). EVIDENCE: `addressWhy` (the bare-why detector AND a nearby-shaped last reply)',
     fires: (t, s, sl, ev) => ev?.addressWhy === true },
   { intent: 'NEARBY_THREAD', note: 'a bare «more?» after a reply that NAMED a landmark — the nearby thread continues into rotation → protocol → shut-down (inbound.ts 8838). EVIDENCE: `nearbyThread`; the branch that depends on the classifier verdict is deliberately unpredicted',
@@ -635,6 +650,13 @@ export const ROUTING_ORDER: RouteRule[] = [
   // the same tag, which is why the row still matches).
   { intent: 'PRICE_AVG_NASELBA', note: '«ВО КОЈА НАСЕЛБА СЕ НАЈЕВТИНИ СТАНОВИТЕ» — the cheapest NEIGHBOURHOOD by mean €/м², plus the flat beside that number (inbound.ts 6314). EVIDENCE: the gate is the lifted `naselbaComparisonGate` (naselba word, no area named, buy, rankable per-м² pool)',
     fires: (t, s, sl, ev) => ev?.priceAvgNaselba === true },
+  { intent: 'PRICE_EXTREME_MORE', note: '«УШТЕ?» after a price LIST (inbound.ts 6250) — the next three rows of the SAME ranked list, never the discovery ladder. Gate: the queue the list left behind is non-empty and the message carries a more-word',
+    fires: (t, s, sl) => (sl.extremeQueue?.length ?? 0) > 0
+      && /(?:^|[\s,.:;!?])(?:uste|уште|ushte|poveke|повеќе|povece|повече)(?![\p{L}\p{N}])/iu.test(t) },
+  { intent: 'PLACE_RING_ROW', note: '«STO TI E TOA NA 1.4KM?» / «KOJ E TOJ STAN?» after the 1 km ring line (inbound.ts 12640) — the row the ring measured, named with its facts. Gate: a pending ring ask whose anchor has not moved, a measured row, and the identity wording — all of it in the slots',
+    fires: (t, s, sl) => !!sl.poiTooFarAsk
+      && (sl.poiTooFarAnchor === undefined || sl.poiTooFarAnchor === sl.poiAnchor)
+      && sl.poiNearestId !== undefined && detectRingNearestAsk(t) },
   { intent: 'PRICE_EXTREME', note: 'an EXTREME price ask (“do 1000 evra kuca”, “koj ti e toj stan po … po m2”) — the cheapest/dearest listing under the client\'s own criteria, never the plain price ask (inbound.ts 6007). KNOWN LIMIT: the rankable pool comes from the feed',
     fires: t => extractPriceExtremeQuery(t) !== undefined },
   // «KOJ BI MI GO PREPORACALE ?» — a JUDGMENT over the flats the chat has
@@ -1069,7 +1091,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'EXIT_CHECK_REPEAT': K('the repeat of an exit-shaped turn — logs and CONTINUES into the farewell lanes, so it has no serve of its own'),
   'FEE_AMOUNT_ASK:fast': M('FEE_AMOUNT_ASK', 'exact fee amount asked (the arbiter feeAmount claim)'),
   'FEE_COMPLAINT:fast': M('FEE_COMPLAINT', 'fee resistance in the ladder'),
-  'FEEDDOWN:fast': P('feed-down transparency lane'),
+  'FEEDDOWN:fast': M('FEEDDOWN', 'feed-down transparency lane — the EB is unconfirmed because the FEED is down, never a ghost (inbound.ts 10675)'),
   'FEE_FIRST_TIME:fast': M('FEE_FIRST_TIME', 'first-time fee question'),
   'FEE_PUSH:fast': M('FEE_PUSH', 'fee charge pushback (the nag ladder; the mirror row arrived in Phase 4)'),
   // THE ALIAS WAS THE WHOLE GAP (2026-11-15): the executor logs the fast tag
@@ -1080,7 +1102,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // logs). Every other fast lane already had its alias row; this one did not.
   'FEE_PER_PROPERTY:fast': M('FEE_PER_PROPERTY', 'the per-visit fee arithmetic on the fast path (the executor logs the suffix — inbound.ts 7477); the row is the same lane'),
   'FEE_SURPRISE:fast': M('FEE_SURPRISE', 'fee surprise reaction'),
-  'GHOST:fast': P('unknown EB one-off serve'),
+  'GHOST:fast': M('GHOST', 'the flat the turn would serve is gone from the feed — the not-found pivot (inbound.ts 10664)'),
   GLOSSARY: M('GLOSSARY', 'a term-definition ask — answered from the vocabulary, never re-rendered as a property facet'),
   INFO_ASK: M('INFO_ASK', 'a fact ask about the flat on the table — the price facet is why the plain price ask rarely fires with a property on the table'),
   INFO_ASK_YEAR: M('INFO_ASK_YEAR', 'year of construction ask with nothing bound — the property-agnostic miss line; a bound flat keeps INFO_ASK (inbound.ts 8040–8049)'),
@@ -1095,7 +1117,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   POI_CONFIRM: M('POI_CONFIRM', 'a place-confirm question about the bound flat («da ne e vo karpos ?») — the executor answers it only when the MAP resolves the named place (inbound.ts 6861: a landmark hit or a named area). The map is data, not text: a mirror row would have to guess, and the probe showed exactly that — «DA NE E VO SKOPJANKA ?» is a POI-confirm by wording while the executor served nothing. Labelled backlog, not a guessed row'),
   PLACE_PIVOT: P('same search at a different named place (“a neshto kaj X?”)'),
   PLACE_RING_ASK: M('PLACE_RING_ASK', 'the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question (predicted on the refinement pass, from the pool\'s own poiTooFarAsk verdict)'),
-  PLACE_RING_ROW: P('the identity of the flat the place ring measured (“koj e toj stan na 1,4 km?”)'),
+  PLACE_RING_ROW: M('PLACE_RING_ROW', 'the identity of the flat the place ring measured (“koj e toj stan na 1,4 km?”, inbound.ts 12640) — predicted from the ring\'s own slots (a pending ask, an unmoved anchor, a measured row)',),
   'PRICE_ASK:fast': M('PRICE_ASK', 'the plain price ask in the !fsmRequired fast block — the flat named or the one on the table, else the Евидентен број question'),
   PRICE_AVG_NASELBA: M('PRICE_AVG_NASELBA', 'average €/m² per neighbourhood (“во која населба се најевтини становите”) — the aggregate branch (inbound.ts 6146) needs per-м² rows in the FEED and falls through to PRICE_EXTREME when it has none. A row would predict the aggregate for every cheapest+населба ask, including the ones the executor answers with the plain listing — a false drift, which is worse than a labelled gap. The text half is mirrored by PRICE_EXTREME, which is what serves when the data is thin'),
   'PRICE_EVAL_EXPENSIVE': M('PRICE_EVAL_EXPENSIVE', 'negative price remark about the flat on the table — the arbiter\'s own `expensive` lane'),
@@ -1105,7 +1127,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // so giving this tag its own row would predict a serve that never happens.
   'PRICE_EVAL_EXPENSIVE_UNWIRED': K('a NEGATIVE price evaluation the evidence boundary does not wire — logs and continues (no serve, no state change), so it has no serve of its own'),
   'PRICE_EXTREME': M('PRICE_EXTREME', 'extreme price search (“do 1000 evra kuca”, inbound.ts 6485) — mirrored above; this tag carries no suffix'),
-  'PRICE_EXTREME_MORE': P('extreme-price continuation'),
+  'PRICE_EXTREME_MORE': M('PRICE_EXTREME_MORE', '«УШТЕ?» after an extreme-price list (inbound.ts 6250) — the next rows of the same queue'),
   'PRICE_FRESHNESS:fast': M('PRICE_FRESHNESS', 'is this price fresh? — last known price + the owners-reprice disclaimer + the owner-contact ask'),
   // PENDING MIGRATION — the Phase 2/5 lanes (turn record + answer-vs-funnel):
   // each logs itself today and gets its mirror row with the router work.

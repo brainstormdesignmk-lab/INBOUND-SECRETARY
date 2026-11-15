@@ -123,7 +123,14 @@ test('the pending backlog is explicit and finite (migration fuel, not a graveyar
   // K(...), so the backlog goes from 33 to 13. The ceiling moves DOWN with it —
   // it must keep falling as the evidence-dependent lanes (the last-reply
   // history, the day calendar, the map) land their rows.
-  assert.ok(pending.length < 10, `backlog too large to be honest: ${pending.length}`);
+  // FIVE LEFT (2026-11-15): the ring row and the extreme-price continuation came
+  // off the SLOTS (no probe needed), and the ghost / feed-down pair came off a
+  // single EB read. What remains is the place pivot and locate-reject (a map
+  // resolution each), the taken-slot lane (the day calendar) and the GOLEM pair
+  // (a ranked pool): each would re-run work the executor already does in the
+  // same turn, which is exactly what the evidence channel's COST RULE forbids
+  // without a measurement. The ceiling falls with the count, never against it.
+  assert.ok(pending.length < 6, `backlog too large to be honest: ${pending.length}`);
 });
 
 // R1 part 2 — the three lanes that moved from dispatchSimple into the mirror.
