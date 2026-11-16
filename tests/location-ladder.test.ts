@@ -46,7 +46,13 @@ function buildTestMap(): OfflineMapStore {
     { name: 'Градски парк', type: 'park', lat: 41.9972, lon: 21.4274, source: 'osm' },
     { name: 'Градежен факултет', type: 'university', lat: 42.003, lon: 21.433, source: 'osm' },
   ];
-  writeMap(dbPath, pois, []);
+  // EB 95's street (the [16:54] row) must resolve to a STREET point so the
+  // roster can be MEASURED — a landmark with no centre is never served
+  // (the [10:00] guard: an unmeasured roster claimed a mall from the middle of
+  // town). One house number is enough for the anchor the fixture needs.
+  writeMap(dbPath, pois, [
+    { street: 'Тест', housenumber: '95', lat: 41.9985, lon: 21.4265 },
+  ]);
   return new OfflineMapStore(dbPath);
 }
 
@@ -73,6 +79,15 @@ const ROWS: Property[] = [
     lat: 41.9985, lon: 21.4265,
     // The roster pin must be measurably inside the ring from EB 78's own
     // coordinates (41.9985,21.4265) — see feedRosterSlots' ring guard.
+    landmarks: [{ landmark: 'Градежен факултет', type: 'university', distance_m: 171,
+      maps_url: 'https://maps.google.com/?q=42.00000,21.42700' }] } as any,
+  // EB 95 is the [16:54] field capture: a row whose centre is only a street
+  // anchor. «na koja ulica e 95 ?» used to answer «се води во населбата Центар …
+  // пред посетата» — the owner-confirmation line on the FIRST ask, so the client
+  // never heard where the flat is. The ladder owes turn 1 its nearby slot.
+  { eb: 95, id: 95, location: 'Центар', address: 'Ул. Тест 95', price: 204000,
+    service: 'sale', sqm: 74, bedrooms: 3, details: 'Трисобен стан во Центар.',
+    lat: 41.9985, lon: 21.4265, geo_source: 'osm_low_confidence',
     landmarks: [{ landmark: 'Градежен факултет', type: 'university', distance_m: 171,
       maps_url: 'https://maps.google.com/?q=42.00000,21.42700' }] } as any,
 ];
@@ -271,6 +286,35 @@ test('item 3: a property with a feed roster rotates on the ROSTER, not the map s
   assert.ok(!a.includes('Универсална сала'),
     `never the map's own nearest while a curated roster exists: ${a}`);
   assert.deepEqual(sessions.get(chat)!.slots.nearbyLandmarks, ['Градежен факултет']);
+
+  offlineMap.close();
+});
+
+test('a street ask on a street-anchor row serves the NEARBY slot first, the owner line only when the client pushes', async () => {
+  // The owner's rule (the [16:54]/[16:58] capture): FIRST try = nearby, and the
+  // exact address only "на денот на посетата" once the client is pushy about it.
+  const { handler, sessions, sent, offlineMap } = makeHandler();
+  const s = freshSession('test', chat);
+  s.slots.propertyId = 95;
+  s.slots.interestedPropertyId = 95;
+  sessions.set(s);
+
+  await handler.handle('test', chat, 'na koja ulica e 95 ?');
+  const a1 = sent[sent.length - 1];
+  assert.ok(/во населбата Центар/u.test(a1), `turn 1 still names the area the feed knows: ${a1}`);
+  assert.ok(/во близина на/u.test(a1), `turn 1 must serve the nearby slot, not the protocol: ${a1}`);
+  assert.ok(!/пред посетата|два часа пред|денот на посетата/u.test(a1),
+    `the owner-confirmation line is turn 2, never the first answer: ${a1}`);
+  assert.ok(!a1.includes('Тест 95'), `the street is never disclosed: ${a1}`);
+
+  // The pushy repeat: NOW the day-of-visit rule, still without the street.
+  await handler.handle('test', chat, 'na koja adresa e ?');
+  const a2 = sent[sent.length - 1];
+  // The protocol family, not one wording (bank variants rotate): «два часа
+  // пред», «на денот на закажаното гледање», «правилата по кои работи».
+  assert.ok(/два часа пред|ден(от)? на (посетата|гледањето|закажаното гледање)|на денот на|правил|политик|непосредно пред/u.test(a2),
+    `a repeated address ask climbs to the visit-day rule: ${a2}`);
+  assert.ok(!a2.includes('Тест 95'), `the street is never disclosed: ${a2}`);
 
   offlineMap.close();
 });

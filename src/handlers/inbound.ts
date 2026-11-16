@@ -2884,13 +2884,6 @@ export class InboundHandler {
     // the street.
     const streetAsk = /(?:улица|ulica|adresa|адреса)/iu.test(place ?? '');
     const geoWeak = p.geo_source === 'osm_street_anchor' || p.geo_source === 'osm_low_confidence';
-    if (streetAsk && geoWeak && p.location) {
-      const loc = p.location.replace(/\s*\(населба\)\s*$/u, '');
-      session.slots.landmarkIndex = (session.slots.landmarkIndex ?? 0) + 1;
-      return this.attributeWhereLine(
-        `Евидентен број ${p.eb} се води во населбата ${loc}. Точната улица и број ги потврдувам со сопственикот пред посетата.`,
-        p.eb, session);
-    }
 
     // Pre-resolve the top-3 rotation slots ONCE per property. The client asks
     // "каде е?" → L1, "што уште има во близина?" → L2, … then privacy protocol.
@@ -2926,6 +2919,65 @@ export class InboundHandler {
 
     const lmList = session.slots.nearbyLandmarks ?? [];
     const idx = session.slots.landmarkIndex ?? 0;
+
+    // A STREET QUESTION NEEDS A STREET — and the LADDER still owes turn 1 its
+    // NEARBY answer (the [16:54] capture, the owner's rule): «na koja ulica e
+    // 95?» on a row whose centre is only a street anchor or a neighbourhood
+    // centroid answered «се води во населбата Центар … пред посетата» — the
+    // privacy protocol on the FIRST ask, so the client never heard where the
+    // flat is and pushed again («na koja adresa e?», which then got the same
+    // speech). The refusal was there for a reason — a landmark measured from a
+    // STREET CENTROID can sit in the middle of town ([10:00] capture) — but the
+    // honest fix is not to skip the ladder: name the neighbourhood the feed
+    // knows FIRST, then the rotation's own slot (the feed roster is validated
+    // against the property's address at import, so it serves weak rows too).
+    // Only the SECOND ask — the client pushing past the area he was given —
+    // gets the owner-confirmation line, exactly like the rest of the ladder.
+    if (streetAsk && geoWeak && p.location) {
+      const loc = p.location.replace(/\s*\(населба\)\s*$/u, '');
+      // A WEAK CENTRE MAY CLAIM ONLY WHAT IS REALLY NEXT DOOR. The rotation's
+      // full ring (FEED_LANDMARK_MAX_M) is honest from a building point; from a
+      // street centroid it let EB 85 (Ново Лисиче) name «ТЦ Мавровка», a mall
+      // 800 m up the road, as the flat's own area — the [10:00] capture this
+      // branch exists for. 300 m is walking distance on foot from a street
+      // middle, so a slot inside it is nearby whatever the centroid's error.
+      const WEAK_CENTER_NEARBY_M = 300;
+      const near0 = session.slots.nearbyLandmarkCoords?.[0];
+      const weakClaimM = near0 && Number.isFinite(center.lat) && Number.isFinite(center.lon)
+        && (center.lat !== 0 || center.lon !== 0)
+        ? distM(center.lat as number, center.lon as number, near0.lat, near0.lon)
+        : undefined;
+      // …and only from a centre the MAP itself resolved (an exact building or
+      // an interpolation between two house numbers). A stored centroid is not
+      // evidence: EB 85's «КАЈ БРАНКА» point happens to sit 30 m from a mall in
+      // the town centre, so no distance test can save it — the answer stays the
+      // neighbourhood line (the [10:00] capture).
+      // A STREET ANCHOR IS NEVER A PLACE: `osm_street_anchor` means the address
+      // resolved to the middle of a street (the import reaches it only after the
+      // building and interpolation stages failed), so even a map 'building'
+      // match for it is street-grade — EB 85's «КАЈ БРАНКА» resolved 3 m from a
+      // mall in town and the [10:00] answer named the mall. That row keeps the
+      // neighbourhood line. `osm_low_confidence` may serve the first nearby ONLY
+      // from a centre the map itself re-resolved to a building.
+      const firstNear = lmList.length > 0 && idx === 0
+        && p.geo_source !== 'osm_street_anchor' && center.trusted
+        && weakClaimM !== undefined && weakClaimM <= WEAK_CENTER_NEARBY_M
+        ? lmList[0] : undefined;
+      session.slots.landmarkIndex = idx + 1;
+      if (firstNear) {
+        const c = session.slots.nearbyLandmarkCoords?.[0];
+        const link = c && Number.isFinite(c.lat) && Number.isFinite(c.lon)
+          ? `\n${landmarkLink(firstNear, session.slots.nearbyLandmarkPlaceIds?.[0] ?? null, c.lat, c.lon)}`
+          : '';
+        if (firstNear) session.slots.lastLandmark = firstNear;
+        return this.attributeWhereLine(
+          `Евидентен број ${p.eb} се води во населбата ${loc} — во близина на ${displayPlaceName(firstNear)}.${link}`,
+          p.eb, session);
+      }
+      return this.attributeWhereLine(
+        `Евидентен број ${p.eb} се води во населбата ${loc}. Точната улица и број ги потврдувам со сопственикот пред посетата.`,
+        p.eb, session);
+    }
 
     // Privacy protocol — ONLY after all 3 landmarks have been revealed.
     if (lmList.length > 0 && idx >= lmList.length) {
