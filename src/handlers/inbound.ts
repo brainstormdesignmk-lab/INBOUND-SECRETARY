@@ -16,7 +16,7 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
-  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent,
+  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, namedVisitEbs,
   detectPairReferent, detectIdentifyByFigure,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -294,6 +294,26 @@ const CITY_LEVEL_POI_TYPES = new Set([
  *  when the client names them as such). */
 export function isCityLevelPlace(type?: string | null): boolean {
   return CITY_LEVEL_POI_TYPES.has((type ?? '').trim().toLowerCase().replace(/\s+/gu, ' '));
+}
+
+/** THE SETTLEMENT CLASS OF A MAP ROW — a NASELBA. `Центар` and `Скопје Север`
+ *  are not landmarks: they are the neighbourhoods the funnel's own area
+ *  question is about, and the map files them as `suburb`/`neighbourhood`/
+ *  `quarter`/`hamlet`/`village`/`locality` rows at their centroid.
+ *
+ *  TWO DEFECTS CAME FROM READING THEM AS POIs (the owner's 2026-11-16 rule —
+ *  «CENTAR AND SKOPJE SEVER ARE NASELBAS»): the where-is lane answered «Центар
+ *  се наоѓа во Центар» (its own quarter IS itself), and the weekly place-miss
+ *  digest ranked them beside truly unknown words, because a naselba centroid
+ *  resolves like a landmark while behaving like an area. The class is the ONE
+ *  truth here, exactly as in isCityLevelPlace: the name is not (the map also
+ *  carries a «Centar Bar» and a bus station called «Скопје Север»). */
+export const SETTLEMENT_POI_TYPES = new Set([
+  'suburb', 'neighbourhood', 'neighborhood', 'quarter', 'hamlet', 'village', 'locality',
+]);
+
+export function isSettlementPlace(type?: string | null): boolean {
+  return SETTLEMENT_POI_TYPES.has((type ?? '').trim().toLowerCase().replace(/\s+/gu, ' '));
 }
 
 /** Is the client's own mention NOTHING BUT the city's name? («Скопје»,
@@ -2339,10 +2359,7 @@ export class InboundHandler {
     // is the same route, not a sudden single visit.
     if (detectMultiVisitIntent(`${text} ${term}`)) session.slots.visitWanted = true;
     if (!session.slots.visitWanted) return false;
-    const ebs = [...new Set([
-      ...(session.slots.currentBatch ?? []),
-      ...(session.slots.presentedIds ?? []),
-    ])].slice(0, 4);
+    const ebs = this.multiVisitEbs(session, `${text} ${term}`);
     if (ebs.length < 2) return false;
     const when = parseVisitDateTime(term, new Date());
     if (!when) return false;
@@ -2355,6 +2372,26 @@ export class InboundHandler {
     };
     this.advanceChain(session);
     return true;
+  }
+
+  /** THE FLATS A PLURAL VISIT IS ABOUT: the ones the CLIENT named, else the
+   *  batch on the table.
+   *
+   *  The [06:33] capture asked for two flats by number («BI GI POSETIL 57 I
+   *  59») and paid for three, because the set was built from every card ever
+   *  presented — the pair partner EB 42 came along. A client who names numbers
+   *  has chosen: his list is the visit, the chain stops at one per named flat,
+   *  and the fee arithmetic counts exactly those. Without numbers the wish is
+   *  about the whole set shown, which is the old behaviour (capped at four, the
+   *  route's own budget). */
+  private multiVisitEbs(session: ChatSession, text: string): number[] {
+    const onScreen = [...new Set([
+      ...(session.slots.currentBatch ?? []),
+      ...(session.slots.presentedIds ?? []),
+    ])];
+    const named = namedVisitEbs(text, onScreen);
+    if (named.length > 0) return named.slice(0, 4);
+    return onScreen.slice(0, 4);
   }
 
   /** The canonical term for a stop at `hour` (the client's day, the chain's
@@ -3829,7 +3866,7 @@ export class InboundHandler {
    *  both the „kade e X“ and the „во која населба е X“ lanes, so the two can
    *  never contradict each other. Facts only — a missing label stays missing. */
   private async placeWhereAnswer(
-    hit: { name: string; lat: number; lon: number },
+    hit: { name: string; lat: number; lon: number; type?: string },
     session: ChatSession,
     askArea: boolean,
     anchorProp?: Property,
@@ -3862,8 +3899,18 @@ export class InboundHandler {
       prop = eb != null ? await this.deps.properties.getByEb(eb).catch(() => undefined) : undefined;
     }
     const parts: string[] = [];
-    if (area) {
+    // A NASELBA IS ITS OWN GEOGRAPHY (see isSettlementPlace): the map's suburb
+    // row for «Центар» sits INSIDE the suburb «Центар», so the old line read
+    // «Центар се наоѓа во Центар» — a tautology dressed as an answer. The
+    // honest line names the class the client asked about.
+    const isNaselba = isSettlementPlace(hit.type);
+    if (isNaselba && (!area || placeLooseKey(normalizeLocation(displayAreaName(area.name))).trim()
+      === placeLooseKey(normalizeLocation(displayAreaName(hit.name))).trim())) {
+      parts.push(`${hit.name} е населба во Скопје.`);
+    } else if (area) {
       parts.push(`${hit.name} се наоѓа во ${displayAreaName(area.name)}.`);
+    } else if (isNaselba) {
+      parts.push(`${hit.name} е населба во Скопје.`);
     } else if (askArea) {
       parts.push(`${hit.name} го имам на картата, но немам означено во која населба е.`);
     }
@@ -15953,9 +16000,9 @@ ${contactReminder}`;
     // remembered (`visitWanted`), both flats are NAMED, and the arithmetic is
     // per property (the same builder the route's confirmation uses).
     const multiWish = session.slots.visitWanted === true || detectMultiVisitIntent(text);
-    const tripEbs = multiWish
-      ? [...new Set([...(session.slots.currentBatch ?? []), ...(session.slots.presentedIds ?? [])])].slice(0, 4)
-      : [];
+    // …and the SUBJECT of the fee is the same set the route uses (see
+    // multiVisitEbs): the flats he named, never every card on the table.
+    const tripEbs = multiWish ? this.multiVisitEbs(session, text) : [];
     if (multiWish) session.slots.visitWanted = true;
     if (reply && (bankKey === 'fee.ask.rent' || bankKey === 'fee.ask.buy')
         && !session.slots.viewingFeeAgreed && !/Евидентен број/u.test(reply)) {
@@ -15973,7 +16020,9 @@ ${contactReminder}`;
         reply = `Посетата е за становите со Евидентни броеви ${list}${loc ? ` (${loc})` : ''}.\n\n`
           + extendFeeAskForCount(reply, session.slots.service, tripEbs.length);
       } else {
-        const subjEb = session.slots.propertyId ?? session.slots.interestedPropertyId
+        // ONE NAME IS A ONE-FLAT VISIT — and the flat is the one HE named, not
+        // whichever card happens to sit first in the batch.
+        const subjEb = tripEbs[0] ?? session.slots.propertyId ?? session.slots.interestedPropertyId
           ?? (session.slots.currentBatch?.length ? session.slots.currentBatch[0] : undefined);
         if (subjEb !== undefined) {
           const subjProp = await this.deps.properties.getByEb(subjEb).catch(() => undefined);

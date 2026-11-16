@@ -172,6 +172,22 @@ THE DISCLOSURE TURN IS NEVER CONSENT: a visit command ("KONTAKTIRAJTE GO",
 "DOGOVORI MI") is also an agreement token, so the turn that serves any
 `fee.ask.*` clears `viewingFeeAgreed`. Without that, the client's next message —
 even a fee question — jumped straight to contact collection (the rent capture).
+THE VISIT IS THE FLATS THE CLIENT NAMED (the [06:33] capture): «BI GI POSETIL 57
+I 59 AKO SE SLOBODNI» was answered with «Посетата е за становите со Евидентни
+броеви 57, 42 и 59 … За 3 недвижности тоа е вкупно 900 денари» — two asked for,
+three served, because the set was `currentBatch + presentedIds`. A client who
+names numbers has CHOSEN the partner of a pair is not his. `namedVisitEbs`
+(`src/llm/deterministic.ts`) is the one extractor and `multiVisitEbs` (handler)
+the one build, used by BOTH the fee subject line and `startChainIfNeeded`: the
+named flats (his order) when he named any — one name is a ONE-FLAT visit — else
+the whole batch, capped at four. A number is a flat only when it is ON SCREEN
+and carries no unit (евра/денари/м²/спални), no clock and no thousands group, so
+«до 57 000 евра» names nothing to visit. Several properties mean several OWNERS:
+`pluralizeOwnerRefs` in `src/llm/prompts.ts` turns the served disclosure's «да
+го исконтактирам сопственикот» into «да ги исконтактирам сопствениците» (the
+object marker «го»→«ги» too) while keeping the bank's wording verbatim — the
+one fact a multi-flat visit adds. Pinned in `tests/visit-named-ebs.test.ts`
+(it swept EVERY `fee.ask.rent` variant, not one rotation).
 
 ## 2b. Two room categories, one cap EACH (`slots.categoryBudgets`)
 
@@ -2187,21 +2203,67 @@ appliance actually meets:
   backlog — the "69 unmirrored turns a day" on `PRICE_EVAL_EXPENSIVE_UNWIRED`
   were three test sentences. `tests/price-eval-residual.test.ts` pins the
   isolation.
-- THE PLACE-MISS DIGEST HAS TWO LANES, AND BOTH TOOLS MUST AGREE ON THEM.
+- THE PLACE-MISS DIGEST HAS THREE LANES, AND BOTH TOOLS MUST AGREE ON THEM.
   `data/place-misses-*.jsonl` records every candidate the place-wish extractor
-  produced, so ~82% of it is INTENT VOCABULARY, not a missing place (`EDNA`,
-  `SAKAM DA IZNAJMAM STAN`, `KOLKU MU E KIRIJATA`). One row per gap and the
-  name-vs-phrase split live in `src/store/placeMisses.ts`
-  (`placeMissKey`/`groupPlaceMisses`/`looksPlaceShaped`) and BOTH readers use
-  them — `scripts/route-gap-audit.ts` (the digest) and `scripts/place-misses.ts`
-  (the paste-ready alias suggestions). A second copy of the fold is how two
-  reports start disagreeing about the same corpus, and an alias generated for
-  «EDNA» is that same bug with a commit behind it. The shape rule is
-  REPORT-SIDE ONLY — no lane may ever read it. Fold: case, script
+  produced, so ~82% of the HISTORICAL corpus is INTENT VOCABULARY, not a missing
+  place (`EDNA`, `SAKAM DA IZNAJMAM STAN`, `KOLKU MU E KIRIJATA`). One row per
+  gap and the lane split live in `src/store/placeMisses.ts`
+  (`placeMissKey`/`groupPlaceMisses`/`looksPlaceShaped`/`looksLikeProbeName`)
+  and BOTH readers use them — `scripts/route-gap-audit.ts` (the digest) and
+  `scripts/place-misses.ts` (the paste-ready alias suggestions). A second copy
+  of the fold is how two reports start disagreeing about the same corpus, and
+  an alias generated for «EDNA» is that same bug with a commit behind it. The
+  shape rule is REPORT-SIDE ONLY — no lane may ever read it. Fold: case, script
   (`toCyrillic`), punctuation, spacing. Not folded: spelling — `soundKey`
   already absorbs a misspelling at resolution time, so a verbatim repeat is a
   missing POI, and the bare adjective stays its own row. Pinned in
   `tests/place-misses.test.ts`.
+  THE RECORDER REFUSES A ROW THAT NAMES NOTHING. The report side can label
+  noise, but the file still grew by ~18k such rows, so `recordPlaceMiss` now
+  drops a row whose EVERY word is request/quantity vocabulary, and drops probe
+  rows. The guard is the CONSERVATIVE half of `looksPlaceShaped` on purpose: a
+  mixed phrase («MADJAR MAALO SO DVE») is still written, because the place in it
+  is a real alias to learn (the map spells it «Маџир Маало») — losing a gap is
+  worse than one noisy row.
+  THERE IS A PROBE LANE, NOT A GAP. The sweeps write `NEPOSTOECHKO MESTO XYZ`
+  on purpose (`непостоечко` = "nonexistent"); 125 such rows sat in the map-gap
+  list. `PLACE_MISS_PROBE_WORDS`/`looksLikeProbeName` put them in their own
+  count in both tools.
+  A NAME THE MAP BINDS **TODAY** IS HISTORY, NOT A GAP. A miss row says a turn
+  failed on that day; the audit must ask today's map before calling it unknown,
+  or `центар`/`скопје север` (both NASELBAS — see §4d) rank beside
+  `црногорска амбасада` forever. The test is `mapNameCoversClientWords` in
+  `src/geo/offlineMap.ts` (every client word in the row, and the row OPENS with
+  one of them) — NOT a bare `findPoiByName` hit, which always answers: it read
+  «амбасадата» as «Паркинг на амбасадата на САД» and «SKOPJE SEVER E» as the
+  bus station «Скопје север ЕВН», i.e. "nothing to add" for two names the map
+  does not hold. For an alias PROPOSAL the looser
+  `mapNameOpensWithClientWord` (`PA AERODROM` → «Аеродром») may be used, never
+  a one-slip guess: the patch used to re-parse suggestion STRINGS and emitted
+  `[/KAJ SKOPJE SEVER/iu, 'СВР Скопје - ЕИК']` — a police station as an alias for
+  a neighbourhood. Suggestions are typed (`Suggestion`) so a hint can never
+  become a write.
+## 4d. A NASELBA is an AREA, and the map's own settlement rows say so
+
+The offline map files a neighbourhood as an OSM settlement row (`suburb`,
+`neighbourhood`, `quarter`, `hamlet`, `village`, `locality`) pinned at its
+centroid: «Центар» [suburb], «Скопје Север» [suburb], «Карпош 3» [suburb].
+Reading one as a POI produced a tautology the owner caught: «KADE E CENTAR?» →
+«Центар се наоѓа во Центар» — `areaAt()` returns the settlement a point sits
+in, and a suburb's centroid sits in that suburb.
+
+- `isSettlementPlace(type)` in `src/handlers/inbound.ts` is the ONE class test
+  (the same shape as `isCityLevelPlace`); the row TYPE decides, never the name
+  (the map also carries «Centar Bar» and a bus station called «Скопје Север»).
+- `placeWhereAnswer` answers a settlement row as «<name> е населба во Скопје»
+  and keeps «се наоѓа во <quarter>» for a real landmark; the distance line to a
+  discussed property is unchanged.
+- The FEED is the area vocabulary (`Скопје Север` is one of its 15 locations),
+  so `detectLocation` hears it before any landmark binding — a naselba mention
+  banks `slots.location`, and no lane logs it as a place miss.
+- Pinned in `tests/naselba-not-a-landmark.test.ts` (class, map rows, the
+  tautology's e2e, the landmark that keeps its line, and "no miss is written").
+
 - A `K(...)` REGISTRY ROW IS A MARKER, NOT BACKLOG, AND THE AUDIT MUST SAY SO.
   Markers (`PRICE_EVAL_EXPENSIVE_UNWIRED`, `CHAIN_READY`, `EXIT_CHECK_REPEAT`)
   log and fall through; `routeLog` refuses to write a drift row for one, so a

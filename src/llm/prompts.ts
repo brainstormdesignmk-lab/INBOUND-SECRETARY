@@ -1382,8 +1382,33 @@ export function buildFeePerProperty(service: Service | undefined, count?: number
  * market names BOTH fees — never a defaulted 500 (the [09:0x] rule) — exactly
  * as buildFeePerProperty does for the arithmetic-only answer.
  */
-export function extendFeeAskForCount(copy: string, service: Service | undefined, count: number): string {
-  if (count <= 1) return copy;
+/** SEVERAL PROPERTIES MEANS SEVERAL OWNERS (the [06:33] field capture): the
+ *  rent disclosure ends «…за да можам да го исконтактирам сопственикот?» — one
+ *  owner, while the turn is about three flats and three sums. The client is
+ *  being asked to agree to contacting A LIST, so the closing question has to
+ *  say «да ги исконтактирам сопствениците». The bank's own wording is kept
+ *  verbatim (it is the perfected copy and rotates a dozen variants); only the
+ *  NUMBER of owners changes, which is the one fact a multi-flat visit adds.
+ *  The «го» before the owner verb is the object marker that has to become
+ *  «ги» — without it the plural noun reads as a typo. */
+export function pluralizeOwnerRefs(copy: string): string {
+  let out = copy;
+  // «да можам да го исконтактирам сопственикот», «да го ставам сопственикот
+  // во тек» — up to three words between the marker and the noun.
+  const marker = /(?<![\p{L}])(го|go)((?:\s+\p{L}+){1,3}\s+)(сопственикот|sopstvenikot)(?![\p{L}])/giu;
+  out = out.replace(marker, (_m, _go: string, between: string) => `ги${between}сопствениците`);
+  // …and every remaining reference (no object marker: «со сопственикот»,
+  // «кај сопственикот», «пред да заѕвонам кај сопственикот»).
+  out = out.replace(/(?<![\p{L}])(сопственикот|сопственик|sopstvenikot|sopstvenik)(?![\p{L}])/giu,
+    (m) => (/sopstven/i.test(m) ? 'sopstvenici' : m.endsWith('от') ? 'сопствениците' : 'сопственици'));
+  return out;
+}
+
+export function extendFeeAskForCount(served: string, service: Service | undefined, count: number): string {
+  if (count <= 1) return served;
+  // The one-flat disclosure's own sentence, re-read for a set of flats — one
+  // owner per property, so the closing ask names them in the plural.
+  const copy = pluralizeOwnerRefs(served);
   const mk = (n: number) => n.toLocaleString('mk-MK');
   const what = count === 2 ? 'двете недвижности' : `${count} недвижности`;
   const sum = service === 'rent'

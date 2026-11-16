@@ -22,8 +22,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadConfig } from '../src/config';
-import { OfflineMapStore } from '../src/geo/offlineMap';
-import { readPlaceMisses, placeMissKey, looksPlaceShaped } from '../src/store/placeMisses';
+import { OfflineMapStore, mapNameCoversClientWords, mapNameOpensWithClientWord } from '../src/geo/offlineMap';
+import { readPlaceMisses, placeMissKey, looksPlaceShaped, looksLikeProbeName } from '../src/store/placeMisses';
 import { Db } from '../src/store/db';
 import { SessionStore } from '../src/fsm/session';
 import { Classifier } from '../src/llm/classify';
@@ -41,24 +41,69 @@ import { LlmClient } from '../src/llm/types';
  *  the rows a human would most likely point the alias at (one-slip recovery
  *  first, then the name fragments). Empty when nothing plausible exists — an
  *  honest «no such place» is a valid outcome, not a failure of this tool. */
-function suggest(text: string, map?: OfflineMapStore): string[] {
+// TYPED, because the two uses are NOT the same claim: printing the likely rows
+// is a hint to a human, while the paste-ready alias line is a WRITE. The old
+// version flattened both into strings and the patch re-parsed them, so a
+// ONE-SLIP guess became an alias — «KAJ SKOPJE SEVER» (a naselba, the way the
+// extractor logs it) was offered as an alias to «СВР Скопје - ЕИК», a police
+// station, and «PA AERODROM» to «Аеродром» by a near-spelling. Only `row` (an
+// exact contains-row the map really holds) may become an alias.
+type Suggestion =
+  | { kind: 'now'; name: string; text: string }
+  | { kind: 'loose'; name: string; text: string }
+  | { kind: 'row'; name: string; text: string };
+
+/** The extractor's own opening preposition is not part of the name
+ *  («KAJ SKOPJE SEVER», «VO CENTAR», «OKOLU RAMPA»): the logged fragment kept
+ *  the word that introduced it, so the digest looks the name up WITHOUT it —
+ *  otherwise a preposition alone makes a neighbourhood read as a missing place. */
+const LEADING_OPENER = /^(?:kaj|кај|vo|во|na|на|do|до|okolu|околу|blizu|близу|kon|кон|sproti|спроти|nasproti|наспроти|niz|низ|od|од)\s+/iu;
+function withoutOpener(text: string): string {
+  return text.replace(LEADING_OPENER, '').trim();
+}
+
+function suggest(text: string, map?: OfflineMapStore): Suggestion[] {
   if (!map?.available) return [];
-  const out: string[] = [];
+  const out: Suggestion[] = [];
+  const bare = withoutOpener(text);
+  const forms = bare && bare.length > 2 && bare !== text ? [bare] : [];
   try {
-    const now = map.findPoiByName(text);
-    if (now) return [`resolves now → ${now.name}  (a bridge/alias covers it; no action needed)`];
+    // "RESOLVES NOW" IS A CONCLUSION, so it needs the coverage rule, not a bare
+    // fuzzy hit: `findPoiByName` always answers with its best guess, and
+    // «амбасадата» came back as a parking lot — reported as "no action needed"
+    // for a name the map genuinely does not hold. Same predicate as the audit.
+    for (const t of [text, ...forms]) {
+      const now = (map.findPoisByName(t, 8) ?? [])
+        .find(r => mapNameCoversClientWords(t, r.name));
+      if (now) {
+        const isArea = SETTLEMENT_TYPES.includes(String(now.type ?? '').toLowerCase());
+        return [{
+          kind: 'now',
+          name: now.name,
+          text: `resolves now → ${now.name}  (a bridge/alias covers it; no action needed)`
+            + (isArea ? '  — a NASELBA (the area, not the landmark)' : ''),
+        }];
+      }
+    }
   } catch { /* a suggestion may never break the digest */ }
   try {
     const loose = map.findPoiByNameLoose(text);
-    if (loose) out.push(`map row (one slip away) → ${loose.name}`);
+    if (loose) out.push({ kind: 'loose', name: loose.name, text: `map row (one slip away) → ${loose.name}` });
   } catch { /* ignore */ }
   try {
-    for (const r of map.findPoisByName(text, 3) ?? []) {
-      if (!out.some(l => l.includes(r.name))) out.push(`map row → ${r.name}`);
+    for (const t of [text, ...forms]) {
+      for (const r of map.findPoisByName(t, 5) ?? []) {
+        // The row must OPEN with a word the client said — a row that merely
+        // contains it is a coincidence, and this list feeds a WRITE.
+        if (!mapNameOpensWithClientWord(t, r.name)) continue;
+        if (!out.some(o => o.name === r.name)) out.push({ kind: 'row', name: r.name, text: `map row → ${r.name}` });
+      }
     }
   } catch { /* ignore */ }
   return out;
 }
+
+const SETTLEMENT_TYPES = ['suburb', 'neighbourhood', 'neighborhood', 'quarter', 'hamlet', 'village', 'locality'];
 
 // ── --sweep: THE CLASS-TAIL REPLAY ──────────────────────────────────────────
 // The [01:05] KAPITOL MOL family: a client who appends a CLASS WORD to a place
@@ -171,8 +216,11 @@ async function main(): Promise<void> {
   // A NAME BEFORE A PHRASE: the recorder logs every candidate the wish grammar
   // produced, so intent vocabulary («EDNA», «ZA KUPUVANJE SUM») sits at the top
   // of a raw ranking. It is named, never offered as an alias.
+  // LANE ORDER: a name the map lacks, then a probe (the sweeps' own
+  // «nepostoechko» row — never an alias candidate), then the noise phrase.
+  const laneRank = (t: string): number => (looksPlaceShaped(t) ? 2 : looksLikeProbeName(t) ? 1 : 0);
   const rows = labelled
-    .sort((a, b) => (looksPlaceShaped(b.text) ? 1 : 0) - (looksPlaceShaped(a.text) ? 1 : 0) || b.g.n - a.g.n)
+    .sort((a, b) => laneRank(b.text) - laneRank(a.text) || b.g.n - a.g.n)
     .slice(0, top)
     .map(l => [l.text, l.g] as const);
 
@@ -186,6 +234,10 @@ async function main(): Promise<void> {
   let intentRows = 0;
   for (const [text, g] of rows) {
     if (g.refused.length === 0) unresolved++;
+    if (looksLikeProbeName(text)) {
+      console.log(`  ${String(g.n).padStart(3)}×  «${text}»  — probe row written by a sweep, not a client's place`);
+      continue;
+    }
     if (!looksPlaceShaped(text)) {
       // Not a map gap: the extractor logged a request, not a name. Say so, so a
       // reader does not add an alias for «EDNA».
@@ -193,16 +245,42 @@ async function main(): Promise<void> {
       console.log(`  ${String(g.n).padStart(3)}×  «${text}»  — intent vocabulary, not a place name`);
       continue;
     }
-    const verdict = g.refused.length ? `refused row: ${g.refused.join(', ')}` : 'no such place on the map';
+    const hints = suggest(text, map);
+    // THE VERDICT IS THE MAP'S OWN ANSWER WHEN IT HAS ONE: printing «no such
+    // place on the map» above «resolves now → Скопје Север» contradicted the
+    // very next line and made a whole class of rows look like work.
+    const now = hints.find(h => h.kind === 'now');
+    const verdict = now
+      ? now.text
+      : g.refused.length
+        ? `refused row: ${g.refused.join(', ')}`
+        // A near name is NOT the name: the row holds a spelling the client did
+        // not type, so the miss is real and the suggestion below names the row.
+        : hints.length > 0 ? 'no exact row — the map has a near name (see below)'
+          : 'no such place on the map';
     console.log(`  ${String(g.n).padStart(3)}×  «${text}»  — ${verdict}`);
-    for (const s of suggest(text, map)) console.log(`       ↳ ${s}`);
+    for (const s of hints.filter(h => h.kind !== 'now')) console.log(`       ↳ ${s.text}`);
   }
   const intentSeen = labelled.filter(l => !looksPlaceShaped(l.text)).length;
   // COUNCIL ONLY NAMES: an intent phrase with no refused row is not a name the
   // map lacks, so it must not inflate the "add these" count.
-  const noRow = labelled.filter(l => l.g.refused.length === 0 && looksPlaceShaped(l.text)).length;
+  // A group the map binds TODAY is history, not work: count it apart, or the
+  // "add these" number stays inflated by names that already resolve (the
+  // [23:0x] NASELBA rows — «центар», «скопје север»).
+  const resolvesNowCount = labelled.filter(l =>
+    !looksLikeProbeName(l.text) && looksPlaceShaped(l.text)
+    && suggest(l.text, map).some(h => h.kind === 'now')).length;
+  const noRow = labelled.filter(l => l.g.refused.length === 0 && looksPlaceShaped(l.text)
+    && !suggest(l.text, map).some(h => h.kind === 'now')).length;
   const refusedCount = labelled.filter(l => l.g.refused.length > 0 && looksPlaceShaped(l.text)).length;
+  const probeSeen = labelled.filter(l => looksLikeProbeName(l.text)).length;
+  if (probeSeen > 0) {
+    console.log(`${probeSeen} group(s) are probe rows the sweeps wrote on purpose — excluded from the alias candidates.`);
+  }
   console.log(`\n${noRow} distinct name(s) the map does not hold; ${refusedCount} were found and refused.`);
+  if (resolvesNowCount > 0) {
+    console.log(`${resolvesNowCount} group(s) resolve on TODAY's map — historical rows (or a landed bridge), nothing to add.`);
+  }
   if (intentSeen > 0) {
     console.log(`${intentSeen} of the ${groups.size} groups are intent/quantity vocabulary from the wish grammar` +
       ` (${intentRows} shown in this top ${top}) — an instrument noise row, never an alias candidate.`);
@@ -212,9 +290,11 @@ async function main(): Promise<void> {
       .filter(([text, g]) => g.refused.length === 0 && looksPlaceShaped(text))
       .map(([text]) => {
         // ONLY a real candidate row becomes a paste line — a «resolves now»
-        // group needs no alias at all (its bridge already landed).
-        const hit = suggest(text, map).find(l => l.startsWith('map row'));
-        const row = hit?.split('→ ')[1]?.trim();
+        // group needs no alias at all (its bridge already landed), and a
+        // ONE-SLIP guess is a hint, never a write (see Suggestion).
+        const hints = suggest(text, map);
+        if (hints.some(h => h.kind === 'now')) return '';
+        const row = hints.find(h => h.kind === 'row')?.name;
         if (!row) return '';
         return `  [/${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/iu, '${row}'],`;
       })

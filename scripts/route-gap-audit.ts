@@ -29,7 +29,30 @@ import '../src/compat/node16';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tagStatus } from '../src/handlers/router';
-import { readPlaceMisses, groupPlaceMisses, looksPlaceShaped, type PlaceMissGroup } from '../src/store/placeMisses';
+import { readPlaceMisses, groupPlaceMisses, type PlaceMissGroup } from '../src/store/placeMisses';
+import { OfflineMapStore, mapNameCoversClientWords } from '../src/geo/offlineMap';
+import { loadConfig } from '../src/config';
+
+/** THE MAP AS IT IS TODAY, for the "does this name bind now?" half of the
+ *  digest. A miss row is HISTORY: it says a turn failed on that day. If the
+ *  SAME name resolves against today's map (`центар`, `скопје север` — both
+ *  NASELBAS — were recorded before the resolver learned them), it is not a gap
+ *  the operator can close, and listing it beside `црногорска амбасада` makes
+ *  the map-gap list lose its reader.
+ *
+ *  The lookup is not a bare fuzzy hit: `findPoiByName` always returns its best
+ *  guess, so a junk fragment («амбасадата») would "resolve" to some unrelated
+ *  row («Паркинг на амбасадата на САД»). The row must COVER the client's words
+ *  (`mapNameCoversClientWords`), which is the resolver's own coverage rule. */
+function todayBinding(text: string, map?: OfflineMapStore): { name: string; type?: string } | undefined {
+  if (!map?.available) return undefined;
+  try {
+    for (const row of map.findPoisByName(text, 8) ?? []) {
+      if (mapNameCoversClientWords(text, row.name)) return { name: row.name, type: row.type };
+    }
+  } catch { /* a probe may never break the audit */ }
+  return undefined;
+}
 
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
@@ -141,6 +164,20 @@ const residualRows = rows.filter(r => r.status === 'residual');
 // top-level await (tsx refuses it in the cjs output format).
 void readPlaceMisses({ days }).then((misses) => {
 const placeMissTop: PlaceMissGroup[] = groupPlaceMisses(misses);
+// The name the map binds TODAY for each place-shaped group (see todayBinding).
+let placeMap: OfflineMapStore | undefined;
+try { placeMap = new OfflineMapStore(loadConfig().skopjePoisDb); } catch { placeMap = undefined; }
+const bound = new Map<string, { name: string; type?: string }>();
+for (const m of placeMissTop) {
+  if (m.lane !== 'place') continue;
+  const hit = todayBinding(m.text, placeMap);
+  if (hit) bound.set(m.text, hit);
+}
+const stillUnknown = placeMissTop.filter(m => m.lane === 'place' && !bound.has(m.text));
+const resolvesNow = placeMissTop
+  .filter(m => m.lane === 'place' && bound.has(m.text))
+  .map(m => ({ ...m, resolvesAs: bound.get(m.text)!.name, resolvesType: bound.get(m.text)!.type }));
+placeMap?.close();
 
 const report = { days, files: files.length, damagedLines: damaged, turns: logged,
   comparedTurns: compared, mirroredPct,
@@ -154,8 +191,16 @@ const report = { days, files: files.length, damagedLines: damaged, turns: logged
     unique: placeMissTop.length,
     // The JSON carries the FULL lists (the text digest truncates and points
     // here); a truncated machine view is a false "that was all of it".
-    placeShaped: placeMissTop.filter(m => looksPlaceShaped(m.text)),
-    noise: placeMissTop.filter(m => !looksPlaceShaped(m.text)),
+    placeShaped: stillUnknown,
+    // A name the map binds today — nothing for the operator to add. The TYPE is
+    // carried because a settlement row (`suburb`) is a NASELBA: an area the
+    // funnel asks about, never a landmark or an alias target.
+    resolvesNow,
+    noise: placeMissTop.filter(m => m.lane === 'intent'),
+    // PROBE ROWS ARE NOT RESOLVER FACTS (see PLACE_MISS_PROBE_WORDS): the sweep
+    // scripts write «NEPOSTOECHKO MESTO XYZ» on purpose. They are reported in
+    // their own list so an operator never reads them as places to learn.
+    probes: placeMissTop.filter(m => m.lane === 'probe'),
   } };
 
 if (asJson) {
@@ -178,11 +223,12 @@ if (asJson) {
     console.log(`    ${String(r.gap + r.drift).padStart(6)}  ${r.tag} :: ${r.samples[0] ?? ''}`);
   }
   if (misses.length > 0) {
-    const shaped = placeMissTop.filter(m => looksPlaceShaped(m.text));
-    const noise = placeMissTop.filter(m => !looksPlaceShaped(m.text));
+    const shaped = stillUnknown;
+    const noise = placeMissTop.filter(m => m.lane === 'intent');
+    const probes = placeMissTop.filter(m => m.lane === 'probe');
     const noiseRows = noise.reduce((n, m) => n + m.turns, 0);
     console.log(`  place misses (the extractor heard it, the map could not place it — ${misses.length} rows, ${placeMissTop.length} distinct):`);
-    console.log(`    place-shaped (a name the map does not know — THE map-gap list): ${shaped.length} distinct`);
+    console.log(`    place-shaped (a name the map does NOT know today — THE map-gap list): ${shaped.length} distinct`);
     for (const m of shaped.slice(0, 20)) {
       // `refused` in the row is what the MAP OFFERED and the guard turned down
       // (placeMisses.ts) — not a refusal by the map. Saying "refused" here read
@@ -192,12 +238,31 @@ if (asJson) {
       console.log(`    ${String(m.turns).padStart(6)}  ${m.text}${refused}`);
     }
     if (shaped.length > 20) console.log(`    … ${shaped.length - 20} more (--json for the full list)`);
+    if (resolvesNow.length > 0) {
+      // HISTORY, NOT A GAP: the row was logged on a day the resolver could not
+      // place the name; today's map binds it. A settlement row is called out as
+      // the NASELBA it is, so nobody adds an alias for a neighbourhood.
+      console.log(`    resolves NOW (the map binds these today — historical rows, nothing to add): ${resolvesNow.length} distinct`);
+      for (const m of resolvesNow.slice(0, 12)) {
+        const kind = String(m.resolvesType ?? '').toLowerCase();
+        const isArea = ['suburb', 'neighbourhood', 'neighborhood', 'quarter', 'hamlet', 'village', 'locality'].includes(kind);
+        console.log(`    ${String(m.turns).padStart(6)}  ${m.text}  → ${m.resolvesAs} [${m.resolvesType ?? '?'}]`
+          + (isArea ? '  — a NASELBA (an area, not a landmark)' : ''));
+      }
+      if (resolvesNow.length > 12) console.log(`    … ${resolvesNow.length - 12} more (--json for the full list)`);
+    }
     // The recorder logs every candidate the place-wish extractor produced, so
     // intent vocabulary («sakam da kupam stan», «dve sobi») is in the same file.
     // Named, never ranked: presenting those as map gaps is how a digest loses
     // its reader.
     console.log(`    NOT place-shaped (intent/quantity vocabulary — an instrument noise row, not a map gap): ${noise.length} distinct, ${noiseRows} rows`);
     for (const m of noise.slice(0, 5)) console.log(`    ${String(m.turns).padStart(6)}  ${m.text}`);
+    if (probes.length > 0) {
+      // Not a gap either: the sweeps ask for a place they know does not exist.
+      const probeRows = probes.reduce((n, m) => n + m.turns, 0);
+      console.log(`    PROBE rows (a sweeps' own «nepostoechko» name — excluded from the map-gap list): ${probes.length} distinct, ${probeRows} rows`);
+      for (const m of probes.slice(0, 5)) console.log(`    ${String(m.turns).padStart(6)}  ${m.text}`);
+    }
   } else {
     console.log(`  place misses: none in the last ${days} days`);
   }

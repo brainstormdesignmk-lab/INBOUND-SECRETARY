@@ -94,10 +94,23 @@ export async function flushPlaceMisses(): Promise<void> {
   await Promise.allSettled([...pending]);
 }
 
-/** Fire-and-forget append with a per-(chat,text) hourly dedupe. Never throws. */
+/** Fire-and-forget append with a per-(chat,text) hourly dedupe. Never throws.
+ *
+ *  THE WRITER REFUSES A ROW THAT NAMES NO PLACE. The place-wish grammar hands
+ *  the resolver phrases as well as names («sakam da kupam stan», «edna», «drugi
+ *  opcii») and every failed candidate was written down; over the field corpus
+ *  that was 82% of the file, so the digest spent its ranking on intent
+ *  vocabulary and the real gaps (`црногорска амбасада`) sat beside them. The
+ *  rule here is the CONSERVATIVE half of `looksPlaceShaped`: a row is refused
+ *  only when EVERY word is request/quantity vocabulary (it names nothing at
+ *  all) or the row is a probe. A mixed phrase («MADJAR MAALO SO DVE») is still
+ *  written — the place in it is exactly what the digest must look up in the
+ *  map (the map's own spelling is «Маџир Маало»), and the report-side triage
+ *  already ranks it. Losing a real gap is worse than one noisy row. */
 export function recordPlaceMiss(miss: Omit<PlaceMiss, 'text'> & { text: string }): void {
   const text = (miss.text ?? '').trim().slice(0, MAX_TEXT);
   if (!text || text.length < 3) return;
+  if (namesNoPlace(text)) return;
   const tuple = `${miss.chatId}|${text}`;
   const at = lastWrite.get(tuple);
   if (at !== undefined && miss.at - at < DEDUPE_TTL_MS) return;
@@ -148,6 +161,25 @@ export interface PlaceMissGroup {
   /** What the map OFFERED and the guard turned down (see `PlaceMiss.refused`). */
   refused?: string;
   turns: number;
+  /** Which lane the row belongs to: a name the map does not know, a request
+   *  phrase that names nothing, or a probe the sweeps wrote. */
+  lane: 'place' | 'intent' | 'probe';
+}
+
+/** A PROBE NAME IS NOT A MAP GAP (the field corpus carries `NEPOSTOECHKO MESTO
+ *  XYZ` 369 times — the sweep script's own `непостоечко` = "nonexistent"). A
+ *  client never names a place by saying it does not exist, so the digest keeps
+ *  these in their own lane instead of counting them as unknown places the map
+ *  should learn. */
+export const PLACE_MISS_PROBE_WORDS: readonly string[] = [
+  'nepostoechko', 'непостоечко', 'nepostoechko', 'nonexistent', 'nonexisting',
+  'qwerty', 'asdf', 'asdfgh', 'dummy', 'probe', 'xyz',
+];
+const PROBE = new Set(PLACE_MISS_PROBE_WORDS);
+
+/** True when the row is a probe/synthetic name, not a client's place. */
+export function looksLikeProbeName(text: string): boolean {
+  return wordsOf(text).some(w => PROBE.has(w));
 }
 
 /** IS THIS ROW A PLACE THE MAP COULD NOT PLACE, OR AN INTENT PHRASE?
@@ -228,8 +260,18 @@ export function looksPlaceShaped(text: string): boolean {
   const raw = wordsOf(text);
   if (raw.length === 0 || raw.length > 4) return false;
   if (/\d/u.test(text)) return false;
+  if (looksLikeProbeName(text)) return false;
   const words = [...raw, ...placeMissKey(text).split(' ').filter(Boolean)];
   return !words.some(isIntentWord);
+}
+
+/** Does this text name NOTHING but request/quantity words (or a probe)? The
+ *  writer's guard — see `recordPlaceMiss`. Both scripts are checked, exactly as
+ *  in `looksPlaceShaped`, so «PRODAZBA» cannot slip through as a place. */
+export function namesNoPlace(text: string): boolean {
+  if (looksLikeProbeName(text)) return true;
+  const words = [...wordsOf(text), ...placeMissKey(text).toLowerCase().split(' ').filter(Boolean)];
+  return words.length > 0 && words.every(isIntentWord);
 }
 
 /** Grouped by (folded text, folded offered name), labelled with the most common
@@ -250,7 +292,12 @@ export function groupPlaceMisses(misses: readonly Pick<PlaceMiss, 'text' | 'refu
   for (const g of groups.values()) {
     let best = '', bestN = -1;
     for (const [s, n] of g.spell) if (n > bestN) { best = s; bestN = n; }
-    out.push({ text: best, refused: g.refused, turns: g.turns });
+    out.push({
+      text: best,
+      refused: g.refused,
+      turns: g.turns,
+      lane: looksLikeProbeName(best) ? 'probe' : looksPlaceShaped(best) ? 'place' : 'intent',
+    });
   }
   return out.sort((a, b) => b.turns - a.turns);
 }

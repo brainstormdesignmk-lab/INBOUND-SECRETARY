@@ -1899,6 +1899,43 @@ export function detectMultiVisitIntent(text: string): boolean {
   return false;
 }
 
+/** THE FLATS THE CLIENT NAMED, in his own order — the ones a plural visit is
+ *  ABOUT.
+ *
+ *  THE [06:33] CAPTURE: «BI GI POSETIL 57 I 59 AKO SE SLOBODNI» was answered
+ *  with «Посетата е за становите со Евидентни броеви 57, 42 и 59 … За 3
+ *  недвижности тоа е вкупно 900 денари» — two flats asked for, three served,
+ *  and a fee for a visit nobody requested. The visit set was built from ALL the
+ *  cards on the table (`currentBatch` + `presentedIds`), so a client who picks
+ *  the two he wants pays for the pair's partner as well.
+ *
+ *  Only numbers that are ON SCREEN count as a named flat: the same digits in
+ *  «до 200 000 евра» or «72 м2» are a quantity, and a number matching no card
+ *  (a phone, a year) names nothing the visit could be for. The unit beside the
+ *  figure decides that, and a bare «57 и 59» between a visit verb is the
+ *  numbering the client actually reads off the cards. */
+export function namedVisitEbs(text: string, shown: readonly number[]): number[] {
+  const live = new Set(shown.filter(n => Number.isFinite(n) && n > 0));
+  if (live.size === 0) return [];
+  const out: number[] = [];
+  for (const m of text.matchAll(/(?<![\p{N}])(\d{1,5})(?![\p{N}])/gu)) {
+    const n = Number(m[1]);
+    if (!live.has(n) || out.includes(n)) continue;
+    const at = m.index ?? 0;
+    const before = text.slice(Math.max(0, at - 24), at);
+    const after = text.slice(at + m[1]!.length, at + m[1]!.length + 24);
+    // A FIGURE WITH A UNIT (OR A CLOCK) IS NOT AN EB.
+    if (/^\s*(?:евра|evra|€|денари|denari|денарот|м2|м²|m2|m²|квадрат\p{L}*|kvadrat\p{L}*|спалн\p{L}*|sobi|соби|соба|кат\p{L}*|:\d)/iu.test(after)) continue;
+    if (/(?:евра|evra|€|денари|denari|квадрат\p{L}*|kvadrat\p{L}*|спалн\p{L}*|sobi|соби)\s*$/iu.test(before)) continue;
+    if (/[:\d.,]\s*$/u.test(before)) continue;
+    // A THOUSANDS GROUP IS ONE BIGGER FIGURE, not an EB followed by one:
+    // «57 000 евра» is a price whose first group happens to equal a card.
+    if (/^\s\d{3}(?!\d)/u.test(after)) continue;
+    out.push(n);
+  }
+  return out;
+}
+
 /** True when the client asks for MORE OF THE SAME, near (or instead of) what
  *  he has just been shown — «НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО ?» (the [21:05]
  *  capture). The word «слично» is the client's own "similar to the offer", so

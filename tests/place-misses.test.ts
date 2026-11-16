@@ -8,7 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   recordPlaceMiss, readPlaceMisses, flushPlaceMisses, setPlaceMissDir,
-  groupPlaceMisses, looksPlaceShaped, placeMissKey,
+  groupPlaceMisses, looksPlaceShaped, looksLikeProbeName, namesNoPlace, placeMissKey,
 } from '../src/store/placeMisses';
 
 test('a miss is recorded once per hour and read back in order', async () => {
@@ -79,4 +79,58 @@ test('an intent phrase is not a map gap, and a real name is never mistaken for o
   for (const t of shaped) assert.equal(looksPlaceShaped(t), true, `«${t}» is a name the map must learn`);
   // Digits are identity, never a place name (the map's own soundKey rule).
   assert.equal(looksPlaceShaped('Бит Пазар 1'), false);
+});
+
+// ── THE WRITER REFUSES WHAT NAMES NOTHING ──────────────────────────────────
+// The report side can label intent rows, but the file still grew by ~18k of
+// them. The recorder is where the noise is created, so the rule lives there
+// too — and it is the CONSERVATIVE half: a row is dropped only when EVERY word
+// is request/quantity vocabulary (or the row is a probe). A mixed phrase keeps
+// its place word, which is exactly what the digest must look up in the map.
+
+test('the recorder drops a row that names nothing at all', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'place-misses-'));
+  setPlaceMissDir(dir);
+  const at = Date.now();
+  // Pure request/quantity phrases — the wish grammar's own tails.
+  recordPlaceMiss({ at, chatId: 'c1', text: 'EDNA' });
+  recordPlaceMiss({ at: at + 1, chatId: 'c1', text: 'SAKAM DA KUPAM STAN' });
+  recordPlaceMiss({ at: at + 2, chatId: 'c1', text: 'ZA KUPUVANJE SUM' });
+  recordPlaceMiss({ at: at + 3, chatId: 'c1', text: 'DRUGI OPCII' });
+  recordPlaceMiss({ at: at + 4, chatId: 'c1', text: 'NEBITNO' });
+  recordPlaceMiss({ at: at + 5, chatId: 'c1', text: 'DVE SOBI' });
+  // Probes the sweeps write on purpose.
+  recordPlaceMiss({ at: at + 6, chatId: 'c1', text: 'NEPOSTOECHKO MESTO XYZ' });
+  recordPlaceMiss({ at: at + 7, chatId: 'c1', text: 'NEPOSTOECHKO' });
+  // …and one real gap, which must survive.
+  recordPlaceMiss({ at: at + 8, chatId: 'c1', text: 'црногорска амбасада' });
+  // A MIXED phrase is a gap (the place word is in it: the map spells it
+  // «Маџир Маало», so the client's «маџар маало» is a real alias to learn).
+  recordPlaceMiss({ at: at + 9, chatId: 'c1', text: 'MADJAR MAALO SO DVE' });
+  await flushPlaceMisses();
+
+  const texts = (await readPlaceMisses()).map(r => r.text).sort();
+  assert.deepEqual(texts, ['MADJAR MAALO SO DVE', 'црногорска амбасада'].sort(),
+    `only rows that name something may be written, got ${texts.join(' | ')}`);
+  // The predicates the recorder uses, pinned directly.
+  assert.equal(namesNoPlace('EDNA'), true);
+  assert.equal(namesNoPlace('SAKAM DA KUPAM STAN'), true);
+  assert.equal(namesNoPlace('ПРОВИЗИЈАТА НЕ ЈА ПРИФАЌАМ'), false, 'a sentence with real words is not "nothing"');
+  assert.equal(namesNoPlace('црногорска амбасада'), false);
+  assert.equal(looksLikeProbeName('NEPOSTOECHKO MESTO XYZ'), true);
+  assert.equal(looksLikeProbeName('Црногорска амбасада'), false);
+});
+
+test('the digest files a probe row in its own lane, never as a map gap', () => {
+  const groups = groupPlaceMisses([
+    ...Array(62).fill({ text: 'NEPOSTOECHKO MESTO XYZ' }),
+    ...Array(5).fill({ text: 'црногорска амбасада' }),
+    ...Array(8).fill({ text: 'EDNA' }),
+  ]);
+  const lane = (t: string) => groups.find(g => g.text === t)?.lane;
+  assert.equal(lane('NEPOSTOECHKO MESTO XYZ'), 'probe', 'a name that means "nonexistent" is not a map gap');
+  assert.equal(lane('црногорска амбасада'), 'place');
+  assert.equal(lane('EDNA'), 'intent');
+  assert.equal(looksPlaceShaped('NEPOSTOECHKO MESTO XYZ'), false,
+    'the shape rule must keep the probe out of the map-gap list too');
 });
