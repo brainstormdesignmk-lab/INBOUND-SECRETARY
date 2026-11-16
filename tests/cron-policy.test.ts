@@ -29,6 +29,8 @@ import {
   violations,
   missingSync,
   installedSync,
+  scheduledRosterWriters,
+  ROLE_POLICY,
   BOOT_MARKER,
 } from '../scripts/cron-policy';
 
@@ -136,6 +138,43 @@ test('an empty crontab stays empty (no stray blank lines)', () => {
   assert.equal(stripForbidden('\n\n').text, '');
   const onlyMapJobs = stripForbidden(FORBIDDEN_HISTORY.slice(0, 4).join('\n') + '\n').text;
   assert.equal(onlyMapJobs, '', 'everything removed leaves a genuinely empty crontab');
+});
+
+// ── THE ROLE CHECK (`--role atom`) ─────────────────────────────────────────
+// An atom is a READER for everything derived from the map. A scheduled roster
+// writer on an atom would rank its OWN map copy and overwrite the master's
+// audited lists, so it must be reported as a violation that NAMES the role —
+// "no crons" is the wrong explanation for it.
+
+const ROSTER_JOB = '0 4 * * 2 cd /home/atom/Documents/PROJECTS/LINA && npx tsx src/scripts/hermesLandmarks.ts --feed >> logs/landmarks.log 2>&1';
+const BACKFILL_JOB = '15 3 * * * cd /srv/app && npx tsx scripts/backfill-geo.ts';
+
+test('a scheduled roster writer is a map-derived WRITER, not a generic job', () => {
+  const found = scheduledRosterWriters([ROSTER_JOB, BACKFILL_JOB, PRICE_SYNC, BOOT].join('\n'));
+  assert.deepEqual(found.map(l => l.raw), [ROSTER_JOB, BACKFILL_JOB]);
+  assert.ok(!found.some(l => l.raw.includes('hermes-price')), 'the owner sync is NOT a roster writer');
+});
+
+test('a roster writer is forbidden as a SCHEDULE on every host, in any spelling', () => {
+  for (const line of [
+    ROSTER_JOB,
+    '0 4 * * * npx tsx src/scripts/hermes-landmarks.ts --feed',
+    '0 4 * * * npx tsx src/scripts/hermesLandmarks.ts --dry-run',
+  ]) {
+    assert.equal(classifyCronLine(line).kind, 'forbidden', line);
+  }
+  // …and the owner sync stays 'sync' even though both contain "hermes".
+  assert.equal(classifyCronLine(PRICE_SYNC).kind, 'sync');
+});
+
+test('a PARKED roster writer is not counted as scheduled (nothing runs)', () => {
+  assert.deepEqual(scheduledRosterWriters('# ' + ROSTER_JOB + '\n' + PRICE_SYNC), []);
+});
+
+test('the role policy says who owns what, in the refusal path', () => {
+  assert.match(ROLE_POLICY, /MASTER/);
+  assert.match(ROLE_POLICY, /READER/);
+  assert.match(ROLE_POLICY, /owner sync/);
 });
 
 test('crontab classification covers active, parked and unrecognised lines', () => {

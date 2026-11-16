@@ -4795,6 +4795,11 @@ export class InboundHandler {
       return;
     }
     let session = this.deps.sessions.get(chatId) ?? freshSession(channel, chatId);
+    // A «ДА» THAT ANSWERS THE PIVOT QUESTION IS NOT OPTIONS-CONSENT (the
+    // [00:47] capture): the pendingPivot branch sets this, and the
+    // exhausted-escape — which otherwise reads any agreement over an empty pool
+    // as "contact me" — stands down for the turn. See the escape's guard.
+    let pivotConfirmed = false;
     // A SESSION STORED BEFORE THE CITY VETO CAN HOLD A CITY AS ITS ANCHOR (the
     // [09:50] capture): the row «Скопје» was bound as a landmark and its
     // centroid derived a district, so the poisoned session would keep measuring
@@ -11819,6 +11824,16 @@ export class InboundHandler {
           session.slots.pairEmptySaid = undefined;
           session.slots.ladderQueue = undefined;
           session.slots.ladderKey = undefined;
+          // THIS TURN ANSWERS THE PIVOT QUESTION, NOT THE FEE (the [00:47]
+          // replay). The same two flats that ranked from Лептокарија also sit
+          // near Сити Мол, so the new anchor's fresh pool is EMPTY — and the
+          // exhausted-escape below then read «NORMALNO» as consent to be
+          // contacted: contact collection opened and the client never saw what
+          // is near the place he moved to. The flag tells that escape this
+          // agreement belongs to a place question; the anchored serve owns the
+          // turn (and re-serves the already-shown flats when they are what is
+          // near the new place — never a repeat from the OLD anchor).
+          pivotConfirmed = true;
           // A confirmed place is the same promotion a place named outright
           // gets: the next serve is the pair nearest THAT point.
           if (ev.type === 'STAY' && this.slotsComplete(session)) {
@@ -13474,6 +13489,13 @@ export class InboundHandler {
     // agreement message must move to contact collection, never loop the same
     // exhausted line. (Runs after the state transition above.)
     if (next === 'presentation' && props.length === 0 && detectAgreement(text)
+        // …AND THE TURN THAT JUST CONFIRMED A PIVOT ANSWERS ITS OWN QUESTION
+        // (the [00:47] replay): «NORMALNO» agreed to «да барам истите
+        // критериуми околу Сити Мол?», not to be handed to the owner. The
+        // pool near the new place can be empty simply because those same flats
+        // were already shown; that is a geography answer, never contact
+        // collection.
+        && !pivotConfirmed
         // PROPERTY CHOICE is not agreement (the [00:06] burst): "E OVOJ MOZE"
         // picks a flat from the batch on screen; treating it as exhausted-
         // options consent jumped to contact collection with the FEE NEVER

@@ -178,9 +178,16 @@ test('[22:25] the distance question is answered with the measured distance to th
   // THE NUMBER: measured from the property's REAL point, not the raw feed
   // column. This fixture's google_cached pin (41.9993,21.4213) is 485 m from
   // the mapped building on the street, so the lane resolves the building
-  // first (Владимир Полежиновски 23а, 41.99834/21.41558 — the pin the row is
-  // actually repaired to) and measures from there: 352 m to the mall.
-  assert.match(answer, /на 3[45]0 метри/, `the measured distance, rounded to 10 m: ${answer}`);
+  // first (Владимир Полежановски 23а, 41.99834/21.41558 — the pin the row is
+  // actually repaired to) and measures from there: ~400 m to the mall.
+  //
+  // TWO ROWS CARRY THE NAME (the November map): the marketplace itself
+  // (41.99887,21.42041 → 403 m, served) and the bus stop named after it
+  // (41.99902,21.41974 → 353 m). Which one the name lookup returns is a
+  // ranking detail that may change with a sweep, so the expectation pins the
+  // MEASUREMENT — either of the map's two Бunjakovec points, rounded to 10 m —
+  // and never the raw pin's ~90 m, which is what the bug answered.
+  assert.match(answer, /на (?:350|400) метри/, `the measured distance, rounded to 10 m: ${answer}`);
   assert.match(answer, /од недвижноста/, `it is stated as a distance FROM the property: ${answer}`);
   // The three wrong answers this capture produced are gone.
   assert.ok(!/купување или|изнајмување|Ве интересира/.test(answer),

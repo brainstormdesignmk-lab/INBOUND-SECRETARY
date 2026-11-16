@@ -35,6 +35,7 @@ import { OfflineMapStore } from '../geo/offlineMap';
 import { EventStore } from '../store/events';
 import { PropertyService, FeedLandmark } from '../data/properties';
 import { pullWork, pushLandmarks, LandmarkCandidate } from '../hermes/client';
+import { assertFeedWrite, resolveHostRole, FeedWriteRefused } from '../feed/writePolicy';
 
 const SYSTEM_PROMPT = `Ти си Хермес, агентот за локации на агенцијата за недвижности Метрополис. Добиваш адреса на имот и треба да ја именуваш НАЈБЛИСКАТА јавна знаменитост — место што секретарката може да го спомене на клиент како приближна локација („во близина на …"), за да не ја открие точната адреса.
 
@@ -301,6 +302,27 @@ async function main(): Promise<void> {
     const pushUrl = cfg.hermesLandmarksWriteUrl;
     if (!pushUrl) console.log('[hermes-landmarks] HERMES_LANDMARKS_WRITE_URL not set — REPORT MODE (nothing pushed).');
     else if (dryRun) console.log('[hermes-landmarks] --dry-run: reporting candidates, nothing written.');
+
+    // THE SINGLE-WRITER GATE (src/feed/writePolicy.ts): the roster IS the map
+    // ranked, so only the box that authored the map may write it. An atom holds
+    // a COPY — it would rank against a different artifact, and its write would
+    // be indistinguishable from a correct one while overwriting the master's
+    // audited list. Refuse BEFORE ranking anything (the pass is not cheap).
+    // Only a real write is gated: --dry-run and REPORT mode stay usable on any
+    // host, because reading the map to print what you WOULD write changes nothing.
+    if (pushUrl && !dryRun) {
+      const host = resolveHostRole({ mapPath: cfg.skopjePoisDb });
+      try {
+        assertFeedWrite('landmarks:roster', host.role);
+      } catch (e) {
+        if (!(e instanceof FeedWriteRefused)) throw e;
+        console.error(e.message);
+        console.error('[hermes-landmarks] nothing written.');
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`[hermes-landmarks] feed writer: role=${host.role} (${host.why})`);
+    }
 
     const props = new PropertyService(cfg.propertyDataUrl);
     const all = await props.getAll();

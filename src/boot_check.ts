@@ -74,7 +74,12 @@ export function bootChecks(cfg: AppConfig): CheckResult[] {
         detail: `${s?.pois ?? 0} POIs / ${s?.addresses ?? 0} addresses [db:${sum}] (${cfg.skopjePoisDb})` });
     } else {
       out.push({ name: 'map', ok: false, critical: true,
-        detail: `cannot open ${cfg.skopjePoisDb} — landmarks fall back to live OSM (slow, less accurate). Run: npm run map:pull` });
+        // `map:pull` used to be the remedy here. It rebuilt the map from OSM ONLY
+        // — no Google layer — and wrote it over whatever SKOPJE_POIS_DB names,
+        // so "fixing" a missing map DESTROYED the authoritative one. The map is
+        // an artifact of the maps-realestate repo now (tracked in git, verified
+        // by `npm run map:verify` there); this repo never builds one.
+        detail: `cannot open ${cfg.skopjePoisDb} — landmarks fall back to live OSM (slow, less accurate). The map is built and shipped by maps-realestate: point SKOPJE_POIS_DB at that checkout's data/skopje-pois.db (verify it there with \`npm run map:verify\`)` });
     }
   } catch (e) {
     out.push({ name: 'map', ok: false, critical: true, detail: `error opening map db: ${(e as Error).message}` });

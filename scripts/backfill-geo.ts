@@ -33,6 +33,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { assessGeocode, extractGeocodeEvidence, type GeocodeEvidence } from '../src/geo/geocodeGuard';
+import { assertFeedWrite, resolveHostRole, FeedWriteRefused } from '../src/feed/writePolicy';
 
 // Load env from ~/.lina/lina.env
 dotenv.config({ path: path.join(os.homedir(), '.lina', 'lina.env') });
@@ -175,6 +176,22 @@ async function initOfflineMap(): Promise<void> {
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
   console.log('=== backfill-geo: one-time geocode backfill ===\n');
+
+  // SINGLE-WRITER GATE (src/feed/writePolicy.ts): this PATCHes properties.lat /
+  // lon / geo_source — the property CENTER, which is measured against the
+  // authoritative map. An atom holds a copy, so it would measure the same street
+  // against a different artifact and overwrite the audited center. Refuse before
+  // it spends a single geocode.
+  const host = resolveHostRole({ mapPath: process.env.SKOPJE_POIS_DB || undefined });
+  try {
+    assertFeedWrite('geo:center', host.role);
+  } catch (e) {
+    if (!(e instanceof FeedWriteRefused)) throw e;
+    console.error(e.message);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`  feed writer: role=${host.role} (${host.why})\n`);
 
   if (SERPAPI_KEYS.length === 0) {
     console.warn('⚠ No SerpApi key found — will use offlineMap fallback only');
