@@ -196,7 +196,7 @@ async function main(): Promise<void> {
   // digest reads like the clients' own words.
   const labelled = groupPlaceMisses(misses).map(g => ({
     text: g.text,
-    g: { n: g.turns, refused: g.refused ? [g.refused] : [], lane: g.lane },
+    g: { n: g.turns, refused: g.refused ? [g.refused] : [], lane: g.lane, said: g.said },
   }));
   // A NAME BEFORE A PHRASE: the recorder logs every candidate the wish grammar
   // produced, so intent vocabulary («EDNA», «ZA KUPUVANJE SUM») sits at the top
@@ -244,6 +244,14 @@ async function main(): Promise<void> {
         : hints.length > 0 ? 'no exact row — the map has a near name (see below)'
           : 'no such place on the map';
     console.log(`  ${String(g.n).padStart(3)}×  «${text}»  — ${verdict}`);
+    // WHICH LINE PRODUCED IT (PlaceMiss.said): a phrase alone cannot be
+    // triaged — «зулуфтар» looked like a neighbourhood nobody could place, and
+    // the client's own line (a harness fixture, as it turned out) is what tells
+    // an unknown PLACE from an unknown WORD. Rows written before the field
+    // existed say so instead of pretending.
+    console.log(g.said
+      ? `       ↳ heard in: «${g.said}»`
+      : '       ↳ heard in: — not captured (the row predates attribution)');
     for (const s of hints.filter(h => h.kind !== 'now')) console.log(`       ↳ ${s.text}`);
   }
   const namedGroups = distinctPlaceMissNames(labelled.map(l => ({ text: l.text, turns: l.g.n, g: l.g })));

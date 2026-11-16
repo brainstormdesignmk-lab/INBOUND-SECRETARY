@@ -34,11 +34,13 @@ import { AppointmentStore } from '../src/store/appointments';
 import { EscalationStore } from '../src/store/escalations';
 import { MetaStore } from '../src/store/meta';
 import { ChannelRegistry } from '../src/channels/types';
-import { InboundHandler, isSettlementPlace } from '../src/handlers/inbound';
+import { InboundHandler, isSettlementPlace, poiNameCoversClientWords } from '../src/handlers/inbound';
 import { LandmarkService } from '../src/geo/landmarks';
-import { OfflineMapStore, mapNameCoversClientWords, mapNameOpensWithClientWord } from '../src/geo/offlineMap';
+import {
+  OfflineMapStore, mapNameCoversClientWords, mapNameOpensWithClientWord,
+} from '../src/geo/offlineMap';
 import { LlmClient } from '../src/llm/types';
-import { readPlaceMisses, flushPlaceMisses, setPlaceMissDir } from '../src/store/placeMisses';
+import { readPlaceMisses, flushPlaceMisses, setPlaceMissDir, looksLikeProbeName } from '../src/store/placeMisses';
 import { detectLocation } from '../src/llm/deterministic';
 import { displayAreaName } from '../src/llm/prompts';
 
@@ -238,6 +240,33 @@ test('an AREA name is never answered by a place NAMED AFTER it (the [07:16] KARP
   map.close();
 });
 
+test('the three field gaps of 2026-11-16: two close, one is the AREA lane\'s', { skip: !hasMap }, () => {
+  const map = new OfflineMapStore(cfg.skopjePoisDb);
+  // «БРОЗ КАФЕ»: the map holds «Broz Cafe» in Latin and the app already found
+  // it — the digest's fold was the broken half (кафе/kafe/cafe are one sound
+  // key). This is now pinned through both sides.
+  assert.equal(map.findPoiByName('броз кафе')?.name, 'Broz Cafe');
+  assert.equal(map.todayBinding('броз кафе')?.name, 'Broz Cafe');
+  assert.equal(mapNameCoversClientWords('броз кафе', 'Broz Cafe'), true);
+  // «МАЃАР» IS NOT BOUND IN THE MAP LAYER, on purpose (see LOCAL_PLACE_ALIASES):
+  // an alias to «Маџари» — or a ѓ→џ fold in `soundKey` — both turned
+  // «KAJ VAS VO MADJAR MAALO» into a suburb in Гази Баба and broke the [04:14]
+  // capture. The client's phrase is the QUARTER «Маџир Маало», which the feed
+  // knows: the area vocabulary owns it. Pinned as a refusal so the next attempt
+  // cannot silently re-anchor it.
+  assert.notEqual(map.findPoiByName('маѓар')?.name, 'Маџари');
+  assert.equal(map.findPoiByName('маѓар маало'), undefined);
+  assert.equal(mapNameCoversClientWords('маѓар', 'Маџари'), false);
+  // …while the map's own џ spellings and the Ѓорче bridge are untouched.
+  assert.equal(map.findPoiByName('МАЏАР МААЛО')?.name, 'Маџир Маало');
+  assert.equal(map.findPoiByName('Ѓорче Петров')?.name, 'Ѓорче Петров');
+  assert.equal(map.findPoiByName('GORCE PETROV')?.name, 'Ѓорче Петров');
+  map.close();
+  // «ЗУЛУФТАР» is not a place at all: a harness fixture (see the probe lane in
+  // tests/place-misses.test.ts), so no row is invented for it.
+  assert.equal(looksLikeProbeName('зулуфтар'), true);
+});
+
 test('todayBinding: a name binds only through the resolver\'s own answer', { skip: !hasMap }, () => {
   const map = new OfflineMapStore(cfg.skopjePoisDb);
   // The digest's conclusion is "the map binds this TODAY" — it must agree with
@@ -262,6 +291,24 @@ test('e2e: «KADE E KARPOS ?» answers the naselba, not the shopping centre', { 
   assert.match(reply, /Карпош/u, `the area is named: ${reply}`);
   assert.match(reply, /населба/u, `answered as a naselba: ${reply}`);
   assert.doesNotMatch(reply, /Карпош 3|мол|трговски/u, `never the mall named after it: ${reply}`);
+});
+
+test('e2e: a real miss is recorded WITH the line that produced it', { skip: !hasMap }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'naselba-misses-'));
+  setPlaceMissDir(dir);
+  const h = makeHandler();
+  // A place nobody has: the funnel must log the miss and the operator must be
+  // able to read WHICH sentence produced it (the attribution the corpus lacked
+  // for three weeks — see the зулуфтар finding).
+  // «КАРАМАНДИ» is a name the map does not hold and no probe list knows — a
+  // real field miss, not the zuluftar fixture (the writer refuses probes).
+  await h.say('BARAM STAN KAJ KARAMANDI ZA KUPUVANJE');
+  await flushPlaceMisses();
+  const misses = await readPlaceMisses();
+  const hit = misses.find(m => /KARAMANDI/i.test(`${m.text} ${m.said ?? ''}`));
+  assert.ok(hit, `an unknown place is recorded: ${JSON.stringify(misses)}`);
+  assert.match(hit!.said ?? '', /BARAM STAN KAJ KARAMANDI/,
+    'the row carries the client\'s own line, not just the extracted fragment');
 });
 
 test('e2e: the same for Центар — the area is banked, nothing is logged', { skip: !hasMap }, async () => {

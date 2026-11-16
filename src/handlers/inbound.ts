@@ -3387,7 +3387,12 @@ export class InboundHandler {
    *       the bar. A longer phrase carries its own context — a stray first
    *       token there would be a guess, so it stays unmatched and the funnel
    *       asks for details instead. */
-  private resolvePlace(name: string | undefined): { name: string; lat: number; lon: number; type?: string; place_url?: string; place_id?: string } | undefined {
+  /** `said` IS THE CLIENT'S OWN LINE, recorded with a miss so the weekly digest
+   *  can show WHICH message produced an unknown name instead of a bare phrase.
+   *  It is the message being answered (never the stored anchor), so an
+   *  unattributed row honestly stays unattributed — the historical corpus has
+   *  rows whose line is gone, and the report says so rather than guessing. */
+  private resolvePlace(name: string | undefined, said?: string): { name: string; lat: number; lon: number; type?: string; place_url?: string; place_id?: string } | undefined {
     const clean = (name ?? '').trim();
     // THREE LETTERS ARE ENOUGH when they are an ACRONYM (the [23:00] capture:
     // «кај СЈО» — Специјално јавно обвинителство). The four-letter floor
@@ -3520,7 +3525,7 @@ export class InboundHandler {
     // the map could not accept. Read it weekly with scripts/place-misses.ts and
     // add the words that repeat — that is how the next CITY MOL is found before
     // a client loses a turn to it.
-    recordPlaceMiss({ at: Date.now(), chatId: '', text: clean, refused });
+    recordPlaceMiss({ at: Date.now(), chatId: '', text: clean, refused, said });
     return undefined;
   }
 
@@ -3583,7 +3588,7 @@ export class InboundHandler {
         // shorter prefixes would only bind some OTHER landmark beginning with
         // the same word, so the whole opener is dropped rather than trimmed.
         if (namedAreas.has(placeLooseKey(normalizeLocation(name)).trim())) break;
-        const hit = this.resolvePlace(name);
+        const hit = this.resolvePlace(name, text);
         if (hit) return hit;
       }
     }
@@ -3613,7 +3618,7 @@ export class InboundHandler {
       (p && !isAreaNegated(text, p.name) ? p : undefined);
     for (const cand of extractPoiWishCandidates(text, { withCriteria: true })) {
       if (isAreaNegated(text, cand)) continue;
-      const a = this.resolvePlace(cand);
+      const a = this.resolvePlace(cand, text);
       if (a) return a;
     }
     const tailPlace = notNegated(this.searchPlaceTail(text));
@@ -3670,7 +3675,7 @@ export class InboundHandler {
       for (let take = Math.min(3, words.length); take >= 1; take--) {
         const cand = words.slice(words.length - take).join(' ').replace(/[\d€]+/gu, ' ').trim();
         if (cand.replace(/[^\p{L}]/gu, '').length < 3) continue;
-        const hit = this.resolvePlace(cand);
+        const hit = this.resolvePlace(cand, text);
         if (!hit) continue;
         const key = placeLooseKey(hit.name);
         if (seen.has(key)) break;
@@ -3704,7 +3709,7 @@ export class InboundHandler {
       const same = (a: string[], b: string[]): boolean => a.length > b.length
         && b.every((w, k) => a[k] === w);
       if (accepted.some(a => same(a, words) || same(words, a))) continue;
-      const a = this.resolvePlace(cand);
+      const a = this.resolvePlace(cand, text);
       if (!a) continue;
       accepted.push(words);
       const key = a.name.toLowerCase();
@@ -3766,7 +3771,7 @@ export class InboundHandler {
     if ((bare.length < 4 && !words3) || words.length < 1 || words.length > 4) return undefined;
     if (/\d/u.test(bare)) return undefined;
     if (/(?:евра|евро|eur|денар|denar|спалн|spaln|м2|м²|илјад|iljad)/iu.test(bare)) return undefined;
-    return this.resolvePlace(bare);
+    return this.resolvePlace(bare, text);
   }
 
   /** The AREA a map place sits in, read from the feed's OWN rows — the bank is
@@ -4143,7 +4148,7 @@ export class InboundHandler {
         continue;
       }
       const invPlace = extractInventoryPlace(row.msg);
-      const named = (invPlace ? this.resolvePlace(invPlace) : undefined) ?? this.placeWish(row.msg);
+      const named = (invPlace ? this.resolvePlace(invPlace, row.msg) : undefined) ?? this.placeWish(row.msg);
       if (!named) {
         out.push({ id: row.id, msg: row.msg, reason: 'the place it names does not resolve on the map', written: false });
         continue;
@@ -4195,7 +4200,7 @@ export class InboundHandler {
     if (!bank || !detectInventoryAsk(text)) return undefined;
     const named = (() => {
       const invPlace = extractInventoryPlace(text);
-      return (invPlace ? this.resolvePlace(invPlace) : undefined) ?? this.placeWish(text);
+      return (invPlace ? this.resolvePlace(invPlace, text) : undefined) ?? this.placeWish(text);
     })();
     if (!named) return undefined;
     await this.rememberPlace(session, named);

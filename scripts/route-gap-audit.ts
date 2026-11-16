@@ -242,6 +242,11 @@ if (asJson) {
       // POI row that needs the alias.
       const refused = m.refused ? `  ← map offered: ${m.refused}` : '';
       console.log(`    ${String(m.turns).padStart(6)}  ${m.text}${refused}`);
+      // THE LINE IT CAME FROM (PlaceMiss.said). A phrase cannot be triaged on
+      // its own: «зулуфтар» ranked as the top map gap for three weeks and was a
+      // HARNESS FIXTURE — the message around it is what tells a place from a
+      // word, so the digest prints it beside every name it still calls unknown.
+      if (m.said) console.log(`            heard in: «${m.said}»`);
     }
     if (shaped.length > 20) console.log(`    … ${shaped.length - 20} more (--json for the full list)`);
     if (resolvesNow.length > 0) {

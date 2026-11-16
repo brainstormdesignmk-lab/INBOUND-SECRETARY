@@ -29,11 +29,20 @@ export interface PlaceMiss {
   text: string;
   /** What the map lookup returned, when it returned something the guard refused. */
   refused?: string;
+  /** THE CLIENT'S OWN LINE that produced this miss, as he wrote it. A phrase
+   *  alone ("зулуфтар") cannot be triaged — the message around it says whether
+   *  the client meant a place at all, and WHICH one. Recorded from the turn being
+   *  answered; rows written before this field existed (and misses raised from a
+   *  STORED anchor, which no longer have a line) carry no `said`, and the digest
+   *  says "not captured" instead of guessing. */
+  said?: string;
 }
 
 const DEDUPE_TTL_MS = 60 * 60 * 1000;
 const DEDUPE_MAX = 500;
 const MAX_TEXT = 120;
+/** A transcript line is evidence for a human: one readable line, not a dump. */
+const MAX_SAID = 160;
 
 /** THE SAME RULE AS `routeDrift.ts`: the day files are EVIDENCE, and a test run
  *  must not append to them. `node:test` marks its workers with
@@ -141,7 +150,10 @@ export function recordPlaceMiss(miss: Omit<PlaceMiss, 'text'> & { text: string }
   if (at !== undefined && miss.at - at < DEDUPE_TTL_MS) return;
   if (lastWrite.size > DEDUPE_MAX) lastWrite.clear();
   lastWrite.set(tuple, miss.at);
-  void write({ ...miss, text });
+  // THE LINE RIDES ALONG (see PlaceMiss.said): truncated, never synthesised —
+  // an empty one is left out of the row rather than written as an empty string.
+  const said = (miss.said ?? '').trim().slice(0, MAX_SAID);
+  void write({ ...miss, text, ...(said ? { said } : {}) });
 }
 
 /** Every miss in the last `days` days (default: all). Newest first. */
@@ -186,6 +198,10 @@ export interface PlaceMissGroup {
   text: string;
   /** What the map OFFERED and the guard turned down (see `PlaceMiss.refused`). */
   refused?: string;
+  /** The client's line for this group (the most common one that was recorded) —
+   *  what the operator needs to judge the phrase. Absent on rows written before
+   *  attribution existed. */
+  said?: string;
   turns: number;
   /** Which lane the row belongs to: a name the map does not know, a request
    *  phrase that names nothing, or a probe the sweeps wrote. */
@@ -200,6 +216,13 @@ export interface PlaceMissGroup {
 export const PLACE_MISS_PROBE_WORDS: readonly string[] = [
   'nepostoechko', 'непостоечко', 'nepostoechko', 'nonexistent', 'nonexisting',
   'qwerty', 'asdf', 'asdfgh', 'dummy', 'probe', 'xyz',
+  // A FIXTURE NAME, not a place (the 2026-11-16 replay): «VO KOJA NASELBA E
+  // ZULUFTAR» was asked 315 times by the harness — `tests/leptokarija-anchored.ts`
+  // and `landmark-intake-discovery.ts` use ZULUFTAR as the deliberately unknown
+  // place — and those runs wrote to the LIVE day files before the temp-dir seam.
+  // No map holds it, no client source has it, and 411 miss rows ranked it as the
+  // top "gap" for three weeks. `zuluftar` is the word the fixture spells.
+  'zuluftar', 'зулуфтар',
 ];
 const PROBE = new Set(PLACE_MISS_PROBE_WORDS);
 
@@ -338,25 +361,33 @@ export function distinctPlaceMissNames<T extends { text: string; turns: number }
 
 /** Grouped by (folded text, folded offered name), labelled with the most common
  *  spelling, busiest first. */
-export function groupPlaceMisses(misses: readonly Pick<PlaceMiss, 'text' | 'refused'>[]): PlaceMissGroup[] {
-  const groups = new Map<string, { refused?: string; turns: number; spell: Map<string, number> }>();
+export function groupPlaceMisses(misses: readonly Pick<PlaceMiss, 'text' | 'refused' | 'said'>[]): PlaceMissGroup[] {
+  const groups = new Map<string, { refused?: string; turns: number; spell: Map<string, number>; said: Map<string, number> }>();
   for (const m of misses) {
     const key = `${placeMissKey(m.text)}|${placeMissKey(m.refused ?? '')}`;
     let g = groups.get(key);
     if (!g) {
-      g = { refused: m.refused, turns: 0, spell: new Map() };
+      g = { refused: m.refused, turns: 0, spell: new Map(), said: new Map() };
       groups.set(key, g);
     }
     g.turns += 1;
     g.spell.set(m.text, (g.spell.get(m.text) ?? 0) + 1);
+    // The LINE is evidence like the spelling: the one the corpus repeated most,
+    // so a group shows the client's usual sentence rather than the first row.
+    const said = (m.said ?? '').trim();
+    if (said) g.said.set(said, (g.said.get(said) ?? 0) + 1);
   }
   const out: PlaceMissGroup[] = [];
   for (const g of groups.values()) {
     let best = '', bestN = -1;
     for (const [s, n] of g.spell) if (n > bestN) { best = s; bestN = n; }
+    let saidBest: string | undefined;
+    let saidN = 0;
+    for (const [s, n] of g.said) if (n > saidN) { saidBest = s; saidN = n; }
     out.push({
       text: best,
       refused: g.refused,
+      ...(saidBest ? { said: saidBest } : {}),
       turns: g.turns,
       lane: looksLikeProbeName(best) ? 'probe' : looksPlaceShaped(best) ? 'place' : 'intent',
     });

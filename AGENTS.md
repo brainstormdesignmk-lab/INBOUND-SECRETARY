@@ -1705,6 +1705,19 @@ in, and a suburb's centroid sits in that suburb.
 - A NUMBER IS A DISCRIMINATOR: `phoneticWordKeys` keeps digit tokens, so
   «KARPOS 3» names the quarter. Dropping «3» answered the bare «Карпош» — the
   wrong quarter of the same municipality.
+- «МАЃАР» IS NOT BOUND IN THE MAP LAYER, AND THAT IS THE DECISION (the
+  2026-11-16 replay): the letter table reads a keyboard's «dj» as ѓ, so «маѓар»
+  is how «Маџар» arrives, and the map files BOTH «Маџари» [suburb, Гази Баба]
+  and «Маџир Маало» [suburb, Центар] under џ. Two attempts were tried and BOTH
+  re-anchored the [04:14] capture («IMASE EDEN STAN KAJ VAS VO MADJAR MAALO»):
+  a ѓ→џ fold in `soundKey`/`phoneticWordKeys` (the bare word then matched both
+  rows, the shorter won) and a bounded alias to «Маџари» (the same anchor, one
+  layer higher). The client's phrase names the QUARTER the FEED knows, so the
+  AREA vocabulary owns it and a POI anchor in Гази Баба is the bug — see
+  `tests/naselba-not-a-landmark.test.ts`, which now pins the REFUSAL so the next
+  attempt cannot silently re-anchor it. A gap the map must not close is still a
+  documentable gap: the digest shows the client's own line (see `PlaceMiss.said`)
+  so the operator reads «MADJAR MAALO» and knows it is an area, not a suburb.
 - The class lives in the GEO layer (`isSettlementType`/`SETTLEMENT_TYPES` in
   `src/geo/offlineMap.ts`); `isSettlementPlace` in the handler delegates, because
   the ranking needs the same list.
@@ -2282,8 +2295,11 @@ appliance actually meets:
   «Паркинг на амбасадата на САД».
   THE COVERAGE GUARD FOLDS LIKE THE RESOLVER (every client word in the row, and
   the row OPENS with one — or with a separator-declared alias tail, «Управа за
-  јавни приходи - УЈП»): the word fold is `phoneticWordKeys`, not `toCyrillic`,
-  or a name that RESOLVES («KARPOS» → «Карпош») is reported as a gap forever;
+  јавни приходи - УЈП»): the word fold is `canonicalWordKey` — the handler's own
+  key — not `toCyrillic` and not the phonetic keys, or a name that RESOLVES is
+  reported as a gap forever («KARPOS» → «Карпош», «БРОЗ КАФЕ» → «Broz Cafe»:
+  the sound skeleton folds кафе/kafe/cafe onto one key, the phonetic one does
+  not);
   the head words lose a leading filler/opener («PA AERODROM», «KAJ …») because
   that word is not part of the name; and a bare tail is NOT an alias — «тобако
   РАМПА» is a kiosk named after the area. For an alias PROPOSAL the looser
@@ -2304,7 +2320,16 @@ appliance actually meets:
   and a criterion or conjunction appended to an area («CENTAR . SPALNI»,
   «капитол и бисер» — TWO places, which can never bind as one). Add the word
   when the replay shows it; on the 2026-11-16 corpus the place-shaped list fell
-  from 48 names to 3.
+  from 48 names to 3, and all three then turned out to be fold or lane bugs.
+  EVERY UNKNOWN SHOWS THE LINE THAT PRODUCED IT (`PlaceMiss.said`): a phrase
+  cannot be triaged alone — «зулуфтар» ranked as the top map gap for three
+  weeks and was a HARNESS FIXTURE (`tests/leptokarija-anchored.ts` asks «VO KOJA
+  NASELBA E ZULUFTAR»; its runs predate the temp-dir seam), while «БРОЗ КАФЕ»
+  and «МАЃАР» were places the map already held. The handler records the message
+  it is answering (`resolvePlace(name, said)` — never a stored anchor, which has
+  no line any more), the digest prints it, and a row without one says «not
+  captured» rather than guessing. That is how the next three-week "gap" is
+  answered in one reading instead of a probe script.
   A DATA-DIR SEAM IS READ AT WRITE TIME, NEVER AT IMPORT. A script's
   `process.env.LINA_DATA_DIR = …` runs AFTER its hoisted imports, so an
   import-time capture sent probe rows into the LIVE day files (three rows in

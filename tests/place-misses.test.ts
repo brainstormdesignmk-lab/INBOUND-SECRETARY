@@ -71,6 +71,36 @@ test('the env dir is read at WRITE time — a script that sets it after its impo
   }
 });
 
+test('a miss keeps the client\'s own line, and the group shows the usual one', async () => {
+  // THE PHRASE ALONE CANNOT BE TRIAGED (the 2026-11-16 replay): «зулуфтар» ranked
+  // as the top map gap for three weeks and turned out to be a harness fixture;
+  // the message around it is what separates an unknown PLACE from an unknown
+  // word. The recorder stores it, the digest prints it, and a row without one
+  // says "not captured" instead of guessing.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'place-misses-said-'));
+  setPlaceMissDir(dir);
+  const at = Date.now();
+  recordPlaceMiss({ at, chatId: 'c1', text: 'караманди', said: 'VO KOJA NASELBA E KARAMANDI' });
+  recordPlaceMiss({ at: at + 1000, chatId: 'c2', text: 'караманди', said: 'VO KOJA NASELBA E KARAMANDI' });
+  recordPlaceMiss({ at: at + 2000, chatId: 'c3', text: 'караманди', said: 'KADE E KARAMANDI, BARAM STAN' });
+  recordPlaceMiss({ at: at + 3000, chatId: 'c4', text: 'караманди' }); // no line recorded
+  await flushPlaceMisses();
+  const rows = await readPlaceMisses();
+  assert.equal(rows.length, 4);
+  assert.equal(rows.filter(r => r.said === 'VO KOJA NASELBA E KARAMANDI').length, 2,
+    'the client line rides with the row');
+  assert.equal(rows.find(r => r.chatId === 'c4')?.said, undefined, 'an empty line is left out, not written blank');
+  const group = distinctPlaceMissNames(groupPlaceMisses(rows))[0]!;
+  assert.equal(group.said, 'VO KOJA NASELBA E KARAMANDI', 'the group shows the line the corpus repeated');
+});
+
+test('a harness fixture name is a probe, not a map gap', () => {
+  assert.equal(looksLikeProbeName('BLIZINA NA ZULUFTAR'), true);
+  const rows = [{ text: 'зулуфтар' }, { text: 'зулуфтар' }, { text: 'Броз кафе' }];
+  const lanes = groupPlaceMisses(rows).map(g => `${g.text}:${g.lane}`).sort();
+  assert.deepEqual(lanes, ['Броз кафе:place', 'зулуфтар:probe']);
+});
+
 test('one NAME is one finding, with or without the refused row', () => {
   // «ујп» was logged with and without the row the guard refused, and the group
   // key carries the offered name — so the digest counted the same client name
@@ -131,10 +161,16 @@ test('an intent phrase is not a map gap, and a real name is never mistaken for o
   ];
   for (const t of noise) assert.equal(looksPlaceShaped(t), false, `«${t}» must not be ranked as a map gap`);
   const shaped = [
-    'црногорска амбасада', 'скопје север', 'KARPOS', 'зулуфтар', 'дебаб маало',
+    'црногорска амбасада', 'скопје север', 'KARPOS', 'дебаб маало',
     'броз кафе. бесе около', 'сјо', 'butel',
   ];
   for (const t of shaped) assert.equal(looksPlaceShaped(t), true, `«${t}» is a name the map must learn`);
+  // «зулуфтар» WAS on that list and is not a name: it is the harness fixture of
+  // tests/leptokarija-anchored.ts («VO KOJA NASELBA E ZULUFTAR»), whose runs
+  // appended 411 rows to the live day file before the temp-dir seam. The
+  // EXPECTATION was wrong, not the product — see PLACE_MISS_PROBE_WORDS.
+  assert.equal(looksPlaceShaped('зулуфтар'), false, 'a fixture name is not a map gap');
+  assert.equal(looksLikeProbeName('зулуфтар'), true);
   // Digits are identity, never a place name (the map's own soundKey rule).
   assert.equal(looksPlaceShaped('Бит Пазар 1'), false);
 });
