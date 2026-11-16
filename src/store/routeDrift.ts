@@ -45,9 +45,19 @@ const DEDUPE_MAX = 500;
  *  `NODE_TEST_CONTEXT`, so a test run defaults to a per-process temp dir: the
  *  field files stay field-only, and a test still reads its own writes through
  *  `readRouteDrift` (the seam is unchanged for anything that wants a fixed dir). */
-const DEFAULT_DIR = process.env.NODE_TEST_CONTEXT
-  ? path.join(os.tmpdir(), `lina-route-drift-test-${process.pid}`)
-  : path.join(process.cwd(), 'data');
+/** `LINA_DATA_DIR` IS THE EXPLICIT SEAM, the cwd the implicit one. A harness
+ *  that runs the shipped entry point out of a temp working directory is
+ *  isolated by accident of that cwd; the env var makes the isolation a
+ *  CONTRACT (the pty funnel sets it), so a harness that passes absolute paths
+ *  and forgets the cwd cannot start writing into the field files. */
+export function resolveRouteDriftDirFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env.LINA_DATA_DIR?.trim();
+  if (explicit) return path.resolve(explicit);
+  if (env.NODE_TEST_CONTEXT) return path.join(os.tmpdir(), `lina-route-drift-test-${process.pid}`);
+  return path.join(process.cwd(), 'data');
+}
+
+const DEFAULT_DIR = resolveRouteDriftDirFromEnv();
 let driftDir = DEFAULT_DIR;
 let dirMemo = '';
 const lastWrite = new Map<string, number>();
@@ -62,6 +72,7 @@ export function setRouteDriftDir(dir: string): void {
 export function routeDriftDir(): string {
   return driftDir;
 }
+
 
 function dayFile(at: number): string {
   const day = new Date(at).toISOString().slice(0, 10);

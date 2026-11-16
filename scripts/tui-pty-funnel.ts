@@ -153,6 +153,12 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
       MAX_DELAY_MS: '2',
       // No learning side-effects from a check run, and no external geo calls.
       TUI_LEARN: '0',
+      // THE TELEMETRY DIR IS THE HARNESS'S, NOT THE FIELD'S. The child already
+      // runs with cwd = workDir, so the day files land in workDir/data — which
+      // is true only by accident of the cwd. `LINA_DATA_DIR` states it: the pty
+      // check drives the SHIPPED entry point, and a run of it must never append
+      // to the operator's `data/` (route-drift / place-misses are evidence).
+      LINA_DATA_DIR: path.join(workDir, 'data'),
       GOOGLE_MAPS_ENABLED: 'false',
       OSM_ENABLED: 'false',
       VIBER_OUTBOUND_MODE: 'direct',

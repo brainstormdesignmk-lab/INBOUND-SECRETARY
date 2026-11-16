@@ -23,7 +23,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { loadConfig } from '../src/config';
 import { OfflineMapStore } from '../src/geo/offlineMap';
-import { readPlaceMisses } from '../src/store/placeMisses';
+import { readPlaceMisses, placeMissKey, looksPlaceShaped } from '../src/store/placeMisses';
 import { Db } from '../src/store/db';
 import { SessionStore } from '../src/fsm/session';
 import { Classifier } from '../src/llm/classify';
@@ -150,15 +150,31 @@ async function main(): Promise<void> {
     console.log(`No place misses in the last ${days} day(s).`);
     return;
   }
-  const groups = new Map<string, { n: number; refused: string[] }>();
+  // THE FOLD IS SHARED (`placeMissKey`): case, script and punctuation never make
+  // two rows here either, or this CLI and `route:gap-audit` would report
+  // different counts for the same corpus. The label is the spelling the corpus
+  // used most, so the digest still reads like the clients' own words.
+  const groups = new Map<string, { n: number; refused: string[]; spell: Map<string, number> }>();
   for (const m of misses) {
-    const key = m.text.toLowerCase();
-    const g = groups.get(key) ?? { n: 0, refused: [] };
+    const key = `${placeMissKey(m.text)}|${placeMissKey(m.refused ?? '')}`;
+    const g = groups.get(key) ?? { n: 0, refused: [], spell: new Map() };
     g.n++;
+    g.spell.set(m.text, (g.spell.get(m.text) ?? 0) + 1);
     if (m.refused && g.refused.length < 3 && !g.refused.includes(m.refused)) g.refused.push(m.refused);
     groups.set(key, g);
   }
-  const rows = [...groups.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, top);
+  const labelled = [...groups.values()].map(g => {
+    let text = '', best = -1;
+    for (const [s, n] of g.spell) if (n > best) { text = s; best = n; }
+    return { text, g };
+  });
+  // A NAME BEFORE A PHRASE: the recorder logs every candidate the wish grammar
+  // produced, so intent vocabulary («EDNA», «ZA KUPUVANJE SUM») sits at the top
+  // of a raw ranking. It is named, never offered as an alias.
+  const rows = labelled
+    .sort((a, b) => (looksPlaceShaped(b.text) ? 1 : 0) - (looksPlaceShaped(a.text) ? 1 : 0) || b.g.n - a.g.n)
+    .slice(0, top)
+    .map(l => [l.text, l.g] as const);
 
   let map: OfflineMapStore | undefined;
   if (withSuggestions) {
@@ -167,17 +183,33 @@ async function main(): Promise<void> {
 
   console.log(`place misses, last ${days} day(s): ${misses.length} rows, ${groups.size} distinct\n`);
   let unresolved = 0;
+  let intentRows = 0;
   for (const [text, g] of rows) {
+    if (g.refused.length === 0) unresolved++;
+    if (!looksPlaceShaped(text)) {
+      // Not a map gap: the extractor logged a request, not a name. Say so, so a
+      // reader does not add an alias for «EDNA».
+      intentRows++;
+      console.log(`  ${String(g.n).padStart(3)}×  «${text}»  — intent vocabulary, not a place name`);
+      continue;
+    }
     const verdict = g.refused.length ? `refused row: ${g.refused.join(', ')}` : 'no such place on the map';
     console.log(`  ${String(g.n).padStart(3)}×  «${text}»  — ${verdict}`);
-    if (g.refused.length === 0) unresolved++;
     for (const s of suggest(text, map)) console.log(`       ↳ ${s}`);
   }
-  const noRow = [...groups.values()].filter(g => g.refused.length === 0).length;
-  console.log(`\n${noRow} distinct name(s) the map does not hold; ${groups.size - noRow} were found and refused.`);
+  const intentSeen = labelled.filter(l => !looksPlaceShaped(l.text)).length;
+  // COUNCIL ONLY NAMES: an intent phrase with no refused row is not a name the
+  // map lacks, so it must not inflate the "add these" count.
+  const noRow = labelled.filter(l => l.g.refused.length === 0 && looksPlaceShaped(l.text)).length;
+  const refusedCount = labelled.filter(l => l.g.refused.length > 0 && looksPlaceShaped(l.text)).length;
+  console.log(`\n${noRow} distinct name(s) the map does not hold; ${refusedCount} were found and refused.`);
+  if (intentSeen > 0) {
+    console.log(`${intentSeen} of the ${groups.size} groups are intent/quantity vocabulary from the wish grammar` +
+      ` (${intentRows} shown in this top ${top}) — an instrument noise row, never an alias candidate.`);
+  }
   if (withSuggestions && noRow > 0) {
     const patch = rows
-      .filter(([, g]) => g.refused.length === 0)
+      .filter(([text, g]) => g.refused.length === 0 && looksPlaceShaped(text))
       .map(([text]) => {
         // ONLY a real candidate row becomes a paste line — a «resolves now»
         // group needs no alias at all (its bridge already landed).

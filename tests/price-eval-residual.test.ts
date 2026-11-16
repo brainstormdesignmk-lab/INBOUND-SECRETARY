@@ -39,9 +39,12 @@ import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LandmarkService } from '../src/geo/landmarks';
 import { LlmClient } from '../src/llm/types';
-import { flushRouteDrift, readRouteDrift, routeDriftDir } from '../src/store/routeDrift';
+import {
+  flushRouteDrift, readRouteDrift, routeDriftDir, resolveRouteDriftDirFromEnv,
+} from '../src/store/routeDrift';
 import {
   defaultPlaceMissDir, placeMissDir, recordPlaceMiss, flushPlaceMisses, readPlaceMisses,
+  resolvePlaceMissDirFromEnv,
 } from '../src/store/placeMisses';
 import { ROUTE_LANES, routeLog, tagStatus } from '../src/handlers/router';
 
@@ -163,6 +166,26 @@ test('a negative price evaluation is answered by the lane it belongs to, and nev
   const rows = await readRouteDrift();
   for (const id of ['residual-p1', 'residual-p2', 'residual-p3']) {
     assert.deepEqual(rows.filter(r => r.chatId === id), [], `${id} must not teach the audit a gap`);
+  }
+});
+
+/** `LINA_DATA_DIR` IS THE EXPLICIT TELEMETRY SEAM — the harness that drives the
+ *  SHIPPED entry point (the pty check) must be isolated by CONTRACT, not by the
+ *  accident of a temp cwd. Both stores answer the same three environments, so
+ *  one table pins the rule: explicit env wins, then a test worker, then the
+ *  field dir. */
+test('the telemetry dir resolves from LINA_DATA_DIR before the test and field defaults', () => {
+  const explicit = path.join(os.tmpdir(), 'lina-telemetry-seam');
+  for (const resolve of [resolveRouteDriftDirFromEnv, resolvePlaceMissDirFromEnv]) {
+    assert.equal(resolve({ LINA_DATA_DIR: explicit } as NodeJS.ProcessEnv), path.resolve(explicit),
+      'an explicit dir must win over every default');
+    assert.equal(resolve({ LINA_DATA_DIR: explicit, NODE_TEST_CONTEXT: 'child' } as NodeJS.ProcessEnv),
+      path.resolve(explicit), 'explicit still wins inside a test worker (the pty harness is not a worker)');
+    const testDir = resolve({ NODE_TEST_CONTEXT: 'child' } as NodeJS.ProcessEnv);
+    assert.ok(testDir.startsWith(os.tmpdir()), `a test worker must not use the field dir: ${testDir}`);
+    assert.ok(!testDir.endsWith(path.join(process.cwd(), 'data')));
+    assert.equal(resolve({} as NodeJS.ProcessEnv), path.join(process.cwd(), 'data'),
+      'the app (no markers at all) still writes the field files');
   }
 });
 

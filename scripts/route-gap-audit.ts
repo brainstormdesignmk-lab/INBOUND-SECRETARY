@@ -29,6 +29,7 @@ import '../src/compat/node16';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tagStatus } from '../src/handlers/router';
+import { readPlaceMisses, groupPlaceMisses, looksPlaceShaped, type PlaceMissGroup } from '../src/store/placeMisses';
 
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
@@ -126,13 +127,36 @@ const mirroredPct = compared === 0 ? 0 : Math.round((mirrored / compared) * 1000
 
 const history = rows.filter(r => r.status === 'history');
 const residualRows = rows.filter(r => r.status === 'residual');
+// PLACE MISSES — THE OTHER HALF OF FLYING BLIND. The route audit says which
+// LANE the plane could not predict; a place miss says the lane was right and the
+// MAP could not place the word the client typed (`extractPoiWishCandidates`
+// heard it, the geo lookup refused). Those rows are the weekly "which words did
+// we not know" list, and they used to live in a separate CLI (place-misses.ts)
+// that nobody ran with the audit — so a week of unplaceable neighbourhoods sat in
+// `data/` while the route report said 100% mirrored. Grouping and triage live
+// in the store (`groupPlaceMisses`/`looksPlaceShaped`) so the CLI and the audit
+// cannot disagree about what one gap is. Informational on purpose — a miss is a data gap, not a
+// code defect.
+// The read side is async, the script is CJS: one promise, one then, no
+// top-level await (tsx refuses it in the cjs output format).
+void readPlaceMisses({ days }).then((misses) => {
+const placeMissTop: PlaceMissGroup[] = groupPlaceMisses(misses);
+
 const report = { days, files: files.length, damagedLines: damaged, turns: logged,
   comparedTurns: compared, mirroredPct,
   pendingTurns: pending, residualTurns: residual, historyTurns,
   unlisted: unlisted.map(u => ({ tag: u.tag, turns: u.gap + u.drift })),
   history: history.map(h => ({ tag: h.tag, turns: h.gap + h.drift })),
   residual: residualRows.map(r => ({ tag: r.tag, turns: r.gap + r.drift, samples: r.samples })),
-  pending: rows.filter(r => r.status === 'pending').map(r => ({ tag: r.tag, turns: r.gap + r.drift, samples: r.samples })) };
+  pending: rows.filter(r => r.status === 'pending').map(r => ({ tag: r.tag, turns: r.gap + r.drift, samples: r.samples })),
+  placeMisses: {
+    total: misses.length,
+    unique: placeMissTop.length,
+    // The JSON carries the FULL lists (the text digest truncates and points
+    // here); a truncated machine view is a false "that was all of it".
+    placeShaped: placeMissTop.filter(m => looksPlaceShaped(m.text)),
+    noise: placeMissTop.filter(m => !looksPlaceShaped(m.text)),
+  } };
 
 if (asJson) {
   console.log(JSON.stringify(report, null, 2));
@@ -153,8 +177,38 @@ if (asJson) {
   for (const r of rows.filter(r => r.status === 'pending').slice(0, 20)) {
     console.log(`    ${String(r.gap + r.drift).padStart(6)}  ${r.tag} :: ${r.samples[0] ?? ''}`);
   }
+  if (misses.length > 0) {
+    const shaped = placeMissTop.filter(m => looksPlaceShaped(m.text));
+    const noise = placeMissTop.filter(m => !looksPlaceShaped(m.text));
+    const noiseRows = noise.reduce((n, m) => n + m.turns, 0);
+    console.log(`  place misses (the extractor heard it, the map could not place it — ${misses.length} rows, ${placeMissTop.length} distinct):`);
+    console.log(`    place-shaped (a name the map does not know — THE map-gap list): ${shaped.length} distinct`);
+    for (const m of shaped.slice(0, 20)) {
+      // `refused` in the row is what the MAP OFFERED and the guard turned down
+      // (placeMisses.ts) — not a refusal by the map. Saying "refused" here read
+      // as the opposite, and the offered name is the useful half: it names the
+      // POI row that needs the alias.
+      const refused = m.refused ? `  ← map offered: ${m.refused}` : '';
+      console.log(`    ${String(m.turns).padStart(6)}  ${m.text}${refused}`);
+    }
+    if (shaped.length > 20) console.log(`    … ${shaped.length - 20} more (--json for the full list)`);
+    // The recorder logs every candidate the place-wish extractor produced, so
+    // intent vocabulary («sakam da kupam stan», «dve sobi») is in the same file.
+    // Named, never ranked: presenting those as map gaps is how a digest loses
+    // its reader.
+    console.log(`    NOT place-shaped (intent/quantity vocabulary — an instrument noise row, not a map gap): ${noise.length} distinct, ${noiseRows} rows`);
+    for (const m of noise.slice(0, 5)) console.log(`    ${String(m.turns).padStart(6)}  ${m.text}`);
+  } else {
+    console.log(`  place misses: none in the last ${days} days`);
+  }
 }
 
 const fail = unlisted.length > 0 || (strict && mirroredPct < minMirrored) || (strict && damaged > 0);
 if (fail) console.log('[route:gap-audit] FAIL');
 process.exit(fail ? 1 : 0);
+}).catch((err) => {
+  // A telemetry read that throws is a broken instrument, not a clean audit: say
+  // so and fail, so a cron job cannot mistake an unread corpus for zero misses.
+  console.error('[route:gap-audit] place-miss read failed:', err);
+  process.exit(1);
+});

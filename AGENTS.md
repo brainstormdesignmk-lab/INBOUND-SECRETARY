@@ -2173,15 +2173,35 @@ appliance actually meets:
   `src/store/routeDrift.ts` AND its sibling `src/store/placeMisses.ts` default to
   `data/` for the app and to a per-process OS temp dir when `node:test` marks the
   worker (`NODE_TEST_CONTEXT`), so `npm test` / `test:c` / the replay benches
-  never append to `data/`. (The pty check drives the SHIPPED entry point, so it
-  is the one harness that still writes real day rows — read its rows by their
-  empty `chatId`.) Before
+  never append to `data/`. The pty check drives the SHIPPED entry point out of a
+  temp cwd, and that cwd alone used to be the whole isolation — an accident, not
+  a rule. `LINA_DATA_DIR` makes it a CONTRACT: both stores resolve
+  explicit `LINA_DATA_DIR` → `NODE_TEST_CONTEXT` temp dir → `cwd/data`, and
+  `scripts/tui-pty-funnel.ts` sets it to the harness's own `data/` (measured:
+  a full pty run leaves the operator's day files at the same row count; the
+  writer of the live rows is the running app, `tsx src/tui/run.ts`, not a
+  harness). Before
   that, every test that drove `InboundHandler` without `setRouteDriftDir` wrote
   its harness turns there (`invest-cyr`, `closing-digress`, `negated-agree-e2e`
   in the day files) and `scripts/route-gap-audit.ts` counted fixtures as a field
   backlog — the "69 unmirrored turns a day" on `PRICE_EVAL_EXPENSIVE_UNWIRED`
   were three test sentences. `tests/price-eval-residual.test.ts` pins the
   isolation.
+- THE PLACE-MISS DIGEST HAS TWO LANES, AND BOTH TOOLS MUST AGREE ON THEM.
+  `data/place-misses-*.jsonl` records every candidate the place-wish extractor
+  produced, so ~82% of it is INTENT VOCABULARY, not a missing place (`EDNA`,
+  `SAKAM DA IZNAJMAM STAN`, `KOLKU MU E KIRIJATA`). One row per gap and the
+  name-vs-phrase split live in `src/store/placeMisses.ts`
+  (`placeMissKey`/`groupPlaceMisses`/`looksPlaceShaped`) and BOTH readers use
+  them — `scripts/route-gap-audit.ts` (the digest) and `scripts/place-misses.ts`
+  (the paste-ready alias suggestions). A second copy of the fold is how two
+  reports start disagreeing about the same corpus, and an alias generated for
+  «EDNA» is that same bug with a commit behind it. The shape rule is
+  REPORT-SIDE ONLY — no lane may ever read it. Fold: case, script
+  (`toCyrillic`), punctuation, spacing. Not folded: spelling — `soundKey`
+  already absorbs a misspelling at resolution time, so a verbatim repeat is a
+  missing POI, and the bare adjective stays its own row. Pinned in
+  `tests/place-misses.test.ts`.
 - A `K(...)` REGISTRY ROW IS A MARKER, NOT BACKLOG, AND THE AUDIT MUST SAY SO.
   Markers (`PRICE_EVAL_EXPENSIVE_UNWIRED`, `CHAIN_READY`, `EXIT_CHECK_REPEAT`)
   log and fall through; `routeLog` refuses to write a drift row for one, so a
