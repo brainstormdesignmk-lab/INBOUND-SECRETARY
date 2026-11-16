@@ -10,6 +10,7 @@ import { tmpdir } from 'os';
 import * as path from 'path';
 import {
   DriftPair, flushRouteDrift, readRouteDrift, recordRouteDrift, routeDriftDir, setRouteDriftDir,
+  clearRouteDriftDirOverride,
 } from '../src/store/routeDrift';
 import { emitCorpusRows } from '../src/scripts/routeHealth';
 import { routeLog } from '../src/handlers/router';
@@ -30,6 +31,29 @@ function pair(overrides: Partial<DriftPair> = {}): DriftPair {
     ...overrides,
   };
 }
+
+test('the env dir is read at WRITE time — a probe cannot leak into data/', async () => {
+  // The sibling of the place-miss seam test, and the same field lesson: a script
+  // that assigns `LINA_DATA_DIR` in its body runs AFTER its hoisted imports, so
+  // an import-time capture sent the drift rows to the repo's day file. The env
+  // is consulted per write; the explicit override still wins.
+  const later = await fs.mkdtemp(path.join(tmpdir(), 'route-drift-env-'));
+  const saved = process.env.LINA_DATA_DIR;
+  clearRouteDriftDirOverride();
+  process.env.LINA_DATA_DIR = later;
+  try {
+    assert.equal(routeDriftDir(), path.resolve(later), 'the env is read at call time');
+    recordRouteDrift(pair({ chatId: 'env' }));
+    await flushRouteDrift();
+    const rows = await readRouteDrift();
+    assert.equal(rows.length, 1, 'the row landed where the env pointed');
+    const names = await fs.readdir(later);
+    assert.ok(names.some(n => n.startsWith('route-drift-')), `day file in the env dir: ${names.join(', ')}`);
+  } finally {
+    if (saved === undefined) delete process.env.LINA_DATA_DIR; else process.env.LINA_DATA_DIR = saved;
+    clearRouteDriftDirOverride();
+  }
+});
 
 test('a drift pair survives the "process": reader sees exactly what was written', async () => {
   const dir = await freshDir('readback');

@@ -52,7 +52,7 @@ import { applyStrike, applyStrikeDecay, OFFENSE_WARNINGS, detectOffensive, STRIK
 import { OwnerAgent, DeferredOwnerAgent, LocalOwnerAgent, OwnerVerdict } from '../backoffice/ownerAgent';
 import { AgentDispatcher } from '../backoffice/agentDispatcher';
 import { LandmarkService, propertyAreaLink, landmarkLink, canServeLandmark, extractDetailsLandmark, resolveSearchCenter, FEED_LANDMARK_MAX_M, type PropertyRow, type Center } from '../geo/landmarks';
-import { toLatin, toCyrillic, translitToLatin, officialPlaceName, canonicalWordKey, wordsAlmostEqual, marketAbbreviationForms } from '../geo/offlineMap';
+import { toLatin, toCyrillic, translitToLatin, officialPlaceName, canonicalWordKey, wordsAlmostEqual, marketAbbreviationForms, SETTLEMENT_TYPES, isSettlementType } from '../geo/offlineMap';
 import { walkMinutes, distM } from '../geo/precision';
 import { routeLog, resolveIntent, refinePrediction, dispatchSimple, type RouteEvidence } from './router';
 import { ambientTurn, clipReply, currentTurn, currentTurnAudit, noteTurnFact, runInTurn, startTurn, type TurnContext } from './turn';
@@ -308,12 +308,14 @@ export function isCityLevelPlace(type?: string | null): boolean {
  *  resolves like a landmark while behaving like an area. The class is the ONE
  *  truth here, exactly as in isCityLevelPlace: the name is not (the map also
  *  carries a «Centar Bar» and a bus station called «Скопје Север»). */
-export const SETTLEMENT_POI_TYPES = new Set([
-  'suburb', 'neighbourhood', 'neighborhood', 'quarter', 'hamlet', 'village', 'locality',
-]);
+/** The class lives in the GEO layer (`isSettlementType`): the lookup ranking
+ *  needs it too — a naselba must answer its own name before a mall named after
+ *  it — and two copies of a type list is how the where-answer and the ranking
+ *  start disagreeing about the same map row. */
+export const SETTLEMENT_POI_TYPES = SETTLEMENT_TYPES;
 
 export function isSettlementPlace(type?: string | null): boolean {
-  return SETTLEMENT_POI_TYPES.has((type ?? '').trim().toLowerCase().replace(/\s+/gu, ' '));
+  return isSettlementType(type);
 }
 
 /** Is the client's own mention NOTHING BUT the city's name? («Скопје»,

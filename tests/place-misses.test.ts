@@ -7,7 +7,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  recordPlaceMiss, readPlaceMisses, flushPlaceMisses, setPlaceMissDir,
+  recordPlaceMiss, readPlaceMisses, flushPlaceMisses, setPlaceMissDir, placeMissDir,
+  clearPlaceMissDirOverride, distinctPlaceMissNames,
   groupPlaceMisses, looksPlaceShaped, looksLikeProbeName, namesNoPlace, placeMissKey,
 } from '../src/store/placeMisses';
 
@@ -31,6 +32,63 @@ test('a miss is recorded once per hour and read back in order', async () => {
   const files = fs.readdirSync(dir).filter(n => n.startsWith('place-misses-'));
   assert.equal(files.length, 1);
   assert.match(files[0], /^place-misses-\d{4}-\d{2}-\d{2}\.jsonl$/);
+});
+
+test('the env dir is read at WRITE time — a script that sets it after its imports cannot leak into data/', async () => {
+  // THE FIELD LESSON (2026-11-16): a probe script assigned `LINA_DATA_DIR` at
+  // the top of its body, but ES imports hoist ABOVE that line, so the module's
+  // `const DEFAULT_DIR = resolvePlaceMissDirFromEnv()` had already captured
+  // `<repo>/data` and three probe rows landed in the LIVE day file. The seam
+  // must not depend on import order: an assignment made before the WRITE is
+  // honoured, and the explicit `setPlaceMissDir` override still wins over it.
+  const later = fs.mkdtempSync(path.join(os.tmpdir(), 'place-misses-later-'));
+  const savedEnv = process.env.LINA_DATA_DIR;
+  // NO OVERRIDE — this module was imported at the top of this file, long before
+  // the assignment below, so an import-time capture would answer `<repo>/data`
+  // here (the leak). The live read answers whatever the env says NOW.
+  clearPlaceMissDirOverride();
+  process.env.LINA_DATA_DIR = later;
+  try {
+    assert.equal(placeMissDir(), path.resolve(later),
+      'the dir follows the env at call time, not at import');
+    recordPlaceMiss({ at: Date.now(), chatId: 'env', text: 'МАЏИР МААЛО' });
+    await flushPlaceMisses();
+    assert.deepEqual((await readPlaceMisses()).map(m => m.text), ['МАЏИР МААЛО']);
+    assert.ok(fs.readdirSync(later).some(n => n.startsWith('place-misses-')),
+      'the row landed in the dir the env named');
+  } finally {
+    if (savedEnv === undefined) delete process.env.LINA_DATA_DIR; else process.env.LINA_DATA_DIR = savedEnv;
+    clearPlaceMissDirOverride();
+  }
+  // An EXPLICIT override still beats the environment (the tests' seam).
+  const explicit = fs.mkdtempSync(path.join(os.tmpdir(), 'place-misses-explicit-'));
+  process.env.LINA_DATA_DIR = later;
+  setPlaceMissDir(explicit);
+  try {
+    assert.equal(placeMissDir(), explicit, 'the override wins over the env');
+  } finally {
+    if (savedEnv === undefined) delete process.env.LINA_DATA_DIR; else process.env.LINA_DATA_DIR = savedEnv;
+  }
+});
+
+test('one NAME is one finding, with or without the refused row', () => {
+  // «ујп» was logged with and without the row the guard refused, and the group
+  // key carries the offered name — so the digest counted the same client name
+  // on BOTH sides of the ledger (once as a map gap, once as resolving). The
+  // counts answer "how many names does the map not hold", so they dedupe by name
+  // and keep the busiest group.
+  const rows = [
+    ...Array(3).fill({ text: 'ујп' }),
+    { text: 'ујп', refused: 'Управа за јавни приходи - УЈП' },
+    ...Array(5).fill({ text: 'зулуфтар' } as { text: string }),
+  ];
+  const names = distinctPlaceMissNames(groupPlaceMisses(rows));
+  assert.deepEqual(names.map(n => n.text), ['зулуфтар', 'ујп']);
+  assert.equal(names.find(n => n.text === 'ујп')?.turns, 3, 'the busiest group represents the name');
+  // A second spelling of the same name folds to one finding.
+  const folded = distinctPlaceMissNames(groupPlaceMisses([{ text: 'ЗУЛУФТАР' }, { text: 'зулуфтар' }, { text: 'зулуфтар' }]));
+  assert.equal(folded.length, 1);
+  assert.equal(folded[0]!.turns, 3);
 });
 
 // ── THE WEEKLY DIGEST (route:gap-audit + scripts/place-misses.ts) ────────────

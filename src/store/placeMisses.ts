@@ -41,36 +41,60 @@ const MAX_TEXT = 120;
  *  (and the offline sweeps, which are supposed to write here) keep `data/`, and
  *  `LINA_DATA_DIR` overrides both for a harness that drives the shipped entry
  *  point. */
-const DEFAULT_DIR = resolvePlaceMissDirFromEnv();
-let dir = DEFAULT_DIR;
-
 export function resolvePlaceMissDirFromEnv(env: NodeJS.ProcessEnv = process.env): string {
   const explicit = env.LINA_DATA_DIR?.trim();
   if (explicit) return path.resolve(explicit);
   if (env.NODE_TEST_CONTEXT) return path.join(os.tmpdir(), `lina-place-misses-test-${process.pid}`);
   return path.join(process.cwd(), 'data');
 }
+
+/** THE ENV IS READ AT WRITE TIME, NOT AT IMPORT TIME — and that is a field
+ *  lesson, not tidiness. A probe/sweep script sets `LINA_DATA_DIR` at the top
+ *  of its body, but ES module imports are hoisted ABOVE it: the old
+ *  `const DEFAULT_DIR = resolvePlaceMissDirFromEnv()` ran first, captured
+ *  `<repo>/data`, and the script appended its probe rows to the LIVE field file
+ *  (three rows: «MADJAR MAALO SO DVE», «NEPOSTOECHKO MESTO XYZ», «EDNA» — the
+ *  first two are rows the writer guard now refuses, so the leak was silent). A
+ *  seam whose value depends on import ORDER is not a seam. The override
+ *  (`setPlaceMissDir`, the tests' one) still wins — that is explicit intent
+ *  rather than an environment that happened to exist. */
+let dirOverride: string | undefined;
 let dirMemo = '';
 const lastWrite = new Map<string, number>();
 
+function currentDir(): string {
+  return dirOverride ?? resolvePlaceMissDirFromEnv();
+}
+
 /** Test seam — keeps tests out of the repo's real data/ dir. */
 export function setPlaceMissDir(d: string): void {
-  dir = d;
+  dirOverride = d;
+  dirMemo = '';
+  lastWrite.clear();
+}
+
+/** Drop the override and fall back to the environment, read live. The seam's
+ *  own regression test needs it (the bug was an import-time capture, which an
+ *  override would mask), and a sweep script that pinned a dir early can return
+ *  to `LINA_DATA_DIR`/cwd without re-importing the module. */
+export function clearPlaceMissDirOverride(): void {
+  dirOverride = undefined;
   dirMemo = '';
   lastWrite.clear();
 }
 export function placeMissDir(): string {
-  return dir;
+  return currentDir();
 }
-/** The dir a fresh process would have chosen — so a test can assert the DEFAULT
- *  (a seam that only proves `setPlaceMissDir` works proves nothing about where
- *  an un-seamed handler-driven test writes). */
+/** The dir a fresh process would have chosen RIGHT NOW — so a test can assert
+ *  the DEFAULT (a seam that only proves `setPlaceMissDir` works proves nothing
+ *  about where an un-seamed, handler-driven test writes) and a script can print
+ *  where it is about to write before it writes. */
 export function defaultPlaceMissDir(): string {
-  return DEFAULT_DIR;
+  return resolvePlaceMissDirFromEnv();
 }
 
 function dayFile(at: number): string {
-  return path.join(dir, `place-misses-${new Date(at).toISOString().slice(0, 10)}.jsonl`);
+  return path.join(currentDir(), `place-misses-${new Date(at).toISOString().slice(0, 10)}.jsonl`);
 }
 
 const pending: Promise<void>[] = [];
@@ -78,9 +102,10 @@ const pending: Promise<void>[] = [];
 async function write(miss: PlaceMiss): Promise<void> {
   const p = (async () => {
     try {
-      if (dirMemo !== dir) {
-        await fs.mkdir(dir, { recursive: true });
-        dirMemo = dir;
+      const d = currentDir();
+      if (dirMemo !== d) {
+        await fs.mkdir(d, { recursive: true });
+        dirMemo = d;
       }
       await fs.appendFile(dayFile(miss.at), JSON.stringify(miss) + '\n', 'utf8');
     } catch { /* a lost telemetry row is better than a broken chat turn */ }
@@ -122,6 +147,7 @@ export function recordPlaceMiss(miss: Omit<PlaceMiss, 'text'> & { text: string }
 /** Every miss in the last `days` days (default: all). Newest first. */
 export async function readPlaceMisses(opts: { days?: number } = {}): Promise<PlaceMiss[]> {
   let files: string[];
+  const dir = currentDir();
   try {
     files = (await fs.readdir(dir))
       .filter(n => n.startsWith('place-misses-') && n.endsWith('.jsonl'))
@@ -224,13 +250,34 @@ export const PLACE_MISS_INTENT_WORDS: readonly string[] = [
   'drugi', 'други',
   // THE NAV / SITE FRAME (the client is reading our page, not naming a place)
   'sajt', 'сајт', 'stranica', 'страница', 'vashata', 'вашата', 'vas', 'вас',
+  // THE ANSWER/DISCOURSE FRAME, found by replaying the 2026-11-16 day file: the
+  // wish grammar logs the client's filler as a "place" («МОЖЕ» = maybe, «СЛИЧНО»
+  // = similar, «ПОЗНАТО» = familiar, «БРОЈОТ» = the number, «ЖИВО» from «живо ме
+  // интересира»). Each is a whole-message fragment on its own, and ranking it
+  // as a map gap is instrument noise the operator cannot close.
+  'mozhe', 'може', 'slicno', 'слично', 'poznato', 'познато', 'broj', 'број',
+  'zivo', 'живо', 'vakvo', 'вакво', 'takvo', 'такво', 'veke', 'веќе',
+  // A PHRASE IS NOT A NAME, and the same replay showed the wish grammar logging
+  // whole ones: a criterion after the area («CENTAR . SPALNI»), a conjunction
+  // joining TWO places the map can never bind as one («капитол и бисер»), and
+  // pure time/comment talk («pred nekoe vreme» = some time ago, «prekrasen
+  // izbor» = lovely choice). None of them is a place the operator could add.
+  'i', 'и', 'e', 'е', 'po', 'по', 'nad', 'над', 'pred', 'пред', 'oko', 'око',
+  'spalni', 'спални', 'spalna', 'спална', 'spalna', 'kupuvam', 'купувам',
+  'seuste', 'сеуште', 'nekoe', 'некое', 'vreme', 'време',
+  'prekrasen', 'прекрасен', 'izbor', 'избор', 'imas', 'имаш', 'имас',
+  'hmm', 'hmmm', 'interesno', 'интересно', 'okolu', 'околу', 'a', 'а',
+  // …and a VENUE-TYPE noun with a definite article is the category, not a name
+  // («КАФИЧОТ» = the café they are standing in, «ЌЕБАПОТ», «ПИЦЕРИЈАТА»). A real
+  // venue name carries another word, and then this list cannot fire.
+  'kafic', 'кафич', 'kebab', 'кебап', 'picerija', 'пицерија', 'pekara', 'пекара',
   // Place-type nouns with a determiner / a proximity word (asking to narrow)
   'naselba', 'населба', 'reon', 'реон', 'blizina', 'близина', 'blixina', 'близу',
 ];
 const INTENT = new Set(PLACE_MISS_INTENT_WORDS);
 /** A room-count adjective in ANY inflection («trosoben», «двособниот»): the size
  *  of a flat is a criterion, never a place name. */
-const SIZE_SUFFIXES = ['soben', 'ѕобен', 'собен'];
+const SIZE_SUFFIXES = ['soben', 'soбni', 'sobni', 'ѕобен', 'собен', 'собни', 'ѕобни'];
 function isIntentWord(w: string): boolean {
   if (INTENT.has(w)) return true;
   if (SIZE_SUFFIXES.some(s => w.endsWith(s))) return true;
@@ -272,6 +319,21 @@ export function namesNoPlace(text: string): boolean {
   if (looksLikeProbeName(text)) return true;
   const words = [...wordsOf(text), ...placeMissKey(text).toLowerCase().split(' ').filter(Boolean)];
   return words.length > 0 && words.every(isIntentWord);
+}
+
+/** ONE NAME IS ONE FINDING, even when the corpus recorded it with and without a
+ *  refused row: the group key carries the offered name (a different finding for
+ *  the report), but the COUNTS answer "how many names does the map not hold?" —
+ *  and «ујп» was printed twice, once as a map gap and once as resolving, because
+ *  two groups shared the name. Keeps the busiest group per name. */
+export function distinctPlaceMissNames<T extends { text: string; turns: number }>(groups: readonly T[]): T[] {
+  const best = new Map<string, T>();
+  for (const g of groups) {
+    const k = placeMissKey(g.text);
+    const prev = best.get(k);
+    if (!prev || g.turns > prev.turns) best.set(k, g);
+  }
+  return [...best.values()].sort((a, b) => b.turns - a.turns);
 }
 
 /** Grouped by (folded text, folded offered name), labelled with the most common

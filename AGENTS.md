@@ -1672,6 +1672,46 @@ next to them:
   across the renaming (`tests/place-template-backfill.test.ts`). New rows store
   the resolved (long) name, so copy, anchor and map agree.
 
+## A NASELBA is an AREA, and the map is its own witness
+
+The offline map files a neighbourhood as an OSM settlement row (`suburb`,
+`neighbourhood`, `quarter`, `hamlet`, `village`, `locality`) pinned at its
+centroid: «Центар» [suburb], «Скопје Север» [suburb], «Карпош 3» [suburb].
+Reading one as a POI produced a tautology the owner caught: «KADE E CENTAR?» →
+«Центар се наоѓа во Центар» — `areaAt()` returns the settlement a point sits
+in, and a suburb's centroid sits in that suburb.
+
+- `isSettlementPlace(type)` in `src/handlers/inbound.ts` is the ONE class test
+  (the same shape as `isCityLevelPlace`); the row TYPE decides, never the name
+  (the map also carries «Centar Bar» and a bus station called «Скопје Север»).
+- `placeWhereAnswer` answers a settlement row as «<name> е населба во Скопје»
+  and keeps «се наоѓа во <quarter>» for a real landmark; the distance line to a
+  discussed property is unchanged.
+- The FEED is the area vocabulary (`Скопје Север` is one of its 15 locations),
+  so `detectLocation` hears it before any landmark binding — a naselba mention
+  banks `slots.location`, and no lane logs it as a place miss.
+- THE AREA ANSWERS ITS OWN NAME (the [07:16] «KARPOS» capture): a client typing
+  the area — «KARPOS», the Serbian/ASCII spelling with s for ш — was answered
+  with «Карпош 3» [mall], 1 km away, and every distance in the funnel was then
+  measured from a shopping centre. Every row NAMED AFTER the area (the mall, the
+  bus stops, «Хотел Карпош») matched the needle as a word PREFIX, and the
+  prefix tier hands the winner to `typeRank`, where a mall (8) beats a suburb
+  (100). The lookup now orders by TWO keys before significance:
+  `wholeNameOf()` — the row's whole name IS the client's words, folded with the
+  resolver's own `phoneticWordKeys` (which is what bridges «KARPOS» ↔ «Карпош»)
+  — and then the settlement row over a POI of the same name. Neither key widens
+  a candidate set: naming the mall («ТЦ КАРПОШ 3») still keeps the mall, and
+  «Бисер» still prefers the mall to the travel agency beside it.
+- A NUMBER IS A DISCRIMINATOR: `phoneticWordKeys` keeps digit tokens, so
+  «KARPOS 3» names the quarter. Dropping «3» answered the bare «Карпош» — the
+  wrong quarter of the same municipality.
+- The class lives in the GEO layer (`isSettlementType`/`SETTLEMENT_TYPES` in
+  `src/geo/offlineMap.ts`); `isSettlementPlace` in the handler delegates, because
+  the ranking needs the same list.
+- Pinned in `tests/naselba-not-a-landmark.test.ts` (class, map rows, the
+  tautology's e2e, the landmark that keeps its line, "no miss is written", the
+  area-name family, and the e2e where «KADE E KARPOS ?» answers the naselba).
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.
@@ -2231,39 +2271,46 @@ appliance actually meets:
   count in both tools.
   A NAME THE MAP BINDS **TODAY** IS HISTORY, NOT A GAP. A miss row says a turn
   failed on that day; the audit must ask today's map before calling it unknown,
-  or `центар`/`скопје север` (both NASELBAS — see §4d) rank beside
-  `црногорска амбасада` forever. The test is `mapNameCoversClientWords` in
-  `src/geo/offlineMap.ts` (every client word in the row, and the row OPENS with
-  one of them) — NOT a bare `findPoiByName` hit, which always answers: it read
-  «амбасадата» as «Паркинг на амбасадата на САД» and «SKOPJE SEVER E» as the
-  bus station «Скопје север ЕВН», i.e. "nothing to add" for two names the map
-  does not hold. For an alias PROPOSAL the looser
-  `mapNameOpensWithClientWord` (`PA AERODROM` → «Аеродром») may be used, never
-  a one-slip guess: the patch used to re-parse suggestion STRINGS and emitted
-  `[/KAJ SKOPJE SEVER/iu, 'СВР Скопје - ЕИК']` — a police station as an alias for
-  a neighbourhood. Suggestions are typed (`Suggestion`) so a hint can never
+  or `центар`/`скопје север` (both NASELBAS — see §4g) rank beside
+  `црногорска амбасада` forever. ONE call answers it for both tools:
+  `OfflineMapStore.todayBinding()` — the RESOLVER's own answer (with the
+  extractor's opener stripped: «KAJ SKOPJE SEVER»), plus the coverage guard
+  `mapNameCoversClientWords` on the row it chose. Not "any row that happens to
+  cover": «KARPOS» also covers «Карпош 3», and reporting the mall as the target
+  of an area name is the same class of lie as the gap itself. Not a bare
+  `findPoiByName` hit either, which always answers: it read «амбасадата» as
+  «Паркинг на амбасадата на САД».
+  THE COVERAGE GUARD FOLDS LIKE THE RESOLVER (every client word in the row, and
+  the row OPENS with one — or with a separator-declared alias tail, «Управа за
+  јавни приходи - УЈП»): the word fold is `phoneticWordKeys`, not `toCyrillic`,
+  or a name that RESOLVES («KARPOS» → «Карпош») is reported as a gap forever;
+  the head words lose a leading filler/opener («PA AERODROM», «KAJ …») because
+  that word is not part of the name; and a bare tail is NOT an alias — «тобако
+  РАМПА» is a kiosk named after the area. For an alias PROPOSAL the looser
+  `mapNameOpensWithClientWord` may be used, never a one-slip guess: the patch
+  used to re-parse suggestion STRINGS and emitted
+  `[/KAJ SKOPJE SEVER/iu, 'СВР Скопје - ЕИК']` — a police station as an alias
+  for a neighbourhood. Suggestions are typed (`Suggestion`) so a hint can never
   become a write.
-## 4d. A NASELBA is an AREA, and the map's own settlement rows say so
-
-The offline map files a neighbourhood as an OSM settlement row (`suburb`,
-`neighbourhood`, `quarter`, `hamlet`, `village`, `locality`) pinned at its
-centroid: «Центар» [suburb], «Скопје Север» [suburb], «Карпош 3» [suburb].
-Reading one as a POI produced a tautology the owner caught: «KADE E CENTAR?» →
-«Центар се наоѓа во Центар» — `areaAt()` returns the settlement a point sits
-in, and a suburb's centroid sits in that suburb.
-
-- `isSettlementPlace(type)` in `src/handlers/inbound.ts` is the ONE class test
-  (the same shape as `isCityLevelPlace`); the row TYPE decides, never the name
-  (the map also carries «Centar Bar» and a bus station called «Скопје Север»).
-- `placeWhereAnswer` answers a settlement row as «<name> е населба во Скопје»
-  and keeps «се наоѓа во <quarter>» for a real landmark; the distance line to a
-  discussed property is unchanged.
-- The FEED is the area vocabulary (`Скопје Север` is one of its 15 locations),
-  so `detectLocation` hears it before any landmark binding — a naselba mention
-  banks `slots.location`, and no lane logs it as a place miss.
-- Pinned in `tests/naselba-not-a-landmark.test.ts` (class, map rows, the
-  tautology's e2e, the landmark that keeps its line, and "no miss is written").
-
+  ONE NAME IS ONE FINDING. The group key carries the refused row as well (two
+  different findings), so «ујп» sat in two groups and the digest counted it on
+  BOTH sides of the ledger. Every count and every JSON lane dedupes by
+  `distinctPlaceMissNames` (busiest group per name) and must add up to the
+  header; the operator CLI re-derived the grouping itself and reported the same
+  279 groups as 273 vs 278 distinct names — it now calls `groupPlaceMisses` too.
+  THE INTENT LIST IS DATA, AND A LIVE REPLAY KEEPS EXTENDING IT
+  (`PLACE_MISS_INTENT_WORDS`): the answer/discourse frame («МОЖЕ», «СЛИЧНО»,
+  «ПОЗНАТО», «БРОЈОТ», «HMMM INTERESNO»), a time clause («PRED NEKOE VREME»),
+  and a criterion or conjunction appended to an area («CENTAR . SPALNI»,
+  «капитол и бисер» — TWO places, which can never bind as one). Add the word
+  when the replay shows it; on the 2026-11-16 corpus the place-shaped list fell
+  from 48 names to 3.
+  A DATA-DIR SEAM IS READ AT WRITE TIME, NEVER AT IMPORT. A script's
+  `process.env.LINA_DATA_DIR = …` runs AFTER its hoisted imports, so an
+  import-time capture sent probe rows into the LIVE day files (three rows in
+  `place-misses-2026-11-16.jsonl`; `routeDrift.ts` has the same shape).
+  `setPlaceMissDir`/`setRouteDriftDir` remain the explicit override;
+  `clearPlaceMissDirOverride`/`clearRouteDriftDirOverride` return to the env.
 - A `K(...)` REGISTRY ROW IS A MARKER, NOT BACKLOG, AND THE AUDIT MUST SAY SO.
   Markers (`PRICE_EVAL_EXPENSIVE_UNWIRED`, `CHAIN_READY`, `EXIT_CHECK_REPEAT`)
   log and fall through; `routeLog` refuses to write a drift row for one, so a

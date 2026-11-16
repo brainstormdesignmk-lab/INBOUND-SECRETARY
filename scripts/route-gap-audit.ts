@@ -29,8 +29,8 @@ import '../src/compat/node16';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tagStatus } from '../src/handlers/router';
-import { readPlaceMisses, groupPlaceMisses, type PlaceMissGroup } from '../src/store/placeMisses';
-import { OfflineMapStore, mapNameCoversClientWords } from '../src/geo/offlineMap';
+import { readPlaceMisses, groupPlaceMisses, distinctPlaceMissNames, type PlaceMissGroup } from '../src/store/placeMisses';
+import { OfflineMapStore } from '../src/geo/offlineMap';
 import { loadConfig } from '../src/config';
 
 /** THE MAP AS IT IS TODAY, for the "does this name bind now?" half of the
@@ -40,18 +40,17 @@ import { loadConfig } from '../src/config';
  *  the operator can close, and listing it beside `црногорска амбасада` makes
  *  the map-gap list lose its reader.
  *
- *  The lookup is not a bare fuzzy hit: `findPoiByName` always returns its best
- *  guess, so a junk fragment («амбасадата») would "resolve" to some unrelated
- *  row («Паркинг на амбасадата на САД»). The row must COVER the client's words
- *  (`mapNameCoversClientWords`), which is the resolver's own coverage rule. */
+ *  ONE IMPLEMENTATION, in the geo layer (`OfflineMapStore.todayBinding`): the
+ *  audit and the operator CLI used to carry their own copies, and the audit's
+ *  copy forgot to strip the extractor's opener, so «KAJ SKOPJE SEVER» was a map
+ *  gap in one report and resolved in the other. The binding is the RESOLVER's
+ *  answer plus the coverage guard (`mapNameCoversClientWords`), whose word fold
+ *  is the resolver's own spelling fold — see the [07:16] «KARPOS» capture. */
 function todayBinding(text: string, map?: OfflineMapStore): { name: string; type?: string } | undefined {
   if (!map?.available) return undefined;
   try {
-    for (const row of map.findPoisByName(text, 8) ?? []) {
-      if (mapNameCoversClientWords(text, row.name)) return { name: row.name, type: row.type };
-    }
+    return map.todayBinding(text);
   } catch { /* a probe may never break the audit */ }
-  return undefined;
 }
 
 const args = process.argv.slice(2);
@@ -167,15 +166,20 @@ const placeMissTop: PlaceMissGroup[] = groupPlaceMisses(misses);
 // The name the map binds TODAY for each place-shaped group (see todayBinding).
 let placeMap: OfflineMapStore | undefined;
 try { placeMap = new OfflineMapStore(loadConfig().skopjePoisDb); } catch { placeMap = undefined; }
+// ONE NAME IS ONE FINDING (`distinctPlaceMissNames`): the group key carries the
+// refused row as well, so «ујп» sat in TWO groups — one unknown, one resolving —
+// and the digest counted the same name on both sides of the ledger.
+const placeNames = distinctPlaceMissNames(placeMissTop.filter(m => m.lane === 'place'));
+// …and every lane is counted by NAME, or the lanes do not add up to `unique`.
+const uniqueNames = distinctPlaceMissNames(placeMissTop);
 const bound = new Map<string, { name: string; type?: string }>();
-for (const m of placeMissTop) {
-  if (m.lane !== 'place') continue;
+for (const m of placeNames) {
   const hit = todayBinding(m.text, placeMap);
   if (hit) bound.set(m.text, hit);
 }
-const stillUnknown = placeMissTop.filter(m => m.lane === 'place' && !bound.has(m.text));
-const resolvesNow = placeMissTop
-  .filter(m => m.lane === 'place' && bound.has(m.text))
+const stillUnknown = placeNames.filter(m => !bound.has(m.text));
+const resolvesNow = placeNames
+  .filter(m => bound.has(m.text))
   .map(m => ({ ...m, resolvesAs: bound.get(m.text)!.name, resolvesType: bound.get(m.text)!.type }));
 placeMap?.close();
 
@@ -188,7 +192,7 @@ const report = { days, files: files.length, damagedLines: damaged, turns: logged
   pending: rows.filter(r => r.status === 'pending').map(r => ({ tag: r.tag, turns: r.gap + r.drift, samples: r.samples })),
   placeMisses: {
     total: misses.length,
-    unique: placeMissTop.length,
+    unique: uniqueNames.length,
     // The JSON carries the FULL lists (the text digest truncates and points
     // here); a truncated machine view is a false "that was all of it".
     placeShaped: stillUnknown,
@@ -196,11 +200,11 @@ const report = { days, files: files.length, damagedLines: damaged, turns: logged
     // carried because a settlement row (`suburb`) is a NASELBA: an area the
     // funnel asks about, never a landmark or an alias target.
     resolvesNow,
-    noise: placeMissTop.filter(m => m.lane === 'intent'),
+    noise: uniqueNames.filter(m => m.lane === 'intent'),
     // PROBE ROWS ARE NOT RESOLVER FACTS (see PLACE_MISS_PROBE_WORDS): the sweep
     // scripts write «NEPOSTOECHKO MESTO XYZ» on purpose. They are reported in
     // their own list so an operator never reads them as places to learn.
-    probes: placeMissTop.filter(m => m.lane === 'probe'),
+    probes: uniqueNames.filter(m => m.lane === 'probe'),
   } };
 
 if (asJson) {
@@ -224,10 +228,12 @@ if (asJson) {
   }
   if (misses.length > 0) {
     const shaped = stillUnknown;
-    const noise = placeMissTop.filter(m => m.lane === 'intent');
-    const probes = placeMissTop.filter(m => m.lane === 'probe');
+    // LANES BY NAME, like the header and the operator CLI: a name logged with and
+    // without a refused row is ONE finding, and the four lanes must add up to it.
+    const noise = uniqueNames.filter(m => m.lane === 'intent');
+    const probes = uniqueNames.filter(m => m.lane === 'probe');
     const noiseRows = noise.reduce((n, m) => n + m.turns, 0);
-    console.log(`  place misses (the extractor heard it, the map could not place it — ${misses.length} rows, ${placeMissTop.length} distinct):`);
+    console.log(`  place misses (the extractor heard it, the map could not place it — ${misses.length} rows, ${uniqueNames.length} distinct names):`);
     console.log(`    place-shaped (a name the map does NOT know today — THE map-gap list): ${shaped.length} distinct`);
     for (const m of shaped.slice(0, 20)) {
       // `refused` in the row is what the MAP OFFERED and the guard turned down

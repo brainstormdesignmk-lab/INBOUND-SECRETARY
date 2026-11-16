@@ -22,8 +22,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadConfig } from '../src/config';
-import { OfflineMapStore, mapNameCoversClientWords, mapNameOpensWithClientWord } from '../src/geo/offlineMap';
-import { readPlaceMisses, placeMissKey, looksPlaceShaped, looksLikeProbeName } from '../src/store/placeMisses';
+import { OfflineMapStore, mapNameOpensWithClientWord, stripPlaceOpener, SETTLEMENT_TYPES, isSettlementType } from '../src/geo/offlineMap';
+import { readPlaceMisses, groupPlaceMisses, looksPlaceShaped, looksLikeProbeName, distinctPlaceMissNames } from '../src/store/placeMisses';
 import { Db } from '../src/store/db';
 import { SessionStore } from '../src/fsm/session';
 import { Classifier } from '../src/llm/classify';
@@ -54,13 +54,9 @@ type Suggestion =
   | { kind: 'row'; name: string; text: string };
 
 /** The extractor's own opening preposition is not part of the name
- *  («KAJ SKOPJE SEVER», «VO CENTAR», «OKOLU RAMPA»): the logged fragment kept
- *  the word that introduced it, so the digest looks the name up WITHOUT it —
- *  otherwise a preposition alone makes a neighbourhood read as a missing place. */
-const LEADING_OPENER = /^(?:kaj|кај|vo|во|na|на|do|до|okolu|околу|blizu|близу|kon|кон|sproti|спроти|nasproti|наспроти|niz|низ|od|од)\s+/iu;
-function withoutOpener(text: string): string {
-  return text.replace(LEADING_OPENER, '').trim();
-}
+ *  («KAJ SKOPJE SEVER», «VO CENTAR», «OKOLU RAMPA») — the shared stripper, so
+ *  this tool and the audit cannot disagree about the same logged fragment. */
+const withoutOpener = stripPlaceOpener;
 
 function suggest(text: string, map?: OfflineMapStore): Suggestion[] {
   if (!map?.available) return [];
@@ -71,19 +67,18 @@ function suggest(text: string, map?: OfflineMapStore): Suggestion[] {
     // "RESOLVES NOW" IS A CONCLUSION, so it needs the coverage rule, not a bare
     // fuzzy hit: `findPoiByName` always answers with its best guess, and
     // «амбасадата» came back as a parking lot — reported as "no action needed"
-    // for a name the map genuinely does not hold. Same predicate as the audit.
-    for (const t of [text, ...forms]) {
-      const now = (map.findPoisByName(t, 8) ?? [])
-        .find(r => mapNameCoversClientWords(t, r.name));
-      if (now) {
-        const isArea = SETTLEMENT_TYPES.includes(String(now.type ?? '').toLowerCase());
-        return [{
-          kind: 'now',
-          name: now.name,
-          text: `resolves now → ${now.name}  (a bridge/alias covers it; no action needed)`
-            + (isArea ? '  — a NASELBA (the area, not the landmark)' : ''),
-        }];
-      }
+    // for a name the map genuinely does not hold. THE SAME CALL the audit makes
+    // (`map.todayBinding`), or the two reports start disagreeing about the
+    // same corpus.
+    const now = map.todayBinding(text);
+    if (now) {
+      const isArea = isSettlementType(now.type);
+      return [{
+        kind: 'now',
+        name: now.name,
+        text: `resolves now → ${now.name}  (a bridge/alias covers it; no action needed)`
+          + (isArea ? '  — a NASELBA (the area, not the landmark)' : ''),
+      }];
     }
   } catch { /* a suggestion may never break the digest */ }
   try {
@@ -103,7 +98,6 @@ function suggest(text: string, map?: OfflineMapStore): Suggestion[] {
   return out;
 }
 
-const SETTLEMENT_TYPES = ['suburb', 'neighbourhood', 'neighborhood', 'quarter', 'hamlet', 'village', 'locality'];
 
 // ── --sweep: THE CLASS-TAIL REPLAY ──────────────────────────────────────────
 // The [01:05] KAPITOL MOL family: a client who appends a CLASS WORD to a place
@@ -195,24 +189,15 @@ async function main(): Promise<void> {
     console.log(`No place misses in the last ${days} day(s).`);
     return;
   }
-  // THE FOLD IS SHARED (`placeMissKey`): case, script and punctuation never make
-  // two rows here either, or this CLI and `route:gap-audit` would report
-  // different counts for the same corpus. The label is the spelling the corpus
-  // used most, so the digest still reads like the clients' own words.
-  const groups = new Map<string, { n: number; refused: string[]; spell: Map<string, number> }>();
-  for (const m of misses) {
-    const key = `${placeMissKey(m.text)}|${placeMissKey(m.refused ?? '')}`;
-    const g = groups.get(key) ?? { n: 0, refused: [], spell: new Map() };
-    g.n++;
-    g.spell.set(m.text, (g.spell.get(m.text) ?? 0) + 1);
-    if (m.refused && g.refused.length < 3 && !g.refused.includes(m.refused)) g.refused.push(m.refused);
-    groups.set(key, g);
-  }
-  const labelled = [...groups.values()].map(g => {
-    let text = '', best = -1;
-    for (const [s, n] of g.spell) if (n > best) { text = s; best = n; }
-    return { text, g };
-  });
+  // THE GROUPING IS SHARED (`groupPlaceMisses`), not re-derived here: this CLI
+  // used to carry its own copy of the fold and the label pick, and the two tools
+  // reported 279 groups as 273 vs 278 distinct names — the same corpus counted
+  // two ways. The label is still the spelling the corpus used most, so the
+  // digest reads like the clients' own words.
+  const labelled = groupPlaceMisses(misses).map(g => ({
+    text: g.text,
+    g: { n: g.turns, refused: g.refused ? [g.refused] : [], lane: g.lane },
+  }));
   // A NAME BEFORE A PHRASE: the recorder logs every candidate the wish grammar
   // produced, so intent vocabulary («EDNA», «ZA KUPUVANJE SUM») sits at the top
   // of a raw ranking. It is named, never offered as an alias.
@@ -229,7 +214,7 @@ async function main(): Promise<void> {
     try { map = new OfflineMapStore(loadConfig().skopjePoisDb); } catch { map = undefined; }
   }
 
-  console.log(`place misses, last ${days} day(s): ${misses.length} rows, ${groups.size} distinct\n`);
+  console.log(`place misses, last ${days} day(s): ${misses.length} rows, ${labelled.length} distinct\n`);
   let unresolved = 0;
   let intentRows = 0;
   for (const [text, g] of rows) {
@@ -261,28 +246,30 @@ async function main(): Promise<void> {
     console.log(`  ${String(g.n).padStart(3)}×  «${text}»  — ${verdict}`);
     for (const s of hints.filter(h => h.kind !== 'now')) console.log(`       ↳ ${s.text}`);
   }
-  const intentSeen = labelled.filter(l => !looksPlaceShaped(l.text)).length;
-  // COUNCIL ONLY NAMES: an intent phrase with no refused row is not a name the
-  // map lacks, so it must not inflate the "add these" count.
-  // A group the map binds TODAY is history, not work: count it apart, or the
-  // "add these" number stays inflated by names that already resolve (the
-  // [23:0x] NASELBA rows — «центар», «скопје север»).
-  const resolvesNowCount = labelled.filter(l =>
-    !looksLikeProbeName(l.text) && looksPlaceShaped(l.text)
-    && suggest(l.text, map).some(h => h.kind === 'now')).length;
-  const noRow = labelled.filter(l => l.g.refused.length === 0 && looksPlaceShaped(l.text)
-    && !suggest(l.text, map).some(h => h.kind === 'now')).length;
-  const refusedCount = labelled.filter(l => l.g.refused.length > 0 && looksPlaceShaped(l.text)).length;
-  const probeSeen = labelled.filter(l => looksLikeProbeName(l.text)).length;
+  const namedGroups = distinctPlaceMissNames(labelled.map(l => ({ text: l.text, turns: l.g.n, g: l.g })));
+  const intentSeen = namedGroups.filter(l => !looksPlaceShaped(l.text) && !looksLikeProbeName(l.text)).length;
+  // ONE NAME IS ONE FINDING, and a name the map binds TODAY is history, not
+  // work: count by NAME (`distinctPlaceMissNames` — the group key carries the
+  // refused row too, so «ујп» sat in two groups and was counted on both sides of
+  // the ledger) and apart from the names that already resolve (the [23:0x]
+  // NASELBA rows — «центар», «скопје север»). The totals must equal the audit's
+  // place-shaped count, or two reports disagree about one corpus.
+  const placeNames = namedGroups.filter(l => looksPlaceShaped(l.text) && !looksLikeProbeName(l.text));
+  const unknownNames = placeNames.filter(l => !suggest(l.text, map).some(h => h.kind === 'now'));
+  const resolvesNowCount = placeNames.length - unknownNames.length;
+  const refusedCount = unknownNames.filter(l => l.g.refused.length > 0).length;
+  const noRow = unknownNames.length;
+  const probeSeen = namedGroups.filter(l => looksLikeProbeName(l.text)).length;
   if (probeSeen > 0) {
     console.log(`${probeSeen} group(s) are probe rows the sweeps wrote on purpose — excluded from the alias candidates.`);
   }
-  console.log(`\n${noRow} distinct name(s) the map does not hold; ${refusedCount} were found and refused.`);
+  console.log(`\n${noRow} distinct name(s) the map does not hold today`
+    + (refusedCount > 0 ? ` (${refusedCount} with a row the guard refused)` : '') + '.');
   if (resolvesNowCount > 0) {
     console.log(`${resolvesNowCount} group(s) resolve on TODAY's map — historical rows (or a landed bridge), nothing to add.`);
   }
   if (intentSeen > 0) {
-    console.log(`${intentSeen} of the ${groups.size} groups are intent/quantity vocabulary from the wish grammar` +
+    console.log(`${intentSeen} of the ${namedGroups.length} distinct names are intent/quantity vocabulary from the wish grammar` +
       ` (${intentRows} shown in this top ${top}) — an instrument noise row, never an alias candidate.`);
   }
   if (withSuggestions && noRow > 0) {

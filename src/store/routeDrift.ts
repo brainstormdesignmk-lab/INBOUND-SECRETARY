@@ -57,34 +57,52 @@ export function resolveRouteDriftDirFromEnv(env: NodeJS.ProcessEnv = process.env
   return path.join(process.cwd(), 'data');
 }
 
-const DEFAULT_DIR = resolveRouteDriftDirFromEnv();
-let driftDir = DEFAULT_DIR;
+/** THE ENV IS READ AT WRITE TIME, NOT AT IMPORT TIME (see the sibling note in
+ *  `placeMisses.ts`, which learned it the hard way): a script that assigns
+ *  `LINA_DATA_DIR` in its body runs AFTER its hoisted imports, so a
+ *  `const DEFAULT_DIR = resolveRouteDriftDirFromEnv()` captured the repo's
+ *  `data/` first and the sweep appended its rows to the LIVE day file. The
+ *  explicit override below still wins — that is intent, not an environment. */
+let dirOverride: string | undefined;
 let dirMemo = '';
 const lastWrite = new Map<string, number>();
 
+function currentDir(): string {
+  return dirOverride ?? resolveRouteDriftDirFromEnv();
+}
+
 /** Test seam — keeps tests out of the repo's real data/ dir. */
 export function setRouteDriftDir(dir: string): void {
-  driftDir = dir;
+  dirOverride = dir;
   dirMemo = '';
   lastWrite.clear();
 }
 
 export function routeDriftDir(): string {
-  return driftDir;
+  return currentDir();
+}
+
+/** Drop the override and fall back to the environment, read live — the sibling
+ *  of `clearPlaceMissDirOverride`, for the seam's own regression test. */
+export function clearRouteDriftDirOverride(): void {
+  dirOverride = undefined;
+  dirMemo = '';
+  lastWrite.clear();
 }
 
 
 function dayFile(at: number): string {
   const day = new Date(at).toISOString().slice(0, 10);
-  return path.join(driftDir, `route-drift-${day}.jsonl`);
+  return path.join(currentDir(), `route-drift-${day}.jsonl`);
 }
 
 async function write(pair: DriftPair): Promise<void> {
   const p = (async () => {
     try {
-      if (dirMemo !== driftDir) {
-        await fs.mkdir(driftDir, { recursive: true });
-        dirMemo = driftDir;
+      const d = currentDir();
+      if (dirMemo !== d) {
+        await fs.mkdir(d, { recursive: true });
+        dirMemo = d;
       }
       await fs.appendFile(dayFile(pair.at), JSON.stringify(pair) + '\n', 'utf8');
     } catch { /* a lost drift row is better than a broken chat turn */ }
@@ -114,6 +132,7 @@ export function recordRouteDrift(pair: DriftPair): void {
 /** Read every drift file under the drift dir, newest first, days-limited. */
 export async function readRouteDrift(opts: { days?: number } = {}): Promise<DriftPair[]> {
   let files: string[];
+  const driftDir = currentDir();
   try {
     files = (await fs.readdir(driftDir))
       .filter(n => n.startsWith('route-drift-') && n.endsWith('.jsonl'))

@@ -179,10 +179,89 @@ test('the digest\'s "does it bind today?" probe refuses a fuzzy coincidence', { 
   assert.equal(mapNameCoversClientWords('SKOPJE SEVER E', 'Скопје север ЕВН'), false,
     'a bus station that starts with the area name is not the area');
   assert.equal(mapNameCoversClientWords('zivo', 'Центар'), false);
+  // THE SPELLING FOLD IS THE RESOLVER'S: the map writes «Карпош», a client's
+  // keyboard writes «KARPOS» (s for ш) — a digest that folds `toCyrillic` only
+  // calls a name that RESOLVES a gap forever (45 rows in the 2026-11-16 replay).
+  assert.equal(mapNameCoversClientWords('KARPOS', 'Карпош'), true);
+  assert.equal(mapNameCoversClientWords('KARPOS', 'Карпош 3'), true, 'coverage is not the whole name — see todayBinding');
+  // THE EXTRACTOR'S OPENER/FILLER IS NOT PART OF THE NAME: «KAJ SKOPJE SEVER»
+  // and «PA AERODROM» both name the area, and the audit forgot to strip the
+  // opener while the CLI did — the two reports disagreed about the same row.
+  assert.equal(mapNameCoversClientWords('KAJ SKOPJE SEVER', 'Скопје Север'), true);
+  assert.equal(mapNameCoversClientWords('PA AERODROM', 'Аеродром'), true);
+  // A NAME THE MAP DECLARED AFTER A SEPARATOR IS THE SAME INSTITUTION («Управа
+  // за јавни приходи - УЈП»), but a tail alone is not: «тобако РАМПА» is a
+  // kiosk named AFTER the Рампа area, and accepting it made a tobacco shop the
+  // place the client named.
+  assert.equal(mapNameCoversClientWords('ујп', 'Управа за јавни приходи - УЈП'), true);
+  assert.equal(mapNameCoversClientWords('рампа', 'тобако РАМПА'), false,
+    'a kiosk named after the area is not the area');
   // The LOOSER form used to PROPOSE an alias: the row's head must be a word the
   // client said, so a filler («PA») does not make a kindergarten the target.
   assert.equal(mapNameOpensWithClientWord('PA AERODROM', 'Kindergarten "Crvenkapa" - Aerodrom'), false);
   assert.equal(mapNameOpensWithClientWord('PA AERODROM', 'Аеродром'), true);
+});
+
+test('an AREA name is never answered by a place NAMED AFTER it (the [07:16] KARPOS)', { skip: !hasMap }, () => {
+  const map = new OfflineMapStore(cfg.skopjePoisDb);
+  const hit = (q: string) => map.findPoiByName(q);
+  // «KARPOS» is the Serbian/ASCII spelling (s for ш) a client's keyboard
+  // produces. Before the fix it bound «Карпош 3» [mall] — a shopping centre
+  // 1 km from the area — because every row NAMED AFTER the area matched as a
+  // prefix and typeRank ranks a mall above a naselba.
+  for (const q of ['KARPOS', 'КАРПОС', 'Karpos', 'ПА КАРПОШ']) {
+    const row = hit(q);
+    assert.ok(row, `«${q}» resolves`);
+    assert.equal(row!.name, 'Карпош', `«${q}» is the AREA: got «${row!.name}» [${row!.type}]`);
+    assert.equal(isSettlementPlace(row!.type), true, `«${q}» answers a naselba row`);
+  }
+  // The numbered quarters are discriminates, not noise: the number used to be
+  // dropped by the phonetic fold, so «KARPOS 3» answered the bare «Карпош».
+  for (const [q, want] of [['KARPOS 3', 'Карпош 3'], ['KARPOS 1', 'Карпош 1'], ['KARPOS 4', 'Карпош 4']]) {
+    const row = hit(q);
+    assert.ok(row, `«${q}» resolves`);
+    assert.equal(row!.name, want, `«${q}» is «${want}»: got «${row!.name}» [${row!.type}]`);
+    assert.equal(isSettlementPlace(row!.type), true, `«${q}» answers the naselba, not the mall`);
+  }
+  // The same s-for-ш keyboard across the city, and the filler «PA».
+  assert.equal(hit('SUTO ORIZARI')?.name, 'Шуто Оризари');
+  assert.equal(hit('KISELA VODA')?.name, 'Кисела Вода');
+  assert.equal(hit('PA AERODROM')?.name, 'Аеродром');
+  assert.equal(isSettlementPlace(hit('PA AERODROM')?.type), true);
+  // A client who NAMES the mall keeps the mall: the rule is order, not a veto.
+  assert.equal(hit('ТЦ КАРПОШ 3')?.name, 'Карпош 3');
+  assert.equal(hit('ТЦ КАРПОШ 3')?.type, 'mall');
+  // …and significance still decides among rows the needle merely STARTS
+  // (the [00:46] «Бисер» capture: a travel AGENCY must not beat the mall).
+  assert.equal(hit('Бисер')?.name, 'Biser Shopping Center');
+  assert.equal(hit('КАПИТОЛ')?.name, 'Трговски центар Капитол');
+  map.close();
+});
+
+test('todayBinding: a name binds only through the resolver\'s own answer', { skip: !hasMap }, () => {
+  const map = new OfflineMapStore(cfg.skopjePoisDb);
+  // The digest's conclusion is "the map binds this TODAY" — it must agree with
+  // the resolver, including the opener strip and the phonetic fold, or the
+  // operator keeps closing tickets for names that already work.
+  assert.equal(map.todayBinding('KARPOS')?.name, 'Карпош');
+  assert.equal(map.todayBinding('KARPOS')?.type, 'suburb');
+  assert.equal(map.todayBinding('KARPOS 3')?.name, 'Карпош 3');
+  assert.equal(map.todayBinding('KARPOS 3')?.type, 'suburb');
+  assert.equal(map.todayBinding('PA AERODROM')?.name, 'Аеродром');
+  assert.equal(map.todayBinding('KAJ SKOPJE SEVER')?.name, 'Скопје Север');
+  assert.equal(map.todayBinding('ујп')?.name, 'Управа за јавни приходи - УЈП');
+  // A log fragment that names NO coherent place stays unresolved: the resolver
+  // answers something, and the coverage guard refuses to believe it.
+  assert.equal(map.todayBinding('zumzulce bez vrska'), undefined);
+  map.close();
+});
+
+test('e2e: «KADE E KARPOS ?» answers the naselba, not the shopping centre', { skip: !hasMap }, async () => {
+  const h = makeHandler();
+  const reply = await h.say('KADE E KARPOS ?');
+  assert.match(reply, /Карпош/u, `the area is named: ${reply}`);
+  assert.match(reply, /населба/u, `answered as a naselba: ${reply}`);
+  assert.doesNotMatch(reply, /Карпош 3|мол|трговски/u, `never the mall named after it: ${reply}`);
 });
 
 test('e2e: the same for Центар — the area is banked, nothing is logged', { skip: !hasMap }, async () => {
