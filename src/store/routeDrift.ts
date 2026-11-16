@@ -12,6 +12,7 @@
 // JSONL keeps the read side trivial for the CLI and the write side append-only.
 
 import { promises as fs } from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 export interface DriftPair {
@@ -33,7 +34,21 @@ export interface DriftPair {
 const DEDUPE_TTL_MS = 60 * 60 * 1000; // one row per identical tuple per hour
 const DEDUPE_MAX = 500;
 
-let driftDir = path.join(process.cwd(), 'data');
+/** WHERE THE DAY FILES GO — and WHY A TEST RUN MUST NOT WRITE INTO `data/`.
+ *  The day files are FIELD evidence: the gap audit asks "which lane did the
+ *  plane fly blind on?" and replays them as the corpus. But every test that
+ *  drives `InboundHandler` without calling `setRouteDriftDir` was appending its
+ *  harness turns there too, so the audit's backlog was built from fixtures
+ *  (`invest-cyr`, `closing-digress`, `negated-agree-e2e` in the day files) and
+ *  reported 69 "unmirrored turns a day" on a lane that is a `K(...)` marker and
+ *  cannot produce a gap at all. `node:test` marks its workers with
+ *  `NODE_TEST_CONTEXT`, so a test run defaults to a per-process temp dir: the
+ *  field files stay field-only, and a test still reads its own writes through
+ *  `readRouteDrift` (the seam is unchanged for anything that wants a fixed dir). */
+const DEFAULT_DIR = process.env.NODE_TEST_CONTEXT
+  ? path.join(os.tmpdir(), `lina-route-drift-test-${process.pid}`)
+  : path.join(process.cwd(), 'data');
+let driftDir = DEFAULT_DIR;
 let dirMemo = '';
 const lastWrite = new Map<string, number>();
 

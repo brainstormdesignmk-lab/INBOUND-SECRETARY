@@ -9591,9 +9591,19 @@ function readDistancePlace(text: string): string | undefined {
   // STANICA PRASAV» — the tail runs to the end of the sentence, so the verb he
   // used to ask became part of the place name and the map lookup had to fuzz a
   // string nobody typed. Asked verbs are dropped from the tail.
+  // …AND NEITHER IS A TRAILING EB FRAME (the 2026-11-16 gate): «NA KOLKAVO
+  // RASTOJANIE DO ZELEZNICKA E 75 ?» captured «ZELEZNICKA E 75» — the copula
+  // and the Евидентен број the client NAMED rode into the place name, so the
+  // map looked up a street nobody typed AND the anchor read (inferPropertyId on
+  // the words outside the place) saw an empty message, which made the whole
+  // lane unanchored. A tail that opens with a copula or an EB marker and closes
+  // with a 1–3 digit number is the client naming the FLAT, never the address.
   const trimAsk = (s: string | undefined): string | undefined => {
     if (!s) return s;
-    const cut = s.replace(/(?<![\p{L}])(?:prasam|prasav|prasame|prasaj|прашам|прашав|прашаме|прашај|pitanje|прашање|ask(?:ing)?)(?![\p{L}])\s*$/iu, '').trim();
+    const cut = s
+      .replace(/(?<![\p{L}])(?:prasam|prasav|prasame|prasaj|прашам|прашав|прашаме|прашај|pitanje|прашање|ask(?:ing)?)(?![\p{L}])\s*$/iu, '')
+      .replace(/(?<![\p{L}\p{N}])(?:e|е|ev|eb|ев|еб)\.?\s*(?:(?:br|бр|broj|број)\.?\s*)?\d{1,3}(?![\p{N}])[?.!]*\s*$/iu, '')
+      .trim();
     return cut || s;
   };
   // BOTH ARMS USE THE SUBJECT STOP LIST (the [20:29] capture). «КОЛКУ ИМА ОД

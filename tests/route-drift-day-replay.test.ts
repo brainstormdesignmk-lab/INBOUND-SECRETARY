@@ -308,6 +308,28 @@ test('a suffixed tag resolves to its base lane — no gap on a correct turn', as
   assert.deepEqual(drift, [], 'a :fast tag must not be reported as an unregistered lane');
 });
 
+/** A DISTANCE QUESTION NEEDS SOMETHING TO MEASURE FROM. The 2026-11-14 day
+ *  carried «kolku se razdaleceni od katolicka ?» with the mirror predicting
+ *  DISTANCE and the handler serving PRICE_ASK: the executor measures from
+ *  `anchorProp` (a flat named in the message or already on the table) and falls
+ *  through when there is none, so the price lanes answer «kolku …». Both halves
+ *  are pinned — the row must stand down on an empty session, and must still
+ *  fire on the anchored turn it was written for. */
+test('a distance ask with nothing to measure from is not the distance lane', async () => {
+  const cold = await turn('kolku se razdaleceni od katolicka ?', 'day-distance-cold');
+  assert.equal(cold.predicted, cold.served[0],
+    `mirror ${cold.predicted} vs serve ${cold.served.join(',')}`);
+  assert.notEqual(family(cold.predicted), 'DISTANCE',
+    'no flat on the table and no EB in the message: the block cannot measure');
+  // …and the anchored turn keeps the lane: a real EB in the message is an anchor
+  // the executor resolves through the feed, so the row must not close it.
+  const named = await turn('kolku se razdaleceni od katolicka ?', 'day-distance-eb');
+  assert.equal(family(named.predicted), 'PRICE_ASK');
+  const anchored = await turn('EB 63 kolku e daleku od katolicka ?', 'day-distance-anchored');
+  assert.equal(family(anchored.predicted), 'DISTANCE',
+    `an anchored distance ask must still be the distance lane, served ${anchored.served.join(',')}`);
+});
+
 /** THE EXTRACTOR IS THE LANE'S TEXT GATE. The mirror and the executor both call
  *  `extractWhereLandmarkPlace`, so the fillers had to be refused THERE — a row
  *  guard would have left the executor searching the map for «tocno». */

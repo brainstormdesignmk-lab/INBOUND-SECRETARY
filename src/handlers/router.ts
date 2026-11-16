@@ -171,6 +171,11 @@ const FEE_MONEY_STATES = ['closing', 'property_query', 'presentation', 'discover
 // answer to the identify question, not fee resistance).
 const FEE_NAG_STATES = ['closing', 'presentation', 'property_locate'];
 
+/** A DEFINITE REFERENCE to the flat in play — «OD STANOT», «OD KUKJATA», «OD
+ *  IМОТОТ». Its row lives in the session HISTORY, which the mirror never sees,
+ *  so the words themselves are the only anchor evidence a row can read. */
+const DISTANCE_FLAT_REF_RE = /(?:stan(?:ot|ov|ovi|ovite|bata|beniot)|kukj(?:ata|ava|ite)|imov(?:ot|ite)|станот|станов|станови|станб|куќ(?:ата|ава|ите)|имотот|имотите)/iu;
+
 /** The executor's own `propertyOnTable` formula (inbound.ts 7030) — the money
  *  arbiter's evidence target. One copy, so the mirror's rows and the arbiter's
  *  evidence boundary can never disagree about what "on the table" means. */
@@ -369,7 +374,28 @@ export const ROUTING_ORDER: RouteRule[] = [
   // no map hit and falls through to the near-by read. Same extractor the
   // executor calls, so the row is the block's own text gate, not a re-derivation.
   { intent: 'DISTANCE', note: '"KOLKU IMA OD STANOT DO BUNJAKOVEC TRGOVSKI?" ([22:25]) — how far the discussed property is from a place the client names (a real destination in the message, `extractDistancePlaces`). Sits after WHERE_IS (каде owns those), and BEFORE every funnel branch: the classifier read „STANOT“ as PROPERTY_ID_REQUESTED and answered a distance question with the property card',
-    fires: t => isDistanceQuestion(t) && extractDistancePlaces(t).length > 0 },
+    // THE MEASURED FLAT IS THE GATE (the 2026-11-14 replay: «kolku se
+    // razdaleceni od katolicka ?» predicted DISTANCE, served PRICE_ASK). The
+    // executor measures FROM `anchorProp` — the flat this message NAMES, else the
+    // one on the table, else an EB from the history — and a turn with no anchor
+    // at all has nothing to measure, so the block falls through and the price
+    // lanes answer. The row carries the SAME anchor list: the flat on the table
+    // (visible in the slots), an EB in the message (the executor's own
+    // `inferPropertyId` over the words OUTSIDE the place phrase — a place carries
+    // numbers of its own: «TЦ 26 Jули»), or a definite reference to the flat in
+    // play («STANOT», «KUKJATA»), whose row lives in the history the mirror
+    // cannot see. `DISTANCE_FLAT_REF_RE` enumerates the inflections on purpose:
+    // the bare stem «стан» also opens «станица» (the station), which is a PLACE.
+    fires: (t, _s, sl) => {
+      if (!isDistanceQuestion(t)) return false;
+      const places = extractDistancePlaces(t);
+      if (places.length === 0) return false;
+      if (sl.propertyId != null || sl.interestedPropertyId != null
+        || (sl.presentedIds?.length ?? 0) > 0) return true;
+      const i = t.toLowerCase().indexOf(places[0].toLowerCase());
+      const rest = i >= 0 ? `${t.slice(0, i)} ${t.slice(i + places[0].length)}` : t;
+      return inferPropertyId(rest) != null || DISTANCE_FLAT_REF_RE.test(t);
+    } },
   { intent: 'NEAREST_OF_SHOWN', note: '«KOJ E NAJBLISKU DO KAFICOT?» ([22:03]) — which of the flats ALREADY OFFERED is nearest to the place the client names. Sits after WHERE_IS/DISTANCE (which own their questions) and before the funnel branches: the location-nag lane answered it with the last flat\'s nearby landmark, because «најблиску» contains «блиску»',
     fires: t => detectNearestOfShown(t) },
 
@@ -1172,6 +1198,22 @@ const pricedSizedRecall = (t: string): boolean => {
  *  ×12, `PROPERTY_CHOICE:fast` ×10). Both readers — `routeLog` here and
  *  `scripts/route-gap-audit.ts` — call THIS function, so a served tag and the
  *  audit's day file can never disagree about what lane ran. */
+/** THE AUDIT'S CLASSIFICATION OF A SERVED TAG, in one place. `routeLog` and the
+ *  day-file audit must agree about what a row means:
+ *    mirrored — the tag is a lane the mirror can predict;
+ *    residual — a `K(...)` MARKER: it logs and falls through, `routeLog` never
+ *               writes a drift row for it, so any row in an old day file was
+ *               written BEFORE the marker rule and is history, not backlog;
+ *    pending  — a `P(...)` row: a real lane with no mirror row yet (backlog);
+ *    unlisted — still logged by `src`, missing from the registry (a defect);
+ *    history  — no longer logged by `src` at all (renamed or retired). */
+export type TagStatus = 'mirrored' | 'residual' | 'pending' | 'unlisted' | 'history';
+export function tagStatus(tag: string, stillProducible: boolean): TagStatus {
+  const lane = laneForTag(tag);
+  if (lane) return lane.marker ? 'residual' : lane.intent ? 'mirrored' : 'pending';
+  return stillProducible ? 'unlisted' : 'history';
+}
+
 export function laneForTag(tag: string): LaneEntry | undefined {
   // THE REGISTRY KEYS EITHER SPELLING: some lanes are registered by their BASE
   // name (`WHERE_IS`) and some only by the tag the executor logs
@@ -1410,6 +1452,12 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // record of every negative evaluation that the evidence boundary did NOT
   // wire to a serve. The mirror predicts the lane that really answers the turn,
   // so giving this tag its own row would predict a serve that never happens.
+  // A DATA COLLECTOR, NOT A LANE (and not backlog): the residual price evaluation
+  // logs and falls through to the lane that really answers — the investment
+  // opinion in presentation (enrichment.test.ts), the fee rung in closing
+  // (negated-agreement.test.ts). `routeLog` skips markers, so it can never be a
+  // gap; rows carrying it in older day files predate the marker rule and are
+  // attributed as history by the audit (`tagStatus`).
   'PRICE_EVAL_EXPENSIVE_UNWIRED': K('a NEGATIVE price evaluation the evidence boundary does not wire — logs and continues (no serve, no state change), so it has no serve of its own'),
   'PRICE_EXTREME': M('PRICE_EXTREME', 'extreme price search (“do 1000 evra kuca”, inbound.ts 6485) — mirrored above; this tag carries no suffix'),
   'PRICE_EXTREME_MORE': M('PRICE_EXTREME_MORE', '«УШТЕ?» after an extreme-price list (inbound.ts 6250) — the next rows of the same queue'),
@@ -1451,7 +1499,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // UNLISTED (a silent lane), which is the difference that matters.
   PROPERTY_CHOICE: M('PROPERTY_CHOICE', 'the pick among flats that were PRESENTED («go sakam toj», a named card) — the fee is disclosed first, and in closing the fee lanes own the turn (inbound.ts 7184)'),
   FEE_PER_PROPERTY: M('FEE_PER_PROPERTY', 'the per-visit fee arithmetic («ZA SEKOJ STAN STO KE SE POSETI PO 500 ?», «500 DEN PO STAN?», the count «АКО ПОСЕТАМ 3 ?») — the confirmation, then the ladder if a rung has already burned (inbound.ts 7477). It was P(...) for weeks, which is why the field logs are full of `predicted=FALLTHROUGH actual=FEE_PER_PROPERTY:fast`: a pending row re-reports every correct turn as a gap'),
-  CHAIN_READY: K('a session/chains readiness marker logged by routeLog(chatId, \'chain\', …) at inbound.ts 2498 — it answers nothing, so a mirror row would predict an answer that never happens'),
+  CHAIN_READY: K('a session/chains readiness marker logged by routeLog(chatId, \'chain\', …) at inbound.ts 2513 — it answers nothing, so a mirror row would predict an answer that never happens (and routeLog never writes a drift row for a marker, so its rows in old day files are history)'),
   'WAITING:fast': M('WAITING', 'the same lane on the fast path (the executor logs the suffix — an unregistered alias would read as a route gap)'),
   AREA_OF_PLACE: M('AREA_OF_PLACE', '„во која населба е X“ — the place\'s own map quarter'),
   AREA_HAVE_SEARCH: M('AREA_HAVE_SEARCH', '„а во која населба има?“ — the area-availability ask: the criteria are released and the pair is served, with the neighbourhoods that hold it named ([19:46] capture; inbound.ts 5210)'),

@@ -12,8 +12,11 @@
  *   • UNLISTED  — a tag served in the field and does not exist in ROUTE_LANES at
  *                 all. Either the tag was renamed and the log is history (the
  *                 audit says which), or a lane is logging silently. Exit 1.
- *   • coverage  — the share of field turns whose tag is mirrored (not pending).
- *                 Reported, and gated by --min-mirrored (default 0).
+ *   • coverage  — the share of COMPARABLE field turns (mirrored + pending) whose
+ *                 tag is mirrored. Reported, and gated by --min-mirrored
+ *                 (default 0). Marker (`K(...)`) and retired tags are listed
+ *                 separately and kept out of the denominator: they were never a
+ *                 prediction the mirror could get right or wrong.
  *
  * Usage:
  *   npm run route:gap-audit                 last 30 days, report
@@ -25,7 +28,7 @@ import '../src/compat/node16';
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { laneForTag } from '../src/handlers/router';
+import { tagStatus } from '../src/handlers/router';
 
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
@@ -71,8 +74,12 @@ for (const file of files) {
 // to compare a served tag with the prediction, so the audit's day file and the
 // live drift log can never disagree about which lane a suffixed tag belongs to
 // (`VISIT_CANCEL:visit_scheduling`, `PROPERTY_CHOICE:fast`, `FEE_WHY:fast`).
-const laneFor = (tag: string): { intent: string | null; note: string } | undefined =>
-  laneForTag(tag);
+// A MARKER IS NOT BACKLOG. `K(...)` rows (CHAIN_READY, PRICE_EVAL_EXPENSIVE_UNWIRED,
+// EXIT_CHECK_REPEAT) are log-only: they answer nothing and `routeLog` refuses to
+// write a drift row for one, so a marker tag in a day file was written BEFORE the
+// marker rule and is history. Counting them as pending reported 200+ "unmirrored
+// turns" a day on lanes that can never produce one, and hid the real backlog in
+// the noise. `tagStatus` is the same classification `routeLog` uses.
 
 // A tag that no longer exists in `src` cannot be logged again: it is HISTORY
 // (renamed, retired, or a test artifact), not a silent lane. Only a tag that is
@@ -92,10 +99,7 @@ const srcText = (() => {
 const stillProducible = (tag: string): boolean => srcText.includes(`'${tag}`) || srcText.includes(`"${tag}`);
 
 const rows = [...tags.entries()].map(([tag, e]) => {
-  const lane = laneFor(tag);
-  const status = lane
-    ? (lane.intent ? 'mirrored' : 'pending')
-    : (stillProducible(tag) ? 'unlisted' : 'history');
+  const status = tagStatus(tag, stillProducible(tag));
   return {
     tag,
     gap: e.gap,
@@ -105,28 +109,45 @@ const rows = [...tags.entries()].map(([tag, e]) => {
   };
 }).sort((a, b) => (b.gap + b.drift) - (a.gap + a.drift));
 
-const total = rows.reduce((n, r) => n + r.gap + r.drift, 0);
-const mirrored = rows.filter(r => r.status === 'mirrored').reduce((n, r) => n + r.gap + r.drift, 0);
-const pending = rows.filter(r => r.status === 'pending').reduce((n, r) => n + r.gap + r.drift, 0);
+const turnsOf = (rs: typeof rows): number => rs.reduce((n, r) => n + r.gap + r.drift, 0);
+const sum = (status: string): number => turnsOf(rows.filter(r => r.status === status));
+const logged = rows.reduce((n, r) => n + r.gap + r.drift, 0);
+const mirrored = sum('mirrored');
+const pending = sum('pending');
+const residual = sum('residual');
+const historyTurns = sum('history');
+// THE DENOMINATOR IS WHAT THE MIRROR COULD HAVE SAID: a turn whose tag is a
+// marker or a retired name was never a prediction to get right or wrong, so it
+// must not dilute the share (it was 183 residual rows + 191 alias rows doing
+// exactly that).
+const compared = mirrored + pending;
 const unlisted = rows.filter(r => r.status === 'unlisted');
-const mirroredPct = total === 0 ? 0 : Math.round((mirrored / total) * 1000) / 10;
+const mirroredPct = compared === 0 ? 0 : Math.round((mirrored / compared) * 1000) / 10;
 
 const history = rows.filter(r => r.status === 'history');
-const report = { days, files: files.length, damagedLines: damaged, turns: total, mirroredPct,
-  pendingTurns: pending, unlisted: unlisted.map(u => ({ tag: u.tag, turns: u.gap + u.drift })),
+const residualRows = rows.filter(r => r.status === 'residual');
+const report = { days, files: files.length, damagedLines: damaged, turns: logged,
+  comparedTurns: compared, mirroredPct,
+  pendingTurns: pending, residualTurns: residual, historyTurns,
+  unlisted: unlisted.map(u => ({ tag: u.tag, turns: u.gap + u.drift })),
   history: history.map(h => ({ tag: h.tag, turns: h.gap + h.drift })),
+  residual: residualRows.map(r => ({ tag: r.tag, turns: r.gap + r.drift, samples: r.samples })),
   pending: rows.filter(r => r.status === 'pending').map(r => ({ tag: r.tag, turns: r.gap + r.drift, samples: r.samples })) };
 
 if (asJson) {
   console.log(JSON.stringify(report, null, 2));
 } else {
-  console.log(`[route:gap-audit] ${files.length} log files, last ${days} days · ${total} compared turns`);
+  console.log(`[route:gap-audit] ${files.length} log files, last ${days} days · ${logged} logged turns, ${compared} compared`);
   if (damaged > 0) console.log(`  damaged log lines skipped: ${damaged}`);
   console.log(`  mirrored (the mirror could have predicted it): ${mirroredPct}%`);
-  console.log(`  pending  (a P(...) row — the backlog)          : ${total === 0 ? 0 : Math.round((pending / total) * 1000) / 10}%`);
+  console.log(`  pending  (a P(...) row — the backlog)          : ${compared === 0 ? 0 : Math.round((pending / compared) * 1000) / 10}%`);
   for (const u of unlisted) console.log(`  UNLISTED ${u.tag} — ${u.gap + u.drift} turns (still logged by src, missing from ROUTE_LANES)`);
   if (history.length > 0) {
     console.log(`  history (tag no longer logged by src): ${history.map(h => h.tag).join(', ')}`);
+  }
+  if (residualRows.length > 0) {
+    console.log('  residual (a K(...) marker — logs and falls through, never a gap; rows written before the marker rule):');
+    for (const r of residualRows) console.log(`    ${String(r.gap + r.drift).padStart(6)}  ${r.tag} :: ${r.samples[0] ?? ''}`);
   }
   console.log('  pending backlog, by field volume:');
   for (const r of rows.filter(r => r.status === 'pending').slice(0, 20)) {

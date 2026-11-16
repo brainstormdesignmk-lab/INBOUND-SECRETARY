@@ -2169,6 +2169,27 @@ appliance actually meets:
 
 ## 6. Data and environment
 
+- THE DAY FILES ARE FIELD EVIDENCE, AND A TEST RUN MUST NOT TOUCH THEM.
+  `src/store/routeDrift.ts` AND its sibling `src/store/placeMisses.ts` default to
+  `data/` for the app and to a per-process OS temp dir when `node:test` marks the
+  worker (`NODE_TEST_CONTEXT`), so `npm test` / `test:c` / the replay benches
+  never append to `data/`. (The pty check drives the SHIPPED entry point, so it
+  is the one harness that still writes real day rows — read its rows by their
+  empty `chatId`.) Before
+  that, every test that drove `InboundHandler` without `setRouteDriftDir` wrote
+  its harness turns there (`invest-cyr`, `closing-digress`, `negated-agree-e2e`
+  in the day files) and `scripts/route-gap-audit.ts` counted fixtures as a field
+  backlog — the "69 unmirrored turns a day" on `PRICE_EVAL_EXPENSIVE_UNWIRED`
+  were three test sentences. `tests/price-eval-residual.test.ts` pins the
+  isolation.
+- A `K(...)` REGISTRY ROW IS A MARKER, NOT BACKLOG, AND THE AUDIT MUST SAY SO.
+  Markers (`PRICE_EVAL_EXPENSIVE_UNWIRED`, `CHAIN_READY`, `EXIT_CHECK_REPEAT`)
+  log and fall through; `routeLog` refuses to write a drift row for one, so a
+  marker tag in a day file was written BEFORE the marker rule and is history.
+  `tagStatus(tag, producible)` in `src/handlers/router.ts` is the one
+  classification (mirrored / residual / pending / unlisted / history) used by
+  the audit, and `mirroredPct` divides by mirrored+pending only: a residual or a
+  retired tag was never a prediction the mirror could get right or wrong.
 - Secrets live in `~/.lina/lina.env` (mode 600), never in the repo; a `.env` in
   CWD trips a Node-18 loader bug. `lina.env.example` documents every key.
 - `src/config.ts` loads that ONE file (`dotenv.config` with an absolute path) on

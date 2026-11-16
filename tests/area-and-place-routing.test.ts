@@ -70,6 +70,12 @@ test('[04:04] a distance ask phrased as «… прашав » is still a distanc
   const place = extractDistancePlace('RASTOJANIE NA 75 DO ZELEZNICKA STANICA PRASAV') ?? '';
   assert.match(place, /(?:zeleznicka|железнич)/iu, `the measured place is Železnička, got: ${place}`);
   assert.doesNotMatch(place, /prasav|prasam/iu, `the asking verb rode into the place: ${place}`);
+  // …nor may the FLAT he named ride in: «… DO ZELEZNICKA E 75» captured
+  // «ZELEZNICKA E 75», so the map fuzzed a street nobody typed and the anchor
+  // (inferPropertyId over the words outside the place) saw nothing — the lane
+  // then measured no flat at all (the 2026-11-16 gate run).
+  assert.equal(extractDistancePlace('NA KOLKAVO RASTOJANIE DO ZELEZNICKA E 75 ?'), 'ZELEZNICKA');
+  assert.equal(extractDistancePlace('na kolkavo rastojanie e 75 od zeleznicka'), 'zeleznicka');
   // A status question is NOT a distance question.
   assert.equal(isDistanceQuestion('DALI USTE E DOSTAPEN 75 ?'), false);
 });

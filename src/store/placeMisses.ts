@@ -17,6 +17,7 @@
 // Read it with: npx tsx scripts/place-misses.ts [--days N]
 
 import { promises as fs } from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 export interface PlaceMiss {
@@ -33,7 +34,14 @@ const DEDUPE_TTL_MS = 60 * 60 * 1000;
 const DEDUPE_MAX = 500;
 const MAX_TEXT = 120;
 
-let dir = path.join(process.cwd(), 'data');
+/** THE SAME RULE AS `routeDrift.ts`: the day files are EVIDENCE, and a test run
+ *  must not append to them. `node:test` marks its workers with
+ *  `NODE_TEST_CONTEXT`, so a worker defaults to a per-process temp dir; the app
+ *  (and the offline sweeps, which are supposed to write here) keep `data/`. */
+const DEFAULT_DIR = process.env.NODE_TEST_CONTEXT
+  ? path.join(os.tmpdir(), `lina-place-misses-test-${process.pid}`)
+  : path.join(process.cwd(), 'data');
+let dir = DEFAULT_DIR;
 let dirMemo = '';
 const lastWrite = new Map<string, number>();
 
@@ -45,6 +53,12 @@ export function setPlaceMissDir(d: string): void {
 }
 export function placeMissDir(): string {
   return dir;
+}
+/** The dir a fresh process would have chosen — so a test can assert the DEFAULT
+ *  (a seam that only proves `setPlaceMissDir` works proves nothing about where
+ *  an un-seamed handler-driven test writes). */
+export function defaultPlaceMissDir(): string {
+  return DEFAULT_DIR;
 }
 
 function dayFile(at: number): string {
