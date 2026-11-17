@@ -809,7 +809,20 @@ export function poiNameCoversClientWords(clientText: string, poiName: string, po
   // центар») has no brand to put in front, so it rests on the run check alone.
   const headSaid = !!head && saidC.some((w, k) => w === head || oneSlip(rawAll[idxC[k]!], headRaw));
   const hasIdentityHead = rawHaveC.some((w, i) => identityWord(w, i));
-  if (!headSaid && hasIdentityHead) return false;
+  // A PLACE MAY BE NAMED BY ITS OWN FIRST WORDS AND NOTHING MORE. The head test
+  // exists to refuse a name that puts a BRAND in front of what the client said
+  // («Стара Железничка Станица» for «железничка»); when every word the client
+  // said OPENS the map's stored name, in order, there is no word in front to
+  // hide behind and the row is exactly the place he named. The map-wide sweep
+  // found the shapes that only this rule reaches: «KAJ 61» → «KAJ 61 KAFANA»
+  // (the connector «кај» is dropped from the client's run, so his only identity
+  // word was the numeral «61» against the map's head «KAFANA») and «ОУ Св» →
+  // «ОУ Св.Кирил и Методиј» (the school-type run «ОУ» plus the abbreviation
+  // «Св» against the head «Кирил»). Both are client-nameable places the funnel
+  // lost while the guard called them somebody else's.
+  const saidOpensMap = rawAll.length > 0 && rawAll.length <= rawHave.length
+    && rawAll.every((w, i) => toLatin(w).toLowerCase() === toLatin(rawHave[i]!).toLowerCase());
+  if (!headSaid && hasIdentityHead && !saidOpensMap) return false;
   // THE TYPO BUDGET (one slip per WORD, the [21:42] «ПОРТА БУНЈАКОВЕЦ» /
   // [21:45] «ДАЈМОНД МОЛ» line of business): a client who drops, doubles or
   // swaps ONE letter inside a word of five letters or more still named that

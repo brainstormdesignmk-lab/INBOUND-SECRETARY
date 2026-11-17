@@ -171,7 +171,13 @@ test('a place with nothing under the criteria: pair from the stocked place, said
 
   assert.deepEqual(sessions.get(chatId)!.slots.currentBatch, [301, 302],
     'both cards come from the place that has stock');
-  assert.match(reply, /Околу Џевахир кула А во моментов немам ништо што одговара на овие критериуми\./);
+  // THE MALL THE CLIENT NAMED, not one of its towers: «TC DZEVAHIR» carries the
+  // class word the map files as `mall`, so the lookup settles on «ТЦ Џевахир».
+  // The four «Џевахир кула А/Б/Ц/Д» rows are residential and each one word
+  // closer to the phrase, so they used to win the fewest-extra-words order —
+  // and which TOWER answered was pure tie-break (the map's duplicate cleanup
+  // moved it from А to Д without any product change).
+  assert.match(reply, /Околу ТЦ Џевахир[^.]*во моментов немам ништо што одговара на овие критериуми\./);
   assert.match(reply, /Евидентен број 301/);
   assert.match(reply, /Евидентен број 302/);
 });

@@ -188,8 +188,16 @@ test('[11:54] «Капитол» resolves to the mall, never the supermarket bes
   const tc = map.findPoiByName('ТЦ Капитол');
   assert.equal(tc?.type, 'mall', `«ТЦ Капитол» is the centre, got ${tc?.name} [${tc?.type}]`);
   // A genuine tenant ask keeps its own answer: the shop fallback still serves.
+  // THE CONTRACT IS THE SHOP, NOT ONE SPELLING: the chain is filed on the map as
+  // «Рамстор», «Ramstore», «Ramstor» and «Рамстор Express» in different rows, and
+  // which one a query lands on is a lookup detail. What must never happen is the
+  // mall for a tenant ask, so the assertion pins the TYPE and the brand in either
+  // script (dropping duplicates from the map re-armed this tie-break: the exact
+  // «Рамстор» → «Ramstor» match now wins over «Ramstore»).
   const shop = map.findPoiByName('Рамстор');
-  assert.ok(shop && /рамстор|ramstore/iu.test(shop.name), `a shop query keeps its shop, got ${shop?.name}`);
+  assert.ok(shop && /amstor|амстор/iu.test(shop.name), `a shop query keeps its shop, got ${shop?.name}`);
+  assert.match(shop!.type, /supermarket|market|grocery/iu,
+    `a tenant ask is served by a shop, never the mall: ${shop?.name} [${shop?.type}]`);
 });
 
 test('[11:54] the distance line names the mall for the Аеродром pair', async () => {
