@@ -20,12 +20,22 @@
 #     not a job). See scripts/install-cron.ts + scripts/cron-policy.ts in the
 #     maps repo for the policy and its tests.
 #
+# THE BRAIN IS THE EXCEPTION TO "state never moves" (2026-11-17): data/tui.db
+# is AUTHORED on the workstation (the TUI edits it, the owner reviews it), so
+# the atom is a consumer of that file, not its owner. --with-db stages a
+# `.backup` snapshot of the workstation brain and installs it on each atom
+# while no bot holds the old file open. Everything the atom LEARNS still never
+# flows up on its own: collect-atoms.sh pulls it for human review.
+#
 # Usage:
 #   npm run atoms:deploy                    # all enabled atoms
 #   npm run atoms:deploy -- --atoms atom01  # subset (comma-separated)
 #   npm run atoms:deploy -- --dry-run       # rsync -n + print remote commands
 #   npm run atoms:deploy -- --no-restart    # push code, leave the bot running
 #   npm run atoms:deploy -- --skip-cron     # don't enforce the no-cron policy
+#   npm run atoms:deploy -- --with-db       # also push the workstation tui.db
+#   npm run atoms:deploy -- --with-db --force-db   # overwrite an atom that
+#                                           # learned MORE than the snapshot
 #
 # Exit code: 0 if every targeted atom is healthy at the end, 1 otherwise.
 
@@ -34,12 +44,14 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."   # project root, wherever we're called f
 
 ATOMS_CONF="scripts/atoms.conf"
 EXCLUDE_FROM="scripts/rsync-exclude.txt"
-DRY_RUN=0; DO_RESTART=1; DO_CRON=1; WANT=""
+DRY_RUN=0; DO_RESTART=1; DO_CRON=1; DO_DB=0; FORCE_DB=0; WANT=""
 for arg in "$@"; do
   case "$arg" in
     --dry-run)   DRY_RUN=1 ;;
     --no-restart) DO_RESTART=0 ;;
     --skip-cron) DO_CRON=0 ;;
+    --with-db)   DO_DB=1 ;;
+    --force-db)  FORCE_DB=1 ;;
     --atoms)     WANT="SET";; # value read below via next arg
     --atoms=*)   WANT="${arg#--atoms=}" ;;
     *) if [ "$WANT" = "SET" ]; then WANT="$arg"; fi ;;
@@ -55,6 +67,42 @@ done
 echo "── building dist/ on the workstation ──"
 if [ "$DRY_RUN" = "1" ]; then echo "[dry-run] skipping build"; else npm run build --silent || { echo "FATAL: build failed — deploy aborted, atoms untouched"; exit 1; }; fi
 [ -f dist/index.js ] || { echo "FATAL: dist/index.js missing — build did not run"; exit 1; }
+
+# ── 0a) BRAIN SNAPSHOT (--with-db): taken ONCE, pushed to every atom in the
+#       run, so all atoms receive a byte-identical file from the same instant.
+#       `.backup` is the only safe copy: the live brain runs in WAL mode, and a
+#       plain `cp data/tui.db` silently drops everything still in
+#       data/tui.db-wal (measured 2026-11-17: the newest learned sentences had
+#       never reached the main file). Integrity is checked HERE, before any atom
+#       is touched — a corrupt brain must never reach the fleet.
+DB_SNAPSHOT=""
+if [ "$DO_DB" = "1" ]; then
+  echo "── snapshotting the workstation brain (data/tui.db) ──"
+  command -v sqlite3 >/dev/null 2>&1 || { echo "FATAL: sqlite3 is not installed — a .backup of the WAL brain cannot be made without it"; exit 1; }
+  [ -f data/tui.db ] || { echo "FATAL: data/tui.db missing on the workstation"; exit 1; }
+  DB_SNAPSHOT="$(mktemp /tmp/lina-brain-XXXXXX.db)"
+  trap 'rm -f "$DB_SNAPSHOT"' EXIT
+  sqlite3 data/tui.db ".backup '$DB_SNAPSHOT'" || { echo "FATAL: sqlite3 .backup failed — deploy aborted, atoms untouched"; exit 1; }
+  integrity="$(sqlite3 "$DB_SNAPSHOT" 'pragma integrity_check;' 2>&1)"
+  [ "$integrity" = "ok" ] || { echo "FATAL: snapshot integrity_check = $integrity — deploy aborted, atoms untouched"; exit 1; }
+  # Three columns, one line: the sqlite3 CLI prints them '|'-separated on its
+  # own. Never build the line with SQL string concatenation — the quoting inside
+  # a shell-quoted query silently produced "" here once (an empty summary that
+  # still said "ok").
+  counts_raw="$(sqlite3 "$DB_SNAPSHOT" \
+    'select (select count(*) from bank_variants), (select count(*) from bank_examples), (select count(*) from events);' \
+    2>/dev/null || true)"
+  [ -n "$counts_raw" ] || { echo "FATAL: the snapshot has no bank tables — wrong file?"; exit 1; }
+  DB_VARIANTS="$(echo "$counts_raw" | cut -d'|' -f1)"
+  DB_EXAMPLES="$(echo "$counts_raw" | cut -d'|' -f2)"
+  DB_EVENTS="$(echo "$counts_raw" | cut -d'|' -f3)"
+  DB_SHA="$(sha256sum "$DB_SNAPSHOT" | cut -d' ' -f1)"
+  echo "    ✓ snapshot $(stat -c %s "$DB_SNAPSHOT") bytes — integrity ok, variants/examples/events=$DB_VARIANTS/$DB_EXAMPLES/$DB_EVENTS"
+  if [ "$DO_RESTART" = "0" ]; then
+    echo "    ⚠ --no-restart: the brain is staged as data/tui.db.incoming and is installed"
+    echo "      by the NEXT restart (that is the only moment no bot holds the old file)"
+  fi
+fi
 
 # ── 0b) RETIRED DUPLICATES must not exist in this repo.
 #        refresh-monthly.ts and geo-watcher.ts were pre-extraction forks of the
@@ -131,6 +179,42 @@ while IFS='|' read -r id host user key rpath note; do
     "${SSH[@]}" "cd '$rpath' && node scripts/link-geo.js" || { echo "    ✗ link-geo FAILED"; RESULTS+=("$id|LINK-FAIL"); continue; }
   fi
 
+  # 1c) BRAIN (--with-db): STAGED beside the live file, never moved into place
+  #     now. The install happens inside the restart, after the old bot is gone:
+  #     a running bot keeps the old inode open AND keeps writing -wal, so a file
+  #     swapped under it is silently forked from the brain we meant to ship.
+  if [ "$DO_DB" = "1" ]; then
+    # A LEARNED-STATE GUARD. The workstation brain is the source of truth, but an
+    # atom that answered traffic since the last collect holds sentences the
+    # snapshot does not — overwriting it silently throws that away. Compare first
+    # and demand --force-db, so data loss is always a decision, never a surprise.
+    if [ "$DRY_RUN" != "1" ] && [ "$DO_RESTART" = "1" ]; then
+      remote_counts=$("${SSH[@]}" "sqlite3 -separator ' ' '$rpath/data/tui.db' 'select (select count(*) from bank_variants), (select count(*) from events);' 2>/dev/null" || true)
+      if [ -n "$remote_counts" ]; then
+        rv="$(echo "$remote_counts" | cut -d' ' -f1)"; rev="$(echo "$remote_counts" | cut -d' ' -f2)"
+        if [ "${rv:-0}" -gt "${DB_VARIANTS:-0}" ] || [ "${rev:-0}" -gt "${DB_EVENTS:-0}" ]; then
+          echo "    ⚠ the atom has LEARNED MORE than this snapshot (variants $rv vs ${DB_VARIANTS:-0}, events $rev vs ${DB_EVENTS:-0})"
+          if [ "$FORCE_DB" != "1" ]; then
+            echo "    ✗ refusing to overwrite learned state — collect and review it first:"
+            echo "        npm run atoms:collect -- --atoms $id"
+            echo "      then re-run, or pass --force-db to discard it on purpose"
+            RESULTS+=("$id|DB-AHEAD"); continue
+          fi
+          echo "    --force-db: overwriting the atom's learned state on purpose"
+        fi
+      fi
+    fi
+    echo "  → staging the brain (data/tui.db.incoming) …"
+    if [ "$DRY_RUN" = "1" ]; then
+      echo "    [dry-run] would rsync the snapshot to $rpath/data/tui.db.incoming"
+    elif rsync -az -e "$RSYNC_SSH" --timeout=120 "$DB_SNAPSHOT" "$user@$host:$rpath/data/tui.db.incoming"; then
+      echo "    ✓ brain staged ($(stat -c %s "$DB_SNAPSHOT") bytes) — installed during the restart"
+    else
+      echo "    ✗ brain push FAILED — the code moved but the brain did not; atom left as it was"
+      RESULTS+=("$id|DB-FAIL"); continue
+    fi
+  fi
+
   if [ "$DO_RESTART" = "1" ]; then
     # 2) restart: the bot's cmdline is RELATIVE ("node dist/index.js", from the
     #    @reboot line) and ANA on the same box may look identical — so LINA
@@ -143,9 +227,10 @@ while IFS='|' read -r id host user key rpath note; do
     if [ "$DRY_RUN" = "1" ]; then
       echo "    [dry-run] would kill cwd-matched 'node dist/index.js' && nohup node dist/index.js"
     else
-      "${SSH[@]}" bash -s <<EOF || { echo "    ✗ restart FAILED"; RESULTS+=("$id|RESTART-FAIL"); continue; }
+      "${SSH[@]}" bash -s "${DB_SHA:--}" <<EOF || { echo "    ✗ restart FAILED"; RESULTS+=("$id|RESTART-FAIL"); continue; }
 set -u
-cd '$rpath'
+cd '$rpath' || { echo "cannot enter $rpath"; exit 5; }
+SHA_EXPECT="\${1:--}"
 mkdir -p logs
 # A bot is identified by BOTH its cwd (the LINA dir — ANA on the same box
 # looks identical) and its exe (a node binary). The command line alone is not
@@ -177,6 +262,26 @@ fi
 # traffic) — but never refuse to start the FIRST one: reaching this line means
 # the atom has no bot, which is strictly worse than a second process.
 if [ -n "\$(botpids)" ]; then echo 'OLD PROCESS STILL ALIVE AFTER SIGKILL — not starting a second one'; exit 3; fi
+# Install the staged brain NOW: no bot holds the old file, so this is the only
+# safe instant. The -wal/-shm belong to the previous brain; left in place they
+# would be replayed onto a different file. A bot that could not be killed leaves
+# the snapshot staged (dbs sync on the next deploy) rather than half-installed.
+if [ -f data/tui.db.incoming ]; then
+  rm -f data/tui.db-wal data/tui.db-shm
+  if mv -f data/tui.db.incoming data/tui.db; then
+    echo "installed fresh brain: \$(stat -c %s data/tui.db) bytes"
+    # Compare CONTENT, not size or row counts: a run of the same brain keeps the
+    # same counts, so an install that silently matched nothing (relative path in
+    # the login home) still looked healthy. The pushed sha is the only proof.
+    if [ "\$SHA_EXPECT" != "-" ]; then
+      got=\$(sha256sum data/tui.db | cut -d' ' -f1)
+      if [ "\$got" != "\$SHA_EXPECT" ]; then echo "BRAIN SHA MISMATCH (\$got != \$SHA_EXPECT)"; exit 7; fi
+      echo "brain sha verified: \${got:0:16}…"
+    fi
+  else
+    echo 'BRAIN INSTALL FAILED — still running the previous tui.db'
+  fi
+fi
 : > logs/lina-stdout.log
 nohup node dist/index.js >> logs/lina-stdout.log 2>&1 &
 echo \$! > data/lina.pid

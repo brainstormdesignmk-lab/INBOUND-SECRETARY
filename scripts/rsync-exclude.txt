@@ -13,7 +13,13 @@
 # logs), it is listed here. If the WORKSTATION authors it (code, corpora,
 # config templates), it is not.
 
-# ── Live databases (the atom's own truth — never overwritten, never deleted) ──
+# ── Live databases (kept by rsync — the brain has its own explicit push) ──────
+# These are excluded so a code deploy can never clobber them by accident. The ONE
+# sanctioned exception is `deploy-atoms.sh --with-db`: data/tui.db is AUTHORED on
+# the workstation (the TUI edits it, the owner reviews it), so under that flag a
+# `.backup` snapshot is staged as data/tui.db.incoming and installed while no bot
+# holds the old file. That path is deliberate, verified by sha256, and refused
+# when the atom has learned more rows than the snapshot (--force-db overrides).
 data/*.db
 # Any suffixed db file: .pre-*, .october, .bak.<stamp>, -shm/-wal style snapshots.
 # The atom must NEVER receive a map copy — LINA reads skopje-pois.db from the

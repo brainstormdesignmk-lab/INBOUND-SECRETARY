@@ -2362,6 +2362,17 @@ appliance actually meets:
   silent landmark-quality bug once — do not reintroduce one.
 - Long copy, prices and counts are data: quota numbers, fees and the commission
   tier live in the bank/constraints, never hardcoded in a handler.
+- THE BRAIN FLOWS DOWN FROM THE WORKSTATION. `data/tui.db` is AUTHORED here
+  (the TUI edits it, the owner reviews it); the worker and the standby are
+  consumers. Push it with `npm run atoms:deploy -- --with-db` and
+  `npm run t60:deploy -- --with-db`. Both take a `sqlite3 .backup` snapshot (a
+  `cp` of a WAL database silently drops the newest learned sentences), install
+  only while no bot holds the old file, and verify the installed sha256 — an
+  install that matched nothing once still reported healthy because the row
+  counts were equal, so counts are not proof, the sha is. What an atom LEARNED
+  still never flows up on its own: `collect-atoms.sh` pulls it for review, and
+  `--with-db` refuses to overwrite an atom that is ahead of the snapshot unless
+  `--force-db` says so on purpose.
 
 ## 4o. THE BATCH IS COMPARED, NEVER RE-SERVED (the [09:41]–[09:51] batch)
 

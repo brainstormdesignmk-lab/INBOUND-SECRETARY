@@ -74,7 +74,8 @@
     "deploy:supabase": "bash scripts/deploy-supabase.sh",
     "atoms:deploy": "bash scripts/deploy-atoms.sh",
     "atoms:collect": "bash scripts/collect-atoms.sh",
-    "atoms:status": "bash scripts/atoms-status.sh"
+    "atoms:status": "bash scripts/atoms-status.sh",
+    "t60:deploy": "bash scripts/deploy-t60-standby.sh"
   },
   "dependencies": {
     "better-sqlite3": "8.7.0",
