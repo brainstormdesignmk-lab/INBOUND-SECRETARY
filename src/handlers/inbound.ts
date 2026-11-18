@@ -18,7 +18,7 @@ import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAd
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, namedVisitEbs,
   detectPairReferent, detectIdentifyByFigure,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -4339,6 +4339,18 @@ export class InboundHandler {
    *  session in `finally`, so a turn that throws still leaves the record of
    *  what the client was told. */
   private async processMessage(channel: string, chatId: string, text: string, opts: HandleOpts): Promise<void> {
+    // MACHINE TEXT IS NOT A CLIENT (the [22:28] capture + all 17
+    // `outbound/failed` rows). Viber's own service notices arrive in the same
+    // shape as a client turn — the Drive-backup failure, the «ChatGPT is in
+    // Viber» promo, birthday cards, announcement titles — and each one was
+    // answered with a sales question, kept a bogus session, and then failed in
+    // the APK after 6 × ~8 s because the chat it tried to open does not exist.
+    // Dropped BEFORE the session is read, so no state, no counter, no event.
+    if (isNonClientNotice(text, chatId)) {
+      console.log(`[notice] ignored chat=${JSON.stringify(chatId)}`
+        + ` text=${JSON.stringify(text.slice(0, 70))}`);
+      return;
+    }
     const existing = this.deps.sessions.get(chatId);
     const ctx = startTurn({
       chatId, channel, text,
@@ -5808,6 +5820,40 @@ export class InboundHandler {
       // the school's own official name, never a guess.
       const placeLabel = (n: string): string =>
         n.replace(/^СЕПУГС(?:\s|$)/u, 'Средно економско-правно училиште ');
+      // THE RATE HALF OF A COMPOSITE ASK (the [09:48] V16K11 capture): «kolku
+      // doagjaat po kvadrat stanovive i na kolkavo rastojanie se od beverli?»
+      // asked for the €/м² AND the distance in one sentence. This lane owns the
+      // turn (a place is named), so the info/rate lane never gets to answer —
+      // the client heard only «на 80 метри / на 180 метри» and had to ask
+      // «kolku bi mu dosla cenata po m2 na 84?» four minutes later for the
+      // figure he had asked for FIRST. The rate is price ÷ м² from the row's
+      // OWN numbers; a row without a usable area is left out, never guessed.
+      const asksRate = /(?:\bza\s*m2|\bpo\s*m2|za\s*kvadrat|po\s*kvadrat|по\s*м2|за\s*м2|за\s*м²|по\s*м²|за\s*квадрат|по\s*квадрат)/iu.test(text);
+      const rateOf = (p: Property): number | undefined => {
+        const sqm = Number(p.sqm);
+        const price = Number(p.price);
+        if (!Number.isFinite(sqm) || !Number.isFinite(price) || sqm <= 0 || price <= 0) return undefined;
+        return Math.round(price / sqm);
+      };
+      /** The €/м² block appended to a multi-row answer (empty when not asked). */
+      const rateBlock = (rowsForRate: Property[]): string => {
+        if (!asksRate) return '';
+        const rateLines = rowsForRate.map(p => {
+          const rate = rateOf(p);
+          if (rate === undefined) return undefined;
+          return `• Евидентен број ${p.eb} — ${rate.toLocaleString('mk-MK')} евра за м² (${Number(p.sqm).toLocaleString('mk-MK')} м²)`;
+        }).filter((l): l is string => !!l);
+        return rateLines.length ? `\n\nЦена за м²:\n\n${rateLines.join('\n')}` : '';
+      };
+      /** The same half as one sentence, for the single-row answer. */
+      const rateSentence = (p: Property): string => {
+        const rate = rateOf(p);
+        if (!asksRate || rate === undefined) return '';
+        const head = p.service === 'rent'
+          ? `Киријата е ${Number(p.price).toLocaleString('mk-MK')} евра`
+          : `Цената е ${Number(p.price).toLocaleString('mk-MK')} евра`;
+        return ` ${head}, односно ${rate.toLocaleString('mk-MK')} евра за м² (${Number(p.sqm).toLocaleString('mk-MK')} м²).`;
+      };
       // SEVERAL FLATS ON THE TABLE, NO EB NAMED: the client asked the distance
       // right after TWO cards were served, so ONE flat's number answers half the
       // question. Each flat of the current batch gets its own measured line,
@@ -5854,7 +5900,7 @@ export class InboundHandler {
           session.slots.lastDistanceEb = p.eb;
         }
         if (lines.length > 0) {
-          const answer = `Растојанија:\n\n${lines.join('\n')}\n\n${pickCloser(PROPERTY_QUERY_CLOSERS_ALL, session.history.length)}`;
+          const answer = `Растојанија:\n\n${lines.join('\n')}${rateBlock(rows)}\n\n${pickCloser(PROPERTY_QUERY_CLOSERS_ALL, session.history.length)}`;
           if (firstEb !== undefined && !namedProp) session.slots.propertyId = firstEb;
           routeLog(chatId, text, 'DISTANCE_MATRIX');
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -5921,7 +5967,7 @@ export class InboundHandler {
               return `${m.trusted ? '' : 'околу '}${n}`;
             };
             const lines = measured.map(m => `• Евидентен број ${m.eb} — на ${say(m)}${m.loc ? ` (${locPrep(m.loc)} ${m.loc.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}`).join('\n');
-            const answer = `Растојанието до ${placeLabel(placeShown)}:\n\n${lines}\n\n${pickCloser(PROPERTY_QUERY_CLOSERS_ALL, session.history.length)}`;
+            const answer = `Растојанието до ${placeLabel(placeShown)}:\n\n${lines}${rateBlock(rows)}\n\n${pickCloser(PROPERTY_QUERY_CLOSERS_ALL, session.history.length)}`;
             session.slots.location = measured[0]!.loc ?? session.slots.location;
             // The nearest flat of the batch is the one a "да" continues on —
             // same rule as the nearest-of-batch lane.
@@ -5958,7 +6004,7 @@ export class InboundHandler {
           const which = (session.slots.presentedIds?.length ?? 0) > 1
             ? ` од недвижноста со Евидентен број ${anchorProp.eb} што ја разгледуваме`
             : ' од недвижноста што ја разгледуваме';
-          const answer = `${placeLabel(hit.name)} се наоѓа на ${approx}${distPhrase}${walk}${which}${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на недвижноста се открива на денот на посетата.`;
+          const answer = `${placeLabel(hit.name)} се наоѓа на ${approx}${distPhrase}${walk}${which}${anchorProp.location ? ` (${prep} ${anchorProp.location.replace(/\s*\([^)]*\)\s*$/u, '')})` : ''}. Точната адреса на недвижноста се открива на денот на посетата.${rateSentence(anchorProp)}`;
           session.slots.location = anchorProp.location ?? session.slots.location;
           // A flat the client NAMES is the one under discussion from here on
           // (same rule as the describe lane) — «и тaa?» must stay on THIS one,

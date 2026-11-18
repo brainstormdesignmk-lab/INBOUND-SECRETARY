@@ -1553,7 +1553,15 @@ export const SIMPLE_DETECTORS: SimpleDetector[] = [
     bankKey: 'followup.defer',
     fallback: 'Се разбира. Кога ќе се јавите, ќе бидам тука за Вас.',
     detect: detectDefer,
-    allowedStates: ['closing', 'presentation', 'property_query', 'property_locate'],
+    // DISCOVERY IS IN (the [10:16] V16K11 burst): a client who says «ke ve
+    // kontaktiram ako se odlucam» while the funnel is still asking what he wants
+    // is not answering the question — he is leaving. The gate used to start at
+    // `closing`, so the turn fell to the criteria question the funnel had queued
+    // (on the box: the locate ask for the m²/price of a flat she had just
+    // quoted). `idle` stays out on purpose (tests/router.test.ts pins that a
+    // «ќе размислам» opening gets the greeting lane, not a goodbye) and contact
+    // collection stays out too — there the client is mid-answer.
+    allowedStates: ['closing', 'presentation', 'property_query', 'property_locate', 'discovery'],
   },
   {
     intent: 'NEGOTIATE',

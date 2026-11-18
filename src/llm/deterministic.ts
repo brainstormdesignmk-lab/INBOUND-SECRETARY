@@ -1790,6 +1790,52 @@ export function detectWhichPropertyAsk(text: string): boolean {
 const _byeSlotsRe = buildByeSlots();
 const _softRefusalSlotsRe = buildSoftRefusalSlots();
 
+// ── NON-CLIENT NOTICES — machine text is never a sales turn ─────────────────
+// The bridge hands over whatever sits in Viber's chat list, and that includes
+// the app's OWN service traffic: the Drive-backup failure notice, the «ChatGPT
+// is in Viber» promo, birthday cards, community announcement titles. Each was
+// answered as a client. The [22:28] capture: «There was an error during the
+// back up…» got «Здраво. Дали планирате купување на недвижност или барате
+// опција за изнајмување?», the bot kept a bogus session for a “client” named
+// «Error during backup», and every one of the 17 `outbound/failed` rows is the
+// same mistake — 6 × ~8 s of UI automation per notice, ending in `APK send
+// error: viber search input not found` (the chat does not exist).
+//
+// TWO arms, both from the captures:
+//   1. THE CHAT IS THE NOTICE. A notification row is titled with the notice
+//      text and that same text is then delivered as the message («Happy
+//      birthday», «Ready for the week? 📅», «Halloween is coming 🎃»). A real
+//      conversation never has its own message as its name.
+//   2. VIBER'S OWN COPY — the service and marketing texts actually observed.
+const NON_CLIENT_NOTICE_RE = new RegExp([
+  /there was an error (?:during|while) the back\s?up/,
+  /\bchatgpt is in viber\b/,
+  /learn how using\b[\s\S]{0,80}\bin viber\b/,
+  // The whole card, never a sentence that merely opens with it: «Happy
+  // birthday» / «Happy birthday, Ana» is the card; «Happy birthday to your
+  // colleague — I am looking for a flat» is a client and must reach the funnel.
+  /^happy birthday(?:[ ,!]+[\p{Lu}][\p{L}'-]*)*[!.]?$/u,
+  // The group-message attribution line (chat «Zoran Atanasov», body «from
+  // Zoran Atanasov, Saso Kostovski»): names only, no sentence.
+  /^from [\p{Lu}][\p{L}'-]+(?:\s+[\p{Lu}][\p{L}'-]+)?(?:,\s*[\p{Lu}][\p{L}'-]+(?:\s+[\p{Lu}][\p{L}'-]+)?)*$/u,
+].map(r => r.source).join('|'), 'iu');
+
+/** True when the message is VIBER'S OWN MACHINE TEXT, not a human asking for
+ *  anything: the chat title repeats as the body, or the body is one of the
+ *  service/marketing notices above. Such a turn must be dropped silently —
+ *  answering it invents a client, and sending to it fails in the APK. */
+export function isNonClientNotice(text: string, chatId?: string): boolean {
+  const flat = text.trim().replace(/\s+/gu, ' ');
+  if (!flat) return false;
+  const name = (chatId ?? '').trim().replace(/\s+/gu, ' ');
+  // ARM 1 is for a HEADLINE, not for any coincidence of name and text: a notice
+  // title is a phrase (two or more words) or carries an emoji, while a chat
+  // named after a single token («lile», a handle the client typed as his name)
+  // is a conversation whose message may legitimately repeat it.
+  if (name && name === flat && (/\p{So}/u.test(flat) || flat.split(' ').length >= 2)) return true;
+  return NON_CLIENT_NOTICE_RE.test(flat);
+}
+
 /** True for a PURE conversation-exit burst ("cao", "ne fala ti cao", "чао
  *  пријатно"). A criteria word, digits or a question mark disqualify (those
  *  are search/fee traffic with their own lanes). */
@@ -7451,6 +7497,13 @@ export function detectDefer(text: string): boolean {
   if (!adviceLaneAdmits('DEFER', text)) return false;
   // Her action, asked about — a question, not a deferral (see above).
   if (DEFER_SECOND_PERSON_RE.test(text) || DEFER_SECOND_PERSON_RE.test(normalizeMc(text))) return false;
+  // A VISIT WISH IS INTEREST, NEVER A DEFERRAL (the [19:26] capture): «OVOJ ZA
+  // 350 EVRA KIRIJA BI GO VIDEL» matched the grammar arm (би + … + вид), so the
+  // deferral lane answered a visit request with «Ќе зачувам белешка … штом ќе
+  // има можност за посета» — and the fee protocol that owns that turn never
+  // ran (tests/dual-rent-buy-serve.test.ts). The same veto keeps
+  // «70 BI SAKAL DA GO POSETAM» in the visit lane.
+  if (detectVisitInterest(text)) return false;
   return matchesBoth(DEFER_RE, text) || matchesBoth(DEFER_GRAMMAR_RE, text) || extFires('defer', text);
 }
 
@@ -10879,6 +10932,16 @@ export function fsmRequired(text: string): boolean {
   // provision lane owns it, and (the isolation contract) the visit-fee counter
   // must not move because of it.
   if (detectProvisionResistance(text)) return false;
+  // A DEFERRAL WITH NO SEARCH IN IT OWNS THE TURN (the [10:16] V16K11 burst):
+  // «skapo e mnogu / ke ve kontaktiram ako se odlucam» — the complaint set
+  // `pricePriority`, the classifier merged it with the session's own service /
+  // location / bedrooms and `buildEvent` rebuilt a SEARCH_REQUESTED, so a client
+  // who had just said he would call back was interrogated for the m² and price
+  // of a flat she had described a minute earlier (the live box's locate ask).
+  // detectDefer already stands down on a stock search («ke se javam podocna,
+  // baram stan do 80000 vo aerodrom» still reaches the funnel), and a FEE NAG
+  // keeps its own ladder (§2) — a goodbye is only a goodbye.
+  if (detectDefer(text) && !detectFeeNag(text)) return false;
   // The result-set question rides the FSM lane in presentation — the count
   // answer needs the candidate pool, not a canned fast-path line.
   if (detectResultSetQuestion(text)) return true;
