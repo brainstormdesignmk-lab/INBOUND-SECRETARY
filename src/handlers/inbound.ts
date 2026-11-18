@@ -10761,16 +10761,17 @@ export class InboundHandler {
     // now live in the ROUTER's row (same order, same reason).
     if (routedLane() === 'MORE_STOCK') {
       routeLog(chatId, text, 'MORE_STOCK');
-      // THE COMBINED (landmark × category) LADDER CARVES ITS OWN NEXT PAIR (the
-      // [09:14] V16K11 contract): this lane built its own pool and sliced the
-      // two nearest rows, so EVERY «покажи ми што уште имате» abandoned the
-      // requested rotation — one category per turn, one card per landmark —
-      // and the cross-place anchors with it. `loadProps` is the ONE carve for
-      // that ladder (queue, anchors, the cell note), so the stock ask reads it
-      // instead of re-deriving a serve of its own.
-      const composedSearch = (session.slots.poiPlaces?.length ?? 0) >= 2
-        && Object.keys(session.slots.categoryBudgets ?? {}).length >= 2;
-      const moreBatch = composedSearch
+      // THE LADDER OWNS EVERY "NEXT PAIR" (the [09:14] V16K11 audit): this lane
+      // used to build its own pool and slice the two nearest rows, which threw
+      // away whatever ORDER the search had armed — the two-landmark × category
+      // rotation, the cross-place pair, the per-place anchors and the drain
+      // notes — so every «покажи ми што уште имате» restarted the serve from
+      // the top of the pool. `loadProps` IS that carve (queue, anchors, notes,
+      // countBudget, blank-options, the geometry), so the stock ask reads it.
+      // The own-pool carve stays for the states where `loadProps` means
+      // something else entirely (closing/owner_checking answer about the picked
+      // flat, not about the batch).
+      const moreBatch = session.state === 'presentation'
         ? await this.loadProps(session, false, false)
         : await this.moreStockBatch(session);
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -17962,7 +17963,20 @@ ${contactReminder}`;
       await this.sendRaw(session, ack, 'deterministic');
       return true;
     }
-    session.slots.presentedIds = [...(session.slots.presentedIds ?? []), ...batch.map(p => p.id)];
+    // THE NOTEBOOK AND THE LADDER MOVE WITH THE BATCH — HERE, once, for every
+    // lane (the [09:14] audit). A lane that carves its OWN pool (a cheaper or
+    // pricier pivot, another area, a discovered category) served rows the
+    // armed ladder queue still held, so the next carve served them a SECOND
+    // time: the client saw «the same pair again» and the rotation lost its
+    // place. Retiring the served ids at the choke makes the invariant
+    // structural instead of a rule every new lane has to remember. The list is
+    // de-duplicated in the same pass — a lane that carved through `loadProps`
+    // (which already recorded its batch) was appending the same ids twice.
+    const servedIds = new Set(batch.map(p => p.id));
+    session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...servedIds])];
+    if (session.slots.ladderQueue?.length) {
+      session.slots.ladderQueue = session.slots.ladderQueue.filter(id => !servedIds.has(id));
+    }
     session.slots.currentBatch = batch.map(p => p.id);
     session.slots.areaExhausted = false;
     session.slots.pricePriority = true;
@@ -19368,11 +19382,11 @@ ${contactReminder}`;
       && (!!s.slots.budget || !!s.slots.sqmRate || !!s.slots.budgetWaived);
   }
 
-  /** THE «ШТО УШТЕ ИМАТЕ» PAIR for a plain single-anchor search: the next two
-   *  unshown rows from the SAME criteria — the lane's own carve since the
-   *  [12:41] capture, kept as one method so a COMPOSED ladder (two landmarks ×
-   *  two categories) can hand the turn to `loadProps` instead of re-deriving a
-   *  serve that ignores the requested rotation. */
+  /** THE «ШТО УШТЕ ИМАТЕ» PAIR OUTSIDE THE PRESENTATION STATE: the same criteria
+   *  minus what was shown. `loadProps` cannot answer here (in closing and
+   *  owner_checking it means "the picked flat", not "the next pair"), so this
+   *  is the carve for those states only — in `presentation` the lane hands the
+   *  turn to the shared ladder (see the MORE_STOCK executor). */
   private async moreStockBatch(session: ChatSession): Promise<Property[]> {
     const morePool = await this.deps.properties.candidates({
       location: session.slots.location,
@@ -20071,8 +20085,19 @@ ${contactReminder}`;
         queue = [...firstTwo, ...cheapest2, ...middle2, ...rest];
         }
         session.slots.ladderKey = ladderKey;
-        session.slots.ladderQueue = queue;
       }
+      // THE NOTEBOOK IS ALREADY THE SECOND GUARD (the [09:14] audit): a lane
+      // that builds its OWN pool and sends its cards without crossing
+      // `serveBatch` (the price-extreme list, the smaller-per-m² ladder, the
+      // landmark/business pair, the cheaper widen) leaves its rows in the armed
+      // queue — but `pool` above is fetched with `exclude: shown`, and the
+      // queue is mapped through `pool` below, so such a row simply drops out
+      // of the carve. The choke's retirement is what keeps the QUEUE honest
+      // (and the rotation's counter meaningful); it is not what prevents the
+      // repeat. Keep both: the exclusion has to survive a lane that serves
+      // without the choke, and the queue has to survive a lane that serves
+      // through it.
+      session.slots.ladderQueue = queue;
       // ALTERNATIVE BUDGET PAIR FIT (the [20:08] contract): every row already
       // sits under the SINGLE cap (slots.budget), but «one up to 80.000 OR two
       // up to 140.000» also bounds the TOTAL of a pair — the old carve served
