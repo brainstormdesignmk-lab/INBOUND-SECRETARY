@@ -339,7 +339,16 @@ export function extractPoiListCandidates(text: string): string[] {
     // «БЕВЕРЛИ ХИЛС МОЖЕ» — the bare path had no trailing-word trim, so the map
     // got «Беверли Хилс Може», failed, and only ONE of the two places the client
     // named could anchor the search.
-    const bparts = piece.replace(/[^\p{L}\p{N} .'\-]/gu, '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    // THE REMAINDER OF THE ASK IS NOT THE NAME (the [09:14] V16K11 capture):
+    // «SAKAM DA KUPAM STANCE KAJ BUNJAKOVEC ILI KAPITOL MOL — STO IMATE VO
+    // PONUDA» split into «… KAJ BUNJAKOVEC» and «KAPITOL MOL STO IMATE VO
+    // PONUDA»; the tail kept four question words, the ≤4-word veto rejected
+    // the whole piece, and only the FIRST landmark anchored the search — so a
+    // client who named two places was served a pair around one of them. The
+    // trailing ask is a closed phrase family (every form of «what do you
+    // have»), stripped whole; a place name never carries it.
+    const askTail = /\s+(?:(?:sto|што|shto)\s+(?:imate|имате|ima|има|imas|имаш|mozete|можете|nudite|нудите)[\s\S]*|(?:vo|во)\s+(?:ponuda|понуда)|(?:na|на)\s+(?:raspolaganje|располагање))$/iu;
+    const bparts = piece.replace(askTail, '').replace(/[^\p{L}\p{N} .'\-]/gu, '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
     while (bparts.length > 1 && TRAILING_ASK_WORD.has(bparts[bparts.length - 1].toLowerCase())) bparts.pop();
     const bare = bparts.join(' ');
     const words = bare.split(' ').filter(Boolean);
@@ -7564,7 +7573,12 @@ export function detectMetaClarify(text: string): boolean {
 const NEGOTIATE_RE =
   /(?:може\s+ли\s+(?:помала|пониска|поевтина|поевтин|помал)|може\s+ли\s+(?:нешто|nesto)?\s*поевтин[оа]|moze\s+li\s+(?:nesto\s+)?poevtin[oа]|помала\s+(?:цена|евра|евро)|пониска\s+(?:цена|евра)|поевтин\s+(?:стан|нешто)|дали\s+(?:има|постои|ќе\s+има)\s+попуст|попуст|popust|намалување|namaluvanje|појефтинување|pojeftinuvanje|може\s+ли\s+да\s+се\s+договориме\s+за\s+цена|дали\s+е\s+(?:фиксна|финална|конечна)\s+цена|can\s+(?:you|we)\s+(?:lower|reduce|drop|negotiate|cut)\s+(?:the\s+)?(?:price|cost)|discount|cheaper|lower\s+price|price\s+(?:reduction|cut|drop|negotiat)|any\s+(?:wiggle|flexibility|room)\s+(?:on\s+the\s+)?price|is\s+(?:the\s+)?(?:price|cost)\s+(?:fixed|firm|final|negotiable)|negotiate|за\s+(?:цената?|cena(?:to)?)|nego\s+za\s+cena|цена\s+(?:доле|надолу|долу|намали)|него\s+за\s+цена|за\s+цената)/iu;
 
-// Reduction/correction verb STEMS shared by the negotiate grammar branches.
+// MONEY, for the visit-wish veto above: a price word, a currency or a four-digit
+// figure. An ЕВ number («66», «91») is identity, not money.
+const NEGOTIATE_MONEY_RE =
+  /(?:цена|cena|попуст|popust|поевтин|poevtin|појевтин|pojeftin|евра|evra|евро|evro|денар|denar|€|\d{4,})/iu;
+
+// Reduction/correction verb stems shared by the negotiate grammar branches.
 // Stem + any letter tail (`\p{L}*` — JS \b is ASCII-only so Cyrillic can
 // never use \b) matches every conjugation without substring false-fires:
 // 'namal' cannot sit inside an unrelated word. Sweep negotiate 24:09 found
@@ -7770,6 +7784,15 @@ export function detectNegotiate(text: string): boolean {
   if (detectBudget(text) !== undefined
       && /(?<![\p{L}])(?:до|do)\s*\d/iu.test(text)
       && !/(?:дадам|дам|платам|плаќам|нудам|dadam|dam|platam|plakjam|nudam)/iu.test(text)) return false;
+  // A VISIT REQUEST IS NOT A COUNTER-OFFER (the [09:16] V16K11 capture): «MOZE
+  // SAKAM POSETA ZA 66 I ZA 91» — the modal «MOZE» plus «ZA 66» matched the
+  // bare-amount arm, so the client's THIRD attempt to book a viewing was
+  // answered with the fixed-price owner pitch («Вредноста на недвижностите ја
+  // одредуваат сопствениците…») instead of the contact ask the funnel owed.
+  // The numbers in a visit request are ЕВ numbers, never money, so the money
+  // lane only speaks when the message carries a price word, a currency or a
+  // figure big enough to be a price.
+  if (detectVisitInterest(text) && !NEGOTIATE_MONEY_RE.test(text)) return false;
   return matchesBoth(NEGOTIATE_RE, text) || matchesBoth(NEGOTIATE_GRAMMAR_RE, text) || extFires('negotiate', text)
     // Counter-offer class — freshness keeps its fast-path; fee-consent wins
     // only for FEE-SIZED amounts ("ok ke platam 500 denari" = consent, while

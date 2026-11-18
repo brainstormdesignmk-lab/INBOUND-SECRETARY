@@ -377,6 +377,20 @@ export interface SlotData {
    *  said plainly once each instead of silently dropping them from the pair. */
   pairEmpty?: string[];
   pairEmptySaid?: string[];
+  /** THE (landmark, room category) CELLS that have nothing left under their own
+   *  cap — the cross of the two criteria the client named in one breath
+   *  («станови околу Буњаковец ИЛИ Капитол Мол: една спална до 150.000 или две
+   *  до 180.000»). The serve that substitutes a category at one landmark says
+   *  WHICH cell it is standing in for (the [09:14] V16K11 contract). */
+  placeCategoryEmpty?: Array<{ place: string; rooms: number }>;
+  /** Cells already announced — one sentence per cell per search. */
+  placeCategorySaid?: string[];
+  /** Cells whose cards have been ON THE TABLE for this search (the notebook
+   *  the «ги исцрпивме» / «во моментов нема» distinction reads). `presentedIds`
+   *  cannot serve: a ladder carve rewrites it to the batch in hand. */
+  placeCategoryShown?: string[];
+  /** The sentence the next card serve prepends (see placeCategoryDrainNote). */
+  placeCategoryNote?: string;
   /** A place the client named as a DIFFERENT search location («a neshto kaj
    *  X?»): the criteria were confirmed, the next agreement applies this place. */
   pendingPivot?: { name: string; lat: number; lon: number };

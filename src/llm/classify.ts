@@ -3,7 +3,22 @@ import { ChatSession } from '../fsm/session';
 import { AppConfig } from '../config';
 import { Event, EventType, isValidEvent } from '../fsm/machine';
 import { PropertyService } from '../data/properties';
-import { extractSlots, DetectedSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectPropertySelection, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectFeeNag, detectFeeAmountAsk, GREETING_ONLY_RE } from './deterministic';
+import { extractSlots, DetectedSlots, detectLocation, buildEvent, detectContact, detectVisitInterest, detectPropertyInterest, detectPropertySelection, detectAgreement, detectVisitTime, detectTimeRejection, detectRejection, detectSeenProperty, detectLocatePick, detectSeeOffers, detectSuggestAlternatives, detectDrugAlternative, mentionsMore, detectAvailabilityAsk, detectFeeWhy, detectInvestmentOpinion, isPlausibleName, isValidPhone, isValidVisitTime, detectEyeCatch, detectWidenIntent, detectBedrooms, detectBedroomsRange, detectBudget, detectBusiness, detectHouse, detectGarsonjera, detectPlac, detectYardNeed, detectPriceAsk, detectService,  detectProvisionAsk, detectProvisionWho, hasDayWord, isWhereLandmarkQuestion, extractPoiWish, detectFeePaymentAgreement, detectConditionalFeeAccept, detectMetaClarify, detectMoreOptions, detectFeeComplaint, detectFeeSurprise, extractRentMath, detectTotalCostAsk, detectNegatedAgreement, detectNegatedFeePay, detectFeeRules, detectFeeTotalCost, detectFeeNag, detectFeeAmountAsk, detectVisitRequest, GREETING_ONLY_RE } from './deterministic';
+
+// AN EXPLICIT FEE ACCEPTANCE — the words a client uses when he says YES TO THE
+// MONEY (not to the viewing): «се согласувам», «прифаќам», «ќе платам», «во
+// ред», «договорено». Used by the mid-ladder guard below: a visit ORDER
+// («договори ми») is not one of these.
+const EXPLICIT_FEE_ACCEPT_RE =
+  /(?:прифаќ|prifakj|prifak|согласувам|soglasuvam|согласен|soglasen|soglasna|плаќам|plakjam|платам|platam|ќе\s+дам|ke\s+dam|дадам|dadam|во\s+ред|vo\s+red|договорено|dogovoreno)/iu;
+
+// WHAT A VISIT ORDER IS ABOUT — an ЕВ number, a visit noun, or a «to see it»
+// clause. A CONCESSION («DOGOVORI TOA E TOA», «ШТОМ ТАКА РАБОТИТЕ…») names none
+// of these: it talks about the PRACTICE, and it is consent
+// (tests/dual-rent-buy-serve pins it). The two share the «договори» verb, so
+// the OBJECT is what separates the money yes from the viewing order.
+const VISIT_ORDER_OBJECT_RE =
+  /(?<![\d.,])\d{1,5}(?![\d.,])|посет|poset|(?:да\s+(?:го|ги|ја)\s+вид)|(?:da\s+(?:go|gi|ja)\s+vid)/iu;
 import { hasClockHint } from '../visits/time';
 
 import { extractDayWord, mergeVisitTerm, detectSameTimeReference } from '../visits/time';
@@ -800,7 +815,6 @@ export class Classifier {
       && (detectFeeNag(text) || detectFeeAmountAsk(text))) {
       ev = { type: 'STAY' };
     }
-
     // [21:28] CONDITIONAL FEE CONSENT (closing + knock-out recovery): the fee
     // was asked and the client conditionally accepts — "AKO VI SE TAKVI
     // USLOVITE", "AKO E USTE DOSTAPEN MOZDA I KE VI DADAM 500 DEN ZA DA GO
@@ -827,6 +841,25 @@ export class Classifier {
       && (detectFeePaymentAgreement(text) || detectConditionalFeeAccept(text))) {
       ev = { type: 'FEE_AGREED' };
     }
+
+    // A VISIT ORDER MID-LADDER IS NOT FEE CONSENT (the [09:10] V16K11 capture):
+    // «AJDE DOGOVORI MI ZA 66 I ZA 91» carries the arrange verb «договори ми» —
+    // one of the agreement tokens — so a client who had JUST objected to the
+    // fee («ZEMATE PARI ZA POSETI ?», rung 1) and then ordered the viewing was
+    // read as accepting the money: the funnel stopped at rung 1 with
+    // `viewingFeeAgreed` set, and the contact ask it owed was never composed
+    // (the turn fell to `fallback.presentation`, «Составив листа со
+    // предлози…»). THE LADDER OWNS THE MONEY TRAFFIC UNTIL IT FINISHES (§2: a
+    // nag climbs 1 → rule.hold → decide): a bare visit command keeps climbing,
+    // while an EXPLICIT acceptance in the same message ("DOBRO, SE
+    // SOGLASUVAM", "ЌЕ ПЛАТАМ") still exits mid-order to contact collection.
+    if (ev.type === 'FEE_AGREED' && !session.slots.viewingFeeAgreed
+      && (session.slots.feeRejections ?? 0) >= 1
+      && detectVisitRequest(text) && VISIT_ORDER_OBJECT_RE.test(text)
+      && !EXPLICIT_FEE_ACCEPT_RE.test(text)) {
+      ev = { type: 'STAY' };
+    }
+
 
     // Visit time in visit_scheduling → VISIT_TIME_PROVIDED. A BARE clock with
     // no day ("6", "6 SAAT", "во 18:00") COMPLETES the day already stored
@@ -1531,6 +1564,16 @@ export class Classifier {
     // STAY, so the fee lane climbs a rung instead of collecting the contact.
     if (session.state === 'closing' && parsed.event.type === 'FEE_AGREED'
       && (detectFeeNag(text) || detectFeeAmountAsk(text))) {
+      parsed.event = { type: 'STAY' };
+    }
+    // LLM-down mirror of the MID-LADDER VISIT ORDER guard (the [09:10] V16K11
+    // capture — see the UP-path block): «AJDE DOGOVORI MI ZA 66 I ZA 91» after
+    // rung 1 must climb the ladder, not consent to the money. An explicit
+    // acceptance in the same message still wins.
+    if (parsed.event.type === 'FEE_AGREED' && !session.slots.viewingFeeAgreed
+      && (session.slots.feeRejections ?? 0) >= 1
+      && detectVisitRequest(text) && VISIT_ORDER_OBJECT_RE.test(text)
+      && !EXPLICIT_FEE_ACCEPT_RE.test(text)) {
       parsed.event = { type: 'STAY' };
     }
     // Visit time in visit_scheduling -> VISIT_TIME_PROVIDED, so the owner

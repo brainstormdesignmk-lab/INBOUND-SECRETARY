@@ -232,6 +232,208 @@ function categoryPairQueue(
   return { queue, drained };
 }
 
+/**
+ * CATEGORY × LANDMARK PAIR QUEUE — the [09:14] V16K11 contract.
+ *
+ * The client named TWO places and TWO room categories, each with its own cap:
+ * «SAKAM DA KUPAM STANCE KAJ BUNJAKOVEC ILI KAPITOL MOL … EDNA SPALNA DO
+ * 150000 ILI DVE SPALNI DO 180000». Two existing ladders each answered half of
+ * that: the cross-place queue (`placePairQueue`) walks places and ignores the
+ * categories, the per-category queue (`categoryPairQueue`) walks categories and
+ * ignores the places. The live serve therefore put BOTH cards around the FIRST
+ * landmark (EB 84 + EB 77 + EB 66, every one of them «до Буњаковец») and the
+ * second place the client named never got a card at all.
+ *
+ * THE ORDER THE OWNER ASKED FOR, exactly:
+ *   turn 1 — one-bedroom @ landmark 1, one-bedroom @ landmark 2
+ *   turn 2 — two-bedroom @ landmark 1, two-bedroom @ landmark 2
+ *   turn 3 — one-bedroom @ landmark 1, one-bedroom @ landmark 2  … loop
+ *   until every row at both landmarks is shown.
+ * A landmark with nothing left in the turn's category serves the OTHER
+ * requested category instead (never an empty slot, never a card from the wrong
+ * place), and the cell that ran dry is announced in one sentence.
+ *
+ * Each row belongs to the place it is NEAREST (two places a few hundred metres
+ * apart share most of their radius — assigning by nearest is what keeps the
+ * same flat from riding both cells), rows outside every named radius never ride
+ * at all, and every category is capped by ITS OWN money, never the highest.
+ */
+function categoryPlaceQueue(
+  pool: Property[],
+  caps: Record<string, string>,
+  places: Array<{ name: string; lat: number; lon: number }>,
+): {
+  queue: number[];
+  anchorOf: Record<string, { name: string; lat: number; lon: number }>;
+  alsoNearOf: Record<string, Array<{ name: string; lat: number; lon: number }>>;
+  emptyCells: Array<{ place: string; rooms: number }>;
+  emptyPlaces: string[];
+} {
+  const rooms = Object.keys(caps).map(Number).filter(r => Number.isFinite(r)).sort((a, b) => a - b);
+  const capOf = (r: number): number => Number(String(caps[String(r)] ?? '').replace(/[^\d]/g, ''));
+  const distTo = (p: Property, a: { lat: number; lon: number }): number => (
+    typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0
+      ? distM(a.lat, a.lon, p.lat, p.lon) : Number.POSITIVE_INFINITY);
+  const byName = new Map(places.map(pl => [pl.name, pl] as const));
+  const cellKey = (r: number, name: string): string => `${r}|${name}`;
+  const buckets = new Map<string, Property[]>();
+  const emptyPlaces: string[] = [];
+  for (const pl of places) {
+    if (!pool.some(p => distTo(p, pl) <= LANDMARK_NEAR_M)) emptyPlaces.push(pl.name);
+  }
+  for (const p of pool) {
+    let nearest: { name: string; lat: number; lon: number } | undefined;
+    let best = Number.POSITIVE_INFINITY;
+    for (const pl of places) {
+      const d = distTo(p, pl);
+      if (d < best) { best = d; nearest = pl; }
+    }
+    if (!nearest || best > LANDMARK_NEAR_M) continue;       // never a card from elsewhere
+    if (typeof p.bedrooms !== 'number' || !rooms.includes(p.bedrooms)) continue;
+    const cap = capOf(p.bedrooms);
+    if (cap > 0 && typeof p.price === 'number' && p.price > cap) continue; // ITS own cap
+    const k = cellKey(p.bedrooms, nearest.name);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(p);
+  }
+  for (const [k, rows] of buckets) {
+    const place = byName.get(k.slice(k.indexOf('|') + 1));
+    if (!place) continue;
+    rows.sort((a, b) => distTo(a, place) - distTo(b, place) || a.eb - b.eb);
+  }
+  // THE CELLS WITH NOTHING: decided BEFORE the walk, on the stock the search
+  // started with — a cell that only runs out mid-ladder is announced by the
+  // carve-time note (placeCategoryDrainNote), not here.
+  const emptyCells: Array<{ place: string; rooms: number }> = [];
+  for (const pl of places) {
+    for (const r of rooms) {
+      if ((buckets.get(cellKey(r, pl.name)) ?? []).length === 0) emptyCells.push({ place: pl.name, rooms: r });
+    }
+  }
+  const queue: number[] = [];
+  const anchorOf: Record<string, { name: string; lat: number; lon: number }> = {};
+  const take = (r: number, name: string): Property | undefined => {
+    const row = buckets.get(cellKey(r, name))?.shift();
+    if (!row) return undefined;
+    anchorOf[String(row.id)] = byName.get(name)!;
+    return row;
+  };
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const r of rooms) {
+      for (const pl of places) {
+        let row = take(r, pl.name);
+        // THE SUBSTITUTE (the owner's rule): a landmark with nothing in the
+        // turn's category serves the OTHER requested category, so the pair
+        // always answers BOTH places instead of crowding one of them.
+        if (!row) {
+          for (const alt of rooms) {
+            if (alt === r) continue;
+            row = take(alt, pl.name);
+            if (row) break;
+          }
+        }
+        if (!row) continue;
+        queue.push(row.id);
+        progressed = true;
+      }
+    }
+  }
+  // A card inside ANOTHER named place's honest radius answers for it too (the
+  // same rule placePairQueue states): the card lists both distances and the
+  // opener may name both, instead of the second place looking empty.
+  const byId = new Map(pool.map(p => [p.id, p] as const));
+  const alsoNearOf: Record<string, Array<{ name: string; lat: number; lon: number }>> = {};
+  for (const id of queue) {
+    const row = byId.get(id);
+    if (!row) continue;
+    const own = anchorOf[String(id)];
+    const others = places.filter(pl => pl.name !== own?.name && distTo(row, pl) <= LANDMARK_NEAR_M);
+    if (others.length > 0) alsoNearOf[String(id)] = others;
+  }
+  return { queue, anchorOf, alsoNearOf, emptyCells, emptyPlaces };
+}
+
+/**
+ * «ОКОЛУ {place} НЕМА {category}» — the explicit cell note the [09:14] contract
+ * demands, for the cross the client named in one breath: two landmarks and two
+ * room categories with a cap each.
+ *
+ * The rule has two halves and both are the OWNER's words: a landmark with
+ * nothing left in a category must be SAID (never silently replaced by another
+ * card from the other place), and what remains is still served. The sentence is
+ * decided where the pool is known, stated once per cell per search, and only
+ * when the batch on the table does NOT already answer that cell — a batch that
+ * serves one-bedrooms at both landmarks has nothing to explain.
+ *
+ * TWO SHAPES, and the difference is factual: a cell that never had a row reads
+ * «во моментов нема» (the system's truth), a cell whose cards were shown and
+ * then ran out reads «ги исцрпивме» (the ladder's truth). The money is always
+ * the cap the CLIENT named for THAT category, never the highest.
+ */
+function placeCategoryDrainNote(
+  session: ChatSession, batch: Property[], pool: Property[],
+): string | undefined {
+  const caps = session.slots.categoryBudgets;
+  const places = session.slots.poiPlaces ?? [];
+  if (!caps || places.length < 2) return undefined;
+  const rooms = Object.keys(caps).map(Number).filter(r => Number.isFinite(r)).sort((a, b) => a - b);
+  if (rooms.length < 2) return undefined;
+  const anchorOf = session.slots.pairAnchorOf ?? {};
+  const byId = new Map(pool.map(p => [p.id, p] as const));
+  const cellOf = (p: Property): string | undefined => {
+    const anchor = anchorOf[String(p.id)];
+    return anchor && typeof p.bedrooms === 'number' ? `${p.bedrooms}|${anchor.name}` : undefined;
+  };
+  // STOCK STILL TO COME and CELLS ALREADY SEEN — the two facts the sentences
+  // are built from (the batch is already off the ladder queue by now).
+  const stocked = new Set<string>();
+  for (const id of session.slots.ladderQueue ?? []) {
+    const row = byId.get(id);
+    const cell = row ? cellOf(row) : undefined;
+    if (cell) stocked.add(cell);
+  }
+  const onTable = new Set<string>();
+  for (const p of batch) {
+    const cell = cellOf(p);
+    if (cell) onTable.add(cell);
+  }
+  // THE NOTEBOOK IS WRITTEN HERE, not read off presentedIds: a ladder carve
+  // rewrites `presentedIds` to the batch in hand, so a cell served two turns
+  // ago had already vanished and its «ги исцрпивме» read as «во моментов
+  // нема» — the system-claim about stock the client was just shown.
+  const shown = new Set<string>(session.slots.placeCategoryShown ?? []);
+  for (const cell of onTable) shown.add(cell);
+  session.slots.placeCategoryShown = [...shown];
+  const said = new Set(session.slots.placeCategorySaid ?? []);
+  const money = (rows: number[]): string => {
+    const caps2 = rows
+      .map(r => Number(String(caps[String(r)] ?? '').replace(/[^\d]/g, '')))
+      .filter(n => n > 0);
+    return caps2.length === 0 ? '' : ` до ${caps2.map(n => n.toLocaleString('mk-MK')).join(' и ')} евра`;
+  };
+  const lines: string[] = [];
+  for (const pl of places) {
+    const gone = rooms
+      .filter(r => !stocked.has(`${r}|${pl.name}`) && !onTable.has(`${r}|${pl.name}`) && !said.has(`${r}|${pl.name}`));
+    if (gone.length === 0) continue;
+    for (const r of gone) said.add(`${r}|${pl.name}`);
+    const label = gone.map(roomCategoryLabel).join(' и ');
+    const place = displayPlaceName(pl.name);
+    const wasShown = gone.some(r => shown.has(`${r}|${pl.name}`));
+    lines.push(wasShown
+      ? `Околу ${place} ги исцрпивме ${label}${money(gone)}.`
+      : `Околу ${place} во моментов нема ${label}${money(gone)}.`);
+    // At most two cells are named (a 24-row phone screen: the cards are the
+    // answer, the note is the honesty) — a third would push the pair off it.
+    if (lines.length >= 2) break;
+  }
+  if (lines.length === 0) return undefined;
+  session.slots.placeCategorySaid = [...said];
+  return lines.join(' ');
+}
+
 /** The Macedonian plural a room category is spoken in (the drained line).
  *  «трособни» is the owner's own spelling of the three-room plural — NOT
  *  «трисобни» (the [03:45] capture, restated as a standing copy rule). The
@@ -3431,8 +3633,18 @@ export class InboundHandler {
    *  сите недвижности» — a district he never asked about).
    *  displayPlaceName(), so the prose form matches every other place line. */
   private searchPlaceLabel(session: ChatSession): string | undefined {
+    // TWO PLACES ARE BOTH THE SEARCH'S ANCHOR (the [09:14] V16K11 contract):
+    // the drained/no-match sentences used to name the FIRST landmark alone while
+    // the client had asked about two («Околу Буњаковец веќе ги погледнавме…»
+    // right after «Буњаковец ИЛИ Капитол Мол»), so the honest line claimed this
+    // side of the city was empty and said nothing about the other. Both names
+    // ride the {place} slot — the pair contract never names a third anyway.
+    const list = session.slots.poiPlaces ?? [];
+    if (list.length >= 2) {
+      return list.slice(0, 2).map(p => displayPlaceName(p.name)).join(' и ');
+    }
     const one = session.slots.poiAnchor
-      ?? (session.slots.poiPlaces?.length === 1 ? session.slots.poiPlaces[0]!.name : undefined);
+      ?? (list.length === 1 ? list[0]!.name : undefined);
     return one ? displayPlaceName(one) : undefined;
   }
 
@@ -10549,25 +10761,18 @@ export class InboundHandler {
     // now live in the ROUTER's row (same order, same reason).
     if (routedLane() === 'MORE_STOCK') {
       routeLog(chatId, text, 'MORE_STOCK');
-      const morePool = await this.deps.properties.candidates({
-        location: session.slots.location,
-        bedrooms: session.slots.bedrooms,
-        bedroomsMin: session.slots.bedroomsMin,
-        bedroomsMax: session.slots.bedroomsMax,
-        sqm: session.slots.sqm,
-        business: this.businessPoolLock(session.slots) ?? undefined,
-        house: this.poolHouse(session.slots),
-        garsonjera: session.slots.garsonjera,
-        plac: session.slots.plac,
-        yard: session.slots.yard,
-        service: session.slots.service,
-        budget: session.slots.budget,
-        exclude: [...(session.slots.presentedIds ?? [])],
-        sortByPopularity: !session.slots.location,
-      });
-      const moreBatch = session.slots.countBudget
-        ? fitCountBudgetPair(morePool, session.slots.countBudget.pair)
-        : morePool.slice(0, 2);
+      // THE COMBINED (landmark × category) LADDER CARVES ITS OWN NEXT PAIR (the
+      // [09:14] V16K11 contract): this lane built its own pool and sliced the
+      // two nearest rows, so EVERY «покажи ми што уште имате» abandoned the
+      // requested rotation — one category per turn, one card per landmark —
+      // and the cross-place anchors with it. `loadProps` is the ONE carve for
+      // that ladder (queue, anchors, the cell note), so the stock ask reads it
+      // instead of re-deriving a serve of its own.
+      const composedSearch = (session.slots.poiPlaces?.length ?? 0) >= 2
+        && Object.keys(session.slots.categoryBudgets ?? {}).length >= 2;
+      const moreBatch = composedSearch
+        ? await this.loadProps(session, false, false)
+        : await this.moreStockBatch(session);
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       if (moreBatch.length > 0) {
         const intro = pickVariant('batch.more', { recent: assistantTexts(session) })
@@ -15142,6 +15347,14 @@ ${contactReminder}`;
       }
     } else if (next === 'presentation' && props.length === 0
         && !detectInvestmentOpinion(text)
+        // A VISIT REQUEST IS NEVER AN EMPTY-RESULT TURN (the [09:10] V16K11
+        // capture): «AJDE DOGOVORI MI ZA 66 I ZA 91» arrived when every card of
+        // the search had been served, and this branch — whose job is the honest
+        // «сè е веќе прикажано» for a STOCK ask — told a client who was trying
+        // to book two viewings that there was nothing more in the system. The
+        // visit lane owns a request to SEE a flat; a drained pool says nothing
+        // about a flat that was already shown.
+        && !detectVisitInterest(text)
         && !detectProvisionAsk(text) && !detectProvisionWho(text)) {
       // Deterministic empty-result lines — never let the LLM invent properties.
       // A search that names an area but has nothing there -> honest no-match;
@@ -16139,7 +16352,20 @@ ${contactReminder}`;
     // flat vanished from the protocol he had just asked for. The wish is
     // remembered (`visitWanted`), both flats are NAMED, and the arithmetic is
     // per property (the same builder the route's confirmation uses).
-    const multiWish = session.slots.visitWanted === true || detectMultiVisitIntent(text);
+    // TWO NAMED FLATS ARE THE STRONGEST PLURAL THERE IS (the [09:10] V16K11
+    // capture): «AJDE DOGOVORI MI ZA 66 I ZA 91» carries no «двата/сите» word,
+    // so detectMultiVisitIntent declined and the fee script named ONE flat
+    // (EB 66) for a client who had just named two — the second viewing he asked
+    // for vanished from the protocol, and its per-property fee with it. A visit
+    // verb plus two on-screen ЕВ numbers is a plural request by construction
+    // (namedVisitEbs is the same reader the route uses).
+    const onScreenEbs = [...new Set([
+      ...(session.slots.currentBatch ?? []),
+      ...(session.slots.presentedIds ?? []),
+    ])];
+    const namedTrip = namedVisitEbs(text, onScreenEbs);
+    const multiWish = session.slots.visitWanted === true || detectMultiVisitIntent(text)
+      || namedTrip.length >= 2;
     // …and the SUBJECT of the fee is the same set the route uses (see
     // multiVisitEbs): the flats he named, never every card on the table.
     const tripEbs = multiWish ? this.multiVisitEbs(session, text) : [];
@@ -18815,6 +19041,12 @@ ${contactReminder}`;
   private categoryDrainNote(session: ChatSession, batch: Property[]): string | undefined {
     const caps = session.slots.categoryBudgets;
     if (!caps) return undefined;
+    // THE COMBINED (landmark × category) LADDER OWNS ITS OWN NOTE (the [09:14]
+    // contract): with two named places a batch is ONE category ON PURPOSE —
+    // that is the rotation the client asked for, not a drained tier, and the
+    // «нема двособни — Ви покажувам трособни» sentence would be a lie about
+    // his own request. placeCategoryDrainNote speaks for that ladder.
+    if ((session.slots.poiPlaces?.length ?? 0) >= 2) return undefined;
     const rooms = Object.keys(caps).map(Number).sort((a, b) => a - b);
     if (rooms.length < 2) return undefined;
     const served = [...new Set(batch
@@ -19134,6 +19366,33 @@ ${contactReminder}`;
     return serviceCriterionKnown(s.slots) && loc && (!!s.slots.bedrooms || (s.slots.bedroomsMin !== undefined && s.slots.bedroomsMax !== undefined)
       || !!s.slots.anywhere || !!s.slots.sizeWaived || !!s.slots.garsonjera || !!s.slots.plac || !!s.slots.yard)
       && (!!s.slots.budget || !!s.slots.sqmRate || !!s.slots.budgetWaived);
+  }
+
+  /** THE «ШТО УШТЕ ИМАТЕ» PAIR for a plain single-anchor search: the next two
+   *  unshown rows from the SAME criteria — the lane's own carve since the
+   *  [12:41] capture, kept as one method so a COMPOSED ladder (two landmarks ×
+   *  two categories) can hand the turn to `loadProps` instead of re-deriving a
+   *  serve that ignores the requested rotation. */
+  private async moreStockBatch(session: ChatSession): Promise<Property[]> {
+    const morePool = await this.deps.properties.candidates({
+      location: session.slots.location,
+      bedrooms: session.slots.bedrooms,
+      bedroomsMin: session.slots.bedroomsMin,
+      bedroomsMax: session.slots.bedroomsMax,
+      sqm: session.slots.sqm,
+      business: this.businessPoolLock(session.slots) ?? undefined,
+      house: this.poolHouse(session.slots),
+      garsonjera: session.slots.garsonjera,
+      plac: session.slots.plac,
+      yard: session.slots.yard,
+      service: session.slots.service,
+      budget: session.slots.budget,
+      exclude: [...(session.slots.presentedIds ?? [])],
+      sortByPopularity: !session.slots.location,
+    });
+    return session.slots.countBudget
+      ? fitCountBudgetPair(morePool, session.slots.countBudget.pair)
+      : morePool.slice(0, 2);
   }
 
   private async loadProps(session: ChatSession, areaRequested = false, seeOffers = false, ignoreShown = false): Promise<Property[]> {
@@ -19682,7 +19941,21 @@ ${contactReminder}`;
       let queue = session.slots.ladderQueue ?? [];
       if (session.slots.ladderKey !== ladderKey || queue.length === 0) {
         const multiPlaces = session.slots.poiPlaces ?? [];
-        if (multiPlaces.length >= 2) {
+        const catCaps = session.slots.categoryBudgets ?? {};
+        if (multiPlaces.length >= 2 && Object.keys(catCaps).length >= 2) {
+          // CATEGORY × LANDMARK (the [09:14] V16K11 contract): two places AND
+          // two room categories with a cap each — one category per turn, one
+          // card per landmark, looping until both places are out of stock.
+          const built = categoryPlaceQueue(pool, catCaps, multiPlaces);
+          queue = built.queue;
+          session.slots.pairAnchorOf = built.anchorOf;
+          session.slots.pairAlsoNearOf = built.alsoNearOf;
+          session.slots.pairEmpty = built.emptyPlaces;
+          session.slots.placeCategoryEmpty = built.emptyCells;
+          session.slots.placeCategorySaid = undefined;
+          session.slots.placeCategoryShown = undefined;
+          if (queue.length === 0) session.slots.alternativesExhausted = true;
+        } else if (multiPlaces.length >= 2) {
           // CROSS-PLACE PAIR QUEUE (the [18:48] capture): the client named TWO
           // places in one ask, so the pair must SPAN them — one card near each,
           // not two cards crowded around whichever place the extractor saw
@@ -19828,6 +20101,10 @@ ${contactReminder}`;
       // cap. The sentence is decided HERE (where the pool is known) and applied
       // at the send choke, so no serve lane can drop it.
       session.slots.categoryDrainNote = this.categoryDrainNote(session, batch);
+      // THE CROSS OF THE TWO CRITERIA (the [09:14] contract): a batch that
+      // stands in for a (landmark, category) cell with nothing left says so,
+      // once per cell, above the cards.
+      session.slots.placeCategoryNote = placeCategoryDrainNote(session, batch, pool);
       // THE NOTEBOOK, for every serve (see noteCategoriesOnTable): the drained
       // lane's «never on the table here» test reads it, single category or pair.
       this.noteCategoriesOnTable(session, batch);
@@ -19864,6 +20141,12 @@ ${contactReminder}`;
     if (session.slots.categoryDrainNote && /Евидентен број/u.test(text)) {
       text = `${session.slots.categoryDrainNote}\n\n${text}`;
       session.slots.categoryDrainNote = undefined;
+    }
+    // THE (landmark, category) NOTE, same rule and same place: above the cards
+    // it is about, never inherited by a fee/visit line on the same turn.
+    if (session.slots.placeCategoryNote && /Евидентен број/u.test(text)) {
+      text = `${session.slots.placeCategoryNote}\n\n${text}`;
+      session.slots.placeCategoryNote = undefined;
     }
     // THE AUDIT HOLDS WHAT WAS SENT, NOT WHAT A LANE MEANT TO SEND: this is the
     // only function that hands bytes to the transport, so the record is appended
