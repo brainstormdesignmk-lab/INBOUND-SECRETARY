@@ -263,6 +263,16 @@ export interface SlotData {
    *  a sudden single visit — the brief's «several stays several». Cleared when
    *  the route is booked. */
   visitWanted?: boolean;
+  /** THE FLATS THE CLIENT NAMED for that visit, in his own order — the set the
+   *  fee subject line, the fee arithmetic and the route's owner asks all read.
+   *  It outlives the turns that will not carry the numbers: the visit command
+   *  («DOGOVORI MI DA GI POSETAM 82 I 77») is answered by the fee disclosure
+   *  and then by contact collection, and three turns later the client says
+   *  only «овие два». Without this memory the set fell back to every card ever
+   *  presented (the [11:18] V16K11 capture asked the owners of 84, 82, 77 and
+   *  53 for a two-flat visit). A later naming overwrites it; the route's
+   *  booking clears it; a flat that leaves the screen is filtered out. */
+  visitEbs?: number[];
   /** How many stops the confirmed route has (>= 2 marks a chain for the visit
    *  protocol's plan line). Set when the route is booked. */
   chainSize?: number;

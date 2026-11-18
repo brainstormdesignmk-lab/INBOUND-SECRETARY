@@ -2542,12 +2542,36 @@ export class InboundHandler {
    *  table AND the visit is HIS plural request. Returns false when this is an
    *  ordinary single-flat visit. */
   private startChainIfNeeded(session: ChatSession, term: string, text = ''): boolean {
-    // A TERM CHANGE MID-ROUTE RESTARTS IT: the answers on file were about the
-    // OLD day/hours, so they are void — every stop returns to pending and the
-    // first owner is asked about the new term (a later day is a new chain by
-    // the brief, and an hour the client moved is the same rule).
     const running = session.slots.visitPlan;
     if (running) {
+      // A MID-ROUTE RENAMING IS THE ROUTE HE WANTS NOW (the [11:18] sibling):
+      // the client reads the plan as it forms and narrows it — «NE, SAMO 82 I
+      // 77, CETVRTOK VO 17». The running stops are the flats he named BEFORE
+      // the change, so keeping them keeps asking owners of flats he no longer
+      // wants (the four-stop visit for a two-flat request). The stops are
+      // rebuilt to his new list, and the answers already on file for a flat
+      // that STAYS are kept, so no owner is asked the same hour twice.
+      // The narrowing runs BEFORE the term restart: the restart voids the
+      // answers and asks the FIRST stop, and that must be the new first stop.
+      const renamed = namedVisitEbs(text, this.onScreenEbs(session));
+      let narrowed = false;
+      if (renamed.length >= 2) {
+        const live = running.stops.filter(s => s.status !== 'dropped').map(s => s.eb);
+        const sameSet = live.length === renamed.length
+          && renamed.every(eb => live.includes(eb));
+        if (!sameSet) {
+          const kept = new Map(running.stops.map(s => [s.eb, s]));
+          running.stops = renamed.map(eb => kept.get(eb) ?? { eb, status: 'pending' as const });
+          running.assignments = undefined;
+          running.dropped = undefined;
+          session.slots.visitEbs = renamed;
+          narrowed = true;
+        }
+      }
+      // A TERM CHANGE MID-ROUTE RESTARTS IT: the answers on file were about the
+      // OLD day/hours, so they are void — every stop returns to pending and the
+      // first owner is asked about the new term (a later day is a new chain by
+      // the brief, and an hour the client moved is the same rule).
       const moved = parseVisitDateTime(term, new Date());
       if (moved && (dayStartOf(moved) !== running.dayMs || moved.getHours() !== running.targetHour)) {
         running.dayMs = dayStartOf(moved);
@@ -2561,6 +2585,12 @@ export class InboundHandler {
           s.askedHour = undefined;
           s.pendingHour = undefined;
         }
+        this.deps.sessions.set(session);
+        this.advanceChain(session);
+      } else if (narrowed) {
+        // The same term: the stops he keeps hold their owners' answers, and the
+        // one he just added is asked now.
+        this.deps.sessions.set(session);
         this.advanceChain(session);
       }
       return true; // already running — keep the route
@@ -2592,23 +2622,55 @@ export class InboundHandler {
   }
 
   /** THE FLATS A PLURAL VISIT IS ABOUT: the ones the CLIENT named, else the
-   *  batch on the table.
+   *  ones on the table now.
    *
    *  The [06:33] capture asked for two flats by number («BI GI POSETIL 57 I
    *  59») and paid for three, because the set was built from every card ever
    *  presented — the pair partner EB 42 came along. A client who names numbers
    *  has chosen: his list is the visit, the chain stops at one per named flat,
-   *  and the fee arithmetic counts exactly those. Without numbers the wish is
-   *  about the whole set shown, which is the old behaviour (capped at four, the
-   *  route's own budget). */
+   *  and the fee arithmetic counts exactly those.
+   *
+   *  NAMING IS REMEMBERED (`slots.visitEbs`, the [11:18] V16K11 capture): «DOGO-
+   *  VORI MI DA GI POSETAM 82 I 77» is a visit command, so the turn is the FEE
+   *  disclosure — then contact collection — and three turns later the client
+   *  says only «AJDE DOGOVORI MI ZA OVIE DVA». The numbers were gone from his
+   *  message, the set fell back to every presented card, and the route asked
+   *  FOUR owners (84, 82, 77, 53) for a two-flat visit that then never closed.
+   *  The named set is therefore stored here and read back whenever the plural
+   *  is deictic, while the flats are still on screen. */
   private multiVisitEbs(session: ChatSession, text: string): number[] {
-    const onScreen = [...new Set([
+    const onScreen = this.onScreenEbs(session);
+    const named = namedVisitEbs(text, onScreen);
+    if (named.length > 0) {
+      session.slots.visitEbs = named.slice(0, 4); // his own order, his own set
+      return session.slots.visitEbs;
+    }
+    // «СИТЕ ШТО МИ ГИ ПОКАЖА» is the ONE phrase that means every card ever
+    // shown — it says so itself. The deictic plurals do not. Both scripts per
+    // token: the client types Latin on a Cyrillic app («SITE STO MI GI
+    // POKAZA»), and a mixed-script pattern matches neither spelling.
+    if (/(?:сите|site)\s+(?:што|sto)\s+(?:ми|mi)\s+(?:ги|gi)/iu.test(text)) return onScreen.slice(0, 4);
+    // A DEICTIC PLURAL («овие два», «тие две», «за овие», «да ги посетам»)
+    // points at the flats HE NAMED — while they are still on screen. A stale
+    // name for a card that no longer exists is dropped, never routed.
+    const remembered = (session.slots.visitEbs ?? []).filter(eb => onScreen.includes(eb));
+    if (remembered.length >= 2) return remembered.slice(0, 4);
+    // NOTHING NAMED, NOTHING REMEMBERED: the visit is the cards ON THE TABLE
+    // (`currentBatch`), never every card ever presented — the old
+    // `currentBatch + presentedIds` build is what swept the pair partner in.
+    const onTable = (session.slots.currentBatch ?? []).filter(eb => onScreen.includes(eb));
+    return (onTable.length > 0 ? onTable : onScreen).slice(0, 4);
+  }
+
+  /** THE CARDS THE CLIENT CAN SEE — the batch on the table plus everything
+   *  presented in this chat. ONE definition: the visit set, the fee subject
+   *  line and a mid-route renaming all ask the same question, and three copies
+   *  of `currentBatch + presentedIds` drift the way copies do. */
+  private onScreenEbs(session: ChatSession): number[] {
+    return [...new Set([
       ...(session.slots.currentBatch ?? []),
       ...(session.slots.presentedIds ?? []),
     ])];
-    const named = namedVisitEbs(text, onScreen);
-    if (named.length > 0) return named.slice(0, 4);
-    return onScreen.slice(0, 4);
   }
 
   /** The canonical term for a stop at `hour` (the client's day, the chain's
@@ -2778,6 +2840,7 @@ export class InboundHandler {
     if (!plan?.assignments?.length) return;
     session.slots.visitPlan = undefined; // consumed — a second yes must not rebook
     session.slots.visitWanted = undefined; // the wish is fulfilled by the route
+    session.slots.visitEbs = undefined; // …and so is the set it named
     // The scheduler's Turn 0 carries the plan line for a real route.
     session.slots.chainSize = plan.assignments.length;
     this.deps.sessions.set(session);
@@ -4730,7 +4793,14 @@ export class InboundHandler {
     // The CHEAP GATE is the two-number shape (the lane needs two EBs, so a text
     // without two numerals can never reach it) — that is what keeps the feed
     // lookup off every ordinary turn.
+    // …and while a visit route is RUNNING, a pair of Евидентни броеви with a
+    // term is the client NARROWING it («NE, SAMO 82 I 77, CETVRTOK VO 17:00»,
+    // the [11:18] sibling): the visit lanes own that turn, not an identity card.
+    // The executor's block carries the same veto — one shape, two gates.
+    const narrowingRoute = !!session.slots.visitPlan
+      && (!!detectVisitTime(text) || hasDayWord(text) || hasClockHint(text));
     if ((text.match(/\d{1,3}/gu)?.length ?? 0) >= 2
+      && !narrowingRoute
       && !detectAvailabilityAsk(text) && !detectExactAddressAsk(text)
       && !isFeeTraffic(text) && !detectPriceAsk(text) && !detectBudget(text)
       && !detectVisitRequest(text) && !detectMultiVisitIntent(text)
@@ -8784,7 +8854,13 @@ export class InboundHandler {
     // ГИ ПОСЕТАМ 66 И 84» named two flats and the pair-identity lane answered
     // with their facts + «За кој од нив сакате повеќе детали?» — the client had
     // said which: both, for a viewing. The visit lanes below own this turn.
-    if (!detectAvailabilityAsk(text) && !detectExactAddressAsk(text)
+    // …and the same MID-ROUTE RENAMING veto the probe applies (see the
+    // INFO_ASK_PAIR_IDENTITY evidence block): a running route plus a term is a
+    // narrowing of that route, not an identity ask about two flats.
+    const narrowingRoute = !!session.slots.visitPlan
+      && (!!detectVisitTime(text) || hasDayWord(text) || hasClockHint(text));
+    if (!narrowingRoute
+      && !detectAvailabilityAsk(text) && !detectExactAddressAsk(text)
       && !isFeeTraffic(text) && !detectPriceAsk(text) && !detectBudget(text)
       && !detectVisitRequest(text) && !detectMultiVisitIntent(text)
       && !detectVisitInterest(text) && !detectVisitTimingQuestion(text)) {
@@ -16360,11 +16436,7 @@ ${contactReminder}`;
     // for vanished from the protocol, and its per-property fee with it. A visit
     // verb plus two on-screen ЕВ numbers is a plural request by construction
     // (namedVisitEbs is the same reader the route uses).
-    const onScreenEbs = [...new Set([
-      ...(session.slots.currentBatch ?? []),
-      ...(session.slots.presentedIds ?? []),
-    ])];
-    const namedTrip = namedVisitEbs(text, onScreenEbs);
+    const namedTrip = namedVisitEbs(text, this.onScreenEbs(session));
     const multiWish = session.slots.visitWanted === true || detectMultiVisitIntent(text)
       || namedTrip.length >= 2;
     // …and the SUBJECT of the fee is the same set the route uses (see

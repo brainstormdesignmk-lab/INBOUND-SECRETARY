@@ -379,6 +379,18 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
       if (h >= 0 && h <= 23 && m >= 0 && m <= 59) hour = h * 60 + m;
     }
   }
+  // A MATCHED-BUT-INVALID CANDIDATE MUST NOT EAT THE REAL CLOCK (the [11:18]
+  // sibling): «82 I 77, CETVRTOK VO 17:00» matches the digit-minutes arm with
+  // hour 82, which is rejected — but the else-if chain then never reaches
+  // «VO 17:00», and the "a day alone defaults to midday" rule below invented
+  // 12:00 for a client who said five. Any candidate can be the wrong shape, so
+  // the explicit clock is the last honest source when nothing else produced an
+  // hour.
+  if (hour === undefined && clock) {
+    const h = Number(clock[1]);
+    const m = clock[2] ? Number(clock[2]) : 0;
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) hour = h * 60 + m;
+  }
   const part = partHour(t);
   if (hour === undefined && part !== undefined) hour = part * 60; // part is an HOUR
   // THE VISIT WINDOW DECIDES AM/PM (see visitClockHour): a bare 1–8 is an

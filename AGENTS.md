@@ -188,6 +188,26 @@ and carries no unit (евра/денари/м²/спални), no clock and no t
 object marker «го»→«ги» too) while keeping the bank's wording verbatim — the
 one fact a multi-flat visit adds. Pinned in `tests/visit-named-ebs.test.ts`
 (it swept EVERY `fee.ask.rent` variant, not one rotation).
+THE NAMED SET IS REMEMBERED (`slots.visitEbs`, the [11:18] V16K11 capture):
+«DOGOVORI MI DA GI POSETAM 82 I 77» is answered by the FEE disclosure and then
+by contact collection, so three turns later the client says only «AJDE
+DOGOVORI MI ZA OVIE DVA» — no number in his message. Without the memory the set
+fell back to `currentBatch + presentedIds` and the route asked the owners of
+84, 82, 77 AND 53 for a two-flat visit that then never closed. Rules, all in
+`multiVisitEbs` (the one build, used by the fee subject line AND
+`startChainIfNeeded`): a naming is stored in his own order; a deictic plural
+(«овие два», «тие две») resolves to the stored set while those flats are still
+on screen; «сите што ми ги покажа» is the ONE phrase that widens to every card
+shown; with nothing named and nothing remembered the visit is `currentBatch`
+(the pair on the table), never every card ever presented. A MID-ROUTE RENAMING
+rebuilds the stops to the new list (narrowing runs BEFORE the term restart, so
+the restart asks the new first stop; the answers of a flat that stays are
+kept), and the pair-identity lane stands down while a route is running and the
+message carries a term (`narrowingRoute`, applied in BOTH the executor and the
+`infoPairIdentity` probe — the router mirror). Two ЕВ numbers never eat the
+clock beside them: «82 I 77, CETVRTOK VO 17:00» matched the digit-minutes arm
+with hour 82, the rejected match skipped «VO 17:00», and the day-alone rule
+invented 12:00. Pinned in `tests/visit-deictic-named.test.ts`.
 
 ## 2b. Two room categories, one cap EACH (`slots.categoryBudgets`)
 

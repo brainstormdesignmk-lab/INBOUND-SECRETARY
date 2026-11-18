@@ -1933,8 +1933,11 @@ export function detectMultiVisitIntent(text: string): boolean {
   // «да ги видам сите/двата» — a viewing verb over the collective.
   if (/(?:видам|видиме|видите|погледам|погледаме|разгледам|разгледаме|гледам|vidam|vidime|vidite|pogledam|pogledame|razgledam|razgledame|gledam)/iu.test(flat)
       && /(?:ги\s+)?(?:двата|двете|трите|сите|dvata|dvete|trite|site)(?!\p{L})/iu.test(flat)) return true;
-  // «сите што ми ги покажа» — the whole batch the client was shown.
-  if (/(?:сите|site)\s+(?:што|sto)\s+ми\s+(?:ги|gi)/iu.test(flat)) return true;
+  // «сите што ми ги покажа» — the whole batch the client was shown. Every
+  // token accepts both scripts: a Latin-typed «SITE STO MI GI POKAZA» on a
+  // Cyrillic app matched neither spelling of «ми», so the whole-batch plural
+  // was read as a single visit.
+  if (/(?:сите|site)\s+(?:што|sto)\s+(?:ми|mi)\s+(?:ги|gi)/iu.test(flat)) return true;
   // «и овој и оној» — two named referents.
   if (/(?:и|i)\s+(?:овој|ovoj|оној|onoj|единиот|ediniot)\s+(?:и|i)\s+(?:овој|ovoj|оној|onoj|другиот|drugiot)/iu.test(flat)) return true;
   // An explicit COUNT of flats: «да видам 3 стана» (never a price or a size).
