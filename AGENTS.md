@@ -207,7 +207,12 @@ message carries a term (`narrowingRoute`, applied in BOTH the executor and the
 `infoPairIdentity` probe — the router mirror). Two ЕВ numbers never eat the
 clock beside them: «82 I 77, CETVRTOK VO 17:00» matched the digit-minutes arm
 with hour 82, the rejected match skipped «VO 17:00», and the day-alone rule
-invented 12:00. Pinned in `tests/visit-deictic-named.test.ts`.
+invented 12:00. Pinned in `tests/visit-deictic-named.test.ts`. A PLAN ALREADY ON FILE is repaired
+by the operator tool, not by hand: once every stop has an owner answer the chain
+has no verdict left to advance it, so `npx tsx scripts/visit-plan-repair.ts
+--chat <id> --ebs 82,77` rebuilds the stops to the named set (keeping the
+answers of a flat that stays) and runs the product's own `finishChain` to solve
+and serve the route — the same transition a last verdict would have run.
 
 ## 2b. Two room categories, one cap EACH (`slots.categoryBudgets`)
 
