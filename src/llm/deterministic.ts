@@ -4045,12 +4045,15 @@ export function detectSeenListingRecall(text: string): boolean {
   // the market-memory lane, the availability lane and this detector used to own
   // three different lists of the same past markers.
   const inflect = (list: readonly string[]): string => list.map((w) => `${w}\\p{L}*`).join('|');
+  // THE NARRATION FORMS ARE EXACT (see MEMORY_WAS): «bev» as an open stem is a
+  // prefix of «Beverli», so a search at that landmark read as a memory line.
+  const exactW = MEMORY_WAS.join('|');
   const had = `(?:${inflect(MEMORY_HAD)})`;
   // A MEMORY MARKER NARRATES A LISTING («беше», «имаше»); a bare «имавте» can
   // also just ask about stock, so only these may carry a unit-less recall.
-  const was = `(?:${inflect(MEMORY_WAS)})`;
+  const was = `(?:${exactW})`;
   const saw = `(?:${inflect(MEMORY_SIGHT)})`;
-  const seen = `(?:${inflect([...MEMORY_HAD, ...MEMORY_WAS, ...MEMORY_SIGHT])})`;
+  const seen = `(?:${inflect(MEMORY_HAD)}|${exactW}|${inflect(MEMORY_SIGHT)})`;
   const unit = `(?:${MEMORY_UNIT.join('|')})`;
   // SINGULAR categories only for the unit-less arms: «имавте куќИ во Центар?» is
   // a stock question, not a recall of one listing.
@@ -10478,9 +10481,12 @@ const MEMORY_AGENCY_RE =
   /(?<![\p{L}\p{N}])(?:kaj\s+(?:vas|nas)|кај\s+(?:вас|нас)|у\s+вас|u\s+vas)(?![\p{L}\p{N}])/iu;
 // Existence in the PAST: имаше/имашеч (long-press noise included via the stem),
 // Latin imashe/imasech/imaše, беше/беш, Latin bese/beshe.
+// …and the NARRATION half is exact for the same reason it is in the recall
+// detector (MEMORY_WAS): «bes» is a prefix of «Best Travel», and a place name
+// must never make an ordinary sentence read as a memory line.
 const MEMORY_PAST_RE = new RegExp(
   `${NB}(?:${MEMORY_HAD.map((w) => w + '\\p{L}*').join('|')}`
-  + `|${MEMORY_WAS.map((w) => w + '\\p{L}*').join('|')})${NA}`, 'iu');
+  + `|${MEMORY_WAS.join('|')})${NA}`, 'iu');
 // The recollected property noun — stems open-ended; the start boundary keeps
 // „перуќа“-style accidents out, and the MEMORY gate below does the precision
 // work (agency anchor + past tense + money). The «ч» spelling rides with «ќ» —

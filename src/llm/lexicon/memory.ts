@@ -22,8 +22,23 @@ import { normalizeMc } from '../normalize';
 export const MEMORY_HAD = [
   'имав', 'имаш', 'имало', 'imav', 'imas', 'imaš', 'imalo',
 ];
-/** Past narration: «таа куќа беше…», «бевме кај вас». */
-export const MEMORY_WAS = ['беш', 'бев', 'bev', 'bes', 'bese'];
+/** Past narration: «таа куќа беше…», «бевме кај вас».
+ *
+ *  EXACT SURFACE FORMS, NEVER OPEN STEMS (the [23:12] capture): these were
+ *  `беш/бев/bev/bes`, and the pattern builder appends `\p{L}*`, so «BES» matched
+ *  BEVERLI, Best Travel, Besedi and American best burger — the map's own place
+ *  names — and «STAN KAJ BEVERLI HILS» then read as a RECALLED LISTING
+ *  (narration + type noun), so the router sent a brand-new search into the
+ *  archive lane: «SAKAM DA KUPAM TROSOBEN STAN KAJ BEVERLI HILS ILI
+ *  BUNJAKOVEC» answered with the two nearest cards to ONE anchor and the
+ *  second landmark never entered the pair. A narration verb is a CLOSED
+ *  paradigm, so it is enumerated: exact matching cannot bleed into a word.
+ *  tests/memory-lexicon-place-sweep.test.ts holds every shipped place name
+ *  against this list. */
+export const MEMORY_WAS = [
+  'беше', 'бев', 'бевме', 'бевте', 'беа', 'бевши',
+  'bese', 'beshe', 'bev', 'bevme', 'bevte', 'bea',
+];
 /** The sighting verbs — the client SAW the listing with us. */
 export const MEMORY_SIGHT = [
   'видов', 'видев', 'видовме', 'гледав', 'гледавме', 'најдов', 'најд', 'забележав',
@@ -43,13 +58,24 @@ export const MEMORY_UNIT = [
   'eden', 'edna', 'edno', 'nekoj', 'nekoja', 'nekoe',
 ];
 
+/** A stem reads its own inflections («имав» → «имавте»). */
+function stems(list: readonly string[]): string {
+  return list.map((s) => `${s}\\p{L}*`).join('|');
+}
+
+/** EXACT forms only — for a closed paradigm whose letters are a prefix of an
+ *  innocent word («bes» ⊂ «best», «bev» ⊂ «Beverli»). */
+function exact(list: readonly string[]): string {
+  return list.join('|');
+}
+
 function bounded(list: readonly string[]): string {
-  return `${NB}(?:${list.map((s) => `${s}\\p{L}*`).join('|')})${NA}`;
+  return `${NB}(?:${stems(list)})${NA}`;
 }
 
 /** Any of HAD / WAS / SIGHT — the general "has a past" test. */
 export function pastMarkerPattern(): RegExp {
-  return new RegExp(bounded([...MEMORY_HAD, ...MEMORY_WAS, ...MEMORY_SIGHT]), 'iu');
+  return new RegExp(`${NB}(?:${stems(MEMORY_HAD)}|${exact(MEMORY_WAS)}|${stems(MEMORY_SIGHT)})${NA}`, 'iu');
 }
 
 export function hadPattern(): RegExp {
@@ -57,7 +83,7 @@ export function hadPattern(): RegExp {
 }
 
 export function wasPattern(): RegExp {
-  return new RegExp(bounded(MEMORY_WAS), 'iu');
+  return new RegExp(`${NB}(?:${exact(MEMORY_WAS)})${NA}`, 'iu');
 }
 
 export function sightPattern(): RegExp {
