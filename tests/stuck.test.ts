@@ -226,7 +226,10 @@ test('stuck loop: after exhaustion, fresh criteria is a NEW SEARCH, not an exhau
   const rows: Property[] = [
     { eb: 60, id: 60, location: 'Центар', price: 200, service: 'rent', size: '24 м²' },   // garsonjera-ish (24 м²)
     { eb: 61, id: 61, location: 'Центар', price: 250, service: 'rent', size: '35 м²' },
-    { eb: 62, id: 62, location: 'Карпош III', price: 220, service: 'rent', bedrooms: 2, size: '45 м²' },  // msg1 release batch
+    // msg1 release batch. It MUST be a гapсоњера: the category lock serves only
+    // studios under a studio ask (the [04:04] fix — a двособен ridden in as
+    // «гарсоњера» was that very bug), so this row carries the feed flag.
+    { eb: 62, id: 62, location: 'Карпош III', price: 220, service: 'rent', studio: true, size: '30 м²' },
     { eb: 63, id: 63, location: 'Аеродром', price: 230, service: 'rent', bedrooms: 2, size: '50 м²' },
     { eb: 64, id: 64, location: 'Аеродром', price: 240, service: 'rent', bedrooms: 2, size: '55 м²' },  // msg2 fresh targets —
     { eb: 65, id: 65, location: 'Аеродром', price: 245, service: 'rent', bedrooms: 2, size: '52 м²' },  // two spare: msg1's wide release may consume one

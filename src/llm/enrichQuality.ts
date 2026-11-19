@@ -100,6 +100,16 @@ export function replyIsClean(reply: string): boolean {
   // наоѓа во Центар" in a session about EB 89). Same DATA-DRIVEN rule as
   // the price guard: property facts live in the row, never in bank prose.
   if (/Евидентен\s+број|Evidenten\s+broj|\b(?:стан|stan|куќ|kukj|имот|imot|недвижност|nedviznost)[а-яa-z]{0,8}\s+(?:со|so|under|број|broj)\s*\d/iu.test(out)) return false;
+  // LANDMARK-CLAIM GUARD (the [18:59] V16K11 capture): «Куќата под Евидентен
+  // број 50 е сместена во Центарот, во непосредна близина на Аеродромска
+  // Црква» — a place the property's own record never carried (its landmarks
+  // are two pharmacies and a kindergarten). At mining time there is no
+  // property row attached to a bank line, so a CONCRETE place claim (a
+  // capitalised name after a proximity frame) is a property-row fact baked
+  // into reusable prose — the same class as a price or an Евидентен број, and
+  // it would later be served for the WRONG property. Generic copy may still
+  // say «во близина на Вашиот дом» (the client's own place, second person).
+  if (/(?:во\s+(?:непосредна\s+)?близина\s+на|близу|спроти|наспроти|на\s+\d+\s*(?:м|метри|km|км)\s+од)\s+(?!Ваш)\p{Lu}/u.test(out)) return false;
   // MARKDOWN GUARD: chat prose, not a formatted report. Reject bold/heading
   // markdown so the bank stores only natural chat lines (learn.kazi-nesto-nego
   // stored **Локација:** bullets — correct facts, wrong format for chat).

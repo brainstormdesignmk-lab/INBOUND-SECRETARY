@@ -82,3 +82,21 @@ test('every enrichment entry point uses the strict generator (source-level pin)'
     assert.ok(!/\bcreateLlm\(cfg\)/.test(src), `${file} must never call the degrading createLlm`);
   }
 });
+
+// THE [18:59] V16K11 ANSWER MUST NEVER BECOME BANK COPY.
+// A groq reply invented «во непосредна близина на Аеродромска Црква» for a
+// Центар house whose own landmarks are two pharmacies and a kindergarten. The
+// midnight cron mines the queue into learned variants; at mining time no
+// property row travels with a bank line, so a concrete place claim is a
+// property-row fact baked into reusable prose — it would later describe the
+// WRONG property (the same poison class as a price or an Евидентен број).
+test('replyIsClean rejects a place claim no property row carries', () => {
+  // The live sentence, minus the ЕБ so the EB-template rule cannot be the one
+  // that catches it.
+  const claim = 'Куќата е сместена во Центарот, во непосредна близина на Аеродромска Црква. Има двор и тераса.';
+  assert.equal(replyIsClean(claim), false);
+  assert.equal(replyIsClean('Куќата е на 200 метри од Аеродромска Црква. Има двор.'), false);
+  assert.equal(replyIsClean('Куќата се наоѓа спроти Универзална сала. Има двор.'), false);
+  // Generic copy that addresses the CLIENT's own place stays bankable.
+  assert.equal(replyIsClean('Во близина на Вашиот дом има продавници и училиште. Дали Ви одговара?'), true);
+});

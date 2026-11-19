@@ -2494,3 +2494,56 @@ drives the real handler for every variant and names the one that regressed
 is not a fix, and a lane whose trigger is narrower than the intent silently
 donates the turn to a generic lane that always has something fluent to say —
 which is invisible in the transcript and in the log.
+
+## 4t. A TYPE IS A CATEGORY, NOT A PRICE BAND (the [18:51] and [23:26] captures)
+
+The client asked for a HOUSE he had seen; the batch served a гарсоњера 24 м², a
+двособен and a house — every category in that part of town. The owner's rule is
+one sentence: **once a type is chosen, only that type may be served, until the
+client asks for another.** The type therefore lives in the SESSION
+(`namedCategory` / `rememberCategory` / `categoryPredicate` / `categoryLock`) and
+is installed on the data service for the turn, so `candidates()`,
+`closestMatches()` and every lane that builds its own batch inherit it.
+
+- THE MESSAGE'S OWN CATEGORY LANDS FIRST — ONLY FOR A RECALL. A client who
+  types «една кућа за издавање … дали се издава уште тоа?» in one message
+  declared the type and asked the question together. A SEARCH is not a recall
+  (the [02:16] order): its turn still owes the м²/price questions, so its type is
+  applied by `applySlots` and locks from the NEXT turn. Pinned in
+  `tests/house-type-lock.test.ts`.
+- TWO CATEGORIES IN ONE MESSAGE IS A UNION, NEVER A CHOICE (the [22:26]
+  contract, `tests/capture-2226-bunjakovec.test.ts`): «гарсоњера … ИЛИ КУЌА»
+  is two pools served together, not a question back to the client.
+- THE MARKET NAMED IN THE SAME MESSAGE LANDS TOO (`slots.service`, clearing
+  `serviceInferred`/`bothServices`).
+- THE LOCK FOLLOWS A MID-TURN PIVOT. The lock is installed at the TURN BOUNDARY
+  from the slots as they were, and the release block may change the category
+  during the turn (a bedroom/sqm pivot retires the studio ask). The re-search then
+  runs under the OLD lock and excludes exactly the rows the pivot asked for —
+  «а со една спална нешто» was answered «нема двособни» while the city had three.
+  Re-derive it (`setTypeLock(categoryLock(session))`) before the re-search; the
+  [23:26] replay in `tests/stuck.test.ts` pins both halves (release the area,
+  and the pivot's new category must be servable).
+- A ГАРСОЊЕРА IS A STUDIO, NOT «any flat». The old arm
+  (`!house && !business && !plac`) let a трисобен ride in beside the гapсоњера
+  and a recall of one came back «која од двете е таа?» (the [04:04] capture,
+  `tests/fixtures/transcripts/0404-embasada-prodva.txt`). The identity is the
+  PROPERTY layer's own — `isSmallUnit`: the feed `studio` flag, «гарсоњер» in
+  the ad, or a unit ≤ 35 м² (a row imported before the flag is still a studio; a
+  трисобен never is). `isStudio` (mentionResolve) is the mention scorer's reading
+  of the same identity. **A serve lock must never be narrower than the pool it
+  filters** — narrowing this arm to the flag alone dead-ended legacy studios in
+  «нема гарсоњери». Positive pin: `tests/house-type-lock.test.ts`.
+
+### A place claim is grounded in the row, never in the model
+
+A reply may name a landmark only if the property row carries it. The responder
+seam cuts invented proximity claims deterministically (`PROXIMITY_CLAIM`,
+`placeGrounding`, `groundPlaceClaims`, `PlaceClaimVeto`) — the EB 50 house in
+Центар was given «во непосредна близина на Аеродромска Црква» by the LLM while
+its row listed a pharmacy 94 m away; `tests/respond.test.ts`. The enrichment
+gate refuses the same claim at the bank (`replyIsClean`: a capitalised place
+name after a proximity frame is property-row data, not agency prose — «Вашиот»
+exempt), `tests/enrichment-strict.test.ts`. So a poisoned answer is not banked,
+and the one row that had slipped into the queue (853) was rejected as
+`invented-place (landmark not in the property row)`.

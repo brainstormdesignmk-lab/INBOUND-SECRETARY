@@ -14,6 +14,10 @@ import {
  *  A typed veto rather than an inline branch so the degrade path stays ONE
  *  place (the catch below), not two copies that can drift. */
 class ProtocolCommitmentVeto extends Error {}
+/** Thrown when an answer was nothing but a place claim the property's own
+ *  record does not support: the deterministic fallback owns that turn instead
+ *  of serving a husk of a sentence. */
+class PlaceClaimVeto extends Error {}
 import { arbitrateMoney } from './moneyArbitration';
 import { llmArbitrateKey } from './arbiterLlm';
 import type { BankStore } from '../store/bank';
@@ -33,6 +37,66 @@ const FEE_RE = /(?<![\d.,])(300|500|600)\s*(мкд|ден\.?|денари)(?![\p
 // fee disclosure the client must agree to first.
 const OWNER_JUMP_RE = /(морам да го контактирам|ќе го контактирам|да го контактирам|контактирам со сопственикот|прашам го сопственикот|телефонски број|телефон за контакт|број за контакт|кажете ми го вашиот телефон|дајте ми го вашиот телефон|име и телефонски|име и презиме и телефон)/i;
 const OWNER_JUMP_ALLOWED = new Set(['contact_collection', 'visit_scheduling', 'owner_checking', 'time_confirm', 'pending', 'queued']);
+
+// ── PLACE-CLAIM GROUNDING (the [18:59] V16K11 capture) ───────────────────────
+//
+//   ZA NEJZE MI TREBAAT INFORMACII
+//   ЛИНА [groq]: „Куќата под Евидентен број 50 е сместена во Центарот, во
+//   непосредна близина на Аеродромска Црква.“
+//
+// EB 50's own record (Христо Смирненски 41, Центар, landmarks: two pharmacies
+// and a kindergarten) says nothing about Аеродромска Црква — a place four
+// kilometres away in Аеродром. The model did what models do with a gap: it
+// filled it, and the sentence went to the client as a fact about the property.
+// A landmark is geography the CLIENT acts on (he walks to it), so it is held to
+// the same rule as a price: it may only be what the property row says, or what
+// the client himself named. This guard removes every proximity claim the turn's
+// own facts do not support, and the caller's fallback owns an answer that was
+// nothing but the claim.
+// The NAME runs to the end of its CLAUSE (`[^\n.,;!?]`), never across a
+// sentence: a greedy run swallowed «… Црква. Има вкупна површина од 74
+// квадратни метри» — the guard must remove the claim, not the description.
+const PROXIMITY_CLAIM = /(?:во\s+(?:непосредна\s+)?близина\s+на|близу|спроти|наспроти|на\s+\d+\s*(?:м|метри|km|км)\s+од)\s+([\p{L}\p{N}][^\n.,;!?]{2,60})/giu;
+
+/** The facts a claim is checked against: the property rows the model was given,
+ *  the chat's own anchors, and the client's message (a place HE named may be
+ *  repeated back — it is not an invention). */
+export function placeGrounding(properties: Property[], session: ChatSession, userText: string): string {
+  const parts: string[] = [userText];
+  const s = session.slots;
+  for (const v of [s.poiAnchor, s.location, s.poiArea, ...(s.nearbyLandmarks ?? [])]) {
+    if (typeof v === 'string' && v) parts.push(v);
+  }
+  for (const p of properties) {
+    for (const v of [p.address, p.location, p.landmark, p.details, p.raw?.naselba as string | undefined]) {
+      if (typeof v === 'string' && v) parts.push(v);
+    }
+    for (const l of p.landmarks ?? []) if (l?.landmark) parts.push(l.landmark);
+  }
+  return parts.join(' \n ').toLocaleLowerCase('mk');
+}
+
+/** Drop the unsupported proximity claims; returns the text that is left. */
+export function groundPlaceClaims(text: string, grounding: string): string {
+  if (!grounding) return text;
+  const g = grounding.toLocaleLowerCase('mk');
+  return text.replace(PROXIMITY_CLAIM, (match: string, name: string) => {
+    // The NAME is the run up to the end of its clause; a claim whose words do
+    // not occur in the property's own record is the model's gap-filling.
+    const tokens = (name.trim().replace(/[.,;:!?…]+$/u, '').split(/\s+/u) ?? [])
+      .map(t => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+      .filter(t => t.length >= 4);
+    if (tokens.length === 0) return match;
+    const grounded = tokens.some(t => g.includes(t.toLocaleLowerCase('mk')));
+    return grounded ? match : '';
+  })
+    // A claim cut from mid-sentence leaves «во Центарот, .» or «… , .» — tidy the
+    // punctuation the removal orphaned, never the sentence's meaning.
+    .replace(/\s*,\s*([.!?])/gu, '$1')
+    .replace(/([.!?])\s*[,;:]/gu, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+([.!?])/gu, '$1');
+}
 
 export function guardText(state: State, text: string, publicSiteUrl?: string, recent?: string[]): string {
   let out = text.trim();
@@ -280,6 +344,18 @@ export class Responder {
    * retires the novelty into the bank (variants + example → next client
    * asks free). On LLM failure: code-built property cards / fallback line.
    */
+  /** guardText + the place-claim grounding, in one step. `undefined` means the
+   *  text was only claim: the caller falls through to the data-built answer. */
+  private served(session: ChatSession, text: string, grounding: string): string | undefined {
+    const guarded = guardText(session.state, text, this.cfg.publicSiteUrl, assistantTexts(session));
+    const grounded = groundPlaceClaims(guarded, grounding);
+    const left = grounded.replace(/\s/g, '').length;
+    // A CLAIM CUT AWAY LEAVES THE FACTS: a sentence that loses half its body is
+    // a husk («Куќата под Евидентен број 50 е сместена во Центарот.» stays).
+    // Only an answer that was MOSTLY the unsupported claim is discarded.
+    return left >= 40 && left >= guarded.replace(/\s/g, '').length * 0.4 ? grounded : undefined;
+  }
+
   private async escalate(session: ChatSession, properties: Property[], userText: string): Promise<RespondResult> {
     // P5.2 OPTION 3 — LLM AS LAST-RESORT ARBITER, money residue ONLY.
     // When the deterministic money region left the turn unclaimed (the explicit
@@ -290,6 +366,10 @@ export class Responder {
     // LABELED EXAMPLE for the operator. Any veto/parse failure falls through to
     // the pre-existing escalation path below, unchanged.
     const arbStore = getLearnedBank();
+    // THE TURN'S OWN FACTS (see placeGrounding): every proximity claim in what
+    // is about to be served is checked against these, so a landmark the feed
+    // never mentioned cannot reach the client.
+    const grounding = placeGrounding(properties, session, userText);
     const arb = arbitrateMoney(userText, {
       state: session.state,
       propertyOnTable: !!(session.slots.propertyId || session.slots.interestedPropertyId
@@ -302,11 +382,12 @@ export class Responder {
       const pick = await llmArbitrateKey(this.escalationLlm, userText, session.state, arb);
       if (pick) {
         const line = pickVariant(pick.key, { recent: assistantTexts(session) });
-        if (line) {
+        const arbText = line ? this.served(session, line, grounding) : undefined;
+        if (arbText) {
           try { arbStore?.addExample(pick.key, userText); } catch { /* advisory */ }
           console.log(`[timing] arbiter-llm → ${pick.key} (residue ${arb.bucket})`);
           return {
-            text: guardText(session.state, line, this.cfg.publicSiteUrl, assistantTexts(session)),
+            text: arbText,
             source: `arbiter:${pick.key}`,
             escalated: true,
           };
@@ -326,10 +407,11 @@ export class Responder {
     const bank = dynamicAllowedHere(session) ? getLearnedBank() : undefined;
     if (bank) {
       const dyn = await dynamicAnswer(this.escalationLlm, session, userText, bank);
-      if (dyn) {
+      const dynText = dyn ? this.served(session, dyn.text, grounding) : undefined;
+      if (dyn && dynText) {
         console.log(`[timing] dynamic ${dyn.source} → ${dyn.key ?? '—'}`);
         return {
-          text: guardText(session.state, dyn.text, this.cfg.publicSiteUrl, assistantTexts(session)),
+          text: dynText,
           source: dyn.source,
           escalated: true,
         };
@@ -367,9 +449,11 @@ export class Responder {
       if (inProtocolState(session) && pinsBorrowedCommitment(text, userText)) {
         throw new ProtocolCommitmentVeto('pinned a term the client never named');
       }
+      const served = this.served(session, text, grounding);
+      if (!served) throw new PlaceClaimVeto('the answer was only an unsupported place claim');
       console.log(`[timing] respond ${ms}ms → ${provider ?? 'llm'}`);
       return {
-        text: guardText(session.state, text, this.cfg.publicSiteUrl, assistantTexts(session)),
+        text: served,
         source: provider ?? 'llm',
         escalated: true,
       };
@@ -377,6 +461,8 @@ export class Responder {
       const ms = Date.now() - t0;
       if (e instanceof ProtocolCommitmentVeto) {
         console.warn(`[respond] protocol-state prose pinned a term the client never named (${ms}ms) — serving the protocol fallback`);
+      } else if (e instanceof PlaceClaimVeto) {
+        console.warn(`[respond] prose was only a place claim the property record cannot support (${ms}ms) — serving the data-built answer`);
       } else {
         console.error(`[respond] LLM failed (${ms}ms):`, (e as Error).message);
       }

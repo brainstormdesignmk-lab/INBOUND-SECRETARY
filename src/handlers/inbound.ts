@@ -14,7 +14,7 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, isSmallUnit, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, namedVisitEbs,
   detectPairReferent, detectIdentifyByFigure,
@@ -1933,13 +1933,129 @@ export class InboundHandler {
    *  offices and plots are out (a studio is never answered with a house).
    *  `house === false` („NE KUKJI") keeps houses out without forcing a type. */
   private categoryLock(session: ChatSession): ((p: Property) => boolean) | undefined {
-    const s = session.slots;
+    return this.categoryPredicate(session.slots);
+  }
+
+  /** The ONE category predicate — the type lock, the mention pool and the
+   *  per-turn memory all read it, so «the category he chose» cannot mean three
+   *  slightly different things. */
+  private categoryPredicate(s: { plac?: boolean; house?: boolean; business?: boolean; garsonjera?: boolean }): ((p: Property) => boolean) | undefined {
     if (s.plac) return p => p.plac === true;
     if (s.house === true) return p => p.house === true;
     if (s.business === true) return p => p.business === true;
-    if (s.garsonjera) return p => !p.house && !p.business && !p.plac;
+    // A ГАРСОЊЕРА IS A STUDIO, NOT «any flat»: the [04:04] fixture (EB 63 the
+    // гapсоњера vs EB 84 the трисобен beside the same embassy) proved the loose
+    // arm served the трисобен as a second candidate and the turn fell from a
+    // card into «која од двете е таа?». The identity is the PROPERTY layer's own
+    // (isSmallUnit): the feed flag, «гарсоњер» in the ad, or a unit small enough
+    // to be one — a 24 м² row imported before the flag is still a гapсоњера,
+    // while a трисобен never is. (`isStudio` is the mention scorer's reading of
+    // the same identity; the serve lock must not be narrower than the pool it
+    // filters, or a гapсоњера ask on a legacy row dead-ends in «нема гарсоњери».)
+    if (s.garsonjera) {
+      return p => isSmallUnit(p) || isStudio(p as unknown as MentionCandidate);
+    }
     if (s.house === false) return p => p.house !== true;
     return undefined;
+  }
+
+  /** THE CATEGORY THIS MESSAGE NAMES (undefined when it names none). Reads the
+   *  same predicates applySlots does, PLUS `detectRecallCategory`: a recall
+   *  says «куќата»/«гарсоњерава» — the definite, inflected form extractSlots
+   *  does not always flag — and a recall is where the type matters most.
+   *  `flat` (an explicit «стан») is its own answer: it releases the other
+   *  categories, so a client who moves on to flats may be served flats. */
+  private namedCategory(text: string): { house?: boolean; business?: boolean; plac?: boolean; garsonjera?: boolean; flat?: boolean; service?: 'buy' | 'rent' } | undefined {
+    const sl = extractSlots(text);
+    const rc = detectRecallCategory(text);
+    const house = sl.house ?? (rc.house ? true : undefined);
+    const business = sl.business ?? (rc.business ? true : undefined);
+    const plac = sl.plac ?? (rc.plac ? true : undefined);
+    const garsonjera = sl.garsonjera === true || rc.garsonjera === true;
+    const flat = detectFlat(text) === true;
+    if (house === undefined && business === undefined && plac === undefined && !garsonjera && !flat) return undefined;
+    // TWO CATEGORIES ARE A UNION, NOT A CHOICE (the [22:26] capture): «имавте
+    // една гарсоњера … ИЛИ КУЌА … за 250» names BOTH and must be served with
+    // both, each with its own price — locking to the one that happens to be
+    // first would vanish the other. `splitRecallCategories` is the reader that
+    // knows the two halves; the same goes for «стан или куќа» (both flags).
+    const named = new Set<string>();
+    if (house === true) named.add('house');
+    if (business === true) named.add('business');
+    if (plac === true) named.add('plac');
+    if (garsonjera) named.add('garsonjera');
+    if (flat) named.add('flat');
+    for (const part of splitRecallCategories(text)) {
+      if (part.house) named.add('house');
+      if (part.business) named.add('business');
+      if (part.plac) named.add('plac');
+      if (part.garsonjera) named.add('garsonjera');
+    }
+    if (named.size >= 2) return undefined;
+    return { house, business, plac, garsonjera: garsonjera || undefined, flat, service: sl.service };
+  }
+
+  /** THE TYPE A MESSAGE NAMES IS REMEMBERED — before ANY lane builds a pool.
+   *
+   *  The [18:51] V16K11 capture: «GLEDAV KAJ VAS NA SAJT EDNA KUKJA ZA
+   *  IZDAVANJE OKOLU UNIVERZALNA» + «DALI SE IZDAVA USTE TOA ?» arrived as ONE
+   *  message and were answered with three mixed cards (гарсоњера, двособен,
+   *  куќа). The type lock was read from the session at the top of the turn,
+   *  before the message itself was applied — so a client who declares the type
+   *  in the same breath as the question locked nothing, and the batch served
+   *  every category. The lane answered BEFORE applySlots too, so the slot was
+   *  never written either. One rule fixes both: the category the message names
+   *  lands here, at the turn boundary, exactly as `rememberPlace` does for the
+   *  geography of a lane that answers before the classifier. A positive
+   *  category retires the others (the house/plot/office/flat flags are one
+   *  choice), and a message that names none leaves the memory untouched. */
+  private rememberCategory(session: ChatSession, text: string): void {
+    const c = this.namedCategory(text);
+    if (!c) return;
+    // THE MARKET NAMED IN THE SAME BREATH LANDS TOO: a lane that answers before
+    // the classifier (the type lock makes a unique bind possible) would serve a
+    // card while `slots.service` stayed empty — «SAKAM DA IZNAJMAM DUKJAN VO
+    // BUNJAKOVEC» left the market unrecorded. This is what applySlots does with
+    // the classifier's event, written here for the same reason as the type.
+    if (c.service) {
+      session.slots.service = c.service;
+      session.slots.serviceInferred = undefined;
+      session.slots.bothServices = undefined;
+    }
+    if (c.plac) {
+      session.slots.plac = true;
+      session.slots.house = undefined; session.slots.business = undefined;
+      session.slots.flat = undefined; session.slots.garsonjera = undefined;
+      return;
+    }
+    if (c.business) {
+      session.slots.business = true;
+      session.slots.house = undefined; session.slots.plac = undefined;
+      session.slots.flat = undefined; session.slots.garsonjera = undefined;
+      return;
+    }
+    if (c.house !== undefined) {
+      session.slots.house = c.house;
+      session.slots.business = undefined; session.slots.plac = undefined;
+      session.slots.flat = undefined;
+      if (c.house === true) session.slots.garsonjera = undefined;
+      return;
+    }
+    if (c.garsonjera) {
+      session.slots.garsonjera = true;
+      session.slots.house = undefined; session.slots.business = undefined;
+      session.slots.plac = undefined; session.slots.flat = undefined;
+      return;
+    }
+    if (c.flat) {
+      session.slots.flat = true;
+      // `false`, not `undefined`: an explicit flat ask is the client SAYING «not
+      // a house», and the history fallback below re-installs `house` from an
+      // older message whenever the slot is merely empty — a client who moves
+      // from a house to flats would be locked back to houses.
+      session.slots.house = false; session.slots.business = undefined;
+      session.slots.plac = undefined; session.slots.garsonjera = undefined;
+    }
   }
 
   /** A NUMBER ABOUT A ROW ON THE TABLE MOVES THE CONVERSATION THERE (the
@@ -2182,9 +2298,17 @@ export class InboundHandler {
       // is not an answer to it, and offering it as one of the options made the
       // which-one ask look like the old ignorance. Only when the category has
       // SOMETHING there (nothing → the near-by alternatives are still honest).
-      const wantsStudio = extractSlots(text).garsonjera === true;
+      // …AND SO IS EVERY OTHER CATEGORY (the [18:52] V16K11 capture): only
+      // «гарсоњера» used to narrow this pool, so «ЕДНА КУЌА ЗА ИЗДАВАЊЕ» at
+      // Универзална Сала listed a гарсоњera and a двособен beside the house as
+      // «is one of these the one you saw?». The predicate is the ONE the type
+      // lock uses; the message's own category wins over the session's, and a
+      // category with nothing at the place keeps the honest near-by options.
+      const cat = this.categoryPredicate(this.namedCategory(text) ?? {}) ?? this.categoryLock(session);
+      const typedPool = cat ? pool.filter(cat) : pool;
+      const catPool = typedPool.length > 0 ? typedPool : pool;
       const feedSeen = new Set<number>();
-      const feedCands: MentionCandidate[] = pool.filter(p => {
+      const feedCands: MentionCandidate[] = catPool.filter(p => {
         if (feedSeen.has(p.eb)) return false;
         feedSeen.add(p.eb);
         return true;
@@ -2194,9 +2318,7 @@ export class InboundHandler {
         location: p.location, details: p.details, landmark: p.landmark,
         landmarks: p.landmarks, lat: p.lat, lon: p.lon,
       }));
-      const typedCands = !wantsStudio || !feedCands.some(c => isStudio(c))
-        ? feedCands
-        : feedCands.filter(c => isStudio(c));
+      const typedCands = feedCands;
       // THE PLACE IS READ FROM THE PROPERTY ITSELF (the [10:36] capture):
       // „близу Црногорска Амбасада“ may only offer flats that ARE there — a
       // гapсоњера in Кисела Вода is not near the embassy because it is also
@@ -5169,6 +5291,17 @@ export class InboundHandler {
     // client chose (see categoryLock). Installed here, once, so no lane can
     // serve another category — a studio under a house ask, an office under a
     // flat ask — no matter how it builds its own batch.
+    // THE MESSAGE'S OWN CATEGORY LANDS FIRST — FOR A RECALL (the [18:51]
+    // capture): a client who says «една куќа за издавање … дали се издава уште
+    // тоа?» in ONE turn declared the type and asked the question together, and
+    // the lock read only what earlier turns had stored — so it was empty and
+    // the batch served a гарсоњера and a двособен beside the house.
+    // A SEARCH IS NOT A RECALL (the [02:16] order): «SAKAM DA IZNAJMAM DUKJAN
+    // VO BUNJAKOVEC» also names its category, but its turn still OWES the м² and
+    // price questions — narrowing the pool here made the place serve a pair
+    // before asking them. A search's type is applied by applySlots as always
+    // (and locks from the next turn, exactly as it did before).
+    if (detectSeenListingRecall(text)) this.rememberCategory(session, text);
     try { this.deps.properties.setTypeLock(this.categoryLock(session)); } catch { /* test double without the lock */ }
     session.channel = channel;
 
@@ -13841,6 +13974,15 @@ export class InboundHandler {
       }
       session.slots.ladderQueue = [];   // rebuild the presentation ladder for the new search
       session.slots.areaExhausted = false;
+      // THE LOCK FOLLOWS THE PIVOT (the 23:26 bedroom pivot): the type lock is
+      // installed at the TURN BOUNDARY from the slots as they were, and this
+      // block just CHANGED the category (a bedroom/sqm pivot retires the studio
+      // ask). The re-search below would otherwise run under the OLD lock and
+      // exclude the rows the pivot asked for — «а со една спална нешто» was
+      // answered «нема двособни» while the city had three. Re-derive it from the
+      // slots the re-search is about to use (same seam as the turn-boundary
+      // install).
+      try { this.deps.properties.setTypeLock(this.categoryLock(session)); } catch { /* test double without the lock */ }
       // Already-served guard (the [23:57–59] house capture): when the loadProps
       // above already produced results (the typed-search tier widens IN-PLACE
       // and returns a non-empty pool), re-running loadProps would exclude the

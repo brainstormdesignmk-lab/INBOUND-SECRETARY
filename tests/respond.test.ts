@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { guardText } from '../src/llm/respond';
+import { guardText, Responder } from '../src/llm/respond';
 import { buildPropertyCards, buildPropertyCard, buildDiscoveryAsk, buildPropertyContext, buildFeeAsk, buildContactAsk, SYSTEM_PROMPT, PRESENTATION_CLOSERS, PROPERTY_QUERY_CLOSERS } from '../src/llm/prompts';
 import { RESPONSE_BANK } from '../src/data/responses';
-import { SlotData } from '../src/fsm/session';
+import { SlotData, ChatSession, freshSession } from '../src/fsm/session';
 import { Property } from '../src/data/properties';
+import { loadConfig } from '../src/config';
+import { LlmClient } from '../src/llm/types';
 
 const SITE = 'https://preview--home-scan-search.lovable.app';
 
@@ -715,4 +717,95 @@ test('buildPropertyCard: partially furnished renders honestly (future rows)', ()
   const card = buildPropertyCard(prop);
   assert.ok(card.includes('Станот е делумно наместен.'), card);
   assert.ok(!card.includes('целосно наместен'), card);
+});
+
+// ── THE [18:59] V16K11 CAPTURE — AN INVENTED LANDMARK IN PROPERTY PROSE ─────
+//
+//   ZA NEJZE MI TREBAAT INFORMACII
+//   ЛИНА [groq]: „Куќата под Евидентен број 50 е сместена во Центарот, во
+//   непосредна близина на Аеродромска Црква.“
+//
+// EB 50's own record (Христо Смирненски 41, Центар; landmarks: two pharmacies
+// and a kindergarten; ad text «Помеѓу Универзална сала и Треска») has no
+// Аеродромска Црква — the model filled the gap and the sentence went out as a
+// fact about the property. A landmark is geography the client walks to, so it is
+// held to the property's own data (or the client's own words), like a price.
+
+class ScriptedLlm implements LlmClient {
+  constructor(private reply: string) {}
+  async complete(): Promise<string> { return this.reply; }
+}
+
+const HOUSE_50: Property = {
+  eb: 50, id: 50, address: 'Христо Смирненски 41', location: 'Центар (населба)',
+  service: 'rent', price: 300, house: true, sqm: 74, size: '74 м²',
+  details: 'Помеѓу Универзална сала и Треска, се издава стан во вид на двоспратна галерија.',
+  landmarks: [
+    { landmark: 'ПЗУ Аптека Линцура 2', distance_m: 94 },
+    { landmark: 'Pharmacy Statera', distance_m: 128 },
+    { landmark: 'Kindergarten "Kocho Racin"', distance_m: 174 },
+  ],
+} as unknown as Property;
+
+const THE_GROQ_ANSWER = 'Куќата под Евидентен број 50 е сместена во Центарот, во непосредна близина на Аеродромска Црква. '
+  + 'Има вкупна површина од 74 квадратни метри и опфатена е со двор и тераса. '
+  + 'Греењето е на струја, а просторијата е наместена. Месечната кирија изнесува 300 евра.';
+
+function presentationSession(chatId: string): ChatSession {
+  const s = freshSession('test', chatId);
+  s.state = 'presentation';
+  s.slots.service = 'rent';
+  s.slots.propertyId = 50;
+  s.slots.interestedPropertyId = 50;
+  s.slots.viewingFeeAgreed = true;
+  return s;
+}
+
+test('[18:59] a landmark the property record does not carry is cut from the answer', async () => {
+  const cfg = loadConfig();
+  const responder = new Responder(new ScriptedLlm(THE_GROQ_ANSWER), cfg);
+  responder.setEscalationLlm(new ScriptedLlm(THE_GROQ_ANSWER));
+
+  const res = await responder.respond(presentationSession('ground-1'), [HOUSE_50], 'ZA NEJZE MI TREBAAT INFORMACII');
+
+  assert.ok(!/Аеродромска/u.test(res.text), `the invented landmark is gone: ${res.text}`);
+  // THE TRUE FACTS SURVIVE — the guard removes the claim, not the description.
+  assert.match(res.text, /Евидентен број 50/u, res.text);
+  assert.match(res.text, /Центарот/u, res.text);
+  assert.match(res.text, /74 квадратни метри/u, res.text);
+  assert.match(res.text, /300 евра/u, res.text);
+});
+
+test('[18:59] a landmark the property’s own ad carries survives', async () => {
+  const cfg = loadConfig();
+  const grounded = 'Куќата под Евидентен број 50 е сместена во Центарот, во непосредна близина на Универзална сала. '
+    + 'Има двор и тераса.';
+  const responder = new Responder(new ScriptedLlm(grounded), cfg);
+  responder.setEscalationLlm(new ScriptedLlm(grounded));
+
+  const res = await responder.respond(presentationSession('ground-2'), [HOUSE_50], 'ZA NEJZE MI TREBAAT INFORMACII');
+  assert.match(res.text, /Универзална сала/u, `the ad's own landmark is a fact: ${res.text}`);
+});
+
+test('[18:59] a place the CLIENT named is not an invention when it is repeated back', async () => {
+  const cfg = loadConfig();
+  const reply = 'Куќата под Евидентен број 50 е помеѓу Универзална сала и Треска, во близина на Универзална сала. Има двор.';
+  const responder = new Responder(new ScriptedLlm(reply), cfg);
+  responder.setEscalationLlm(new ScriptedLlm(reply));
+  const session = presentationSession('ground-3');
+  session.slots.poiAnchor = 'Универзална Сала';
+
+  const res = await responder.respond(session, [HOUSE_50], 'KAKO E KUKJATA KAJ UNIVERZALNA ?');
+  assert.match(res.text, /Универзална сала/u, res.text);
+});
+
+test('[18:59] an answer that is ONLY the unsupported claim degrades to the data-built reply', async () => {
+  const cfg = loadConfig();
+  const onlyClaim = 'Куќата е во непосредна близина на Аеродромска Црква.';
+  const responder = new Responder(new ScriptedLlm(onlyClaim), cfg);
+  responder.setEscalationLlm(new ScriptedLlm(onlyClaim));
+
+  const res = await responder.respond(presentationSession('ground-4'), [HOUSE_50], 'ZA NEJZE MI TREBAAT INFORMACII');
+  assert.ok(!/Аеродромска/u.test(res.text), `never the fabricated place: ${res.text}`);
+  assert.ok(res.text.trim().length > 20, `and never an empty husk: ${res.text}`);
 });
