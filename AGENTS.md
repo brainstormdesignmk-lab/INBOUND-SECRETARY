@@ -2524,6 +2524,20 @@ is installed on the data service for the turn, so `candidates()`,
   Re-derive it (`setTypeLock(categoryLock(session))`) before the re-search; the
   [23:26] replay in `tests/stuck.test.ts` pins both halves (release the area,
   and the pivot's new category must be servable).
+- A NEW ASK OWES ITS CRITERIA FIRST (the [03:52] V16K11 capture): «SAKAM DA
+  IZNAJMAM DUKJAN VO BLIZINA NA BUNJAKOVEC ILI CITI MOL» stated a WISH and
+  named a place, so the anchored-ENTRY serve (place named into an empty chat)
+  answered it with a pair and the seen-property closer — «Дали некој од овие е
+  тој што го видовте?» asked of a client who had seen nothing. The owner's rule:
+  м² and price FIRST, then the pair, then the next pair. The serve stands down
+  while `missingCriteriaAsk()` still returns a question (`detectCriteriaStatement`
+  reads the wish — its type list carries the colloquial business nouns
+  дукјан/дукан/lokal, or «сакам dukjan» never looked like a requirements
+  statement at all). A STOCK ask («ИМАТЕ ОБЈАВЕНО ЕДНА КУЌА … КАЈ ОЛИМПИКО»,
+  the [11:07] capture) keeps its immediate serve AND its seen-property closer —
+  that client is asking about a listing we published. Both legs pinned in
+  `tests/capture-0352-new-ask.test.ts` (and the [11:07] leg in
+  `tests/locate-landmark.test.ts`).
 - A ГАРСОЊЕРА IS A STUDIO, NOT «any flat». The old arm
   (`!house && !business && !plac`) let a трисобен ride in beside the гapсоњера
   and a recall of one came back «која од двете е таа?» (the [04:04] capture,

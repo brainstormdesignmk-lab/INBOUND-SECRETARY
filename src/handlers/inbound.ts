@@ -91,7 +91,7 @@ import {
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
   SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER,
   NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER,
-  provisionLadder, type ProvisionRung,
+  provisionLadder, type ProvisionRung, missingCriteriaAsk,
 } from '../llm/prompts';
 import { detectRecommendAsk, detectValueAsk, collectMentionedEbs, buildRecommendation, buildValueRanking } from '../llm/recommend';
 
@@ -14082,7 +14082,22 @@ export class InboundHandler {
     // capture: place + «околу 400 евра» + куќа за изнајмување, and the funnel
     // still asked «колку спални соби?»). Area + category + service + a place
     // are enough; the money orders the cards.
-    if (!reply && landmarkEntry
+    // A NEW ASK OWES ITS CRITERIA FIRST (the [03:52] V16K11 capture).
+    //   [03:52] SAKAM DA IZNAJMAM DUKJAN VO BLIZINA NA BUNJAKOVEC ILI CITI MOL
+    //   ЛИНА: Да, имаме деловен простор за издавање кај Буњаковец … Еве ги:
+    //         Евидентен број 42 … / Евидентен број 59 …
+    //         Дали некој од овие е тој што го видовте? …
+    // The client has seen NO property: he stated a WISH (сакам да изнајмам) with
+    // a place and no м²/price, and the entry serve answered with a pair plus the
+    // seen-property closer — a question that presumes he already picked a unit
+    // out. The owner's rule: м² and price FIRST, then the pair, then the next
+    // pair. So the serve stands down while the funnel still owes criteria; a
+    // STOCK ask («имате објавено … кај Олимпико», the [11:07] capture) and a
+    // message that carries its criteria keep the serve — the place IS the search
+    // there, and the closer is right.
+    const newAskOwesCriteria = detectCriteriaStatement(text)
+      && missingCriteriaAsk(session.slots, assistantTexts(session)) !== undefined;
+    if (!reply && landmarkEntry && !newAskOwesCriteria
         && (before === 'discovery' || before === 'intent' || before === 'idle')
         && session.slots.poiAnchor
         && (session.slots.house === true || session.slots.business === true

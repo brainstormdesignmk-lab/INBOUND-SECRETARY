@@ -2706,8 +2706,13 @@ export function detectGarsonjera(text: string): boolean {
 const CRITERIA_WISH_RE =
   /(?:mi\s+treba|treba\s+mi|ми\s+треба|треба\s+ми|барам|baram|барата|barat|сакам|sakam)(?![\p{L}\p{N}])/iu;
 
+// THE COLLOQUIAL BUSINESS NOUNS ARE TYPE WORDS TOO (the [03:52] V16K11 capture):
+// «SAKAM DA IZNAJMAM DUKJAN VO BLIZINA NA BUNJAKOVEC» is a requirements
+// statement about a деловен простор, but the list knew only the formal
+// «деловн»/«delovn» — so the wish read as something else entirely and the
+// anchored-entry serve answered it as a property he had SEEN.
 const TYPE_WORD_RE =
-  /(?:стан|stan|куќ|kukj|дом(?!\p{L})|dom\b|гарсоњер|garsonjer|студио|studio|деловн|delovn|плац|plac)(?![\p{L}\p{N}])/iu;
+  /(?:стан|stan|куќ|kukj|дом(?!\p{L})|dom\b|гарсоњер|garsonjer|студио|studio|деловн|delovn|дукјан|dukjan|дуќан|lokal|локал|плац|plac)(?![\p{L}\p{N}])/iu;
 
 /** A wish-shaped REQUIREMENTS statement ("mi treba stan so dve spalni"). */
 export function detectCriteriaStatement(text: string): boolean {
