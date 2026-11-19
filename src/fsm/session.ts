@@ -236,6 +236,15 @@ export interface SlotData {
    *  re-disclosed the fee on the first «да» and only collected the contact on
    *  the second one. Cleared once the agreement is taken. */
   feeDisclosed?: boolean;
+
+  /** THE QUESTION WE JUST ASKED IS A PROMISE (the [05:58] capture): the answer
+   *  turn offered «Дали сакате да го споредам со останатите понуди во истата
+   *  населба?», the client said «DA MOZE», and the funnel read that as visit
+   *  consent — name and phone, with the fee never mentioned. An offer nobody
+   *  owns is a broken promise, so the offer records itself here and the NEXT
+   *  turn consumes it (the lane clears it on every turn either way: a promise
+   *  lives for one reply, never for the rest of the chat). */
+  pendingOffer?: { kind: 'compare'; eb: number };
   // v2 — visit sub-funnel
   visitTime?: string;           // client's proposed time (free text)
   ownerTime?: string;           // owner's counter-proposal (from OwnerAgent)

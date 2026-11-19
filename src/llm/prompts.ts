@@ -3,7 +3,7 @@ import { SlotData, ChatSession } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
 import { PURCHASE_MIN_PLAUSIBLE_EUR } from './deterministic';
-import { Property, locPrep, mkTimePhrase, normalizeTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent, availabilityOf } from '../data/properties';
+import { Property, locPrep, mkTimePhrase, normalizeTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent, availabilityOf, pricePerM2 } from '../data/properties';
 import { firstLandmarkProblem } from '../geo/landmarks';
 import { distM } from '../geo/precision';
 import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint, extractDayWord, namesADay } from '../visits/time';
@@ -561,6 +561,61 @@ export function buildSearchMatchCards(properties: Property[], closerIndex = 0): 
     ? pickCloser(PROPERTY_QUERY_CLOSERS, closerIndex)
     : pickCloser(PRESENTATION_CLOSERS, closerIndex);
   return `${cards}\n\n${closer}`;
+}
+
+/** THE COMPARISON SHE PROMISED (the [05:58] capture) — «Дали сакате да го
+ *  споредам со останатите понуди во истата населба?» asked for a yes, and the
+ *  answer to that question is THIS turn: the subject's own rate beside the same
+ *  category's other rows in its own area, cheapest first, plus the measured
+ *  span and the honest position of the subject in it.
+ *
+ *  Every figure is the rows' own (price ÷ м², both feed columns) — nothing is
+ *  estimated, and a peer without a usable rate is dropped rather than compared
+ *  as if its м² were known. The caller supplies the pool already scoped to the
+ *  same service, category and area: this function only counts, sorts and says.
+ *
+ *  The close is a TWO-WAY question (cheaper option, or book the subject), never
+ *  a yes/no: a bare «да» here would have no single referent — the same ambiguity
+ *  that made the offer itself get swallowed as visit consent. */
+export function buildRateComparison(subject: Property, peers: Property[]): string {
+  const money = (n: number): string => n.toLocaleString('mk-MK');
+  const labels = ownerPropertyLabels(subject);
+  const area = subject.location ? displayAreaName(subject.location) : '';
+  const where = area ? `во ${area}` : 'во истата населба';
+  const subjectRate = pricePerM2(subject);
+  // FOUR IS THE CEILING, and every figure below is computed over exactly the
+  // rows this sentence lists — a span taken over cards the client cannot see is
+  // a number he cannot check.
+  const rows = peers
+    .map(p => ({ p, rate: pricePerM2(p) }))
+    .filter((r): r is { p: Property; rate: number } =>
+      r.rate !== undefined && r.p.price !== undefined && r.p.sqm !== undefined)
+    .sort((a, b) => a.rate - b.rate || a.p.eb - b.p.eb)
+    .slice(0, 4);
+  const subjectLine = subject.price !== undefined && subject.sqm !== undefined
+    ? `Евидентен број ${subject.eb}: ${money(subject.price)} евра за ${subject.sqm} м²`
+      + `${subjectRate !== undefined ? `, односно ${money(subjectRate)} евра за м²` : ''}.`
+    : `Евидентен број ${subject.eb}.`;
+  // NOTHING TO COMPARE AGAINST — say exactly that, never invent a market and
+  // never leave the promise unfulfilled silently: the two ways forward stay.
+  if (subjectRate === undefined || rows.length === 0) {
+    return `За ${labels.type} ${where} моментално немам други понуди што можам да ги споредам — `
+      + `${subjectLine} Дали да Ви покажам понуди во соседните населби, или да Ви го закажам разгледувањето?`;
+  }
+  const lines = rows.map(({ p, rate }) =>
+    `• Евидентен број ${p.eb}: ${money(p.price as number)} евра за ${p.sqm} м², односно ${money(rate)} евра за м².`);
+  const lo = rows[0]!.rate;
+  const hi = rows[rows.length - 1]!.rate;
+  const position = subjectRate < lo ? 'е поевтин од сите други'
+    : subjectRate > hi ? 'е поскап од сите други'
+      : 'е во опсегот на другите';
+  const head = `Споредба за ${labels.type} ${where} — ${subjectLine}`;
+  const span = rows.length === 1
+    ? `Другата понуда е ${money(lo)} евра за м².`
+    : `Останатите понуди се од ${money(lo)} до ${money(hi)} евра за м².`;
+  const verdict = `Значи Евидентен број ${subject.eb} ${position}.`;
+  const close = `Дали да Ви покажам некоја од поевтините понуди, или да Ви го закажам разгледувањето на ${subject.eb}?`;
+  return [head, ...lines, span, verdict, close].join('\n');
 }
 
 export function buildLocateMatches(properties: Property[], closerIndex = 0, withNumberInvite = true): string {

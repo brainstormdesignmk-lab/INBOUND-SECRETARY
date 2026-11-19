@@ -1750,6 +1750,42 @@ in, and a suburb's centroid sits in that suburb.
   tautology's e2e, the landmark that keeps its line, "no miss is written", the
   area-name family, and the e2e where «KADE E KARPOS ?» answers the naselba).
 
+## AN OFFER IS A PROMISE: the question LINA asks defines what a bare «да» means
+
+The [05:58] capture: the client asked the subject's rate («KOLKU BI MU DOSLA
+CENATA PO KVADRAT?»), she answered with 1.986 €/м² AND offered «Дали сакате да
+го споредам со останатите понуди во истата населба?», he said «DA MOZE» — and
+the turn asked for his name and phone. The yes had a REFERENT (her own
+question) and the drained-pool escape
+(`next==='presentation' && props.length===0 && detectAgreement` →
+`contact_collection`) read it as visit consent instead.
+
+- `slots.pendingOffer?: { kind: 'compare'; eb: number }` is the promise, and it
+  lives EXACTLY ONE REPLY: `processTurn` reads it into `promisedOffer` and clears
+  the slot at the turn boundary, so an unrelated turn expires it and the next
+  «да» is a fresh yes. Every offer-making lane records its own kind here — a new
+  offer without a slot is the same bug with different words.
+- The consuming lane (`RATE_COMPARE`, `src/handlers/inbound.ts` ~8621) runs
+  BEFORE the fee-agreement arm and before the drained-pool escape, so no state
+  can reinterpret an answer that already has a referent. It stands down on
+  money traffic, a visit request/interest, a place or exact-address question and
+  a cheaper search: those are new decisions, not answers to the offer.
+- The COMPARISON is the subject's own market: same service, same category from
+  the row's OWN columns (house/office/plot, the `studio` flag or «гарсоњер» in
+  the ad, and the room count) and the same area. NOT `isSmallUnit` — a 35 м²
+  ДВОСОБЕН is a two-bedroom flat by area, and the size reading emptied the very
+  comparison the capture asked for. Copy: `buildRateComparison` (4 cheapest,
+  every figure price ÷ м², no invented market), and it ends with a TWO-WAY
+  question (a cheaper card, or book the subject) so the next bare «да» again
+  has an unambiguous referent.
+- `ROUTE_LANES.RATE_COMPARE` + the `ROUTING_ORDER` row mirror the lane from
+  slots + text alone (the promise IS the evidence), placed before
+  `FEE_AGREED_FIRST` exactly as the executor orders them.
+- Pinned in `tests/capture-0558-rate-compare.test.ts`: the offer is recorded,
+  «DA MOZE» serves the comparison with no name/phone and no `viewingFeeAgreed`,
+  the promise expires on an unrelated turn, and an area with no peers names the
+  absence instead of inventing a market.
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.

@@ -91,7 +91,7 @@ import {
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
   SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER,
   NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER,
-  provisionLadder, type ProvisionRung, missingCriteriaAsk, buildSearchMatchCards,
+  provisionLadder, type ProvisionRung, missingCriteriaAsk, buildSearchMatchCards, buildRateComparison,
 } from '../llm/prompts';
 import { detectRecommendAsk, detectValueAsk, collectMentionedEbs, buildRecommendation, buildValueRanking } from '../llm/recommend';
 
@@ -5281,6 +5281,15 @@ export class InboundHandler {
     // exhausted-escape — which otherwise reads any agreement over an empty pool
     // as "contact me" — stands down for the turn. See the escape's guard.
     let pivotConfirmed = false;
+    // THE OFFER WE MADE IS A PROMISE, AND IT LIVES ONE TURN (the [05:58]
+    // capture): «Дали сакате да го споредам со останатите понуди…?» got «DA
+    // MOZE», and the funnel answered a comparison request with the contact ask.
+    // The offer is read-and-cleared HERE, at the turn boundary: whatever this
+    // message is about, the promise either lands in the lane below or it
+    // expires with the reply it was waiting for — a stale yes two turns later
+    // must never resurrect it.
+    const promisedOffer = session.slots.pendingOffer;
+    session.slots.pendingOffer = undefined;
     // A SESSION STORED BEFORE THE CITY VETO CAN HOLD A CITY AS ITS ANCHOR (the
     // [09:50] capture): the row «Скопје» was bound as a landmark and its
     // centroid derived a district, so the poisoned session would keep measuring
@@ -6717,6 +6726,13 @@ export class InboundHandler {
         const answer = rent
           ? `${labels.type} со Евидентен број ${subject.eb} — киријата изнесува ${money(subject.price as number)} евра, односно ${money(rate)} евра за м² (${subject.sqm} м²). Дали сакате да го споредам со останатите понуди во истата населба?`
           : `${labels.type} со Евидентен број ${subject.eb} чини ${money(subject.price as number)} евра, односно ${money(rate)} евра за м² (${subject.sqm} м²). Дали сакате да го споредам со останатите понуди во истата населба?`;
+        // THE OFFER IS RECORDED WITH THE ANSWER (the [05:58] capture): the
+        // sentence ends «Дали сакате да го споредам со останатите понуди во
+        // истата населба?», so a «DA MOZE» next turn is the COMPARISON, not
+        // visit consent. Without this record the offer had no owner at all and
+        // the agreement fell to the drained-pool escape, which hands the client
+        // to contact collection (name + phone) before any fee was ever told.
+        session.slots.pendingOffer = { kind: 'compare', eb: subject.eb };
         // THE ARITHMETIC IS THE ANSWER, SO IT IS ALSO THE AUDIT: the two figures
         // the client can point at are recorded, and anyone asking later «зошто
         // ми кажа 1.734?» is answered from this record, not from a re-query.
@@ -8600,6 +8616,55 @@ export class InboundHandler {
       console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-visit-recall) state=${session.state} src=deterministic bank=visit.recall`);
       await this.sendRaw(session, answer, 'deterministic:visit-recall');
       return;
+    }
+
+    // ── THE «ДА» THAT ANSWERS OUR OWN OFFER (the [05:58] capture) ───────────
+    // She answered the per-м² question with the subject's rate AND an offer:
+    // «Дали сакате да го споредам со останатите понуди во истата населба?». The
+    // client's «DA MOZE» is the answer to THAT question, and the turn owes him
+    // the comparison. It used to be read as consent (the drained-pool escape
+    // sent «Одлично. … Вашето име и презиме и телефонскиот број» — contact
+    // collection with no fee disclosed and no comparison served).
+    //
+    // THE PROMISE OWNS THE TURN, NOT THE STATE: this lane runs before every
+    // agreement arm, so no state (presentation, closing, contact) can reinterpret
+    // a yes that already has a referent. A visit request or money traffic in the
+    // same message keeps its own lane — those are decisions, not answers to this
+    // question — and anything that is not an agreement simply lets the promise
+    // expire (it was cleared at the turn boundary).
+    if (promisedOffer?.kind === 'compare'
+      && detectAgreement(text)
+      && !detectNegatedAgreement(text) && !detectRejection(text) && !detectSoftRefusal(text)
+      && !detectVisitRequest(text) && !detectVisitInterest(text)
+      && !isFeeTraffic(text) && !detectFeeNag(text) && !detectProvisionResistance(text)
+      && !detectCheaperSearch(text) && !detectWhereIs(text) && !detectExactAddressAsk(text)) {
+      const subject = await this.deps.properties.getByEb(promisedOffer.eb).catch(() => undefined);
+      if (subject) {
+        // THE POOL IS THE SUBJECT'S OWN MARKET: same service, same category
+        // (the feed's bedroom count IS the room type), same area — the very
+        // sentence he was offered. Nothing the client did not ask for.
+        const all = await this.deps.properties.getAll().catch(() => [] as Property[]);
+        const areaOf = (p: Property): string => (p.location ?? '').split('(')[0]!.trim().toLowerCase();
+        // THE CATEGORY IS THE ROW'S OWN COLUMNS: house/office/plot, the studio
+        // flag (or «гарсоњер» in the ad) and the room count. NOT `isSmallUnit`:
+        // a 35 м² ДВОСОБЕН is a двух-bedroom flat by area, and its peers are the
+        // two-bedroom flats of the area — the size reading would have emptied
+        // the very comparison the capture asked for.
+        const kindOf = (p: Property): string => [p.house === true, p.business === true,
+          p.plac === true, p.studio === true || /гарсоњер|garsonjer/iu.test(p.details ?? '')].join('|');
+        const kind = kindOf(subject);
+        const peers = all.filter(p => p.service === subject.service && p.eb !== subject.eb
+          && kindOf(p) === kind && p.bedrooms === subject.bedrooms
+          && areaOf(p) === areaOf(subject));
+        const answer = buildRateComparison(subject, peers);
+        routeLog(chatId, text, 'RATE_COMPARE');
+        noteTurnFact(this.turn.audit, 'compare', subject.eb);
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
     }
 
     // ── THE FIRST «ДА» AFTER THE FEE IS THE AGREEMENT (the [20:41] capture) ──

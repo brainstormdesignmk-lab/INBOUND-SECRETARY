@@ -52,6 +52,7 @@ import {
   detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor,
   detectAgencyIdentityAsk, detectWhichPropertyAsk, detectPropertyChoice,
   detectBareEbFollowup, detectAvailabilityPlural, detectLocationNag,
+  detectNegatedAgreement, detectRejection, detectVisitInterest,
   detectStockContradiction, detectContactMechanicsChallenge, detectOwnerContactHold,
   detectRingNearestAsk, detectIdentifyByFigure,
   isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,
@@ -657,6 +658,22 @@ export const ROUTING_ORDER: RouteRule[] = [
   // money-mirror.ts`) showed four of them predicted FALLTHROUGH or FEE_WHY while
   // the executor served the finer lane — a mirror that hides which fee leg ran.
   // Every row below carries the executor\'s own gate and its own position.
+  // ── A «ДА» THAT HAS ITS OWN REFERENT (the [05:58] capture) ────────────────
+  // SHE ASKED A QUESTION, SO THE YES ANSWERS IT. The rate answer («колку му е
+  // цената по квадрат?») ended with «Дали сакате да го споредам со останатите
+  // понуди во истата населба?»; «DA MOZE» came back and the drained-pool escape
+  // read it as visit consent (name + phone, no fee disclosed, no comparison).
+  // The promise lives in `slots.pendingOffer` for exactly ONE reply, so the
+  // mirror needs nothing but slots + text — and it sits BEFORE the agreement
+  // lane because the executor's lane does: a yes with a referent is never a
+  // fee agreement.
+  { intent: 'RATE_COMPARE', note: 'the «да» that answers OUR OWN comparison offer (inbound.ts 8621): the subject\'s €/m² against the same category in the same area, never contact collection. The promise is `slots.pendingOffer` (one reply); money traffic, a visit request, a place question and a cheaper search keep their own lanes',
+    fires: (t, s, sl) => sl.pendingOffer?.kind === 'compare'
+      && detectAgreement(t)
+      && !detectNegatedAgreement(t) && !detectRejection(t) && !detectSoftRefusal(t)
+      && !detectVisitRequest(t) && !detectVisitInterest(t)
+      && !isFeeTraffic(t) && !detectFeeNag(t) && !detectProvisionResistance(t)
+      && !detectCheaperSearch(t) && !detectWhereIs(t) && !detectExactAddressAsk(t) },
   { intent: 'FEE_AGREED_FIRST', note: 'the FIRST «да» after a served fee disclosure (inbound.ts 7397): feeDisclosed + no agreed fee + agreement/visit-request wording + the same veto list (cheaper search, timing, a location question, a why/complaint/pushback, commission resistance, a which-flat recall, a price re-check, a per-m² rate). It opens contact collection, so nothing may steal it',
     fires: (t, s, sl) => !!sl.feeDisclosed && !sl.viewingFeeAgreed
       && ['closing', 'presentation', 'property_query', 'property_locate'].includes(s)
@@ -1466,6 +1483,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // each logs itself today and gets its mirror row with the router work.
   OWN_CLAIM_EXPLAIN: M('OWN_CLAIM_EXPLAIN', 'a challenge about our own earlier answer — explained from the turn record, never a fee/price script'),
   SUBJECT_PER_M2: M('SUBJECT_PER_M2', 'the €/m² of the flat on the table (price ÷ м²), never the neighbourhood band'),
+  RATE_COMPARE: M('RATE_COMPARE', 'the «да» that answers her own comparison offer — the same category/area rates, never contact collection (inbound.ts 8621); slot-gated on `pendingOffer`, so the yes has a referent the text alone cannot show'),
 
   PROXY_CONTACT: M('PROXY_CONTACT', 'contact via the agency, never in closing (where the fee protocol owns the contact)'),
   RECOMMEND_ASK: M('RECOMMEND_ASK', '“koj bi mi go preporacale?” — a judgment over the discussed flats, never the same cards again (inbound.ts 10432)'),
