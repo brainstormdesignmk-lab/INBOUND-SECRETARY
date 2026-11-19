@@ -546,6 +546,23 @@ export function buildAboveBudgetNote(rows: Property[], cap: string | undefined):
     : `Дел од нив се над буџетот од ${capLabel} евра — ги покажувам затоа што одговараат на она што го опишавте.`;
 }
 
+/** THE CARDS OF A PLACE SERVE THAT IS A SEARCH, NOT A RECALL (the [03:52]
+ *  V16K11 sibling): «DUKJAN VO BUNJAKOVEC DO 1000» carries its criteria and no
+ *  listing he saw, so the pair is served at once — but the closer may not be
+ *  «Дали ова е деловниот простор што го видовте?» asked of a client who has seen
+ *  nothing, nor the «ако го знаете Евидентен број» invite that follows it. Same
+ *  card lines, the offer question instead (the bank rotates its phrasing). */
+export function buildSearchMatchCards(properties: Property[], closerIndex = 0): string {
+  const shown = properties.slice(0, 2);
+  const cards = shown.map(p => buildLocateMatchLine(p)).join('\n');
+  // ONE CARD, ONE QUESTION (the same rule the locate closer keeps): the plural
+  // offer line over a lone card asks about «овие предлози» that are not there.
+  const closer = shown.length === 1
+    ? pickCloser(PROPERTY_QUERY_CLOSERS, closerIndex)
+    : pickCloser(PRESENTATION_CLOSERS, closerIndex);
+  return `${cards}\n\n${closer}`;
+}
+
 export function buildLocateMatches(properties: Property[], closerIndex = 0, withNumberInvite = true): string {
   const lines = properties.slice(0, 2).map(p => buildLocateMatchLine(p)).join('\n');
   // ONE CARD, ONE QUESTION (the [11:07] replay): the plural closer asked him to

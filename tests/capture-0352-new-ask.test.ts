@@ -126,6 +126,40 @@ test('[03:52] a NEW business ask owes м² + price before any pair — never the
   assert.equal(sessions.get(chatId)!.state, 'presentation', 'cards put the chat in presentation');
 });
 
+// THE SIBLING FAMILIES (the owner's rule is a category rule, not a dukjan rule):
+// every wish owes its criteria, in every category — and when the criteria ARE
+// already in, the pair may serve at once, but its closer is the OFFER question,
+// never the seen-property one plus the Евидентен број invite.
+test('[03:52] the wish rule holds for flats, houses, plots and studios too', async () => {
+  for (const msg of [
+    'SAKAM DA IZNAJMAM STAN VO BUNJAKOVEC',
+    'SAKAM DA KUPAM KUKJA KAJ BUNJAKOVEC',
+    'MI TREBA PLAC VO BUNJAKOVEC',
+    'SAKAM DA IZNAJMAM GARSONJERA VO CENTAR',
+  ]) {
+    const { send, sessions, chatId } = makeHandler();
+    const reply = await send(msg);
+    assert.ok(!CARD.test(reply), `no listing before the criteria: ${msg} → ${reply}`);
+    assert.ok(!SEEN_CLOSER.test(reply), `no seen-property question: ${msg} → ${reply}`);
+    assert.equal(sessions.get(chatId)!.state, 'discovery', `still collecting: ${msg}`);
+  }
+});
+
+test('[03:52] a search that already carries its criteria serves with the OFFER closer', async () => {
+  const { send, sessions, chatId } = makeHandler();
+  const reply = await send('DUKJAN VO BUNJAKOVEC DO 1000');
+  assert.match(reply, CARD, `the criteria serve the pair: ${reply}`);
+  assert.ok(!SEEN_CLOSER.test(reply), `not «што го видовте?» — he saw nothing: ${reply}`);
+  assert.ok(!/Евидентен број на недвижноста|го знаете Евидентен број/iu.test(reply),
+    `no Евидентен број invite on a search: ${reply}`);
+  // This fixture keeps BOTH rows inside the ring, so the plural offer line is
+  // the right one here — the singular rule (PROPERTY_QUERY_CLOSERS) is exercised
+  // by the one-card shape, and is deliberately not asserted on a pair.
+  assert.match(reply, /Дали некој од овие предлози|Дали некој од нив/iu,
+    `the offer question closes a search pair: ${reply}`);
+  assert.equal(sessions.get(chatId)!.slots.business, true, 'the category is on file');
+});
+
 test('[03:52] the STOCK ask at a place keeps its immediate serve and its seen-property closer', async () => {
   // The [11:07] shape, on the same fixture: «имате објавено» refers to a
   // listing we published — that turn is answered at once, and the closer is

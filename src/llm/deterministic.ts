@@ -2714,6 +2714,38 @@ const CRITERIA_WISH_RE =
 const TYPE_WORD_RE =
   /(?:стан|stan|куќ|kukj|дом(?!\p{L})|dom\b|гарсоњер|garsonjer|студио|studio|деловн|delovn|дукјан|dukjan|дуќан|lokal|локал|плац|plac)(?![\p{L}\p{N}])/iu;
 
+/** True when the client's message is about a LISTING HE ALREADY KNOWS — one we
+ *  published («имате објавено една куќа … кај Олимпико», «на вашиот сајт»,
+ *  «ми покажавте»), a possession question at a place («имате куќа кај …»), or a
+ *  memory of one («КАЈ ОЛИМПИКО ОКОЛУ 400 ЕВРА БЕШЕ», «имаше една куќа …»).
+ *
+ *  THE LINE THE [03:52] V16K11 CAPTURE DREW: «SAKAM DA IZNAJMAM DUKJAN VO
+ *  BLIZINA NA BUNJAKOVEC ILI CITI MOL» is a NEW ASK (nothing seen, criteria
+ *  still owed — the funnel asks м² and price first), while this family refers to
+ *  a unit the client already knows from our own listing. Only this family may
+ *  be answered at once at a place, and only it hears the seen-property closer
+ *  («Дали овој е … што го видовте?»).
+ *
+ *  The MEMORY markers matter as much as the listing ones: «… ОКОЛУ 400 ЕВРА БЕШЕ»
+ *  is a client describing a house he saw (the [20:56] capture — that turn must
+ *  serve the live house, never ask for its bedrooms). */
+export function detectPublishedListingAsk(text: string): boolean {
+  return /(?:објав(?:ено|ува|ив|ен)|objav(?:eno|uva|iv|en)|на\s+(?:вашата\s+)?страница|na\s+(?:vashata\s+)?stranica|на\s+(?:вашиот\s+)?сајт|na\s+(?:vashiot\s+)?sajt|(?:ми\s+)?покаж(?:авте|а|ува)|pokazh?(?:avte|uva)|сте\s+ми\s+покаж|ste\s+mi\s+pokazh?|има(?:те|ш)?\s+ли|има\s+ли|imate\s+li|imas\s+li|ima\s+li|беше|bese|имаше|imase|се\s+сеќавам|se\s+sekjavam|пред\s+некое\s+време|pred\s+nekoe\s+vreme)/iu.test(text);
+}
+
+/** True when the message is an ACQUISITION WISH — the client asks for something
+ *  («сакам да изнајмам», «барам», «ми треба», «купувам/изнајмувам») instead of
+ *  asking what is on file («имате … кај», «објавено», «… беше»).
+ *
+ *  This is the [03:52] V16K11 line: a wish owes its criteria (м², price) before
+ *  any card; an ask about a listing he already knows may be answered at once.
+ *  A NEGATED wish is not a wish («не сакам стан …» is a rejection, its own
+ *  lanes own it), so the negated span is stripped first. */
+export function detectAcquisitionWish(text: string): boolean {
+  const flat = text.replace(/(?:^|[^\p{L}])(?:не|ne)\s+(?:\p{L}+\s+){0,2}/giu, ' ');
+  return /(?<![\p{L}\p{N}])(?:сакам|sakam|сакаме|sakame|барам|baram|ми\s+треба|mi\s+treba|треба\s+ми|treba\s+mi|изнајмувам|iznajmuvam|купувам|kupuvam|посакувам|posakuvam)(?![\p{L}\p{N}])/iu.test(flat);
+}
+
 /** A wish-shaped REQUIREMENTS statement ("mi treba stan so dve spalni"). */
 export function detectCriteriaStatement(text: string): boolean {
   if (!matchesBoth(CRITERIA_WISH_RE, text) || !matchesBoth(TYPE_WORD_RE, text)) return false;

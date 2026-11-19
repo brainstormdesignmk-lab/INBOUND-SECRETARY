@@ -20,7 +20,7 @@ import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWIN
   detectPairReferent, detectIdentifyByFigure,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
-import { detectCriteriaStatement, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
+import { detectCriteriaStatement, detectPublishedListingAsk, detectAcquisitionWish, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
 import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, pad2, isWeekendTerm,
   isCompleteVisitTerm, missingTermPiece } from '../visits/time';
@@ -91,7 +91,7 @@ import {
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
   SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER,
   NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER,
-  provisionLadder, type ProvisionRung, missingCriteriaAsk,
+  provisionLadder, type ProvisionRung, missingCriteriaAsk, buildSearchMatchCards,
 } from '../llm/prompts';
 import { detectRecommendAsk, detectValueAsk, collectMentionedEbs, buildRecommendation, buildValueRanking } from '../llm/recommend';
 
@@ -14095,7 +14095,13 @@ export class InboundHandler {
     // STOCK ask («имате објавено … кај Олимпико», the [11:07] capture) and a
     // message that carries its criteria keep the serve — the place IS the search
     // there, and the closer is right.
-    const newAskOwesCriteria = detectCriteriaStatement(text)
+    // The line is the ASK, never the place: a message about a LISTING WE
+    // PUBLISHED (објавено / на сајт / ми покажавте) may be answered at once, and
+    // it is the one that hears the seen-property closer. Everything else at a
+    // place is a search — it owes its criteria first, and its cards close with
+    // the offer question.
+    const asksAboutPublished = detectSeenListingRecall(text) || detectPublishedListingAsk(text);
+    const newAskOwesCriteria = !asksAboutPublished && detectAcquisitionWish(text)
       && missingCriteriaAsk(session.slots, assistantTexts(session)) !== undefined;
     if (!reply && landmarkEntry && !newAskOwesCriteria
         && (before === 'discovery' || before === 'intent' || before === 'idle')
@@ -14139,7 +14145,16 @@ export class InboundHandler {
         // The price probe only when the price is still unknown — he may have
         // just given it («ОКОЛУ 400 ЕВРА БЕШЕ»), and asking again the question
         // he answered is the loop this funnel keeps being fixed for.
-        anchoredServe = `${buildLocateLandmarkEntry(a.name, session.slots.location, session.slots, nearPlace.length)}\n\n${buildLocateMatches(nearPlace, session.history.length)}`
+        // THE CLOSER FOLLOWS THE ASK (the [03:52] sibling): a SEARCH statement
+        // («DUKJAN VO BUNJAKOVEC DO 1000», «KUKJA KAJ BUNJAKOVEC DO 400») named
+        // its criteria and nothing he saw — the pair is served with the OFFER
+        // question, never «… што го видовте?» plus the Евидентен број invite. A
+        // stock/recall ask («имате објавено … кај Олимпико») keeps the
+        // seen-property closer, which is exactly its question.
+        anchoredServe = `${buildLocateLandmarkEntry(a.name, session.slots.location, session.slots, nearPlace.length)}\n\n`
+          + (asksAboutPublished
+            ? buildLocateMatches(nearPlace, session.history.length)
+            : buildSearchMatchCards(nearPlace, session.history.length))
           + (session.slots.budget ? '' : `\n\n${buildLocateLandmarkPriceProbe(session.slots)}`);
       }
     }

@@ -2538,6 +2538,18 @@ is installed on the data service for the turn, so `candidates()`,
   that client is asking about a listing we published. Both legs pinned in
   `tests/capture-0352-new-ask.test.ts` (and the [11:07] leg in
   `tests/locate-landmark.test.ts`).
+- THE LINE IS THE ASK, NEVER THE PLACE. The anchored-entry serve stands down
+  for a message that is an ACQUISITION WISH (`detectAcquisitionWish`: сакам /
+  барам / ми треба / купувам / изнајмувам, with the negated span stripped) while
+  `missingCriteriaAsk()` still owes something — in EVERY category (flat, house,
+  plot, studio), not only business. It keeps its immediate serve, and its
+  seen-property closer, for a message about a listing the client already knows
+  (`detectPublishedListingAsk`: објавено / на сајт / ми покажавте / «имате … кај»
+  / the past-tense memory «… ОКОЛУ 400 ЕВРА БЕШЕ»). A search that arrives with
+  its criteria is served at once but closes with the OFFER question
+  (`buildSearchMatchCards`: PRESENTATION_CLOSERS, singular
+  PROPERTY_QUERY_CLOSERS for one card) — never «што го видовте?» plus the
+  Евидентен број invite.
 - A ГАРСОЊЕРА IS A STUDIO, NOT «any flat». The old arm
   (`!house && !business && !plac`) let a трисобен ride in beside the гapсоњера
   and a recall of one came back «која од двете е таа?» (the [04:04] capture,
