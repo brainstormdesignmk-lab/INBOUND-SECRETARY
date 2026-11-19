@@ -182,6 +182,29 @@ test('a place with nothing under the criteria: pair from the stocked place, said
   assert.match(reply, /Евидентен број 302/);
 });
 
+test('a place with no row in the ring but a card a kilometre away is never called empty', async () => {
+  // The [03:52] follow-up to the V16K11 capture: «Околу Буњаковец во моментов
+  // немам ништо што одговара на овие критериуми» followed by a card 1,2 km away
+  // read as «we have nothing around Bunjakovec». The absence claim belongs to a
+  // place that really has nothing near it (the 4,5 km ТЦ Џевахир above); inside
+  // the near band the lead names the MEASURED distance to the nearest option
+  // instead, so the sentence can never deny the stock it is about to serve.
+  // No rows at Димитар Миладинов here — its flats sit ~400 m from Собрание and
+  // would keep that place stocked (a different, also correct serve).
+  const rows = ROWS.filter(r => r.eb !== 331 && r.eb !== 332);
+  const { say } = makeHandler('near-band', rows);
+  await say('ZDRAVO SAKAM DA SI KUPAM STANCE OKOLU UNIVERZALNA , SOBRANIE');
+  await say('EDNA ILI DVE');
+  const reply = await say('DO 150000');
+
+  assert.match(reply, /Евидентен број 301/, `the stocked place answers: ${reply}`);
+  // Собрание is ~1,5 km from those cards: named as a distance, never as absence.
+  assert.doesNotMatch(reply, /Околу[^.]{0,60}Собрание[^.]{0,80}немам ништо/iu,
+    `a place with a card a kilometre away is not called empty: ${reply}`);
+  assert.match(reply, /Најблиску до[^.]{0,80}\d[\d.,]*\s*(?:km|m)/iu,
+    `the lead names the measured distance to the nearest option: ${reply}`);
+});
+
 test('«a neshto kaj X?» keeps the criteria, confirms them once, then serves near X', async () => {
   const { say, sessions, chatId } = makeHandler('place-pivot');
   await say('ZDRAVO SAKAM DA SI KUPAM STANCE OKOLU UNIVERZALNA , BUNJAKOVEC');

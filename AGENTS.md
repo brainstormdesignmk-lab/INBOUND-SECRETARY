@@ -2538,6 +2538,14 @@ is installed on the data service for the turn, so `candidates()`,
   that client is asking about a listing we published. Both legs pinned in
   `tests/capture-0352-new-ask.test.ts` (and the [11:07] leg in
   `tests/locate-landmark.test.ts`).
+- NO ABSENCE CLAIM OVER A CARD THAT STANDS NEARBY (the [03:52] follow-up):
+  a place is called empty only when the nearest card really is elsewhere (the
+  ТЦ Џевахир case, 4,5 km — that sentence keeps its exact wording and its pin).
+  Inside the `PAIR_NEAR_BAND_M` band (2 km, twice the honest walk ring) the
+  `pairBatchMeta` lead names the MEASURED distance instead — «Најблиску до X
+  имам на 1,2 km:» — because «Околу X во моментов немам ништо» followed by a
+  card 1,2 km away reads as «we have nothing around X» while we are serving it.
+  Pinned in `tests/place-pairs.test.ts` (fails on the old text).
 - THE LINE IS THE ASK, NEVER THE PLACE. The anchored-entry serve stands down
   for a message that is an ACQUISITION WISH (`detectAcquisitionWish`: сакам /
   барам / ми треба / купувам / изнајмувам, with the negated span stripped) while

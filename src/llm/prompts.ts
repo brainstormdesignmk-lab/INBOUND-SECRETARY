@@ -2230,6 +2230,13 @@ export function buildPropertyCards(properties: Property[], state: State, closerI
   return `${opener ? `${opener}\n\n` : ''}${cards}\n\n${closer}`;
 }
 
+/** How far a card may stand from a place and still be its answer in words:
+ *  triple the honest walk ring would already be another neighbourhood — TWICE
+ *  it is «just outside the ring», which the lead names as a distance instead of
+ *  calling the place empty. A constant, not a local literal, because every
+ *  place-serve lead reads it. */
+const PAIR_NEAR_BAND_M = 2000;
+
 /** CROSS-PLACE PAIR metadata for a batch: the opener naming the places the
  *  client asked about, each card's OWN anchor (so every card states the
  *  distance to the place IT stands near) and the once-only honest line for a
@@ -2267,15 +2274,52 @@ export function pairBatchMeta(session: ChatSession, properties: Property[]): {
   const said = new Set(session.slots.pairEmptySaid ?? []);
   const empty = (session.slots.pairEmpty ?? []).filter(n => !said.has(n));
   if (empty.length > 0) session.slots.pairEmptySaid = [...said, ...empty];
+  // NO ABSENCE CLAIM OVER A CARD THAT STANDS NEARBY (the [03:52] follow-up):
+  // «Околу Буњаковец во моментов немам ништо што одговара на овие критериуми»
+  // followed by a row 1,2 km away read as «we have nothing around Bunjakovec»
+  // when the truth was «nothing WITHIN THE WALK RING, and this is 1,2 km out».
+  // A place is only called empty when the nearest card really is elsewhere (the
+  // 4,5 km ТЦ Џевахир case); inside the near band the lead names the distance
+  // instead — a fact, measured from the pins, never an inventory claim.
+  const placeById = new Map((session.slots.poiPlaces ?? []).map(pl => [pl.name, pl] as const));
+  const nearestTo = (name: string): number | undefined => {
+    const pl = placeById.get(name);
+    if (!pl) return undefined;
+    let best = Number.POSITIVE_INFINITY;
+    for (const p of properties) {
+      if (typeof p.lat !== 'number' || typeof p.lon !== 'number' || !p.lat || !p.lon) continue;
+      const d = distM(pl.lat, pl.lon, p.lat, p.lon);
+      if (d < best) best = d;
+    }
+    return Number.isFinite(best) ? best : undefined;
+  };
+  const distText = (d: number): string => (d < 1000
+    ? `${Math.max(10, Math.round(d / 10) * 10)} m`
+    : `${(d / 1000).toFixed(1).replace('.', ',')} km`);
+  const near: Array<{ label: string; d: number }> = [];
+  const far: string[] = [];
+  for (const n of empty) {
+    const d = properties.length > 0 ? nearestTo(n) : undefined;
+    if (d !== undefined && d <= PAIR_NEAR_BAND_M) near.push({ label: displayPlaceName(n), d });
+    else far.push(displayPlaceName(n));
+  }
+  const lineParts: string[] = [];
+  if (near.length > 0) {
+    const closest = near.reduce((a, b) => (b.d < a.d ? b : a));
+    lineParts.push(`Најблиску до ${near.map(x => x.label).join(' и ')} имам на ${distText(closest.d)}:`);
+  }
+  if (far.length > 0) {
+    lineParts.push(far
+      .map(n => `Околу ${n} во моментов немам ништо што одговара на овие критериуми.`)
+      .join(' '));
+  }
   return {
     opener: !allAnswered ? undefined
       : names.length >= 2
         ? `Еве по една опција до ${names.map(n => displayPlaceName(n)).join(' и до ')}:`
         : names.length === 1 ? `Еве ја најблиската опција до ${displayPlaceName(names[0])}:`
         : undefined,
-    emptyLine: empty
-      .map(n => `Околу ${displayPlaceName(n)} во моментов немам ништо што одговара на овие критериуми.`)
-      .join(' ') || undefined,
+    emptyLine: lineParts.join(' ') || undefined,
     perCardAnchor: anchors.map(a => a
       ? { name: displayPlaceName(a.name), lat: a.lat, lon: a.lon } : undefined),
     perCardAlsoAnchors: alsoOf.map(list => (list.length > 0
