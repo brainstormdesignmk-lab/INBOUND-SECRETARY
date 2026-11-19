@@ -1469,6 +1469,11 @@ export function pluralizeOwnerRefs(copy: string): string {
   // во тек» — up to three words between the marker and the noun.
   const marker = /(?<![\p{L}])(го|go)((?:\s+\p{L}+){1,3}\s+)(сопственикот|sopstvenikot)(?![\p{L}])/giu;
   out = out.replace(marker, (_m, _go: string, between: string) => `ги${between}сопствениците`);
+  // …and the DATIVE marker of «да му се јавам на сопственикот» («да можам веднаш
+  // да му се јавам на сопствениците» reads as a typo — the object is several
+  // owners, so the pronoun must be «им»). Same shape, same three-word window.
+  const dative = /(?<![\p{L}])(му|mu)((?:\s+\p{L}+){1,3}\s+)(сопственикот|sopstvenikot)(?![\p{L}])/giu;
+  out = out.replace(dative, (_m, _mu: string, between: string) => `им${between}сопствениците`);
   // …and every remaining reference (no object marker: «со сопственикот»,
   // «кај сопственикот», «пред да заѕвонам кај сопственикот»).
   out = out.replace(/(?<![\p{L}])(сопственикот|сопственик|sopstvenikot|sopstvenik)(?![\p{L}])/giu,

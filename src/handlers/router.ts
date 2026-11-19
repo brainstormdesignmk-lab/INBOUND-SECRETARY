@@ -93,6 +93,11 @@ export interface RouteEvidence {
   /** INFO_ASK_PAIR_IDENTITY: a message naming several Евидентен броеви, with no
    *  facet asked, where both named rows exist in the feed. */
   infoPairIdentity?: boolean;
+  /** AVAILABILITY_PLURAL: an availability ask that NAMES the flats (the [16:11]
+   *  capture: «ДАЛИ 84 И 82 СЕ УШТЕ НА ПРОДАЖБА ?»), where the set is the
+   *  numbers he typed rather than the table — both named rows resolve in the
+   *  feed. Without this the mirror could only see a table pair. */
+  availabilityPair?: boolean;
   /** PRICE_AVG_NASELBA: the neighbourhood comparison's own gate holds — a
    *  cheapest ask naming «населба», no area named, buy, and a rankable per-м²
    *  pool in the feed. */
@@ -614,19 +619,24 @@ export const ROUTING_ORDER: RouteRule[] = [
       if (eb === undefined || sl.viewingFeeAgreed || isFeeTraffic(t)) return false;
       return new Set([...(sl.currentBatch ?? []), ...(sl.presentedIds ?? [])]).has(eb);
     } },
-  { intent: 'AVAILABILITY_PLURAL', note: 'an availability ask over SEVERAL flats («se slobodni ?», «dvata ?», inbound.ts 9985) — the ack for the set plus the owner confirm. The executor\'s veto list is copied (fee legs, a named EB, a bedroom count, an inventory/area ask, an agreed fee): each of those owns its own lane',
-    fires: (t, s, sl) => {
+  { intent: 'AVAILABILITY_PLURAL', note: 'an availability ask over SEVERAL flats («se slobodni ?», «dvata ?», «дали 84 и 82 се уште на продажба ?» — the set is the table OR the numbers he named, inbound.ts 11172) — the ack for the set plus the owner confirm. The executor\'s veto list is copied (fee legs, a named EB, a bedroom count, an inventory/area ask, an agreed fee): each of those owns its own lane, and a NAMED PAIR stands those three down (its numbers ARE its subject)',
+    fires: (t, s, sl, ev) => {
       const ebs = new Set([...(sl.currentBatch ?? []), ...(sl.presentedIds ?? [])]);
+      // THE NUMBERS HE TYPED ARE THE SET (the [16:11] capture): the table held
+      // neither flat, so only the evidence probe can see the pair — the executor
+      // resolves the very same rows before it serves.
+      const byNumber = ev?.availabilityPair === true;
       // AN ASK FOR OTHER STOCK IS NOT AN AVAILABILITY ASK (defect #3 of the
       // [05:20] capture): «освен овие … дали имате други?» carries «овие …
       // имате», which this row read as the plural availability question. The
       // stock lane owns that sentence, and this row must not claim it — the
       // executor leg carries the same veto (inbound.ts).
-      return ebs.size >= 2 && !detectMoreStockRequest(t) && detectAvailabilityPlural(t)
+      return (ebs.size >= 2 || byNumber) && !detectMoreStockRequest(t) && detectAvailabilityPlural(t)
         && !detectFeeWhy(t) && !detectFeeNag(t) && !detectFeeComplaint(t)
         && !detectFeeSurprise(t) && !detectProvisionAsk(t) && !detectProvisionWho(t)
-        && !isFeeTraffic(t) && inferPropertyId(t) === undefined
-        && extractSlots(t).bedrooms === undefined
+        && !isFeeTraffic(t)
+        && (byNumber || inferPropertyId(t) === undefined)
+        && (byNumber || extractSlots(t).bedrooms === undefined)
         && !detectInventoryAsk(t) && !detectAreaHaveAsk(t)
         && !sl.viewingFeeAgreed;
     } },

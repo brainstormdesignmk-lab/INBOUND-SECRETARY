@@ -21,7 +21,7 @@ import {
   NB, NA,
 } from './lexicon';
 import { extFires } from './detectorExt';
-import { firstEbNumber, EB_NUMBER_SOURCE } from './ebNumber';
+import { firstEbNumber, ebNumbersInText, EB_NUMBER_SOURCE } from './ebNumber';
 // The recommendation grammar lives in its own module (the [11:39] family).
 // Imported here so the advice lanes consult ONE predicate for "the client asks
 // which flat to pick" instead of duplicating the word classes — and a choice
@@ -1143,6 +1143,16 @@ const CHARGE_MONEY_RE = new RegExp(
  *  left the other unaddressed and the client had to type «А 42?». */
 export function detectAvailabilityPlural(text: string): boolean {
   if (!detectAvailabilityAsk(text)) return false;
+  // TWO NAMED FLATS ARE A PLURAL BY CONSTRUCTION (the [16:11] capture):
+  // «САКАМ ДА КУПАМ ТРОСОБЕН СТАН. ДАЛИ 84 И 82 СЕ УШТЕ НА ПРОДАЖБА ?» names
+  // both flats and asks ONE availability question about them — no «двата/сите»
+  // word and no clitic, so this reader declined and the single-flat ack answered
+  // for 84 alone («станот е достапен веднаш … дали да го контактирам
+  // сопственикот»): 82 was never answered and its viewing never arranged. Two
+  // Евидентен numbers in one sentence IS the plural, and the number grammar is
+  // the shared reader (ebNumber.ts), so a price, an area, a floor or a clock
+  // still counts as nothing.
+  if (ebNumbersInText(text).length >= 2) return true;
   return /(?<![\p{L}])(?:gi|ги|site|сите|dvata|двата|dvete|двете|ovie|овие|tie|тие)(?![\p{L}])/iu.test(text)
     || /(?<![\p{L}])(?:se|се)\s+(?:uste\s+|уште\s+)?(?:slobodni|слободни|dostapni|достапни)(?![\p{L}])/iu.test(text);
 }
@@ -1187,6 +1197,17 @@ export function detectAvailabilityAsk(text: string): boolean {
   // accepted with its typo twins; the PAST forms («продаден/продаде» — was it
   // sold) are deliberately still outside, they are a different question.
   if (/(?:^|\s)(?:se|се)\s+(?:продав|продаа|prodav|prodv|prodaa)\p{L}*(?![\p{L}\p{N}])/iu.test(text)) return true;
+  // A NAMED PAIR LENGTHENS THE QUESTION (the [16:11] family): «ДАЛИ 84 И 82 СЕ
+  // УШТЕ НА ПРОДАЖБА ?» fits the generic 40-character window, but the same
+  // question spelled out — «дали ЕВИДЕНТЕН БРОЈ 84 и ЕВИДЕНТЕН БРОЈ 82 се уште
+  // на продажба ?» — puts the sale word 46 characters after «дали», so the
+  // availability read failed entirely and the pair-identity lane answered an
+  // availability question with two fact cards. A question word, a NAMED flat
+  // (the shared EB grammar, so a price/size/clock never qualifies) and an
+  // availability word in one message IS the ask, however long the list is.
+  if (ebNumbersInText(text).length >= 1
+    && /(?<![\p{L}])(?:дали|dali)(?![\p{L}])/iu.test(text)
+    && /(?:на\s*продажба|na\s*prodazba|достапн|dostapn|слободн|slobodn|продаден|prodaden|издаден|izdaden)/iu.test(text)) return true;
   if (AVAILABILITY_ASK_RE.test(text)) return true;
   // Sweep availability 24:09 companion classes (taken/gone/standing/raspolaganje)
   if (matchesBoth(AVAILABILITY_RE2, text)) return true;
@@ -1947,13 +1968,71 @@ export function detectMultiVisitIntent(text: string): boolean {
   // so the pair-identity lane answered with an info card and the route never
   // started. Same rule as «да ги видам»: the verb must carry a COLLECTIVE or
   // TWO NAMED FLATS; a bare «сакам да го посетам» stays a single visit.
-  const visitVerb = /(?:посет|poset|видам|vidam|видиме|vidime|видите|vidite|погледам|погледаме|разгледам|разгледаме|гледам|gledam)/iu.test(flat);
+  // …and the «погледнам/разгледам» stems are the same family as «погледам»:
+  // the [09:41] capture's «да ГИ ПОГЛЕДНАМ лично» matched nothing, so the
+  // viewing the client asked for in the plural carried no visit verb at all.
+  // «РАЗГЛЕДУВАВ» IS BROWSING, NOT VIEWING (the [10:58] capture): «разгледував
+  // станови на вашата страница и сакам да прашам за стан со евидентен број 82
+  // и 75» names two numbers, so a bare `разглед\p{L}*` stem made the visit
+  // intent TRUE and the pair-identity lane refused the turn — one flat was
+  // described and the client had to type «А 75 ?». The deliberate viewing forms
+  // («да ги разгледам») are kept; the imperfective browsing form is not one.
+  const visitVerb = /(?:посет|poset|видам|vidam|видиме|vidime|видите|vidite|поглед\p{L}*|pogled\p{L}*|разглед(?!ува)\p{L}*|razgled(?!uva)\p{L}*|гледам|gledam)/iu.test(flat);
   if (visitVerb && /(?:ги\s+)?(?:двата|двете|трите|сите|dvata|dvete|trite|site)(?!\p{L})/iu.test(flat)) return true;
   // TWO FLATS NAMED, nothing else: «посети 66 и 84», «да ги видам 66, 84 и 77».
   // A pair of NUMBER NOUNS (Евидентен број 66 и 84) is unambiguous; a bare
   // «66 и 84» needs the visit verb beside it, which `visitVerb` just proved.
   if (visitVerb && EB_NAMED_RE.test(flat) && (flat.match(/\d{1,5}/g) ?? []).length >= 2) return true;
   if (visitVerb && /(?<![\p{N}])\d{1,4}\s*(?:,|и|i)\s*\d{1,4}(?![\p{N}])/iu.test(flat)) return true;
+  return false;
+}
+
+/** A VIEWING VERB OVER THE PLURAL CLITIC — «да ги погледнам», «ајде да ги
+ *  видиме», «сакам да ги посетам», «da gi vidam». The clitic «ги» is the
+ *  client's OWN plural: it says the verb's object is several things (the flats
+ *  on the table), which is the one evidence `detectMultiVisitIntent` was still
+ *  missing — every arm there wants a collective noun («двата/сите/… станов») or
+ *  two named numbers.
+ *
+ *  THE [09:41] CAPTURE: «заинтересиран сум за евидентен број 88 и 89» →
+ *  «дали се достапни уште становите ?» → «ако се достапни би сакал да ГИ
+ *  ПОГЛЕДНАМ лично» was arranged as a ONE-flat visit («Посетата е за станот со
+ *  Евидентен број 88 … 500 денари»): the second flat he asked to see, and its
+ *  fee, were dropped from the protocol.
+ *
+ *  THE OBJECT DECIDES WHAT «ги» POINTS AT: «да ги видам ЦЕНИТЕ / условите /
+ *  документите» is not a viewing of flats, so a non-property object within the
+ *  verb's own object slot stands the detector down. Whether the flats exist is
+ *  the CALLER's question — this predicate reads the sentence only, and the
+ *  handler requires ≥2 rows on the table before it treats the wish as plural.
+ */
+const PLURAL_VIEW_VERB_RE = /(?<![\p{L}])(?:ги|gi)\s+(?:видам|видиме|видите|види|vidam|vidime|vidite|pogled\p{L}*|razgled\p{L}*|poset\p{L}*|поглед\p{L}*|разглед\p{L}*|посет\p{L}*)/giu;
+// THE REFLEXIVE PLURAL IS THE SAME WISH WITHOUT THE CLITIC (the [16:11]
+// capture): «КОГА БИ МОЖЕЛО ДА СЕ ПОГЛЕДНАТ ?» asks when the flats can be
+// viewed — one word for the whole set, no «ги» in sight, so the clitic arm
+// above declined and the protocol was written as «Посетата е за станот со
+// Евидентен број 84» (one visit, one 500-denar fee) for a client who had named
+// 84 AND 82 in the same breath.
+// The VERB'S OWN ENDING carries the plural: a 3rd-person-plural («се
+// погледнат», «се видат», «се посетат») or a 1st-person-plural («да се
+// погледнеме», «да се видиме») form. The singular («да се погледне», «се
+// гледа») has neither ending, so a real one-flat question stays one-flat.
+const REFLEXIVE_PLURAL_VIEW_RE = /(?<![\p{L}])(?:се|se)\s+(?:(?:може(?:ло|ле|ат)?|moze(?:lo|le|at)?)\s+)?(?:(?:да|da)\s+)?(?:поглед|вид|посет|разглед(?!ува)|pogled|vid|poset|razgled(?!uva))\p{L}*(?:ат|at|ме|me)(?![\p{L}])/giu;
+const NON_PROPERTY_OBJECT_RE = /(?<![\p{L}])(?:цени|цена|ceni|cena|документ\p{L}*|dokument\p{L}*|услов\p{L}*|uslov\p{L}*|договор\p{L}*|dogovor\p{L}*|сметк\p{L}*|smetk\p{L}*|фактур\p{L}*|faktur\p{L}*|фотографи\p{L}*|fotografii|слики|sliki)/iu;
+export function detectPluralViewingWish(text: string): boolean {
+  const flat = text.trim().replace(/\n+/g, ' ');
+  if (!flat) return false;
+  for (const re of [PLURAL_VIEW_VERB_RE, REFLEXIVE_PLURAL_VIEW_RE]) {
+    // A FRESH lastIndex per pattern: these are module-level /g regexes, and a
+    // shared one would make two lanes disagree depending on who ran first.
+    re.lastIndex = 0;
+    for (const m of flat.matchAll(re)) {
+      const at = (m.index ?? 0) + m[0].length;
+      const after = flat.slice(at, at + 24);
+      if (NON_PROPERTY_OBJECT_RE.test(after)) continue;
+      return true;
+    }
+  }
   return false;
 }
 
@@ -2119,7 +2198,13 @@ export function detectVisitTimingQuestion(text: string): boolean {
   // presentation that announced the area empty). Only the da+se/ja/go+вид
   // shape — a bare `vid\p{L}*` would swallow «koga go vidov na sajtot», which
   // is a recall, not a viewing question.
-  const visitRef = '(?:' + VIEWING_NOUN_SRC + '|pogledn\\p{L}*|гледа\\p{L}*|gledn\\p{L}*'
+  // …and the CYRILLIC «погледн» family was missing (the [16:11] capture): «КОГА
+  // БИ МОЖЕЛО ДА СЕ ПОГЛЕДНАТ ?» is the same when-question as the Latin
+  // «pogledn» arm beside it, but every Cyrillic spelling of the verb —
+  // погледнам / погледнеме / погледнат / погледнав — matched nothing, so with
+  // the fee already disclosed the turn fell into the fee-agreement lane and the
+  // client was asked for his name and phone instead of being offered a term.
+  const visitRef = '(?:' + VIEWING_NOUN_SRC + '|pogledn\\p{L}*|погледн\\p{L}*|гледа\\p{L}*|gledn\\p{L}*'
     + '|da\\s+se\\s+vid\\p{L}*|да\\s+се\\s+вид\\p{L}*'
     + '|da\\s+ja\\s+vid\\p{L}*|да\\s+ја\\s+вид\\p{L}*'
     + '|da\\s+go\\s+vid\\p{L}*|да\\s+го\\s+вид\\p{L}*)';
@@ -7206,6 +7291,17 @@ export function detectMoreStockRequest(text: string): boolean {
   const objectAsk = /(?<![\p{L}\p{N}])(?:дали|dali)\s+(?:\S+\s+){0,3}(?:има|имаат|имате|ima|imate)(?![\p{L}\p{N}])/iu.test(t)
     || /(?<![\p{L}\p{N}])(?:го|ја|ja|ги|gi|го|toa|тоа|taa|таа)\s+(?:има|имаат|имате|ima|imate)(?![\p{L}\p{N}])/iu.test(t);
   if (objectAsk) return false;
+  // «ДАЛИ СЕ ДОСТАПНИ УШТЕ СТАНОВИТЕ ?» IS «STILL», NOT «MORE» (the [09:41]
+  // capture): «уште» here hangs off the availability ADJECTIVE («достапни
+  // уште»), so the sentence asks whether the flats on the table are still
+  // free — and the bare «уште + <stock plural>» arm below read it as «уште
+  // станови» (more of them). The turn then stood down from the availability
+  // lane and the funnel answered a question about TWO NAMED FLATS with
+  // «Моментално во системот нема станови» — an absence claim from a filter
+  // (§2i) for a pair in the offer. The adjective is the discriminator, and
+  // only the weak arm is vetoed: «имате ли уште станови» / «освен овие …
+  // дали имате други» keep their MORE_STOCK lane above.
+  if (/(?<![\p{L}])(?:достапн\p{L}*|слободн\p{L}*|активн\p{L}*|dostapn\p{L}*|slobodn\p{L}*|aktivn\p{L}*)\s+(?:уште|усте|uste|повеќе|poveke)(?![\p{L}])/iu.test(t)) return false;
   return /(?<![\p{L}\p{N}])(?:уште|усте|uste|повеќе|poveke|povekje|уште\s+малку|uste\s+malku)\s+(?:опции|понуди|станови|куќи|недвижности|имоти|предлози|посети|опциите|понудите|становите|opcii|ponudi|stanovi|kuki|nedviznosti|imoti|predlozi)(?![\p{L}\p{N}])/iu.test(t)
     || /(?<![\p{L}\p{N}])(?:имате|има|imate|ima)\s+(?:ли\s+|li\s+)?(?:уште|усте|uste|повеќе|poveke)(?![\p{L}\p{N}])/iu.test(t)
     || /(?<![\p{L}\p{N}])(?:уште|усте|uste|повеќе|poveke)\s+(?:имате|има|imate|ima)(?![\p{L}\p{N}])/iu.test(t)

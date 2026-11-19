@@ -16,7 +16,7 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, isSmallUnit, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
-  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, namedVisitEbs,
+  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralViewingWish, namedVisitEbs,
   detectPairReferent, detectIdentifyByFigure,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -79,7 +79,7 @@ import {
   locateNoun,  buildLocateFirstAsk, buildLocateServiceAsk, buildLocateMoreSpecsAsk,
   buildLocateLandmarkPriceProbe, buildDescribeIntro,
   buildAvailabilityClaim, AVAILABILITY_ASK_TAIL,
-  buildPriceRelay, buildFeeAsk, buildFeePerProperty, extendFeeAskForCount, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
+  buildPriceRelay, buildFeeAsk, buildFeePerProperty, extendFeeAskForCount, pluralizeOwnerRefs, buildFeeWhy, buildFeeRules, buildProvisionAsk, PROVISION_ASK_NEITHER,
   BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK, EXIT_CRITERIA_CHECK,
   buildDiscoveryAsk, discoveryAskCriteria, locationCriterionKnown, serviceCriterionKnown,
   type DiscoveryCriterion,
@@ -2726,7 +2726,14 @@ export class InboundHandler {
     // A plural request STICKS for the rest of the hunt (`visitWanted`): a later
     // term for the same set («ПЕТОК ВО 15:00» after «не можев да ги поврзам»)
     // is the same route, not a sudden single visit.
-    if (detectMultiVisitIntent(`${text} ${term}`)) session.slots.visitWanted = true;
+    // …AND THE PLURAL CLITIC IS HIS PLURAL TOO («да ги погледнам», the [09:41]
+    // capture): the client asks to see the SEVERAL flats on the table, so a
+    // term for that visit is a route over them — provided the table really
+    // holds more than one (the `ebs.length < 2` check below still guards it).
+    if (detectMultiVisitIntent(`${text} ${term}`)
+      || (this.onScreenEbs(session).length >= 2 && detectPluralViewingWish(`${text} ${term}`))) {
+      session.slots.visitWanted = true;
+    }
     if (!session.slots.visitWanted) return false;
     const ebs = this.multiVisitEbs(session, `${text} ${term}`);
     if (ebs.length < 2) return false;
@@ -2781,7 +2788,77 @@ export class InboundHandler {
     // (`currentBatch`), never every card ever presented — the old
     // `currentBatch + presentedIds` build is what swept the pair partner in.
     const onTable = (session.slots.currentBatch ?? []).filter(eb => onScreen.includes(eb));
+    // A DEICTIC PLURAL NAMES NOTHING NEW: the table pair is re-read at term
+    // time, so `visitEbs` stays empty here — it is the memory of flats the
+    // client NAMED, and the plural-clitic wish («да ги погледнам», the [09:41]
+    // capture) is exactly a deictic: it points at the cards, and the route's own
+    // term turns read them from the table (tests/visit-deictic-named.test.ts).
     return (onTable.length > 0 ? onTable : onScreen).slice(0, 4);
+  }
+
+  /** THE CONTACT ASK FOR THE VISIT(S) HE ASKED ABOUT — plural owners and the
+   *  pair named when the visit covers several flats (the [09:41] capture: two
+   *  flats named by number, «би сакал да ги погледнам лично», and the booking
+   *  turn asked «да го контактирам сопственикот» — one owner, one visit, the
+   *  second viewing absent from the very turn that books it). The BANK copy is
+   *  kept; only the owner references become plural and the subject line names
+   *  the set, so the name and phone he gives are visibly for both visits. The
+   *  set is the same one the fee disclosure used (`multiVisitEbs`), and a
+   *  one-flat visit comes back unchanged. */
+  private async contactAskFor(text: string, ask: string, session: ChatSession): Promise<string> {
+    // THE MESSAGE'S OWN WORDS only when it ASKS FOR the visits. A contact turn
+    // («Марко Марковски, 070123456») carries no visit verb, and reading its
+    // digits as ЕВ numbers would relabel a booked pair as one flat — the
+    // session's wish and its remembered set answer instead.
+    const wishHere = this.pluralWishHere(text);
+    const wish = session.slots.visitWanted === true || wishHere;
+    if (!wish) return ask;
+    const trip = this.multiVisitEbs(session, wishHere ? text : '');
+    const subject = trip.length >= 2 ? await this.pluralVisitSubject(trip, session) : '';
+    return subject ? `${subject}\n\n${pluralizeOwnerRefs(ask)}` : ask;
+  }
+
+  /** Does THIS message ask for the visit(s) in the plural — a collective wish
+   *  («двата», «сите што ми ги покажа») or a viewing verb over the plural clitic
+   *  / reflexive («да ги погледнам», «кога би можело да се погледнат»)? The
+   *  two predicates every plural-visit seam reads, in ONE place. */
+  private pluralWishHere(text: string): boolean {
+    return detectMultiVisitIntent(text) || detectPluralViewingWish(text);
+  }
+
+  /** THE VISIT'S SUBJECT LINE, IN THE PLURAL — «Посетата е за становите со
+   *  Евидентни броеви 88 и 89 (Аеродром).». ONE wording for both seams that
+   *  announce a visit (the fee disclosure and the contact ask): a two-flat
+   *  viewing was written as «Посетата е за станот со Евидентен број 88» in one
+   *  seam and counted per property in the other, and two copies of the sentence
+   *  drift the way copies do (the [09:41] capture). "" when there is no pair —
+   *  the one-flat sentence belongs to the seam that already builds it. */
+  private async pluralVisitSubject(tripEbs: number[], session: ChatSession): Promise<string> {
+    if (tripEbs.length < 2) return '';
+    const first = await this.deps.properties.getByEb(tripEbs[0]!).catch(() => undefined);
+    const loc = displayAreaName(first?.location ?? session.slots.location ?? '');
+    const list = tripEbs.length === 2
+      ? `${tripEbs[0]} и ${tripEbs[1]}`
+      : `${tripEbs.slice(0, -1).join(', ')} и ${tripEbs[tripEbs.length - 1]}`;
+    return `Посетата е за становите со Евидентни броеви ${list}${loc ? ` (${loc})` : ''}.`;
+  }
+
+  /** THE TERM ASK FOR THE VISIT(S) UNDER ARRANGEMENT — the bank-free exact
+   *  phrase, with the owners in the plural when the arrangement covers several
+   *  flats (the [16:11] capture: after 84 AND 82 were answered, agreed and
+   *  booked, the very next turn asked «Кој термин би Ви одговарал за посета? Да
+   *  се обидам да договорам со СОПСТВЕНИКОТ во тоа време.» — one owner for a
+   *  two-owner arrangement). ONE definition for every seam that asks for the
+   *  term: the scheduling lane, the missing-piece ask and the post-fee contact
+   *  turn all read it, so the wording (and the number of owners) cannot drift
+   *  between them. A one-flat visit comes back byte-identical. */
+  private visitTermAsk(session: ChatSession, text = ''): string {
+    const wishHere = this.pluralWishHere(text);
+    if (session.slots.visitWanted !== true && !wishHere) return VISIT_TIME_QUESTION;
+    // The message's own numbers only when it asks for the visits (a contact turn
+    // must never be read as an EB list — see contactAskFor).
+    const plural = this.multiVisitEbs(session, wishHere ? text : '').length >= 2;
+    return plural ? pluralizeOwnerRefs(VISIT_TIME_QUESTION) : VISIT_TIME_QUESTION;
   }
 
   /** THE CARDS THE CLIENT CAN SEE — the batch on the table plus everything
@@ -4934,6 +5011,24 @@ export class InboundHandler {
           this.deps.properties.getByEb(eb).catch(() => undefined))))
           .filter((p): p is Property => !!p);
         if (calledRows.length >= 2) ev.infoPairIdentity = true;
+      }
+    }
+
+    // ── AVAILABILITY_PLURAL BY NUMBER (inbound.ts 11172) ───────────────────
+    // «ДАЛИ 84 И 82 СЕ УШТЕ НА ПРОДАЖБА ?» (the [16:11] capture): an
+    // availability ask that NAMES several flats. The set is the numbers he
+    // typed, not the table, so the mirror can only see it through the feed —
+    // the probe resolves them exactly as the executor's lane does. The cheap
+    // gate is the plural-ask read itself (a text without a plural availability
+    // shape pays no lookup).
+    if (detectAvailabilityPlural(text) && !isFeeTraffic(text)
+      && !detectMoreStockRequest(text)) {
+      const namedPair = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
+      if (namedPair.length >= 2) {
+        const pairRows = (await Promise.all(namedPair.map(eb =>
+          this.deps.properties.getByEb(eb).catch(() => undefined))))
+          .filter((p): p is Property => !!p);
+        if (pairRows.length >= 2) ev.availabilityPair = true;
       }
     }
 
@@ -8733,9 +8828,12 @@ export class InboundHandler {
       // opener.
       const asksSent = session.slots.contactAsks ?? 0;
       session.slots.contactAsks = asksSent + 1;
-      const answer = asksSent === 0 && !ask.startsWith(LAST_INFO_PREFIX)
-        ? `${LAST_INFO_PREFIX} ${ask}`
-        : ask;
+      // A PLURAL VISIT BOOKS IN THE PLURAL (the [09:41] capture): the same bank
+      // ask, with the pair named and one owner per property.
+      const booked = await this.contactAskFor(text, ask, session);
+      const answer = asksSent === 0 && !booked.startsWith(LAST_INFO_PREFIX)
+        ? `${LAST_INFO_PREFIX} ${booked}`
+        : booked;
       routeLog(chatId, text, 'FEE_AGREED_FIRST');
       pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
       pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
@@ -9096,6 +9194,22 @@ export class InboundHandler {
             // they are in is known from the feed — without banking it the next
             // turn was asked «купување или изнајмување?» again.
             session.slots.describedEbs = calledRows.map(p => p.eb);
+            // …AND PRESENTED, not only described (the [09:41] capture): «за-
+            // интересиран сум за евидентен број 88 и 89» was answered with both
+            // identity lines, and the very next turns — «дали се достапни уште
+            // СТАНОВИТЕ ?», «би сакал да ГИ погледнам лично» — refer to the
+            // pair by the plural. `onScreenEbs`, the plural availability leg and
+            // the visit set all read currentBatch + presentedIds, so a pair held
+            // only in `describedEbs` was invisible: the availability ask was
+            // answered for ONE flat («станот е достапен веднаш … дали да го
+            // контактирам сопственикот») and the visit he asked for in the
+            // plural was written as a one-flat visit («Посетата е за станот со
+            // Евидентен број 88»), the second flat and its fee dropped. Naming a
+            // flat and describing it IS showing it; it belongs on the table.
+            session.slots.presentedIds = [...new Set([
+              ...(session.slots.presentedIds ?? []),
+              ...calledRows.map(p => p.eb),
+            ])];
             const services = [...new Set(calledRows.map(p => p.service).filter(Boolean))];
             if (services.length === 1 && !session.slots.service) {
               session.slots.service = services[0] as ChatSession['slots']['service'];
@@ -11073,17 +11187,37 @@ export class InboundHandler {
     // a fresh search, never a named EB), and the fee is stated per property in
     // the same turn through the existing per-property arithmetic.
     {
-      const pluralEbs = [...new Set([
-        ...(session.slots.currentBatch ?? []),
-        ...(session.slots.presentedIds ?? []),
-      ])];
+      // THE NUMBERS HE TYPES ARE THE SET (the [16:11] capture): «САКАМ ДА
+      // КУПАМ ТРОСОБЕН СТАН. ДАЛИ 84 И 82 СЕ УШТЕ НА ПРОДАЖБА ?» names BOTH
+      // flats and asks one availability question about them. The table held
+      // neither, `inferPropertyId` bound 84, and this lane never ran — the
+      // single-flat ack answered «станот е достапен веднаш … дали да го
+      // контактирам сопственикот»: flat 82 was not answered at all, and the
+      // viewing he asked for next was booked for 84 alone. A message that names
+      // several flats asks about ALL of them, and the reader is the same one
+      // every named-EB lane uses (a price, a size or a year is never a flat).
+      const pluralAsk = detectAvailabilityPlural(text);
+      const namedPlural = pluralAsk
+        ? collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1)
+        : [];
+      const namedPair = namedPlural.length >= 2;
+      const pluralEbs = namedPair
+        ? namedPlural
+        : [...new Set([
+          ...(session.slots.currentBatch ?? []),
+          ...(session.slots.presentedIds ?? []),
+        ])];
       if (pluralEbs.length >= 2
-        && detectAvailabilityPlural(text)
+        && pluralAsk
         && !detectFeeWhy(text) && !detectFeeNag(text) && !detectFeeComplaint(text)
         && !detectFeeSurprise(text) && !detectProvisionAsk(text) && !detectProvisionWho(text)
         && !isFeeTraffic(text)
-        && inferPropertyId(text) === undefined
-        && extractSlots(text).bedrooms === undefined
+        // A NAMED PAIR OUTRANKS THE MESSAGE'S OTHER WORDS: the type noun and the
+        // «сакам да купам» beside it describe the flats he NAMED, so they must
+        // not send the turn back to the funnel. Without a pair both guards
+        // stand — «дали имате трисобни на продажба?» is a search, not an ack.
+        && (namedPair || inferPropertyId(text) === undefined)
+        && (namedPair || extractSlots(text).bedrooms === undefined)
         && !detectInventoryAsk(text) && !detectAreaHaveAsk(text)
         // AN ASK FOR OTHER STOCK IS NEVER AN AVAILABILITY ASK (defect #3 of the
         // [05:20] capture): «OSVEN OVIE STO MI GI POKAZA DALI IMATE DRUGI ?»
@@ -11115,6 +11249,20 @@ export class InboundHandler {
             ?? buildFeeAsk(svc);
           const answer = `${lines.join('\n')}\n\n${extendFeeAskForCount(feeLine, svc, rows.length)}`;
           session.state = 'closing';
+          // ANSWERING BOTH FLATS IS SHOWING BOTH (the [09:41] rule): the very
+          // next turns («кога би можело да се погледнат?», «да, се согласувам»)
+          // refer to the pair in the plural, and `onScreenEbs` is what the visit
+          // set, the subject line and the per-property fee all read. Without
+          // this the two flats were answered and then instantly forgotten.
+          session.slots.presentedIds = [...new Set([
+            ...(session.slots.presentedIds ?? []),
+            ...rows.map(p => p.eb),
+          ])];
+          // …and the market they are in is known from the rows themselves (the
+          // «купување или изнајмување?» re-ask on the next turn).
+          if (!session.slots.service && (svc === 'buy' || svc === 'rent')) {
+            session.slots.service = svc;
+          }
           session.slots.ownerContactPending = true;
           session.slots.feeDisclosed = true;
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
@@ -11392,7 +11540,7 @@ export class InboundHandler {
         session.slots.phone = contact.phone;
         session.slots.viewingFeeAgreed = true;
         session.state = 'visit_scheduling';
-        const answer = VISIT_TIME_QUESTION;
+        const answer = this.visitTermAsk(session, text);
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
@@ -14902,16 +15050,33 @@ ${contactReminder}`;
       // waits for. Answer with the owner-contact confirm ask (visit.confirm.ask,
       // amount-free); the fee is disclosed only AFTER the client agrees
       // ("во ред" / "се согласувам" rides the agreement gate below).
-      reply = pickVariant('visit.confirm.ask', { recent: assistantTexts(session) }) ?? VISIT_CONFIRM_ASK;
+      const confirmAsk = pickVariant('visit.confirm.ask', { recent: assistantTexts(session) }) ?? VISIT_CONFIRM_ASK;
       bankKey = 'visit.confirm.ask';
       session.state = 'closing';
       next = 'closing';
+      // SEVERAL FLATS WANTED IS SEVERAL OWNERS (the [16:11] capture): «КОГА БИ
+      // МОЖЕЛО ДА СЕ ПОГЛЕДНАТ ?» after 84 AND 82 were answered was met with the
+      // one-flat plan («Треба да го контактирам сопственикот … терминот за
+      // посета»), and the turn stamped ONE flat (84) as the subject — the second
+      // viewing, and the second owner, were silently dropped from the protocol
+      // before any fee was even discussed. The plural wish is read by the same
+      // two predicates the fee seam reads, and the subject + owners are the
+      // shared helpers, so a two-flat arrangement cannot drift between seams.
+      const timingPlural = this.onScreenEbs(session).length >= 2 && this.pluralWishHere(text);
       const mbTiming = await this.bindMention(text, session);
       if (await this.sendIfClarify(mbTiming, text, session)) return;
-      const ebTiming = mbTiming?.prop?.eb
-        ?? session.slots.propertyId ?? session.slots.interestedPropertyId
-        ?? session.slots.currentBatch?.[0] ?? props[0]?.eb;
-      if (ebTiming != null) session.slots.interestedPropertyId = ebTiming;
+      if (timingPlural) {
+        session.slots.visitWanted = true;
+      } else {
+        const ebTiming = mbTiming?.prop?.eb
+          ?? session.slots.propertyId ?? session.slots.interestedPropertyId
+          ?? session.slots.currentBatch?.[0] ?? props[0]?.eb;
+        if (ebTiming != null) session.slots.interestedPropertyId = ebTiming;
+      }
+      // ONE assignment: the plural subject/owners are an EDIT of the served ask
+      // (the lost-reply sweep prices every shadowed reply — a correct one-flat
+      // line must never be written and thrown away).
+      reply = timingPlural ? await this.contactAskFor(text, confirmAsk, session) : confirmAsk;
       session.slots.ownerContactPending = true;
 
     } else if ((next === 'closing'
@@ -15238,7 +15403,7 @@ ${contactReminder}`;
           ?? AGENCY_HOURS_PROTOCOL;
         bankKey = 'workdays.question';
       } else {
-        reply = VISIT_TIME_QUESTION;
+        reply = this.visitTermAsk(session, text);
       }
     } else if (next === 'owner_checking') {
       // THE EB IS THE WHOLE POINT OF THE CHECK (the [05:23] field capture): the
@@ -15294,7 +15459,7 @@ ${contactReminder}`;
             ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го договорам терминот со сопственикот.';
           bankKey = 'vague.time';
         } else {
-          reply = VISIT_TIME_QUESTION; // a flat, but no day and no clock yet
+          reply = this.visitTermAsk(session, text); // a flat, but no day and no clock yet
           bankKey = undefined;
         }
         session.state = 'visit_scheduling';
@@ -15311,7 +15476,7 @@ ${contactReminder}`;
         session.slots.ownerClockDay = undefined;
         session.state = 'visit_scheduling';
         next = 'visit_scheduling';
-        reply = `${AGENCY_HOURS_PROTOCOL} ${VISIT_TIME_QUESTION}`;
+        reply = `${AGENCY_HOURS_PROTOCOL} ${this.visitTermAsk(session, text)}`;
         bankKey = undefined;
       } else if (t && detectVagueTime(t)) {
         // Vague time guard: "попладне", "после 5", "pred 17:00" etc. are valid
@@ -15338,7 +15503,7 @@ ${contactReminder}`;
         // покасно?") — collect a NEW concrete time instead of keeping the owner
         // check on a time the client already rejected.
         session.state = 'visit_scheduling';
-        reply = VISIT_TIME_QUESTION;
+        reply = this.visitTermAsk(session, text);
       } else if (before === 'owner_checking' && ev.type === 'VISIT_TIME_PROVIDED') {
         // The client changed the proposed time mid-check — re-ask the owner
         // with the NEW time (the ping-pong continues with the new proposal).
@@ -15419,7 +15584,7 @@ ${contactReminder}`;
               ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го договорам терминот со сопственикот.';
             bankKey = 'vague.time';
           } else {
-            reply = VISIT_TIME_QUESTION;
+            reply = this.visitTermAsk(session, text);
             bankKey = undefined;
           }
           session.state = 'visit_scheduling';
@@ -16075,9 +16240,16 @@ ${contactReminder}`;
         : needName ? 'contact.ask.name' : 'contact.ask.phone';
       const feeKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
       bankKey = feeDone ? contactKey : feeKey;
-      reply = feeDone
+      // THE BOOKING ASK IS THE CONTACT ONE, IN THE PLURAL WHEN THE VISIT IS
+      // (the [09:41] capture): see contactAskFor — the bank copy is kept and
+      // only the owner references and the subject line change. One assignment,
+      // so the lost-reply sweep's branch model reads this lane as it did.
+      const contactCopy = feeDone
         ? (pickVariant(contactKey, { recent: assistantTexts(session) })
           ?? buildContactAsk(session.slots, assistantTexts(session)))
+        : undefined;
+      reply = contactCopy
+        ? await this.contactAskFor(text, contactCopy, session)
         : (pickVariant(feeKey, { recent: assistantTexts(session) }) ?? buildFeeAsk(service));
     } else if (next === 'closing' && before === 'closing'
         && detectAgreement(text)
@@ -16674,8 +16846,16 @@ ${contactReminder}`;
     // verb plus two on-screen ЕВ numbers is a plural request by construction
     // (namedVisitEbs is the same reader the route uses).
     const namedTrip = namedVisitEbs(text, this.onScreenEbs(session));
+    // THE PLURAL CLITIC IS A PLURAL WISH (the [09:41] capture): «ако се достапни
+    // би сакал да ГИ ПОГЛЕДНАМ лично» named no numbers and carried no
+    // collective noun, so `detectMultiVisitIntent` declined, the subject fell
+    // back to one slot EB and the protocol said «Посетата е за станот со
+    // Евидентен број 88» — a two-flat viewing written as one, with the second
+    // flat's fee dropped. «ги» points at the flats ON THE TABLE, so the wish is
+    // plural only when there are several of them.
+    const pluralCliticWish = this.onScreenEbs(session).length >= 2 && detectPluralViewingWish(text);
     const multiWish = session.slots.visitWanted === true || detectMultiVisitIntent(text)
-      || namedTrip.length >= 2;
+      || namedTrip.length >= 2 || pluralCliticWish;
     // …and the SUBJECT of the fee is the same set the route uses (see
     // multiVisitEbs): the flats he named, never every card on the table.
     const tripEbs = multiWish ? this.multiVisitEbs(session, text) : [];
@@ -16683,17 +16863,12 @@ ${contactReminder}`;
     if (reply && (bankKey === 'fee.ask.rent' || bankKey === 'fee.ask.buy')
         && !session.slots.viewingFeeAgreed && !/Евидентен број/u.test(reply)) {
       if (multiWish && tripEbs.length >= 2) {
-        const firstProp = await this.deps.properties.getByEb(tripEbs[0]!).catch(() => undefined);
-        const loc = displayAreaName(firstProp?.location ?? session.slots.location ?? '');
-        const list = tripEbs.length === 2
-          ? `${tripEbs[0]} и ${tripEbs[1]}`
-          : `${tripEbs.slice(0, -1).join(', ')} и ${tripEbs[tripEbs.length - 1]}`;
         // THE SERVED DISCLOSURE IS KEPT, NOT REPLACED (the owner's 2026-11-12
         // directive, the [04:10] capture): the one-flat fee.ask copy is the
         // perfected answer and the bank rotates a dozen variants of it, so a
         // two-flat visit adds ONLY the per-property arithmetic — the sentence
         // is inserted before the variant's own agreement question.
-        reply = `Посетата е за становите со Евидентни броеви ${list}${loc ? ` (${loc})` : ''}.\n\n`
+        reply = `${await this.pluralVisitSubject(tripEbs, session)}\n\n`
           + extendFeeAskForCount(reply, session.slots.service, tripEbs.length);
       } else {
         // ONE NAME IS A ONE-FLAT VISIT — and the flat is the one HE named, not
@@ -17258,7 +17433,7 @@ ${contactReminder}`;
         const ask = gap === 'time'
           ? (pickVariant('vague.time', { recent: assistantTexts(session) })
             ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го договорам терминот со сопственикот.')
-          : VISIT_TIME_QUESTION;
+          : this.visitTermAsk(session);
         pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
         await this.sendRaw(session, ask);

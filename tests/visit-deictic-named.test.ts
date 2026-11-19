@@ -203,13 +203,23 @@ test('[11:18] a mid-route renaming rebuilds the stops to his new list', async ()
   s.slots.feeDisclosed = true;
   s.slots.visitWanted = true;
   s.slots.interestedPropertyId = 84;
-  // Thursday 19.11.2026, 17:00 — the day and hour the route is already on, so
-  // the narrowing does NOT restart the answers.
-  const day = new Date(2026, 10, 19);
-  s.slots.visitTime = 'Четврток, 19.11.2026 во 17:00';
-  s.slots.ownerAskTime = 'Четврток, 19.11.2026 во 17:00';
+  // THE DAY IS DERIVED, NOT PINNED (the [11:18] fixture used to say
+  // «Thursday 19.11.2026, 17:00» and started failing the first time the suite
+  // ran after 17:00 that day): `parseVisitDateTime` rolls a term that is
+  // already past to the NEXT week, so `moved` stopped matching the running
+  // plan's day and the TERM-CHANGE restart — an unrelated branch — voided the
+  // answers this test exists to keep. The route is a fortnight ahead at the
+  // same hour, always in the future, and the client's message names that exact
+  // date: only the SET changes, which is the rule under test.
+  const day = new Date(Date.now() + 14 * 86400_000);
+  const dd = String(day.getDate()).padStart(2, '0');
+  const mm = String(day.getMonth() + 1).padStart(2, '0');
+  const yyyy = day.getFullYear();
+  const dayTerm = `${dd}.${mm}.${yyyy}`;
+  s.slots.visitTime = `${dayTerm} во 17:00`;
+  s.slots.ownerAskTime = `${dayTerm} во 17:00`;
   s.slots.visitPlan = {
-    dayMs: day.getTime(),
+    dayMs: new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime(),
     targetHour: 17,
     term: 'CETVRTOK POPLADNE NEKOE VREME NEKA BIDE 5',
     stops: [
@@ -222,7 +232,7 @@ test('[11:18] a mid-route renaming rebuilds the stops to his new list', async ()
   };
   h.sessions.set(s);
   // Same day, same hour as the running route: only the SET changes.
-  await h.say('NE, SAMO 82 I 77, CETVRTOK VO 17:00');
+  await h.say(`NE, SAMO 82 I 77, ${dayTerm} VO 17:00`);
   const plan = h.sessions.get(h.chatId)!.slots.visitPlan!;
   assert.deepEqual(plan.stops.map(st => st.eb), [82, 77],
     'the route is the two he narrowed it to');
