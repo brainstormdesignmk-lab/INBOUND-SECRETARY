@@ -81,8 +81,16 @@ const TIME_HEAD =
 
 /** The shared source of the EB-number grammar. Use ebNumbersInText() /
  *  firstEbNumber() rather than an own copy: a second regex drifts. */
+// THE SPACED-THOUSANDS TAIL IS REFUSED IN CODE, NOT BY A LOOKBEHIND (the
+// [09:20] field turn «становите со евидентни броеви 69 63 и 66»): the old
+// blanket `(?<!\d\s)` refused a number preceded by ANY digit + space, so in a
+// LIST of Евидентен броеви every one after the first was dropped — «69 63 и
+// 66» answered 69 and 66 and silently skipped 63. The lookahead already refuses
+// the HEAD of a thousands figure («110 000»), and ebNumbersInText() now refuses
+// only an EXACTLY-three-digit tail behind a digit group, which is what makes
+// «1 250» a price while «69 63» stays two listings.
 export const EB_NUMBER_SOURCE =
-  `(?<![\\p{L}\\p{N}])(?<!\\d[.,])(?<!\\d\\s)(?<!(?:${CAP_HEAD})\\s*)`
+  `(?<![\\p{L}\\p{N}])(?<!\\d[.,])(?<!(?:${CAP_HEAD})\\s*)`
   + `\\b(\\d{2,3})\\b(?!\\s*[.,]\\d)(?!\\s+\\d{3})(?!\\s*${UNIT_TAIL})(?!${GLUED_UNIT_TAIL})`;
 
 /** Day and day-part words — the frames that turn a bare number into a clock. */
@@ -148,6 +156,11 @@ export function ebNumbersInText(text: string): number[] {
     // A NUMBER INSIDE A DAY FRAME IS A CLOCK (see isClockNumber) — «петок
     // претпладне накај 10» proposes a viewing, it does not name flat 10.
     if (isClockNumber(form, m.index)) continue;
+    // A THREE-DIGIT TAIL OF A SPACED THOUSANDS FIGURE IS NOT A LISTING: the
+    // number sits behind a digit group and is exactly three digits («110 000»,
+    // «1 250»). A two-digit neighbour in a list («69 63») is not a thousands
+    // tail and is kept.
+    if (/^\d{3}$/u.test(m[1]) && /\d\s$/u.test(form.slice(0, m.index))) continue;
     // \d{2,3} alone admits «00»; 0–9 is never an Евидентен број.
     if (n >= 10 && !found.includes(n)) found.push(n);
   }

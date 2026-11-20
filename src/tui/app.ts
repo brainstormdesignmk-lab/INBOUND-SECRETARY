@@ -33,6 +33,7 @@ import { BankStore } from '../store/bank';
 import { loopStatusLines } from './status';
 import { setLearnedBank } from '../data/responseBank';
 import { sessionStateDump, sessionStateRows, sessionStateFullRows } from './state';
+import { bookingsPaneModel } from './bookings';
 import { runStamp, newClientId, displayChatId } from './chatId';
 
 type Role = 'user' | 'assistant' | 'system' | 'error';
@@ -873,10 +874,17 @@ export class TuiApp {
       return;
     }
     if (text === '/visits') {
-      const rows = this.pipeline.appointments.listAll()
-        .filter(a => a.status === 'finalized')
-        .map(a => `#${a.id} EB ${a.propertyId} · ${a.time ?? '?'} · ${a.clientName} (${a.clientPhone})`).join('\n');
-      this.appendMsg(lead.chatId, { role: 'system', text: `ЗАКАЖАНИ ПОСЕТИ:\n${rows || '(нема)'}`, at: Date.now() });
+      // THE SAME RULE AS THE PANE (the owner's 2026-11-20): a confirmed visit
+      // whose hour has passed is marked «мината» and is not counted as
+      // remaining. `visit_at` is the confirmed instant; a row without it is
+      // still a negotiation and keeps counting.
+      const now = Date.now();
+      const all = this.pipeline.appointments.listAll().filter(a => a.status === 'finalized');
+      const isPast = (a: { visitAt: number | null }): boolean => a.visitAt != null && a.visitAt < now;
+      const remaining = all.filter(a => !isPast(a)).length;
+      const rows = all
+        .map(a => `#${a.id} EB ${a.propertyId} · ${a.time ?? '?'} · ${a.clientName} (${a.clientPhone})${isPast(a) ? ' · мината' : ''}`).join('\n');
+      this.appendMsg(lead.chatId, { role: 'system', text: `ЗАКАЖАНИ ПОСЕТИ (останати ${remaining}):\n${rows || '(нема)'}`, at: now });
       this.renderAll();
       return;
     }
@@ -1353,20 +1361,10 @@ export class TuiApp {
       bookingsBox.setContent(wrapTo('{gray-fg}(нема посети){/gray-fg}').join('\n'));
       return;
     }
-    const confirmed = rows
-      .filter(r => r.status === 'finalized' && r.visitAt)
-      .sort((a, b) => (a.visitAt ?? 0) - (b.visitAt ?? 0));
-    const pending = rows
-      .filter(r => !(r.status === 'finalized' && r.visitAt))
-      .sort((a, b) => b.createdAt - a.createdAt);
-    const pad = (n: number): string => String(n).padStart(2, '0');
-    const lines: string[] = [];
-    for (const r of [...confirmed, ...pending]) {
-      const at = r.visitAt ? new Date(r.visitAt) : undefined;
-      const when = at ? `${pad(at.getDate())}.${pad(at.getMonth() + 1)} ${pad(at.getHours())}:${pad(at.getMinutes())}` : ' — ';
-      lines.push(` ${when} · ЕБ ${r.propertyId}`);
-      lines.push(`   ${r.status === 'finalized' && r.visitAt ? 'закажана' : 'во тек'}`);
-    }
+    // PAST VISITS ARE GREY AND NOT COUNTED (the owner's 2026-11-20 rule): the
+    // model splits upcoming / negotiating / past, and `останати` counts only
+    // the hours still ahead — a finished visit is history, not work.
+    const lines = bookingsPaneModel(rows, Date.now()).lines;
     // THE ARM NOTICE LIVES IN THE PANE, not only in the top bar: a terminal
     // 80–100 columns wide truncates the top bar's tail, and a confirmation the
     // operator cannot read is a key that silently does nothing.

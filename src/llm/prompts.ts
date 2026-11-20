@@ -1884,8 +1884,25 @@ export function stateTask(state: State, slots: SlotData): string {
         || 'предложениот термин';
       return `The owner is available at a different time: "${ownerTime}". Relay this to the client and ask if it works: "Дали овој термин Ви одговара?" Do NOT renegotiate yourself — just relay and ask.`;
     }
-    case 'pending':
-      return 'Acknowledge the provided contact details and give the closing phrase: "Во ред, ќе ве информирам за терминот и деталите околу посетата, штом ќе го контактирам сопственикот и прашам за моментална достапност и можен термин за посета."';
+    case 'pending': {
+      // PENDING MEANS THE VISIT IS ALREADY ARRANGED (both booking seams set it
+      // together with confirmVisit). The old branch told the model to promise
+      // «штом ќе го контактирам сопственикот и прашам за моментална
+      // достапност» — the [10:26] capture answered a client whose visit was
+      // booked with exactly that sentence (a check that had already happened).
+      // The owner contact, the availability and the term are DONE; the model
+      // only acknowledges and answers what was actually asked.
+      const bookedAt = slots.ownerTime || slots.visitTime;
+      // A ROUTE BOOKS SEVERAL FLATS: `chainSize` holds the number of stops the
+      // booking closed, so the reply speaks about the visits, not one flat —
+      // the [10:19] route had three visits and a single flat in the line.
+      const many = (slots.chainSize ?? 0) >= 2;
+      const bookedEb = slots.propertyId ?? slots.interestedPropertyId;
+      const bookedWhat = many
+        ? ` (${slots.chainSize} stops${bookedEb != null ? `, the first EB ${bookedEb}` : ''})`
+        : bookedEb != null ? ` for EB ${bookedEb}` : '';
+      return `The visit${many ? 's are' : ' is'} ALREADY ARRANGED${bookedWhat}${bookedAt ? ` (${bookedAt})` : ''} — the owner agreed and the contact details are on file. Acknowledge the client's message briefly and answer what was asked. NEVER promise to contact the owner, check availability, confirm the term or ask for details — all of that is done. For the exact address, say it is sent 2 hours before the visit.`;
+    }
     case 'queued':
       return 'The client refused the viewing fee three times. Close gracefully and warmly: thank them, note their criteria, promise to contact them when a matching property appears. NO more selling, NO fee mention.';
     case 'escalated':
@@ -1910,7 +1927,10 @@ export const FALLBACKS: Record<string, string> = {
   owner_checking: PATIENCE_LINE,
   time_confirm: "Сопственикот е достапен во друг термин. Дали овој термин Ви одговара?",
   queued: FEE_GRACEFUL_CLOSE,
-  pending: "Во ред, ќе ве информирам за терминот и деталите околу посетата, штом ќе го контактирам сопственикот и прашам за моментална достапност и можен термин за посета.",
+  // PENDING = THE VISIT IS BOOKED (see stateTask): the same promise to «check
+  // the owner» here told a client with an arranged visit that nothing had been
+  // checked yet. The fallback says what is true and when the address comes.
+  pending: "Во ред — посетата е договорена. Точната локација и деталите ги добивате два часа пред неа.",
   escalated: "Разбирам. Ова е специфично прашање, па затоа ќе Ве поврзам директно со мојот претпоставен за да ги добиете најточните информации. Тие ќе Ве контактираат набрзо.",
   default: "Ве молам, можете ли да ми го појасните Вашето барање?",
 };

@@ -1493,6 +1493,11 @@ export function buildAnywhereBareSlots(): RegExp {
 // listed — every caller reads through `matchesBoth`, which normalises them.
 const PAIR_REFERENT_FORMS = [
   'двата', 'двете', 'овие два', 'овие две', 'овие двата', 'овие двете',
+  // «ОВИ ДВА СТАНА» — the SHORT demonstrative. The list held only «овие», so
+  // the [09:08] field turn «како е решено паркирањето кај ОВИ ДВА стана?»
+  // named no pair at all: the mention layer saw two flats and asked which one
+  // the client meant, and his answer («за двата») then landed in the map lane.
+  'ови два', 'ови две', 'ови двата', 'ови двете',
   'тие два', 'тие две', 'тие двата', 'тие двете', 'двете стана', 'двата стана',
   'двете куќи', 'двата простора', 'двете недвижности', 'двата деловни простора',
   'првиот и вториот', 'првата и втората',

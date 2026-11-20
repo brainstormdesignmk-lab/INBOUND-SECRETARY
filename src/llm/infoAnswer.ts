@@ -186,7 +186,11 @@ const RENOVATION_YEAR_RE = /(?:кога\s+(?:е\s+)?(?:реновиран|рен
 // is the ask; a word that is NONE of those («од која година е цената?») never
 // matches, so this arm cannot swallow a different question.
 const YEAR_BUILT_ELLIPTIC_RE = new RegExp(
-  `(?:^|[\\s,.;:!?])(?:од\\s+)?(?:која|којашто)\\s+година\\s+(?:е|беше)`
+  // «СЕ» IS THE PLURAL COPULA (the [09:27] field turn «од која година се ?»
+  // after two flats were shown): without it the ask carried no facet, the INFO
+  // block stood down and the closing lane answered the year question with the
+  // visit-fee consent script. Singular «е» and «беше» keep their lane too.
+  `(?:^|[\\s,.;:!?])(?:од\\s+)?(?:која|којашто)\\s+година\\s+(?:е|се|беше)`
   + `(?:\\s+(?:ев(?:идентен)?\\.?\\s*(?:бр\\.?\\s*)?)?\\d{1,3}`
   + `|\\s+(?:оваа|ова|тоа|тој|станот|станат|зградата|објектот|куќата))?`
   + `\\s*(?:[?!.,]|$)`,

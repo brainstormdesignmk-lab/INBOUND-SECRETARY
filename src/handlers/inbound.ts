@@ -16,7 +16,7 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, isSmallUnit, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
-  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
+  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralPropertyAsk, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
   detectPairReferent, detectIdentifyByFigure,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -2852,12 +2852,26 @@ export class InboundHandler {
    *  the one-flat sentence belongs to the seam that already builds it. */
   private async pluralVisitSubject(tripEbs: number[], session: ChatSession): Promise<string> {
     if (tripEbs.length < 2) return '';
-    const first = await this.deps.properties.getByEb(tripEbs[0]!).catch(() => undefined);
+    const rows = (await Promise.all(tripEbs.map(eb =>
+      this.deps.properties.getByEb(eb).catch(() => undefined))))
+      .filter((p): p is Property => !!p);
+    const first = rows[0];
     const loc = displayAreaName(first?.location ?? session.slots.location ?? '');
     const list = tripEbs.length === 2
       ? `${tripEbs[0]} и ${tripEbs[1]}`
       : `${tripEbs.slice(0, -1).join(', ')} и ${tripEbs[tripEbs.length - 1]}`;
-    return `Посетата е за становите со Евидентни броеви ${list}${loc ? ` (${loc})` : ''}.`;
+    // THE SET'S OWN NOUN, not «становите» by default (the [10:19] field turn:
+    // three RENT BUSINESS SPACES were booked and the subject line called them
+    // «становите»). A mixed set is «недвижностите» — the only noun that is
+    // true of every row.
+    const kinds = new Set(rows.map(p => p.plac ? 'плац' : p.house ? 'куќа' : p.business ? 'деловен простор' : 'стан'));
+    const noun = kinds.size === 1
+      ? (kinds.has('стан') ? 'становите'
+        : kinds.has('куќа') ? 'куќите'
+        : kinds.has('деловен простор') ? 'деловните простори'
+        : 'плацовите')
+      : 'недвижностите';
+    return `Посетата е за ${noun} со Евидентни броеви ${list}${loc ? ` (${loc})` : ''}.`;
   }
 
   /** THE TERM ASK FOR THE VISIT(S) UNDER ARRANGEMENT — the bank-free exact
@@ -9506,12 +9520,26 @@ export class InboundHandler {
           // was answered. detectPairReferent normalises the script, and the
           // pair forms live in grammar.ts for the mirror to read.
           const pairAsked = detectPairReferent(text) || detectComparison(text);
+          // A PLURAL ASK IS ABOUT THE PAIR TOO (the [09:08]–[09:27] field turn):
+          // «дали ИМААТ лифтови?», «КОЈ има лифт?», «од која година СЕ?» name
+          // no number and no «двата», so the pair clause never ran and one flat
+          // answered for the several on the table — «Има лифт.» to both the
+          // plural question and the which-question. The same two-flat answer is
+          // owed: each flat gets its own clause, in the order it was served.
+          const pairScope = pairAsked || detectPluralPropertyAsk(text);
+          // THE PAIR MEANS THE LAST TWO PRESENTED, in presentation order —
+          // currentBatch is the last serve, describedEbs the pair just
+          // described; a feed-ordered filter is never the referent (the
+          // [23:09] rule).
+          const pairOnTable = (session.slots.describedEbs?.length ?? 0) >= 2
+            ? session.slots.describedEbs!
+            : (session.slots.currentBatch?.length ?? 0) >= 2
+              ? session.slots.currentBatch!
+              : (session.slots.presentedIds ?? []);
           const pairEbs = namedEbs.length >= 2
             ? namedEbs
-            : pairAsked
-              ? [...new Set([...(session.slots.describedEbs ?? []),
-                ...(session.slots.currentBatch ?? []),
-                ...(session.slots.presentedIds ?? [])])].slice(-2)
+            : pairScope && new Set(pairOnTable).size >= 2
+              ? [...new Set(pairOnTable)].slice(-2)
               : [];
           if (pairEbs.length >= 2) {
             const rows = (await Promise.all(pairEbs.map(eb =>
@@ -9526,9 +9554,15 @@ export class InboundHandler {
               // here, the same rewrite the INFO_ASK visit leg makes.
               const clauses = rows.map(p => {
                 const c = buildInfoAnswer(p, infoFacets);
-                return c === undefined || /Евидентен број/u.test(c)
-                  ? c
-                  : `Евидентен број ${p.eb} — ${c.replace(/^Има(?![\p{L}])/u, 'има')}`;
+                if (c === undefined || /Евидентен број/u.test(c)) return c;
+                // A FIRST-PERSON MISS («Немам податок…») becomes the row's OWN
+                // deferral — «За Евидентен број 84 немам податок…» — so a pair
+                // whose year/feature is not stored reads as two answers, not
+                // as one dash-led sentence with a capital mid-phrase.
+                if (/^Немам/u.test(c)) {
+                  return `За Евидентен број ${p.eb} ${c.charAt(0).toLowerCase()}${c.slice(1)}`;
+                }
+                return `Евидентен број ${p.eb} — ${c.replace(/^Има(?![\p{L}])/u, 'има')}`;
               });
               if (clauses.every(c => !!c)) {
                 const answer = clauses.join(' ');
@@ -11429,6 +11463,15 @@ export class InboundHandler {
           if (!session.slots.service && (svc === 'buy' || svc === 'rent')) {
             session.slots.service = svc;
           }
+          // THE FEE JUST QUOTED IS FOR N VISITS, SO THE VISIT SET IS THOSE N
+          // (the [10:19] field turn: three rent business spaces were answered
+          // available, the disclosure said «за 3 недвижности … 900 денари», the
+          // client agreed — and the term lane asked ONE owner and booked ONE
+          // visit, the other two silently dropped). A per-property fee names
+          // its set: consent to that fee is consent to that many viewings, so
+          // the set is remembered here and the route reads it at term time.
+          session.slots.visitEbs = rows.map(p => p.eb);
+          session.slots.visitWanted = true;
           session.slots.ownerContactPending = true;
           session.slots.feeDisclosed = true;
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);

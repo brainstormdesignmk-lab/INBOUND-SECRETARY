@@ -7279,6 +7279,38 @@ export function detectPairReferent(text: string): boolean {
   return matchesBoth(PAIR_REFERENT_RE, text);
 }
 
+/** THE ASK ITSELF IS PLURAL — «дали ИМААТ лифтови?», «КОЈ има лифт?», «од која
+ *  година СЕ?» after two flats were shown (the [09:08]–[09:27] field burst).
+ *
+ *  The pair referent above catches «овие два»/«двата»; a client who simply
+ *  speaks about the several flats already on the table uses a plural verb or a
+ *  which-word, and the INFO block answered ONE flat — «Има лифт.» with no
+ *  referent, then the same sentence to «кој има лифт?». The predicate is only
+ *  ever asked together with a property facet and a pair on the table (the
+ *  caller's guard), so an unrelated «се»/«кој» in a place or fee sentence is
+ *  never turned into a multi-property answer.
+ *
+ *  A SINGULAR DEICTIC VETOES IT: «овој стан има лифт?» names one card, whatever
+ *  the verb — the mention layer binds it and the answer stays single. */
+const PLURAL_PROPERTY_ASK_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:имаат|немаат|се|беа|имале|немале|нудат|располагаат'
+  + '|лифтови|паркинзи|тераси|балкони|клими|дворови|гаражи|паркинг места)'
+  + '(?![\\p{L}\\p{N}])'
+  // THE WHICH-WORD MUST LEAD THE CLAUSE **AND GOVERN «ИМА»**: «кој има лифт?»
+  // asks which of the flats has one, while «од која година е?» is a SINGULAR
+  // year question and «која му е цената?» is one flat's price — both were read
+  // as which-asks and answered for the pair (the [01:21] price turn quoted the
+  // other card as well). Sentence start (or after «и»/«а»), then «има/имаат»
+  // within the next two words.
+  + '|(?:^|[.!?;]\\s*)(?:и\\s+|а\\s+)?(?:кој|која|кое|кои)\\s+(?:\\p{L}+\\s+){0,2}?(?:има|имаат)(?![\\p{L}\\p{N}])', 'iu');
+const SINGULAR_DEICTIC_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:овој|тој|оваа|таа|ова|тоа|станот|станат|куќата|недвижноста|објектот|просторот|дуќанот)(?![\\p{L}\\p{N}])',
+  'iu');
+export function detectPluralPropertyAsk(text: string): boolean {
+  if (matchesBoth(SINGULAR_DEICTIC_RE, text)) return false;
+  return matchesBoth(PLURAL_PROPERTY_ASK_RE, text);
+}
+
 /** «КОЈ ИМА 126 м² ?» — an IDENTITY question about a FIGURE (defect #5 of the
  *  [05:20] capture). The client names a measurement instead of a number, and
  *  the pair just served contains exactly that measurement: the answer is the
