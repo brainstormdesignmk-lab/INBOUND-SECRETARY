@@ -165,8 +165,13 @@ export function buildChainAsk(
 ): string {
   const hh = (h: number): string => `${String(h).padStart(2, '0')}:00`;
   const lines = stops.map(s => `${hh(s.hour)} — Евидентен број ${s.eb}`);
+  // THE REASON FOR A SHIFT IS THE CONNECTION (so one stop has no reason to
+  // give): «за да бидат поврзани еден по друг» about a single visit promises a
+  // route that does not exist — the hour alone is the whole offer.
   const shift = opts.shiftedBy
-    ? ` Часовите почнав ${opts.shiftedBy > 0 ? 'подоцна' : 'порано'} за ${Math.abs(opts.shiftedBy)} ${Math.abs(opts.shiftedBy) === 1 ? 'час' : 'часа'}, за да бидат поврзани еден по друг.`
+    ? stops.length === 1
+      ? ` Часовите почнав ${opts.shiftedBy > 0 ? 'подоцна' : 'порано'} за ${Math.abs(opts.shiftedBy)} ${Math.abs(opts.shiftedBy) === 1 ? 'час' : 'часа'}, како што може сопственикот.`
+      : ` Часовите почнав ${opts.shiftedBy > 0 ? 'подоцна' : 'порано'} за ${Math.abs(opts.shiftedBy)} ${Math.abs(opts.shiftedBy) === 1 ? 'час' : 'часа'}, за да бидат поврзани еден по друг.`
     : '';
   const defer = opts.deferred && opts.deferred.length > 0
     ? `\nЕвидентен број ${opts.deferred.join(', ')} не може да се вклопи истиот ден — за нив ќе договориме друг термин.`

@@ -125,6 +125,14 @@ test('the /state rows expose the ROUTE: how many stops are placed, who was defer
   };
   const live = sessionStateRows(negotiating, 'x').join('\n');
   assert.match(live, /route=live def=-/u, `no answers yet: ${live}`);
+  // THE PROMISE OUTLIVES THE PLAN: once the route is booked the plan is consumed
+  // (`visitPlan` = undefined), but the flats owed for the NEXT term are still a
+  // promise the operator must see — the row reads the owed notebooks, so it is
+  // never `def=-` while something is owed. A solo flat (missed twice) counts.
+  const booked = freshSession('test', 'route-3');
+  booked.slots = { visitEbs: [82, 84], soloEbs: [88], presentedIds: [82, 84, 88] };
+  assert.match(sessionStateRows(booked, 'x').join('\n'), /route=- def=88,82,84/u,
+    'the owed set is visible with no live plan');
 });
 
 test('the /state rows never exceed the narrowest supported chat pane', () => {

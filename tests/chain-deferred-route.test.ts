@@ -114,7 +114,12 @@ test('[deferred route] the flats that missed the day are chained on the NEXT ter
   // every question about a linking hour is refused and they stay out of it.
   await h.answer(82, 'MOZE', 'Петок во 17:00');
   await h.answer(84, 'MOZE', 'Петок во 18:00');
-  const offer = await h.refuseUntilOffer({ 88: '12:00', 59: '09:00' });
+  // MIDDAY-ONLY OWNERS AGAINST A LATE-AFTERNOON DAY: 12:00 and 13:00 sit more
+  // than three hours before the client's 17:00, so they cannot join Friday —
+  // but on the new day (14:00 anchor) they link. THE HOURS THEY GAVE ON THE
+  // MISSED DAY ARE THE ONES THE NEXT DAY ASKS FIRST (`slots.deferHours`): the
+  // owner is never asked the anchor hour he already refused.
+  const offer = await h.refuseUntilOffer({ 88: '12:00', 59: '13:00' });
   assert.match(offer, /17:00/u, `the route is offered: ${offer}`);
   assert.match(offer, /18:00/u, offer);
   assert.match(offer, /88/u, `the first deferred flat is named: ${offer}`);
@@ -132,8 +137,10 @@ test('[deferred route] the flats that missed the day are chained on the NEXT ter
   const round = h.asks.slice(before);
   assert.equal(round.length, 2, `one parallel round for the deferred pair: ${JSON.stringify(round)}`);
   assert.deepEqual(round.map(a => a.eb).sort((a, b) => a - b), [59, 88], 'exactly the deferred flats');
-  assert.match(round[0]!.text, /14:00/u, `the client's hour starts the new route: ${round[0]!.text}`);
-  assert.match(round[1]!.text, /15:00/u, `and the next stop one hour later: ${round[1]!.text}`);
+  const asked = new Map(round.map(a => [a.eb, a.text]));
+  assert.match(asked.get(88)!, /12:00/u, `his own earlier hour leads: ${asked.get(88)}`);
+  assert.match(asked.get(59)!, /13:00/u, `…and so does his: ${asked.get(59)}`);
+  assert.doesNotMatch(asked.get(88)!, /14:00/u, `the anchor hour he refused is not re-asked: ${asked.get(88)}`);
   for (const a of round) {
     assert.doesNotMatch(a.text, /број (?:82|84)/u, `a booked flat is never re-asked: ${a.text}`);
   }
@@ -143,17 +150,75 @@ test('[deferred route] the flats that missed the day are chained on the NEXT ter
 
   // Both owners agree → the client gets the second day's route, and his yes
   // books it; the first route stays as it was.
-  await h.answer(88, 'MOZE', 'Вторник во 14:00');
-  await h.answer(59, 'MOZE', 'Вторник во 15:00');
-  const secondOffer = h.sent.at(-1) ?? '';
-  assert.match(secondOffer, /14:00/u, `the second route is offered: ${secondOffer}`);
-  assert.match(secondOffer, /15:00/u, secondOffer);
+  // Both owners agree at their own hours; the negotiator may then chase ONE
+  // better start (its lookahead, the same rule as the first day), so every
+  // following question is answered yes until the client hears the offer.
+  await h.answer(88, 'MOZE', 'Вторник во 12:00');
+  await h.answer(59, 'MOZE', 'Вторник во 13:00');
+  let secondOffer = h.sent.at(-1) ?? '';
+  for (let i = 0; i < 6 && secondOffer === ''; i++) {
+    const plan = h.sessions.get(h.chatId)!.slots.visitPlan;
+    const open = plan?.stops.filter(z => z.status === 'asked' && z.askedHour !== undefined) ?? [];
+    if (open.length === 0) { secondOffer = h.sent.at(-1) ?? ''; break; }
+    for (const stop of open) {
+      const client = await h.answer(stop.eb, 'MOZE',
+        `Вторник во ${String(stop.askedHour).padStart(2, '0')}:00`);
+      if (client) { secondOffer = client; break; }
+    }
+  }
+  assert.match(secondOffer, /88/u, `the second route is offered: ${secondOffer}`);
+  assert.match(secondOffer, /59/u, secondOffer);
+  assert.match(secondOffer, /Посети по ред/u, `…as a route, not a single visit: ${secondOffer}`);
   await h.say('ДА');
   const all = h.appointments.listByChat(h.chatId);
   assert.equal(all.length, 4, `nobody is dropped: ${JSON.stringify(all.map((a: { propertyId: number; visitAt: string }) => [a.propertyId, a.visitAt]))}`);
   assert.deepEqual(all.map((a: { propertyId: number }) => a.propertyId).sort((x: number, y: number) => x - y), [59, 82, 84, 88]);
   const s = h.sessions.get(h.chatId)!;
   assert.equal(s.slots.visitPlan, undefined, 'the flow is finished, not left half-open');
+});
+
+test('[cross-day] re-solving the second day never moves a booking from the first', async () => {
+  const h = makeHandler();
+  h.seed();
+  await h.say('ПЕТОК ВО 17:00, САКАМ ДА ГИ ВИДАМ СИТЕ ЧЕТИРИ');
+  await h.answer(82, 'MOZE', 'Петок во 17:00');
+  await h.answer(84, 'MOZE', 'Петок во 18:00');
+  // Two owners who can only do midday: deferred from Friday, their hours kept.
+  const offer = await h.refuseUntilOffer({ 88: '12:00', 59: '13:00' });
+  assert.match(offer, /17:00/u, offer);
+  await h.say('ДА, ГИ ПОТВРДУВАМ');
+  // The STORED TERM is what the owner and the client were told (the scheduler
+  // fills `visitAt` in production; this harness has no scheduler), so that is
+  // what "unchanged" has to mean here.
+  const day1 = h.appointments.listByChat(h.chatId)
+    .map((a: { propertyId: number; time: string }) => [a.propertyId, a.time]);
+  assert.equal(day1.length, 2, JSON.stringify(day1));
+
+  // DAY TWO: one owner keeps 12:00, the other can only do 15:00 — a two-hour
+  // pause, not a shift. The re-solve is the SECOND day's business only.
+  const before = h.asks.length;
+  await h.say('ВТОРНИК ВО 14:00');
+  assert.equal(h.asks.length - before, 2, 'the owed pair asked in one round');
+  const secondOffer = await h.refuseUntilOffer({ 88: '12:00', 59: '15:00' });
+  assert.match(secondOffer, /12:00/u, `the pause route is offered: ${secondOffer}`);
+  assert.match(secondOffer, /15:00/u, secondOffer);
+  assert.match(secondOffer, /пауза/u, `the pause is NAMED to the client: ${secondOffer}`);
+  await h.say('ДА');
+
+  const all = h.appointments.listByChat(h.chatId)
+    .map((a: { propertyId: number; time: string }) => [a.propertyId, a.time]);
+  assert.equal(all.length, 4, `both days are booked: ${JSON.stringify(all)}`);
+  // THE FIRST DAY IS BYTE-IDENTICAL — a later day's negotiation is never a
+  // reason to move an appointment an owner already confirmed.
+  for (const [eb, at] of day1) {
+    assert.ok(all.some(([e, a]) => e === eb && a === at),
+      `Friday's booking ${eb}@${at} moved: ${JSON.stringify(all)}`);
+  }
+  const tuesday = all.filter(([eb]) => eb === 88 || eb === 59).map(([, at]) => String(at));
+  assert.equal(tuesday.length, 2, JSON.stringify(tuesday));
+  assert.ok(tuesday.every(at => at.includes('12:00') || at.includes('15:00')),
+    `the second day keeps its own hours: ${JSON.stringify(tuesday)}`);
+  assert.notEqual(tuesday[0], tuesday[1], 'the two visits are not at the same instant');
 });
 
 test('[deferred route] ONE deferred flat keeps the ordinary single visit', async () => {

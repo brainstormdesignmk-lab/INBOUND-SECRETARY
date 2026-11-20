@@ -719,9 +719,17 @@ export function mergeOwnerTerm(term: string, anchors: Array<string | undefined>)
     const src = (a ?? '').trim();
     if (!src || !namesADay(src)) continue;
     const day = extractDayWord(src);
+    if (!day) continue;
+    // THE WEEKDAY ALONE IS NOT THE DAY (the [09:00] counter): a dated anchor
+    // donated only «Петок», and a clock earlier than the current hour then read
+    // as the NEXT Friday — the owner's „only 09:00“ for the day under
+    // negotiation became another week, so a same-day counter was treated as an
+    // offer for a different day (dropped, its hours lost). The anchor's DATE
+    // travels with its weekday; an undated anchor still donates the weekday.
+    const date = /(\d{2}\.\d{2}\.\d{4})/u.exec(src)?.[1];
     // Capitalised like every other display form (extractDayWord answers the
     // canonical LOWERCASE weekday; mkTimePhrase/normalizeOwnerTime capitalise).
-    if (day) return `${day.charAt(0).toUpperCase()}${day.slice(1)} ${phrase}`;
+    return `${day.charAt(0).toUpperCase()}${day.slice(1)}${date ? `, ${date}` : ''} ${phrase}`;
   }
   return phrase;
 }

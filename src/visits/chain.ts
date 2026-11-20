@@ -44,6 +44,11 @@ export interface VisitPlanStop {
   pendingHour?: number;
   /** Hours the owner can do that day (his answer). Absent while unasked. */
   hours?: number[];
+  /** THE HOURS HE GAVE ON AN EARLIER DAY (never an answer for THIS day): a
+   *  flat deferred once was already asked, and the hour he named then is the
+   *  only honest first question now. It aims the ask — it never places him
+   *  without an answer, so the route is still negotiated, not assumed. */
+  prefer?: number[];
   status: 'pending' | 'asked' | 'ok' | 'counter' | 'dropped';
 }
 
@@ -209,8 +214,16 @@ function placeOrder(order: ChainStop[], targetHour: number, maxShift: number, ma
 export function solveChain(input: SolveInput): ChainPlan | undefined {
   const busy = new Set(input.busy ?? []);
   const maxGap = Math.max(0, Math.min(2, input.maxGap ?? 2));
-  const maxShift = Math.max(0, input.maxShiftHours ?? 3);
   const n = input.stops.length;
+  // THE SHIFT CAP BOUNDS A CHAIN'S START, NOT A VISIT: with one flat there is
+  // nothing to connect, so its own hour (however far from the client's anchor)
+  // is a legitimate slot to OFFER him. Applying the cap to a single stop turned
+  // «the owner can only do 09:00» into «the owners cannot be joined one after
+  // another» — a sentence about joining for a visit that has no partner, and a
+  // flat that could have been arranged was deferred instead.
+  const maxShift = n === 1
+    ? VISIT_LAST_HOUR - VISIT_FIRST_HOUR
+    : Math.max(0, input.maxShiftHours ?? 3);
   if (n === 0) return undefined;
   // The client's own hour must BE a visit (the parser refuses an outside clock,
   // so this only guards a direct caller — a route is never seeded at 08:00).

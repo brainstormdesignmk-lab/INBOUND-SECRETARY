@@ -326,14 +326,26 @@ Shipped in this tree, with tests:
 | the stop's own term for every re-arm / ack / owner question | `inbound.ts` (`routeTermFor`) | `owner-route-ask` |
 | the route on the operator's `/state` | `src/tui/state.ts` (`route=` … `def=`) | `tui-state-dump` |
 | the deferred set as its OWN route on the next term | `inbound.ts` (`confirmChain`, `startChainIfNeeded`) | `chain-deferred-route` |
+| the owner's own hours remembered across days (`deferHours`, `prefer`) | `inbound.ts` (`noteMissedDay`, `preferredOwnerHour`), `negotiate.ts` | `deferred-second-day`, `chain-deferred-route` |
+| a second miss goes solo, and the client may release it (`soloEbs`, `releasedEbs`) | `inbound.ts` (`owedAskCopy`, `releaseOwedFlat`), `deterministic.ts` (`detectParkVisit`) | `deferred-second-day` |
+| a booked flat leaves the owed notebooks | `inbound.ts` (`forgetOwedFlat` in `finalizeAppointment`) | `deferred-second-day` |
+| the owed set on `/state` without a live plan | `src/tui/state.ts` | `tui-state-dump` |
+| a second day's re-solve leaves the first day's bookings alone | `inbound.ts` (`dayCalendar` own-ebs exemption) | `chain-deferred-route` (`[cross-day]`) |
 
 Known limits, on purpose and named:
 
 - ONE deferred flat is collected as an ordinary single visit; TWO OR MORE start
   a route of their own on the client's next term — parallel asks, the same pause
   and deferral rules, and the first day's bookings left untouched (pinned by
-  `chain-deferred-route`). Each further day's deferral repeats that step, so a
-  flat is never written off and never asked forever.
+  `chain-deferred-route`).
+- A deferred flat is asked at the hour its owner gave on the missed day (never
+  the client's anchor he already refused), and a flat that misses a SECOND day
+  stops being chained: it is arranged alone, named as such, and the client may
+  release it («остави го»). A released flat is remembered only to keep it out of
+  the fallbacks — naming it again still gets it (`deferred-second-day`).
+- A one-stop plan is a visit, not a chain: the ±3 h shift cap bounds a chain's
+  start, so a lone owner's hour is OFFERED to the client instead of «the owners
+  cannot be joined one after another» (`chain-solver`, `chain-gap-and-deferral`).
 - `/state` shows the route as a SUMMARY (`2stops` / `live` / `-`, plus the
   deferred flats) because the row budget is 48 columns; the plan event carries
   the hours with addresses for the operator.

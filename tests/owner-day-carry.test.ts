@@ -164,8 +164,12 @@ test('no owner-named day → the clock completes the day he is ANSWERING, not to
     assert.match(relay, /Има друг предлог: Четврток, 05\.11\.2026 во 17:00\./u,
       `the term on the table donates its day: ${relay}`);
     assert.ok(!/Вторник, 03\.11\.2026/.test(relay), `never today: ${relay}`);
-    assert.equal(sessions.get(chatId)!.slots.ownerTime, 'Четврток Околу 5',
-      'the clock completes the day he was answering, in its raw shape');
+    // THE DAY'S DATE IS PART OF WHAT HE IS ANSWERING (the same donation rule):
+    // a stored «Четврток» alone re-parsed a same-day clock earlier than now as
+    // NEXT Thursday, so the date travels with the weekday. The clock's raw
+    // shape («Околу 5») is still untouched.
+    assert.equal(sessions.get(chatId)!.slots.ownerTime, 'Четврток, 05.11.2026 Околу 5',
+      'the clock completes the day he was answering, dates included');
   } finally { unpin(); }
 });
 
@@ -210,7 +214,10 @@ test('normalizeOwnerTime never dates an undated term; mergeOwnerTerm donates the
   assert.equal(normalizeOwnerTime('Петок во 17:00', NOW), 'Петок, 06.11.2026 во 17:00');
 
   assert.equal(mergeOwnerTerm('Околу 5', ['Петок', 'Четврток, 05.11.2026 во 18:00']), 'Петок Околу 5');
-  assert.equal(mergeOwnerTerm('Околу 5', [undefined, 'Четврток, 05.11.2026 во 18:00']), 'Четврток Околу 5');
+  // THE ANCHOR'S DATE TRAVELS WITH ITS WEEKDAY: «Четврток» alone re-parsed a
+  // same-day clock earlier than now as NEXT Thursday. The date is what makes
+  // the donation a day rather than a weekday name.
+  assert.equal(mergeOwnerTerm('Околу 5', [undefined, 'Четврток, 05.11.2026 во 18:00']), 'Четврток, 05.11.2026 Околу 5');
   assert.equal(mergeOwnerTerm('Петок во 18:00', ['Среда']), 'Петок во 18:00', 'a dated term is never re-anchored');
   assert.equal(mergeOwnerTerm('Околу 5', []), 'Околу 5', 'nothing to donate — the caller must ask');
 
@@ -287,7 +294,9 @@ test('the time_confirm task prompt dates a legacy day-less slot', async () => {
     ownerTime: 'Во 17:00',
     visitTime: 'Четврток, 05.11.2026 во 18:00',
   } as any);
-  assert.match(legacy, /Четврток Во 17:00/u, legacy);
+  // The dated donation (see mergeOwnerTerm): the prompt must carry the day's
+  // DATE, not only the weekday, so the task cannot drift to another week.
+  assert.match(legacy, /Четврток, 05\.11\.2026 Во 17:00/u, legacy);
   // A term that already names its day passes through untouched.
   const dated = stateTask('time_confirm', {
     ownerTime: 'Петок, 06.11.2026 во 17:00',

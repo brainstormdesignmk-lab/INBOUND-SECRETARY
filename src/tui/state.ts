@@ -148,7 +148,14 @@ export function sessionStateRows(s: ChatSession | null | undefined, dumpStatus: 
   const route = routePlan?.assignments?.length
     ? `${routePlan.assignments.length}stops`
     : routePlan ? 'live' : '-';
-  const deferred = routePlan?.deferred?.length ? routePlan.deferred.join(',') : '-';
+  // THE DEFERRED SET IS VISIBLE WITHOUT A LIVE PLAN (the same promise, after the
+  // route is booked): `visitPlan` is consumed at the client's yes, so reading
+  // only `plan.deferred` showed `route=- def=-` while two flats were still owed
+  // for the next term. The owed notebooks answer instead — a solo flat (missed
+  // twice) included, because it is owed exactly the same way.
+  const owed = [...new Set([...(sl.soloEbs ?? []), ...(sl.visitEbs ?? [])])];
+  const deferredList = routePlan?.deferred?.length ? routePlan.deferred : owed;
+  const deferred = deferredList.length > 0 ? deferredList.join(',') : '-';
   return [
     `[slots] state=${s.state} svc=${sl.service ?? '-'}`,
     `[slots] fee=${sl.feeRejections ?? 0} prov=${sl.provisionRejections ?? 0} agreed=${sl.viewingFeeAgreed ? 'yes' : 'no'}`,

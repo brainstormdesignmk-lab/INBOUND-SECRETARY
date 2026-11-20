@@ -2037,6 +2037,29 @@ export function detectPluralViewingWish(text: string): boolean {
   return false;
 }
 
+/** THE CLIENT RELEASES A FLAT THE ROUTE COULD NOT CHAIN («остави го», «откажи
+ *  го», «не ми треба повеќе»).
+ *
+ *  The second-miss copy offers exactly that answer, so it must be READ back:
+ *  an owed flat is arranged on the client's word, and a client who says he no
+ *  longer wants it must be able to end the obligation — otherwise the offer is
+ *  a sentence that does nothing and the flow asks for a term he just refused.
+ *  Only ever consulted while a flat is owed (the caller's guard), and the verb
+ *  must be ABOUT an object (`остави го / откажи ја / не ми треба повеќе`), so
+ *  ordinary talk about leaving a building alone cannot release a visit. */
+export function detectParkVisit(text: string): boolean {
+  const t = normalizeMc(text);
+  if (!t) return false;
+  // «остави го / оставете ја / откажи го / откажете ја» — the release verb plus
+  // a pronoun for the flat (the client speaks about the one on the table, so
+  // «го/ја/тоа/него/овој» is the object, never a random noun).
+  if (/(?:остави|оставете|оставиме|откажи|откажете|откажиме)\s+(?:го|ја|тоа|него|неа|овој|оваа)(?!\p{L})/u.test(t)) return true;
+  // «не ми треба(ше) повеќе / не ми е потребен» — a need-phrase about the flat.
+  if (/(?:не\s+ми\s+треба|не\s+ми\s+требаше|не\s+ми\s+е\s+потребен|не\s+ми\s+се\s+допаѓа\s+веќе)/u.test(t)
+      && /(?:повеќе|веќе|тој|таа|него|неа|станот|становите)/u.test(t)) return true;
+  return false;
+}
+
 /** THE FLATS THE CLIENT NAMED, in his own order — the ones a plural visit is
  *  ABOUT.
  *

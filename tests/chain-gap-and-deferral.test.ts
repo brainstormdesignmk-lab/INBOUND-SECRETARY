@@ -157,5 +157,9 @@ test('[deferral] the flat that cannot share the day gets its OWN term next', asy
   await h.say('ВТОРНИК ВО 14:00');
   assert.ok(h.asks.length > before, 'the deferred flat’s owner is asked');
   assert.match(h.asks.at(-1) ?? '', /88|број 88/u, `about EB 88: ${h.asks.at(-1)}`);
-  assert.match(h.asks.at(-1) ?? '', /14:00/u, h.asks.at(-1) ?? '');
+  // HIS OWN HOUR LEADS THE NEW DAY (slots.deferHours): the owner said 12:00 on
+  // the missed day, so the next question is 12:00 — never the client's 14:00
+  // anchor the owner already refused.
+  assert.match(h.asks.at(-1) ?? '', /12:00/u, h.asks.at(-1) ?? '');
+  assert.doesNotMatch(h.asks.at(-1) ?? '', /14:00/u, h.asks.at(-1) ?? '');
 });

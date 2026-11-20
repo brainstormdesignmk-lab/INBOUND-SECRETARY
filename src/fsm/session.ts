@@ -282,6 +282,28 @@ export interface SlotData {
    *  53 for a two-flat visit). A later naming overwrites it; the route's
    *  booking clears it; a flat that leaves the screen is filtered out. */
   visitEbs?: number[];
+  /** THE HOURS A DEFERRED FLAT'S OWNER ACTUALLY GAVE (EB → hours), remembered
+   *  ACROSS DAYS. The day he missed is gone, but what he said about his own
+   *  availability is not: the next plan aims his first question at HIS hour
+   *  instead of re-asking the client's anchor hour he already refused, and the
+   *  copy can name the hour honestly. Cleared when the flat is booked or the
+   *  client releases it. */
+  deferHours?: Record<number, number[]>;
+  /** HOW MANY DAYS EACH FLAT HAS MISSED (EB → count). The first miss is an
+   *  ordinary deferral; from the second on, chaining him again is the loop this
+   *  counter exists to break (the day's route is not the place to keep asking
+   *  an owner whose hours cannot link — he is arranged alone, on the client's
+   *  word, and the client may release him instead). Cleared on a booking. */
+  deferCounts?: Record<number, number>;
+  /** THE FLATS THE ROUTE STOPPED CHAINING (missed twice): each is arranged on
+   *  its own, one client term each, and named in the ask. `visitEbs` holds the
+   *  flats that still chain, so a solo flat is never re-asked for a route. */
+  soloEbs?: number[];
+  /** THE FLATS THE CLIENT RELEASED («остави го»): remembered so the fallbacks
+   *  stop offering them (a batch-tail subject, a plural route over the screen),
+   *  while a client who NAMES one again still gets it — a release is a decision
+   *  about an owed flat, not a ban on the property. */
+  releasedEbs?: number[];
   /** How many stops the confirmed route has (>= 2 marks a chain for the visit
    *  protocol's plan line). Set when the route is booked. */
   chainSize?: number;

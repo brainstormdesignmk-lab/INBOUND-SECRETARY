@@ -569,7 +569,13 @@ export function sameVisitInstant(a: string, b: string, donors: Array<string | un
 }
 
 export function hasClockHint(s: string): boolean {
-  if (/\d{1,2}[:.]\d{2}\b/.test(s)) return true;
+  // A DOTTED DATE IS NOT A CLOCK (the merge-date capture): «Понеделник,
+  // 23.11.2026 popladne» matched `\d{1,2}[:.]\d{2}` on «23.11» and read as
+  // 23:11, so a phrase whose only time word was «попладне» looked complete and
+  // the exact-clock question was never asked — the owner's vague counter was
+  // parked at the client as if it named a time. Dates are stripped first.
+  const withoutDates = s.replace(/\b\d{1,2}\.\d{1,2}\.\d{2,4}\b/gu, ' ');
+  if (/\d{1,2}[:.]\d{2}\b/.test(withoutDates)) return true;
   if (HOUR_WORD_RE.test(s)) return true;
   if (HALF_CLOCK_RE.test(s)) return true;
   if (DIGIT_HALF_RE.test(s)) return true; // «6IPOL» / «7 и пол»

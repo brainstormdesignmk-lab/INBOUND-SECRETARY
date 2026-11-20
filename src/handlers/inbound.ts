@@ -16,7 +16,7 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, isSmallUnit, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
-  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralViewingWish, namedVisitEbs,
+  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
   detectPairReferent, detectIdentifyByFigure,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -2747,7 +2747,14 @@ export class InboundHandler {
       dayMs: dayStartOf(when),
       targetHour: when.getHours(),
       term,
-      stops: ebs.map(eb => ({ eb, status: 'pending' as const })),
+      // A DEFERRED FLAT'S SECOND DAY STARTS FROM WHAT HE ALREADY SAID (see
+      // `slots.deferHours`): the hours that owner gave on the missed day aim his
+      // first question here — never an answer for this day (the owner is still
+      // asked), and never the client's anchor hour the owner already refused.
+      stops: ebs.map(eb => ({
+        eb, status: 'pending' as const,
+        prefer: session.slots.deferHours?.[eb],
+      })),
       flexible: /(?:bilo\s*koga|кога\s*било|било\s*кога|cel\s*den|цел\s*ден|porano|порано|pokasno|покасно|sve|сè|bilo\s*koe|било\s*кое)/iu.test(term),
     };
     this.advanceChain(session);
@@ -2791,7 +2798,13 @@ export class InboundHandler {
     // NOTHING NAMED, NOTHING REMEMBERED: the visit is the cards ON THE TABLE
     // (`currentBatch`), never every card ever presented — the old
     // `currentBatch + presentedIds` build is what swept the pair partner in.
-    const onTable = (session.slots.currentBatch ?? []).filter(eb => onScreen.includes(eb));
+    // A RELEASED flat is not on the table any more (the second-miss release):
+    // swallowing it back into a plural route is exactly the loop the release
+    // ended. Naming it by number still works — the named branch above is his
+    // own words and is never filtered.
+    const released = new Set(session.slots.releasedEbs ?? []);
+    const onTable = (session.slots.currentBatch ?? []).filter(eb => onScreen.includes(eb) && !released.has(eb));
+    if (onTable.length === 0 && released.size > 0) return [];
     // A DEICTIC PLURAL NAMES NOTHING NEW: the table pair is re-read at term
     // time, so `visitEbs` stays empty here — it is the memory of flats the
     // client NAMED, and the plural-clitic wish («да ги погледнам», the [09:41]
@@ -2876,9 +2889,25 @@ export class InboundHandler {
     ])];
   }
 
+  /** THE HOUR A DEFERRED FLAT'S OWNER GAVE, ON THE CLIENT'S NEW DAY (see
+   *  `slots.deferHours`): the term the next owner question should carry. Absent
+   *  when nothing is remembered, when the term names no day, or when his hour
+   *  on that day is already behind us (a past clock is not a slot to offer). */
+  private preferredOwnerHour(session: ChatSession, eb: number, term: string): string | undefined {
+    if ((session.slots.deferCounts?.[eb] ?? 0) === 0) return undefined;
+    const hour = (session.slots.deferHours?.[eb] ?? []).find(h => Number.isFinite(h));
+    if (hour === undefined) return undefined;
+    const when = parseVisitDateTime(term, new Date());
+    if (!when) return undefined;
+    const at = new Date(dayStartOf(when));
+    at.setHours(hour, 0, 0, 0);
+    if (at.getTime() <= Date.now()) return undefined;
+    return this.chainTermFor({ dayMs: dayStartOf(when) }, hour);
+  }
+
   /** The canonical term for a stop at `hour` (the client's day, the chain's
    *  hour) — what the owner and the client both read. */
-  private chainTermFor(plan: VisitPlanState, hour: number): string {
+  private chainTermFor(plan: { dayMs: number }, hour: number): string {
     // formatVisitDate CARRIES THE CLOCK OF ITS Date (midnight), so the hour is
     // built from the date part only — «Петок, 13.11.2026 во 00:00 во 16:00»
     // reached an owner and his client before this.
@@ -2940,6 +2969,7 @@ export class InboundHandler {
           eb: s.eb,
           can: s.hours,
           askedHours: s.askedHours,
+          prefer: s.prefer,
           asks: s.asks ?? 0,
           out: s.status === 'dropped',
         })),
@@ -3024,9 +3054,17 @@ export class InboundHandler {
     if (!plan) return;
     const live = plan.stops.filter(s => s.status !== 'dropped');
     if (live.length === 0) {
+      // NOBODY COULD DO THE DAY — AND THAT IS A MISS, NOT A DEAD END (the same
+      // accounting as every other ending): the owners said „not this day“, which
+      // is what a deferral remembers. Without this, a flat that missed a day
+      // this way was never counted and never released, so the client's next day
+      // asked the same unlinkable owners again with nothing learned.
+      const missed = plan.stops.map(s => s.eb);
       session.slots.visitPlan = undefined;
       session.state = 'visit_scheduling';
-      const reply = 'Ниту еден од сопствениците не е слободен во тие часови. Дали сакате да пробаме друг ден или друг термин?';
+      const { chain, solo } = this.noteMissedDay(session, plan, missed);
+      const reply = `Ниту еден од сопствениците на Евидентен број ${missed.join(', ')} не е слободен на тој ден. ${this.owedAskCopy(chain, solo)}`;
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, reply, 'deterministic');
       return;
@@ -3053,12 +3091,21 @@ export class InboundHandler {
     // old fallback placed each stop at its ASKED hour, i.e. booked a flat at a
     // time its owner had just ruled out).
     if (!solved) {
+      // THE DAY IS MISSED, BUT NOT FORGOTTEN (the same accounting the booked
+      // route does, and the loop it breaks): with one stop the solver now
+      // places the owner's own hour, so reaching here means NO owner's hours
+      // fit the day at all. The flats stay owed, the miss is counted — a flat
+      // that misses a second day is arranged alone and offered for release
+      // instead of being handed back to the same unlinkable chain.
       const day = new Date(plan.dayMs);
-      const who = live.map(s => s.eb).join(', ');
+      const missed = live.map(s => s.eb);
       session.slots.visitPlan = undefined;
       session.state = 'visit_scheduling';
-      const reply = `Сопствениците на Евидентен број ${who} не можат да ги поврзам една по друга на ${formatDateOnly(day)}. `
-        + 'Дали сакате да пробаме друг ден или друг почетен час?';
+      const { chain, solo } = this.noteMissedDay(session, plan, missed);
+      const named = [...chain, ...solo].join(', ');
+      const reply = `Сопствениците на Евидентен број ${named} не можат да ги поврзам една по друга на ${formatDateOnly(day)}. `
+        + `${this.owedAskCopy(chain, solo)}`;
+      pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, reply, 'deterministic');
       return;
@@ -3122,20 +3169,13 @@ export class InboundHandler {
     // route machinery for them.
     const deferred = [...(plan.deferred ?? [])];
     session.slots.visitPlan = undefined; // consumed — a second yes must not rebook
-    session.slots.visitWanted = deferred.length >= 2 ? true : undefined;
-    session.slots.visitEbs = deferred.length > 0 ? deferred : undefined;
-    if (deferred.length > 0) {
-      // TWO OR MORE DEFERRED FLATS ARE THE NEXT ROUTE, BY CONSTRUCTION: the
-      // plural wish above plus this set is exactly what `startChainIfNeeded`
-      // reads, so his next term asks THESE owners in one parallel round and
-      // chain-links their hours on the new day — never one visit at a time.
-      // ONE flat stays the ordinary single visit (no wish, no route).
-      // The cards must also stay «on screen»: `multiVisitEbs` drops a
-      // remembered EB that is no longer in the batch/presented set (a stale
-      // number is never routed), so the deferred pair is pinned there — the
-      // route that was just booked must not be able to hide its own leftovers.
-      session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...deferred])];
-    }
+    // WHAT THE OWNERS SAID OUTLIVES THE DAY (see `slots.deferHours`), and the
+    // miss counter decides who still chains: TWO OR MORE DEFERRED FLATS ARE THE
+    // NEXT ROUTE BY CONSTRUCTION (`visitWanted` + `visitEbs` is exactly what
+    // `startChainIfNeeded` reads), ONE flat is the ordinary single visit, and a
+    // flat that has now missed twice is arranged ALONE instead of being asked
+    // into the same unlinkable chain a third time.
+    const { chain: chainSet, solo } = this.noteMissedDay(session, plan, deferred);
     // The scheduler's Turn 0 carries the plan line for a real route.
     session.slots.chainSize = plan.assignments.length;
     this.deps.sessions.set(session);
@@ -3180,16 +3220,27 @@ export class InboundHandler {
     // day/time and arranged if agreement is possible) — one question, now, while
     // the client is still in the flow.
     if (deferred.length > 0) {
-      session.slots.interestedPropertyId = deferred[0];
-      session.slots.propertyId = deferred[0];
+      // The subject is the flat the client's next term will actually arrange:
+      // the first chain stop while a chain remains, the solo flat once the
+      // chain is empty (his term is that flat's single visit).
+      const next = chainSet[0] ?? solo[0]!;
+      session.slots.interestedPropertyId = next;
+      session.slots.propertyId = next;
       session.slots.visitTime = undefined;
       session.slots.ownerTime = undefined;
       session.slots.ownerAskTime = undefined;
       session.slots.ownerCounterTime = undefined;
       session.slots.ownerClockDay = undefined;
       session.state = 'visit_scheduling';
-      const list = deferred.join(', ');
-      const ask = `За Евидентен број ${list} не најдов слободен термин на истиот ден. Кој ден и час Ви одговараат за ${deferred.length === 1 ? 'таа посета' : 'тие посети'}?`;
+      // ONE QUESTION, EVERY OWED FLAT NAMED — and the second miss is said out
+      // loud: that flat is arranged on its own (never a third attempt to link
+      // him) and the client is offered the release instead of an endless loop.
+      const said: string[] = [];
+      if (chainSet.length > 0) {
+        said.push(`За Евидентен број ${chainSet.join(', ')} не најдов слободен термин на истиот ден.`);
+      }
+      said.push(this.owedAskCopy(chainSet, solo));
+      const ask = said.join(' ');
       pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, ask, 'deterministic');
@@ -14394,6 +14445,19 @@ export class InboundHandler {
     // 5) Reply strategy — deterministic where exactness matters
     pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
 
+    // A FLAT THE ROUTE COULD NOT CHAIN IS RELEASED («остави го», the answer the
+    // second-miss copy itself offers). It runs BEFORE the reply chain because
+    // the obligation is state, not wording: if a later lane served the turn
+    // with a different sentence, the flat must still be off the hook — and a
+    // client who answers that offer must never be asked for his term again.
+    const released = this.releaseOwedFlat(session, text);
+    if (released !== undefined) {
+      pushHistory(session, { role: 'assistant', text: released }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, released, 'deterministic');
+      return;
+    }
+
     // Client accepted the owner's counter-time -> code-built confirmation
     if (next === 'pending' && before === 'time_confirm') {
       // A CONFIRMED ROUTE BOOKS EVERY STOP (the owner's 2026-11-11 brief): his
@@ -15573,7 +15637,11 @@ ${contactReminder}`;
         // the first owner of the route is asked instead of a single check, and
         // every later answer advances the chain (applyChainVerdict).
         if (this.startChainIfNeeded(session, t, text)) return true;
-        void this.runOwnerCheck(session, eb, t);
+        // A FLAT THAT MISSED A DAY IS ASKED AT ITS OWNER'S HOUR FIRST (see
+        // `slots.deferHours`): his stated clock on the new date, never the
+        // client's anchor he already refused. It is still a QUESTION — the
+        // owner confirms his own hour on THIS day before anything is booked.
+        void this.runOwnerCheck(session, eb, this.preferredOwnerHour(session, eb, t) ?? t);
         return true;
       };
       /** The sincere turn when the owner cannot be asked: name what is missing. */
@@ -17482,9 +17550,15 @@ ${contactReminder}`;
    *  «Ќе Ве известам штом потврдам» went out with nobody asked. The resolved
    *  flat is pinned as the interested one so later turns agree. */
   private ownerCheckSubject(session: ChatSession): { eb: number; t: string } {
+    // A FLAT THE CLIENT RELEASED IS NOT A SUBJECT (the second-miss release):
+    // the remembered/picked flat still wins — a client who names it again really
+    // does want it — but the BATCH-TAIL fallback skips it, otherwise a term with
+    // no subject re-asked the owner of the flat that had just been released.
+    const released = new Set(session.slots.releasedEbs ?? []);
+    const tail = (list?: number[]): number | undefined => (list ?? []).filter(e => !released.has(e)).at(-1);
     const eb = session.slots.interestedPropertyId ?? session.slots.propertyId
-      ?? session.slots.currentBatch?.[session.slots.currentBatch.length - 1]
-      ?? session.slots.presentedIds?.[session.slots.presentedIds.length - 1]
+      ?? tail(session.slots.currentBatch)
+      ?? tail(session.slots.presentedIds)
       ?? 0;
     if (eb) session.slots.interestedPropertyId = eb;
     return { eb, t: session.slots.visitTime ?? '' };
@@ -18367,6 +18441,12 @@ ${contactReminder}`;
   private finalizeAppointment(session: ChatSession, time?: string, agentPhone = ''): number {
     const fee = session.slots.service === 'rent' ? '300 MKD' : '500 MKD';
     const propertyId = session.slots.interestedPropertyId ?? session.slots.propertyId ?? 0;
+    // A FLAT IS OWED ONLY UNTIL IT IS BOOKED (the sibling of the route's own
+    // clearing): a deferred flat arranged as an ordinary single visit stayed in
+    // `visitEbs`/`soloEbs` forever, so a later plural term could re-chain a flat
+    // the client had already seen and the follow-up kept naming him. The miss
+    // counter goes with it — a new hunt for the same flat starts at zero.
+    this.forgetOwedFlat(session, propertyId);
     const rowId = this.deps.appointments.insert({
       chatId: session.chatId,
       clientName: session.slots.name ?? 'Непознат клиент',
@@ -18383,6 +18463,119 @@ ${contactReminder}`;
       propertyId, service: serviceLabel(session.slots.service), viewingFee: fee, time,
     })}`);
     return rowId;
+  }
+
+  /** A DAY THESE FLATS COULD NOT SHARE — remembered, and the set split.
+   *
+   *  Every plan that ends without holding a flat goes through here, so the
+   *  memory cannot depend on WHICH ending was reached (a route that booked some
+   *  stops, or a day where no owner's hours fit at all). It records what each
+   *  owner said (`deferHours` — the honest first question on the next day),
+   *  counts the miss (`deferCounts`), and returns:
+   *    - `chain`: flats that still have a fair chance to be chained;
+   *    - `solo`: flats that have now missed TWICE — an owner whose hours could
+   *      not link on two different days will not link on a third, so he is
+   *      arranged alone and the client may release him instead.
+   *  A solo flat carried from an earlier day stays owed until booked or
+   *  released. `visitWanted`/`visitEbs` are rewritten to the chain set so the
+   *  client's next term starts the right thing; the owed cards are pinned into
+   *  `presentedIds` because `multiVisitEbs` drops a number that left the screen. */
+  private noteMissedDay(session: ChatSession, plan: VisitPlanState, missed: number[]):
+    { chain: number[]; solo: number[] } {
+    const counts = { ...(session.slots.deferCounts ?? {}) };
+    const hours = { ...(session.slots.deferHours ?? {}) };
+    for (const eb of missed) {
+      counts[eb] = (counts[eb] ?? 0) + 1;
+      const said = plan.stops.find(s => s.eb === eb)?.hours;
+      if (said?.length) hours[eb] = [...said];
+    }
+    session.slots.deferCounts = counts;
+    session.slots.deferHours = hours;
+    const solo = [...new Set([
+      ...(session.slots.soloEbs ?? []),
+      ...missed.filter(eb => (counts[eb] ?? 0) >= 2),
+    ])];
+    const chain = missed.filter(eb => !solo.includes(eb));
+    session.slots.soloEbs = solo.length > 0 ? solo : undefined;
+    session.slots.visitWanted = chain.length >= 2 ? true : undefined;
+    session.slots.visitEbs = chain.length > 0 ? chain : undefined;
+    if (missed.length > 0) {
+      session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...missed])];
+    }
+    const next = chain[0] ?? solo[0];
+    if (next !== undefined) {
+      session.slots.interestedPropertyId = next;
+      session.slots.propertyId = next;
+    }
+    return { chain, solo };
+  }
+
+  /** The owed flats as one question (the client must never be asked twice for
+   *  the same term): the chain set's day/hour, the solo flat named as arranged
+   *  on its own, and the release offer for it. */
+  private owedAskCopy(chain: number[], solo: number[]): string {
+    const said: string[] = [];
+    if (solo.length > 0) {
+      said.push(`За Евидентен број ${solo.join(', ')} и по втор ден не најдов термин што се врзува со другите посети, па за него ќе договорам посебен термин. Ако повеќе не Ви треба, кажете „остави го“.`);
+    }
+    const owed = chain.length + solo.length;
+    said.push(`Кој ден и час Ви одговараат за ${owed === 1 ? 'таа посета' : 'тие посети'}?`);
+    return said.join(' ');
+  }
+
+  /** Take a flat out of the route's owed notebooks (`visitEbs`, `soloEbs`, and
+   *  the deferral memory). Used by both ends of a flat's life: it was BOOKED
+   *  (nothing is owed any more) or the client RELEASED it. */
+  private forgetOwedFlat(session: ChatSession, eb: number): void {
+    if (!eb) return;
+    const rest = (list?: number[]): number[] | undefined => {
+      const kept = (list ?? []).filter(x => x !== eb);
+      return kept.length > 0 ? kept : undefined;
+    };
+    session.slots.visitEbs = rest(session.slots.visitEbs);
+    session.slots.soloEbs = rest(session.slots.soloEbs);
+    if (session.slots.deferCounts) delete session.slots.deferCounts[eb];
+    if (session.slots.deferHours) delete session.slots.deferHours[eb];
+    // ONE flat is one visit: the plural wish must not survive the set that made
+    // it plural (it would route a lone EB on the next term).
+    if ((session.slots.visitEbs?.length ?? 0) < 2) session.slots.visitWanted = undefined;
+  }
+
+  /** THE CLIENT RELEASES A FLAT THE ROUTE COULD NOT CHAIN (the honest sibling of
+   *  «никого не оставаме»): the second-miss copy offers «остави го», so that
+   *  answer must actually release him — otherwise the client says it and the
+   *  flow asks for his term again. Only read while a flat is really owed, and
+   *  only for a flat that is owed (a name he did not owe changes nothing). */
+  private releaseOwedFlat(session: ChatSession, text: string): string | undefined {
+    const owed = [...new Set([
+      ...(session.slots.soloEbs ?? []),
+      ...(session.slots.visitEbs ?? []),
+    ])];
+    if (owed.length === 0) return undefined;
+    if (!detectParkVisit(text)) return undefined;
+    const named = namedVisitEbs(text, owed);
+    const eb = named[0] ?? (owed.length === 1 ? owed[0]! : 0);
+    // SEVERAL OWED AND NONE NAMED is not a release of all of them: ask which
+    // one rather than silently cancelling a flat he never mentioned.
+    if (!eb) return undefined;
+    this.forgetOwedFlat(session, eb);
+    // The release is REMEMBERED for the fallbacks (batch tail, plural from the
+    // table) while a client who names the number again still gets it.
+    session.slots.releasedEbs = [...new Set([...(session.slots.releasedEbs ?? []), eb])];
+    const left = [...new Set([...(session.slots.soloEbs ?? []), ...(session.slots.visitEbs ?? [])])];
+    // THE RELEASE IS FINAL FOR ITS FLAT: the subject of the visit becomes what
+    // is still owed (or nothing at all) — otherwise the client's next term
+    // («СРЕДА ВО 11:00») would be BOOKED for the flat he just released.
+    session.slots.interestedPropertyId = left[0];
+    session.slots.propertyId = left[0];
+    if (left.length === 0) session.slots.visitTime = undefined;
+    session.state = left.length > 0 ? 'visit_scheduling' : session.state;
+    // THE REMAINING FLATS ARE NAMED, not counted («другата посета» made the
+    // client ask which one): the release is confirmed for HIS flat and the next
+    // question is about the Евидентен број still owed.
+    return left.length > 0
+      ? `Во ред, Евидентен број ${eb} го оставам. Кој ден и час Ви одговараат за Евидентен број ${left.join(', ')}?`
+      : `Во ред, Евидентен број ${eb} го оставам. Ако сакате, можам да Ви предложам други станови.`;
   }
 
   /** The RENT-COMMISSION ladder serve — the SINGLE source of truth for the

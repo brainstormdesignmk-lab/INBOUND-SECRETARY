@@ -32,6 +32,10 @@ export interface NegotiateStop {
   can?: number[];
   /** Every hour already put to him — never asked twice. */
   askedHours?: number[];
+  /** The hours he gave on an EARLIER day (a deferred flat's own answer). The
+   *  first question follows them: asking a man who already said «only 09:00»
+   *  whether he can do 14:00 spends a question on a refusal we were told. */
+  prefer?: number[];
   /** How many questions this owner has had (the per-owner budget). */
   asks?: number;
   /** Out of this route (sold/gone/budget spent) — never asked again. */
@@ -118,8 +122,15 @@ export function planAsks(view: NegotiateView): NegotiateAsk[] {
     const stop = live.find(s => s.eb === placed.eb);
     if (!stop || stop.can !== undefined) continue;
     if (!remaining(stop)) continue;
-    if ((stop.askedHours ?? []).includes(placed.hour)) continue;
-    firstRound.push({ eb: stop.eb, hour: placed.hour, reason: 'first' });
+    // HIS OWN EARLIER ANSWER LEADS (a deferred flat's second day): the hours he
+    // gave on the missed day are the question to ask now — the plan's hour is
+    // only the fallback, because an unknown hour is free and the plan cannot
+    // know his real one. Both are still questions, never a placement.
+    const prefer = (stop.prefer ?? []).find(h => h >= VISIT_FIRST_HOUR && h <= VISIT_LAST_HOUR
+      && !(scope.busy ?? []).includes(h));
+    const hour = prefer ?? placed.hour;
+    if ((stop.askedHours ?? []).includes(hour)) continue;
+    firstRound.push({ eb: stop.eb, hour, reason: 'first' });
   }
   if (firstRound.length > 0) return firstRound;
 
