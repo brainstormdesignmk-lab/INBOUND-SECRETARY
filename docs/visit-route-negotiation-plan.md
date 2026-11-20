@@ -325,11 +325,15 @@ Shipped in this tree, with tests:
 | route owner copy (`owner.routeAsk`) | `src/data/responses.ts`, `src/llm/prompts.ts` (`buildOwnerRouteAsk`) | `owner-route-ask` |
 | the stop's own term for every re-arm / ack / owner question | `inbound.ts` (`routeTermFor`) | `owner-route-ask` |
 | the route on the operator's `/state` | `src/tui/state.ts` (`route=` … `def=`) | `tui-state-dump` |
+| the deferred set as its OWN route on the next term | `inbound.ts` (`confirmChain`, `startChainIfNeeded`) | `chain-deferred-route` |
 
 Known limits, on purpose and named:
 
-- The deferred flat's own term is collected as a normal single visit; if two or
-  more flats are deferred they restart as a route (`visitWanted` survives).
+- ONE deferred flat is collected as an ordinary single visit; TWO OR MORE start
+  a route of their own on the client's next term — parallel asks, the same pause
+  and deferral rules, and the first day's bookings left untouched (pinned by
+  `chain-deferred-route`). Each further day's deferral repeats that step, so a
+  flat is never written off and never asked forever.
 - `/state` shows the route as a SUMMARY (`2stops` / `live` / `-`, plus the
   deferred flats) because the row budget is 48 columns; the plan event carries
   the hours with addresses for the operator.

@@ -3124,6 +3124,18 @@ export class InboundHandler {
     session.slots.visitPlan = undefined; // consumed — a second yes must not rebook
     session.slots.visitWanted = deferred.length >= 2 ? true : undefined;
     session.slots.visitEbs = deferred.length > 0 ? deferred : undefined;
+    if (deferred.length > 0) {
+      // TWO OR MORE DEFERRED FLATS ARE THE NEXT ROUTE, BY CONSTRUCTION: the
+      // plural wish above plus this set is exactly what `startChainIfNeeded`
+      // reads, so his next term asks THESE owners in one parallel round and
+      // chain-links their hours on the new day — never one visit at a time.
+      // ONE flat stays the ordinary single visit (no wish, no route).
+      // The cards must also stay «on screen»: `multiVisitEbs` drops a
+      // remembered EB that is no longer in the batch/presented set (a stale
+      // number is never routed), so the deferred pair is pinned there — the
+      // route that was just booked must not be able to hide its own leftovers.
+      session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...deferred])];
+    }
     // The scheduler's Turn 0 carries the plan line for a real route.
     session.slots.chainSize = plan.assignments.length;
     this.deps.sessions.set(session);
