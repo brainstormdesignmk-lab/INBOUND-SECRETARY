@@ -7,6 +7,7 @@ import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_
 export { hasClockHint };
 import { OwnerVerdict } from '../backoffice/ownerAgent';
 import { normalizeMc, fuzzyHasToken } from './normalize';
+import { assentSource, detectPolarity, isBareYes } from './assent';
 // THE SHARED LEXICON (AGENTS.md §4r): a word family has ONE definition. Every
 // category/service/past/place reader below reads these modules instead of
 // spelling the vocabulary out again — two lists of the same family drift, and
@@ -4682,8 +4683,11 @@ export function detectSqm(text: string): number | undefined {
 // A BARE AFFIRMATIVE ANSWER to a closed question — the whole message is one
 // word (plus punctuation) and nothing else. It is deliberately NOT a token of
 // AGREE_PHRASES: «нормално» inside a sentence («ова не е нормално») is not a
-// yes, and the negated form must stay a complaint.
-const BARE_YES_RE = /^\s*(?:normalno|нормално|sekako|секако|vazi|важи|taka\s+e|така\s+е|tocno|точно|definitivno|дефинитивно)\s*[.!?,]*$/iu;
+// yes, and the negated form must stay a complaint. THE FORMS LIVE IN ONE TABLE
+// (`isBareYes`, src/llm/assent.ts) together with the rest of the assent
+// family — a spelling added for one lane must never be missing from its
+// siblings (the «tocno» address defect).
+
 
 // Agreement/contact-intent phrases — the escape hatch from the exhausted
 // dead-end ("добро", "контактирај ме" after every option was shown).
@@ -4893,7 +4897,7 @@ export function detectAgreement(text: string): boolean {
   // thrown away in silence and the OLD anchor served (the [00:47] capture:
   // «A KAJ CITY MALL?» → «NORMALNO» answered «немам … во непосредна близина на
   // ТЦ Лептокарија» — he moved the search and got the place he had left).
-  if (BARE_YES_RE.test(low) || BARE_YES_RE.test(norm)) return true;
+  if (isBareYes(text)) return true;
   return tokens.some(t => AGREE_WORDS.has(t)
     && !(mozeIsCriteria && (t === 'moze' || t === 'може'))
     && !(daIsVerbPhrase && (t === 'da' || t === 'да'))
@@ -6407,10 +6411,21 @@ export interface OwnerAddressReply {
   address?: string;
 }
 
-const ADDR_CONFIRM_RE =
-  /(?:^|[\s,.;:!?])(?:да|da|точн[ао]|tochn[ao]|тачн[ао]|tacn[ao]|ок|ok|правилн[ао]|praviln[ao]|во ред|vo red|истo|isto|сето е|seto e)(?:$|[\s,.;:!?])|потврд[уув]{1,2}[уув]{0,2}[аa]?|potvrduvam|potvrduva|potvrda|потврд[аa]/iu;
+// THE YES FAMILY IS SHARED (src/llm/assent.ts): the lane used to spell its own
+// list and knew «точна» + the h-digraph «tochno» but not the h-less «tocno» an
+// owner types on a phone — the [18:35] capture answered «tocno» and was asked
+// again. The potvrda stems stay here (they are address-turn-specific).
+const ADDR_CONFIRM_RE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?:${assentSource('yes', 'address')})(?![\\p{L}\\p{N}])`
+  + '|потврд[уув]{1,2}[уув]{0,2}[аa]?|potvrduvam|potvrduva|potvrda|потврд[аa]',
+  'iu',
+);
 const ADDR_CORRECT_RE =
-  /(?:^|[\s,.;:!?])(?:не|ne)(?:$|[\s,.;:!?])|(?:не\s+е|ne\s+e|није|nije)\s+(?:точн|тачн|tochn|tacn)|адресата\s+(?:не\s+)?(?:е\s+)?(?:погрешн|druga|друга|нова|nova|promena|промен[аa])|укажав|корегиран/iu;
+  /(?:^|[\s,.;:!?])(?:не|ne)(?:$|[\s,.;:!?])|(?:не\s+е|ne\s+e|није|nije)\s+(?:точн|тачн|tochn|tocn|tacn)|(?:не|ne)\s+(?:точно|tochno|tocno|тоцно)|адресата\s+(?:не\s+)?(?:е\s+)?(?:погрешн|druga|друга|нова|nova|promena|промен[аa])|укажав|корегиран/iu;
+// «друга», «нова», «промена» are the owner ANNOUNCING a correction, not the
+// correction itself: applying them as the street is the sibling of the
+// «tocno» defect (a bogus address on file instead of one more question).
+const ADDR_PLACEHOLDER_RE = /^(?:друга(?:та)?|нова(?:та)?|промена|promena|nova|druga|погрешн\p{L}*|грешн\p{L}*|gresn\p{L}*|pogresn\p{L}*)$/iu;
 
 /**
  * Parse the OWNER's answer to the Turn-0 address confirmation.
@@ -6437,9 +6452,19 @@ export function detectOwnerAddressReply(text: string): OwnerAddressReply | undef
       .replace(/^\s*(?:само\s+|samo\s+)/iu, '')
       .replace(/^\s*(?:тоја\s+е\s*|tоa\s+e\s*)/iu, '')
       .trim();
+    // A NEGATION WITH NOTHING TO PUT IN ITS PLACE ASKS THE QUESTION AGAIN:
+    // «ne e tocno» says the address is wrong and never says the right one; the
+    // old arm filed the negation itself as the street. Content is a word that
+    // is neither a placeholder («друга», «промена») nor an assent token.
+    const words = cleaned.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const carriesPlace = words.some(w => w.length >= 3 && !ADDR_PLACEHOLDER_RE.test(w)
+      && detectPolarity(w, { lane: 'address' }) === undefined);
+    if (!streetLike && !carriesPlace) return undefined;
     return { status: 'correct', address: cleaned || t };
   }
-  if (agreement) return { status: 'confirm' };
+  // THE ANSWER ITSELF IS READ THROUGH THE SHARED FAMILY, with negation winning:
+  // «ne e tocno» is never a confirmation, whatever token it contains.
+  if (agreement && detectPolarity(t, { lane: 'address' }) === 'yes') return { status: 'confirm' };
   return undefined;
 }
 

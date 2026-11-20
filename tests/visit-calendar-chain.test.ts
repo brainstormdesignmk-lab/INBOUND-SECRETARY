@@ -5,7 +5,13 @@
 // hour that is already booked is told so and offered the nearest free hours
 // before/after; and several flats are linked into ONE non-stop chain (16:00 →
 // 17:00 → …) in whatever order the owners can do, with the client's own start
-// kept when possible and adjusted ±3 hours when he is flexible.
+// kept when possible.
+//
+// UPDATED for the owner's 2026-11-19 answers: a shift is searched both ways
+// ALWAYS (and disclosed — his hour is still preferred, the objective's second
+// key), a pause of up to two hours is a legal route when nothing connects
+// (one hour preferred), and flats outside the day's route are DEFERRED to their
+// own term instead of `dropped`.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,7 +63,7 @@ test('a chain is laid out contiguously from the client’s hour, in his order', 
   assert.equal(plan.startHour, 16);
   assert.equal(plan.shiftedBy, 0);
   assert.deepEqual(plan.stops, [{ eb: 42, hour: 16 }, { eb: 59, hour: 17 }]);
-  assert.deepEqual(plan.dropped, []);
+  assert.deepEqual(plan.deferred, []);
 });
 
 test('the order is free: an owner who can only do 16:00 goes first', () => {
@@ -68,54 +74,60 @@ test('the order is free: an owner who can only do 16:00 goes first', () => {
   assert.equal(plan.shiftedBy, 0, 'the client start is untouched');
 });
 
-test('a busy hour breaks contiguity: the chain shifts or reports the gap', () => {
+test('a busy hour breaks contiguity: the chain keeps the hour and pauses', () => {
   const stops: ChainStop[] = [{ eb: 42 }, { eb: 59 }];
-  // 17:00 is already booked by another client → 16:00+17:00 impossible.
+  // 17:00 is already booked by another client → 16:00+17:00 impossible. The
+  // route keeps the CLIENT's hour (the objective's second key) and takes the
+  // one-hour pause instead of moving him earlier; the gap is stated to him.
   const busyPlan = solveChain({ targetHour: 16, stops, busy: [17] })!;
   assert.equal(busyPlan.startHour, 16, 'the client hour is kept for the first stop');
-  assert.deepEqual(busyPlan.dropped, [59], 'the second flat cannot be linked');
-  // A flexible client can move the whole chain an hour earlier instead.
+  assert.deepEqual(busyPlan.stops, [{ eb: 42, hour: 16 }, { eb: 59, hour: 18 }]);
+  assert.equal(busyPlan.totalGap, 1, 'one free hour between them');
+  assert.deepEqual(busyPlan.deferred, []);
+  // `flexible` is no longer a permission bit: the search is always both ways,
+  // and keeping his hour still beats shifting (same plan either way).
   const flex = solveChain({ targetHour: 16, stops, busy: [17], flexible: true })!;
-  assert.equal(flex.startHour, 15);
-  assert.deepEqual(flex.stops, [{ eb: 42, hour: 15 }, { eb: 59, hour: 16 }]);
-  assert.deepEqual(flex.dropped, []);
+  assert.equal(flex.startHour, 16);
+  assert.deepEqual(flex.stops, busyPlan.stops);
 });
 
-test('an inflexible client is never moved, and a window is respected', () => {
+test('a clash is never a doubled slot, and the loser keeps its own term', () => {
   const stops: ChainStop[] = [{ eb: 42 }, { eb: 59 }];
   const plan = solveChain({ targetHour: 16, stops, busy: [17] })!;
-  assert.equal(plan.shiftedBy, 0, 'no shift without his permission');
+  assert.equal(plan.shiftedBy, 0, 'his hour is preferred over a shift');
   // 42 only at 18:00 and 59 only at 18:00 → both can't share one hour. One is
-  // still arranged and the other is REPORTED as unlinked — never a doubled slot.
+  // still arranged and the other is DEFERRED — never a doubled slot, never an
+  // abandoned flat.
   const clash = solveChain({ targetHour: 18, stops: [{ eb: 42, hours: [18] }, { eb: 59, hours: [18] }], busy: [] })!;
   assert.equal(clash.stops.length, 1, JSON.stringify(clash));
   assert.deepEqual(clash.stops.map(s => s.hour), [18]);
-  assert.equal(clash.dropped.length, 1, JSON.stringify(clash));
+  assert.deepEqual(clash.deferred, [59], JSON.stringify(clash));
 });
 
-test('four flats, one chain, non-stop', () => {
+test('four flats, one chain: the booked hour costs a pause, not a flat', () => {
   const stops: ChainStop[] = [{ eb: 11 }, { eb: 22 }, { eb: 33 }, { eb: 44 }];
-  // 19:00 is booked, so 16:00–19:00 is impossible; a flexible client starts an
-  // hour earlier and ALL FOUR are linked.
-  const plan = solveChain({ targetHour: 16, stops, busy: [19], flexible: true })!;
+  // 19:00 is booked. Every subset size is tried first, so all four are placed:
+  // 16, 17, 18 … then 20 (a one-hour pause) — the client keeps his 16:00 and
+  // nobody is deferred.
+  const plan = solveChain({ targetHour: 16, stops, busy: [19] })!;
   assert.equal(plan.stops.length, 4, JSON.stringify(plan));
-  assert.deepEqual(plan.stops.map(s => s.hour), [15, 16, 17, 18]);
-  assert.deepEqual(plan.dropped, []);
-  // Inflexible: the client keeps 16:00, three fit before the booked hour, and
-  // the fourth is reported (not silently dropped).
-  const fixed = solveChain({ targetHour: 16, stops, busy: [19] })!;
-  assert.deepEqual(fixed.stops.map(s => s.hour), [16, 17, 18]);
-  assert.equal(fixed.dropped.length, 1);
+  assert.deepEqual(plan.stops.map(s => s.hour), [16, 17, 18, 20]);
+  assert.equal(plan.totalGap, 1, JSON.stringify(plan));
+  assert.deepEqual(plan.deferred, []);
+  assert.deepEqual(solveChain({ targetHour: 16, stops, busy: [19], flexible: true })!.stops, plan.stops);
 });
 
 test('the visit window is absolute (never before 09:00 or after 21:00)', () => {
   const stops: ChainStop[] = [{ eb: 42 }, { eb: 59 }];
+  // A client hour outside the window is not a visit at all — not a seed to
+  // shift from.
   assert.equal(solveChain({ targetHour: 8, stops, busy: [] }), undefined);
-  // 21:00 is the last start: the first flat is arranged there, the second is
-  // reported as unlinked — 22:00 is not a visit.
+  // 21:00 is the last start, so a two-flat route moves to 20:00–21:00 (one
+  // hour earlier, stated); 22:00 is never used.
   const late = solveChain({ targetHour: 21, stops, busy: [] })!;
-  assert.deepEqual(late.stops.map(s => s.hour), [21]);
-  assert.deepEqual(late.dropped, [59]);
+  assert.deepEqual(late.stops.map(s => s.hour), [20, 21]);
+  assert.equal(late.shiftedBy, -1);
+  assert.deepEqual(late.deferred, []);
   const single = solveChain({ targetHour: 21, stops: [{ eb: 42 }], busy: [] })!;
   assert.deepEqual(single.stops, [{ eb: 42, hour: 21 }]);
 });

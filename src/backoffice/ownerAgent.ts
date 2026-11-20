@@ -94,9 +94,17 @@ export interface OwnerCheckTimeout {
   waitedMs: number;
 }
 
+/** A pending check is keyed by CHAT + EB (the owner's 2026-11-19 answer: the
+ *  owners of a route are contacted IN PARALLEL). It used to be one per chat, so
+ *  asking owner 2 overwrote owner 1's check and a route could only ever wait on
+ *  one human at a time. */
+function pendingKey(chatId: string, eb: number): string {
+  return `${chatId}\u0000${eb}`;
+}
+
 export class DeferredOwnerAgent implements OwnerAgent {
   readonly name = 'deferred';
-  private pending = new Map<string, { eb: number; time: string; resolve: (v: OwnerVerdict) => void }>();
+  private pending = new Map<string, { chatId: string; eb: number; time: string; resolve: (v: OwnerVerdict) => void }>();
 
   constructor(
     private owners: OwnerStore,
@@ -107,11 +115,12 @@ export class DeferredOwnerAgent implements OwnerAgent {
     private onTimeout?: (info: OwnerCheckTimeout) => void | Promise<void>,
   ) {}
 
-  /** ONE LIVE REQUEST PER CHAT. `owner_check_requested` is the bus's record of
-   *  a check that is actually WAITING, and /hermes/v1/work hands those rows to
-   *  Hermes as owner work. Every re-ask/re-arm inserted another row, so the
+  /** ONE LIVE REQUEST PER CHAT + EB. `owner_check_requested` is the bus's record
+   *  of a check that is actually WAITING, and /hermes/v1/work hands those rows
+   *  to Hermes as owner work. Every re-ask/re-arm inserted another row, so the
    *  queue grew by one per owner turn and listed closed checks forever. A new
-   *  check supersedes the previous one for the same chat. */
+   *  check supersedes the previous one FOR THE SAME FLAT — never the other
+   *  stops of a route, which are being asked in parallel. */
   private settle(chatId: string, eb?: number): void {
     for (const ev of this.events.listPending('owner_check_requested')) {
       if (ev.chatId !== chatId) continue;
@@ -120,13 +129,15 @@ export class DeferredOwnerAgent implements OwnerAgent {
     }
   }
 
-  /** The term this owner is currently being asked about, if a check is open. */
+  /** The term this owner is currently being asked about, if a check is open
+   *  (the oldest open one, for callers that only need "is anything in flight"). */
   pendingProposedTime(chatId: string): string | null {
-    return this.pending.get(chatId)?.time ?? null;
+    for (const p of this.pending.values()) if (p.chatId === chatId) return p.time;
+    return null;
   }
 
   check(chatId: string, eb: number, proposedTime: string, askText?: string): Promise<OwnerVerdict> {
-    this.settle(chatId);
+    this.settle(chatId, eb);
     this.events.insert('owner_check_requested', chatId, eb, { proposedTime, askText });
     const requestedAt = Date.now();
     // STALE-EVENT GUARD: a previous check for the same chatId+EB can leave an
@@ -140,14 +151,15 @@ export class DeferredOwnerAgent implements OwnerAgent {
       this.events.resolve(stale.id);
       console.error(`[owner] dropped stale owner_check_result (id=${stale.id}) predating this check for chat=${chatId} eb=${eb}`);
     }
+    const key = pendingKey(chatId, eb);
     return new Promise<OwnerVerdict>(resolve => {
-      this.pending.set(chatId, { eb, time: proposedTime, resolve });
+      this.pending.set(key, { chatId, eb, time: proposedTime, resolve });
       // Cross-process: Hermes (machine B) answers through the /hermes/v1 API,
       // which writes an owner_check_result event on the shared bus. Poll the
       // bus so the answer resolves from ANY process holding this check — the
       // events table, not the process memory, is the real bus.
       const poll = setInterval(() => {
-        const p = this.pending.get(chatId);
+        const p = this.pending.get(key);
         if (!p || p.eb !== eb) {
           clearInterval(poll);
           return;
@@ -164,13 +176,13 @@ export class DeferredOwnerAgent implements OwnerAgent {
             .find(r => r.chatId === chatId && r.eb === eb && (r.createdAt ?? 0) >= requestedAt);
         } catch (e) {
           clearInterval(poll);
-          this.pending.delete(chatId);
+          this.pending.delete(key);
           console.error(`[owner] owner-check poll stopped for EB ${eb}: ${(e as Error).message}`);
           return;
         }
         if (!hit) return;
         clearInterval(poll);
-        this.pending.delete(chatId);
+        this.pending.delete(key);
         this.events.resolve(hit.id);
         // The check is answered — its request row is no longer waiting work.
         this.settle(chatId, eb);
@@ -182,7 +194,7 @@ export class DeferredOwnerAgent implements OwnerAgent {
         // timeout is no longer a console line nobody reads. The POLL keeps
         // running: clearing it here is what made a late Hermes answer
         // unreachable and the client parked forever.
-        const live = this.pending.get(chatId);
+        const live = this.pending.get(key);
         if (!live || live.eb !== eb) return;
         console.error(`[owner] no answer within ${this.timeoutMs}ms for EB ${eb} — check stays pending (event remains in bus)`);
         if (!this.onTimeout) return;
@@ -198,14 +210,23 @@ export class DeferredOwnerAgent implements OwnerAgent {
   }
 
   pendingEb(chatId: string): number | null {
-    return this.pending.get(chatId)?.eb ?? null;
+    for (const p of this.pending.values()) if (p.chatId === chatId) return p.eb;
+    return null;
+  }
+
+  /** EVERY flat this chat is waiting on — a route asks its owners in parallel. */
+  pendingEbs(chatId: string): number[] {
+    const out: number[] = [];
+    for (const p of this.pending.values()) if (p.chatId === chatId) out.push(p.eb);
+    return out;
   }
 
   /** The answer arrives (TUI /owner today, Hermes phase 2 via the API). */
   answer(chatId: string, eb: number, verdict: OwnerVerdict): boolean {
-    const p = this.pending.get(chatId);
+    const key = pendingKey(chatId, eb);
+    const p = this.pending.get(key);
     if (!p || p.eb !== eb) return false;
-    this.pending.delete(chatId);
+    this.pending.delete(key);
     this.settle(chatId, eb);
     this.events.insert('owner_check_result', chatId, eb, { ...verdict, source: 'deferred' });
     p.resolve(verdict);
@@ -223,7 +244,7 @@ export class DeferredOwnerAgent implements OwnerAgent {
     // (an `ok` without a term reads as availability-only and never finalizes).
     // Stamping the pending proposed term keeps the operator shortcut working
     // while making the verdict say what it means.
-    const proposed = ownerTime ?? this.pending.get(chatId)?.time ?? undefined;
+    const proposed = ownerTime ?? this.pending.get(pendingKey(chatId, eb))?.time ?? undefined;
     let verdict: OwnerVerdict;
     switch (action) {
       case 'ok':

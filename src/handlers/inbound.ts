@@ -23,10 +23,11 @@ import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectPublishedListingAsk, detectAcquisitionWish, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
 import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, pad2, isWeekendTerm,
-  isCompleteVisitTerm, missingTermPiece } from '../visits/time';
+  isCompleteVisitTerm, missingTermPiece, sameVisitInstant } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
 import { dayStartOf, slotStartOf, isSlotTaken, freeHoursNear, buildSlotTakenLine, type CalendarInput } from '../visits/calendar';
 import { solveChain, type VisitPlanState } from '../visits/chain';
+import { decide } from '../visits/negotiate';
 import { buildChainAsk, buildPlanReminder, mapsLinkFor } from '../visits/messages';
 import {
   buildOwnerCleanPriceQuestion, buildOwnerPublishedPriceQuestion, buildPriceChangeNotice, computeFinalFromClean,
@@ -2685,6 +2686,7 @@ export class InboundHandler {
           const kept = new Map(running.stops.map(s => [s.eb, s]));
           running.stops = renamed.map(eb => kept.get(eb) ?? { eb, status: 'pending' as const });
           running.assignments = undefined;
+          running.deferred = undefined;
           running.dropped = undefined;
           session.slots.visitEbs = renamed;
           narrowed = true;
@@ -2700,12 +2702,14 @@ export class InboundHandler {
         running.targetHour = moved.getHours();
         running.term = term;
         running.assignments = undefined;
+        running.deferred = undefined;
         running.dropped = undefined;
         for (const s of running.stops) {
           s.status = 'pending';
           s.hours = undefined;
           s.askedHour = undefined;
           s.pendingHour = undefined;
+          s.askedHours = undefined; // yesterday's hours were not "already asked"
         }
         this.deps.sessions.set(session);
         this.advanceChain(session);
@@ -2882,59 +2886,109 @@ export class InboundHandler {
     return `${weekdayName(day)}, ${formatDateOnly(day)} во ${pad2(hour)}:00`;
   }
 
-  /** Ask the NEXT owner in the chain; finish it when every owner answered. */
+  /** THE PARALLEL ROUND: every owner who still needs a question is asked now,
+   *  and the route is finished when their answers are in.
+   *
+   *  Owner's 2026-11-19 answer: contact them IN PARALLEL and chain-link each
+   *  owner's starting point while the answers come in. The HOUR each owner is
+   *  asked comes from the negotiator (`decide`), never from his position in the
+   *  client's list: an unknown owner is asked the hour the plan gives him, and
+   *  an owner who answered is asked the one hour that removes a pause or brings
+   *  a deferred flat back — the owner's own example 2. */
   private advanceChain(session: ChatSession): void {
     const plan = session.slots.visitPlan;
     if (!plan) return;
-    const next = plan.stops.find(s => s.status === 'pending');
-    if (!next) { void this.finishChain(session); return; }
-    // THE THIRD ASK IS THE LAST (the brief's budget): an owner who keeps being
-    // ping-ponged leaves the route instead of stalling it — and he is named to
-    // the client like any other dropped stop.
-    next.asks = (next.asks ?? 0) + 1;
-    if (next.asks > 3) {
-      next.status = 'dropped';
-      this.advanceChain(session);
+    const live = plan.stops.filter(s => s.status !== 'dropped');
+    if (live.length === 0) { void this.finishChain(session); return; }
+    // A question is out — the round is not over until every asked owner answers
+    // (the answers are merged per stop, so a slow owner never blocks the others
+    // from being asked).
+    if (live.some(s => s.status === 'asked')) return;
+    // THE BUDGET (3 questions per owner) — spent without a usable hour, he
+    // leaves this day's route and is named to the client as a separate term.
+    for (const s of live) {
+      if (s.status === 'pending' && (s.asks ?? 0) >= 3) s.status = 'dropped';
+    }
+    const cal = this.dayCalendar(new Date(plan.dayMs), {
+      chatId: session.chatId, ebs: plan.stops.map(s => s.eb),
+    });
+    // THE UNCONFIRMED SLOT IS THE QUESTION (see finishChain): the solver placed
+    // this owner at an hour his own answer does not cover, so THAT hour is put
+    // to him — a fresh lookahead could pick a different, merely plausible one.
+    const pinned = live.find(s => s.status === 'pending' && s.pendingHour !== undefined);
+    const decision = pinned
+      ? { kind: 'ask' as const, asks: [{ eb: pinned.eb, hour: pinned.pendingHour!, reason: 'connect' as const }] }
+      : decide({
+        targetHour: plan.targetHour,
+        busy: cal.busy.map(b => new Date(b).getHours()),
+        stops: plan.stops.map(s => ({
+          eb: s.eb,
+          can: s.hours,
+          askedHours: s.askedHours,
+          asks: s.asks ?? 0,
+          out: s.status === 'dropped',
+        })),
+      });
+    if (decision.kind !== 'ask') { void this.finishChain(session); return; }
+    const asked: Array<{ eb: number; hour: number }> = [];
+    for (const ask of decision.asks) {
+      // A CONNECTING QUESTION GOES TO AN OWNER WHO ALREADY ANSWERED (that is
+      // the whole point: «може во 19?» after «можам 16»), so the stop may be
+      // `ok`/`counter` — it becomes `asked` again. Only a question already in
+      // flight is never repeated, and a dropped stop is never asked again.
+      const stop = plan.stops.find(s => s.eb === ask.eb && s.status !== 'dropped' && s.status !== 'asked');
+      if (!stop) continue;
+      stop.status = 'asked';
+      stop.asks = (stop.asks ?? 0) + 1;
+      stop.askedHour = ask.hour;
+      stop.askedHours = [...(stop.askedHours ?? []), ask.hour];
+      stop.pendingHour = undefined;
+      asked.push({ eb: ask.eb, hour: ask.hour });
+    }
+    plan.assignments = undefined; // the route is being re-solved
+    if (asked.length === 0) {
+      this.deps.sessions.set(session);
+      void this.finishChain(session);
       return;
     }
-    // The hour this stop is asked about: the target plus its position among the
-    // live stops — contiguous by construction, and the solver corrects later.
-    const live = plan.stops.filter(s => s.status !== 'dropped');
-    const idx = live.indexOf(next);
-    // A RE-CONFIRM asks about the hour the solved route assigned (`pendingHour`),
-    // not the stop's position — the order may have changed after a counter.
-    const hour = next.pendingHour ?? plan.targetHour + Math.max(0, idx);
-    next.status = 'asked';
-    next.askedHour = hour;
-    next.pendingHour = undefined;
     session.state = 'owner_checking';
-    session.slots.interestedPropertyId = next.eb;
-    session.slots.propertyId = next.eb;
+    const first = asked[0]!;
+    session.slots.interestedPropertyId = first.eb;
+    session.slots.propertyId = first.eb;
     // THE ASK MEMORY BELONGS TO ONE PROPERTY (the [11:11] route): `ownerAskTime`
     // is per CHAT, so the SECOND owner was told «Клиентот не е во можност во
-    // 16:00» about a flat he was never asked about. Each stop is a first ask.
+    // 16:00» about a flat he was never asked about. Each stop is its own ask,
+    // and `runOwnerCheck` is told so (`firstAsk`) — a parallel round would
+    // otherwise read the PREVIOUS stop's hour as "the term the client refuses".
     session.slots.ownerAskTime = undefined;
     session.slots.ownerCounterTime = undefined;
     session.slots.ownerClockDay = undefined;
     this.deps.sessions.set(session);
-    void this.runOwnerCheck(session, next.eb, this.chainTermFor(plan, hour));
+    for (const ask of asked) {
+      const stop = plan.stops.find(s => s.eb === ask.eb);
+      void this.runOwnerCheck(session, ask.eb, this.chainTermFor(plan, ask.hour), { firstAsk: stop?.asks === 1 });
+    }
   }
 
   /** One owner's answer for the stop he was asked about. */
-  private applyChainVerdict(session: ChatSession, eb: number, plan: VisitPlanState, verdict: OwnerVerdict): string | undefined {
+  private applyChainVerdict(session: ChatSession, eb: number, plan: VisitPlanState, verdict: OwnerVerdict, ownerTerm?: string): string | undefined {
     const stop = plan.stops.find(s => s.eb === eb && s.status === 'asked');
     if (!stop) return undefined;
     if (verdict.status === 'ok' || verdict.status === 'available') {
       stop.status = 'ok';
       stop.hours = [stop.askedHour ?? plan.targetHour];
     } else if (verdict.status === 'counter' && verdict.ownerTime) {
-      const when = parseVisitDateTime(verdict.ownerTime, new Date());
-      // A counter with a real clock is his own hour — a slot he offered, so the
-      // solved route may place him there without a second ask. A bare refusal
-      // drops him from this chain (he gets his own term later) — never a silent
-      // hour.
-      stop.status = when ? 'counter' : 'dropped';
-      if (when) stop.hours = [when.getHours()];
+      // THE MERGED TERM names the day he actually offered (his words were
+      // completed with the day of the stop he was asked about).
+      const when = parseVisitDateTime(ownerTerm ?? verdict.ownerTime, new Date());
+      // A counter with a real clock ON THIS DAY is his own hour — a slot he
+      // offered, so the solved route may place him there without a second ask.
+      // ANOTHER DAY is not this route's slot (the owner's 2026-11-19 answer):
+      // he leaves this day's route and is negotiated on his own day — never a
+      // silent hour on the wrong date.
+      const sameDay = !!when && dayStartOf(when) === plan.dayMs;
+      stop.status = sameDay ? 'counter' : 'dropped';
+      if (when && sameDay) stop.hours = [when.getHours()];
     } else {
       stop.status = 'dropped';
     }
@@ -2961,21 +3015,17 @@ export class InboundHandler {
     const cal = this.dayCalendar(new Date(plan.dayMs), {
       chatId: session.chatId, ebs: plan.stops.map(s => s.eb),
     });
-    // A LONE SURVIVOR IS ITS OWN SLOT — the solver's job is linking SEVERAL
-    // flats, and its drop-loop would answer a one-stop route with undefined
-    // just because that owner's clock is not the client's hour.
-    const solved = live.length === 1
-      ? {
-        stops: [{ eb: live[0]!.eb, hour: live[0]!.hours?.[0] ?? live[0]!.askedHour ?? plan.targetHour }],
-        dropped: [] as number[],
-        shiftedBy: 0,
-      }
-      : solveChain({
-        targetHour: plan.targetHour,
-        stops: live.map(s => ({ eb: s.eb, hours: s.hours })),
-        busy: cal.busy.map(b => new Date(b).getHours()),
-        flexible: plan.flexible === true,
-      });
+    // ONE SOLVER FOR EVERY SIZE (the owner's 2026-11-19 answers): gaps up to
+    // two hours, a shift searched both ways and always disclosed, and the
+    // flats that cannot share the day returned as `deferred` — never dropped.
+    // A lone survivor is just a one-stop route (its owner's hour is its slot).
+    const solved = solveChain({
+      targetHour: plan.targetHour,
+      stops: live.map(s => ({ eb: s.eb, hours: s.hours })),
+      busy: cal.busy.map(b => new Date(b).getHours()),
+      flexible: plan.flexible === true,
+      maxGap: 2, // 2 hours tolerated, 1 preferred — the objective prefers 1
+    });
     // NO LINK EXISTS: every owner answered, but their hours cannot be joined
     // into one non-stop route that day. The honest turn names the day and asks
     // for another — NEVER a fabricated route at hours somebody refused (the
@@ -3012,10 +3062,14 @@ export class InboundHandler {
       }
     }
     plan.assignments = assignments;
-    plan.dropped = [
+    // NOBODY IS DROPPED: a flat outside this day's route is deferred to its own
+    // negotiation (the client hears «барам друг термин»), and the unavailable
+    // ones (sold/gone) are named the same way — never silently forgotten.
+    plan.deferred = [
       ...plan.stops.filter(s => s.status === 'dropped').map(s => s.eb),
-      ...(solved.dropped ?? []),
+      ...solved.deferred,
     ];
+    plan.dropped = undefined;
     // The first stop is the subject the booking seam continues on.
     const first = plan.assignments[0]!;
     session.slots.propertyId = first.eb;
@@ -3024,7 +3078,11 @@ export class InboundHandler {
     session.state = 'time_confirm';
     const svc = session.slots.service ?? 'buy';
     const fee = buildFeePerProperty(svc, plan.assignments.length);
-    const answer = `${buildChainAsk(plan.assignments, { dropped: plan.dropped, shiftedBy: solved.shiftedBy })}\n\n${fee}`;
+    const answer = `${buildChainAsk(plan.assignments, {
+      deferred: plan.deferred,
+      shiftedBy: solved.shiftedBy,
+      totalGap: solved.totalGap,
+    })}\n\n${fee}`;
     routeLog(session.chatId, 'chain', 'CHAIN_READY');
     pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
     this.deps.sessions.set(session);
@@ -3037,9 +3095,14 @@ export class InboundHandler {
   private async confirmChain(session: ChatSession): Promise<void> {
     const plan = session.slots.visitPlan;
     if (!plan?.assignments?.length) return;
+    // NOBODY IS DROPPED (the owner's 2026-11-19 answer): the flats this day's
+    // route could not hold stay the client's NEXT negotiation — the named set
+    // survives so his next term arranges THEM, and a plural set keeps the
+    // route machinery for them.
+    const deferred = [...(plan.deferred ?? [])];
     session.slots.visitPlan = undefined; // consumed — a second yes must not rebook
-    session.slots.visitWanted = undefined; // the wish is fulfilled by the route
-    session.slots.visitEbs = undefined; // …and so is the set it named
+    session.slots.visitWanted = deferred.length >= 2 ? true : undefined;
+    session.slots.visitEbs = deferred.length > 0 ? deferred : undefined;
     // The scheduler's Turn 0 carries the plan line for a real route.
     session.slots.chainSize = plan.assignments.length;
     this.deps.sessions.set(session);
@@ -3079,6 +3142,25 @@ export class InboundHandler {
       });
     } catch { /* advisory */ }
     console.log(`[EVENT] VISIT_PLAN ${JSON.stringify({ ebs: stops.map(s => s.eb), agentPhone })}`);
+    // THE DEFERRED FLATS ARE ASKED FOR THEIR OWN TERM (the owner's 2026-11-19
+    // answer: the property that fits is arranged, the other is asked for another
+    // day/time and arranged if agreement is possible) — one question, now, while
+    // the client is still in the flow.
+    if (deferred.length > 0) {
+      session.slots.interestedPropertyId = deferred[0];
+      session.slots.propertyId = deferred[0];
+      session.slots.visitTime = undefined;
+      session.slots.ownerTime = undefined;
+      session.slots.ownerAskTime = undefined;
+      session.slots.ownerCounterTime = undefined;
+      session.slots.ownerClockDay = undefined;
+      session.state = 'visit_scheduling';
+      const list = deferred.join(', ');
+      const ask = `За Евидентен број ${list} не најдов слободен термин на истиот ден. Кој ден и час Ви одговараат за ${deferred.length === 1 ? 'таа посета' : 'тие посети'}?`;
+      pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, ask, 'deterministic');
+    }
   }
 
   /** The day's CONFIRMED visits as hour starts — the calendar the taken-hour
@@ -13142,11 +13224,24 @@ export class InboundHandler {
     if (ev.type === 'TIME_REJECTED' && before === 'time_confirm') {
       session.slots.negotiationCount = (session.slots.negotiationCount ?? 0) + 1;
       if (session.slots.negotiationCount >= this.cfg.negotiationCap) next = 'escalated';
-      // A REFUSED ROUTE IS NO LONGER A ROUTE: the plan is dropped so the next
-      // term is arranged as an ordinary visit (and the owners are not asked
-      // about a schedule the client has just rejected).
-      session.slots.visitPlan = undefined;
-      session.slots.chainSize = undefined;
+      // A REFUSED ROUTE IS STILL THE SAME ROUTE (the owner's 2026-11-19
+      // answer): the client rejected the DAY/hours, not the flats. The stops
+      // survive so the next term he names re-solves them
+      // (`startChainIfNeeded`'s moved arm) instead of asking him to pick flats
+      // again — and a flat that could not fit is negotiated separately.
+      const refused = session.slots.visitPlan;
+      if (refused) {
+        refused.assignments = undefined;
+        for (const stop of refused.stops) {
+          if (stop.status === 'dropped') continue;
+          stop.status = 'pending';
+          stop.hours = undefined;
+          stop.askedHour = undefined;
+          stop.pendingHour = undefined;
+        }
+      } else {
+        session.slots.chainSize = undefined;
+      }
     }
 
     // Exhausted-options agreement: after every matching property was shown, an
@@ -17421,7 +17516,7 @@ ${contactReminder}`;
     return ack;
   }
 
-  private async runOwnerCheck(session: ChatSession, eb: number, proposedTime: string): Promise<void> {
+  private async runOwnerCheck(session: ChatSession, eb: number, proposedTime: string, opts: { firstAsk?: boolean } = {}): Promise<void> {
     try {
       // NOTHING INCOMPLETE REACHES THE OWNER (the [10:06] capture, last line of
       // defence): every caller is meant to gate on isCompleteVisitTerm, but this
@@ -17444,6 +17539,50 @@ ${contactReminder}`;
       // resolved to the concrete date and rewritten canonically
       // ("Понеделник, 28.09.2026 во 18:00") before the ask is composed.
       const askTime = normalizeOwnerTime(proposedTime);
+      // WHO SAID WHAT, AS INSTANTS (the [18:35] capture). The client answered
+      // the owner's counter with the same hour said bare («mislam deka ke moze
+      // vo 6» for «Понеделник, 23.11.2026 во 18:00»). A string comparison read
+      // that as a new proposal, so the owner was asked about the hour HE had
+      // just named and the follow-up printed it on both sides of «Има друг
+      // предлог». Two invariants stand here, at the one place that talks to an
+      // owner — whatever the classifier decided:
+      //   1. a term naming the instant the owner himself offered is a SETTLED
+      //      term: his counter is his availability, so it is booked, not asked;
+      //   2. a term naming the instant already in flight is the same question:
+      //      it is never put to him twice.
+      const liveTerms = [session.slots.ownerCounterTime, session.slots.ownerTime, session.slots.visitTime, session.slots.ownerAskTime];
+      // The instance check is broad by design; the client's own words stay the
+      // veto (the LLM leg can mint VISIT_TIME_PROVIDED for «не, не можам во 6»).
+      const lastUserText = [...(session.history ?? [])].reverse().find(m => m.role === 'user')?.text ?? '';
+      const ownerCounter = session.slots.ownerCounterTime;
+      if (ownerCounter && sameVisitInstant(proposedTime, ownerCounter, liveTerms)) {
+        if (detectTimeRejection(lastUserText)) {
+          // …AND A REJECTION IS NEVER CONSENT, even when it echoes the hour
+          // («ne mi odgovara vo 6»). The classifier normally routes that to
+          // visit_scheduling; when another leg labelled it a proposal, the
+          // funnel asks for a term instead of booking a refused hour.
+          session.state = 'visit_scheduling';
+          const ask = this.visitTermAsk(session);
+          pushHistory(session, { role: 'assistant', text: ask }, this.cfg.maxHistory);
+          this.deps.sessions.set(session);
+          await this.sendRaw(session, ask);
+          return;
+        }
+        const settledTime = normalizeOwnerTime(proposedTime);
+        session.state = 'pending';
+        session.slots.ownerTime = settledTime;
+        session.slots.ownerCounterTime = undefined;
+        session.slots.ownerCounterWholeDay = undefined;
+        session.slots.ownerClockDay = undefined;
+        this.ownerAltTimeAsks.delete(session.chatId);
+        this.deps.sessions.set(session);
+        await this.confirmVisit(session, eb, settledTime);
+        return;
+      }
+      if (session.slots.ownerAskTime && this.ownerCheckPending(session.chatId) === true
+        && sameVisitInstant(proposedTime, session.slots.ownerAskTime, liveTerms)) {
+        return; // the identical question is already with the owner
+      }
       // SECOND OWNER TURN (the [00:23] capture): when the owner was already
       // asked and the client now proposes a DIFFERENT term, repeating the
       // first-time intro ("Здраво… Дали е сè уште достапна?") re-asks what is
@@ -17458,7 +17597,11 @@ ${contactReminder}`;
       // «покасно 19:30», the follow-up must say «не е во можност во 16:00» —
       // naming the client's earlier 18:30 accused him of refusing a term the
       // owner had already refused himself (the [17:45] capture).
-      const priorAsk = session.slots.ownerCounterTime ?? session.slots.ownerAskTime;
+      // A ROUTE'S FIRST ASK IS A FIRST ASK (the parallel round): the chat slots
+      // hold whichever stop was asked LAST, so without this every parallel
+      // owner after the first heard «Клиентот не е во можност во <the other
+      // stop's hour>» — a refusal of a term this owner was never offered.
+      const priorAsk = opts.firstAsk ? undefined : (session.slots.ownerCounterTime ?? session.slots.ownerAskTime);
       const isFollowup = !!priorAsk && !!askTime && priorAsk !== askTime;
       // ACCEPTANCE follow-up (the [01:07] capture): an OPEN whole-day counter
       // means the client's completed term accepts the owner's own proposal —
@@ -17627,7 +17770,15 @@ ${contactReminder}`;
     // ownerTime / ownerCounterTime, i.e. as the term the client could accept AND
     // the term the next owner ping called "refused". One merge, most specific
     // day first: the day the owner himself named, then the term he is answering.
+    // A ROUTE ANSWER IS MERGED AGAINST ITS OWN STOP (parallel asks): the chat's
+    // `ownerAskTime` is whichever stop was asked LAST, so merging a route
+    // owner's bare clock against it put his hour on ANOTHER flat's day/hour.
+    const routeStop = session.slots.visitPlan?.stops.find(s => s.eb === eb && s.status === 'asked');
+    const routeTerm = routeStop && session.slots.visitPlan
+      ? this.chainTermFor(session.slots.visitPlan, routeStop.askedHour ?? session.slots.visitPlan.targetHour)
+      : undefined;
     const ownerTermMerged = mergeOwnerTerm(verdict.ownerTime ?? '', [
+      routeTerm,
       session.slots.ownerClockDay,
       session.slots.ownerAskTime,
       session.slots.visitTime,
@@ -17723,7 +17874,7 @@ ${contactReminder}`;
     // single-visit arms below must never book one flat of a route or ask it a
     // second time. The price relay (if any) still reaches the client first.
     if (session.slots.visitPlan) {
-      const handled = this.applyChainVerdict(session, eb, session.slots.visitPlan, verdict);
+      const handled = this.applyChainVerdict(session, eb, session.slots.visitPlan, verdict, ownerTerm);
       if (priceRelay) {
         pushHistory(session, { role: 'assistant', text: priceRelay }, this.cfg.maxHistory);
         this.deps.sessions.set(session);

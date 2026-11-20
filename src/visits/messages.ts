@@ -153,26 +153,39 @@ export function buildPlanLine(
 
 /** THE CHAIN ASK — the whole route in visit order, for ONE client decision.
  *  EB + hour only (the street stays in Turn 3), the honest note when a start
- *  hour had to move, and the flats that could not be linked. Ends with the
- *  confirmation question so the funnel has something to consume. */
+ *  hour had to move, the PAUSE when the route could not be non-stop (the
+ *  client is the one who accepts it — the owner's 2026-11-19 answer), and the
+ *  flats that keep their own term. Ends with the question the funnel consumes.
+ *
+ *  NOTHING IS «DROPPED» ANY MORE: a flat outside this day's route is deferred
+ *  to its own negotiation, and the copy says so instead of writing it off. */
 export function buildChainAsk(
   stops: Array<{ eb: number; hour: number }>,
-  opts: { dropped?: number[]; shiftedBy?: number } = {},
+  opts: { deferred?: number[]; shiftedBy?: number; totalGap?: number } = {},
 ): string {
   const hh = (h: number): string => `${String(h).padStart(2, '0')}:00`;
   const lines = stops.map(s => `${hh(s.hour)} — Евидентен број ${s.eb}`);
   const shift = opts.shiftedBy
     ? ` Часовите почнав ${opts.shiftedBy > 0 ? 'подоцна' : 'порано'} за ${Math.abs(opts.shiftedBy)} ${Math.abs(opts.shiftedBy) === 1 ? 'час' : 'часа'}, за да бидат поврзани еден по друг.`
     : '';
-  const dropped = opts.dropped && opts.dropped.length > 0
-    ? `\nЗа жал, не можев да ги поврзам во истиот ден: Евидентен број ${opts.dropped.join(', ')} — за нив ќе најдеме друг термин.`
+  const defer = opts.deferred && opts.deferred.length > 0
+    ? `\nЕвидентен број ${opts.deferred.join(', ')} не може да се вклопи истиот ден — за нив ќе договориме друг термин.`
+    : '';
+  // A PAUSE IS THE CLIENT'S DECISION: a gapped route is only proposed, never
+  // booked silently, so the copy names it and the question covers both.
+  const gap = opts.totalGap && opts.totalGap > 0
+    ? `\nМеѓу посетите има пауза од ${opts.totalGap} ${opts.totalGap === 1 ? 'час' : 'часа'}.`
     : '';
   // ONE STOP is a single visit, whatever the route was meant to be (the others
-  // were dropped) — «посетите» would promise visits that do not exist.
+  // were deferred) — «посетите» would promise visits that do not exist.
   const one = stops.length === 1;
   const head = one ? 'Посета:' : 'Посети по ред, една по друга:';
-  const ask = one ? 'Дали да ја потврдам посетата?' : 'Дали да ги потврдам посетите?';
-  return `${head}\n\n${lines.join('\n')}${dropped}${shift}\n\n${ask}`;
+  const ask = one
+    ? 'Дали да ја потврдам посетата?'
+    : gap
+      ? 'Дали Ви одговара вака, со пауза, и да ги потврдам посетите?'
+      : 'Дали да ги потврдам посетите?';
+  return `${head}\n\n${lines.join('\n')}${defer}${shift}${gap}\n\n${ask}`;
 }
 
 /** The day-before plan: the SAME lines the client got at confirmation, one per

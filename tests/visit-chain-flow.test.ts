@@ -96,12 +96,18 @@ test('[chain] two flats, two owners, one route: 16:00 and 17:00', async () => {
   h.seed();
   await h.say('ПЕТОК ВО 16:00, САКАМ ДА ГИ ВИДАМ ДВАТА');
   const s = h.sessions.get(h.chatId)!;
-  // The FIRST owner is asked about the client's hour…
+  // PARALLEL FIRST ROUND (the owner's 2026-11-19 answer): both owners are asked
+  // at once, each about the hour the route gives him — owner 1 16:00, owner 2
+  // 17:00. One honest question per owner, never a queue.
   assert.equal(s.state, 'owner_checking');
-  assert.match(h.asks.at(-1) ?? '', /16:00/u, `owner 1 is asked 16:00: ${h.asks.at(-1)}`);
-  // …his yes advances the chain to the SECOND owner at the next hour.
+  assert.equal(h.asks.length, 2, `one round, two asks: ${JSON.stringify(h.asks)}`);
+  assert.match(h.asks[0] ?? '', /број 42/u, `owner 1 is the first ask: ${h.asks[0]}`);
+  assert.match(h.asks[0] ?? '', /16:00/u, h.asks[0] ?? '');
+  assert.match(h.asks[1] ?? '', /број 59/u, `owner 2 is asked in the same round: ${h.asks[1]}`);
+  assert.match(h.asks[1] ?? '', /17:00/u, h.asks[1] ?? '');
+  // His yes does not re-ask the other owner — the round was already sent.
   await h.answer(42, 'MOZE', 'Петок во 16:00');
-  assert.match(h.asks.at(-1) ?? '', /17:00/u, `owner 2 is asked 17:00: ${h.asks.at(-1)}`);
+  assert.equal(h.asks.length, 2, `no duplicate ask: ${JSON.stringify(h.asks)}`);
   // Both agreed → the client gets the whole route in one ask.
   const asked = await h.answer(59, 'MOZE', 'Петок во 17:00');
   const session = h.sessions.get(h.chatId)!;
@@ -185,12 +191,13 @@ test('[chain] a new term mid-route restarts the asks on the new day', async () =
   const h = makeHandler();
   h.seed();
   await h.say('ПЕТОК ВО 16:00, САКАМ ДА ГИ ВИДАМ ДВАТА');
-  assert.equal(h.asks.length, 1, `one ask so far: ${JSON.stringify(h.asks)}`);
+  assert.equal(h.asks.length, 2, `the parallel round asked both owners: ${JSON.stringify(h.asks)}`);
 
   const before = h.asks.length;
   await h.say('ПОНЕДЕЛНИК ВО 12:00, САКАМ ДА ГИ ВИДАМ ДВАТА');
-  assert.ok(h.asks.length > before, 'the owner is asked about the NEW term');
-  assert.match(h.asks.at(-1) ?? '', /12:00/u, `the new hour reaches the owner: ${h.asks.at(-1)}`);
+  assert.equal(h.asks.length, before + 2, 'both owners are asked about the NEW term');
+  assert.match(h.asks.at(-2) ?? '', /12:00/u, `the new hour reaches the owners: ${h.asks.slice(-2)}`);
+  assert.match(h.asks.at(-1) ?? '', /13:00/u, `and the next stop one hour later: ${h.asks.slice(-2)}`);
   const plan = h.sessions.get(h.chatId)!.slots.visitPlan!;
   assert.equal(plan.targetHour, 12, 'the route starts at the new hour');
   const day = new Date(plan.dayMs);
@@ -211,7 +218,14 @@ test('[chain] an owner’s counter that moves the start hour is re-solved and di
   h.seed();
   await h.say('ПЕТОК ВО 16:00, БИЛО КОГА, САКАМ ДА ГИ ВИДАМ ДВАТА');
   await h.answer(42, 'MOZE VO 18:00', 'Петок во 16:00');
-  const asked = await h.answer(59, 'MOZE', 'Петок во 17:00');
+  // The brief's first example, verbatim: the owner of the second flat links the
+  // chain at the client's own hour, so THAT is asked before any route is offered.
+  const connect = await h.answer(59, 'MOZE', 'Петок во 17:00');
+  assert.equal(connect, '', 'the route is not offered while a linking hour exists');
+  assert.match(h.asks.at(-1) ?? '', /16:00/u, `she asks the other owner for 16:00: ${h.asks.at(-1)}`);
+
+  // He cannot do 16 — so the linked plan is 17 + 18 and the start is disclosed.
+  const asked = await h.answer(59, 'NE MOZE VO 16:00, SAMO VO 17:00', 'Петок во 16:00');
   assert.match(asked, /17:00/u, `the route starts at the counter hour: ${asked}`);
   assert.match(asked, /18:00/u, `the counter stop is placed at its own hour: ${asked}`);
   assert.match(asked, /подоцна за 1 час/u, `the moved start is disclosed: ${asked}`);
@@ -219,28 +233,34 @@ test('[chain] an owner’s counter that moves the start hour is re-solved and di
   assert.equal(h.appointments.count(), 0, 'a counter books nothing');
 });
 
-test('[chain] no linkable hours that day: an honest ask, never a fabricated route', async () => {
-  // 42 can only do 18:00 and 59 only 17:00, the client is NOT flexible and
-  // asked for 16:00 — no contiguous route exists. The old fallback placed each
-  // stop at the hour it had been ASKED about (16:00/17:00), i.e. put a flat on
-  // the table at a time its owner had just ruled out. The honest turn names the
-  // day and asks for another — and the client's plural wish survives it.
+test('[chain] a later start that links them is OFFERED, never fabricated', async () => {
+  // 42 can only do 18:00 and 59 only 17:00, and the client asked for 16:00.
+  // Per the owner's 2026-11-19 answer the shift is searched both ways always
+  // and the result is PUT TO HIM — the route 17:00/18:00 with the moved start
+  // stated — instead of the old refusal to link anything. Nothing is booked
+  // before his own yes, and no stop is placed at an hour its owner ruled out.
   const h = makeHandler();
   h.seed();
   await h.say('ПЕТОК ВО 16:00, САКАМ ДА ГИ ВИДАМ ДВАТА');
   await h.answer(42, 'SAMO VO 18:00', 'Петок во 16:00');
-  const answer = await h.answer(59, 'MOZE', 'Петок во 17:00');
-  assert.match(answer, /не можат да ги поврзам/u, `the honest no-link turn: ${answer}`);
-  assert.doesNotMatch(answer, /16:00|17:00/u, `no invented route: ${answer}`);
+  // One linking hour is still on the table (59 at 16:00), so it is asked first.
+  const connect = await h.answer(59, 'MOZE', 'Петок во 17:00');
+  assert.equal(connect, '', 'the route is not offered while a linking hour exists');
+  const answer = await h.answer(59, 'NE MOZE VO 16:00, SAMO VO 17:00', 'Петок во 16:00');
+  assert.match(answer, /17:00/u, `the route is offered: ${answer}`);
+  assert.match(answer, /18:00/u, answer);
+  assert.match(answer, /подоцна за 1 час/u, `the moved start is disclosed: ${answer}`);
+  assert.match(answer, /Дали да ги потврдам посетите/u, answer);
+  assert.doesNotMatch(answer, /16:00/u, `the refused hour is not offered back: ${answer}`);
   const s = h.sessions.get(h.chatId)!;
-  assert.equal(s.slots.visitPlan, undefined, 'the impossible plan is cleared');
-  assert.equal(s.state, 'visit_scheduling');
-  assert.equal(h.appointments.count(), 0, 'nothing is booked');
+  assert.equal(s.state, 'time_confirm', 'the client closes the moved route');
+  assert.equal(h.appointments.count(), 0, 'a shifted route books nothing on its own');
 
-  // His plural wish is remembered: the next term starts the route again even
-  // without repeating «двата».
+  // His plural wish is remembered: the next day restarts the SAME stops even
+  // without repeating «двата» (the route is not thrown away by a new term).
   await h.say('ПОНЕДЕЛНИК ВО 12:00');
   assert.ok(h.sessions.get(h.chatId)!.slots.visitPlan, 'the route restarts for the next term');
+  assert.match(h.asks.at(-1) ?? '', /12:00/u, `the new hour reaches an owner: ${h.asks.at(-1)}`);
 });
 
 test('[chain] a single flat keeps the ordinary single-visit flow', async () => {

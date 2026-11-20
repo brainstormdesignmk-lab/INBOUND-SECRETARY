@@ -539,6 +539,35 @@ export function mergeVisitTerm(t: string, donors: Array<string | undefined>): st
   return donorDay ? `${donorDay} ${t.trim()}` : t;
 }
 
+/** DO TWO TERMS NAME THE SAME MOMENT? (the [18:35] capture)
+ *
+ *  The owner offered «Понеделник, 23.11.2026 во 18:00»; the client answered
+ *  «mislam deka ke moze vo 6» — the SAME instant said bare. Every reader
+ *  compared the two as STRINGS (`normalizeOwnerTime(a) === normalizeOwnerTime(b)`),
+ *  so the acceptance read as a new counter and Lina asked the owner about
+ *  «18:00» with «Клиентот не е во можност во 18:00» as its preface.
+ *
+ *  A day-less clock borrows the day from the OTHER term (then from `donors`,
+ *  most specific first) — resolved on the DATE, so an explicit date
+ *  («23.11.2026») donates a day exactly like a weekday word does. Two clocks
+ *  with no day anywhere still compare on their own resolution, which is what
+ *  the merge helpers already assume.
+ */
+export function sameVisitInstant(a: string, b: string, donors: Array<string | undefined> = [], now: Date = new Date()): boolean {
+  const resolve = (term: string, other: string): Date | undefined => {
+    const base = parseVisitDateTime(term, now);
+    if (!base) return undefined;
+    if (namesADay(term)) return base;
+    const donor = [other, ...donors].find(d => !!d && namesADay(d));
+    const day = donor ? parseVisitDateTime(donor, now) : undefined;
+    if (!day) return base;
+    return new Date(day.getFullYear(), day.getMonth(), day.getDate(), base.getHours(), base.getMinutes());
+  };
+  const left = resolve(a, b);
+  const right = resolve(b, a);
+  return !!left && !!right && left.getTime() === right.getTime();
+}
+
 export function hasClockHint(s: string): boolean {
   if (/\d{1,2}[:.]\d{2}\b/.test(s)) return true;
   if (HOUR_WORD_RE.test(s)) return true;

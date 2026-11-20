@@ -21,7 +21,7 @@ const VISIT_ORDER_OBJECT_RE =
   /(?<![\d.,])\d{1,5}(?![\d.,])|посет|poset|(?:да\s+(?:го|ги|ја)\s+вид)|(?:da\s+(?:go|gi|ja)\s+vid)/iu;
 import { hasClockHint } from '../visits/time';
 
-import { extractDayWord, mergeVisitTerm, detectSameTimeReference } from '../visits/time';
+import { extractDayWord, mergeVisitTerm, detectSameTimeReference, sameVisitInstant } from '../visits/time';
 import { ebNumbersInText } from './ebNumber';
 import { normalizeOwnerTime } from './prompts';
 
@@ -75,9 +75,21 @@ function counterMergedTerm(t: string, session: ChatSession): string {
 
 function timeConfirmCounterEvent(t: string, session: ChatSession): Event {
   const ownerTerm = session.slots.ownerTime ?? '';
-  const normDetect = normalizeOwnerTime(t);
-  if (normDetect && ownerTerm && normDetect === normalizeOwnerTime(ownerTerm)) {
-    return { type: 'TIME_ACCEPTED' }; // echo of the term on the table
+  // THE TERMS ON THE TABLE ARE BOTH OF HIS: the term the owner agreed to AND
+  // the fixed counter he offered. The counter used to be forgotten here, so a
+  // client answering the owner's counter with its own hour («mislam deka ke
+  // moze vo 6» after «…во 18:00», the [18:35] capture) read as a NEW proposal —
+  // the FSM re-opened owner_checking and the owner was pinged about the hour
+  // he had just named.
+  const onTable = [session.slots.ownerCounterTime, ownerTerm]
+    .filter((d): d is string => !!d && d.trim().length > 0);
+  // INSTANTS, NOT STRINGS: «во 6» and «Понеделник, 23.11.2026 во 18:00» are the
+  // same moment said twice; normalizeOwnerTime leaves a day-less clock undated,
+  // so comparing its output made the acceptance differ from the offer it
+  // accepted. A day-less clock borrows the day from the term on the table.
+  const donors = [...onTable, session.slots.visitTime];
+  if (onTable.some(term => sameVisitInstant(t, term, donors))) {
+    return { type: 'TIME_ACCEPTED' };
   }
   return { type: 'VISIT_TIME_PROVIDED', visitTime: counterMergedTerm(t, session) };
 }

@@ -10,13 +10,19 @@
 // constraints and asks it for a plan, then the owners are re-confirmed at the
 // hours the plan assigns (a window is not a slot).
 //
-// Rules encoded here:
-//   • hourly, contiguous slots — a gap is a defect, not a preference;
-//   • the client's target hour wins; a shift is only searched when he is
-//     flexible, and never more than ±3 hours;
+// Rules encoded here (the owner's answers of 2026-11-19 included):
+//   • hourly slots; CONTIGUOUS wins, but a pause of up to `maxGap` hours is a
+//     legal route — 1 hour preferred, 2 tolerated — and the client is the one
+//     asked to accept it (the solver only proposes it);
+//   • the client's target hour wins; a shift is searched ALWAYS (±3 hours) and
+//     is always disclosed — an earlier start that chain-links is offered to
+//     him to accept or refuse, never applied silently;
 //   • the visit window 09:00–21:00 is absolute;
-//   • when not every flat can be linked, the chain is still built for as many
-//     as possible and the dropped flats are named — never a silent omission.
+//   • NOBODY IS DROPPED: when not every flat can share the day, the route is
+//     built for the flats that fit and the rest come back as `deferred` — each
+//     keeps its own negotiation for another day/hour;
+//   • one lexicographic objective decides everything (see `scoreOf`), so the
+//     old hand-written drop loop cannot disagree with the placement search.
 
 import { VISIT_FIRST_HOUR, VISIT_LAST_HOUR } from './time';
 
@@ -26,9 +32,12 @@ export interface VisitPlanStop {
   eb: number;
   askedHour?: number;
   /** How many times THIS owner was asked about this route (the brief caps a
-   *  re-ask at three — after that the stop is dropped and named, never
-   *  ping-ponged forever). */
+   *  re-ask at three — after that the stop leaves the route and gets its own
+   *  term, never an endless ping-pong). */
   asks?: number;
+  /** EVERY hour this owner has been asked about on THIS day — an hour already
+   *  put to him is never asked again (the negotiator's anti-loop). */
+  askedHours?: number[];
   /** The solved route's hour for this stop while it is being re-confirmed —
    *  a window is not a slot, so the owner is asked for the hour he ended up at
    *  (absent on the first ask, which follows the client's own order). */
@@ -50,7 +59,11 @@ export interface VisitPlanState {
   flexible?: boolean;
   /** The solved route, filled when the chain is ready for the client. */
   assignments?: Array<{ eb: number; hour: number }>;
-  /** Flats that could not be linked (reported to the client, never hidden). */
+  /** Flats this day's route cannot hold. They are NOT abandoned: each keeps
+   *  its own negotiation for another day/hour and is named to the client. */
+  deferred?: number[];
+  /** LEGACY name for a flat that is genuinely unavailable (sold, gone, refused
+   *  the route). Kept so old persisted sessions still load. */
   dropped?: number[];
 }
 
@@ -69,8 +82,14 @@ export interface ChainPlan {
   shiftedBy: number;
   /** The booked stops, in visit order. */
   stops: Array<{ eb: number; hour: number }>;
-  /** Flats that could not be linked, in the client's order. */
-  dropped: number[];
+  /** Hours of pause between consecutive stops (sum of `gap`). 0 = non-stop. */
+  totalGap: number;
+  /** Flats that could not share this day, in the client's order. They are NOT
+   *  abandoned: each is negotiated as its own visit on another day/hour. */
+  deferred: number[];
+  /** How far the visit ORDER strayed from the client's own (the last tie-break
+   *  of the objective, exposed so the negotiator compares plans the SAME way). */
+  inversions: number;
 }
 
 export interface SolveInput {
@@ -78,10 +97,16 @@ export interface SolveInput {
   stops: ChainStop[];
   /** Busy hour starts (0–23) on that day — the agency's own calendar. */
   busy?: number[];
-  /** May the client's start hour move? */
+  /** Kept for the caller's vocabulary. A shift is ALWAYS searched and stated;
+   *  this only marks a client who said he is open to any hour, which the
+   *  objective already prefers. It never enables or forbids a shift. */
   flexible?: boolean;
   /** The widest shift searched, in hours (default 3 — the owner's rule). */
   maxShiftHours?: number;
+  /** The longest PAUSE allowed between two visits, in hours (0 = non-stop).
+   *  Default 2 (the owner tolerates two, prefers one — the objective prefers
+   *  the smaller pause). Never more than 2. */
+  maxGap?: number;
 }
 
 /** Every ordering of `items`, identity first (the client's own order). */
@@ -107,75 +132,152 @@ function* permutations<T>(items: T[]): Generator<T[]> {
   }
 }
 
+/** A stop's hours: `undefined` = NOT ASKED YET (any hour may work); an EMPTY
+ *  list = asked and nothing fits. The old reader treated both as "any", so an
+ *  owner who answered "no hour" was still placed. */
 function allows(stop: ChainStop, hour: number): boolean {
-  if (!stop.hours || stop.hours.length === 0) return true;
+  if (stop.hours === undefined) return true;
   return stop.hours.includes(hour);
 }
 
-/**
- * Try to lay the given stops contiguously from `startHour`.
- * Returns the stops in the order that fits, or undefined.
- */
-function fitContiguous(stops: ChainStop[], startHour: number, busy: Set<number>): Array<{ eb: number; hour: number }> | undefined {
-  if (startHour < VISIT_FIRST_HOUR) return undefined;
-  if (startHour + stops.length - 1 > VISIT_LAST_HOUR) return undefined;
-  for (const order of permutations(stops)) {
-    let ok = true;
-    const placed: Array<{ eb: number; hour: number }> = [];
-    for (let i = 0; i < order.length; i++) {
-      const hour = startHour + i;
-      if (busy.has(hour) || !allows(order[i]!, hour)) { ok = false; break; }
-      placed.push({ eb: order[i]!.eb, hour });
+interface Placement {
+  stops: Array<{ eb: number; hour: number }>;
+  startHour: number;
+  shift: number;
+  totalGap: number;
+  inversions: number;
+  deferred: number[];
+}
+
+/** Order distance from the client's own order — the last tie-break, so an
+ *  equally good route keeps his priority list. */
+function inversions(order: ChainStop[], reference: ChainStop[]): number {
+  const rank = new Map(reference.map((s, i) => [s.eb, i]));
+  let n = 0;
+  for (let i = 0; i < order.length; i++) {
+    for (let j = i + 1; j < order.length; j++) {
+      if ((rank.get(order[i]!.eb) ?? 0) > (rank.get(order[j]!.eb) ?? 0)) n++;
     }
-    if (ok) return placed;
+  }
+  return n;
+}
+
+/** One subset in one order: the best hours, or undefined. */
+function placeOrder(order: ChainStop[], targetHour: number, maxShift: number, maxGap: number, busy: Set<number>): { stops: Array<{ eb: number; hour: number }>; startHour: number; totalGap: number } | undefined {
+  let best: { stops: Array<{ eb: number; hour: number }>; startHour: number; totalGap: number } | undefined;
+  const better = (a: { startHour: number; totalGap: number }, b: { startHour: number; totalGap: number }): boolean => {
+    const da = Math.abs(a.startHour - targetHour);
+    const db = Math.abs(b.startHour - targetHour);
+    if (da !== db) return da < db;
+    // LATER before EARLIER at equal distance: a late client keeps his evening.
+    if ((a.startHour - targetHour) !== (b.startHour - targetHour)) return (a.startHour - targetHour) > (b.startHour - targetHour);
+    return a.totalGap < b.totalGap; // 1 h pause beats a 2 h pause
+  };
+  const walk = (i: number, hour: number, placed: Array<{ eb: number; hour: number }>, gap: number): void => {
+    if (i === order.length) {
+      const cand = { stops: placed.slice(), startHour: placed[0]!.hour, totalGap: gap };
+      if (!best || better(cand, best)) best = cand;
+      return;
+    }
+    // The first stop may start anywhere in the tolerated shift window; every
+    // later stop is i..i+maxGap after the previous one (a pause is a free hour
+    // nobody visits in, and the calendar guard below keeps it genuinely free).
+    const from = i === 0 ? Math.max(VISIT_FIRST_HOUR, targetHour - maxShift) : hour + 1;
+    const to = i === 0 ? Math.min(VISIT_LAST_HOUR, targetHour + maxShift) : hour + 1 + maxGap;
+    for (let h = from; h <= to && h <= VISIT_LAST_HOUR; h++) {
+      if (busy.has(h) || !allows(order[i]!, h)) continue;
+      placed.push({ eb: order[i]!.eb, hour: h });
+      walk(i + 1, h, placed, i === 0 ? 0 : gap + (h - hour - 1));
+      placed.pop();
+    }
+  };
+  walk(0, 0, [], 0);
+  return best;
+}
+
+/**
+ * The route: as many flats as the day can hold, in an order whose hours their
+ * owners allow, with the smallest honest shift and the smallest pause.
+ *
+ * ONE lexicographic objective (no second hand-written loop):
+ *   1. stops placed               — most
+ *   2. |start − target|           — least, and at equal distance the LATER
+ *   3. total pause                — least (1 h before 2 h)
+ *   4. the client's order         — fewest inversions
+ * Flats outside the winning subset come back as `deferred`, never dropped.
+ */
+export function solveChain(input: SolveInput): ChainPlan | undefined {
+  const busy = new Set(input.busy ?? []);
+  const maxGap = Math.max(0, Math.min(2, input.maxGap ?? 2));
+  const maxShift = Math.max(0, input.maxShiftHours ?? 3);
+  const n = input.stops.length;
+  if (n === 0) return undefined;
+  // The client's own hour must BE a visit (the parser refuses an outside clock,
+  // so this only guards a direct caller — a route is never seeded at 08:00).
+  if (input.targetHour < VISIT_FIRST_HOUR || input.targetHour > VISIT_LAST_HOUR) return undefined;
+  const full = (1 << n) - 1;
+  // Sizes are the primary key, so the FIRST size that yields a placement wins;
+  // masks ascend inside a size, which defers the LAST flats first on a tie.
+  for (let size = n; size >= 1; size--) {
+    let best: { plan: ChainPlan; placement: Placement } | undefined;
+    for (let mask = 0; mask <= full; mask++) {
+      if (countBits(mask) !== size) continue;
+      const kept = input.stops.filter((_, i) => mask & (1 << i));
+      const deferred = input.stops.filter((_, i) => !(mask & (1 << i))).map(s => s.eb);
+      for (const order of permutations(kept)) {
+        const placed = placeOrder(order, input.targetHour, maxShift, maxGap, busy);
+        if (!placed) continue;
+        const shift = placed.startHour - input.targetHour;
+        const placement: Placement = {
+          stops: placed.stops,
+          startHour: placed.startHour,
+          shift,
+          totalGap: placed.totalGap,
+          inversions: inversions(order, input.stops),
+          deferred,
+        };
+        if (!best || beats(placement, best.placement)) best = { plan: toPlan(input, placement), placement };
+      }
+    }
+    if (best) return best.plan;
   }
   return undefined;
 }
 
-/**
- * The chain plan: the client's hour first, then ±1..maxShift when he is
- * flexible; every flat placed, or — when that is impossible — as many as fit,
- * with the rest reported as dropped.
- */
-export function solveChain(input: SolveInput): ChainPlan | undefined {
-  const busy = new Set(input.busy ?? []);
-  const maxShift = input.flexible ? Math.max(0, input.maxShiftHours ?? 3) : 0;
-  const starts: number[] = [input.targetHour];
-  for (let d = 1; d <= maxShift; d++) {
-    // LATER before EARLIER at equal distance: a late client keeps his evening.
-    starts.push(input.targetHour + d, input.targetHour - d);
-  }
-  for (const start of starts) {
-    const placed = fitContiguous(input.stops, start, busy);
-    if (placed) {
-      return {
-        startHour: start,
-        targetHour: input.targetHour,
-        shiftedBy: start - input.targetHour,
-        stops: placed,
-        dropped: [],
-      };
-    }
-  }
-  // NOT EVERY FLAT CAN BE LINKED: build the chain for as many as possible,
-  // dropping the last stop first (the client's own priority order). Never a
-  // silent omission — `dropped` names what is left out.
-  if (input.stops.length >= 2) {
-    for (let drop = input.stops.length - 1; drop >= 0; drop--) {
-      const kept = input.stops.filter((_, i) => i !== drop);
-      for (const start of starts) {
-        const placed = fitContiguous(kept, start, busy);
-        if (placed) {
-          return {
-            startHour: start,
-            targetHour: input.targetHour,
-            shiftedBy: start - input.targetHour,
-            stops: placed,
-            dropped: [input.stops[drop]!.eb],
-          };
-        }
-      }
-    }
-  }
-  return undefined;
+function countBits(mask: number): number {
+  let n = 0;
+  for (let m = mask; m; m >>= 1) n += m & 1;
+  return n;
+}
+
+/** The objective, compared lexicographically (true when `a` wins). */
+function beats(a: Placement, b: Placement): boolean {
+  if (a.stops.length !== b.stops.length) return a.stops.length > b.stops.length;
+  if (Math.abs(a.shift) !== Math.abs(b.shift)) return Math.abs(a.shift) < Math.abs(b.shift);
+  if (a.shift !== b.shift) return a.shift > b.shift; // later preferred at equal distance
+  if (a.totalGap !== b.totalGap) return a.totalGap < b.totalGap;
+  return a.inversions < b.inversions;
+}
+
+function toPlan(input: SolveInput, p: Placement): ChainPlan {
+  return {
+    startHour: p.startHour,
+    targetHour: input.targetHour,
+    shiftedBy: p.shift,
+    stops: p.stops,
+    totalGap: p.totalGap,
+    deferred: p.deferred,
+    inversions: p.inversions,
+  };
+}
+
+/** Does plan `a` beat plan `b` under THE objective? Exported so the negotiator
+ *  (which plan is worth one more owner question) never invents a second
+ *  scoring rule that can disagree with the solver. */
+export function comparePlans(a: ChainPlan, b: ChainPlan): boolean {
+  if (a.stops.length !== b.stops.length) return a.stops.length > b.stops.length;
+  if (Math.abs(a.shiftedBy) !== Math.abs(b.shiftedBy)) return Math.abs(a.shiftedBy) < Math.abs(b.shiftedBy);
+  if (a.shiftedBy !== b.shiftedBy) return a.shiftedBy > b.shiftedBy;
+  if (a.totalGap !== b.totalGap) return a.totalGap < b.totalGap;
+  return a.inversions < b.inversions;
 }
