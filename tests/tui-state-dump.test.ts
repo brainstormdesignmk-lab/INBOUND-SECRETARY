@@ -86,8 +86,45 @@ test('the /state rows carry the audited operator fields (funnel, money, anchor, 
   assert.match(text, /visit=17:00 name=y/);
   // the blockers: why she is widening / waiting on the owner / queueing / short goodbye
   assert.match(text, /exh=area\+alt owner=pend queue=y bye=y/);
+  // NO ROUTE → the row still renders, so its absence is never ambiguous
+  assert.match(text, /route=- def=-/);
   // the dump is the LAST row: the pty check reads it as the bottom of the block
   assert.match(rows[rows.length - 1]!, /^\[slots\] dump=data\/session-state\.json$/);
+});
+
+test('the /state rows expose the ROUTE: how many stops are placed, who was deferred', () => {
+  // The route is the one piece of state the operator cannot infer from the chat
+  // (a deferred flat was promised a separate term and must not be forgotten).
+  const s = freshSession('test', 'route-1');
+  s.state = 'time_confirm';
+  s.slots = {
+    service: 'buy', propertyId: 82,
+    visitPlan: {
+      dayMs: Date.parse('2026-11-20T00:00:00'), term: 'Петок во 17:00', targetHour: 17,
+      flexible: false,
+      stops: [
+        { eb: 82, status: 'ok', hours: [17], asks: 1, askedHour: 17 },
+        { eb: 84, status: 'ok', hours: [18], asks: 1, askedHour: 18 },
+        { eb: 88, status: 'dropped', asks: 3 },
+      ],
+      assignments: [
+        { eb: 82, hour: 17 }, { eb: 84, hour: 18 },
+      ],
+      deferred: [88],
+    },
+  };
+  const text = sessionStateRows(s, 'data/session-state.json').join('\n');
+  assert.match(text, /route=2stops def=88/u, `the placed count and the deferred flat: ${text}`);
+  // A route still being negotiated has no placement yet — say so instead of 0.
+  const negotiating = freshSession('test', 'route-2');
+  negotiating.slots = {
+    visitPlan: {
+      dayMs: Date.parse('2026-11-20T00:00:00'), term: 'Петок во 17:00', targetHour: 17,
+      stops: [{ eb: 82, status: 'asked', asks: 1, askedHour: 17 }],
+    },
+  };
+  const live = sessionStateRows(negotiating, 'x').join('\n');
+  assert.match(live, /route=live def=-/u, `no answers yet: ${live}`);
 });
 
 test('the /state rows never exceed the narrowest supported chat pane', () => {
@@ -104,6 +141,13 @@ test('the /state rows never exceed the narrowest supported chat pane', () => {
     feeRejections: 4, provisionRejections: 4, viewingFeeAgreed: true,
     areaExhausted: true, alternativesExhausted: true,
     ownerContactPending: true, queueAfterContact: true, byeServed: true,
+    // …and a FULL route: every hour placed, a long deferred list.
+    visitPlan: {
+      dayMs: Date.parse('2026-11-20T00:00:00'), term: 'Петок во 17:00', targetHour: 17,
+      stops: [1, 2, 3, 4].map(eb => ({ eb, status: 'ok' as const, hours: [17], asks: 1, askedHour: 17 })),
+      assignments: [1, 2, 3, 4].map(eb => ({ eb, hour: 17 })),
+      deferred: [111111, 222222, 333333],
+    },
   };
   const rows = sessionStateRows(s, `error (${'x'.repeat(80)})`);
   for (const row of rows) {

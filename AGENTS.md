@@ -600,17 +600,26 @@ Hard-won details, all pinned by tests — do not "simplify" them away:
 THE NOTEBOOK IS READABLE FROM THE TERMINAL (`/state`, alias `/slots`): the pty
 check used to assert COPY only, so a correct sentence with a wrong counter was
 invisible — the atom-side (handler) tests saw `slots`, the real-TUI test could
-not. `/state` renders exactly three short rows from the live `SessionStore`:
-
-```
+not. `/state` renders exactly three short rows from the live `SessionStore`:```
 [slots] state=<fsm state> svc=<service>
 [slots] fee=<feeRejections> prov=<provisionRejections> agreed=<yes|no>
-[slots] any=<anywhere> bud=<budget>
-```Keep it to THREE short rows (a 24-row terminal leaves the chat pane ~10 rows; a
-taller dump scrolls the newest reply and its own first rows off), and never wrap
-  a value: the harness asserts these rows, so a scrolled-away counter is a check
-that silently stops checking. The funnel asserts `fee=4` after the ladder (three
-rungs + the [22:03] challenge) and `any=true bud=80000` after the discovery pass.
+[slots] route=<N>stops|live|- def=<deferred EBs|->
+[slots] any=<anywhere> bud=<budget> loc=<location>
+[slots] eb=<anchor> ghost=<lastGhostEb> shown=<presentedIds count>
+[slots] visit=<visitTime> name=<y|n>
+[slots] exh=<area+alt> owner=<pend|-> queue=<y|n> bye=<y|n>
+[slots] dump=<path>
+```
+
+Keep every row SHORT (48 columns, `STATE_ROW_MAX_WIDTH`; a 24-row terminal
+leaves the chat pane ~10 rows, so a taller dump scrolls the newest reply and its
+own first rows off) and never wrap a value: the harness asserts these rows, so a
+scrolled-away counter is a check that silently stops checking. The funnel asserts
+`fee=4` after the ladder (three rungs + the [22:03] challenge) and
+`any=true bud=80000` after the discovery pass. `route=` is a SUMMARY on purpose —
+`2stops` / `live` (being negotiated) / `-`, plus the deferred flats, because a
+route whose hours are printed there would wrap; the hours live in the plan event
+and in `/state full`.
 
 ## 4. The strike classifier must never fire on our own copy
 

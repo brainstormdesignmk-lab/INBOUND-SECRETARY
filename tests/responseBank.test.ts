@@ -68,6 +68,14 @@ test('response bank: every entry is non-empty and placeholders live only where e
         // client's proposed term — both exactly once.
         assert.equal(v.match(/\{eb\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
         assert.equal(v.match(/\{time\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+      } else if (key === 'owner.routeAsk') {
+        // The ROUTE ask to an owner: {eb} = HIS property number, {time} = the
+        // one hour he is asked for (chain-linked to the next visit that day) —
+        // both exactly once, the same contract as owner.ask. The key lives
+        // separately because a route stop's hour is not the client's only
+        // request: it is one link in a sequence and the copy must say so.
+        assert.equal(v.match(/\{eb\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
+        assert.equal(v.match(/\{time\}/g)?.length ?? 0, 1, `${key}: "${v}"`);
       } else if (key === 'owner.relay:counter' || key === 'owner.relay:counter.bare') {
         // Counter relays carry the owner's/client's term exactly once — the
         // judge's dropped-alternative assertion parses it from the text.

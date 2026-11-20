@@ -139,9 +139,20 @@ export function sessionStateRows(s: ChatSession | null | undefined, dumpStatus: 
   // counter-proposal. The client's word is what the operator hears on the call,
   // so it wins, clipped — the dump keeps it whole.
   const visit = sl.visitTime ?? sl.ownerTime ?? '-';
+  // THE ROUTE (the 2026-11-19 brief): a route is state the operator must SEE —
+  // how many visits are placed on the day and which flats were deferred to
+  // their own term. The hours themselves stay in the plan event and in
+  // `/state full`: this row is a SUMMARY and a row that wraps is a row the
+  // harness stops checking (see STATE_ROW_MAX_WIDTH).
+  const routePlan = sl.visitPlan;
+  const route = routePlan?.assignments?.length
+    ? `${routePlan.assignments.length}stops`
+    : routePlan ? 'live' : '-';
+  const deferred = routePlan?.deferred?.length ? routePlan.deferred.join(',') : '-';
   return [
     `[slots] state=${s.state} svc=${sl.service ?? '-'}`,
     `[slots] fee=${sl.feeRejections ?? 0} prov=${sl.provisionRejections ?? 0} agreed=${sl.viewingFeeAgreed ? 'yes' : 'no'}`,
+    `[slots] route=${route} def=${clip(deferred, 10)}`,
     `[slots] any=${sl.anywhere === true ? 'true' : 'false'} bud=${clip(sl.budget ?? '-', 8)} loc=${clip(sl.location ?? '-', 12)}`,
     `[slots] eb=${anchor ?? '-'} ghost=${sl.lastGhostEb ?? '-'} shown=${sl.presentedIds?.length ?? 0}`,
     `[slots] visit=${clip(visit, 10)} name=${sl.name ? 'y' : 'n'}`,

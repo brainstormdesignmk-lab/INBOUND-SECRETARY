@@ -110,7 +110,7 @@ test('[example 1] the second owner fills the client’s hour (17 + 18)', async (
   // negotiator asks him for the CLIENT's hour (17) instead of deferring a flat.
   await h.answer(84, 'MOZE', 'Петок во 18:00');
   assert.equal(h.asks.length, 3, `the clash produces one connecting question: ${JSON.stringify(h.asks)}`);
-  assert.match(h.asks[2] ?? '', /број 84/u, h.asks[2] ?? '');
+  assert.match(h.asks[2] ?? '', /Клиентот не е во можност/u, `the follow-up shape: ${h.asks[2]}`);
   assert.match(h.asks[2] ?? '', /17:00/u, `owner 2 is asked for 17:00: ${h.asks[2]}`);
   assert.equal(h.appointments.count(), 0, 'nothing is booked from owners alone');
 
@@ -138,14 +138,14 @@ test('[example 2] a 16 answer is not a 16/18 route: she keeps asking for a link'
   // NOT "16 + 18 with a pause": the client's own hour (17) is the question
   // that links them, so she asks it.
   assert.equal(h.asks.length, 3, `the connecting question: ${JSON.stringify(h.asks)}`);
-  assert.match(h.asks[2] ?? '', /број 84/u, h.asks[2] ?? '');
+  assert.match(h.asks[2] ?? '', /Клиентот не е во можност/u, `the follow-up shape: ${h.asks[2]}`);
   assert.match(h.asks[2] ?? '', /17:00/u, `she asks him for the client’s hour: ${h.asks[2]}`);
 
   // He cannot do 17 either — only 16. NOW the remaining link is 19:00, and the
   // brief's own arithmetic applies (18 + 19, the start one hour later).
   await h.answer(84, 'SAMO VO 16:00', 'Петок во 17:00');
   assert.equal(h.asks.length, 4, `the second connecting question: ${JSON.stringify(h.asks)}`);
-  assert.match(h.asks[3] ?? '', /број 84/u, h.asks[3] ?? '');
+  assert.match(h.asks[3] ?? '', /Клиентот не е во можност/u, `the follow-up shape: ${h.asks[3]}`);
   assert.match(h.asks[3] ?? '', /19:00/u, `she asks him for 19:00: ${h.asks[3]}`);
   assert.equal(h.appointments.count(), 0, 'still nothing booked');
 

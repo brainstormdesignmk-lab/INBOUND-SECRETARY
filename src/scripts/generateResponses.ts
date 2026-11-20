@@ -1111,6 +1111,23 @@ const SPEC: GenerationKey[] = [
     placeholders: ['eb', 'time'],
     question: true,
   },
+  // owner.routeAsk — the first question to an owner whose property is ONE STOP
+  // of a day's route (the 2026-11-19 brief: several viewings for one client,
+  // owners contacted in parallel, hours chain-linked). The single-visit intro
+  // made the hour look arbitrary, so the one fact that explains it rides along:
+  // the client sees several properties that day, one after another. Same three
+  // anchors as owner.ask, and the same vetoes — no other property is named, no
+  // promise about them, no fee, no price, no client name.
+  {
+    key: 'owner.routeAsk',
+    sources: ['Здраво. Ве контактирам за недвижноста со број {eb}, за која имаме сериозен клиент. Тој ден разгледува повеќе недвижности по ред, па часовите ги поврзувам една по друга. Дали е сè уште слободна? Клиентот сака посета во {time} — дали Ви одговара, или имате друг предлог?'],
+    count: 8,
+    instructions: 'Порака ДО СОПСТВЕНИКОТ (не до клиентот) кога неговата недвижност е ЕДНА ПОСЕТА во низа посети што клиентот ги прави истиот ден: поздрав, број {eb}, кажи дека клиентот тој ден разгледува повеќе недвижности по ред и дека часовите се поврзани еден по друг, ПРАШАЈ дали е сè уште достапна, соопшти го терминот {time} и ПРАШАЈ дали се согласува или има друг предлог. „Недвижност“ е ЖЕНСКИ род: достапна / слободна / внесена / поврзана. Двете променливи {eb} и {time} МОРА да се појават точно еднаш, буквално. НЕ спомнувај други станови по број, НЕ ветувај посета на други недвижности, БЕЗ надомест, БЕЗ цени, БЕЗ име на клиент.',
+    required: [/\{eb\}/, /\{time\}/, /(?:повеќе|по ред|една по друга|еден по друг|низа)/iu, /(?:достапна|слободна|термин)/iu, /\?$/u],
+    banned: [/надомест|денари|евра/, /ъ/],
+    placeholders: ['eb', 'time'],
+    question: true,
+  },
   // owner.relay:counter — the owner COUNTERED with a concrete alternative
   // term: relay it and ask the client to accept. {time} = the owner's
   // counter-term (Macedonian, mkTimePhrase-canonicalized), exactly once.

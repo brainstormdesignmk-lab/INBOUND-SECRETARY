@@ -740,6 +740,32 @@ export function buildOwnerAsk(eb: number, proposedTime: string, opts?: OwnerAskP
 }
 
 /**
+ * THE ROUTE ASK — the first question to an owner whose flat is ONE STOP of a
+ * day's route (the owner's 2026-11-19 brief: several viewings for one client,
+ * owners contacted in parallel, hours chain-linked). The single-visit intro
+ * read as if this were the client's only appointment that day, so a counter
+ * ("можам 16") looked arbitrary to the owner and he had no idea the hour was
+ * chosen to link him with the next flat. Same three anchors as buildOwnerAsk
+ * (availability, the term, agree-or-counter) plus the one fact that explains
+ * the hour — never a promise about the other properties and never a price.
+ */
+export function buildOwnerRouteAsk(eb: number, proposedTime: string, opts?: OwnerAskProps): string {
+  const pt = opts?.propertyType;
+  const ptd = opts?.propertyTypeDef;
+  const pos = opts?.possessive ?? 'Вашиот';
+  const dost = opts?.dostapen ?? 'достапен';
+  const rel = opts?.relative ?? 'кој';
+  const entered = opts?.entered ?? 'внесен';
+  const subject = pt && ptd
+    ? `${pos} ${pt} ${rel} во нашиот систем е ${entered} со број ${eb}`
+    : `недвижност која во нашиот систем е внесена со број ${eb}`;
+  const available = pt && ptd
+    ? `Дали ${ptd} е сè уште ${dost} во моментов?`
+    : 'Дали е сè уште достапна во моментов?';
+  return `Здраво. Ве контактирам во врска со пројавен интерес од сериозен клиент за ${subject}. Клиентот тој ден разгледува повеќе недвижности по ред, па часовите ги поврзувам една по друга. ${available} Клиентот сака посета: ${proposedTime}. Дали се согласувате на овој термин, или имате друг предлог?`;
+}
+
+/**
  * SECOND/THIRD owner turn (the [00:23] capture). Once the owner has already
  * been asked about this visit, a new client proposal must NOT repeat the full
  * first-time intro ("Здраво. Ве контактирам во врска со пројавен интерес…

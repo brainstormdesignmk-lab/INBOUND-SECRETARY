@@ -69,7 +69,7 @@ import {
   serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
   mergeOwnerTerm,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
-  buildOwnerAsk, buildOwnerFollowupAsk, buildOwnerAcceptFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay, buildOwnerAvailabilityAck,
+  buildOwnerAsk, buildOwnerRouteAsk, buildOwnerFollowupAsk, buildOwnerAcceptFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay, buildOwnerAvailabilityAck,
   buildOwnerAlternativeTimeAsk, buildOwnerAlternativeTimeHold,
   ownerPropertyLabels, buildWhereIsAnswer, feeLadder, buildFeeRule, FALLBACKS, NO_MATCH_LINE, normalizeOwnerTime, renderVisitTerm,
   buildBusinessOfferLine, buildBusinessNearIntro, buildBusinessNoneNear,
@@ -2886,6 +2886,21 @@ export class InboundHandler {
     return `${weekdayName(day)}, ${formatDateOnly(day)} во ${pad2(hour)}:00`;
   }
 
+  /** THE TERM BELONGS TO THE PROPERTY, NOT TO THE CHAT (the route). On a live
+   *  route the hour that concerns `eb` is the STOP's own — his counter when he
+   *  made one, else the hour he was asked — never `slots.visitTime`, which on a
+   *  route is the client's requested START. Every re-arm, ack and owner-facing
+   *  question about a stop reads this, so a parallel round can never ask one
+   *  owner about another stop's hour. `undefined` outside a route: the caller
+   *  keeps its chat-level fallback. */
+  private routeTermFor(session: ChatSession, eb: number): string | undefined {
+    const plan = session.slots.visitPlan;
+    const stop = plan?.stops.find(s => s.eb === eb);
+    if (!plan || !stop) return undefined;
+    const hour = stop.hours?.[0] ?? stop.askedHour ?? stop.pendingHour;
+    return hour === undefined ? undefined : this.chainTermFor(plan, hour);
+  }
+
   /** THE PARALLEL ROUND: every owner who still needs a question is asked now,
    *  and the route is finished when their answers are in.
    *
@@ -2930,7 +2945,7 @@ export class InboundHandler {
         })),
       });
     if (decision.kind !== 'ask') { void this.finishChain(session); return; }
-    const asked: Array<{ eb: number; hour: number }> = [];
+    const asked: Array<{ eb: number; hour: number; priorTerm?: string }> = [];
     for (const ask of decision.asks) {
       // A CONNECTING QUESTION GOES TO AN OWNER WHO ALREADY ANSWERED (that is
       // the whole point: «може во 19?» after «можам 16»), so the stop may be
@@ -2938,12 +2953,16 @@ export class InboundHandler {
       // flight is never repeated, and a dropped stop is never asked again.
       const stop = plan.stops.find(s => s.eb === ask.eb && s.status !== 'dropped' && s.status !== 'asked');
       if (!stop) continue;
+      // The term THIS stop was asked before (undefined on his first question).
+      const priorTerm = (stop.asks ?? 0) > 0 && stop.askedHour !== undefined
+        ? this.chainTermFor(plan, stop.askedHour)
+        : undefined;
       stop.status = 'asked';
       stop.asks = (stop.asks ?? 0) + 1;
       stop.askedHour = ask.hour;
       stop.askedHours = [...(stop.askedHours ?? []), ask.hour];
       stop.pendingHour = undefined;
-      asked.push({ eb: ask.eb, hour: ask.hour });
+      asked.push({ eb: ask.eb, hour: ask.hour, priorTerm });
     }
     plan.assignments = undefined; // the route is being re-solved
     if (asked.length === 0) {
@@ -2966,7 +2985,9 @@ export class InboundHandler {
     this.deps.sessions.set(session);
     for (const ask of asked) {
       const stop = plan.stops.find(s => s.eb === ask.eb);
-      void this.runOwnerCheck(session, ask.eb, this.chainTermFor(plan, ask.hour), { firstAsk: stop?.asks === 1 });
+      void this.runOwnerCheck(session, ask.eb, this.chainTermFor(plan, ask.hour), {
+        firstAsk: stop?.asks === 1, route: true, priorTerm: ask.priorTerm,
+      });
     }
   }
 
@@ -17172,9 +17193,11 @@ ${contactReminder}`;
     // evening hour; the check stays open.
     const workReason = !isOwnerQuestion(text) && isOwnerWorkReason(text) && !detectOwnerVerdict(text, session.slots.visitTime ?? '');
     if (!isOwnerQuestion(text) && !greetingOnly && !availabilityOnly && !workReason) return undefined;
-    const term = session.slots.ownerAskTime ?? session.slots.visitTime ?? '';
+    const ownerEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    const term = (ownerEb !== undefined ? this.routeTermFor(session, ownerEb) : undefined)
+      ?? session.slots.ownerAskTime ?? session.slots.visitTime ?? '';
     const shownTerm = term ? normalizeOwnerTime(term) : '';
-    const eb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    const eb = ownerEb;
     const prop = eb !== undefined ? ` (Евидентен број ${eb})` : '';
     const askAgain = !shownTerm
       ? `Прашав дали е достапна недвижноста${prop} за посета. Дали е слободна, и кој термин Ви одговара?`
@@ -17488,7 +17511,10 @@ ${contactReminder}`;
   private armOwnerCheck(session: ChatSession, eb: number, askText?: string): void {
     const agent = this.ownerAgent as unknown as { pendingEb?: (c: string) => number | null };
     if (typeof agent.pendingEb !== 'function') return;
-    const proposed = session.slots.visitTime ?? '';
+    // Re-armed with the STOP's hour on a route (see routeTermFor): the ack that
+    // re-opens the check asked about 18:00, so a re-arm on the client's 17:00
+    // would file the owner's next answer against the wrong instant.
+    const proposed = this.routeTermFor(session, eb) ?? session.slots.visitTime ?? '';
     void this.ownerAgent.check(session.chatId, eb, proposed, askText)
       .then(v => this.enqueue(session.chatId, () => this.applyOwnerVerdict(session.chatId, eb, v)))
       .catch(e => console.error('[owner] clock re-check failed:', (e as Error).message));
@@ -17502,7 +17528,7 @@ ${contactReminder}`;
    *  the term. */
   private async serveOwnerTermAsk(session: ChatSession, eb: number, priceRelay = ''): Promise<string> {
     session.state = 'owner_checking';
-    const asked = session.slots.ownerAskTime ?? session.slots.visitTime ?? '';
+    const asked = this.routeTermFor(session, eb) ?? session.slots.ownerAskTime ?? session.slots.visitTime ?? '';
     const ack = buildOwnerAvailabilityAck(eb, asked, this.recentOwnerLines(session.chatId));
     this.rememberOwnerLine(session.chatId, ack);
     this.onOwnerAsk?.(session.chatId, eb, ack);
@@ -17516,7 +17542,7 @@ ${contactReminder}`;
     return ack;
   }
 
-  private async runOwnerCheck(session: ChatSession, eb: number, proposedTime: string, opts: { firstAsk?: boolean } = {}): Promise<void> {
+  private async runOwnerCheck(session: ChatSession, eb: number, proposedTime: string, opts: { firstAsk?: boolean; route?: boolean; priorTerm?: string } = {}): Promise<void> {
     try {
       // NOTHING INCOMPLETE REACHES THE OWNER (the [10:06] capture, last line of
       // defence): every caller is meant to gate on isCompleteVisitTerm, but this
@@ -17601,7 +17627,14 @@ ${contactReminder}`;
       // hold whichever stop was asked LAST, so without this every parallel
       // owner after the first heard «Клиентот не е во можност во <the other
       // stop's hour>» — a refusal of a term this owner was never offered.
-      const priorAsk = opts.firstAsk ? undefined : (session.slots.ownerCounterTime ?? session.slots.ownerAskTime);
+      // ON A ROUTE THE STOP OWNS ITS HISTORY: `advanceChain` clears the chat's
+      // `ownerAskTime` before every ping (it is per CHAT, and a parallel round
+      // must not hand one owner another's hour), so the hour this stop was
+      // asked last comes from the stop itself. Without it a SECOND question to
+      // the same owner re-read as a first ask — the three-sentence intro again.
+      const priorAsk = opts.route
+        ? opts.priorTerm
+        : opts.firstAsk ? undefined : (session.slots.ownerCounterTime ?? session.slots.ownerAskTime);
       const isFollowup = !!priorAsk && !!askTime && priorAsk !== askTime;
       // ACCEPTANCE follow-up (the [01:07] capture): an OPEN whole-day counter
       // means the client's completed term accepts the owner's own proposal —
@@ -17628,6 +17661,12 @@ ${contactReminder}`;
       // Bank-served for the GENERIC form (no property-type agreement — the
       // typed form stays code-built for its gender agreement): the owner ask
       // now varies too, with the code-built line as the always-there fallback.
+      // A ROUTE STOP GETS THE ROUTE COPY (`owner.routeAsk`): he is one stop of
+      // the client's day, so the hour he is asked for is chain-linked to the
+      // next flat — the single-visit intro made his own counter look arbitrary
+      // (the owner's 2026-11-19 brief). Only the FIRST turn: a follow-up is one
+      // fact and one question, whatever brought it about.
+      const routeAsk = opts.route === true && !isFollowup && !acceptFollowup;
       const baseOwnerAsk = acceptFollowup
         ? buildOwnerAcceptFollowupAsk(mkTimePhrase(wholeDaySeed!), askTime)
         : isFollowup
@@ -17636,10 +17675,15 @@ ${contactReminder}`;
         // counter with a naked 6 where 18:00 belongs. Both halves of the
         // sentence go through the ONE renderer (see renderVisitTerm).
         ? buildOwnerFollowupAsk(renderVisitTerm(priorAsk), renderVisitTerm(askTime))
-        : ownerLabels
-          ? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen, relative: ownerLabels.relative, entered: ownerLabels.entered })
-          : pickVariant('owner.ask', { recent: this.recentOwnerLines(session.chatId), vars: { eb: String(eb), time: askTime } })
-            ?? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime });
+        : routeAsk
+          ? ownerLabels
+            ? buildOwnerRouteAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen, relative: ownerLabels.relative, entered: ownerLabels.entered })
+            : pickVariant('owner.routeAsk', { recent: this.recentOwnerLines(session.chatId), vars: { eb: String(eb), time: askTime } })
+              ?? buildOwnerRouteAsk(eb, askTime, { eb, proposedTime: askTime })
+          : ownerLabels
+            ? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime, propertyType: ownerLabels.type, propertyTypeDef: ownerLabels.def, possessive: ownerLabels.possessive, dostapen: ownerLabels.dostapen, relative: ownerLabels.relative, entered: ownerLabels.entered })
+            : pickVariant('owner.ask', { recent: this.recentOwnerLines(session.chatId), vars: { eb: String(eb), time: askTime } })
+              ?? buildOwnerAsk(eb, askTime, { eb, proposedTime: askTime });
       // THE FIRST ASK ALSO CONFIRMS THE CLEAN PRICE (the owner's 2026-11-11
       // brief): one message settles availability, the term AND the owner's own
       // figure — the price he asked on the import day is the only one we may
@@ -17668,7 +17712,10 @@ ${contactReminder}`;
       // OWNER-ASK INTAKE (judge layer 1): the owner ask logs the CLIENT's raw
       // proposed term — a question forwarded as a term (20:26 "VO NEDELA
       // RABOTITE ?") is detectable only against the raw words, not the relay.
-      if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'OWNER_ASK', userMsg: session.slots.visitTime ?? proposedTime, replyText: ownerAskText, replySource: 'owner-relay', bankKey: 'owner.ask' }); } catch { /* ignore */ } }
+      // The AUDIT key is the pool that actually served the sentence (a route
+      // ask logged as `owner.ask` hides which copy the owner read).
+      const ownerAskKey = routeAsk ? 'owner.routeAsk' : 'owner.ask';
+      if (this.deps.enrichment) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'OWNER_ASK', userMsg: session.slots.visitTime ?? proposedTime, replyText: ownerAskText, replySource: 'owner-relay', bankKey: ownerAskKey }); } catch { /* ignore */ } }
       this.onOwnerAsk?.(session.chatId, eb, ownerAskText);
       this.rememberOwnerLine(session.chatId, ownerAskText);
       // The composed ask rides the check so a REMOTE deliverer sends Lina's own

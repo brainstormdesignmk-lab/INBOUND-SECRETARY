@@ -260,7 +260,10 @@ test('[chain] a later start that links them is OFFERED, never fabricated', async
   // without repeating «двата» (the route is not thrown away by a new term).
   await h.say('ПОНЕДЕЛНИК ВО 12:00');
   assert.ok(h.sessions.get(h.chatId)!.slots.visitPlan, 'the route restarts for the next term');
-  assert.match(h.asks.at(-1) ?? '', /12:00/u, `the new hour reaches an owner: ${h.asks.at(-1)}`);
+  // A PARALLEL round asks both stops: the client's 12:00 reaches the first
+  // owner and the chained 13:00 the second, so the tail holds BOTH (asserting
+  // only the last ask pinned the second stop's hour and went blind to the start).
+  assert.match(h.asks.at(-2) ?? '', /12:00/u, `the new hour reaches an owner: ${h.asks.slice(-2)}`);
 });
 
 test('[chain] a single flat keeps the ordinary single-visit flow', async () => {

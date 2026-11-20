@@ -127,7 +127,7 @@ test('[deferral] the flat that cannot share the day gets its OWN term next', asy
   await h.answer(84, 'MOZE', 'Петок во 18:00');
   const probe = await h.answer(88, 'SAMO VO 12:00', 'Петок во 19:00');
   assert.equal(probe, '', 'the route is not offered while a fitting hour exists');
-  assert.match(h.asks.at(-1) ?? '', /број 88/u, `she asks EB 88 once more: ${h.asks.at(-1)}`);
+  assert.match(h.asks.at(-1) ?? '', /Клиентот не е во можност/u, `the follow-up shape for EB 88: ${h.asks.at(-1)}`);
   assert.match(h.asks.at(-1) ?? '', /20:00/u, h.asks.at(-1) ?? '');
 
   const second = await h.answer(88, 'SAMO VO 12:00', 'Петок во 20:00');

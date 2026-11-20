@@ -322,18 +322,17 @@ Shipped in this tree, with tests:
 | parallel asks, per-stop merge, budget | `src/handlers/inbound.ts`, `src/backoffice/ownerAgent.ts` | `chain-owner-examples`, `chain-gap-and-deferral` |
 | pause offered for consent / deferred flat gets its own term | `src/visits/messages.ts`, `confirmChain` | `chain-gap-and-deferral` |
 | a refused route keeps its stops for the next day | `inbound.ts` TIME_REJECTED | `visit-chain-flow` |
+| route owner copy (`owner.routeAsk`) | `src/data/responses.ts`, `src/llm/prompts.ts` (`buildOwnerRouteAsk`) | `owner-route-ask` |
+| the stop's own term for every re-arm / ack / owner question | `inbound.ts` (`routeTermFor`) | `owner-route-ask` |
+| the route on the operator's `/state` | `src/tui/state.ts` (`route=` … `def=`) | `tui-state-dump` |
 
 Known limits, on purpose and named:
 
-- A route owner is asked with the EXISTING `owner.ask` copy (the first-ask flag
-  keeps it from reading as a refusal). Dedicated `owner.routeAsk` /
-  `owner.routeFollowup` bank keys are still the right next step — they need a
-  constraints sweep of their own.
-- `armOwnerCheck` (the availability-ack re-arm) still proposes
-  `session.slots.visitTime`, which in a parallel round is whichever stop was
-  asked last. A route re-arm must pass the stop's own term.
 - The deferred flat's own term is collected as a normal single visit; if two or
   more flats are deferred they restart as a route (`visitWanted` survives).
+- `/state` shows the route as a SUMMARY (`2stops` / `live` / `-`, plus the
+  deferred flats) because the row budget is 48 columns; the plan event carries
+  the hours with addresses for the operator.
 
 ## Decisions taken (owner, 2026-11-19)
 
