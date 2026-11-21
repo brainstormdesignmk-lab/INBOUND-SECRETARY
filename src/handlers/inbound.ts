@@ -476,6 +476,58 @@ const PLACE_CONNECTORS = new Set([
   'of', 'the', 'in', 'at', 'and', 'to',
 ]);
 
+/** SENTENCE GRAMMAR IN FRONT OF A PLACE — trimmed, never matched.
+ *
+ *  THE [21:58] CAPTURE: the client answered «moze vo centar» and the whole
+ *  clause reached the map as a place phrase; findPoiByName is a TOKEN match, so
+ *  «центар» inside the bus stop «Ресторан Имес кон Центар» won, the coverage
+ *  guard signed off on the two-word tail, and the ring ask then measured every
+ *  card from a stop in Карпош 3 — «немам недвижност во непосредна близина на
+ *  Ресторан Имес кон Центар» for a client who asked about Центар.
+ *
+ *  A client opens the answer with a modal, a wish verb, a pronoun or the
+ *  preposition itself («може во …», «сакам кај …», «барам во …», «ајде на …»).
+ *  Only a LEADING run is trimmed, one word at a time, so a name that happens to
+ *  carry such a word keeps it («Мост на …»); both scripts, closed set. */
+const PLACE_LEAD_FILLER = new Set([
+  // modals / wish verbs
+  // «мозе» is the NORMALISED spelling of the client's Latin «moze» (the
+  // Latin→Cyrillic fold, not a Latin word): the trim reads normalised text.
+  'може', 'мозе', 'moze', 'можам', 'mozam', 'можеби', 'mozebi',
+  'треба', 'treba', 'требаше', 'trebase',
+  'сакам', 'sakam', 'сакаме', 'sakame', 'сакате', 'sakate', 'посакувам', 'posakuvam',
+  'барам', 'baram', 'бараме', 'barame', 'барате', 'barate', 'гледам', 'gledam',
+  'ајде', 'ajde', 'ајди', 'ajdi', 'значи', 'znaci', 'дали', 'dali',
+  // pronouns / clitics
+  'ми', 'mi', 'ме', 'me', 'ти', 'ti', 'ви', 'vi', 'ни', 'ni', 'би', 'bi', 'да', 'da',
+  // the preposition itself (the place is what follows it)
+  'во', 'vo', 'на', 'na', 'кај', 'kaj', 'кон', 'kon', 'до', 'do', 'од', 'od', 'низ', 'niz',
+  'околу', 'okolu', 'близу', 'blizu',
+]);
+
+/** SAME PLACE, NAME-WISE: the map's row and the stored anchor may differ in
+ *  case, script or a qualifier («Ресторан Имес кон Центар» vs «ресторан имес
+ *  кон центар»); an ECHO of the anchor is not a pivot. */
+function samePlaceAs(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  return placeLooseKey(normalizeLocation(a)).trim() === placeLooseKey(normalizeLocation(b)).trim();
+}
+
+/** The same phrase without its leading grammar run. Undefined-safe and
+ *  idempotent: a bare place name is returned unchanged (apart from spacing).
+ *  The LAST word is never trimmed — «во» alone is not a place, and an empty
+ *  phrase must not turn into a hit. */
+export function stripPlaceFiller(text: string): string {
+  const words = text.replace(/\s+/gu, ' ').trim().split(' ').filter(Boolean);
+  let start = 0;
+  while (start < words.length - 1) {
+    const w = (words[start] as string).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    if (!PLACE_LEAD_FILLER.has(w)) break;
+    start++;
+  }
+  return words.slice(start).join(' ');
+}
+
 /** THE CITY CLASS OF A MAP ROW — a city/municipality/region row is GEOGRAPHY,
  *  never a landmark a client navigates by.
  *
@@ -4061,6 +4113,16 @@ export class InboundHandler {
     // «по една опција» for two places while its second card was 3,1 km from
     // the nearer of them). Un-anchored rows are never counted as answering a
     // place — pairBatchMeta() only uses the anchors it is given.
+    //
+    // A PLACE-LOCKED SEARCH SERVES ONLY WHAT STANDS BY THE PLACES (the [21:56]
+    // capture): the client asked for «kaj bunjakovec ili beverli hils», the
+    // rings were drained after one batch, and the out-of-ring leftovers were
+    // queued anyway — EB 85 (1,8 km from Буњаковец, in another district
+    // altogether) went out under «Ги одбрав следниве опции кои во целост
+    // одговараат на сите Ваши барања». The rows are not lost: they are what the
+    // ring question offers («да Ви покажам нешто подалеку?»), and once the
+    // client picks a widen the scope is set and they may be served (with their
+    // own measured distance). Inside the lock they are not answers.
     for (const p of pool) {
       if (!remaining.has(p.id)) continue;
       let nearest = places[0];
@@ -4069,6 +4131,7 @@ export class InboundHandler {
         const d = distTo(p, pl);
         if (d < bestD) { bestD = d; nearest = pl; }
       }
+      if (bestD > LANDMARK_NEAR_M && !slots.poiWidenScope) continue;
       queue.push(p.id);
       remaining.delete(p.id);
       if (bestD <= LANDMARK_NEAR_M) {
@@ -4219,7 +4282,10 @@ export class InboundHandler {
    *  unattributed row honestly stays unattributed — the historical corpus has
    *  rows whose line is gone, and the report says so rather than guessing. */
   private resolvePlace(name: string | undefined, said?: string): { name: string; lat: number; lon: number; type?: string; place_url?: string; place_id?: string } | undefined {
-    const clean = (name ?? '').trim();
+    // SENTENCE GRAMMAR IS NOT THE PLACE (see PLACE_LEAD_FILLER): «moze vo
+    // centar» must reach the map as «Центар», never as a token match on a bus
+    // stop two neighbourhoods away.
+    const clean = stripPlaceFiller((name ?? '').trim());
     // THREE LETTERS ARE ENOUGH when they are an ACRONYM (the [23:00] capture:
     // «кај СЈО» — Специјално јавно обвинителство). The four-letter floor
     // rejected every 3-letter institution the map holds (СЈО, УЈП, ГОБ…), so
@@ -4433,7 +4499,7 @@ export class InboundHandler {
     return isLandmarkAnchored(text);
   }
 
-  private placeWish(text: string): { name: string; lat: number; lon: number; place_url?: string; place_id?: string } | undefined {
+  private placeWish(text: string): { name: string; lat: number; lon: number; type?: string; place_url?: string; place_id?: string } | undefined {
     // A PLACE HE RULED OUT IS NOT HIS PLACE (the #1 field capture, 2026-11-12).
     // The map has a real suburb named «Скопје Север», so «КУЌАВА БЕШЕ КАЈ
     // УНИВЕРЗАЛНА НЕ ВО СКОПЈЕ СЕВЕР» resolved that denial as the ANCHOR: the
@@ -14297,7 +14363,36 @@ export class InboundHandler {
       // bare «да» is NOT a widen answer either: while another question is open
       // (the pivot confirm) it answers THAT one, and detectWidenIntent would
       // have read it as «друга населба».
-      if (session.slots.poiTooFarAnchor && session.slots.poiTooFarAnchor !== session.slots.poiAnchor) {
+      // A NAMED PLACE OUTRANKS THE WIDEN ANSWER (the [21:58] capture): «moze vo
+      // centar» carries the agreement word («може» = yes, go ahead) AND a
+      // geography of its own. Consuming it as «подалеку во истата населба» left
+      // every card measured from the OLD landmark — the client asked for Центар
+      // and heard «немам … во близина на Буњаковец». When the turn names a place
+      // that is not the anchor, the ring ask is spent here and the place lane
+      // re-anchors on it below, which is what the sentence actually asked for.
+      const ringWish = this.placeWish(text);
+      // A NASELBA IS NOT A LANDMARK (the owner's 2026-11-16 rule): «vo centar»
+      // names the DISTRICT. Answering the ring question with it must not keep
+      // measuring the district from the old landmark — the turn drops the
+      // anchor entirely and the area filter owns the search.
+      const wishIsArea = !!ringWish && isSettlementPlace(ringWish.type);
+      const newPlace = !wishIsArea && ringWish && !samePlaceAs(ringWish.name, session.slots.poiAnchor)
+        ? ringWish : undefined;
+      if (wishIsArea) {
+        session.slots.poiAnchor = undefined;
+        session.slots.poiPlaces = undefined;
+        session.slots.poiArea = undefined;
+        session.slots.pairAnchorOf = undefined;
+        session.slots.pairAlsoNearOf = undefined;
+      }
+      if (wishIsArea || newPlace) {
+        session.slots.poiTooFarAsk = undefined;
+        session.slots.poiTooFarAnchor = undefined;
+        session.slots.poiNearestId = undefined;
+        session.slots.poiNearestM = undefined;
+        session.slots.ladderQueue = undefined;
+        session.slots.ladderKey = undefined;
+      } else if (session.slots.poiTooFarAnchor && session.slots.poiTooFarAnchor !== session.slots.poiAnchor) {
         session.slots.poiTooFarAsk = undefined;
         session.slots.poiTooFarAnchor = undefined;
       } else if (session.slots.poiNearestId !== undefined && detectRingNearestAsk(text)) {
@@ -19936,6 +20031,39 @@ ${contactReminder}`;
       session.slots.pairAlsoNearOf = undefined;
       session.slots.ladderQueue = undefined;
       session.slots.ladderKey = undefined;
+    }
+    // AN AREA ASK RETIRES THE LANDMARK'S RING (the [21:58] capture): the client
+    // asked for «Bunja kovec ILI Beverli Hils», saw one flat by each place, then
+    // said «moze vo centar» — the DISTRICT. The anchor (and its 1 km ring) is a
+    // landmark constraint, so a turn that names only an AREA must not keep
+    // measuring the whole district from that landmark: the reply was «немам
+    // недвижност во непосредна близина на Буњаковец (до 1 km) — најблиску што
+    // имам е на 1,8 km» for a client who had just widened to Центар. The area
+    // filter is the geography of such a turn; the landmark's ring is not.
+    // A message that names the place ITSELF («kaj bunjakovec vo centar», «Во
+    // Центар кај Капитол Мол») keeps its anchor: the place is the ask.
+    // THE SIGNAL IS THE WORD HE SAID, not the echoed slot: the classifier
+    // re-emits the stored location on any message that leaves the area axis
+    // untouched («do 180000» arrives with ev.location='Центар'), and keying on
+    // that dropped the anchor a budget answer never touched. Only a turn that
+    // RESOLVES its place to a settlement row is an area ask.
+    if (session.slots.poiAnchor && ev.location && rawText) {
+      const areaWish = this.placeWish(rawText);
+      if (areaWish && isSettlementPlace(areaWish.type)) {
+        session.slots.poiAnchor = undefined;
+        session.slots.poiArea = undefined;
+        session.slots.poiPlaces = undefined;
+        session.slots.poiNearestM = undefined;
+        session.slots.poiNearestId = undefined;
+        session.slots.poiTooFarAsk = undefined;
+        session.slots.poiTooFarAnchor = undefined;
+        session.slots.poiWidenScope = undefined;
+        session.slots.poiAnchorTooFar = undefined;
+        session.slots.pairAnchorOf = undefined;
+        session.slots.pairAlsoNearOf = undefined;
+        session.slots.ladderQueue = undefined;
+        session.slots.ladderKey = undefined;
+      }
     }
     // POI anchor ("okolu Kapitol Biser"): stored so loadProps can rank the
     // candidates by distance TO THE ANCHOR, not just the neighborhood (the

@@ -251,11 +251,24 @@ test('[22:51] a dismissal after a served batch never arms «anywhere» nor re-as
   assert.notEqual(s.slots.anywhere, true, 'a size/unknown dismissal is not a location release');
   assert.ok((s.slots.presentedIds?.length ?? 0) > presentedBefore.length,
     `the dismissal is answered with more options: ${JSON.stringify(s.slots.presentedIds)}`);
-  // The second batch spans further (the far Карпош card), so the opener must
-  // never introduce it as «најблиските опции до …» — that was the [22:47]
-  // sentence for a batch whose second card stood 2.1 km away.
-  assert.ok(!/најблиск/u.test(reply),
-    `an unanchored card blocks the «најблиски» opener: ${reply}`);
+  // THE PLACE LOCK BOUNDS THIS BATCH TOO (the [21:56] capture): the far Карпош
+  // card (EB 48, ~2 km from both named places) used to ride the second batch
+  // and the [22:47] sentence had to be vetoed word-by-word to stop it being
+  // called «најблиската опција». The queue now refuses an out-of-ring row
+  // outright, so the honest assertion is the geography itself: every NEW card
+  // stands inside a named place's radius, and the far row is left for the
+  // widen question instead of being served under a «најблиски» opener.
+  // (This REPLACES the old `/најблиск/` check, which only held while the far
+  // card was still in the batch — the contract it protected is the same: no
+  // card beyond the ring may be introduced as the nearest one.)
+  assert.ok(!reply.includes('Евидентен број 48'),
+    `the far Карпош card does not ride a place-locked batch: ${reply}`);
+  assert.ok((s.slots.presentedIds ?? []).every(id => id !== 48),
+    `nor is it recorded as served: ${JSON.stringify(s.slots.presentedIds)}`);
+  if (/најблиск/u.test(reply)) {
+    assert.match(reply, /Евидентен број 79/u,
+      `a «најблиски» opener may only introduce a card inside the ring: ${reply}`);
+  }
 });
 
 // ── 7. THE DISMISSAL READS THE QUESTION, NEVER THE WORDING ──────────────────

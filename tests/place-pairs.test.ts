@@ -352,6 +352,14 @@ test('[15:36] a far alternative never rides the pair claim «по една оп�
   // and the rest of the ledger 3+ km away. The old serve paired that flat with
   // a 3,1 km row and introduced both as «по една опција до Болница … и до
   // Сити Мол» — a claim about geography neither card had.
+  //
+  // THE FAR ROW IS NOT SERVED AT ALL (the owner's 2026-11-21 rule, from the
+  // [21:56] capture): «properties served should be in the same naselba as the
+  // landmarks they are wanted around». Keeping the 3,1 km card in the batch
+  // behind a different opener still puts a Водно/Центар flat in front of a
+  // client who asked about Болница 8ми Септември — the card IS the answer to
+  // him. It waits for the widen question instead (the pool keeps it; the
+  // queue does not).
   const rows: Property[] = [
     { eb: 403, id: 403, location: 'Карпош III', price: 69500, bedrooms: 2, sqm: 35, size: '35 м²',
       service: 'buy', lat: 42.0040, lon: 21.3990 },
@@ -363,16 +371,22 @@ test('[15:36] a far alternative never rides the pair claim «по една оп�
   await say('SAKAM DA KUPAM DVOSOBEN STAN KAJ VOENA BOLNICA ILI CITY MALL');
   const reply = await say('DO 120000 EVRA DA NE E PRIZEMJE ILI POTKROVJE');
 
-  assert.deepEqual(sessions.get(chatId)!.slots.currentBatch, [403, 404],
-    'the near flat and the alternative');
+  assert.deepEqual(sessions.get(chatId)!.slots.currentBatch, [403],
+    `only the flat that really stands by the places is served: ${reply}`);
   assert.doesNotMatch(reply, /по една опција до/,
-    `a batch carrying a far alternative is not a pair answer: ${reply}`);
+    `a single honest card is not a pair answer: ${reply}`);
   // The near card states BOTH distances it really has — that is what lets the
-  // client judge it; the far card states only its own.
+  // client judge it.
   assert.match(reply, /Евидентен број 403[\s\S]*од ГОБ 8-ми Септември[\s\S]*од Скопје Сити Мол/);
+  // …and the 3,1 km row is not on the table, nor recorded as shown: it is the
+  // widen question's stock, not this answer's.
+  assert.doesNotMatch(reply, /Евидентен број 404/u,
+    `the 3,1 km row does not answer a place it is nowhere near: ${reply}`);
+  assert.ok(!(sessions.get(chatId)!.slots.presentedIds ?? []).includes(404),
+    `nor is it marked served: ${JSON.stringify(sessions.get(chatId)!.slots.presentedIds)}`);
   const farAnchors = sessions.get(chatId)!.slots.pairAnchorOf ?? {};
   assert.equal(farAnchors['404'], undefined,
-    'a row outside every named radius is an alternative, not an answer');
+    'a row outside every named radius is never an answer');
 });
 
 // ── THE [21:41]–[21:46] CAPTURE ────────────────────────────────────────────
