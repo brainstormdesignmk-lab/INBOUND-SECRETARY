@@ -7293,9 +7293,15 @@ export function detectPairReferent(text: string): boolean {
  *  A SINGULAR DEICTIC VETOES IT: «овој стан има лифт?» names one card, whatever
  *  the verb — the mention layer binds it and the answer stays single. */
 const PLURAL_PROPERTY_ASK_RE = new RegExp(
-  '(?<![\\p{L}\\p{N}])(?:имаат|немаат|се|беа|имале|немале|нудат|располагаат'
+  '(?<![\\p{L}\\p{N}])(?:имаат|немаат|беа|имале|немале|нудат|располагаат'
   + '|лифтови|паркинзи|тераси|балкони|клими|дворови|гаражи|паркинг места)'
   + '(?![\\p{L}\\p{N}])'
+  // THE COPULA ONLY CLOSES A QUESTION: «од која година СЕ?» is the bare plural
+  // ellipsis this alternative exists for, but the reflexive clitic «se» sits in
+  // half the language («NE MI SE DOPAGA», «NEBITNI SE SPALNITE», «SE
+  // SOGLASUVAM») and a bare token matched all of them — the plural scope then
+  // read a refusal as a pair question and answered the rejected cards again.
+  + '|(?<!\\p{L}\\p{N})се(?=\\s*[?？]\\s*$)'
   // THE WHICH-WORD MUST LEAD THE CLAUSE **AND GOVERN «ИМА»**: «кој има лифт?»
   // asks which of the flats has one, while «од која година е?» is a SINGULAR
   // year question and «која му е цената?» is one flat's price — both were read
@@ -7309,6 +7315,24 @@ const SINGULAR_DEICTIC_RE = new RegExp(
 export function detectPluralPropertyAsk(text: string): boolean {
   if (matchesBoth(SINGULAR_DEICTIC_RE, text)) return false;
   return matchesBoth(PLURAL_PROPERTY_ASK_RE, text);
+}
+
+/** A BARE ACKNOWLEDGEMENT AFTER THE VISIT IS BOOKED — «tocno», «ok», «vo red»,
+ *  «blagodaram» (the [10:26] field turn: the owner's address confirmation was
+ *  followed by an acknowledgement in the client chat, and the brain worded it
+ *  with «штом ќе го контактирам сопственикот» — a check already done).
+ *
+ *  DELIBERATELY A CLOSED SET of whole messages: an acknowledgement carries no
+ *  request, so a deterministic line can own it. A message with a question, a
+ *  search word or more than a few words is NOT this lane — the funnel and the
+ *  brain keep it. Latin is normalised (matchesBoth), and the punctuation is
+ *  stripped before the whole-word test. */
+const BOOKING_ACK_RE = /^(?:да|da|да точно|da tocno|точно|tocno|тачно|tacno|ок|ok|океј|okej|okey|во ред|vo red|добро|dobro|разбирам|razbiram|разбрав|razbrav|благодарам|blagodaram|фала|fala|се согласувам|se soglasuvam|ајде|ajde|супер|super|одлично|odlicno|јасно|jasno|примив|primiv|важи|vazi)$/iu;
+export function detectPostBookingAck(text: string): boolean {
+  const flat = text.trim().replace(/[\s?!.,…;:]+$/gu, '').replace(/\s+/gu, ' ');
+  if (!flat || flat.length > 24) return false;
+  if (/\?/u.test(text)) return false;
+  return matchesBoth(BOOKING_ACK_RE, flat);
 }
 
 /** «КОЈ ИМА 126 м² ?» — an IDENTITY question about a FIGURE (defect #5 of the

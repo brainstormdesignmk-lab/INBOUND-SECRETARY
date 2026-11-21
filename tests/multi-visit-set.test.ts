@@ -31,7 +31,7 @@ import { MetaStore } from '../src/store/meta';
 import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
-import { detectOwnerVerdict } from '../src/llm/deterministic';
+import { detectOwnerVerdict, detectPostBookingAck } from '../src/llm/deterministic';
 import { stateTask, FALLBACKS } from '../src/llm/prompts';
 
 class FailingLlm implements LlmClient {
@@ -143,11 +143,23 @@ test('[10:26] after the visit is booked, «ќе го контактирам со
   await h.say('ДА');
   assert.equal(h.sessions.get(h.chatId)!.state, 'pending');
 
-  // A later message in the same chat must not re-open a check that is done.
+  // A later acknowledgement must not re-open a check that is done — and it is
+  // answered from the BOOKED RECORD, not left to the model's wording.
   const after = await h.say('tocno');
   assert.ok(!/ќе го контактирам сопственикот|моментална достапност/iu.test(after),
     `no owner check after booking: ${after}`);
-  assert.match(after, /договорена|посетата/iu, `the booked visit is what the reply stands on: ${after}`);
+  assert.match(after, /Договорените посети/u, `the booked set is what the reply stands on: ${after}`);
+  for (const eb of [56, 57, 58]) {
+    assert.match(after, new RegExp(`Евидентен број ${eb} — Понеделник`), `each booked visit is named: ${after}`);
+  }
+  assert.match(after, /два часа пред секоја посета/u, `when the addresses arrive: ${after}`);
+  // The acknowledgement is a closed set of whole messages.
+  for (const yes of ['tocno', 'OK', 'vo red', 'blagodaram', 'razbrav', 'fala']) {
+    assert.equal(detectPostBookingAck(yes), true, yes);
+  }
+  for (const no of ['tocno, dali ima uste stanovi?', 'koga e posetata?', 'sakam da vidam uste']) {
+    assert.equal(detectPostBookingAck(no), false, no);
+  }
 
   // The model-side instruction carries the same truth…
   const task = stateTask('pending', h.sessions.get(h.chatId)!.slots);

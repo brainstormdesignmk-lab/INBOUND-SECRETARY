@@ -211,7 +211,15 @@ test('[11:18] a mid-route renaming rebuilds the stops to his new list', async ()
   // answers this test exists to keep. The route is a fortnight ahead at the
   // same hour, always in the future, and the client's message names that exact
   // date: only the SET changes, which is the rule under test.
-  const day = new Date(Date.now() + 14 * 86400_000);
+  // THE DERIVED DAY MUST BE THE PLAN'S WEEKDAY: the seeded term is CETVRTOK
+  // (Thursday), so a plain `now + 14d` names a SATURDAY every time the suite
+  // runs in a week where that offset lands off-Thursday — the TERM-CHANGE
+  // branch then restarts the visit and the stops are rebuilt from the message
+  // instead of narrowed from the route. Anchor to the Thursday at least a week
+  // out (always future, always the plan's day).
+  const anchor = new Date(Date.now() + 7 * 86400_000);
+  const day = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  day.setDate(day.getDate() + ((4 - day.getDay() + 7) % 7)); // 4 = Thursday
   const dd = String(day.getDate()).padStart(2, '0');
   const mm = String(day.getMonth() + 1).padStart(2, '0');
   const yyyy = day.getFullYear();

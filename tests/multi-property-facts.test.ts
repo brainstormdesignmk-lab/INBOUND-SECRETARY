@@ -124,6 +124,12 @@ test('a plural ask about flats is read as plural — singular wording is not', (
     // «која му е цената?» is ONE flat's price — a which-word, but it governs
     // «е», not «има», so it is not a which-of-them question.
     'која му е цената ?',
+    // THE REFLEXIVE CLITIC IS NOT A PLURAL MARKER: «се» used to be a bare
+    // alternative, so every refusal and agreement read as a pair question (the
+    // plural scope re-served the rejected cards). Only a clause-final copula
+    // («од која година СЕ?») counts.
+    'NE MI SE DOPAGA', 'ne mi se dopagaat, daj drugi', 'NEBITNI SE SPALNITE',
+    'se soglasuvam', 'не ми се допаѓа', 'дали се уште достапни ?',
   ]) {
     assert.equal(detectPluralPropertyAsk(t), false, `single ask: ${t}`);
   }

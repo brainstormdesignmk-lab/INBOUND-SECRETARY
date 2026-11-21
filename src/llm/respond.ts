@@ -356,7 +356,12 @@ export class Responder {
     return left >= 40 && left >= guarded.replace(/\s/g, '').length * 0.4 ? grounded : undefined;
   }
 
-  private async escalate(session: ChatSession, properties: Property[], userText: string): Promise<RespondResult> {
+  private async escalate(
+    session: ChatSession,
+    properties: Property[],
+    userText: string,
+    opts: { answerAll?: boolean } = {},
+  ): Promise<RespondResult> {
     // P5.2 OPTION 3 — LLM AS LAST-RESORT ARBITER, money residue ONLY.
     // When the deterministic money region left the turn unclaimed (the explicit
     // unknown.<topic>.<act> bucket), one constrained attempt precedes free-form
@@ -419,11 +424,19 @@ export class Responder {
     }
     const task = stateTask(session.state, session.slots);
     const propCtx = buildPropertyContext(properties);
+    // THE PAIR FRAME (the owner's 2026-11-20 rule): when the message is about
+    // SEVERAL properties, the answer must cover EACH one. Without this the
+    // model saw two rows and answered about one (or merged them), and the flat
+    // it skipped had no correction anywhere — the deterministic lanes only run
+    // on facets they recognise.
+    const allRule = opts.answerAll && properties.length >= 2
+      ? `\n\nTHE CLIENT'S MESSAGE COVERS ALL ${properties.length} PROPERTIES ABOVE (Евидентен броеви ${properties.map(p => p.eb).join(', ')}). Answer for EACH one in its own sentence that names its Евидентен број. NEVER answer for only one, never merge them into one answer, and never state a fact that is not in that row's data — a missing fact is said to be missing and promised to the owner.`
+      : '';
     const messages = [
       { role: 'system' as const, content: SYSTEM_PROMPT },
       {
         role: 'system' as const,
-        content: `CURRENT STATE TASK:\n${task}\n\nRELEVANT PROPERTY DATA (JSON, from the agency database):\n${propCtx}`,
+        content: `CURRENT STATE TASK:\n${task}${allRule}\n\nRELEVANT PROPERTY DATA (JSON, from the agency database):\n${propCtx}`,
       },
       ...session.history.slice(-10).map(m => ({ role: m.role, content: m.text })),
       { role: 'user' as const, content: userText },
@@ -530,7 +543,16 @@ export class Responder {
     }
   }
 
-  async respond(session: ChatSession, properties: Property[], userText: string): Promise<RespondResult> {
+  async respond(
+    session: ChatSession,
+    properties: Property[],
+    userText: string,
+    /** `answerAll` — the caller has established that the message is about EVERY
+     *  property in `properties` (a pair the client pointed at), so the model is
+     *  told to answer per property. A presentation batch does not set it: there
+     *  the client is choosing, not asking about all of them. */
+    opts: { answerAll?: boolean } = {},
+  ): Promise<RespondResult> {
     // LAYER 0 — retrieval: every message that reaches respond() already missed
     // the deterministic detectors. Before paying for an LLM call, check the
     // learned bank's example messages — a similar question answered before is
@@ -616,6 +638,6 @@ export class Responder {
     // Digression (investment opinion / fee-why / conversational remark) in the
     // closing state falls through HERE and is answered by the LLM — never by a
     // canned line.
-    return this.escalate(session, properties, userText);
+    return this.escalate(session, properties, userText, opts);
   }
 }

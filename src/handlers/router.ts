@@ -23,7 +23,7 @@ import {
   detectVisitCancellation, detectOfftopic, detectDefer, detectNegotiate,
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
   detectNeighborhoodAsk, detectSchedulingFlex, detectComparison, detectFeatureAsk,
-  detectDrugAlternative, detectInvestmentOpinion, detectWorkdaysQuestion,
+  detectDrugAlternative, detectInvestmentOpinion, detectWorkdaysQuestion, detectPostBookingAck,
   detectFeeWhy, isDistanceQuestion, detectNearestOfShown, detectCloseRemarkToBatch,
   detectMarketPriceAsk, detectMarketMemoryAsk,
   detectBusinessBudgetAsk,
@@ -268,6 +268,13 @@ export const ROUTING_ORDER: RouteRule[] = [
         || (sl.presentedIds?.length ?? 0) > 0) }) },
   { intent: 'WORKDAYS_QUESTION', note: 'agency-hours question ("VO NEDELA RABOTITE?") — answered from the bank, never forwarded to the owner as a proposed term; must beat the visit-time capture (the day token inside it used to reach the owner)',
     fires: t => detectWorkdaysQuestion(t) },
+  // THE ACKNOWLEDGEMENT AFTER THE BOOKING (inbound.ts 8975) — a bare «tocno» /
+  // «vo red» / «blagodaram» in `pending`. State-gated and a closed set of whole
+  // messages, so nothing with a request in it can be predicted here; the
+  // executor answers it from the booked record instead of letting the brain
+  // re-promise an owner check that already happened.
+  { intent: 'POST_BOOKING_ACK', note: 'bare acknowledgement once the visit is booked — the booked flat(s) and term are restated deterministically',
+    fires: (t, s) => s === 'pending' && detectPostBookingAck(t) },
   // The [20:51]–[21:05] batch added two executors the mirror did not know, and
   // the shadow router said so out loud: the Аеродром ask was predicted
   // SURROUNDINGS while the executor served BUSINESS_PLACE_SERVE — a drift pair
@@ -1408,6 +1415,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   CONTACT_MECHANICS: M('CONTACT_MECHANICS', 'the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» — the number she holds + the mechanism, never the DEFER line ([22:28] capture; inbound.ts 7140)'),
   STOCK_CONTRADICTION: M('STOCK_CONTRADICTION', 'the client quotes a card she served against a «нема» she said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?») — admission + the row\'s own facts + the next step, never a location line ([02:12] capture; inbound.ts 6990)'),
   PICK_DESCRIBED: M('PICK_DESCRIBED', 'a pick among the flats she just described → the availability answer'),
+  POST_BOOKING_ACK: M('POST_BOOKING_ACK', 'a bare acknowledgement after the visit is booked — answered from the booked record, never left to the brain to re-promise an owner check (inbound.ts 8975)'),
   LOCATE_CONTINUE: M('LOCATE_CONTINUE', 'bare «не» while choosing among described flats — the hunt continues'),
   LOCATE_WIDEN: M('LOCATE_WIDEN', '«да» to the other-neighbourhoods question — the area lock is released'),
   LOCATE_REJECT_PLACE: M('LOCATE_REJECT_PLACE', '«не е таа» after the only flat at a NAMED place — the place lock holds, other areas only after the ask (inbound.ts 10483)'),

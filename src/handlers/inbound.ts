@@ -16,7 +16,7 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, isSmallUnit, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
-  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralPropertyAsk, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
+  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralPropertyAsk, detectPostBookingAck, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
   detectPairReferent, detectIdentifyByFigure,
   memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
@@ -2890,6 +2890,94 @@ export class InboundHandler {
     // must never be read as an EB list — see contactAskFor).
     const plural = this.multiVisitEbs(session, wishHere ? text : '').length >= 2;
     return plural ? pluralizeOwnerRefs(VISIT_TIME_QUESTION) : VISIT_TIME_QUESTION;
+  }
+
+  /** THE PROPERTIES THE BRAIN MUST ANSWER FOR, when the message is about a
+   *  PAIR (the owner's 2026-11-20 rule).
+   *
+   *  The deterministic info lanes answer every recognised facet per flat; a
+   *  paraphrase with no facet keyword reaches the brain, and the brain used to
+   *  get the NEXT discovery batch as its property data — nothing to do with the
+   *  two flats the client was reading. This returns the pair itself (named
+   *  numbers outrank the table; otherwise the last two on the table), so the
+   *  model answers from the right rows, and `repairPairReply` guarantees that
+   *  every one of them is actually mentioned.
+   *
+   *  A NEW SEARCH IS NOT A PAIR QUESTION: a service/area/budget/room word or a
+   *  widen ask means the funnel is shopping again, and the pair frame stands
+   *  down (those lanes own the turn; when they don't, the discovery context is
+   *  the right one). */
+  private async pairFrameRows(session: ChatSession, text: string): Promise<Property[] | undefined> {
+    if (!['presentation', 'closing', 'property_query', 'pending', 'time_confirm'].includes(session.state)) {
+      return undefined;
+    }
+    if (detectFeeNag(text) || detectProvisionAsk(text) || detectProvisionWho(text) || isFeeTraffic(text)) {
+      return undefined;
+    }
+    // A DECISION IS NOT A FACT QUESTION: a visit wish, an agreement, a contact
+    // request or an arrangement question owns its own lane, and framing it as
+    // "answer for both" would answer a booking with property facts.
+    if (detectVisitInterest(text) || detectVisitRequest(text) || detectMultiVisitIntent(text)
+      || detectPluralViewingWish(text) || detectAgreement(text) || detectContactRequest(text)
+      || detectArrangementRecall(text) || detectArrangementPlanning(text)
+      || detectAvailabilityAsk(text) || detectExactAddressAsk(text) || detectWhereIs(text)) {
+      return undefined;
+    }
+    // A MOVE IN THE FUNNEL IS NOT A QUESTION ABOUT THE PAIR: a rejection of the
+    // served cards, a cheaper/other ask or an exhausted follow-up must walk the
+    // ladder (next pair, widen ask) — framing it as "answer for both" served
+    // the rejected flats again.
+    if (detectRejection(text) || detectSuggestAlternatives(text) || detectCheaperSearch(text)
+      || detectExhaustedFollowUp(text) || detectMoreStockRequest(text)
+      || detectSmallerOfferAsk(text)
+      || isOptionsFollowUp(text, assistantTexts(session).at(-1) ?? '')) {
+      return undefined;
+    }
+    if (detectBudget(text) || detectService(text) !== undefined
+      || detectWidenIntent(text) || detectMoreOptions(text)) {
+      return undefined;
+    }
+    const fromText = extractSlots(text);
+    if (fromText.bedrooms !== undefined || fromText.service !== undefined) return undefined;
+    const onTable = (session.slots.describedEbs?.length ?? 0) >= 2
+      ? session.slots.describedEbs!
+      : (session.slots.currentBatch?.length ?? 0) >= 2
+        ? session.slots.currentBatch!
+        : (session.slots.presentedIds ?? []);
+    // THE FEED IS ONLY ASKED WHEN THE MESSAGE COULD NAME NUMBERS: this helper
+    // runs on every unclaimed turn, and `getAllEbs()` is a feed read.
+    const numbersHere = text.match(/(?<![\p{L}\p{N}])\d{2,3}(?![\p{L}\p{N}])/gu) ?? [];
+    const named = numbersHere.length >= 2
+      ? collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1)
+      : [];
+    const pairEbs = named.length >= 2
+      ? named.slice(0, 4)
+      : (detectPairReferent(text) || detectPluralPropertyAsk(text)) && new Set(onTable).size >= 2
+        ? [...new Set(onTable)].slice(-2)
+        : [];
+    if (pairEbs.length < 2) return undefined;
+    const rows = (await Promise.all(pairEbs.map(eb =>
+      this.deps.properties.getByEb(eb).catch(() => undefined))))
+      .filter((p): p is Property => !!p);
+    return rows.length >= 2 ? rows : undefined;
+  }
+
+  /** THE SERVED PAIR NAMES EVERY FLAT — a post-check on any prose answer.
+   *
+   *  The model is instructed to answer per property, but an instruction is not
+   *  a guarantee: if its sentence never names one of the flats, that flat's
+   *  answer is missing from the client's turn. The repair is the honest miss
+   *  line for the omitted flat(s), appended to what WAS served — never a
+   *  rewrite of the model's text (which could contradict it) and never silence.
+   *  A numeric mention anywhere counts («број 70», «84-от»), so ordinary
+   *  phrasing is not mistaken for an omission. */
+  private repairPairReply(reply: string, rows: Property[]): string {
+    const missing = rows.filter(p =>
+      !new RegExp(`(?<![\\p{L}\\p{N}])${p.eb}(?![\\p{L}\\p{N}])`, 'u').test(reply));
+    if (missing.length === 0) return reply;
+    const lines = missing.map(p =>
+      `За Евидентен број ${p.eb} немам податок во системот за тоа прашање — ќе го прашам сопственикот и ќе Ви потврдам.`);
+    return `${reply.trim()}\n\n${lines.join(' ')}`;
   }
 
   /** THE CARDS THE CLIENT CAN SEE — the batch on the table plus everything
@@ -8893,6 +8981,38 @@ export class InboundHandler {
       return;
     }
 
+    // ── THE ACKNOWLEDGEMENT AFTER THE BOOKING (the [10:26] capture) ────────
+    // Once the visit is arranged the chat sits in `pending`, and a bare «tocno»
+    // / «vo red» / «blagodaram» had no deterministic owner: it reached the
+    // brain, which promised «штом ќе го контактирам сопственикот и прашам за
+    // моментална достапност» — a check that had already happened and a term
+    // that was already fixed. The booked record answers instead: which flat(s),
+    // the term, and when the address arrives. An acknowledgement is a closed
+    // set of whole messages, so nothing with a request in it is stolen here.
+    if (session.state === 'pending'
+      && detectPostBookingAck(text)
+      && !detectFeeNag(text) && !detectProvisionAsk(text)) {
+      const booked = (this.deps.appointments?.listByChat(session.chatId) ?? [])
+        .filter(a => a.status === 'finalized')
+        // Chronological by the confirmed instant; a row without `visit_at`
+        // (scheduler absent) falls back to when it was booked, so the route is
+        // still read in the order it was arranged.
+        .sort((a, b) => (a.visitAt ?? a.createdAt) - (b.visitAt ?? b.createdAt));
+      const stops = booked.map(a =>
+        `Евидентен број ${a.propertyId}${a.time ? ` — ${normalizeOwnerTime(a.time)}` : ''}`);
+      const answer = stops.length === 0
+        ? 'Во ред. Точната локација и деталите за посетата ги добивате два часа пред неа.'
+        : stops.length === 1
+          ? `Во ред. Договорената посета е за ${stops[0]}. Точната локација и деталите ги добивате два часа пред посетата.`
+          : `Во ред. Договорените посети се: ${stops.join('; ')}. Точната локација и деталите ги добивате два часа пред секоја посета.`;
+      routeLog(chatId, text, 'POST_BOOKING_ACK');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, answer, 'deterministic');
+      return;
+    }
+
     // ── THE «ДА» THAT ANSWERS OUR OWN OFFER (the [05:58] capture) ───────────
     // She answered the per-м² question with the subject's rate AND an offer:
     // «Дали сакате да го споредам со останатите понуди во истата населба?». The
@@ -14626,6 +14746,12 @@ export class InboundHandler {
       && (session.slots.propertyId !== undefined
         || session.slots.interestedPropertyId !== undefined
         || (session.slots.currentBatch?.length ?? 0) > 0);
+    // THE PAIR QUESTION IS NOT AN EMPTY SEARCH (computed once, used by the
+    // empty-result lane and the brain fallthrough below): a fact question about
+    // the flats on the table re-loads no pool, so the presentation branch used
+    // to answer it «Моментално во системот нема станови». No side effects — a
+    // pure read of the message and the table.
+    const pairFrame = await this.pairFrameRows(session, text);
     if (next === 'property_locate' && !locateHandsOffToVisit) {
       const price = session.slots.budget ? Number(session.slots.budget.replace(/[^\d]/g, '')) : undefined;
       // ROOM COUNT rides with every locate serve (the [19:42] capture):
@@ -15036,11 +15162,13 @@ ${contactReminder}`;
         // the LLM (it can handle questions about terms, process, etc.) and
         // append the contact reminder. The LLM has the system prompt context
         // to answer authoritatively about the agency.
-        const r = await this.deps.responder.respond(session, props, text);
+        const r = await this.deps.responder.respond(
+          session, pairFrame ?? props, text, pairFrame ? { answerAll: true } : undefined);
         const n = session.slots.contactAsks ?? 0;
         session.slots.contactAsks = n + 1;
         const contactReminder = buildContactAsk(session.slots, assistantTexts(session));
-        reply = `${r.text}
+        const prose = pairFrame ? this.repairPairReply(r.text, pairFrame) : r.text;
+        reply = `${prose}
 
 ${contactReminder}`;
         replySource = r.source;
@@ -16064,6 +16192,7 @@ ${contactReminder}`;
         }
       }
     } else if (next === 'presentation' && props.length === 0
+        && !pairFrame
         && !detectInvestmentOpinion(text)
         // A VISIT REQUEST IS NEVER AN EMPTY-RESULT TURN (the [09:10] V16K11
         // capture): «AJDE DOGOVORI MI ZA 66 I ZA 91» arrived when every card of
@@ -16957,9 +17086,14 @@ ${contactReminder}`;
           replySource = 'fallback';
         }
       } else {
-        // LLM responder — the cold-brained fallback for unmatched intents
-        const r = await this.deps.responder.respond(session, props, text);
-        reply = r.text;
+        // LLM responder — the cold-brained fallback for unmatched intents.
+        // A question that points at the pair on the table is answered from
+        // THAT pair, and the served sentence is checked to name every flat
+        // (`pairFrameRows` / `repairPairReply`): an instruction alone did not
+        // stop the model answering about one flat.
+        const r = await this.deps.responder.respond(
+          session, pairFrame ?? props, text, pairFrame ? { answerAll: true } : undefined);
+        reply = pairFrame ? this.repairPairReply(r.text, pairFrame) : r.text;
         replySource = r.source;
       }
     }

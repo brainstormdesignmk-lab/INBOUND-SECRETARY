@@ -4090,7 +4090,9 @@ test('[12:32b] a reset never eats a business message; a pure greeting still gree
   sessions.set(aged2);
   await send('Здраво');
   r = sent.at(-1)!;
-  assert.ok(/Лина|купување|изнајмување/iu.test(r), `pure greeting still greets: ${r}`);
+  // The greeting bank rotates noun and verb forms ("купување" / "да купите",
+  // "изнајмување" / "да изнајмите"); assert the buy-or-rent offer by stem.
+  assert.ok(/Лина|куп|изнајм/iu.test(r), `pure greeting still greets: ${r}`);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

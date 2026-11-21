@@ -124,6 +124,8 @@ test('the very next real client turn still works normally', async () => {
   const before = sent.length;
   await handler.handle('test', 'V16K11', 'zdravo');
   assert.equal(sent.length, before + 1, 'the client turn is answered');
-  assert.match(sent.at(-1)!, /купување|изнајмување/iu,
+  // The greeting bank rotates between noun and verb forms ("купување" vs
+  // "што би ја купиле"); the contract is the buy-or-rent offer, not one wording.
+  assert.match(sent.at(-1)!, /куп|изнајм/iu,
     `the opening question: ${sent.at(-1)}`);
 });
