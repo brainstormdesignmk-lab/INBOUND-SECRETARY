@@ -500,6 +500,11 @@ export function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+/** "18:00" — the clock alone, for a turn that heard the hour and needs the day. */
+export function formatVisitClock(d: Date): string {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 /** "Петок, 11.06.2026 во 17:30" — the canonical visit display. */
 export function formatVisitDate(d: Date): string {
   return `${MK_DAY_FMT[d.getDay()]}, ${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()} во ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;

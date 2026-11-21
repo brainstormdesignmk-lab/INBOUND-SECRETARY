@@ -26,6 +26,14 @@ export const LAST_INFO_PREFIX = 'Одлично.';
 export const VISIT_TIME_QUESTION =
   'Кој термин би Ви одговарал за посета? Да се обидам да договорам со сопственикот во тоа време.';
 
+/** A TERM IS A DAY **AND** A TIME: when the client gave the CLOCK (the [06:48]
+ *  capture — «6» answering a slot question), the missing half is the DAY, and
+ *  the hour he named is echoed back so he can see it was heard. Re-asking the
+ *  whole term question made a client who had just said six repeat himself. */
+export function visitDayAsk(clock: string): string {
+  return `Забележав ${clock}. Кој ден Ви одговара за посетата?`;
+}
+
 export const OWNER_CHECK_ACK =
   'Во ред, ќе Ве известам штом потврдам.';
 

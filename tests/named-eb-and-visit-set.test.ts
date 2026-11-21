@@ -84,7 +84,9 @@ function makeHandler(id: string) {
     landmarks: new LandmarkService(db, { osm: false }),
     enrichment: new EnrichmentStore(db),
   });
-  return { handler, sessions, sent, chatId: id };
+  const ownerAsks: string[] = [];
+  handler.onOwnerAsk = (_c: string, _eb: number, q: string) => { ownerAsks.push(q); };
+  return { handler, sessions, sent, ownerAsks, chatId: id };
 }
 
 // ── 1. THE FLAT-REFERENCE FRAME ─────────────────────────────────────────────
@@ -179,4 +181,39 @@ test('[06:48] «6» answering a slot question is 18:00, not nothing', () => {
   // A CRITERION is not a slot answer: a number with words around it is not lone.
   assert.equal(hasClockHint('6 spalni'), false);
   assert.equal(parseVisitDateTime('6 spalni', now), undefined);
+});
+
+// ── 5. THE ROUTE OVER THE SET, NOT A FREEZE AFTER THE FIRST OWNER ──────────
+
+test('[06:52] the term arranges the WHOLE set he named, not only the last one', async () => {
+  // THE FREEZE: two flats asked by number, «sakam da gi posetam ovie dva
+  // stana», the fee agreed, then the term. The route must be over BOTH flats
+  // and both owners asked in one round — the [22:0x] capture booked the first
+  // and then went silent on the rest of the visit he had asked for.
+  const { handler, sessions, sent, ownerAsks, chatId } = makeHandler('route-set');
+  for (const m of [
+    'ZAINTERESIRAN SUM ZA EVIDENTEN BROJ 52',
+    'A STANOT SO BROJ 51 ?',
+    'DALI E SEUSTE DOSTAPEN ?',
+    'DA',
+    'DA, SE SOGLASUVAM',
+    'ZORAN 078/914 196',
+    'SAKAM DA GI POSETAM OVIE DVA STANA',
+  ]) await handler.handle('test', chatId, m);
+  const s0 = sessions.get(chatId)!;
+  assert.equal(s0.slots.visitWanted, true, 'the plural wish is remembered');
+  assert.deepEqual(s0.slots.visitEbs, [52, 51], `the set is the pair he asked about: ${JSON.stringify(s0.slots.visitEbs)}`);
+  await handler.handle('test', chatId, 'PETOK VO 16:00');
+  await new Promise(r => setTimeout(r, 200));
+  const s = sessions.get(chatId)!;
+  assert.equal(s.state, 'owner_checking', `the route opens the owners: ${s.state}`);
+  assert.ok(s.slots.visitPlan, 'the term starts a ROUTE over the set');
+  assert.deepEqual(s.slots.visitPlan!.stops.map(x => x.eb), [52, 51], 'every flat in the set is a stop');
+  assert.equal(s.slots.visitPlan!.stops.filter(x => x.status === 'asked').length, 2,
+    `both owners are asked in the same round: ${JSON.stringify(s.slots.visitPlan!.stops)}`);
+  assert.equal(ownerAsks.length, 2, `one question per owner: ${JSON.stringify(ownerAsks)}`);
+  assert.match(ownerAsks.join('\n'), /број 52/u, ownerAsks.join('\n'));
+  assert.match(ownerAsks.join('\n'), /број 51/u, ownerAsks.join('\n'));
+  assert.doesNotMatch(sent.at(-1) ?? '', /Кој термин/u,
+    `the term is not re-asked once both owners have it: ${sent.at(-1)}`);
 });

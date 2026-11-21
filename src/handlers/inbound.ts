@@ -22,7 +22,7 @@ import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWIN
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectPublishedListingAsk, detectAcquisitionWish, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
-import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, pad2, isWeekendTerm,
+import { hasClockHint, hasPeriodHint, extractDayWord, namesADay, outsideVisitWindow, parseVisitDateTime, formatVisitDate, formatDateOnly, formatVisitClock, weekdayName, pad2, isWeekendTerm,
   isCompleteVisitTerm, missingTermPiece, sameVisitInstant } from '../visits/time';
 import { buildCancelWhichAsk, buildCancelledByClient, buildCancelledByOwner } from '../visits/messages';
 import { dayStartOf, slotStartOf, isSlotTaken, freeHoursNear, buildSlotTakenLine, type CalendarInput } from '../visits/calendar';
@@ -66,7 +66,7 @@ import { detectCategoryBudgets } from '../llm/deterministic';
 import { VisitScheduler } from '../visits/scheduler';
 import { recordPlaceMiss } from '../store/placeMisses';
 import {
-  serviceLabel,  VISIT_TIME_QUESTION, OWNER_CHECK_ACK, PATIENCE_LINE,
+  serviceLabel,  VISIT_TIME_QUESTION, visitDayAsk, OWNER_CHECK_ACK, PATIENCE_LINE,
   mergeOwnerTerm,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
   buildOwnerAsk, buildOwnerRouteAsk, buildOwnerFollowupAsk, buildOwnerAcceptFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay, buildOwnerAvailabilityAck,
@@ -15936,6 +15936,12 @@ ${contactReminder}`;
           reply = pickVariant('vague.time', { recent: assistantTexts(session) })
             ?? 'Може ли да ми кажете точно во колку часот? Така ќе можам да го договорам терминот со сопственикот.';
           bankKey = 'vague.time';
+        } else if (termGap === 'day' && parseVisitDateTime(t) !== undefined) {
+          // The CLOCK is his, the DAY is missing — ask exactly that, echoing
+          // the hour (the [06:48] capture: «6» was re-asked the whole term
+          // question as if nothing had been heard).
+          reply = visitDayAsk(formatVisitClock(parseVisitDateTime(t)!));
+          bankKey = undefined;
         } else {
           reply = this.visitTermAsk(session, text); // a flat, but no day and no clock yet
           bankKey = undefined;
@@ -18744,6 +18750,7 @@ ${contactReminder}`;
         chainSize: session.slots.chainSize,
       });
     }
+
   }
 
   // ---------------- side-effect helpers ----------------
