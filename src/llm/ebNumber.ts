@@ -172,3 +172,43 @@ export function ebNumbersInText(text: string): number[] {
 export function firstEbNumber(text: string): number | undefined {
   return ebNumbersInText(text)[0];
 }
+
+/** THE FLAT-REFERENCE FRAMES: a message that points AT a listing by number,
+ *  rather than carrying a number as one of its criteria.
+ *
+ *  The bare ellipsis («А 42?») is only ONE of the shapes a client uses. The
+ *  [06:39] field capture named the second flat as «A STANOT SO BROJ 51 ?» — a
+ *  noun frame with no interest verb — and no lane read it: the closing state's
+ *  catch-all answered with the fee disclosure and, with a live model, the
+ *  question went to Gemini for a landmark line. The numbers were never the
+ *  problem (`ebNumbersInText` reads 51 fine); the sentence shape was.
+ *
+ *  Either an EB marker («EVIDENTEN BROJ 51», «EB 51», «BROJ 51», «ŠIFRA 51»)
+ *  or a property noun right before the number («STANOT SO BROJ 51», «STANOT
+ *  51», «KUKJATA 51»). A CRITERION is never a reference: ebNumbersInText
+ *  already refuses unit tails («45 m²»), caps («do 180») and thousands, so the
+ *  frame is the only addition here. */
+const EB_MARKER_RE =
+  // normalizeMc folds «sifra» to «сифра» (not «шифра»), so BOTH spellings are
+  // listed — the marker is read on the folded text, never on the raw message.
+  /(?<!\p{L})(?:evident\p{L}*|eb|ев|еб|broj|број|br\.|sifra|сифра|шифра)(?!\p{L})/iu;
+const FLAT_NOUN_TAIL_RE =
+  /(?<!\p{L})(?:stan|стан|kuka|куќа|kukja|kukji|lokal|локал|dukjan|дуќан|garsonjer\p{L}*|гарсоњер\p{L}*|nedviznost|недвижност|imot|имот|objekt|објект)\p{L}*(?:\s+(?:so|со|br\.?|број|broj|pod|под))?\s*$/iu;
+
+export function detectNamedEbReference(text: string): number | undefined {
+  const form = normalizeMc(text);
+  const marker = EB_MARKER_RE.test(form);
+  // A FRESH regex per call (the /g lastIndex trap, see ebNumbersInText).
+  const re = new RegExp(EB_NUMBER_SOURCE, 'giu');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(form))) {
+    if (m.index === re.lastIndex) re.lastIndex++;
+    const n = parseInt(m[1], 10);
+    if (!(n >= 10)) continue;
+    if (isClockNumber(form, m.index)) continue;
+    if (/^\d{3}$/u.test(m[1]) && /\d\s$/u.test(form.slice(0, m.index))) continue;
+    const before = form.slice(Math.max(0, m.index - 40), m.index);
+    if (marker || FLAT_NOUN_TAIL_RE.test(before)) return n;
+  }
+  return undefined;
+}

@@ -364,6 +364,14 @@ export interface SlotData {
   nearbyLandmarkCoords?: Array<{ lat: number; lon: number }>; // parallel coords for Google Maps links
   nearbyLandmarkPlaceIds?: Array<string | null>; // parallel Google place_ids → ?cid= place-card links
   nearbyLandmarkEb?: number;      // WHICH property the slots were resolved for — a served slot must never outlive its property (21:51: EB 57 got EB 56's Завод landmarks 3.2 km away)
+  /** THE FLATS THIS CHAT HAS BEEN ABOUT, most recent last (max 4). `presentedIds`
+   *  is the last BATCH, so a client who asks about EB 52 and then about EB 51
+   *  had ONE flat "on screen" — and «sakam da gi posetam ovie dva stana» became
+   *  a one-flat visit ([06:40] capture). This is the conversation's set: every
+   *  EB the client named or was served a card for, in the order it happened.
+   *  It never decides what is "on the table" (the batch does); the plural-visit
+   *  seams read it as the remembered set, and a released flat is dropped. */
+  askedEbs?: number[];
   poiAnchor?: string;             // client's POI wish from the SEARCH phrase ("okolu Kapitol Biser") — presentation must find candidates NEAR this point, not just in the neighborhood
   poiAnchorTooFar?: boolean;      // the resolved anchor has NO in-pool property within the honest 1 km walk radius — the intro must say so
   /** THE ONE-KILOMETRE RING ASKS, IT DOES NOT DECIDE (the owner's [23:29]

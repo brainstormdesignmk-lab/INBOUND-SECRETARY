@@ -206,6 +206,12 @@ export const TIME_RANGE_RE = new RegExp(
 // HH:MM next to a date is ambiguous and the date wins).
 const BARE_CLOCK_RE = /\b(\d{1,2})[:.](\d{2})\b/;
 
+/** A LONE HOUR («6», «18», «6h», «6 часот») — the whole message is the number.
+ *  The slot answer a funnel gets back when it has just offered hours; a budget
+ *  or a room count always arrives with words around it. Shared by the detector
+ *  (llm/deterministic) and this parser so the two can never disagree. */
+export const LONE_HOUR_RE = /^\s*(\d{1,2})\s*(?:h|ч|саат|casot|часот)?\s*[.!]?\s*$/iu;
+
 // Explicit date "11.06" / "11.06.2026" / "12/7" — strict: month must be 1-12.
 const DATE_RE = /(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?/;
 
@@ -377,6 +383,19 @@ export function parseVisitDateTime(text: string, now = new Date()): Date | undef
       const h = Number(bare[1]);
       const m = Number(bare[2]);
       if (h >= 0 && h <= 23 && m >= 0 && m <= 59) hour = h * 60 + m;
+    } else {
+      // A LONE HOUR IS THE ANSWER TO A SLOT QUESTION (the [06:48] capture): the
+      // funnel had just offered «Слободни се 16:00 и 18:00 — кој термин Ви
+      // одговара?», the client typed «6», and NO family read it — the term was
+      // re-asked and the funnel's own guess reached the owner as 20:00 for a
+      // client who had said six. The message must be the number ALONE (no other
+      // words, no money/size tail), and the visit window's PM shift below turns
+      // 6 into 18:00 exactly as it does for «во 6».
+      const lone = /^\s*(\d{1,2})\s*(?:h|ч|саат|casot|часот)?\s*[.!]?\s*$/iu.exec(t);
+      if (lone) {
+        const h = Number(lone[1]);
+        if (h >= 1 && h <= 21) hour = h * 60;
+      }
     }
   }
   // A MATCHED-BUT-INVALID CANDIDATE MUST NOT EAT THE REAL CLOCK (the [11:18]
@@ -586,6 +605,10 @@ export function hasClockHint(s: string): boolean {
   if (TIME_RANGE_RE.test(s)) return true; // «од 5 до 7» — a window, not a term
   if (DAY_TRAILING_HOUR_RE.test(s)) return true;
   if (ASSENT_HOUR_RE.test(s)) return true; // «PA NEKA BIDE 5» (the [18:49] capture)
+  // A LONE HOUR IS A CLOCK (the [06:48] capture): the answer to «кој термин Ви
+  // одговара?» can be just «6». Without this the merge/validator gates treated
+  // the client's answer as "no time" and the funnel asked the term again.
+  if (LONE_HOUR_RE.test(s)) return true;
   return /(?:во|vo|на|na|околу|okolu|по|po|после|posle|од|od|накај|nakaj)\s*\d{1,2}\b/i.test(s);
 }
 

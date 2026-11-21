@@ -14,7 +14,7 @@ import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
-import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, isSmallUnit, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling } from '../data/properties';
+import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, isSmallUnit, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling, NearRing } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralPropertyAsk, detectPostBookingAck, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
   detectPairReferent, detectIdentifyByFigure,
@@ -37,7 +37,7 @@ import { resolveMention, extractMentionSignals, hasIdentitySignals, describeCand
 import { detectInfoFacets, buildInfoAnswer, isSuterenUnit, INFO_NO_YEAR_LINE, INFO_NO_RENOVATION_LINE, INFO_NO_YEAR_KEY, INFO_NO_RENOVATION_KEY } from '../llm/infoAnswer';
 import { answerGlossary, detectGlossaryAsk } from '../llm/glossary';
 import { inferPropertyId, propertyOnTable } from '../llm/classify';
-import { firstEbNumber } from '../llm/ebNumber';
+import { firstEbNumber, ebNumbersInText, detectNamedEbReference } from '../llm/ebNumber';
 import { AppointmentStore } from '../store/appointments';
 import { EscalationStore } from '../store/escalations';
 import { MetaStore } from '../store/meta';
@@ -2449,6 +2449,7 @@ export class InboundHandler {
       // answered a different card from the batch. askedEb is that memory; the
       // feed/batch order still owns every un-named ask.
       if (match.eb !== session.slots.askedEb) session.slots.askedEb = match.eb;
+      this.noteAskedEb(session, match.eb);
       return { prop: all.find(p => p.eb === match.eb) };
     }
     // Ambiguous → ONE clarify naming the options (never a silent guess,
@@ -2795,6 +2796,19 @@ export class InboundHandler {
     // name for a card that no longer exists is dropped, never routed.
     const remembered = (session.slots.visitEbs ?? []).filter(eb => onScreen.includes(eb));
     if (remembered.length >= 2) return remembered.slice(0, 4);
+    const released = new Set(session.slots.releasedEbs ?? []);
+    // THE FLATS THE CHAT HAS BEEN ABOUT (the [06:40] capture): «me interesira
+    // stan so evidenten broj 52» → «a stanot so broj 51 ?» → «sakam da gi
+    // posetam ovie dva stana» answered «Посетата е за станот со Евидентен број
+    // 51» — ONE visit. `presentedIds` is the last BATCH, and an EB question
+    // replaces it, so the first flat was no longer "on screen" although the
+    // client had just read it. The plural points at the flats HE NAMED: that is
+    // `askedEbs`, in the order he asked. A released flat is still dropped.
+    const discussed = (session.slots.askedEbs ?? []).filter(eb => !released.has(eb));
+    if (discussed.length >= 2) {
+      session.slots.visitEbs = discussed.slice(-4);
+      return session.slots.visitEbs;
+    }
     // NOTHING NAMED, NOTHING REMEMBERED: the visit is the cards ON THE TABLE
     // (`currentBatch`), never every card ever presented — the old
     // `currentBatch + presentedIds` build is what swept the pair partner in.
@@ -2802,7 +2816,6 @@ export class InboundHandler {
     // swallowing it back into a plural route is exactly the loop the release
     // ended. Naming it by number still works — the named branch above is his
     // own words and is never filtered.
-    const released = new Set(session.slots.releasedEbs ?? []);
     const onTable = (session.slots.currentBatch ?? []).filter(eb => onScreen.includes(eb) && !released.has(eb));
     if (onTable.length === 0 && released.size > 0) return [];
     // A DEICTIC PLURAL NAMES NOTHING NEW: the table pair is re-read at term
@@ -2856,7 +2869,13 @@ export class InboundHandler {
       this.deps.properties.getByEb(eb).catch(() => undefined))))
       .filter((p): p is Property => !!p);
     const first = rows[0];
-    const loc = displayAreaName(first?.location ?? session.slots.location ?? '');
+    // ONE AREA LABEL ONLY WHEN THE SET HAS ONE (a pair in two neighbourhoods
+    // is not «Козле»): the subject line states the numbers, and an area only
+    // when it is true of every row.
+    const locs = new Set(rows.map(p => (p.location ?? '').trim()).filter(Boolean));
+    const loc = locs.size === 1
+      ? displayAreaName([...locs][0] ?? session.slots.location ?? '')
+      : '';
     const list = tripEbs.length === 2
       ? `${tripEbs[0]} и ${tripEbs[1]}`
       : `${tripEbs.slice(0, -1).join(', ')} и ${tripEbs[tripEbs.length - 1]}`;
@@ -4912,6 +4931,32 @@ export class InboundHandler {
       session.slots.poiNearestM = undefined;
       session.slots.poiNearestId = undefined;
     }
+  }
+
+  /** The flats a chat has been ABOUT, most recent last (max 4). Every seam that
+   *  binds a flat by number calls this, so the conversation's set is one record
+   *  instead of five partial ones — `presentedIds` only ever holds the last
+   *  BATCH, and an EB question replaces it. */
+  private noteAskedEb(session: ChatSession, eb: number): void {
+    const prior = (session.slots.askedEbs ?? []).filter(x => x !== eb);
+    session.slots.askedEbs = [...prior, eb].slice(-4);
+  }
+
+  /** THE AREA'S OWN COORDINATES, when the map knows the name it is filed
+   *  under. The search filter is a STRING test (feed naselba + the ad's
+   *  words), so a micro-area inside a district matches only the ads that print
+   *  it — «Дебар Маало» found the two ads that say it (both 190.000+, over a
+   *  180.000 budget) and missed the 117.000 and 137.000 three-room flats 300 m
+   *  away. The map has the suburb row; its pin is what closes that gap.
+   *
+   *  Deliberately keyed on the AREA SLOT (not the anchor): the district a
+   *  client names himself is measured from the district's own point, and an
+   *  area the map does not hold simply gets no ring (text-only, as before). */
+  private areaRing(session: ChatSession): NearRing | undefined {
+    const loc = session.slots.location;
+    if (!loc || !this.landmarks) return undefined;
+    const p = this.landmarks.findPlace(loc);
+    return p ? { lat: p.lat, lon: p.lon } : undefined;
   }
 
   /** A+B — THE PLACE-TEMPLATE SERVE (the [22:58] capture round).
@@ -9078,7 +9123,15 @@ export class InboundHandler {
       // he still wants the viewing — the owner's own reading. It used to
       // re-disclose the same fee (a client hears the same money twice) or, on
       // the description lane, hear the card again while the fee question died.
-      && (detectAgreement(text) || detectVisitRequest(text))
+      // …AND THE PROCEED CLAUSE IS THE AGREEMENT BY ITSELF (the [06:47] capture):
+      // «PROVERI TI DALI SE DOSTAPNI PA KJE SE DOGOVORIME ZA PARI» carries no
+      // «да» — the client delegated the check and made the ARRANGEMENT
+      // conditional on it. The disjunction only admitted an agreement word or a
+      // visit request, so the turn fell to the availability lane and answered
+      // the card again (one row of three), with the fee question already on the
+      // table and unanswered. detectProceedAfterCheck is the same predicate the
+      // availability veto below already trusts.
+      && (detectAgreement(text) || detectVisitRequest(text) || detectProceedAfterCheck(text))
       && !detectCheaperSearch(text) && !detectVisitTimingQuestion(text)
       // A LOCATION QUESTION IS NOT THE AGREEMENT (the [19:27] capture): «DOBRO
       // TOGAS KAZI MI STO IMA VO BLIZINA POZNATO?» carries «добро» and, with the
@@ -11216,21 +11269,71 @@ export class InboundHandler {
     // Евидентен број in it, so the client can hold on to the number.
     {
       const bareEb = detectBareEbFollowup(text);
+      // THE NOUN FRAME IS THE SAME REFERENCE (the [06:39] capture): «A STANOT
+      // SO BROJ 51 ?» names a flat exactly as «А 51?» does, but the bare-number
+      // reader only knows the ellipsis. In `closing` the message matched no
+      // lane at all: the catch-all answered with the fee disclosure, and with a
+      // live model the question went to Gemini — for a row the base holds.
+      // A fresh criterion ask is NOT a reference (a facet owns that turn), and
+      // neither is fee or visit traffic — those lanes are specific and win.
+      const facetsHere = detectInfoFacets(text);
+      const hasFacet = !!facetsHere
+        && Object.values(facetsHere).some(v => v !== undefined && v !== false);
+      // ONE FLAT, NO ANSWER OWED BY A SPECIFIC LANE: a message naming SEVERAL
+      // flats is the plural availability ask («Дали EB 84 и EB 82 се достапни?»
+      // — that lane answers BOTH rows), and an availability question has its own
+      // per-property ack. This lane is the identity turn only.
+      const multiNamed = detectNamedEbReference(text) !== undefined
+        && ebNumbersInText(text).length >= 2;
+      const namedRef = bareEb === undefined && !hasFacet
+        && !detectVisitInterest(text) && !detectVisitTimingQuestion(text)
+        && !isFeeTraffic(text) && !detectFeeWhy(text)
+        && !multiNamed && !detectAvailabilityPlural(text) && !detectAvailabilityAsk(text)
+        // AN INTEREST OR A CHOICE OWNS ITS OWN PROTOCOL: «ZAINTERESIRAN SUM ZA
+        // EVIDENTEN BROJ 66» and «GO IZBRAV STANOT SO EB 66» both carry the EB
+        // marker this lane reads, and both have a dedicated answer (the card /
+        // the congratulation + fee). Only the message that just POINTS at a flat
+        // is left for here.
+        && !detectPropertyInterest(text) && !detectPropertySelection(text)
+        // A RECALL IS ABOUT A FLAT HE SAW («go gledav stanot so broj 77»): the
+        // seen-listing lane compares it with what is on file, so it owns the
+        // turn even though the sentence carries the same noun frame.
+        && !detectSeenListingRecall(text)
+        // A PRICE MOVE ON THE FLAT ON THE TABLE («korekcija», «namali») is the
+        // fixed-price policy's turn, not a card re-render.
+        && !detectNegotiate(text)
+        ? detectNamedEbReference(text)
+        : undefined;
       const shownEbs = new Set([
         ...(session.slots.currentBatch ?? []),
         ...(session.slots.presentedIds ?? []),
       ]);
-      if (bareEb !== undefined && shownEbs.has(bareEb)
+      // A named EB need not have been SHOWN — naming it is the ask (a bare
+      // number still must be one of ours: a «42» in a budget answer is not an
+      // EB). Both land here, on the database's own row, never on the brain.
+      const ebRef = namedRef ?? (bareEb !== undefined && shownEbs.has(bareEb) ? bareEb : undefined);
+      if (ebRef !== undefined
         && !session.slots.viewingFeeAgreed && !isFeeTraffic(text)) {
-        const p = await this.deps.properties.getByEb(bareEb).catch(() => undefined);
+        const p = await this.deps.properties.getByEb(ebRef).catch(() => undefined);
         if (p) {
-          routeLog(chatId, text, 'BARE_EB_FOLLOWUP');
-          const answer = this.availabilityReply(p, session, text);
-          session.state = 'closing';
+          routeLog(chatId, text, namedRef !== undefined ? 'NAMED_EB_REFERENCE' : 'BARE_EB_FOLLOWUP');
+          // A NAMED flat owes its CARD: the client pointed at a listing he has
+          // not read yet («a stanot so broj 51?»). The bare ellipsis is about a
+          // card already on the screen, so its availability ack stands.
+          const answer = namedRef !== undefined
+            ? `${buildPropertyCard(p)}\n\n${pickVariant('property.liked', { recent: assistantTexts(session) })
+              ?? 'Дали би сакале да организирам посета, за да го погледнете во живо?'}`
+            : this.availabilityReply(p, session, text);
+          // THE REFERENCE ANCHORS, IT DOES NOT OPEN THE FUNNEL: a client
+          // pointing at a number has not agreed to a visit, so no contact ask
+          // (a plain quote must never arm one). The state is the one the FSM
+          // itself lands on for a flat inquiry — `property_query` — so a
+          // follow-up continues exactly as it did before this lane existed.
           session.slots.propertyId = p.eb;
           session.slots.interestedPropertyId = p.eb;
           session.slots.askedEb = p.eb;
-          session.slots.ownerContactPending = true;
+          this.noteAskedEb(session, p.eb);
+          session.state = 'property_query';
           pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
           pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
           this.deps.sessions.set(session);
@@ -11315,9 +11418,11 @@ export class InboundHandler {
         if (named !== undefined) {
           session.slots.propertyId = named;
           session.slots.askedEb = named;
+          this.noteAskedEb(session, named);
         } else if (rows.length === 1) {
           session.slots.propertyId = rows[0]!.eb;
           session.slots.askedEb = rows[0]!.eb;
+          this.noteAskedEb(session, rows[0]!.eb);
         }
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
@@ -14228,6 +14333,7 @@ export class InboundHandler {
           // becomes the described/presented table AND the asked record the
           // address and describe lanes chain to.
           session.slots.askedEb = row.eb;
+          this.noteAskedEb(session, row.eb);
           session.slots.describedEbs = [row.eb];
           session.slots.currentBatch = [row.id];
           session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), row.id])];
@@ -15425,7 +15531,12 @@ ${contactReminder}`;
       // before any fee was even discussed. The plural wish is read by the same
       // two predicates the fee seam reads, and the subject + owners are the
       // shared helpers, so a two-flat arrangement cannot drift between seams.
-      const timingPlural = this.onScreenEbs(session).length >= 2 && this.pluralWishHere(text);
+      // THE SAME SET THE FEE SEAM READ (the [06:40] capture): «koga bi mozelo ?»
+      // after «ovie dva stana» carried no plural word of its own and the batch
+      // was empty, so the timing lane fell back to ONE flat and asked for ONE
+      // owner — the second viewing disappeared between two turns that had
+      // already agreed it was plural. multiVisitEbs IS that memory.
+      const timingPlural = this.multiVisitEbs(session, this.pluralWishHere(text) ? text : '').length >= 2;
       const mbTiming = await this.bindMention(text, session);
       if (await this.sendIfClarify(mbTiming, text, session)) return;
       if (timingPlural) {
@@ -16294,16 +16405,27 @@ ${contactReminder}`;
         // The notebook already keys on geography (location + place anchor), so a
         // genuinely new place starts empty by construction — the other two
         // disjuncts only ever turned a drained search into an empty-system lie.
+        // A GEOGRAPHY THAT ALREADY SERVED THIS CATEGORY IS DRAINED, NOT EMPTY
+        // (the [06:33] capture): «a kaj Bunjakovec ?» after two flats near it
+        // were shown answered «немам достапна понуда околу Буњаковец» — the
+        // pool was empty only because those two were in `presentedIds`, so the
+        // sentence denied stock the client was looking at. Naming a place (or
+        // arriving from discovery) is what picked the no-match wording; the
+        // notebook already knows this geography has served the category, and
+        // THAT is the turn's truth: «сѐ што имавме … е веќе прикажано».
+        const servedHere = servedTierHere(session.slots, rooms) || servedEver(session.slots, rooms);
         const noStock = noStockLine(session.slots,
           !servedTierHere(session.slots, rooms) && !servedEver(session.slots, rooms));
+        const drainedLine = exhaustedLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
+          ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location);
+        const emptyLine = noMatchLine(session.slots.location ?? ev.location, assistantTexts(session), this.searchPlaceLabel(session))
+          ?? NO_MATCH_LINE(session.slots.location ?? ev.location);
         reply = !this.deps.properties.healthy
           ? FEED_UNAVAILABLE_LINE
           : noStock
-            ?? (before === 'discovery' || areaRequested
-              ? noMatchLine(session.slots.location ?? ev.location, assistantTexts(session), this.searchPlaceLabel(session))
-                ?? NO_MATCH_LINE(session.slots.location ?? ev.location)
-              : exhaustedLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
-                ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location));
+            ?? ((before === 'discovery' || areaRequested) && !servedHere
+              ? emptyLine
+              : drainedLine);
       }
     // PENDING-VISIT CONFIRM (the [13:28] multi-question capture): Lina just
     // answered a fact question WITH the re-confirm ("Дали сè уште сте
@@ -16378,6 +16500,11 @@ ${contactReminder}`;
       } else {
         reply = buildPropertyCard(props[0]);
       }
+      // A FLAT THE CLIENT ASKED ABOUT IS IN THE CONVERSATION (the [06:40]
+      // capture): `presentedIds` stays empty on this lane (no batch was
+      // served), so the next «ovie dva stana» had nothing to point at.
+      session.slots.askedEb = props[0].eb;
+      this.noteAskedEb(session, props[0].eb);
       // Pre-resolve top-3 nearby landmarks for rotation ("каде?" → first,
       // "каде поточно?" → second, …) + Google Maps links. Cached on the
       // session so repeated asks don't re-geocode.
@@ -17226,7 +17353,13 @@ ${contactReminder}`;
     // Евидентен број 88» — a two-flat viewing written as one, with the second
     // flat's fee dropped. «ги» points at the flats ON THE TABLE, so the wish is
     // plural only when there are several of them.
-    const pluralCliticWish = this.onScreenEbs(session).length >= 2 && detectPluralViewingWish(text);
+    // …AND «ON THE TABLE» MEANS «ON THE TABLE OF THIS CONVERSATION» (the
+    // [06:40] capture): two flats asked about BY NUMBER leave `presentedIds`
+    // untouched, so the batch was empty and the clitic wish declined — «sakam da
+    // gi posetam ovie dva stana» became «Посетата е за станот со Евидентен број
+    // 51». The remembered set (`askedEbs`) is what «ovie dva» points at.
+    const pluralCliticWish = (this.onScreenEbs(session).length >= 2
+      || (session.slots.askedEbs ?? []).length >= 2) && detectPluralViewingWish(text);
     const multiWish = session.slots.visitWanted === true || detectMultiVisitIntent(text)
       || namedTrip.length >= 2 || pluralCliticWish;
     // …and the SUBJECT of the fee is the same set the route uses (see
@@ -20524,9 +20657,17 @@ ${contactReminder}`;
       // place. The area word stays for the wording, not for the filter.
       const searchLocation = (session.slots.poiPlaces?.length ?? 0) >= 2
         ? undefined : session.slots.location;
+      // THE AREA'S OWN GEOMETRY (the [06:31] field capture): a micro-area the
+      // feed never files rows under («Дебар Маало», «Буњаковец») matched only
+      // the ads that print it, so a 3-room search 「до 180.000 kaj Bunjakovec
+      // Debar Maalo」 answered «немам ништо» while EB 84 (117.000) and EB 66
+      // (137.000) sat 300 m away. The map knows the name's coordinates; the
+      // pool is the name filter UNION the ring, never the ring alone.
+      const areaNear = searchLocation ? this.areaRing(session) : undefined;
       // `let` — the mixed-types pair union below can replace the pool.
       let candidates = await this.deps.properties.candidates({
         location: searchLocation,
+        near: areaNear,
         bedrooms: session.slots.bedrooms,
         // Bedroom RANGE ([09:17]): exact 2…3-rooms pool, both ends required.
         bedroomsMin: session.slots.bedroomsMin,
@@ -20608,6 +20749,7 @@ ${contactReminder}`;
       if (mixedTypes) {
         const regular = await this.deps.properties.candidates({
           location: searchLocation,
+          near: areaNear,
           bedrooms: session.slots.bedrooms,
           bedroomsMin: session.slots.bedroomsMin,
           bedroomsMax: session.slots.bedroomsMax,
@@ -20636,6 +20778,7 @@ ${contactReminder}`;
         const dualPass = (service: Service | undefined, budget: string | undefined, ignoreShown = false) =>
           this.deps.properties.candidates({
             location: searchLocation,
+            near: areaNear,
             bedrooms: session.slots.bedrooms,
             bedroomsMin: session.slots.bedroomsMin,
             bedroomsMax: session.slots.bedroomsMax,

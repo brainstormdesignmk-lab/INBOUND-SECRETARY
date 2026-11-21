@@ -3,7 +3,7 @@ import '../compat/node16';
 import { Service } from '../fsm/machine';
 import { LANDLORD_DATA } from './landlords';
 import { stripPoiAnnotation, FEED_LANDMARK_MAX_M } from '../geo/landmarks';
-import { allowedLandmarkUrl } from '../geo/precision';
+import { allowedLandmarkUrl, distM } from '../geo/precision';
 import { identityKey } from '../geo/offlineMap';
 
 // How a property's coordinates were obtained. Determines whether the
@@ -1068,6 +1068,29 @@ export function inArea(p: Property, area: string): boolean {
   return !!derived && locMatches(area, derived);
 }
 
+/** A map-resolved area: where it actually is, and how far "in it" reaches. */
+export type NearRing = { lat: number; lon: number; m?: number };
+
+/** The honest radius a listing may be called "in the area": the same 1 km the
+ *  landmark claims use („Близу до X“ is measured, never guessed). */
+const AREA_RING_M = 1000;
+
+/** A row set that is IN the area BY COORDINATES — the geometric half of the
+ *  area filter (`inArea()` is the string half). Undefined when the caller has
+ *  no map-resolved centre, so text-only callers are untouched.
+ *
+ *  A NUMBERED SUB-AREA IS AN EXACT SET (Карпош II is not Карпош III): a ring
+ *  would merge the siblings the exact key exists to separate, so it is never
+ *  applied there. */
+function ringFor(location: string, near: NearRing | undefined): ((p: Property) => boolean) | undefined {
+  if (!near || !Number.isFinite(near.lat) || !Number.isFinite(near.lon)) return undefined;
+  if (near.lat === 0 && near.lon === 0) return undefined;
+  if (isNumberedArea(location)) return undefined;
+  const m = near.m ?? AREA_RING_M;
+  return (p: Property): boolean => typeof p.lat === 'number' && typeof p.lon === 'number'
+    && p.lat !== 0 && p.lon !== 0 && distM(near.lat, near.lon, p.lat, p.lon) <= m;
+}
+
 /**
  * Is `area` a place the ADS define rather than the feed's naselba column?
  *
@@ -1689,7 +1712,7 @@ export class PropertyService {
     return out;
   }
 
-  async search(opts: { location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean; service?: Service; budget?: string }): Promise<Property[]> {
+  async search(opts: { location?: string; bedrooms?: number; sqm?: number; business?: boolean; house?: boolean; service?: Service; budget?: string; near?: NearRing }): Promise<Property[]> {
     const all = await this.getAll();
     let out = all;
     if (opts.service) out = out.filter(p => !p.service || p.service === opts.service);
@@ -1699,9 +1722,11 @@ export class PropertyService {
     else if (opts.house === false) out = out.filter(p => !p.house); // a "стан" search never shows houses
     if (opts.location) {
       const loc: string = opts.location;
-      out = isAdDefinedArea(all, loc)
-        ? out.filter(p => textNamesPlace(adText(p), loc))
-        : out.filter(p => inArea(p, loc));
+      const byName = isAdDefinedArea(all, loc)
+        ? (p: Property) => textNamesPlace(adText(p), loc)
+        : (p: Property) => inArea(p, loc);
+      const ring = ringFor(loc, opts.near);
+      out = ring ? out.filter(p => byName(p) || ring(p)) : out.filter(byName);
     }
     if (opts.bedrooms) out = out.filter(p => !p.bedrooms || p.bedrooms >= (opts.bedrooms as number));
     if (opts.sqm) out = out.filter(p => !p.sqm || p.sqm >= (opts.sqm as number)); // commercial spaces: size instead of bedrooms
@@ -1801,6 +1826,14 @@ export class PropertyService {
      *  be shown to fit a rate and stays out; the caller's no-stock/pivot ladder
      *  owns that honest answer. */
     rate?: number;
+    /** THE NAMED AREA'S OWN GEOMETRY (the [06:31] field capture). A `location`
+     *  filter is a STRING test against the feed's naselba and the ad's words,
+     *  so a micro-area the feed never files rows under («Дебар Маало»,
+     *  «Буњаковец») matches almost nothing while the flats sit right there.
+     *  When the caller resolves the area on the map, the rows measured inside
+     *  this ring ARE in that area — union, never a replacement for the name
+     *  filter (a district keeps all its rows). */
+    near?: NearRing;
   }): Promise<Property[]> {
     const all = await this.getAll();
     const exclude = new Set(opts.exclude ?? []);
@@ -1810,9 +1843,16 @@ export class PropertyService {
     // own words; everything else keeps the naselba matcher. Reading the ad is
     // what keeps a named micro-area from widening back to its municipality.
     const adArea = !!opts.location && isAdDefinedArea(all, opts.location);
+    // …AND THE AREA'S OWN COORDINATES CLOSE THE REST (the [06:31] capture):
+    // the ad's words only reach the flats whose ads happen to say the place.
+    // «Дебар Маало» matched the two ads that print it — both over the client's
+    // budget — and the two 3-room flats on that street (whose ads do not) were
+    // invisible. Rows measured inside the ring are IN the area.
+    const ring = opts.location ? ringFor(opts.location, opts.near) : undefined;
     const inLoc = (p: Property): boolean => !opts.location
       ? true
-      : adArea ? textNamesPlace(adText(p), opts.location) : inArea(p, opts.location);
+      : (adArea ? textNamesPlace(adText(p), opts.location) : inArea(p, opts.location))
+        || (ring ? ring(p) : false);
     const base = all
       .filter(p => !exclude.has(p.eb))
       .filter(p => !opts.service || !p.service || p.service === opts.service)

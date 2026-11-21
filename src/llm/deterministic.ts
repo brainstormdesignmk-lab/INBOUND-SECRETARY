@@ -1,6 +1,6 @@
 import { Service, State, Event } from '../fsm/machine';
 import { locMatches, normalizeLocation, normalizeTimePhrase, placeLooseKey } from '../data/properties';
-import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, DIGIT_MINUTES_RE, QUARTER_PAST_RE, QUARTER_TO_RE, HALF_TO_RE, TIME_RANGE_RE, ASSENT_HOUR_RE, visitClockHour, DAY_LOOKALIKE_RE } from '../visits/time';
+import { HOUR_WORD_RE, hasClockHint, DAY_TRAILING_HOUR_RE, HALF_CLOCK_RE, DIGIT_HALF_RE, DIGIT_MINUTES_RE, QUARTER_PAST_RE, QUARTER_TO_RE, HALF_TO_RE, TIME_RANGE_RE, ASSENT_HOUR_RE, LONE_HOUR_RE, visitClockHour, DAY_LOOKALIKE_RE } from '../visits/time';
 
 // Re-export: the handler's split-intake gates (day-only vs clock-completion)
 // live on this module's surface; the canonical implementation is visits/time.
@@ -4498,6 +4498,13 @@ export function detectVisitTime(text: string): string | undefined {
   // as a clock, so the whole visit question was asked again. Same family as
   // the hour word — the frame anchors the digit — one source in visits/time.
   if (ASSENT_HOUR_RE.test(text)) return clause();
+  // A LONE HOUR IS A CLOCK (the [06:48] capture): the funnel asked «кој термин
+  // Ви одговара?» and the client answered «6». Every family above needs a word
+  // beside the digit (a day, an hour noun, a consent frame), so the answer was
+  // not a time at all and the term question came back — the classifier then
+  // guessed, and the owner was asked 20:00. Only a message that is the number
+  // ALONE counts, so a budget or a room count can never become a clock here.
+  if (LONE_HOUR_RE.test(text)) return text.trim();
   // Typo fallback (the poeKtino lesson): ONLY long day/period names — “SABTA
   // posle 5”, “cetvrtock utre”. Short words (утре/денес/вечер) and the
   // ambiguous 5-letter “среда” stay exact-only.
