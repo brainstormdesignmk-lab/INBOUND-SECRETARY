@@ -16,7 +16,7 @@ import {
   BUY_RE, RENT_RE,
   PROPERTY_TYPE_LOOSE_RE, looseTypePattern, typeFormPattern, typeFormAlternation,
   typeSingularAlternation, typePluralAlternation, propertyCategoriesIn, readPropertyCategory,
-  readPropertyNoun, categoryLabel,
+  readPropertyNoun, categoryLabel, detectCategoryTypo,
   MEMORY_HAD, MEMORY_WAS, MEMORY_SIGHT, MEMORY_UNIT, MEMORY_AD_NOUN, MEMORY_AD_SAID, adNounPattern,
   selectionPattern, negatedSelectionPattern, questionedSelectionPattern,
   NB, NA,
@@ -2088,7 +2088,20 @@ export function namedVisitEbs(text: string, shown: readonly number[]): number[] 
     // A FIGURE WITH A UNIT (OR A CLOCK) IS NOT AN EB.
     if (/^\s*(?:евра|evra|€|денари|denari|денарот|м2|м²|m2|m²|квадрат\p{L}*|kvadrat\p{L}*|спалн\p{L}*|sobi|соби|соба|кат\p{L}*|:\d)/iu.test(after)) continue;
     if (/(?:евра|evra|€|денари|denari|квадрат\p{L}*|kvadrat\p{L}*|спалн\p{L}*|sobi|соби)\s*$/iu.test(before)) continue;
-    if (/[:\d.,]\s*$/u.test(before)) continue;
+    // A GLUED SEPARATOR IS A FRAGMENT, A SPACED ONE IS A LIST (the [05:11]
+    // capture): «SAKAM DA GI VIDAM 42 , 59 I 56» is three flats, and the old
+    // guard read every number after a comma or a space as a clock/date
+    // fragment — only 42 and 56 survived, so the fee named two and the third
+    // owner was never asked. «19:30», «5.5» and «1,5» stay fragments (the
+    // separator is GLUED to the digits); «42, 59», «42 , 59» and «42 59» are
+    // an enumeration. A date's inner groups are still rejected because their
+    // separator is glued («24.11.2026»).
+    if (/[:.,]$/u.test(before)) continue;
+    // …AND THE OPENING GROUP OF A DATE IS A FRAGMENT FROM THE OTHER SIDE:
+    // «24.11.2026» has no separator BEFORE its 24, so the leading guard alone
+    // read the day as an EB (the audit sweep caught it). A separator GLUED to
+    // the next group is a date/time, never a list.
+    if (/^[.,/:-]\d/u.test(after)) continue;
     // A THOUSANDS GROUP IS ONE BIGGER FIGURE, not an EB followed by one:
     // «57 000 евра» is a price whose first group happens to equal a card.
     if (/^\s\d{3}(?!\d)/u.test(after)) continue;
@@ -4639,6 +4652,12 @@ export function detectBusiness(text: string): boolean {
   // business word is a landmark/feature, not the property type.
   if (matchesBoth(RESIDENTIAL_WORD_RE, clean)) return false;
   if (matchesBoth(BUSINESS_STRONG_RE, clean)) return true;
+  // ONE-LETTER TYPO OF THE NOUN (the [05:04] capture «DUNJAN»): the exact
+  // forms cannot cover what people type, so a 5+ letter token within one edit
+  // of a business noun is the category. `detectCategoryTypo` refuses when the
+  // token is a typo of TWO categories, and the exact residential veto above
+  // already fired for a named стан/куќа.
+  if (detectCategoryTypo(clean) === 'business') return true;
   if (!matchesBoth(BUSINESS_WEAK_RE, clean)) return false;
   // Weak term (кафе/ресторан/салон) is business only WITH a need context:
   // "барам ресторан под кирија" = business; bare "кафе" = nothing.
@@ -4670,11 +4689,18 @@ export function detectHouse(text: string): boolean | undefined {
   // Same correction rule as the flat/business readers: «NE KUKJA, STAN» names
   // the flat, not a house being refused.
   const clean = stripNegatedCategoryWords(text);
-  const house = matchesBoth(HOUSE_RE, clean);
-  const apartment = matchesBoth(APARTMENT_RE, clean);
+  const typo = detectCategoryTypo(clean);
+  // A ONE-LETTER TYPO OF A RESIDENTIAL NOUN IS THE NOUN (see
+  // detectCategoryTypo): «KUKAA» is a куќа, «GARSONJERAA» a гарсоњера.
+  const typoHouse = typo === 'house';
+  const typoFlat = typo === 'flat' || typo === 'garsonjera' || typo === 'apartment';
+  const house = matchesBoth(HOUSE_RE, clean) || typoHouse;
+  const apartment = matchesBoth(APARTMENT_RE, clean) || typoFlat;
   if (house && apartment) return false;
   if (!house && extFires('house', text)) return true;
-  if (!house && !apartment) return undefined; // no property-type word
+  // NO RESIDENTIAL WORD AT ALL → the category is open (a business/land typo is
+  // not an explicit «стан»).
+  if (!house && !apartment) return typoHouse || typoFlat ? false : undefined;
   return house && !apartment;
 }
 
@@ -7147,6 +7173,16 @@ const DESCRIBE_ASK_RE = new RegExp(
   // «повеке»), so the к spelling is listed beside the ќ/ч ones.
   + '|(?:каж|каз|kazi|kazhi)\\p{L}*(?:\\s+ми|\\s+mi)?\\s+(?:повеќе|повече|повеке|поке|поќе|poveke|povekje|povishe|povishe)'
   + '|(?:повеќе|повече|повеке|поке|поќе|poveke|povekje)\\s+(?:за|za)(?!\\p{L})'
+  // MORE + INFO NOUN + OF (the [04:52] capture): «KE MOZE LI POVEKJE INFORMACII
+  // ZA NEJZE ?» — the client asked for more about the гapсоњера she had just
+  // described. The arm above wants «повеќе за» ADJACENT, so the info noun
+  // between them matched nothing; the turn fell to the landmark lane and he got
+  // every rental near Црногорска Амбасада instead of his flat. The noun set is
+  // the one the referent family already uses, and the complement may be a
+  // pronoun or a property noun.
+  + '|(?:повеќе|повече|повеке|поке|поќе|poveke|povekje)\\s+'
+  +   '(?:информаци|инфо|податоци|детали|карактеристики|факти|опис|specifikaci)\\p{L}*\\s+'
+  +   '(?:за|za|на|na)(?!\\p{L})'
   + '|(?:што|sto)\\s+има\\s+(?:во|vo)(?!\\p{L})'
   // ASK-FOR-INFO (the [00:15] «DAJ MI INFO ZA 91» capture): «дај ми инфо за»,
   // «информации за станот», «DAJ MI INFORMACII ZA 84» — the client asks for

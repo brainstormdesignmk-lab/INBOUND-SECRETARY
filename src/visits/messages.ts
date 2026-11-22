@@ -161,7 +161,7 @@ export function buildPlanLine(
  *  to its own negotiation, and the copy says so instead of writing it off. */
 export function buildChainAsk(
   stops: Array<{ eb: number; hour: number }>,
-  opts: { deferred?: number[]; shiftedBy?: number; totalGap?: number } = {},
+  opts: { deferred?: number[]; unanswered?: number[]; shiftedBy?: number; totalGap?: number } = {},
 ): string {
   const hh = (h: number): string => `${String(h).padStart(2, '0')}:00`;
   const lines = stops.map(s => `${hh(s.hour)} — Евидентен број ${s.eb}`);
@@ -173,9 +173,19 @@ export function buildChainAsk(
       ? ` Часовите почнав ${opts.shiftedBy > 0 ? 'подоцна' : 'порано'} за ${Math.abs(opts.shiftedBy)} ${Math.abs(opts.shiftedBy) === 1 ? 'час' : 'часа'}, како што може сопственикот.`
       : ` Часовите почнав ${opts.shiftedBy > 0 ? 'подоцна' : 'порано'} за ${Math.abs(opts.shiftedBy)} ${Math.abs(opts.shiftedBy) === 1 ? 'час' : 'часа'}, за да бидат поврзани еден по друг.`
     : '';
-  const defer = opts.deferred && opts.deferred.length > 0
-    ? `\nЕвидентен број ${opts.deferred.join(', ')} не може да се вклопи истиот ден — за нив ќе договориме друг термин.`
-    : '';
+  // A TIMEOUT IS NOT A REFUSAL (the [04:41] capture): the flat whose owner
+  // never answered must not be reported as «не може да се вклопи» — that
+  // accuses a man who never spoke. It is named as what happened.
+  const silent = new Set(opts.unanswered ?? []);
+  const rest = (opts.deferred ?? []).filter(eb => !silent.has(eb));
+  const deferParts: string[] = [];
+  if (rest.length > 0) {
+    deferParts.push(`Евидентен број ${rest.join(', ')} не може да се вклопи истиот ден — за нив ќе договориме друг термин.`);
+  }
+  if (silent.size > 0) {
+    deferParts.push(`За Евидентен број ${[...silent].join(', ')} сè уште го чекам одговорот од сопственикот — ќе Ве известам штом се јави, а засега ги имам овие термини.`);
+  }
+  const defer = deferParts.length > 0 ? `\n${deferParts.join('\n')}` : '';
   // A PAUSE IS THE CLIENT'S DECISION: a gapped route is only proposed, never
   // booked silently, so the copy names it and the question covers both.
   const gap = opts.totalGap && opts.totalGap > 0

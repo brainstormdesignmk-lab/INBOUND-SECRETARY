@@ -25,7 +25,7 @@
  */
 
 import { NB, NA, stems as stemList } from './text';
-import { normalizeMc } from '../normalize';
+import { normalizeMc, fuzzyHasToken } from '../normalize';
 
 export type PropertyCategory =
   | 'house'
@@ -167,7 +167,14 @@ export const PROPERTY_WORDS: Record<PropertyCategory, CategoryWords> = {
   },
   business: {
     stems: [
-      'локал', 'lokal', 'деловен', 'deloven', 'duќан', 'дуќан', 'dukjan', 'dukan',
+      'локал', 'lokal', 'деловен', 'deloven', 'дуќан', 'dukjan', 'dukan',
+      // THE n-FOR-k TYPO AND THE COLLOQUIAL SYNONYM (the [05:04] capture):
+      // «DUNJAN» and «БУТКА» are what people actually type and say for a shop;
+      // neither was in the vocabulary, so the funnel asked the client which
+      // type of property he meant immediately after he named it. Every stem is
+      // single-script: `normalizeMc` never emits a mixed word, so one would be a
+      // rule that can never match (and `lexicon-agreement` fails it).
+      'дуњан', 'dunjan', 'бутка', 'butka',
       'канцелари', 'kancelari', 'магацин', 'magacin', 'продавниц', 'prodavnic',
       'бизнис', 'biznis', 'офис', 'ofis', 'склад', 'sklad', 'хала', 'hala',
       'ателје', 'atelje', 'пословен', 'posloven',
@@ -176,7 +183,9 @@ export const PROPERTY_WORDS: Record<PropertyCategory, CategoryWords> = {
       'локал', 'локалот', 'локали', 'локалите', 'lokal', 'lokalot', 'lokali',
       'деловен простор', 'деловниот простор', 'деловни простори',
       'deloven prostor', 'delovniot prostor', 'dukjan', 'dukjanot', 'dukan', 'dukanot',
-      'дуќан', 'дуќанот', 'канцеларија', 'канцеларијата', 'kancelarija',
+      'дуќан', 'дуќанот', 'дукан', 'дуканот', 'дуњан', 'дуњанот',
+      'dunjan', 'dunjanot', 'ducan', 'ducanot',
+      'бутка', 'бутката', 'butka', 'butkata', 'канцеларија', 'канцеларијата', 'kancelarija',
       'магацин', 'магацинот', 'magacin', 'склад', 'sklad', 'хала', 'hala',
       'продавница', 'продавницата', 'prodavnica', 'ателје', 'atelje',
       'бизнис простор', 'biznis prostor',
@@ -184,7 +193,9 @@ export const PROPERTY_WORDS: Record<PropertyCategory, CategoryWords> = {
     singularForms: [
       'локал', 'локалот', 'lokal', 'lokalot', 'деловен простор', 'деловниот простор',
       'deloven prostor', 'delovniot prostor', 'дуќан', 'дуќанот', 'dukjan', 'dukjanot',
-      'dukan', 'dukanot', 'канцеларија', 'канцеларијата', 'kancelarija', 'магацин',
+      'dukan', 'dukanot', 'дукан', 'дуканот', 'дуњан', 'дуњанот',
+      'dunjan', 'dunjanot', 'ducan', 'ducanot', 'бутка', 'бутката', 'butka', 'butkata',
+      'канцеларија', 'канцеларијата', 'kancelarija', 'магацин',
       'магацинот', 'magacin', 'склад', 'sklad', 'хала', 'hala',
       'продавница', 'продавницата', 'prodavnica', 'ателје', 'atelje',
       'бизнис простор', 'biznis prostor',
@@ -194,7 +205,14 @@ export const PROPERTY_WORDS: Record<PropertyCategory, CategoryWords> = {
     label: 'деловен простор',
     subNouns: [
       { forms: ['локал', 'локалот', 'локали', 'локалите', 'lokal', 'lokalot', 'lokali'], label: 'локал' },
-      { forms: ['дуќан', 'дуќанот', 'dukjan', 'dukjanot', 'dukan', 'dukanot'], label: 'дуќан' },
+      {
+        forms: [
+          'дуќан', 'дуќанот', 'dukjan', 'dukjanot', 'dukan', 'dukanot',
+          'дукан', 'дуканот', 'дуњан', 'дуњанот', 'dunjan', 'dunjanot',
+          'ducan', 'ducanot', 'бутка', 'бутката', 'butka', 'butkata',
+        ],
+        label: 'дуќан',
+      },
       { forms: ['канцеларија', 'канцеларијата', 'kancelarija'], label: 'канцеларија' },
       { forms: ['магацин', 'магацинот', 'magacin'], label: 'магацин' },
       { forms: ['склад', 'sklad'], label: 'склад' },
@@ -394,6 +412,40 @@ export function readPropertyNoun(text: string): string | undefined {
 /** `true` when the message names a category the funnel can serve as a home. */
 export function namesHomeCategory(text: string): boolean {
   return propertyCategoriesIn(text).some((c) => HOME_CATEGORIES.includes(c));
+}
+
+/**
+ * ONE-LETTER TYPOS OF THE CATEGORY NOUNS — the owner's 2026-11-22 directive:
+ * "EXPAND THE WORD RECOGNITION, WITH TYPOS FOR ALL TYPES OF PROPERTIES".
+ *
+ *  THE [05:04] CAPTURE: «SAKAM DA IZNAJMAM DUNJAN VO CENTAR» — «дуќан» typed
+ *  with n for k — matched nothing, so the discovery funnel asked «кој тип
+ *  недвижност Ве интересира — стан, куќа, деловен простор или плац?» of a
+ *  client who had just named it. Every category had the same hole (KUKAA,
+ *  SALON → …), because the form lists are exact.
+ *
+ *  The FUZZY layer is deliberately narrow: a token of 5+ letters within ONE
+ *  edit of a real form of exactly one category. Under 5 letters the distance-1
+ *  neighbourhood is full of ordinary words («стан» vs «стана/стани» and
+ *  «стада», «вила» vs «вина»), and a token that is a typo of TWO categories is
+ *  ambiguous by construction and names nothing. The shared reader is
+ *  `fuzzyHasToken` (normalize.ts) — the same one the day words use.
+ */
+export function detectCategoryTypo(text: string): PropertyCategory | undefined {
+  const probe = String(text ?? '').trim();
+  if (!probe) return undefined;
+  // An EXACT name is never overruled by a fuzzy one (the caller asks the typo
+  // reader only when the form reader found nothing, but this keeps the helper
+  // honest on its own as well).
+  if (propertyCategoriesIn(probe).length > 0) return undefined;
+  const hits: PropertyCategory[] = [];
+  for (const cat of ALL) {
+    if (cat === 'generic') continue;
+    const words = (PROPERTY_WORDS[cat].forms as readonly string[])
+      .filter((w) => w.length >= 5 && !/\s/u.test(w));
+    if (words.length > 0 && fuzzyHasToken(probe, [...words])) hits.push(cat);
+  }
+  return hits.length === 1 ? hits[0] : undefined;
 }
 
 /** Unused import guard (formRe is kept for callers that want the raw matcher). */

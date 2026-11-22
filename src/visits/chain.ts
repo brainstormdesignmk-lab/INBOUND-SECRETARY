@@ -42,6 +42,13 @@ export interface VisitPlanStop {
    *  a window is not a slot, so the owner is asked for the hour he ended up at
    *  (absent on the first ask, which follows the client's own order). */
   pendingHour?: number;
+  /** WHEN this stop's current question went out. The route is asked in
+   *  PARALLEL, so one silent owner must not hold the client hostage forever
+   *  (the [04:41]–[05:21] capture: the first owner answered in three minutes,
+   *  the second never did, and the client heard nothing for forty). The handler
+   *  drops a stop whose window has passed and finishes the route with the
+   *  answers it has. */
+  askedAt?: number;
   /** Hours the owner can do that day (his answer). Absent while unasked. */
   hours?: number[];
   /** THE HOURS HE GAVE ON AN EARLIER DAY (never an answer for THIS day): a
@@ -67,6 +74,10 @@ export interface VisitPlanState {
   /** Flats this day's route cannot hold. They are NOT abandoned: each keeps
    *  its own negotiation for another day/hour and is named to the client. */
   deferred?: number[];
+  /** Stops whose owner never answered within the check window. They are NOT
+   *  refusals and must not be reported as one — the client hears that the
+   *  owner did not reply, and the flat stays owed. */
+  unanswered?: number[];
   /** LEGACY name for a flat that is genuinely unavailable (sold, gone, refused
    *  the route). Kept so old persisted sessions still load. */
   dropped?: number[];

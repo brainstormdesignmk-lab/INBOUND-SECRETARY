@@ -1854,6 +1854,8 @@ export class InboundHandler {
   private set lastUserText(v: string) { this.turn.audit.text = v; }
 
   private chains = new Map<string, Promise<void>>();
+  /** One watchdog per chat for the parallel owner round (see armChainWatchdog). */
+  private chainWatchdogs = new Map<string, NodeJS.Timeout>();
 
   /** TYPED-RESIDENTIAL POOL LOCK (the [20:33] capture): a funnel whose ask was
    *  explicitly residential (the client typed a category that is NOT деловен —
@@ -2750,9 +2752,13 @@ export class InboundHandler {
       // first owner is asked about the new term (a later day is a new chain by
       // the brief, and an hour the client moved is the same rule).
       const moved = parseVisitDateTime(term, new Date());
-      if (moved && (dayStartOf(moved) !== running.dayMs || moved.getHours() !== running.targetHour)) {
+      // THE SAME ROUNDING AS THE FIRST START: a half-hour term resolves to the
+      // next full hour, so «17:30» and «18:00» are NOT a term change and must
+      // not restart (and un-ask) the whole route.
+      const movedHour = moved ? (moved.getMinutes() > 0 ? moved.getHours() + 1 : moved.getHours()) : undefined;
+      if (moved && (dayStartOf(moved) !== running.dayMs || movedHour !== running.targetHour)) {
         running.dayMs = dayStartOf(moved);
-        running.targetHour = moved.getHours();
+        running.targetHour = movedHour ?? moved.getHours();
         running.term = term;
         running.assignments = undefined;
         running.deferred = undefined;
@@ -2796,9 +2802,19 @@ export class InboundHandler {
     if (ebs.length < 2) return false;
     const when = parseVisitDateTime(term, new Date());
     if (!when) return false;
+    // NEVER EARLIER THAN THE HOUR HE NAMED (the [05:18] capture): a visit is a
+    // 60-minute slot that STARTS ON THE HOUR (visits/calendar.ts), so a half-
+    // hour request has no slot. `getHours()` TRUNCATED it — «VO 5 I POL»
+    // (17:30) became a 17:00 chain start, half an hour before the client asked,
+    // and the owner was asked about a time nobody had offered him. A rounded
+    // target only ever moves LATER; the caller asks the client to confirm the
+    // full hour first (see the off-hour ask in the owner_checking lane), so
+    // this value is what his own yes is about.
+    const targetHour = when.getMinutes() > 0 ? when.getHours() + 1 : when.getHours();
+    if (targetHour > 21) return false; // no visit may start after 21:00
     session.slots.visitPlan = {
       dayMs: dayStartOf(when),
-      targetHour: when.getHours(),
+      targetHour,
       term,
       // A DEFERRED FLAT'S SECOND DAY STARTS FROM WHAT HE ALREADY SAID (see
       // `slots.deferHours`): the hours that owner gave on the missed day aim his
@@ -2812,6 +2828,75 @@ export class InboundHandler {
     };
     this.advanceChain(session);
     return true;
+  }
+
+  /** THE OWNER-CHECK WINDOW, in ms — the same one the deferred agent times out
+   *  on, so the two readers can never disagree about when a question is old. */
+  private ownerCheckWindowMs(): number {
+    return Math.max(1, this.deps.cfg.ownerCheckTimeoutMinutes || 30) * 60_000;
+  }
+
+  /** Drop the stops whose owner never answered in time. Returns true when the
+   *  plan changed. A timeout is NOT a refusal: the flat goes into
+   *  `plan.unanswered` (the copy says «не добив одговор»), never into a
+   *  «сопственикот не е слободен» sentence. */
+  private expireSilentStops(plan: import('../visits/chain').VisitPlanState): boolean {
+    const windowMs = this.ownerCheckWindowMs();
+    const now = Date.now();
+    let changed = false;
+    for (const stop of plan.stops) {
+      if (stop.status !== 'asked' || stop.askedAt === undefined) continue;
+      if (now - stop.askedAt < windowMs + 15_000) continue; // still inside its window
+      stop.status = 'dropped';
+      stop.askedAt = undefined;
+      plan.unanswered = [...new Set([...(plan.unanswered ?? []), stop.eb])];
+      plan.deferred = [...new Set([...(plan.deferred ?? []), stop.eb])];
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** A ROUTE IS ASKED IN PARALLEL, SO IT NEEDS ITS OWN WATCHDOG: every verdict
+   *  re-enters advanceChain, but a stop NOBODY answers has no verdict to wake
+   *  it. Armed after each round; on firing it drops the silent stops and
+   *  advances the route, so the client gets the plan from the owners who did
+   *  answer instead of waiting forever. */
+  private armChainWatchdog(chatId: string): void {
+    const prev = this.chainWatchdogs.get(chatId);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => {
+      this.chainWatchdogs.delete(chatId);
+      void this.enqueue(chatId, async () => {
+        const session = this.deps.sessions.get(chatId);
+        const plan = session?.slots.visitPlan;
+        if (!session || !plan) return;
+        if (!this.expireSilentStops(plan)) {
+          // Nothing expired yet — keep watching (a stop may still be inside its
+          // window while the overall round started earlier).
+          if (plan.stops.some(s => s.status === 'asked')) this.armChainWatchdog(chatId);
+          return;
+        }
+        this.deps.sessions.set(session);
+        this.advanceChain(session);
+      });
+    }, this.ownerCheckWindowMs() + 20_000);
+    timer.unref?.();
+    this.chainWatchdogs.set(chatId, timer);
+  }
+
+  /** WOULD THIS TERM START A ROUTE? The caller needs the answer BEFORE it asks
+   *  the owners, because a route is made of full-hour slots and a half-hour
+   *  request has to be put to the client instead of rounded (see the off-hour
+   *  ask in the owner_checking lane). Mirrors `startChainIfNeeded`'s gates: a
+   *  running plan, or a plural wish over two or more flats. */
+  private chainWouldStart(session: ChatSession, term: string, text: string): boolean {
+    if (session.slots.visitPlan) return true;
+    const probe = `${text} ${term}`;
+    const wants = session.slots.visitWanted === true || detectMultiVisitIntent(probe)
+      || (this.onScreenEbs(session).length >= 2 && detectPluralViewingWish(probe));
+    if (!wants) return false;
+    const ebs = this.multiVisitEbs(session, probe);
+    return ebs.length >= 2 && parseVisitDateTime(term) !== undefined;
   }
 
   /** THE FLATS A PLURAL VISIT IS ABOUT: the ones the CLIENT named, else the
@@ -3115,6 +3200,13 @@ export class InboundHandler {
   private advanceChain(session: ChatSession): void {
     const plan = session.slots.visitPlan;
     if (!plan) return;
+    // A SILENT OWNER MUST NOT FREEZE THE ROUTE (the [04:41]–[05:21] capture):
+    // the owners are asked in PARALLEL, and the round used to wait for every
+    // one of them — one man who never replied held the client silent for forty
+    // minutes while the other had already answered. A stop whose window has
+    // passed is dropped from this day's route and REMEMBERED as unanswered (a
+    // timeout is not a refusal — the copy says so and the flat stays owed).
+    this.expireSilentStops(plan);
     const live = plan.stops.filter(s => s.status !== 'dropped');
     if (live.length === 0) { void this.finishChain(session); return; }
     // A question is out — the round is not over until every asked owner answers
@@ -3162,6 +3254,7 @@ export class InboundHandler {
         : undefined;
       stop.status = 'asked';
       stop.asks = (stop.asks ?? 0) + 1;
+      stop.askedAt = Date.now();
       stop.askedHour = ask.hour;
       stop.askedHours = [...(stop.askedHours ?? []), ask.hour];
       stop.pendingHour = undefined;
@@ -3192,6 +3285,7 @@ export class InboundHandler {
         firstAsk: stop?.asks === 1, route: true, priorTerm: ask.priorTerm,
       });
     }
+    this.armChainWatchdog(session.chatId);
   }
 
   /** One owner's answer for the stop he was asked about. */
@@ -3236,7 +3330,13 @@ export class InboundHandler {
       session.slots.visitPlan = undefined;
       session.state = 'visit_scheduling';
       const { chain, solo } = this.noteMissedDay(session, plan, missed);
-      const reply = `Ниту еден од сопствениците на Евидентен број ${missed.join(', ')} не е слободен на тој ден. ${this.owedAskCopy(chain, solo)}`;
+      // A SILENT OWNER IS NOT A «NO» (the [04:41] capture): when nobody could
+      // answer in time, the client must not read «не е слободен» about a man
+      // who never spoke. The unanswered ones are named as still being checked.
+      const silent = new Set(plan.unanswered ?? []);
+      const reply = silent.size === missed.length && silent.size > 0
+        ? `Сè уште го чекам одговорот од сопственикот на Евидентен број ${missed.join(', ')} за тој ден. ${this.owedAskCopy(chain, solo)}`
+        : `Ниту еден од сопствениците на Евидентен број ${[...new Set(missed.filter(eb => !silent.has(eb)))].join(', ')} не е слободен на тој ден. ${this.owedAskCopy(chain, solo)}`;
       pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
       this.deps.sessions.set(session);
       await this.sendRaw(session, reply, 'deterministic');
@@ -3321,6 +3421,7 @@ export class InboundHandler {
     const fee = buildFeePerProperty(svc, plan.assignments.length);
     const answer = `${buildChainAsk(plan.assignments, {
       deferred: plan.deferred,
+      unanswered: plan.unanswered,
       shiftedBy: solved.shiftedBy,
       totalGap: solved.totalGap,
     })}\n\n${fee}`;
@@ -7523,8 +7624,15 @@ export class InboundHandler {
     // ordinary options lane never built a queue from this entry point, so the
     // follow-up used to bounce to the discovery ladder and the extra rows were
     // unreachable. Continue the SAME ranked list here, three at a time.
-    if ((session.slots.extremeQueue?.length ?? 0) > 0
-      && /(?:^|[\s,.:;!?])(?:uste|уште|ushte|poveke|повеќе|povece|повече)(?![\p{L}\p{N}])/iu.test(text)) {
+    // «DRUGI IMAS?» IS THE SAME QUESTION (the [05:35] capture): the client read
+    // the list and asked whether OTHERS exist — the queue was dropped and the
+    // turn fell to a generic lane. «други» alone is ambiguous („други во
+    // Карпош“ is a new search), so it only continues the list when the message
+    // also carries a figure — i.e. the same money frame it is continuing.
+    const queueMore = /(?:^|[\s,.:;!?])(?:uste|уште|ushte|poveke|повеќе|povece|повече)(?![\p{L}\p{N}])/iu.test(text)
+      || (/(?:^|[\s,.:;!?])(?:drugi|други|drugite|другите)(?![\p{L}\p{N}])/iu.test(text)
+        && /\d/u.test(text));
+    if ((session.slots.extremeQueue?.length ?? 0) > 0 && queueMore) {
       const ids = session.slots.extremeQueue!;
       const byId = new Map((await this.deps.properties.getAll()).map(p => [p.id, p]));
       const batch = ids.map(id => byId.get(id)).filter((p): p is Property => !!p).slice(0, 3);
@@ -7534,9 +7642,15 @@ export class InboundHandler {
         const plural = session.slots.extremePlural ?? 'станови';
         const noun = session.slots.extremeNoun ?? 'стан';
         const where = session.slots.extremeWhere ?? '';
+        // THE CEILING TRAVELS WITH THE LIST (the [05:35] capture): a queue
+        // drained after a €/м² answer must still say which rate it continues,
+        // so the rows read as „the next ones under 1.600“, not a new search.
+        const rateTail = session.slots.service === 'buy' && session.slots.sqmRate !== undefined
+          ? ` до ${session.slots.sqmRate.toLocaleString('mk-MK')} евра за м²`
+          : '';
         const intro = batch.length === 1
-          ? `Еве уште еден ${noun}${where}:`
-          : `Еве уште ${plural}${where}:`;
+          ? `Еве уште еден ${noun}${where}${rateTail}:`
+          : `Еве уште ${plural}${where}${rateTail}:`;
         const answer = `${intro}\n\n${batch.map(p => buildPropertyCard(p)).join('\n\n')}`;
         const p0 = batch[0];
         session.slots.propertyId = p0.eb;
@@ -7825,8 +7939,49 @@ export class InboundHandler {
         let overflow: Property[] = [];
         let approx = false;
         if (q.mode === 'value' && val !== undefined) {
+          // A €/m² ASK IS A LIST, NOT ONE CARD (the owner's 2026-11-22 rule, the
+          // [05:32] capture): «KOJ STANOVI TI SE PO 1600» was answered with the
+          // single closest row and a range sentence. The client asked «which
+          // flats are at that rate»: EVERY row at or under it is the answer,
+          // ordered from the cap DOWNWARD (closest to what he named first, then
+          // cheaper), two cards at a time, with the rest queued for «уште?».
+          // A BUY FIGURE TOO SMALL TO BE A WHOLE PRICE IS A RATE (the same
+          // asymmetry totalMode already draws): «KOJ STANOVI TI SE PO 1600»
+          // names 1.600 евра за м² — the €/m² phrase is optional, and reading
+          // it as a whole-price cap served one nearest card instead of the
+          // list. The funnel's own ceiling is the fallback when the figure
+          // cannot be read as one (a bare «уште?»).
+          // …BUT A SCOPE ASK ONLY: «KOJ E STANOT OD 1250?» NAMES a flat and
+          // wants the nearest one (+ the market range, the shipped contract) —
+          // it is an identity question, not a ceiling. The list is the answer
+          // when the client asks for the STOCK under a figure (plural noun:
+          // «koj stanovi se po 1600») or names a limit («do/до/pod/ispod/max»).
+          const rateScopeAsk = /(?:^|[\s,.:;!?])(?:do|до|pod|ispod|испод|max|maximalno|maksimalno|until|najmnogu|најмногу|najveke|највеќе)(?![\p{L}\p{N}])/iu.test(text)
+            || /(?:^|[\s,.:;!?])(?:stanovi|stanovite|станови|становите|kuki|kukite|kuḱi|куќи|куќите|lokali|lokalite|локали|локалите|garsonjeri|гарсоњери)(?![\p{L}\p{N}])/iu.test(text);
+          const rateRef = segment === 'buy' && !totalMode && rateScopeAsk
+            ? (val ?? session.slots.sqmRate)
+            : undefined;
           const near = [...rankable].sort((a, b) => Math.abs(a.m - val) - Math.abs(b.m - val));
-          if (near.length > 0) {
+          if (rateRef !== undefined) {
+            const under = rankable
+              .filter(x => x.m <= rateRef)
+              .sort((a, b) => b.m - a.m || a.p.eb - b.p.eb); // closest to the cap, then lower
+            // THE CEILING IS THE FUNNEL'S MONEY FRAME from here on: the next
+            // «DO 1600 DRUGI IMAS?» continues the €/m² axis instead of being
+            // read as a whole-price cap (the [05:35] «нема станови до 1.600
+            // евра» beside a 1.234 €/м² row on file).
+            session.slots.sqmRate = rateRef;
+            session.slots.budget = undefined;
+            if (under.length > 0) {
+              const want = allAsk ? 5 : 2; // pairs, never a dump
+              chosen = under.slice(0, want).map(x => x.p);
+              overflow = under.slice(want).map(x => x.p);
+            } else if (near.length > 0) {
+              const diff = Math.abs(near[0].m - val);
+              approx = diff > Math.max(5, val * 0.02);
+              chosen = [near[0].p];
+            }
+          } else if (near.length > 0) {
             const diff = Math.abs(near[0].m - val);
             approx = diff > Math.max(5, val * 0.02);
             chosen = [near[0].p];
@@ -7899,7 +8054,14 @@ export class InboundHandler {
             const valUnit = segment === 'rent'
               ? (rentUnitWord(rows) ? ' месечно' : '')
               : totalMode ? '' : ' за м²';
-            if (approx) {
+            if (chosen.length > 1) {
+              // THE RATE LIST, IN THE CLIENT'S OWN TERMS: what the cap is, that
+              // the order starts AT it and goes down, and how many follow.
+              const more = overflow.length > 0
+                ? ` Имам уште ${overflow.length} — кажете ако сакате да ги видам.`
+                : '';
+              intro = `Еве ги ${pluralNoun}${where} до ${fmtEur(q.value as number)} евра за м², почнувајќи од најблиската цена до таа граница па надолу:${more}`;
+            } else if (approx) {
               // NO exact row: answer with the scope's REAL range plus the
               // nearest row, instead of only „нема понуда точно“ (a 300 € rent
               // ask against 250–400 rows deserves the range, not a refusal).
@@ -16008,8 +16170,28 @@ ${contactReminder}`;
       const t = carriedDay ? `${carriedDay} ${subjectTerm.trim()}` : subjectTerm;
       const termGap = t === '' ? 'both' : missingTermPiece(t);
       const canAskOwner = eb !== 0 && termGap === undefined;
+      // A HALF-HOUR IS NOT A SLOT — AND THE CLIENT IS ASKED, NEVER ROUNDED
+      // (the [05:18] capture): «VTORNIK BI MOZELO POSLE 4» → «VO 5 I POL NEKA
+      // BIDE» (17:30) for TWO business spaces; the route is made of full-hour
+      // slots, so the chain silently started at 17:00 and the first owner was
+      // asked about an hour half an hour EARLIER than the client's. The owner's
+      // rule is that a shift is offered, never applied. One question names the
+      // full hour that keeps his wish (always LATER, never earlier) and stores
+      // it as the term, so his yes starts the chain on it.
+      let offHourAsk: string | undefined;
       const dispatchOwnerAsk = (): boolean => {
         if (!canAskOwner) return false;
+        const at = parseVisitDateTime(t);
+        if (at && at.getMinutes() !== 0 && this.chainWouldStart(session, t, text)) {
+          const later = new Date(at);
+          later.setHours(at.getHours() + 1, 0, 0, 0);
+          const hh = `${pad2(later.getHours())}:00`;
+          const was = `${pad2(at.getHours())}:${pad2(at.getMinutes())}`;
+          session.slots.visitTime = `${formatDateOnly(later)} во ${hh}`;
+          session.state = 'visit_scheduling';
+          offHourAsk = `Посетите ги закажувам на полн час — дали Ви одговара во ${hh} (наместо ${was}), така ќе можам да ги поврзам со сопствениците?`;
+          return false;
+        }
         // SEVERAL FLATS ON ONE DAY = ONE CHAIN (the owner's 2026-11-11 brief):
         // the first owner of the route is asked instead of a single check, and
         // every later answer advances the chain (applyChainVerdict).
@@ -16092,6 +16274,9 @@ ${contactReminder}`;
           reply = detectMeetingSpotAsk(text)
             ? `${OWNER_CHECK_ACK} ${buildExactAddressAnswer(assistantTexts(session))}`
             : OWNER_CHECK_ACK;
+        } else if (offHourAsk) {
+          reply = offHourAsk;
+          next = 'visit_scheduling';
         } else {
           askMissingPiece();
         }
@@ -16120,6 +16305,9 @@ ${contactReminder}`;
           reply = detectMeetingSpotAsk(text)
             ? `${OWNER_CHECK_ACK} ${buildExactAddressAnswer(assistantTexts(session))}`
             : OWNER_CHECK_ACK;
+        } else if (offHourAsk) {
+          reply = offHourAsk;
+          next = 'visit_scheduling';
         } else {
           askMissingPiece();
         }
@@ -20204,7 +20392,26 @@ ${contactReminder}`;
         session.slots.categoryBudgets = undefined;
       }
     } else if (ev.budget) {
-      session.slots.sqmRate = undefined;
+      // THE RATE AXIS SURVIVES A BARE FIGURE (the [05:35] capture): the client
+      // asked «KOJ STANOVI TI SE PO 1600» (a €/m² cap), then «DO 1600 DRUGI
+      // IMAS?» — no unit, the SAME axis — and the number landed in `budget` as
+      // a whole price: «Моментално во системот нема станови до 1.600 евра»
+      // while the 1.234 €/м² row he had just discussed sat on the screen. A
+      // figure with NO money unit, while a €/m² ceiling is on file, continues
+      // that ceiling; naming euros/a total (or a buy-scale figure) moves off
+      // the axis. Rent has no rate axis at all (the monthly price IS the sum).
+      const textHasUnit = /(?:евр|evr|eur|€|денар|denar|mkd)/iu.test(rawText ?? '');
+      const continuesRate = session.slots.sqmRate !== undefined
+        && session.slots.service !== 'rent'
+        && !textHasUnit
+        && Number(String(ev.budget).replace(/\D/g, '')) > 0
+        && Number(String(ev.budget).replace(/\D/g, '')) < 10000;
+      if (continuesRate) {
+        session.slots.sqmRate = Number(String(ev.budget).replace(/\D/g, ''));
+        session.slots.budget = undefined;
+      } else {
+        session.slots.sqmRate = undefined;
+      }
     }
     // THE DISMISSAL IS READ AGAINST THE QUESTION THAT WAS ASKED (the [23:51]
     // capture): «НЕБИТНО» answered «колку спални соби?» and the funnel heard the
