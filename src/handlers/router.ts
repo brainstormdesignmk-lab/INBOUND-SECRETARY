@@ -920,6 +920,11 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'PRICE_EXTREME_MORE', note: '«УШТЕ?» after a price LIST (inbound.ts 6250) — the next three rows of the SAME ranked list, never the discovery ladder. Gate: the queue the list left behind is non-empty and the message carries a more-word',
     fires: (t, s, sl) => (sl.extremeQueue?.length ?? 0) > 0
       && /(?:^|[\s,.:;!?])(?:uste|уште|ushte|poveke|повеќе|povece|повече)(?![\p{L}\p{N}])/iu.test(t) },
+  { intent: 'PRICE_EXTREME_MORE_EMPTY', note: '«DRUGI IMAS?» / «УШТЕ?» after a €/м² list that had ALREADY served every row under the rate (inbound.ts 7661) — the honest «тоа се сите … до N евра за м²» plus the offer to raise the ceiling by 200. Gate: the more-word, an EMPTY extreme queue, a €/м² rate on the turn and a buy search — mutually exclusive with PRICE_EXTREME_MORE by the queue length',
+    fires: (t, s, sl) => (sl.extremeQueue?.length ?? 0) === 0
+      && sl.sqmRate !== undefined && sl.service === 'buy'
+      && (/(?:^|[\\s,.:;!?])(?:uste|уште|ushte|poveke|повеќе|povece|повече)(?![\\p{L}\\p{N}])/iu.test(t)
+        || (/(?:^|[\\s,.:;!?])(?:drugi|други|drugite|другите)(?![\\p{L}\\p{N}])/iu.test(t) && /\\d/u.test(t))) },
   { intent: 'PLACE_RING_ROW', note: '«STO TI E TOA NA 1.4KM?» / «KOJ E TOJ STAN?» after the 1 km ring line (inbound.ts 12640) — the row the ring measured, named with its facts. Gate: a pending ring ask whose anchor has not moved, a measured row, and the identity wording — all of it in the slots',
     fires: (t, s, sl) => !!sl.poiTooFarAsk
       && (sl.poiTooFarAnchor === undefined || sl.poiTooFarAnchor === sl.poiAnchor)
@@ -1496,6 +1501,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'PRICE_EVAL_EXPENSIVE_UNWIRED': K('a NEGATIVE price evaluation the evidence boundary does not wire — logs and continues (no serve, no state change), so it has no serve of its own'),
   'PRICE_EXTREME': M('PRICE_EXTREME', 'extreme price search (“do 1000 evra kuca”, inbound.ts 6485) — mirrored above; this tag carries no suffix'),
   'PRICE_EXTREME_MORE': M('PRICE_EXTREME_MORE', '«УШТЕ?» after an extreme-price list (inbound.ts 6250) — the next rows of the same queue'),
+  'PRICE_EXTREME_MORE_EMPTY': M('PRICE_EXTREME_MORE_EMPTY', '«УШТЕ?»/«DRUGI IMAS?» when the €/м² list under the rate is ALREADY complete (inbound.ts 7661) — «тие се сите» plus the offer to raise the ceiling, never a pivot to another quarter'),
   'PRICE_FRESHNESS:fast': M('PRICE_FRESHNESS', 'is this price fresh? — last known price + the owners-reprice disclaimer + the owner-contact ask'),
   // PENDING MIGRATION — the Phase 2/5 lanes (turn record + answer-vs-funnel):
   // each logs itself today and gets its mirror row with the router work.

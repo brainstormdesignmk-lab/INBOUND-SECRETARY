@@ -2756,7 +2756,8 @@ export class InboundHandler {
       // next full hour, so «17:30» and «18:00» are NOT a term change and must
       // not restart (and un-ask) the whole route.
       const movedHour = moved ? (moved.getMinutes() > 0 ? moved.getHours() + 1 : moved.getHours()) : undefined;
-      if (moved && (dayStartOf(moved) !== running.dayMs || movedHour !== running.targetHour)) {
+      const movedTerm = !!moved && (dayStartOf(moved) !== running.dayMs || movedHour !== running.targetHour);
+      if (movedTerm) {
         running.dayMs = dayStartOf(moved);
         running.targetHour = movedHour ?? moved.getHours();
         running.term = term;
@@ -2882,6 +2883,26 @@ export class InboundHandler {
     }, this.ownerCheckWindowMs() + 20_000);
     timer.unref?.();
     this.chainWatchdogs.set(chatId, timer);
+  }
+
+  /** THE ROUTE'S SEQUENCE, SAID OUT LOUD (the [04:41] capture, complaint 1).
+   *
+   *  «NEKA BIDE 6» (18:00) for two flats was put to the owners as «18:00» and
+   *  «19:00», and the client's only reply was «ќе Ве известам штом потврдам» —
+   *  a second slot an hour later he was never told about. Visits are 60-minute
+   *  slots and one agent walks both doors, so the stagger is unavoidable; what
+   *  was missing is the disclosure. The chain module's rule is exactly that («a
+   *  shift … is always disclosed — offered to him to accept or refuse»), so the
+   *  round still goes out in parallel (the owner's 2026-11-11 brief) and THIS
+   *  sentence names every hour it asks about, with the day, as a question. */
+  private chainHoursLine(plan: import('../visits/chain').VisitPlanState): string | undefined {
+    const hours = [...new Set(plan.stops
+      .filter(s => s.status === 'asked' && s.askedHour !== undefined)
+      .map(s => s.askedHour as number))].sort((a, b) => a - b);
+    if (hours.length < 2) return undefined;
+    const day = new Date(plan.dayMs);
+    const list = hours.map(h => `${pad2(h)}:00`).join(' и ');
+    return `Посетите не можат да се направат во ист час, па предвидов последователни термини на ${weekdayName(day)}, ${formatDateOnly(day)}: ${list}. Дали Ви одговара вака?`;
   }
 
   /** WOULD THIS TERM START A ROUTE? The caller needs the answer BEFORE it asks
@@ -7632,6 +7653,24 @@ export class InboundHandler {
     const queueMore = /(?:^|[\s,.:;!?])(?:uste|уште|ushte|poveke|повеќе|povece|повече)(?![\p{L}\p{N}])/iu.test(text)
       || (/(?:^|[\s,.:;!?])(?:drugi|други|drugite|другите)(?![\p{L}\p{N}])/iu.test(text)
         && /\d/u.test(text));
+    // „DRUGI IMAS?“ WITH NOTHING LEFT ON THE RATE AXIS (the [05:35] follow-up):
+    // the €/м² list had served every row under the cap, so the queue was empty
+    // and the turn fell to a generic lane that offered a Центар гарсоњера for
+    // 36.000 — another quarter and a different money frame. The honest answer
+    // is that the list IS complete under that ceiling, and what could move.
+    if (queueMore && (session.slots.extremeQueue?.length ?? 0) === 0
+      && session.slots.sqmRate !== undefined
+      && session.slots.service === 'buy') {
+      const rate = session.slots.sqmRate;
+      const where = session.slots.extremeWhere ? ` ${session.slots.extremeWhere}` : ' во сите населби';
+      const answer = `Тоа се сите ${session.slots.extremePlural ?? 'станови'}${where} до ${rate.toLocaleString('mk-MK')} евра за м² што ги имам во моментов. Ако сакате, можам да ја кренам границата на ${(rate + 200).toLocaleString('mk-MK')} евра за м² — дали да го направам тоа?`;
+      routeLog(chatId, text, 'PRICE_EXTREME_MORE_EMPTY');
+      pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+      pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+      this.deps.sessions.set(session);
+      await this.sendRaw(session, answer, 'deterministic');
+      return;
+    }
     if ((session.slots.extremeQueue?.length ?? 0) > 0 && queueMore) {
       const ids = session.slots.extremeQueue!;
       const byId = new Map((await this.deps.properties.getAll()).map(p => [p.id, p]));
@@ -8094,6 +8133,11 @@ export class InboundHandler {
               ? `Најскапиот ${nounBase}${where} е со Евидентен број ${p0.eb}: ${priceLabel(p0)}.`
               : `Најевтиниот ${nounBase}${where} е со Евидентен број ${p0.eb}: ${priceLabel(p0)}.`;
           }
+          // EVERY CARD IS ENRICHED BEFORE IT IS PRINTED — the generic lanes
+          // above do this for their own batch, and this branch did not, so a
+          // feed row whose landmark roster no longer measures (EB 85 after its
+          // centre was repaired) still printed «во близина на ТЦ Мавровка».
+          await this.landmarks.enrich(chosen);
           answer = `${intro}\n\n${chosen.map(p => buildPropertyCard(p)).join('\n\n')}`;
           session.slots.propertyId = p0.eb;
           session.slots.interestedPropertyId = p0.eb;
@@ -16127,9 +16171,9 @@ ${contactReminder}`;
       // instead of re-asking the same discovery question.
       reply = DIRECTION_PIVOT_LINE;
     } else if (next === 'visit_scheduling') {
-      // An agency-hours question ("rabotite vo nedela?") gets ANSWERED, not
-      // another time re-ask — the client asked something concrete first.
       if (detectWorkdaysQuestion(text)) {
+        // An agency-hours question ("rabotite vo nedela?") gets ANSWERED, not
+        // another time re-ask — the client asked something concrete first.
         reply = pickVariant('workdays.question', { recent: assistantTexts(session) })
           ?? AGENCY_HOURS_PROTOCOL;
         bankKey = 'workdays.question';
@@ -16179,10 +16223,32 @@ ${contactReminder}`;
       // full hour that keeps his wish (always LATER, never earlier) and stores
       // it as the term, so his yes starts the chain on it.
       let offHourAsk: string | undefined;
+      /** The route's hours, when the round spans more than one (see
+       *  chainHoursLine) — appended to the ACK so the client is TOLD. */
+      const heldHourAsk = (): string | undefined => {
+        const plan = session.slots.visitPlan;
+        return plan ? this.chainHoursLine(plan) : undefined;
+      };
+      /** The ACK plus the sequence, when the route asks about several hours. */
+      const ackWithHours = (): string => {
+        const hours = heldHourAsk();
+        return hours ? `${OWNER_CHECK_ACK} ${hours}` : OWNER_CHECK_ACK;
+      };
       const dispatchOwnerAsk = (): boolean => {
         if (!canAskOwner) return false;
         const at = parseVisitDateTime(t);
-        if (at && at.getMinutes() !== 0 && this.chainWouldStart(session, t, text)) {
+        // THE HALF-HOUR RULE IS THE ROUTE'S, NOT THE CLOCK'S (item 6 of the
+        // capture, «VO 5 I POL» over several flats): a CHAIN staggers one hour
+        // per flat, so its hours must be whole ones — the client is asked for
+        // 18:00 instead of an unreachable 17:30 before any owner is troubled.
+        // A SINGLE visit keeps the client's own 17:30 all the way to the owner
+        // ([22:50] «PET I POL», [13:16] «NEKA BIDE 5 I 30»): he is a human with
+        // a diary and the half-hour may be exactly what suits him. And a client
+        // countering an owner's whole-day offer (`slots.ownerCounterWholeDay`)
+        // travels verbatim too — rounding it would rewrite a message the owner
+        // never got to refuse.
+        if (at && at.getMinutes() !== 0 && this.chainWouldStart(session, t, text)
+          && session.slots.ownerCounterWholeDay === undefined) {
           const later = new Date(at);
           later.setHours(at.getHours() + 1, 0, 0, 0);
           const hh = `${pad2(later.getHours())}:00`;
@@ -16272,8 +16338,8 @@ ${contactReminder}`;
         // ask gets the reveal-protocol answer next to the ACK.
         if (dispatchOwnerAsk()) {
           reply = detectMeetingSpotAsk(text)
-            ? `${OWNER_CHECK_ACK} ${buildExactAddressAnswer(assistantTexts(session))}`
-            : OWNER_CHECK_ACK;
+            ? `${ackWithHours()} ${buildExactAddressAnswer(assistantTexts(session))}`
+            : ackWithHours();
         } else if (offHourAsk) {
           reply = offHourAsk;
           next = 'visit_scheduling';
@@ -16303,8 +16369,8 @@ ${contactReminder}`;
         // address lanes upstream; only the COMBINED shape needs this.)
         if (dispatchOwnerAsk()) {
           reply = detectMeetingSpotAsk(text)
-            ? `${OWNER_CHECK_ACK} ${buildExactAddressAnswer(assistantTexts(session))}`
-            : OWNER_CHECK_ACK;
+            ? `${ackWithHours()} ${buildExactAddressAnswer(assistantTexts(session))}`
+            : ackWithHours();
         } else if (offHourAsk) {
           reply = offHourAsk;
           next = 'visit_scheduling';

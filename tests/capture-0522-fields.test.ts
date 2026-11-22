@@ -29,7 +29,7 @@ import { MetaStore } from '../src/store/meta';
 import { ChannelRegistry } from '../src/channels/types';
 import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
-import { LandmarkService } from '../src/geo/landmarks';
+import { LandmarkService, resolveSearchCenter, setOfflineMapRef } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
 import { OwnerStore } from '../src/store/owners';
 import { EventStore } from '../src/store/events';
@@ -50,7 +50,9 @@ const ROWS: Property[] = [
   { eb: 84, id: 84, location: 'Центар', address: 'Улица 84', price: 137000, bedrooms: 2, sqm: 64, service: 'buy' } as Property,
   // Ново Лисиче stock for the €/m² list: 1.234 / 1.330 / 1.500 / 1.700 €/m².
   { eb: 87, id: 87, location: 'Ново Лисиче', address: 'Улица 87', price: 95000, bedrooms: 3, sqm: 77, service: 'buy' } as Property,
-  { eb: 85, id: 85, location: 'Ново Лисиче', address: 'Улица 85', price: 133000, bedrooms: 3, sqm: 100, service: 'buy' } as Property,
+  // EB 85 as the live feed carried it for months: Ново Лисиче, a stale feed
+  // roster pointing at a mall in another quarter, and no usable address.
+  { eb: 85, id: 85, location: 'Ново Лисиче', address: 'Кај Бранка', price: 133000, bedrooms: 3, sqm: 100, service: 'buy', lat: 41.9840, lon: 21.4700, geo_source: 'osm_low_confidence', landmark: 'ТЦ Мавровка', landmarks: [{ landmark: 'ТЦ Мавровка', type: 'Shopping mall', distance_m: 54 }] } as unknown as Property,
   { eb: 93, id: 93, location: 'Ново Лисиче', address: 'Улица 93', price: 90000, bedrooms: 2, sqm: 60, service: 'buy' } as Property,
   { eb: 94, id: 94, location: 'Ново Лисиче', address: 'Улица 94', price: 119000, bedrooms: 2, sqm: 70, service: 'buy' } as Property,
   // The гapсоњера of the [04:52] capture (EB 76, Центар, 200 €).
@@ -121,6 +123,51 @@ function makeHandler() {
 }
 
 const tick = (ms = 120) => new Promise(r => setTimeout(r, ms));
+
+// ── ITEM 1: the route's hours are SAID OUT LOUD ─────────────────────────────
+// The field [04:41] capture: «NEKA BIDE 6» (18:00) for two flats, and Lina
+// answered only «ќе Ве известам штом потврдам» while the owners were asked about
+// 18:00 AND 19:00. Visits are 60-minute slots and one agent walks both doors,
+// so the stagger is unavoidable — the client never being told about the second
+// hour is the defect. The round still goes out in parallel (the owner's
+// 2026-11-11 brief), and the ACK now names every hour it asks about.
+test('[04:41] a two-flat route tells the client which hours it is asking the owners about', async () => {
+  const h = makeHandler();
+  h.seed((sess) => {
+    sess.state = 'visit_scheduling';
+    sess.slots.service = 'buy';
+    sess.slots.visitWanted = true;
+    sess.slots.visitEbs = [74, 84];
+    sess.slots.presentedIds = [74, 84];
+    sess.slots.currentBatch = [74, 84];
+    sess.slots.clientName = 'Дафина';
+    sess.slots.clientPhone = '076 723 456';
+  });
+  await h.send('VTORNIK NEKA BIDE 6');
+  const line = h.sent.at(-1) ?? '';
+  assert.equal(h.asks.length, 2, `both owners are asked: ${JSON.stringify(h.asks)}`);
+  assert.match(h.asks[0]!, /18:00/u, h.asks[0]);
+  assert.match(h.asks[1]!, /19:00/u, h.asks[1]);
+  assert.match(line, /18:00/u, `the hour he named is stated: ${line}`);
+  assert.match(line, /19:00/u, `and so is the second slot: ${line}`);
+  assert.match(line, /24\.11\.2026/u, `on the day he named: ${line}`);
+  assert.match(line, /\?$/u, `and it is his to refuse: ${line}`);
+
+  // ONE HOUR, ONE FLAT: nothing to disclose — the plain ACK stays plain.
+  const single = makeHandler();
+  single.seed((sess) => {
+    sess.state = 'visit_scheduling';
+    sess.slots.service = 'buy';
+    sess.slots.visitEbs = [74];
+    sess.slots.presentedIds = [74];
+    sess.slots.currentBatch = [74];
+    sess.slots.clientName = 'Дафина';
+    sess.slots.clientPhone = '076 723 456';
+  });
+  await single.send('VTORNIK NEKA BIDE 6');
+  assert.doesNotMatch(single.sent.at(-1) ?? '', /последователни термини/u,
+    `a single visit states no sequence: ${single.sent.at(-1)}`);
+});
 
 // ── ITEM 5: a LIST of flats is every number he typed ───────────────────────
 test('[05:11] three named flats are three — a comma or a space is a list, not a fragment', () => {
@@ -229,6 +276,39 @@ test('[05:32] a row whose pin contradicts its naselba never prints that naselba�
     'a row at home in its own naselba keeps its landmark');
 });
 
+// THE READ SIDE OF THE SAME WOUND (the EB 85 repair, ITEM 8). The row's address
+// «КАЈ БРАНКА» is a local name, not a street: the map resolver fuzzy-matches it
+// to a bank near the town centre, 3,5 km from the Ново Лисиче the row itself
+// names. That candidate centre must not be used — before this the read side
+// walked straight back into the contradiction the feed repair removed.
+test('[05:32] a map resolution that lands in another quarter is refused, and a stale roster is withdrawn', async () => {
+  const map = buildMap();
+  setOfflineMapRef(map);
+  const center = resolveSearchCenter({
+    eb: 85, location: 'Ново Лисиче', address: 'Кај Бранка', lat: 41.9840, lon: 21.4700,
+    geo_source: 'osm_low_confidence',
+  } as never);
+  assert.notEqual(center.source, 'map',
+    `a town-centre point is not the answer for a Ново Лисиче row: ${JSON.stringify(center)}`);
+  assert.notEqual(center.source, 'geocode', `nor is a geocode of the same unplaceable name: ${JSON.stringify(center)}`);
+
+  // THE FEED ROSTER OUTLIVES ITS CENTRE. After the repair the row's centre is in
+  // its own quarter, so the import-time roster (all 3,5 km away) no longer
+  // measures: it is withdrawn instead of printed.
+  const svc = new LandmarkService(new Db(':memory:'), { osm: false, offlineMap: map });
+  const row: { eb: number; location: string; address: string; lat: number; lon: number; geo_source: string; landmark?: string; landmarks?: unknown } = {
+    eb: 85, location: 'Ново Лисиче', address: 'Кај Бранка', lat: 41.9840, lon: 21.4700,
+    geo_source: 'osm_low_confidence',
+    landmark: 'ТЦ Мавровка',
+    landmarks: [{ landmark: 'ТЦ Мавровка', type: 'Shopping mall', distance_m: 54 }],
+  };
+  await svc.enrich([row as never]);
+  assert.equal(row.landmarks, undefined, 'the unmeasurable roster is withdrawn');
+  assert.equal(row.landmark, undefined, 'and the single-landmark line with it');
+  assert.deepEqual(svc.nearbyLandmarks(row as never), [], 'so the card names no foreign mall');
+  setOfflineMapRef(undefined);
+});
+
 // ── ITEMS 1/6: the route never starts earlier than the hour he named ───────
 test('[05:18] a half-hour term for several flats asks for the full hour instead of silently rounding down', async () => {
   const h = makeHandler();
@@ -251,6 +331,28 @@ test('[05:18] a half-hour term for several flats asks for the full hour instead 
   assert.equal(h.asks.length, 0, `no owner is asked an hour the client never saw: ${JSON.stringify(h.asks)}`);
   const s = h.sessions.get(h.chatId)!;
   assert.equal(s.slots.visitPlan, undefined, 'the route has not started');
+
+  // THE RULE BELONGS TO THE ROUTE, NOT TO THE CLOCK — the sibling case that
+  // stops the next reader from "fixing" this into a global rounding: a SINGLE
+  // visit keeps the client's own 17:30 all the way to the owner, who is a human
+  // with a diary ([22:50] «PA NEKA BIDE PET I POL» → «Вторник … во 17:30»,
+  // [13:16] «VO PONEDELNIK NEKA BIDE 5 I 30»). Rounding that would rewrite a
+  // term the owner may well accept.
+  const one = makeHandler();
+  one.seed((sess) => {
+    sess.state = 'visit_scheduling';
+    sess.slots.service = 'buy';
+    sess.slots.visitEbs = [74];
+    sess.slots.presentedIds = [74];
+    sess.slots.propertyId = 74;
+    sess.slots.interestedPropertyId = 74;
+    sess.slots.name = 'Test';
+    sess.slots.phone = '070000000';
+  });
+  await one.send('VO VTORNIK VO 5 I POL NEKA BIDE');
+  await tick();
+  assert.equal(one.asks.length, 1, `one visit still goes to its owner: ${JSON.stringify(one.asks)}`);
+  assert.match(one.asks[0] ?? '', /17:30/u, `…with the client's own half-hour, never rounded: ${one.asks[0]}`);
 });
 
 // ── ITEMS 2/7: a silent owner must not freeze the route ────────────────────
@@ -305,9 +407,38 @@ test('[05:32] a €/m² ask lists the flats under the rate, closest to it first,
   assert.doesNotMatch(line, /Евидентен број 87/u, `the third card is queued, not dumped: ${line}`);
   assert.doesNotMatch(line, /Евидентен број 94/u, 'a row over the cap is not served');
   assert.doesNotMatch(line, /1\.700 евра/u, 'nor named as the scope\u2019s ceiling');
+  // THE STALE FEED ROSTER IS NOT PRINTED: this row's landmarks all sit in
+  // another quarter, so no entry measures from its own centre.
+  assert.doesNotMatch(line, /Мавровка/u, `the foreign mall is gone: ${line}`);
   const s = h.sessions.get(h.chatId)!;
   assert.equal(s.slots.sqmRate, 1600, 'the ceiling is a rate');
   assert.deepEqual(s.slots.extremeQueue, [87], 'the rest waits behind');
+});
+
+// THE LIST IS COMPLETE — say so (the [05:35] follow-up). With every row under
+// the cap already shown, the queue is empty; the turn used to fall to a generic
+// lane that offered a Центар гарсоњера for 36.000 — another quarter and another
+// money frame entirely.
+test('[05:35] «DRUGI?» with the rate list exhausted says so instead of pivoting to another quarter', async () => {
+  const h = makeHandler();
+  h.seed((sess) => {
+    sess.state = 'presentation';
+    sess.slots.service = 'buy';
+    sess.slots.location = 'Ново Лисиче';
+    sess.slots.sqmRate = 1600;
+    sess.slots.extremeQueue = [];
+    sess.slots.extremeWhere = ' во Ново Лисиче';
+    sess.slots.extremePlural = 'станови';
+    sess.slots.presentedIds = [93, 85];
+    sess.slots.currentBatch = [93, 85];
+  });
+  await h.send('DO 1600 DRUGI IMAS?');
+  const line = h.sent.at(-1) ?? '';
+  assert.match(line, /сите станови/u, `the list is complete: ${line}`);
+  assert.match(line, /1\.600 евра за м²/u, `and the frame is still the rate: ${line}`);
+  assert.doesNotMatch(line, /Евидентен број (?:94|87|76|70)\b/u, `no unrelated row is served: ${line}`);
+  assert.doesNotMatch(line, /Центар/u, `and no other quarter: ${line}`);
+  assert.match(line, /\?$/u, `it ends with the offer to widen the ceiling: ${line}`);
 });
 
 test('[05:35] «DO 1600 DRUGI IMAS?» continues the €/m² axis instead of claiming no stock', async () => {
