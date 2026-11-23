@@ -626,7 +626,7 @@ export class TuiApp {
     }
     if (text === '/status') {
       const { bootChecks, checkFeed } = await import('../boot_check');
-      const checks = [...bootChecks(this.cfg), await checkFeed(this.cfg.propertyDataUrl)];
+      const checks = [...bootChecks(this.cfg), ...(await checkFeed(this.cfg.propertyDataUrl, this.offlineMap))];
       const lines = checks.map(c => `${c.ok ? '✅' : '❌'} ${c.name}: ${c.detail}`);
       const available = (['hybrid', 'gemini', 'groq', 'free'] as BrainMode[]).filter(m => this.brains[m]).join(' / ');
       lines.push(`—`);
@@ -693,6 +693,21 @@ export class TuiApp {
       if (problems.length > 0) {
         const lines = problems.map(p => `  EB ${p.eb}: ${p.category} — ${p.detail}`);
         text += `\n\nПОТРЕБНИ ПОПРАВКИ (${problems.length}):\n${lines.join('\n')}`;
+      }
+      // THE PIN/AREA DRIFT, the half an address audit cannot see: a row can have
+      // a perfectly good address and still sit in another quarter. Same ruler as
+      // the repair script (src/feed/pinAudit.ts) — never a second opinion.
+      if (this.offlineMap.available) {
+        const { auditRows, pinDriftSummary } = await import('../feed/pinAudit');
+        const findings = auditRows(props, this.offlineMap);
+        const broken = findings.filter(f => f.contradicts);
+        text += `\n\n${pinDriftSummary(findings)}`;
+        for (const f of broken) {
+          text += `\n  EB ${f.eb}: ${f.location} — pin stands in «${f.pinQuarter?.name ?? '?'}»`
+            + `, ${f.namedAt?.distance_m ?? '?'} m from the «${f.location}» row`
+            + ` · ${f.side === 'naselba' ? `the LABEL is wrong — the row says «${f.naselbaAt?.name}»` : 'the PIN is wrong'}`;
+        }
+        if (broken.length > 0) text += `\n  поправка: npm run audit:pin-location -- --eb <n> --fix`;
       }
       this.appendMsg(lead.chatId, { role: 'system', text, at: Date.now() });
       this.renderAll();

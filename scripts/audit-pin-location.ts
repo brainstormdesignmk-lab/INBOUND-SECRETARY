@@ -23,12 +23,13 @@
  * labelled Ново Лисиче with a pin in Пајко Маало. This script is the repair, and
  * the monthly sweep keeps the class from coming back.
  *
- * WHICH SIDE IS WRONG. The pin is assumed wrong when `location` and the map
- * disagree, because `location` is the naselba the AGENCY typed (it is what the
- * page shows and what the client asked about), while the pin is a machine
- * geocode. That assumption is not taken on faith: `--fix` refuses a row whose
- * address text itself mentions another quarter (EB 85's «КАЈ БРАНКА» does not),
- * and every repair is listed with both sides, so the operator sees the decision.
+ * WHICH SIDE IS WRONG is attributed per row, never assumed (see
+ * `pinSide` in src/feed/pinAudit.ts): a settlement the row's OWN words name that
+ * stands at the pin means the LABEL is the wrong side (EB 44 «куќа во
+ * Визбегово»), and only then does `--fix` rewrite `neighborhood` instead of the
+ * centre. Moving that pin would have destroyed a coordinate the owner's own
+ * description confirms. Every repair is listed with both sides, so the operator
+ * sees the decision.
  *
  * THE WRITE is `geo:center` (src/feed/writePolicy.ts): lat/lon/geo_source belong
  * to the MASTER, the host whose map file is writable. An atom prints the report
@@ -46,69 +47,13 @@
 import '../src/compat/node16';
 
 import { loadConfig } from '../src/config';
-import { PropertyService, type Property } from '../src/data/properties';
+import { PropertyService } from '../src/data/properties';
 import { OfflineMapStore } from '../src/geo/offlineMap';
-import { pinContradictsLocation, stripPoiAnnotation } from '../src/geo/landmarks';
-import { distM } from '../src/geo/precision';
+import { auditRows, pinDriftSummary, type PinLocationFinding } from '../src/feed/pinAudit';
 import { assertFeedWrite, resolveHostRole, FeedWriteRefused } from '../src/feed/writePolicy';
 
-/** One row the audit looked at, with the two facts it compared. */
-export interface PinLocationFinding {
-  eb: number;
-  id?: string;
-  location: string;
-  address?: string;
-  lat: number;
-  lon: number;
-  /** The map's nearest quarter to the pin, and how far it is. */
-  pinQuarter?: { name: string; distance_m: number };
-  /** The named naselba's own map position, and how far the pin is from it. */
-  namedAt?: { lat: number; lon: number; distance_m: number };
-  /** True when the pin contradicts the named naselba. */
-  contradicts: boolean;
-  /** Why the row was NOT judged (never a false "healthy"). */
-  skipped?: string;
-}
-
-/** The comparison, row by row — pure except for the map, so it is testable and
- *  the report and the writer can never disagree about which rows are broken. */
-export function auditRows(
-  rows: Array<Pick<Property, 'eb' | 'id' | 'location' | 'address' | 'lat' | 'lon'>>,
-  map: OfflineMapStore,
-): PinLocationFinding[] {
-  const out: PinLocationFinding[] = [];
-  for (const r of rows) {
-    const location = String(r.location ?? '').trim();
-    const lat = r.lat, lon = r.lon;
-    const base = {
-      eb: r.eb, id: r.id === undefined ? undefined : String(r.id),
-      location, address: r.address, lat: Number(lat), lon: Number(lon), contradicts: false,
-    };
-    if (typeof lat !== 'number' || typeof lon !== 'number' || !lat || !lon) {
-      out.push({ ...base, skipped: 'no pin' });
-      continue;
-    }
-    if (!location) {
-      out.push({ ...base, skipped: 'no location' });
-      continue;
-    }
-    const named = stripPoiAnnotation(location).replace(/\s*\([^)]*\)\s*$/u, '').trim();
-    const place = map.findPoiByName(named, { lat, lon });
-    const near = map.areaAt(lat, lon, 3000);
-    if (!place) {
-      out.push({ ...base, skipped: 'the map has no row for that naselba' });
-      continue;
-    }
-    const namedDistance = distM(lat, lon, place.lat, place.lon);
-    out.push({
-      ...base,
-      pinQuarter: near ? { name: near.name, distance_m: Math.round(near.distance_m) } : undefined,
-      namedAt: { lat: place.lat, lon: place.lon, distance_m: Math.round(namedDistance) },
-      contradicts: pinContradictsLocation(map, { location, lat, lon }),
-    });
-  }
-  return out;
-}
+export { auditRows, pinDriftSummary };
+export type { PinLocationFinding };
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? 'https://qkgioqotxjxffiaufgwd.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY
@@ -125,6 +70,24 @@ async function patchCenter(eb: number, lat: number, lon: number, source: string)
       Prefer: 'return=minimal',
     },
     body: JSON.stringify({ lat, lon, geo_source: source, geocoded_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`patch EB ${eb}: ${res.status} ${await res.text()}`);
+}
+
+/** The OTHER repair: the pin is right and the LABEL is the wrong side. Same
+ *  surface (`geo:center` owns `neighborhood` too — a naselba is a map fact), but
+ *  the coordinate is left exactly as the map measured it. */
+async function patchNeighborhood(eb: number, neighborhood: string): Promise<void> {
+  const url = `${SUPABASE_URL}/rest/v1/properties?property_number=eq.${encodeURIComponent(String(eb))}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ neighborhood }),
   });
   if (!res.ok) throw new Error(`patch EB ${eb}: ${res.status} ${await res.text()}`);
 }
@@ -160,12 +123,16 @@ async function main(): Promise<void> {
   if (json) {
     console.log(JSON.stringify({ checked: findings.length, broken, skipped }, null, 2));
   } else {
-    console.log(`pin/location audit: ${findings.length} row(s), ${broken.length} contradiction(s)\n`);
+    console.log(pinDriftSummary(findings) + '\n');
     for (const f of broken) {
       const pin = f.pinQuarter ? `pin stands in «${f.pinQuarter.name}» (${f.pinQuarter.distance_m} m)` : 'pin quarter unknown';
       const named = f.namedAt ? `${f.namedAt.distance_m} m from the «${f.location}» row` : `«${f.location}» not on the map`;
       console.log(`  EB ${f.eb}  ${f.location}  ·  ${pin}  ·  ${named}`);
       if (f.address) console.log(`         address: ${f.address}`);
+      // THE VERDICT, on its own line: which side a repair rewrites, and why.
+      console.log(f.side === 'naselba'
+        ? `         verdict: the LABEL is the wrong side — the row's own words name «${f.naselbaAt?.name}» (${f.naselbaAt?.distance_m} m from the pin)`
+        : `         verdict: the PIN is the wrong side — nothing in the row names the quarter it stands in`);
     }
     if (skipped.length > 0) {
       console.log(`\n  ${skipped.length} row(s) not judged:`);
@@ -182,7 +149,7 @@ async function main(): Promise<void> {
   }
   if (onlyEb === undefined && !argv.includes('--all')) {
     console.error('\nrefusing a bulk rewrite: name the confirmed row with --eb <n>, or pass --all to repair every finding.');
-    console.error('a finding whose NASELBA is the wrong side cannot be fixed by moving its pin.');
+    console.error('a finding the operator has not seen yet is not a repair decision.');
     process.exitCode = 1;
     return;
   }
@@ -200,6 +167,15 @@ async function main(): Promise<void> {
   }
   console.log(`\nfeed writer: role=${host.role} (${host.why})`);
   for (const f of broken) {
+    if (f.side === 'naselba') {
+      // THE LABEL MOVES, THE PIN STAYS: the row's own words place it at the
+      // settlement its pin already stands in, so the coordinate is the trustworthy
+      // half and only the naselba the agency typed is wrong.
+      if (!f.naselbaAt) continue;
+      await patchNeighborhood(f.eb, f.naselbaAt.name);
+      console.log(`  EB ${f.eb}: naselba → «${f.naselbaAt.name}» (pin kept at ${f.lat},${f.lon})`);
+      continue;
+    }
     if (!f.namedAt) continue;
     // THE PIN MOVES TO THE QUARTER THE ROW NAMES, honestly labelled. The
     // landmark line is dropped at the same time: a roster measured from the OLD

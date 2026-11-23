@@ -10,6 +10,8 @@ import './compat/node16';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { AppConfig } from './config';
+import { auditRows, pinDriftSummary } from './feed/pinAudit';
+import type { OfflineMapStore } from './geo/offlineMap';
 
 /** Short content hash of a file — printed at boot so map-DB drift between
  *  machines ("production has the old POIs db") is visible instantly. */
@@ -97,8 +99,31 @@ export function bootChecks(cfg: AppConfig): CheckResult[] {
   return out; // feed check is async → see checkFeed()
 }
 
-/** Feed reachability — async because it hits the network (8 s timeout). */
-export async function checkFeed(url: string): Promise<CheckResult> {
+/** One raw feed row as the pin audit reads it. The public edge function emits
+ *  the DB columns under their public names (`evidenten_broj`, `naselba`,
+ *  `adresa`, `opis`), so the mapping lives here, once. */
+function feedRowForAudit(r: Record<string, unknown>): {
+  eb: number; location: string; address: string; details: string; lat?: number; lon?: number;
+} {
+  return {
+    eb: Number(r.evidenten_broj ?? r.eb ?? 0),
+    location: String(r.naselba ?? r.location ?? ''),
+    address: r.adresa === undefined || r.adresa === null ? '' : String(r.adresa),
+    details: r.opis === undefined || r.opis === null ? '' : String(r.opis),
+    lat: typeof r.lat === 'number' ? r.lat : undefined,
+    lon: typeof r.lon === 'number' ? r.lon : undefined,
+  };
+}
+
+/** Feed reachability — async because it hits the network (8 s timeout).
+ *
+ *  With the offline map in hand it ALSO answers the pin/location question (is
+ *  each row's pin in the quarter the row names?), because drift used to be
+ *  invisible until a client heard «во Ново Лисиче… во близина на ТЦ Мавровка»:
+ *  the report existed, but only for whoever remembered to run the script. It is
+ *  a NON-critical check — a drifted pin degrades an answer, it does not stop the
+ *  appliance — so it prints ❌ without aborting the boot. */
+export async function checkFeed(url: string, map?: OfflineMapStore): Promise<CheckResult[]> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
@@ -106,10 +131,23 @@ export async function checkFeed(url: string): Promise<CheckResult> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json() as { properties?: unknown[] };
     const rows = Array.isArray(body) ? body : (body.properties ?? []);
-    return { name: 'feed', ok: true, critical: true, detail: `${rows.length} properties from feed` };
+    const out: CheckResult[] = [
+      { name: 'feed', ok: true, critical: true, detail: `${rows.length} properties from feed` },
+    ];
+    if (map?.available) {
+      const findings = auditRows((rows as Array<Record<string, unknown>>).map(feedRowForAudit), map);
+      const broken = findings.filter(f => f.contradicts);
+      out.push({
+        name: 'feed:pin', ok: broken.length === 0, critical: false,
+        detail: pinDriftSummary(findings) + (broken.length > 0
+          ? ' — repair with `npm run audit:pin-location -- --eb <n> --fix` (report first: `npm run audit:pin-location`)'
+          : ''),
+      });
+    }
+    return out;
   } catch (e) {
-    return { name: 'feed', ok: false, critical: true,
-      detail: `UNREACHABLE (${(e as Error).message}) — availability answers will refuse instead of lying. URL: ${url}` };
+    return [{ name: 'feed', ok: false, critical: true,
+      detail: `UNREACHABLE (${(e as Error).message}) — availability answers will refuse instead of lying. URL: ${url}` }];
   } finally {
     clearTimeout(timer);
   }

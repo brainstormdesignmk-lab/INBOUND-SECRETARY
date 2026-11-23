@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { loadConfig } from '../config';
 import { bootChecks, checkFeed, printChecks } from '../boot_check';
+import { OfflineMapStore } from '../geo/offlineMap';
 import { TuiApp } from './app';
 
 // The LLM clients log every backend failure via console.error — Gemini 429
@@ -33,7 +34,10 @@ async function main(): Promise<void> {
   redirectConsole();
   // Boot self-check — every dependency failure must be LOUD here, not
   // discovered weeks later as a silent [без LLM] / wrong-landmark symptom.
-  const checks = [...bootChecks(cfg), await checkFeed(cfg.propertyDataUrl)];
+  // The pin/location half of the feed check needs the map: drift must be loud at
+  // boot, not discovered when a client is told about a mall 3 km away.
+  const map = new OfflineMapStore(cfg.skopjePoisDb);
+  const checks = [...bootChecks(cfg), ...(await checkFeed(cfg.propertyDataUrl, map))];
   printChecks(checks);
   if (!checks.find(c => c.name === 'llm')?.ok) {
     console.error('[tui] no LLM key in .env (GROQ_API_KEY / GEMINI_API_KEY) — the TUI needs a real brain.');
