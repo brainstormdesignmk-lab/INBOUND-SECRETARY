@@ -88,6 +88,27 @@ test('feed ranking and runtime map fallback share the same ranked candidates', (
   map.close();
 });
 
+test('one building, one slot: a mall and its twins/tenant never fill two roster places', () => {
+  const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'feed-twin-')), 'map.db');
+  const center = { lat: 41.98, lon: 21.44 };
+  // The live EB 48 shape: one building, three rows — Google's English name, the
+  // OSM Macedonian name, and a supermarket tenant named after the mall. All
+  // three are inside a 30 m footprint, plus a genuinely different place 150 m
+  // away that must take the next slot.
+  writeMap(dbPath, [
+    { name: 'Skopje City Mall', type: 'Shopping mall', lat: center.lat + 0.00030, lon: center.lon, source: 'google', place_id: '0x1:0x2', review_count: 9000, rating: 4.4 },
+    { name: 'Сити Мол', type: 'mall', lat: center.lat + 0.00036, lon: center.lon + 0.00002 },
+    { name: 'Ramstore - City Mall', type: 'Supermarket', lat: center.lat + 0.00031, lon: center.lon + 0.00003, source: 'google', place_id: '0x3:0x4', review_count: 200 },
+    { name: 'Градски парк', type: 'park', lat: center.lat + 0.00135, lon: center.lon },
+  ], []);
+  const map = new OfflineMapStore(dbPath);
+  const feed = rankedLandmarks({ address: 'Пример 2' }, center, map).list;
+  assert.equal(feed.filter(l => /сити|city/i.test(l.landmark)).length, 1, `one mall only: ${JSON.stringify(feed.map(l => l.landmark))}`);
+  assert.ok(!feed.some(l => /ramstore/i.test(l.landmark)), 'the tenant inside the mall is not a separate landmark');
+  assert.ok(feed.some(l => l.landmark === 'Градски парк'), 'the distinct place still gets a slot');
+  map.close();
+});
+
 test('a genuinely current row is still left alone (no needless rewrite)', () => {
   const list = [{ landmark: 'ТЦ Мавровка', type: 'mall', distance_m: 54 }];
   const raw = { landmarks: list };

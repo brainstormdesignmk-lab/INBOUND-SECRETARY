@@ -182,12 +182,24 @@ test('[22:25] the distance question is answered with the measured distance to th
   // actually repaired to) and measures from there: ~400 m to the mall.
   //
   // TWO ROWS CARRY THE NAME (the November map): the marketplace itself
-  // (41.99887,21.42041 → 403 m, served) and the bus stop named after it
-  // (41.99902,21.41974 → 353 m). Which one the name lookup returns is a
-  // ranking detail that may change with a sweep, so the expectation pins the
-  // MEASUREMENT — either of the map's two Бunjakovec points, rounded to 10 m —
-  // and never the raw pin's ~90 m, which is what the bug answered.
-  assert.match(answer, /на (?:350|400) метри/, `the measured distance, rounded to 10 m: ${answer}`);
+  // (41.99887,21.42041) and the bus stop named after it (41.99902,21.41974).
+  // Which one the name lookup returns is a ranking detail that may change with
+  // a sweep, so the expectation pins the MEASUREMENT, not the row.
+  //
+  // WHERE THE MEASUREMENT STARTS (re-pinned 2026-11-23, after the street pass):
+  // this row's address street «Владимир Полежиновски» is now a Google-VERIFIED
+  // street in the map (street-teach), so its map resolution is an
+  // `osm_street_anchor` at 41.99858/21.41675 — a STREET point, 485 m from the
+  // row's own google_cached pin. `resolveSearchCenter` may only upgrade a
+  // trusted pin to a BUILDING-level match (the EB 62 trust order: a street
+  // centroid is street-granularity by construction and cannot outrank a pin),
+  // so the distance is measured from the row's own trusted point — 87 m to the
+  // marketplace, served as 90 m. The old 350|400 m expectation encoded a map
+  // that did NOT know that street and silently answered with the neighbouring
+  // «Владимир Полежановски» building. What must not change is the contract:
+  // a measured number, from the property, with no street and no card.
+  assert.match(answer, /на \d{2,4} метри/, `a measured distance, rounded to 10 m: ${answer}`);
+  assert.match(answer, /на 90 метри/, `measured from the row's own trusted pin: ${answer}`);
   assert.match(answer, /од недвижноста/, `it is stated as a distance FROM the property: ${answer}`);
   // The three wrong answers this capture produced are gone.
   assert.ok(!/купување или|изнајмување|Ве интересира/.test(answer),

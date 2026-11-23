@@ -28,9 +28,9 @@ import '../compat/node16';
 import { loadConfig } from '../config';
 import { Db } from '../store/db';
 import { sanitizeLandmarkAnswer, stripPoiAnnotation, FEED_LANDMARK_MAX_M, firstLandmarkProblem, landmarkCacheKey, LandmarkStore, googleMapsLink } from '../geo/landmarks';
-import { identityKey, LANDMARK_RANKING_POLICY_VERSION, type LocalPoi } from '../geo/offlineMap';
+import { identityKey, isShopLevelPlace, LANDMARK_RANKING_POLICY_VERSION, type LocalPoi } from '../geo/offlineMap';
 import { typeRank } from '../geo/types';
-import { landmarkLink } from '../geo/precision';
+import { distM, landmarkLink } from '../geo/precision';
 import { OfflineMapStore } from '../geo/offlineMap';
 import { EventStore } from '../store/events';
 import { PropertyService, FeedLandmark } from '../data/properties';
@@ -149,13 +149,22 @@ export function rankedLandmarks(
   // code form — `dormitory` scored 0 and a 257 m mall outranked the 63 m dorm;
   // with the filter, such a row falls to the next recognisable place instead
   // of quietly serving something nobody navigates by.
+  // A TENANT IS NOT AN ANCHOR (the audit's own refusal, twice in the field):
+  // EB 53 stored «Butik Galion» and a Чаир row stored «Boutique Adra Fashion»
+  // as the name a client hears — Google types a boutique inside a mall as
+  // «Shopping mall», so the rank filter alone lets a shopfront take the slot
+  // while the mall it stands in waits behind it. The handler has excluded
+  // tenant rows for exactly this reason (isShopLevelPlace); the feed writer
+  // must use the SAME guard, or the stored list and the live answer disagree.
   const pool = pois
     .filter(p => typeof p.distance_m !== 'number' || p.distance_m <= FEED_LANDMARK_MAX_M)
-    .filter(p => typeRank(p.type) > 0);
+    .filter(p => typeRank(p.type) > 0)
+    .filter(p => !isShopLevelPlace(p.name, p.type));
   if (process.env.DBG_GEO) {
     try {
       process.stderr.write(`[feed-dbg] geo=${geo.lat.toFixed(5)},${geo.lon.toFixed(5)} map=${offline?.available ? 'yes' : 'no'} pois(2km)=${pois.length} pool(500m)=${pool.length}\n`);
       process.stderr.write(`[feed-dbg] nearest raw: ${pois.slice(0, 4).map(p => `${p.name}@${p.distance_m}m`).join(' | ') || '(none)'}\n`);
+      process.stderr.write(`[feed-dbg] pool: ${pool.map(p => `${p.name}[${p.type}]@${p.distance_m}m`).join(' | ') || '(none)'}\n`);
     } catch { /* ignore */ }
   }
   // Nothing within 500m → an honest empty list (the caller says so explicitly).
@@ -173,13 +182,29 @@ export function rankedLandmarks(
   // reproducible on any machine, with no keys.
   const out: FeedLandmark[] = [];
   const seen = new Set<string>();
+  const chosen: LocalPoi[] = [];
   for (const poi of pool) {
     if (out.length >= FEED_LANDMARK_COUNT) break;
     const name = sanitizeLandmarkAnswer(poi.name, c.address);
     if (!name) continue;
     const key = identityKey(name);
     if (!key || seen.has(key)) continue;
+    // ONE BUILDING, ONE SLOT. A roster is three DIFFERENT corners a client can
+    // be walked to; the map may honestly hold several rows for one building
+    // (EB 48: «Skopje City Mall», «Сити Мол» and the tenant «Ramstore - City
+    // Mall / Рамстор - Сити Мол» are one mall, 8–15 m apart, and BEFORE this
+    // the row stored two of them — «во близина на Skopje City Mall», then
+    // «во близина на Тц Сити Мол», the same building twice). The identity
+    // merge cannot unify them (the names share no token), so the ROSTER
+    // refuses a second entry inside the same 30 m footprint: the first
+    // (best-ranked) row keeps the slot and the next distinct place follows.
+    const twin = chosen.find(x =>
+      Number.isFinite(x.lat) && Number.isFinite(x.lon)
+      && Number.isFinite(poi.lat) && Number.isFinite(poi.lon)
+      && distM(x.lat as number, x.lon as number, poi.lat as number, poi.lon as number) <= 30);
+    if (twin) continue;
     seen.add(key);
+    chosen.push(poi);
     out.push({
       landmark: name,
       type: poi.type ?? 'place',
