@@ -6636,6 +6636,20 @@ const WHERE_IS_BLACKLIST =
 // 'kade tocno se naogja ?' is generic, not the place "tocno".
 const WHERE_IS_PRECISION =
   /(?:^|[\s,]+)(?:каде\s+)?(?:точно|тоцно|поточно|tochno|tocno|potochno|potocno|приближно|priblizno|одприлика|odprilika)(?=$|[\s,?.!])/giu;
+// A PURPOSE CLAUSE IS NOT A PLACE (the [09:12] capture). The client asked
+// «moram da znam kaj se naogja za da odlucam da go posetam» — he wants to know
+// WHERE IT IS so he can decide whether to visit. The extractor read his reason
+// as the place ("za da odlucam da go posetam"), so the lane never reached its
+// generic branch (the one that honours the EB he had just been discussing) and
+// the junk-place fallback answered about the LAST CARD of the batch — EB 85 in
+// Ново Лисиче, while the whole conversation was about EB 84 in Центар.
+// The tell is grammatical: a bare «да/da» (with or without «за/za») opens an
+// INTENT clause — a verb the client intends (da odlucam, da go posetam,
+// da vidam, da odam) — and no place name starts that way. Both scripts are
+// covered because normalizeMc is not applied to the tail; the lookahead keeps
+// real names that merely BEGIN with the syllables (Даут пашин амам, Даме
+// Груев) intact — those continue with a letter, which the clause cannot.
+const PURPOSE_CLAUSE_RE = /(?:^|[\s,]+)(?:за\s+|za\s+)?(?:да|da)(?![\p{L}\p{N}]).*$/iu;
 
 /**
  * "каде е X?" — a question about a PLACE's whereabouts ("каде е Палома
@@ -6872,6 +6886,11 @@ export function detectWhereIs(text: string): WhereIsQuestion | undefined {
       rest = /[\p{L}\p{N}]/u.test(verbLine) ? verbLine : rest.slice(nl + 1).trim();
     }
   }
+  // The purpose clause is stripped AFTER the line scope (a «за да» on the verb's
+  // own line must not eat the EB the client wrote on the next one) and BEFORE
+  // the precision qualifiers, so «kaj se naogja za da odam tocno» collapses to
+  // an empty place and the generic subject resolution decides.
+  rest = rest.replace(PURPOSE_CLAUSE_RE, '').trim();
   // PRECISION ADVERBS are qualifiers, not places (see WHERE_IS_PRECISION).
   // Stripped here so a bare "… KADE SE NAOGJA TOCNO" collapses to `rest === ''`
   // and falls into the pre-verbal recovery below instead of resolving the

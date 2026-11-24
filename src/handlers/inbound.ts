@@ -10713,36 +10713,53 @@ export class InboundHandler {
       const mb = await this.bindMention(text, session, { historyFallback: true });
       if (await this.sendIfClarify(mb, text, session)) return;
       if (mb?.prop) hit = mb.prop;
+      // THE SUBJECT OF THE ASK — one chain, every branch (the [09:12] capture).
+      // «moram da znam kaj se naogja za da odlucam da go posetam» was answered
+      // about EB 85 (the tail of the batch) while the client had named EB 84 in
+      // each of his last messages: the purpose clause made the message look
+      // like a PLACE question, and the place branches each had their own
+      // property fallback — one read `propertyId`, another the batch tail — so
+      // neither honoured the EB the client had just said. The order is now
+      // stated once:
+      //   • an EB named in THIS or the last 3 user messages — THE topic (the
+      //     [15:58] «TE PRASAV ZA STAN 50» contract);
+      //   • then the flat the client last CHOSE (askedEb — the [19:27] rule the
+      //     EXACT-address lane already follows);
+      //   • then the flat under discussion (propertyId);
+      //   • then the last card PRESENTED (`presentedIds` in presentation order);
+      //   • then the flat he praised (interestedPropertyId).
+      // A named EB outranks the batch tail: the tail is an accident of the last
+      // serve, not something the client said.
+      const pinnedWhere = (() => {
+        const candidates: number[] = [];
+        const bare = inferPropertyId(text);
+        if (bare !== undefined && !detectBudget(text)) candidates.push(bare);
+        const hist = session.history.filter(h => h.role === 'user');
+        for (let i = hist.length - 1; i >= Math.max(0, hist.length - 3); i--) {
+          const n = inferPropertyId(hist[i].text);
+          if (n !== undefined && !detectBudget(hist[i].text)) candidates.push(n);
+        }
+        return candidates[0];
+      })();
+      const subjectOf = async (): Promise<Property | undefined> =>
+        (pinnedWhere !== undefined
+          ? await this.deps.properties.getByEb(pinnedWhere).catch(() => undefined)
+          : undefined)
+        ?? (session.slots.askedEb !== undefined
+          ? await this.deps.properties.getByEb(session.slots.askedEb).catch(() => undefined)
+          : undefined)
+        ?? (session.slots.propertyId
+          ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
+          : undefined)
+        ?? shown[shown.length - 1]
+        ?? (session.slots.interestedPropertyId
+          ? await this.deps.properties.getByEb(session.slots.interestedPropertyId).catch(() => undefined)            : undefined);
       if (hit === undefined) {
       if (whereIs.generic) {
         // The client asks about the current property ("каде е?", "сто има во
         // близина?"). If shown[] is empty (property looked up by EB number,
-        // not via presentation), fall back to the property the client is
-        // currently discussing via session slots.
-        // PINNED-EB OVERRIDE (the [15:58] transcript): an EB named in THIS or
-        // the last 3 user messages ("TE PRASAV ZA STAN 50") is THE topic —
-        // the presented-tail (a stale batch card) never outranks it.
-        const pinnedWhere = (() => {
-          const candidates: number[] = [];
-          const bare = inferPropertyId(text);
-          if (bare !== undefined && !detectBudget(text)) candidates.push(bare);
-          const hist = session.history.filter(h => h.role === 'user');
-          for (let i = hist.length - 1; i >= Math.max(0, hist.length - 3); i--) {
-            const n = inferPropertyId(hist[i].text);
-            if (n !== undefined && !detectBudget(hist[i].text)) candidates.push(n);
-          }
-          return candidates[0];
-        })();
-        hit = (pinnedWhere !== undefined
-          ? await this.deps.properties.getByEb(pinnedWhere).catch(() => undefined)
-          : undefined)
-          ?? (session.slots.propertyId
-            ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
-            : undefined)
-          ?? shown[shown.length - 1]
-          ?? (session.slots.interestedPropertyId
-            ? await this.deps.properties.getByEb(session.slots.interestedPropertyId).catch(() => undefined)
-            : undefined);
+        // not via presentation), the chain above falls back to the session.
+        hit = await subjectOf();
       } else {
         const p = whereIs.place;
         // EB number: "каде се наоѓа 89?" — look up directly by evidence number.
@@ -10753,14 +10770,10 @@ export class InboundHandler {
         if (!hit) {
           // If the asked location matches the CURRENT property's location,
           // use the current property — the client is asking WHERE IN that
-          // area it is, not asking to see OTHER properties there.
-          const curProp = shown[shown.length - 1]
-            ?? (session.slots.propertyId
-              ? await this.deps.properties.getByEb(session.slots.propertyId)
-              : undefined)
-            ?? (session.slots.interestedPropertyId
-              ? await this.deps.properties.getByEb(session.slots.interestedPropertyId)
-              : undefined);
+          // area it is, not asking to see OTHER properties there. WHICH
+          // property is the chain's answer (a named EB first), never the
+          // batch tail on its own.
+          const curProp = await subjectOf();
           if (curProp && curProp.location && locMatches(p, curProp.location)) {
             hit = curProp;
           } else {
@@ -10832,13 +10845,12 @@ export class InboundHandler {
             // asking about THAT property ("kade potocno se naogja garsonjerava?"
             // = where is this apartment we just saw?).  Answer with the
             // property's landmark instead of saying "I don't know".
-            const curProp = shown[shown.length - 1]
-              ?? (session.slots.propertyId
-                ? await this.deps.properties.getByEb(session.slots.propertyId)
-                : undefined)
-              ?? (session.slots.interestedPropertyId
-                ? await this.deps.properties.getByEb(session.slots.interestedPropertyId)
-                : undefined);
+            // The place did not resolve, so this is a where-is about the
+            // PROPERTY — and the property is whatever the chain says (a named
+            // EB first). Reading the batch tail here is what answered the
+            // [09:12] «kaj se naogja … da go posetam» about EB 85 after the
+            // client had named EB 84 three times.
+            const curProp = await subjectOf();
             if (curProp) {
               await this.landmarks.enrich([curProp]);
               answer = this.whereIsReply(curProp, session, whereIs.place);

@@ -2257,8 +2257,22 @@ export function buildPropertyCard(p: Property, opts: {
   // every card states its OWN distance from it — a pair of offers without
   // distances cannot be judged against «околу Лептокарија» ([17:26]). Measured
   // from the real pin; rows without coordinates simply omit the line.
+  // A PLACE THE CARD ALREADY NAMES IS NOT A LANDMARK (the [09:03] capture):
+  // «Станот под Евидентен број 82 е трисобен стан во Аеродром. … Се наоѓа на
+  // 490 m од Аеродром.» — the client had just been told the flat is IN
+  // Аеродром and was then given its distance FROM Аеродром. Measured to the
+  // district centroid, that number says nothing about where the flat is inside
+  // the district it belongs to (the owner's rule: a neighbourhood is not a
+  // landmark), and it reads as a tautology. The feed's naselba is the
+  // property's own area, so an anchor resolving to it carries no information —
+  // the card's own «во X» already said it. The internal type marker the feed
+  // appends («Аеродром (општина)») is stripped before comparing.
+  const placeKey = (s: string): string =>
+    displayPlaceName(s).replace(/\s*\((?:населба|општина|naselba|opstina)\)\s*$/iu, '').trim().toLowerCase();
+  const ownPlaces = new Set([p.location].filter((x): x is string => !!x && !!x.trim()).map(placeKey));
   const anchors = [opts.anchor, ...(opts.alsoAnchors ?? [])]
-    .filter((a): a is { name: string; lat: number; lon: number } => !!a);
+    .filter((a): a is { name: string; lat: number; lon: number } => !!a)
+    .filter(a => !ownPlaces.has(placeKey(a.name)));
   // ONE PLACE, SAID ONCE. When the card's own landmark IS the place the search
   // is anchored on, the next sentence named it again — «во близина на Skopje
   // City Mall. Се наоѓа на 10 m од Скопје Сити Мол.» Two spellings of one mall
@@ -2266,7 +2280,9 @@ export function buildPropertyCard(p: Property, opts: {
   // distance) is the one that stays.
   const anchorEcho = !!firstLm && anchors.some(a =>
     displayPlaceName(a.name).toLowerCase() === displayPlaceName(firstLm).toLowerCase());
-  if (firstLm && !anchorEcho && !details?.includes(firstLm)) {
+  // …and a landmark that IS the flat's own area is the same tautology as the
+  // distance line above («во близина на Аеродром» for a flat in Аеродром).
+  if (firstLm && !anchorEcho && !ownPlaces.has(placeKey(firstLm)) && !details?.includes(firstLm)) {
     s += ` Се наоѓа во близина на ${displayPlaceName(firstLm)}.`;
   }
   if (anchors.length > 0 && typeof p.lat === 'number' && typeof p.lon === 'number' && p.lat !== 0 && p.lon !== 0) {

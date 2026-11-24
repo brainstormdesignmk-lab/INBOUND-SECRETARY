@@ -2507,6 +2507,40 @@ client asked three questions and got the same pair back twice:
   narrower gate there predicts FALLTHROUGH for a turn the lane really serves.
 Pins: `tests/capture-0941-batch.test.ts`, `tests/route-coverage.test.ts`.
 
+## 4p. THE SUBJECT IS THE FLAT THE CLIENT NAMED, AND ITS OWN AREA IS NEVER A LANDMARK (the [09:03]–[09:12] burst)
+
+```
+[09:11] na kolkavo rastojanie e 84 od crnogorska ambasada ?
+[09:11] ЛИНА: Црногорска Амбасада се наоѓа на 140 метри … од недвижноста со
+                Евидентен број 84 што ја разгледуваме (во Центар).        ✔
+[09:12] moram da znam kaj se naogja za da odlucam da go posetam
+[09:12] ЛИНА: Евидентен број 85 се наоѓа во близина на Градинка «Буба Мара 1»
+                https://maps.google.com/?q=41.98410,21.47862             ✘
+```
+
+- **A PURPOSE CLAUSE IS NOT A PLACE.** «za da odlucam da go posetam» (why he
+  wants to know) was read as the place name, so the where-is lane never reached
+  its generic branch and the junk place fell into the "unknown place → last
+  card" fallback. `detectWhereIs` cuts a bare «да/da» (with or without «за/za»)
+  clause after the line scope (`PURPOSE_CLAUSE_RE`), and names that merely begin
+  with the syllables (Даут пашин амам, Даме Груев) survive the lookahead.
+- **ONE SUBJECT CHAIN, EVERY BRANCH.** A flat the client NAMED outranks the
+  batch tail: named EB (this message or the last 3 user messages) → `askedEb` →
+  `propertyId` → last card PRESENTED → `interestedPropertyId`, applied by ONE
+  closure (`subjectOf`) in the WHERE_IS lane for the generic branch AND the
+  place-miss fallbacks. Two branches with two fallbacks is how «go posetam»
+  became EB 85 after the client had written 84 three times.
+- **A NEIGHBOURHOOD THE CARD ALREADY NAMES IS NOT A LANDMARK.** «Станот под
+  Евидентен број 82 е трисобен стан во Аеродром. … Се наоѓа на 490 m од
+  Аеродром.» is a tautology measured to the district centroid — the same family
+  as «890 m од Скопје» (the city-not-a-landmark rule, `tests/city-not-a-landmark.test.ts`). `buildPropertyCard` drops an
+  anchor (and a first landmark) whose name resolves to the row's own `location`,
+  marker- and case-proof («Аеродром (општина)»). A CROSS-place distance stays:
+  «290 m од Буњаковец» for a flat in Центар is real information.
+
+Pinned in `tests/discussed-subject-own-place.test.ts` (5 of its 7 cases fail
+on the old code).
+
 ## 4r. Helpful mode: a remembered listing is ANSWERED with the listing, and a question family is a LEXICON
 
 The owner's standing protocol, written down after the [06:46] capture so it does
