@@ -1208,13 +1208,10 @@ const ROUTE_LOG_MAX = 500;
 const PENDING_PREDICT = new Map<string, { intent: string; at: number }>();
 const DRIFT_WINDOW_MS = 60_000;
 
-/** THE EXECUTOR'S QUESTION GATE (inbound.ts 5162) — a genuine question skips
- *  every deterministic interceptor, the NEARBY read included. One definition:
- *  the where-is row asks it whether the near-by lane could have claimed the
- *  turn, exactly as the executor does before its interceptor. */
-const nearbyInterceptorSkipped = (t: string): boolean =>
-  isGenuineQuestion(t) && !detectService(t) && !detectBothServices(t)
-  && !detectPropertyDescription(t) && !detectExactAddressAsk(t);
+// (The mirror's old `nearbyInterceptorSkipped` helper is gone with the gate it
+// modelled: the NEARBY read is ungated now, so a near-by ask keeps its own lane
+// on every turn — see the WHERE_IS row's note. Do not reintroduce a question
+// gate here: it predicted WHERE_IS for turns the executor served as NEARBY.
 
 /** A RECALL THAT NAMES BOTH A REMEMBERED PRICE AND A SIZE. The recall block's
  *  claim gate requires the size to be MISSING whenever a price is present
