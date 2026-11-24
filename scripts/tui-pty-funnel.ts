@@ -175,8 +175,10 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
    * newest reply — the box follows the content. Returning '' there made the
    * funnel wait out its full timeout.
    */
+  const chatPaneText = (): string => session.terminal.paneText('РАЗГОВОР') ?? '';
+
   const lastReply = (): string => {
-    const pane = session.terminal.paneText('РАЗГОВОР') ?? '';
+    const pane = chatPaneText();
     // Read the LAST MESSAGE BLOCK, by its header line — not "everything after
     // the last ЛИНА". During a repaint the newest reply's header can be one
     // frame behind its body, so the last ЛИНА still belongs to the PREVIOUS
@@ -225,21 +227,82 @@ export async function runPtyFunnel(opts: FunnelOptions = {}): Promise<FunnelRepo
    *     mid-repaint is half a block, which would be reported as a rendering bug
    *     that does not exist (and would hide ones that do).
    */
+  /**
+   * A REPLY TALLER THAN THE CHAT PANE: THE SCROLLBACK READ.
+   *
+   * On a 24-row terminal the chat pane is ~9 rows while the EB card's copy
+   * (header + description + the follow-up question) wraps to ~12 — so the
+   * header («Евидентен број 88») is painted and scrolled off before the settled
+   * frame can be read, and the funnel waited out its full timeout on a reply
+   * that HAD been served. The operator can read it: PgUp/PgDn is the app's own
+   * chat scrollback (App.scrollChat, re-armed by paneAtBottom). So the check
+   * does what the operator does — one PgUp at a time, read, then PgDn back to
+   * the newest line — instead of weakening the expectation to a line that
+   * happens to fit the pane (which would stop proving WHICH card was served).
+   *
+   * The `beforePane` guard keeps the read honest: a marker already on screen
+   * before the turn cannot be attributed to this reply, so it is refused here
+   * and the ordinary timeout remains the failure.
+   */
+  const readReplyInScrollback = async (expect: RegExp, label: string, before: string, beforePane: string): Promise<string | null> => {
+    const wasOnScreen = expect.test(beforePane) || expect.test(beforePane.replace(/\s+/g, ' '));
+    if (wasOnScreen) return null;
+    await session.waitQuiet(400);
+    // No reply arrived at all — the caller's own timeout is the honest failure.
+    if (lastReply() === before) return null;
+    const bottom = chatPaneText();
+    let pages = 0;
+    let found: string | null = null;
+    for (let i = 0; i < 8; i++) {
+      await session.key(KEY_PAGEUP);
+      pages++;
+      await session.waitQuiet(150);
+      // A pane that FITS cannot scroll: reading `=== bottom` stops before a
+      // PgUp loop on a fixed pane runs the funnel off the rails.
+      if (chatPaneText() === bottom) break;
+      if (expect.test(chatPaneText())) {
+        found = chatPaneText();
+        break;
+      }
+    }
+    // Back to the newest line: every later step reads the pane's tail, and a
+    // pane left scrolled up would quietly corrupt each of those checks.
+    for (let i = 0; i < pages + 3 && chatPaneText() !== bottom; i++) {
+      await session.key(KEY_PAGEDOWN);
+      await session.waitQuiet(120);
+    }
+    if (chatPaneText() !== bottom) {
+      failures.push(`the chat pane did not return to its newest line after the scrollback read of "${label}" — later reply checks would read a stale window`);
+    }
+    return found;
+  };
+
   const turn = async (text: string, label: string, expect: RegExp): Promise<void> => {
     // Settle BEFORE capturing "before": the previous reply must already be fully
     // painted, or a frame caught mid-repaint can be mistaken for this turn's.
     await session.waitQuiet(400);
     const before = lastReply();
+    const beforePane = chatPaneText();
     await session.typeLine(text);
     const deadline = Date.now() + 30_000;
     for (;;) {
-      await session.waitForScreen(
-        () => {
-          const reply = lastReply();
-          return reply !== before && expect.test(reply);
-        },
-        { timeoutMs: Math.max(1, deadline - Date.now()), label: `ЛИна's reply to "${label}" (${expect.source})` },
-      );
+      try {
+        await session.waitForScreen(
+          () => {
+            const reply = lastReply();
+            return reply !== before && expect.test(reply);
+          },
+          { timeoutMs: Math.max(1, deadline - Date.now()), label: `ЛИна's reply to "${label}" (${expect.source})` },
+        );
+      } catch (err) {
+        // The marker may have scrolled off the top of a small pane.
+        const scrolled = await readReplyInScrollback(expect, label, before, beforePane);
+        if (scrolled !== null) {
+          notes.push(`${label} → (read by scrolling back) ${scrolled.replace(/\s+/g, ' ').trim().slice(0, 90)}`);
+          return;
+        }
+        throw err;
+      }
       await session.waitQuiet(400);
       // The match must SURVIVE the settle: a reply caught mid-repaint can match
       // on the previous block's text. If the settled frame no longer matches,
