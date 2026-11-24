@@ -152,11 +152,20 @@ const CASES: Array<{ id: string; text: string; lane: string; why: string }> = [
     lane: 'NEARBY_ASK',
     why: 'the executor intercepts the near-by read BEFORE the where-is lane; a где-word inside it does not make it a where-is question',
   },
+  // THE EXPECTATION CHANGED ON PURPOSE (2026-11-24, the [09:1x] capture). This
+  // entry pinned the 2026-11-15 telemetry, where the near-by interceptor sat
+  // BEHIND the question gate and a genuine question therefore reached the
+  // where-is lane. That gate was the defect: «sto ima vo negova blizina drugo?»
+  // is also a genuine question, skipped the interceptor too, and fell into the
+  // funnel, which served a flat from the stale place anchor instead of the
+  // landmarks near the flat on the table. The interceptor is ungated now (it is
+  // as deterministic as the where-is lane), so the mirror must predict the lane
+  // the executor really runs.
   {
     id: 'nearby-question-gate',
     text: 'a sto drugo ima vo blizina',
-    lane: 'WHERE_IS',
-    why: 'the near-by interceptor sits BEHIND the question gate: a genuine question skips it, so the where-is lane keeps the turn and the mirror must not veto it',
+    lane: 'NEARBY_ASK',
+    why: 'the near-by interceptor is NOT behind the question gate any more: a location question about the flat on the table is deterministic, like the where-is lane, and it runs first',
   },
   {
     id: 'distance-needs-a-place',

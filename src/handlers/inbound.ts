@@ -2181,6 +2181,52 @@ export class InboundHandler {
     return hits.length === 1 ? hits[0] : undefined;
   }
 
+  /** THE EB THE CLIENT NAMED RECENTLY — this message, then the last 3 user
+   *  messages, newest first. A number carrying a budget/cap word is a price,
+   *  not an Евидентен број (`inferPropertyId` owns both guards). */
+  private pinnedEbRecent(text: string, session: ChatSession): number | undefined {
+    const candidates: number[] = [];
+    const bare = inferPropertyId(text);
+    if (bare !== undefined && !detectBudget(text)) candidates.push(bare);
+    const hist = session.history.filter(h => h.role === 'user');
+    for (let i = hist.length - 1; i >= Math.max(0, hist.length - 3); i--) {
+      const n = inferPropertyId(hist[i].text);
+      if (n !== undefined && !detectBudget(hist[i].text)) candidates.push(n);
+    }
+    return candidates[0];
+  }
+
+  /** THE SUBJECT OF THE ASK — ONE chain for every lane that answers about
+   *  «it»/«this one»/«the flat» (the [09:12] and [09:0x] captures).
+   *
+   *   1. an EB named in THIS or the last 3 user messages — THE topic;
+   *   2. the flat the client last CHOSE (`askedEb` — the [19:27] rule);
+   *   3. the flat under discussion (`propertyId`);
+   *   4. the last card PRESENTED (`shown`, passed in PRESENTATION order — a
+   *      feed-ordered filter's tail is not "the last shown", §4b);
+   *   5. the flat he praised (`interestedPropertyId`).
+   *
+   *  A named EB outranks the batch tail because the tail is an accident of the
+   *  last serve, not something the client said. Two lanes with two private
+   *  fallbacks is how «go posetam» and «sto ima vo negova blizina drugo?» both
+   *  ended up on EB 85 after the client had written 84. */
+  private async askedSubject(session: ChatSession, text: string, shown?: Property[]): Promise<Property | undefined> {
+    const pinned = this.pinnedEbRecent(text, session);
+    return (pinned !== undefined
+      ? await this.deps.properties.getByEb(pinned).catch(() => undefined)
+      : undefined)
+      ?? (session.slots.askedEb !== undefined
+        ? await this.deps.properties.getByEb(session.slots.askedEb).catch(() => undefined)
+        : undefined)
+      ?? (session.slots.propertyId
+        ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
+        : undefined)
+      ?? (shown && shown.length > 0 ? shown[shown.length - 1] : undefined)
+      ?? (session.slots.interestedPropertyId
+        ? await this.deps.properties.getByEb(session.slots.interestedPropertyId).catch(() => undefined)
+        : undefined);
+  }
+
   private async bindMention(text: string, session: ChatSession, opts?: { historyFallback?: boolean; offerAtPlace?: boolean; namedAtPlace?: boolean }): Promise<{ prop?: Property; clarify?: string; fromFeed?: boolean; clarifyEbs?: number[]; clarifyAnchor?: { name: string; lat: number; lon: number } } | undefined> {
     const ebSet = new Set<number>();
     for (const eb of [
@@ -4100,6 +4146,54 @@ export class InboundHandler {
    *  honest radius of the place they were drawn for rank last, after every
    *  genuine cross-place pair, and keep the pool's order.
    */
+  /** A SETTLEMENT ANCHOR THAT IS THE CARD'S OWN AREA SAYS NOTHING (§4p — the
+   *  [09:03] capture): «Станот … е во Ново Лисиче. … Се наоѓа на 980 m од
+   *  Аеродром.» — the flat's naselba lies INSIDE the district the card was
+   *  drawn for, so the number measures the district CENTROID, not anything the
+   *  client can use to judge the location. Only a RESIDENTIAL AREA anchor can
+   *  be "the area it is in": a mall, hospital or school anchor keeps its
+   *  distance always (that is real geography). Decided from two map facts — the
+   *  anchor row's CLASS (`isSettlementPlace`) and which settlement CENTRE is
+   *  nearer to the flat — because the map stores settlements as points, not
+   *  polygons, and an invented containment would be worse than the tautology.
+   *  No map, no coordinates or an unknown class leaves the anchor untouched. */
+  private anchorIsOwnArea(p: Property, a: { name: string; lat: number; lon: number }): boolean {
+    const own = p.location?.replace(/\s*\((?:населба|општина|naselba|opstina)\)\s*$/iu, '').trim();
+    if (!own) return false;
+    const norm = (s: string): string => s.trim().toLocaleLowerCase('mk-MK');
+    if (norm(own) === norm(a.name)) return true;
+    const map = this.landmarks;
+    if (!map || typeof p.lat !== 'number' || typeof p.lon !== 'number'
+      || p.lat === 0 || p.lon === 0) return false;
+    const anchorRow = map.findPlace(a.name);
+    if (!anchorRow || !isSettlementPlace(anchorRow.type)) return false;
+    const ownRow = map.findPlace(own);
+    if (!ownRow || !isSettlementPlace(ownRow.type)) return false;
+    const dOwn = distM(p.lat, p.lon, ownRow.lat, ownRow.lon);
+    const dAnchor = distM(p.lat, p.lon, a.lat, a.lon);
+    return Number.isFinite(dOwn) && Number.isFinite(dAnchor) && dOwn <= dAnchor;
+  }
+
+  /** Mark every pair anchor that is (or contains) the card's own naselba, so the
+   *  card renders its area WITHOUT measuring itself from it. Mutates the two
+   *  maps the builders produced — they are assigned to the session right after. */
+  private markOwnAreaAnchors(
+    anchorOf: Record<string, { name: string; lat: number; lon: number; ownArea?: boolean }>,
+    alsoNearOf: Record<string, Array<{ name: string; lat: number; lon: number; ownArea?: boolean }>>,
+    rows: Property[],
+  ): void {
+    const byId = new Map(rows.map(p => [p.id, p] as const));
+    for (const [id, a] of Object.entries(anchorOf)) {
+      const p = byId.get(Number(id));
+      if (p && this.anchorIsOwnArea(p, a)) anchorOf[id] = { ...a, ownArea: true };
+    }
+    for (const [id, list] of Object.entries(alsoNearOf)) {
+      const p = byId.get(Number(id));
+      if (!p) continue;
+      alsoNearOf[id] = list.map(a => (this.anchorIsOwnArea(p, a) ? { ...a, ownArea: true } : a));
+    }
+  }
+
   private placePairQueue(
     pool: Property[],
     places: Array<{ name: string; lat: number; lon: number }>,
@@ -4275,6 +4369,9 @@ export class InboundHandler {
       const others = places.filter(pl => pl.name !== own?.name && distTo(row, pl) <= LANDMARK_NEAR_M);
       if (others.length > 0) alsoNearOf[String(id)] = others;
     }
+    // A card drawn FOR the district it already sits in must not measure itself
+    // from it (§4p): marked here, where the map is at hand.
+    this.markOwnAreaAnchors(anchorOf, alsoNearOf, pool);
     slots.pairAnchorOf = anchorOf;
     slots.pairAlsoNearOf = alsoNearOf;
     slots.pairEmpty = empty;
@@ -10507,7 +10604,16 @@ export class InboundHandler {
     // Checked BEFORE detectWhereIs: no kade-verb → detectWhereIs returns
     // undefined for these, and if it ever DOES match (e.g. "kade sto ima
     // drugo vo blizina"), the dedicated nearby path must win anyway.
-    if (!skipInterceptors && detectNearbyAsk(text)) {
+    // NO skipInterceptors GATE (the [09:1x] capture): a nearby ask IS a genuine
+    // question ("STO IMA VO NEGOVA BLIZINA DRUGO?"), so the old gate handed the
+    // turn to the classifier/funnel — which still held the «Аеродром» search
+    // anchor from the earlier pair and served a flat in Ново Лисиче as
+    // «најблиската опција до Аеродром» while the client was asking what is near
+    // EB 84. The where-is lane has never been gated either: a location question
+    // about the flat on the table is answered deterministically from the map, and
+    // the LLM has nothing to add but risk. The branch's own guards (place-stock
+    // ask, no subject → fall through) still decide.
+    if (detectNearbyAsk(text)) {
       // A PLACE-ANCHORED STOCK ASK IS A SEARCH AT THAT PLACE, NOT A QUESTION
       // ABOUT THE FLAT ON THE TABLE (the [00:39] capture): «NESTO OKOLU
       // BUNJAKOVEC IMA ?» was answered «Недвижноста се наоѓа во населбата
@@ -10538,39 +10644,24 @@ export class InboundHandler {
       }
       if (!placeStockAsk) {
       routeLog(chatId, text, 'NEARBY_ASK');
-      // EB-anchored nearby asks ("sto drugo ima vo blizina na 78?") MUST
-      // resolve the NAMED property — falling back to shown[last] served a
-      // Влае center for a Капиштец property (Reptil/Badu bug).
-      const ebInText = (() => {
-        const m = text.match(/\b(?:na|на)\s+(\d{1,4})\b/i);
-        return m ? parseInt(m[1], 10) : undefined;
-      })();
+      // WHICH FLAT — the ONE chain (ebInText is covered by its first step, the
+      // named EB in this message): a nearby ask about an EB the client named
+      // ("sto drugo ima vo blizina na 78?") resolved that EB, but a nearby ask
+      // about «it» used to fall to the batch tail — a Влае center for a
+      // Капиштец property (Reptil/Badu bug), EB 63 for the chosen EB 70
+      // ([19:27]), and EB 85 for the named EB 84 ([09:1x]).
       const all = await this.deps.properties.getAll();
-      const shownIds = new Set(session.slots.presentedIds ?? []);
-      const shown = all.filter(p => shownIds.has(p.id));
+      // PRESENTATION order, not feed order (§4b): `all.filter(shownIds)` left
+      // the array ordered by the FEED, so its tail was a card from the top of
+      // the batch.
+      const shown = (session.slots.presentedIds ?? [])
+        .map(id => all.find(p => p.id === id))
+        .filter((p): p is Property => !!p);
       // Descriptor mentions bind too ("vo blizina na garsonjerata kaj
-      // ambasadata") — the numeric-only ebInText regex left those on
-      // shown[last] (the 00:09 class).
+      // ambasadata").
       const mbNear = await this.bindMention(text, session);
       if (await this.sendIfClarify(mbNear, text, session)) return;
-      const cur = mbNear?.prop
-          ?? (ebInText
-          ? await this.deps.properties.getByEb(ebInText).catch(() => undefined)
-          : undefined)
-        // THE FLAT HE NAMED LAST OUTRANKS THE BATCH TAIL (the [19:27] capture):
-        // after «ovoj za 350 evra kirija bi go videl» the client asked «sto ima
-        // vo blizina poznato?» and heard the OTHER card's landmark (EB 63 for
-        // EB 70) — presentation order is not a choice the client made.
-        ?? (session.slots.askedEb !== undefined
-          ? await this.deps.properties.getByEb(session.slots.askedEb).catch(() => undefined)
-          : undefined)
-        ?? shown[shown.length - 1]
-        ?? (session.slots.propertyId
-          ? await this.deps.properties.getByEb(session.slots.propertyId)
-          : undefined)
-        ?? (session.slots.interestedPropertyId
-          ? await this.deps.properties.getByEb(session.slots.interestedPropertyId)
-          : undefined);
+      const cur = mbNear?.prop ?? await this.askedSubject(session, text, shown);
       if (!cur) {
         // Nothing under discussion — a nearby ask without context is a search
         // wish; let the normal pipeline handle it.
@@ -10630,36 +10721,16 @@ export class InboundHandler {
       && !detectAvailabilityAsk(text) && !detectPriceAsk(text)
       && lastReplyWasNearby(lastLineNearby)) {
       routeLog(chatId, text, 'NEARBY_THREAD');
-      // EB-anchored asks resolve the NAMED property (same rule as NEARBY_ASK);
-      // descriptor mentions bind too ("za garsonjerata kaj ambasadata") — the
-      // numeric-only ebInText regex left those on shown[last] (00:09 class).
+      // WHICH FLAT — the same ONE chain as NEARBY_ASK and the where-is lane
+      // (named EB → askedEb → propertyId → last card in PRESENTATION order →
+      // interested). Descriptor mentions bind first.
       const mbNear = await this.bindMention(text, session);
       if (await this.sendIfClarify(mbNear, text, session)) return;
-      const ebInText = (() => {
-        const m = text.match(/\b(?:na|на)\s+(\d{1,4})\b/i);
-        return m ? parseInt(m[1], 10) : undefined;
-      })();
       const all = await this.deps.properties.getAll();
-      const shownIds = new Set(session.slots.presentedIds ?? []);
-      const shown = all.filter(p => shownIds.has(p.id));
-      const cur = mbNear?.prop
-          ?? (ebInText
-          ? await this.deps.properties.getByEb(ebInText).catch(() => undefined)
-          : undefined)
-        // THE FLAT HE NAMED LAST OUTRANKS THE BATCH TAIL (the [19:27] capture):
-        // after «ovoj za 350 evra kirija bi go videl» the client asked «sto ima
-        // vo blizina poznato?» and heard the OTHER card's landmark — the same
-        // tail-before-choice order the address lane had.
-        ?? (session.slots.askedEb !== undefined
-          ? await this.deps.properties.getByEb(session.slots.askedEb).catch(() => undefined)
-          : undefined)
-        ?? shown[shown.length - 1]
-        ?? (session.slots.propertyId
-          ? await this.deps.properties.getByEb(session.slots.propertyId)
-          : undefined)
-        ?? (session.slots.interestedPropertyId
-          ? await this.deps.properties.getByEb(session.slots.interestedPropertyId)
-          : undefined);
+      const shown = (session.slots.presentedIds ?? [])
+        .map(id => all.find(p => p.id === id))
+        .filter((p): p is Property => !!p);
+      const cur = mbNear?.prop ?? await this.askedSubject(session, text, shown);
       if (cur) {
         await this.landmarks.enrich([cur]);
         const answer = this.whereIsReply(cur, session, text);
@@ -10730,30 +10801,8 @@ export class InboundHandler {
       //   • then the flat he praised (interestedPropertyId).
       // A named EB outranks the batch tail: the tail is an accident of the last
       // serve, not something the client said.
-      const pinnedWhere = (() => {
-        const candidates: number[] = [];
-        const bare = inferPropertyId(text);
-        if (bare !== undefined && !detectBudget(text)) candidates.push(bare);
-        const hist = session.history.filter(h => h.role === 'user');
-        for (let i = hist.length - 1; i >= Math.max(0, hist.length - 3); i--) {
-          const n = inferPropertyId(hist[i].text);
-          if (n !== undefined && !detectBudget(hist[i].text)) candidates.push(n);
-        }
-        return candidates[0];
-      })();
-      const subjectOf = async (): Promise<Property | undefined> =>
-        (pinnedWhere !== undefined
-          ? await this.deps.properties.getByEb(pinnedWhere).catch(() => undefined)
-          : undefined)
-        ?? (session.slots.askedEb !== undefined
-          ? await this.deps.properties.getByEb(session.slots.askedEb).catch(() => undefined)
-          : undefined)
-        ?? (session.slots.propertyId
-          ? await this.deps.properties.getByEb(session.slots.propertyId).catch(() => undefined)
-          : undefined)
-        ?? shown[shown.length - 1]
-        ?? (session.slots.interestedPropertyId
-          ? await this.deps.properties.getByEb(session.slots.interestedPropertyId).catch(() => undefined)            : undefined);
+      const subjectOf = (): Promise<Property | undefined> =>
+        this.askedSubject(session, text, shown);
       if (hit === undefined) {
       if (whereIs.generic) {
         // The client asks about the current property ("каде е?", "сто има во
@@ -21589,6 +21638,7 @@ ${contactReminder}`;
           // card per landmark, looping until both places are out of stock.
           const built = categoryPlaceQueue(pool, catCaps, multiPlaces);
           queue = built.queue;
+          this.markOwnAreaAnchors(built.anchorOf, built.alsoNearOf, pool);
           session.slots.pairAnchorOf = built.anchorOf;
           session.slots.pairAlsoNearOf = built.alsoNearOf;
           session.slots.pairEmpty = built.emptyPlaces;

@@ -2537,8 +2537,31 @@ Pins: `tests/capture-0941-batch.test.ts`, `tests/route-coverage.test.ts`.
   anchor (and a first landmark) whose name resolves to the row's own `location`,
   marker- and case-proof («Аеродром (општина)»). A CROSS-place distance stays:
   «290 m од Буњаковец» for a flat in Центар is real information.
+- **THE DISTANCE IS DROPPED FOR THE AREA THE CARD ITSELF SITS IN.** Equality on
+  `location` alone missed the nested case: a flat in Ново Лисиче measured «830 m
+  од Аеродром», the municipality it belongs to. `markOwnAreaAnchors` marks an
+  anchor `ownArea: true` when the row's own point is CLOSER to the anchor's
+  centre than the anchor is to the row — i.e. the row sits INSIDE the anchor —
+  and only for RESIDENTIAL area anchors (`isSettlementPlace`): the map stores
+  settlements as POINTS, so this is a point-to-point containment test, never an
+  invented polygon. A facility anchor (ТЦ Џевахир, a school) always keeps its
+  distance. The mark travels on the anchor object itself (`slots.pairAnchorOf`,
+  `pairAlsoNearOf`) and `pairBatchMeta` must SPREAD it (`{ ...a, name }`) — a
+  rebuilt `{ name, lat, lon }` silently dropped it and the card measured the
+  district again.
+- **THE NEAR-BY READ IS NOT BEHIND THE QUESTION GATE.** «sto ima vo negova
+  blizina drugo?» is a genuine question, so the old `skipInterceptors` gate let
+  it fall to the funnel, which served a flat from the stale place anchor. The
+  NEARBY_ASK interceptor runs ungated (like the where-is lane) and reads the
+  same `subjectOf` chain, and the router's WHERE_IS row no longer vetoes a
+  nearby ask only when interceptors are skipped — the mirror predicts the lane
+  the executor really runs (`tests/route-drift-day-replay.test.ts`).
+- **DAY NAMES IN TESTS ARE DATA.** «ВТОРНИК ВО 14:00» is TODAY every Tuesday, so
+  a "next day" scenario collapsed onto the first day (`tests/deferred-second-day.test.ts`,
+  `tests/chain-gap-and-deferral.test.ts`). Derive the days as the next WORKING
+  days (Mon–Fri, `isWeekendTerm`) and build the copy from them.
 
-Pinned in `tests/discussed-subject-own-place.test.ts` (5 of its 7 cases fail
+Pinned in `tests/discussed-subject-own-place.test.ts` (7 of its 9 cases fail
 on the old code).
 
 ## 4r. Helpful mode: a remembered listing is ANSWERED with the listing, and a question family is a LEXICON

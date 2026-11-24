@@ -415,13 +415,17 @@ export interface SlotData {
   poiPlaces?: Array<{ name: string; lat: number; lon: number }>;
   /** id → the place THIS card was drawn for, so each card of a cross-place
    *  pair states its own distance ("на 220 m од Универзална Сала"). */
-  pairAnchorOf?: Record<string, { name: string; lat: number; lon: number }>;
+  /** `ownArea: true` marks an anchor that IS (or contains) this card's own
+   *  naselba — the card must not measure itself from it (§4p). Marked where the
+   *  anchors are built, because only the map can tell a RESIDENTIAL AREA row
+   *  (suburb/quarter) from a facility. */
+  pairAnchorOf?: Record<string, { name: string; lat: number; lon: number; ownArea?: boolean }>;
   /** id → the OTHER named places the SAME card stands within the honest radius
    *  of. Two places 1 km apart routinely share one flat (the only 2-room under
    *  budget near both) — that card answers for BOTH, and it says so ("на 240 m
    *  од Болница 8-ми Септември и на 720 m од Сити Мол") instead of the pair
    *  pretending one of the places has nothing. */
-  pairAlsoNearOf?: Record<string, Array<{ name: string; lat: number; lon: number }>>;
+  pairAlsoNearOf?: Record<string, Array<{ name: string; lat: number; lon: number; ownArea?: boolean }>>;
   /** Places in the current search with NOTHING that matches the criteria —
    *  said plainly once each instead of silently dropping them from the pair. */
   pairEmpty?: string[];

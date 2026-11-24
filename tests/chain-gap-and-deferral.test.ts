@@ -22,6 +22,26 @@ import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { detectOwnerVerdict } from '../src/llm/deterministic';
 
+// THE DAY NAMES ARE DATA, NOT LITERALS (fixed 2026-11-24, a Tuesday — the same
+// defect as tests/deferred-second-day.test.ts): «ВТОРНИК ВО 14:00» is TODAY
+// every Tuesday, so the "next day" scenario collapsed onto day one and the
+// owner's remembered hour never led. Two days that are ALWAYS in the future and
+// ALWAYS working days (the agency is closed at weekends: `isWeekendTerm`), with
+// the spellings the handler's own DAY_FORMS understand.
+const MK_DAYS = ['НЕДЕЛА', 'ПОНЕДЕЛНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВРТОК', 'ПЕТОК', 'САБОТА'];
+const nextWorkdays = (n: number): string[] => {
+  const out: string[] = [];
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  while (out.length < n) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() >= 1 && d.getDay() <= 5) out.push(MK_DAYS[d.getDay()]);
+  }
+  return out;
+};
+const [DAY1, DAY2] = nextWorkdays(2);
+const titleDay = (d: string): string => d.charAt(0) + d.slice(1).toLowerCase();
+
 const cfg = loadConfig();
 
 class FailingLlm implements LlmClient {
@@ -93,16 +113,16 @@ function makeHandler(ebs: number[] = [82, 84]) {
 test('[gap] a two-hour pause is OFFERED with the pause named, and his yes books it', async () => {
   const h = makeHandler();
   h.seed();
-  await h.say('ПЕТОК ВО 17:00, САКАМ ДА ГИ ВИДАМ ДВАТА');
+  await h.say(`${DAY1} ВО 17:00, САКАМ ДА ГИ ВИДАМ ДВАТА`);
   // Owner 1 only 17, owner 2 cannot do 18 and offers 20 → a two-hour pause
   // would be the route, so ONE more question is asked first: can he do 19?
-  await h.answer(82, 'MOZE', 'Петок во 17:00');
-  const probe = await h.answer(84, 'MOZE VO 20:00', 'Петок во 18:00');
+  await h.answer(82, 'MOZE', `${titleDay(DAY1)} во 17:00`);
+  const probe = await h.answer(84, 'MOZE VO 20:00', `${titleDay(DAY1)} во 18:00`);
   assert.equal(probe, '', 'the pause is not offered while a connecting hour exists');
   assert.match(h.asks.at(-1) ?? '', /19:00/u, `she asks for the connecting hour: ${h.asks.at(-1)}`);
 
   // He agrees to 19 → the route is 17 + 19 (a one-hour pause), named and asked.
-  const asked = await h.answer(84, 'MOZE', 'Петок во 19:00');
+  const asked = await h.answer(84, 'MOZE', `${titleDay(DAY1)} во 19:00`);
   assert.match(asked, /17:00/u, `the route is offered: ${asked}`);
   assert.match(asked, /19:00/u, asked);
   assert.match(asked, /пауза од 1 час/u, `the pause is named: ${asked}`);
@@ -117,26 +137,26 @@ test('[gap] a two-hour pause is OFFERED with the pause named, and his yes books 
 test('[deferral] the flat that cannot share the day gets its OWN term next', async () => {
   const h = makeHandler([82, 84, 88]);
   h.seed();
-  await h.say('ПЕТОК ВО 17:00, САКАМ ДА ГИ ВИДАМ ТРИТЕ');
+  await h.say(`${DAY1} ВО 17:00, САКАМ ДА ГИ ВИДАМ ТРИТЕ`);
   // Three owners asked in one parallel round: 17, 18, 19.
   assert.equal(h.asks.length, 3, `one round: ${JSON.stringify(h.asks)}`);
 
   // 82 and 84 agree; 88 can only do 12:00. The negotiator first tries ONE hour
   // that would still fit him into the route, then settles for his own term.
-  await h.answer(82, 'MOZE', 'Петок во 17:00');
-  await h.answer(84, 'MOZE', 'Петок во 18:00');
-  const probe = await h.answer(88, 'SAMO VO 12:00', 'Петок во 19:00');
+  await h.answer(82, 'MOZE', `${titleDay(DAY1)} во 17:00`);
+  await h.answer(84, 'MOZE', `${titleDay(DAY1)} во 18:00`);
+  const probe = await h.answer(88, 'SAMO VO 12:00', `${titleDay(DAY1)} во 19:00`);
   assert.equal(probe, '', 'the route is not offered while a fitting hour exists');
   assert.match(h.asks.at(-1) ?? '', /Клиентот не е во можност/u, `the follow-up shape for EB 88: ${h.asks.at(-1)}`);
   assert.match(h.asks.at(-1) ?? '', /20:00/u, h.asks.at(-1) ?? '');
 
-  const second = await h.answer(88, 'SAMO VO 12:00', 'Петок во 20:00');
+  const second = await h.answer(88, 'SAMO VO 12:00', `${titleDay(DAY1)} во 20:00`);
   assert.equal(second, '', 'still asking — one hour would take all three');
   assert.match(h.asks.at(-1) ?? '', /21:00/u, `the last fitting hour is asked: ${h.asks.at(-1)}`);
 
   // His third answer is the same: the budget is spent, the route is offered and
   // EB 88 keeps its own term — exactly three questions, never an endless ping.
-  const asked = await h.answer(88, 'SAMO VO 12:00', 'Петок во 21:00');
+  const asked = await h.answer(88, 'SAMO VO 12:00', `${titleDay(DAY1)} во 21:00`);
   assert.match(asked, /17:00/u, `the route is offered: ${asked}`);
   assert.match(asked, /18:00/u, asked);
   assert.match(asked, /88/u, `the third flat is named: ${asked}`);
@@ -154,7 +174,7 @@ test('[deferral] the flat that cannot share the day gets its OWN term next', asy
 
   // A term for it reaches ITS owner.
   const before = h.asks.length;
-  await h.say('ВТОРНИК ВО 14:00');
+  await h.say(`${DAY2} ВО 14:00`);
   assert.ok(h.asks.length > before, 'the deferred flat’s owner is asked');
   assert.match(h.asks.at(-1) ?? '', /88|број 88/u, `about EB 88: ${h.asks.at(-1)}`);
   // HIS OWN HOUR LEADS THE NEW DAY (slots.deferHours): the owner said 12:00 on

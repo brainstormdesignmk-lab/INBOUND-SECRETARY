@@ -629,6 +629,27 @@ test('e2e regression: refused-time ping-pong counters СРЕДА ВО 6, and the
   db.close();
 });
 
+// THE TWO DAYS IN THIS SCENARIO ARE DERIVED, NOT LITERALS (fixed 2026-11-24):
+// «утре» was the proposal and the owner refused «во среда» — TWO DIFFERENT DAYS
+// on a Tuesday run, the SAME day on a Wednesday one. On that Wednesday the
+// client's «cetvrtok» counter re-proposed the term the owner had already been
+// asked about, the duplicate-ask guard (rightly) suppressed it, and the test
+// failed on the agency's own correct behaviour. Derive two working days (the
+// agency is closed at weekends: `isWeekendTerm`) with the spellings DAY_FORMS
+// understands, so the proposal, the refusal and the counter never collide.
+const MK_DAY_NAMES = ['НЕДЕЛА', 'ПОНЕДЕЛНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВРТОК', 'ПЕТОК', 'САБОТА'];
+const nextWorkdays = (n: number): string[] => {
+  const out: string[] = [];
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  while (out.length < n) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() >= 1 && d.getDay() <= 5) out.push(MK_DAY_NAMES[d.getDay()]);
+  }
+  return out;
+};
+const titleDay = (d: string): string => d.charAt(0) + d.slice(1).toLowerCase();
+
 // --- the [01:17]/[01:20] capture: the owner ping-pong survives the TTL -------
 // Lina relayed the owner's counter and asked for a NEW term at 01:17 — 2h46m
 // after the client's last inbound — and his "cetvrtok togas?" 3 minutes later
@@ -654,6 +675,7 @@ test('[01:17]/[01:20] the client answering Lina\'s relay is parsed, never the re
     meta: new MetaStore(db), channels,
     landmarks: new LandmarkService(db, { osm: false }),
   });
+  const [PROPOSED, COUNTER] = nextWorkdays(2);
   const chatId = 'ttl-pingpong';
   const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
 
@@ -662,11 +684,11 @@ test('[01:17]/[01:20] the client answering Lina\'s relay is parsed, never the re
   await send('DA');
   await send('DA, SE SOGLASUVAM');
   await send('MARKO 078/914 196');
-  let s = await send('UTRE VO 4');
+  let s = await send(`${titleDay(PROPOSED)} VO 4`);
   assert.equal(s.state, 'owner_checking');
 
   // [01:17] The owner refuses the term; Lina relays and asks for a NEW one.
-  handler.ownerAnswer(chatId, 78, detectOwnerVerdict('nema da mozam vo sreda', 'Утре во 4')!);
+  handler.ownerAnswer(chatId, 78, detectOwnerVerdict(`nema da mozam ${titleDay(PROPOSED)}`, `${titleDay(PROPOSED)} во 4`)!);
   await new Promise(r => setTimeout(r, 50));
   s = sessions.get(chatId)!;
   const funnelStates = ['visit_scheduling', 'owner_checking', 'time_confirm'];
@@ -700,7 +722,7 @@ test('[01:17]/[01:20] the client answering Lina\'s relay is parsed, never the re
 
   // [01:20] "cetvrtok togas?" — a day-only counter-proposal, 3 min after the
   // relay. THE FIX: no bridge — the day-only split intake asks for the hour.
-  s = await send('cetvrtok togas?');
+  s = await send(`${titleDay(COUNTER)} togas?`);
   assert.equal(matchesPoolContract('vague.time', sent[sent.length - 1]), true,
     `the exact-clock ask continues the ping-pong, never the bridge: ${sent[sent.length - 1]?.slice(0, 120)}`);
   assert.ok(!/Се враќаме|вашиот избор/iu.test(sent[sent.length - 1] ?? ''),
@@ -708,13 +730,13 @@ test('[01:17]/[01:20] the client answering Lina\'s relay is parsed, never the re
   assert.ok(funnelStates.includes(s.state), `still in the visit funnel: ${s.state}`);
   assert.ok(hasDayWord(s.slots.visitTime ?? ''), `the day is armed for the follow-up: ${s.slots.visitTime}`);
 
-  // The hour completes the pair and the owner ask fires with ЧЕТВРТОК.
+  // The hour completes the pair and the owner ask fires with the COUNTER day.
   const ownerAsks: string[] = [];
   handler.onOwnerAsk = (_c: string, _eb: number, q: string) => { ownerAsks.push(q); };
   await send('OKOLU 16');
   assert.equal(sessions.get(chatId)!.state, 'owner_checking', `the completed term goes to the owner: ${sessions.get(chatId)!.state}`);
-  assert.ok(ownerAsks.some(q => /четврток/iu.test(q) && /16/i.test(q)),
-    `the owner is asked for ЧЕТВРТОК with the hour, never the refused Среда: ${ownerAsks.join(' | ')}`);
+  assert.ok(ownerAsks.some(q => new RegExp(COUNTER, 'iu').test(q) && /16/i.test(q)),
+    `the owner is asked for ${COUNTER} with the hour, never the refused ${PROPOSED}: ${ownerAsks.join(' | ')}`);
   db.close();
 });
 

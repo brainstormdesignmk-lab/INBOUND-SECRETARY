@@ -374,12 +374,15 @@ export const ROUTING_ORDER: RouteRule[] = [
   // and «kazi mi sto ima vo blizina poznato?» carries a where-word without
   // asking where anything is. Without the veto the mirror predicted WHERE_IS
   // for a turn the near-by read served.
-  // …BUT THE INTERCEPTOR IS BEHIND THE QUESTION GATE (inbound.ts 5162): a
-  // GENUINE question skips it, and «a sto drugo ima vo blizina» was served by
-  // WHERE_IS exactly that way. Same conjunction, both readers.
-  { intent: 'WHERE_IS', note: 'any каде-question → landmark rotation. Beats EXACT_ADDRESS by the guard above and beats description routing below; a NEARBY ask keeps its own lane (the executor intercepts it first, unless the question gate skips interceptors)',
-    fires: t => !!detectWhereIs(t)
-      && !(detectNearbyAsk(t) && !nearbyInterceptorSkipped(t)) },
+  // …AND NO LONGER BEHIND THE QUESTION GATE (the [09:1x] capture): the executor
+  // used to skip its nearby interceptor for a GENUINE question, so «a sto drugo
+  // ima vo blizina» was served by WHERE_IS — and «sto ima vo negova blizina
+  // drugo?» fell past both and into the funnel, which served a flat. The
+  // interceptor is now ungated (a location question about the flat on the table
+  // is deterministic, like the where-is lane), so a nearby ask ALWAYS keeps its
+  // own lane here too. Same rule, both readers.
+  { intent: 'WHERE_IS', note: 'any каде-question → landmark rotation. Beats EXACT_ADDRESS by the guard above and beats description routing below; a NEARBY ask keeps its own lane (the executor intercepts it first, ahead of the where-is lane)',
+    fires: t => !!detectWhereIs(t) && !detectNearbyAsk(t) },
   { intent: 'DISTANCE_BATCH', note: 'the same ask with SEVERAL flats on the table — one measured line per flat, nearest first (the [11:28] capture: two cards were served and only one flat\'s number came back). EVIDENCE: at least two rows of the batch measure against the named place',
     fires: (t, s, sl, ev) => ev?.distanceBatch === true },
   // THE TARGET MUST BE A PLACE (the 2026-11-15 replay): «kolku e daleku od

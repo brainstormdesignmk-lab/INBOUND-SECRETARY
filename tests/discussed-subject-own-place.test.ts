@@ -195,6 +195,31 @@ test('[09:12] e2e: «go posetam» with NO named flat keeps the last presented (u
   assert.doesNotMatch(reply, /Евидентен број/iu, `no flat may be invented: ${reply}`);
 });
 
+test('[09:0x] e2e: «sto ima vo negova blizina drugo?» answers about EB 84, not a flat', { skip: !hasMap }, async () => {
+  const { say, sessions, chatId } = makeHandler('nearby-84');
+  // The state the capture reached: EB 84 answered twice, EB 85 served as the
+  // last card, and the client asks what else is near IT.
+  const s = freshSession('test', chatId);
+  s.state = 'presentation';
+  s.slots.service = 'buy';
+  s.slots.location = 'Центар';
+  s.slots.bedrooms = 3;
+  s.slots.presentedIds = [EB84, EB85];
+  s.slots.currentBatch = [EB84, EB85];
+  s.slots.propertyId = EB85;
+  s.history = [
+    { role: 'user', text: '84 na koja adresa e ?' },
+    { role: 'assistant', text: 'Евидентен број 84 се наоѓа во близина на Амбасада на Црна Гора.' },
+  ];
+  sessions.set(s);
+  const reply = await say('sto ima vo negova blizina drugo ?');
+  assert.match(reply, /84/u, `the flat he asked about: ${reply}`);
+  assert.doesNotMatch(reply, /85/u, `never the batch tail: ${reply}`);
+  assert.doesNotMatch(reply, /Буба Мара/iu, `never 85's landmark: ${reply}`);
+  assert.doesNotMatch(reply, /Еве ја најблиската опција до/iu,
+    `a nearby ask is not a search serve: ${reply}`);
+});
+
 // ── 3. THE CARD COPY: A NEIGHBOURHOOD IS NOT A LANDMARK ────────────────────
 
 test('[09:03] a card never measures itself from the area it already names', () => {
@@ -211,6 +236,51 @@ test('[09:03] a CROSS-place distance stays — Буњаковец for a flat in 
   const card84 = buildPropertyCard(ROWS[0], { anchor: bunjakovec });
   assert.match(card84, /\d[\d.,]*\s*(?:m|km)\s+од\s+Буњаковец/u,
     `a different place is real information: ${card84}`);
+});
+
+test('[09:03] e2e: a card drawn FOR the district it sits in drops that distance (Ново Лисиче ⊂ Аеродром)', { skip: !hasMap }, async () => {
+  // Real map pins: Буњаковец (41.99746, 21.41864), Аеродром (41.98396, 21.46496),
+  // Ново Лисиче (41.98437, 21.47684). The third row sits ~150 m from the Ново
+  // Лисиче centre and ~840 m from the Аеродром one — INSIDE the district it is
+  // anchored on, which is exactly the «980 m од Аеродром» tautology.
+  const rows: Property[] = [
+    { eb: 201, id: 201, location: 'Центар', price: 120000, bedrooms: 2, sqm: 50, size: '50 м²', service: 'buy', lat: 41.9975, lon: 21.4187 } as Property,
+    { eb: 202, id: 202, location: 'Ново Лисиче', price: 121000, bedrooms: 2, sqm: 51, size: '51 м²', service: 'buy', lat: 41.98437, lon: 21.4750 } as Property,
+  ];
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const channels = new ChannelRegistry();
+  const sent: string[] = [];
+  channels.register({ name: 'test', send: async (_c: string, t: string) => { sent.push(t); } });
+  const properties = new FakeProps(rows);
+  const handler = new InboundHandler({
+    cfg, db, sessions,
+    classifier: new Classifier(new FailingLlm(), cfg, properties),
+    responder: new Responder(new FailingLlm(), cfg),
+    properties,
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels,
+    landmarks: new LandmarkService(db, { osm: false, offlineMap: new OfflineMapStore(cfg.skopjePoisDb) }),
+  });
+  const chatId = 'nesting';
+  const say = async (m: string): Promise<string> => {
+    sent.length = 0;
+    await handler.handle('test', chatId, m);
+    return sent.at(-1) ?? '';
+  };
+  await say('ZDRAVO SAKAM DA SI KUPAM STANCE OKOLU BUNJAKOVEC , AERODROM');
+  await say('DVE SOBI');
+  const served = await say('DO 150000');
+  const s = sessions.get(chatId)!;
+  assert.match(served, /Буњаковец/iu, `the pair names both places: ${served}`);
+  // The Центар card keeps its CROSS-place distance.
+  assert.match(served, /201[\s\S]*од Буњаковец/iu, `a different place is real: ${served}`);
+  // The Ново Лисиче card states its area but is NOT measured from Аеродром.
+  assert.match(served, /202[\s\S]*во Ново Лисиче/iu, `its own area is still said: ${served}`);
+  assert.doesNotMatch(served, /202[\s\S]*\d[\d.,]*\s*(?:m|km)\s+од\s+Аеродром/iu,
+    `a flat inside Аеродром is not «N m од Аеродром»: ${served}`);
+  assert.equal(s.slots.pairAnchorOf?.['202']?.ownArea, true,
+    `the anchor is marked silent: ${JSON.stringify(s.slots.pairAnchorOf?.['202'])}`);
 });
 
 test('[09:03] the own-area guard is marker/case-proof («Аеродром (општина)»)', () => {

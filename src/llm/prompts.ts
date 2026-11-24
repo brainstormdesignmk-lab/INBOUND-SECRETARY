@@ -2222,10 +2222,12 @@ export function conversationalDetails(p: Property): string | undefined {
  * is always correct.
  */
 export function buildPropertyCard(p: Property, opts: {
-  anchor?: { name: string; lat: number; lon: number };
+  /** `ownArea` = this anchor IS (or contains) the flat's own naselba — the map
+   *  marked it at the serve site, and the distance says nothing (§4p). */
+  anchor?: { name: string; lat: number; lon: number; ownArea?: boolean };
   /** OTHER places the SAME flat also stands near (two named places 1 km apart
    *  routinely share one card) — each distance is stated, never dropped. */
-  alsoAnchors?: Array<{ name: string; lat: number; lon: number }>;
+  alsoAnchors?: Array<{ name: string; lat: number; lon: number; ownArea?: boolean }>;
 } = {}): string {
   // Strip internal feed disambiguator: "Центар (населба)" → "Центар"
   const loc = p.location?.replace(/\s*\([^)]*\)\s*$/, '') ?? '';
@@ -2271,8 +2273,13 @@ export function buildPropertyCard(p: Property, opts: {
     displayPlaceName(s).replace(/\s*\((?:населба|општина|naselba|opstina)\)\s*$/iu, '').trim().toLowerCase();
   const ownPlaces = new Set([p.location].filter((x): x is string => !!x && !!x.trim()).map(placeKey));
   const anchors = [opts.anchor, ...(opts.alsoAnchors ?? [])]
-    .filter((a): a is { name: string; lat: number; lon: number } => !!a)
-    .filter(a => !ownPlaces.has(placeKey(a.name)));
+    .filter((a): a is { name: string; lat: number; lon: number; ownArea?: boolean } => !!a)
+    // `ownArea` is marked by the bean counter at the serve site (the map knows
+    // which anchors are RESIDENTIAL AREAS — suburb/quarter rows — and which
+    // row's own naselba centre is at least as close to it as the anchor): a
+    // district that CONTAINS the flat's naselba is not a landmark either. The
+    // equality guard below still catches the plain same-name case without geo.
+    .filter(a => !ownPlaces.has(placeKey(a.name)) && a.ownArea !== true);
   // ONE PLACE, SAID ONCE. When the card's own landmark IS the place the search
   // is anchored on, the next sentence named it again — «во близина на Skopje
   // City Mall. Се наоѓа на 10 m од Скопје Сити Мол.» Two spellings of one mall
@@ -2335,7 +2342,7 @@ export function buildPropertyCard(p: Property, opts: {
   return s;
 }
 
-export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0, recent: string[] = [], opts: { anywhere?: boolean; budget?: string; noOpener?: boolean; anchor?: { name: string; lat: number; lon: number }; perCardAnchor?: Array<{ name: string; lat: number; lon: number } | undefined>; perCardAlsoAnchors?: Array<Array<{ name: string; lat: number; lon: number }> | undefined> } = {}): string {
+export function buildPropertyCards(properties: Property[], state: State, closerIndex = 0, recent: string[] = [], opts: { anywhere?: boolean; budget?: string; noOpener?: boolean; anchor?: { name: string; lat: number; lon: number; ownArea?: boolean }; perCardAnchor?: Array<{ name: string; lat: number; lon: number; ownArea?: boolean } | undefined>; perCardAlsoAnchors?: Array<Array<{ name: string; lat: number; lon: number; ownArea?: boolean }> | undefined> } = {}): string {
   // A CROSS-PLACE PAIR states each card's OWN distance: the first offer stands
   // near one place the client named, the second near the other («1,2 km од
   // ТЦ Буњаковец»), so one anchor for the whole batch would be a lie for half
@@ -2388,8 +2395,8 @@ const PAIR_NEAR_BAND_M = 2000;
 export function pairBatchMeta(session: ChatSession, properties: Property[]): {
   opener?: string;
   emptyLine?: string;
-  perCardAnchor?: Array<{ name: string; lat: number; lon: number } | undefined>;
-  perCardAlsoAnchors?: Array<Array<{ name: string; lat: number; lon: number }> | undefined>;
+  perCardAnchor?: Array<{ name: string; lat: number; lon: number; ownArea?: boolean } | undefined>;
+  perCardAlsoAnchors?: Array<Array<{ name: string; lat: number; lon: number; ownArea?: boolean }> | undefined>;
 } {
   const places = (session.slots.poiPlaces?.length ?? 0) >= 2 ? session.slots.poiPlaces : undefined;
   if (!places) return {};
@@ -2458,10 +2465,12 @@ export function pairBatchMeta(session: ChatSession, properties: Property[]): {
         : names.length === 1 ? `Еве ја најблиската опција до ${displayPlaceName(names[0])}:`
         : undefined,
     emptyLine: lineParts.join(' ') || undefined,
+    // …and the `ownArea` mark survives the rename: the card builder drops a
+    // marked anchor's distance (the district the flat already sits in).
     perCardAnchor: anchors.map(a => a
-      ? { name: displayPlaceName(a.name), lat: a.lat, lon: a.lon } : undefined),
+      ? { ...a, name: displayPlaceName(a.name) } : undefined),
     perCardAlsoAnchors: alsoOf.map(list => (list.length > 0
-      ? list.map(a => ({ name: displayPlaceName(a.name), lat: a.lat, lon: a.lon }))
+      ? list.map(a => ({ ...a, name: displayPlaceName(a.name) }))
       : undefined)),
   };
 }
