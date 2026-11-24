@@ -85,6 +85,39 @@ escalates to a real brain — that is the knowledge-based dispatch contract). A
 429 is reported as a spent quota window (the key is valid, rotation skips it),
 never as a missing LLM.
 
+## 1b. A green gate is not a deploy — the boxes follow every fix
+
+THE HABIT (owner's instruction, 2026-11-24): after a fix LANDS on the
+workstation, ship it to atom01 (live) and T60 (standby) the same session. The
+fleet serves its own `dist/` copy, so a fix that is only in this tree is not
+deployed — and a box left three weeks behind looks healthy from `/health` while
+answering with old copy. (atom4 is the RELAY — never deploy LINA there.)
+
+```bash
+npm run atoms:status                     # what each box actually runs
+# 1) MAP DATA FIRST (maps-realestate repo), so the restart in step 2 boots onto it:
+#    cp a timestamped backup, rsync data/skopje-pois.db to each box, then verify
+#    the sha256 AND `select value from meta where key='map_version'` remotely.
+# 2) then the code — both scripts build dist/ here, rsync, restart, verify /health:
+npm run atoms:deploy                     # atom01
+npm run t60:deploy                       # T60 standby
+```
+
+- Order matters: a running bot holds the DB open, so swap the file first and let
+  the deploy's restart reopen it.
+- Prove it by CONTENT, never by timestamp: `sha256sum dist/index.js` on the box
+  must equal the workstation's, the new code's own strings must be present in
+  `dist/`, and the boot line must print the new `[offline-map] N POIs / M
+  addresses`. "rsync ok (0 entries changed)" is not that proof — the count is
+  only itemized on `--dry-run`.
+- Map CODE ships inside `dist/geo/*.js` (a symlink resolves at build time); the
+  `maps-realestate/src/geo` on a box is a link target for `link-geo.js`, not the
+  runtime path, so a stale copy there does not make the bot answer from it.
+- Both `SKOPJE_POIS_DB` paths point at each box's own `maps-realestate/data/` —
+  a map deploy that lands anywhere else is invisible to the bot.
+- Push `main` on both repos once the gate is green: an unpushed commit exists on
+  one disk only, and the boxes are deployed by script, so nobody else can fetch it.
+
 ## 2. The two money ladders (the most expensive area to get wrong)
 
 There are TWO independent money topics, each with its own four rungs, counter
