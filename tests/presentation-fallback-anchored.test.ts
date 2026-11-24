@@ -31,7 +31,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig } from '../src/config';
 import { Db } from '../src/store/db';
-import { SessionStore } from '../src/fsm/session';
+import { SessionStore, freshSession } from '../src/fsm/session';
 import { Classifier } from '../src/llm/classify';
 import { Responder } from '../src/llm/respond';
 import { PropertyService, Property } from '../src/data/properties';
@@ -147,4 +147,88 @@ test('audit: the ask is TYPE-aware — a business turn is never asked for bedroo
   const s = sessions.get(chatId)!;
   assert.equal(s.slots.business, true, 'the business category is on file');
   assert.doesNotMatch(reply, /спалн/iu, `a business turn was asked for bedrooms: ${reply}`);
+});
+
+// ── THE OWN-AREA RULE REACHES THE FALLBACK TOO (§4p) ────────────────────────
+// The [09:03] capture was served by a deterministic lane, but the SAME cards
+// are built here when every brain is down, from the session anchor and the pool
+// — and a card that names its own naselba must not then measure itself from it.
+// The rule lives in `llm/ownArea.ts` only because two serve sites need it; this
+// pins the second one (and the handler's resolver wiring, below).
+const OWN_AREA_ROWS: Property[] = [
+  // Inside Аеродром: roughly 845 m from its centre, ~150 m from Ново Лисиче's.
+  { eb: 301, id: 301, location: 'Ново Лисиче', address: 'Ул. Ново Лисиче 4', price: 120000, service: 'buy', bedrooms: 2, sqm: 50, size: '50 м²', lat: 41.98437, lon: 21.4750 },
+  // A genuinely different part of town: 4,1 km from Аеродром, so this distance
+  // is REAL information and must survive.
+  { eb: 302, id: 302, location: 'Центар', address: 'Ул. Македонија 8', price: 121000, service: 'buy', bedrooms: 2, sqm: 51, size: '51 м²', lat: 41.9975, lon: 21.4187 },
+];
+
+const cardParagraph = (reply: string, eb: number): string =>
+  reply.split(/\n\n/).find(p => p.includes(`број ${eb}`)) ?? '';
+
+test('audit: the fallback never measures a card from the district it sits in', async () => {
+  const cfg = loadConfig();
+  const offlineMap = new OfflineMapStore(cfg.skopjePoisDb);
+  if (!offlineMap.available) return;
+  const db = new Db(':memory:');
+  const landmarks = new LandmarkService(db, { osm: false, offlineMap });
+  const responder = new Responder(new FailingLlm(), cfg);
+  responder.setPlaceResolver(name => {
+    const hit = landmarks.findPlace(name);
+    return hit ? { name: hit.name, lat: hit.lat, lon: hit.lon, type: hit.type } : undefined;
+  });
+  const session = freshSession('fallback-own-area');
+  session.state = 'presentation';
+  session.slots.poiAnchor = 'Аеродром';
+  session.slots.service = 'buy';
+  session.slots.budget = '150000';
+
+  const reply = (await responder.respond(session, OWN_AREA_ROWS, 'HMMM INTERESNO')).text;
+
+  // The opener still names the place the client asked around…
+  assert.match(reply, /до Аеродром/iu, `the anchored search must still name Аеродром: ${reply}`);
+  // …the flat INSIDE that district states its area without measuring itself…
+  const inner = cardParagraph(reply, 301);
+  assert.ok(inner, `the inner card is missing: ${reply}`);
+  assert.match(inner, /во Ново Лисиче/u, `the inner card names its own area: ${inner}`);
+  assert.doesNotMatch(inner, /од Аеродром/u,
+    `a flat in Ново Лисиче measured itself from Аеродром: ${inner}`);
+  // …and a cross-town flat keeps its real distance (the rule is containment,
+  // not «everyone loses their anchor»).
+  const outer = cardParagraph(reply, 302);
+  assert.ok(outer, `the outer card is missing: ${reply}`);
+  assert.match(outer, /од Аеродром/u,
+    `a flat 4 km away lost its real distance: ${outer}`);
+  db.close();
+});
+
+test('audit: the handler hands the responder the place CLASS, not just the pin', async () => {
+  // The fallback's own-area rule needs the map row's TYPE (only a RESIDENTIAL
+  // AREA can swallow a card's distance). The handler wires that resolver once
+  // in its constructor; wiring only `{ name, lat, lon }` would leave the nested
+  // case unmarked in the fallback while the deterministic lanes dropped it — the
+  // two serve sites disagreeing about the same flat.
+  const cfg = loadConfig();
+  const offlineMap = new OfflineMapStore(cfg.skopjePoisDb);
+  if (!offlineMap.available) return;
+  let resolver: ((name: string) => { name: string; lat: number; lon: number; type?: string | null } | undefined) | undefined;
+  const fakeResponder = {
+    setPlaceResolver(fn: typeof resolver) { resolver = fn; },
+  } as unknown as Responder;
+  const db = new Db(':memory:');
+  new InboundHandler({
+    cfg, db, sessions: new SessionStore(db),
+    classifier: new Classifier(new FailingLlm(), cfg, new FakeProps(ROWS)),
+    responder: fakeResponder,
+    properties: new FakeProps(ROWS),
+    appointments: new AppointmentStore(db), escalations: new EscalationStore(db),
+    meta: new MetaStore(db), channels: new ChannelRegistry(),
+    landmarks: new LandmarkService(db, { osm: false, offlineMap }),
+    enrichment: new EnrichmentStore(db),
+  });
+  assert.ok(resolver, 'the handler must wire a place resolver into the responder');
+  const aerodrom = resolver!('Аеродром');
+  assert.ok(aerodrom, 'the map knows Аеродром');
+  assert.equal(typeof aerodrom!.type, 'string', `the resolver must carry the row class: ${JSON.stringify(aerodrom)}`);
+  db.close();
 });

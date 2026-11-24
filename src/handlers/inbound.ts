@@ -10,6 +10,7 @@ import { shouldLogForEnrichment } from '../llm/enrichPolicy';
 import { sessionPlaces, shouldTryDynamic, validateDynamicAnswer, typeEstablished } from '../llm/dynamicFallback';
 import { PLACE_PROMOTE_AFTER, PLACE_TEMPLATE_KEY, assertsStockAtPlace, placeTemplateFrom, renderPlaceTemplate } from '../llm/placeTemplate';
 import { detectPersonalAsk, personalReply } from '../llm/personal';
+import { anchorIsOwnArea } from '../llm/ownArea';
 import { fileMisrouteCorrection } from '../llm/misroute';
 import { transition, Event, Service } from '../fsm/machine';
 import { Classifier } from '../llm/classify';
@@ -1897,9 +1898,13 @@ export class InboundHandler {
     // map pin to name the place and measure the distance, so the handler wires
     // its own landmark service once, here — a per-call wire would be forgotten
     // by the next entry point.
+    // THE ROW'S CLASS GOES WITH THE PIN: the fallback now applies the same
+    // own-area rule as the deterministic lanes (`anchorIsOwnArea`), and only a
+    // RESIDENTIAL AREA anchor may swallow a card's distance. Without the type
+    // the responder would have to guess (or silently disagree).
     deps.responder?.setPlaceResolver?.((name) => {
       const hit = this.landmarks?.findPlace(name);
-      return hit ? { name: hit.name, lat: hit.lat, lon: hit.lon } : undefined;
+      return hit ? { name: hit.name, lat: hit.lat, lon: hit.lon, type: hit.type } : undefined;
     });
     this.visits = deps.visits;
     this.ownerAgent = deps.cfg.ownerAgentMode === 'local'
@@ -4150,28 +4155,11 @@ export class InboundHandler {
    *  [09:03] capture): «Станот … е во Ново Лисиче. … Се наоѓа на 980 m од
    *  Аеродром.» — the flat's naselba lies INSIDE the district the card was
    *  drawn for, so the number measures the district CENTROID, not anything the
-   *  client can use to judge the location. Only a RESIDENTIAL AREA anchor can
-   *  be "the area it is in": a mall, hospital or school anchor keeps its
-   *  distance always (that is real geography). Decided from two map facts — the
-   *  anchor row's CLASS (`isSettlementPlace`) and which settlement CENTRE is
-   *  nearer to the flat — because the map stores settlements as points, not
-   *  polygons, and an invented containment would be worse than the tautology.
-   *  No map, no coordinates or an unknown class leaves the anchor untouched. */
+   *  client can use to judge the location. The rule itself lives in
+   *  `llm/ownArea.ts` because the responder's LLM-less fallback serves the same
+   *  cards and must not answer with a second opinion. */
   private anchorIsOwnArea(p: Property, a: { name: string; lat: number; lon: number }): boolean {
-    const own = p.location?.replace(/\s*\((?:населба|општина|naselba|opstina)\)\s*$/iu, '').trim();
-    if (!own) return false;
-    const norm = (s: string): string => s.trim().toLocaleLowerCase('mk-MK');
-    if (norm(own) === norm(a.name)) return true;
-    const map = this.landmarks;
-    if (!map || typeof p.lat !== 'number' || typeof p.lon !== 'number'
-      || p.lat === 0 || p.lon === 0) return false;
-    const anchorRow = map.findPlace(a.name);
-    if (!anchorRow || !isSettlementPlace(anchorRow.type)) return false;
-    const ownRow = map.findPlace(own);
-    if (!ownRow || !isSettlementPlace(ownRow.type)) return false;
-    const dOwn = distM(p.lat, p.lon, ownRow.lat, ownRow.lon);
-    const dAnchor = distM(p.lat, p.lon, a.lat, a.lon);
-    return Number.isFinite(dOwn) && Number.isFinite(dAnchor) && dOwn <= dAnchor;
+    return anchorIsOwnArea(p, a, this.landmarks);
   }
 
   /** Mark every pair anchor that is (or contains) the card's own naselba, so the

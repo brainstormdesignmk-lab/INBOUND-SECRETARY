@@ -21,6 +21,7 @@ class PlaceClaimVeto extends Error {}
 import { arbitrateMoney } from './moneyArbitration';
 import { llmArbitrateKey } from './arbiterLlm';
 import type { BankStore } from '../store/bank';
+import { anchorIsOwnArea } from './ownArea';
 import { SYSTEM_PROMPT, stateTask, FALLBACKS, buildPropertyContext, buildPropertyCards, buildDiscoveryAsk, missingCriteriaAsk, displayPlaceName, buildFeeAsk, buildContactAsk, feeLadder, waiverAck, FIRST_QUESTIONS_PREFIX, LAST_INFO_PREFIX, pairBatchMeta } from './prompts';
 import { detectInvestmentOpinion, detectFeeWhy, detectRemark } from './deterministic';
 
@@ -322,9 +323,9 @@ export class Responder {
    *  anchor reads as a catalogue dump, and a pair cannot be judged against
    *  «во близина на Железничка» without the distance. Absent in a standalone
    *  responder: the serve then names the place only. */
-  private placeResolver?: (name: string) => { name: string; lat: number; lon: number } | undefined;
+  private placeResolver?: (name: string) => { name: string; lat: number; lon: number; type?: string | null } | undefined;
 
-  setPlaceResolver(fn: (name: string) => { name: string; lat: number; lon: number } | undefined): void {
+  setPlaceResolver(fn: (name: string) => { name: string; lat: number; lon: number; type?: string | null } | undefined): void {
     this.placeResolver = fn;
   }
 
@@ -508,6 +509,22 @@ export class Responder {
         const anchor = pin && anchorName
           ? { name: displayPlaceName(anchorName), lat: pin.lat, lon: pin.lon }
           : undefined;
+        // …AND NOT FOR THE CARD THAT LIVES IN IT (§4p). The session anchor is ONE
+        // pin for the whole batch, so a flat whose naselba lies inside the
+        // anchored district would measure itself from its own district — the
+        // tautology the deterministic lanes already drop. Decided by the SAME
+        // predicate (`anchorIsOwnArea`), per card. The shared anchor is then
+        // withdrawn: `buildPropertyCards` falls back to it for an `undefined`
+        // per-card entry, so leaving it in place would re-measure the very card
+        // this exists to protect. The anchor LINE (which names the place the
+        // client asked around) keeps its anchor — it is a sentence about the
+        // search, not about the flat.
+        const ownArea = (p: Property): boolean => !!anchor && anchorIsOwnArea(p, anchor,
+          this.placeResolver ? { findPlace: (n) => this.placeResolver!(n) } : undefined);
+        const ownAreaInBatch = !!anchor && properties.slice(0, 2).some(ownArea);
+        const perCardAnchor = ownAreaInBatch
+          ? properties.slice(0, 2).map(p => (ownArea(p) ? undefined : anchor))
+          : undefined;
         const ask = missingCriteriaAsk(session.slots, assistantTexts(session));
         // THE WIDEN THE CLIENT PICKED IS NAMED (the [23:29] ring rule): a pair
         // served after «подалеку во истата населба» / «друга населба» must NOT
@@ -528,8 +545,12 @@ export class Responder {
             anywhere: session.slots.anywhere,
             budget: session.slots.budget,
             noOpener: showWaiverAck || !!pair.opener || !!anchorLine,
-            anchor,
-            perCardAnchor: pair.perCardAnchor,
+            // A cross-place pair keeps the shared anchor exactly as before (its
+            // own marks ride on its per-card entries); otherwise an own-area
+            // split withdraws the shared anchor so no card inherits the
+            // district it sits in.
+            anchor: pair.perCardAnchor ? anchor : (ownAreaInBatch ? undefined : anchor),
+            perCardAnchor: pair.perCardAnchor ?? perCardAnchor,
             perCardAlsoAnchors: pair.perCardAlsoAnchors,
           })
           + (ask ? `\n\n${ask}` : ''),

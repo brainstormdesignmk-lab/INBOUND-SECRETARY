@@ -150,7 +150,17 @@ test('[04:41] a two-flat route tells the client which hours it is asking the own
   assert.match(h.asks[1]!, /19:00/u, h.asks[1]);
   assert.match(line, /18:00/u, `the hour he named is stated: ${line}`);
   assert.match(line, /19:00/u, `and so is the second slot: ${line}`);
-  assert.match(line, /24\.11\.2026/u, `on the day he named: ${line}`);
+  // THE DAY IS «THE TUESDAY HE NAMED», NOT TODAY'S DATE (fixed 2026-11-24): the
+  // literal 24.11.2026 is only right when the suite runs on a Tuesday. Assert
+  // the SEMANTICS instead — the resolved term is a Tuesday, and it is not in
+  // the past — so the pin survives any weekday (and a late-evening run).
+  const day = /Вторник,\s*(\d{2})\.(\d{2})\.(\d{4})/u.exec(line);
+  assert.ok(day, `the ACK names the resolved day: ${line}`);
+  const resolved = new Date(Number(day![3]), Number(day![2]) - 1, Number(day![1]), 12, 0, 0);
+  assert.equal(resolved.getDay(), 2, `the resolved day is the Tuesday he named: ${line}`);
+  const todayNoon = new Date(); todayNoon.setHours(0, 0, 0, 0);
+  assert.ok(resolved.getTime() >= todayNoon.getTime(),
+    `the resolved day is not in the past: ${line}`);
   assert.match(line, /\?$/u, `and it is his to refuse: ${line}`);
 
   // ONE HOUR, ONE FLAT: nothing to disclose — the plain ACK stays plain.

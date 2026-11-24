@@ -163,6 +163,35 @@ while IFS='|' read -r id host user key rpath note; do
     RESULTS+=("$id|RSYNC-FAIL"); continue
   fi
 
+  # 1a) SYNC THE TARGET'S GIT VIEW. The atom's clone cannot fetch on its own
+  #     (its deploy key is not authorized for the GitHub repo), so its HEAD used
+  #     to rot for months: `git log` on the appliance named a commit the running
+  #     code had long left behind and a `git diff` there meant nothing. Ship
+  #     main as a bundle and point HEAD/index at it with `reset --mixed`: the
+  #     index moves, NO FILE ON DISK CHANGES (the worktree is rsync's, never
+  #     git's), so the atom's own deletions — obsolete data files, the tmp/
+  #     scratch scripts — stay exactly as they are and show up as what they are
+  #     instead of being hidden behind a stale HEAD. A target that is not a git
+  #     checkout (the T60 standby) is skipped, not failed.
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "    [dry-run] would point the target's HEAD at $(git rev-parse --short main)"
+  else
+    BUNDLE=$(mktemp -t lina-main.XXXXXX.bundle)
+    if git bundle create "$BUNDLE" main >/dev/null 2>&1 \
+      && scp -q -o BatchMode=yes -o IdentitiesOnly=yes -i "$key" "$BUNDLE" "$user@$host:/tmp/lina-deploy.bundle"; then
+      head_out=$("${SSH[@]}" "cd '$rpath' && if git rev-parse --git-dir >/dev/null 2>&1; then git fetch -q /tmp/lina-deploy.bundle main && git reset -q --mixed FETCH_HEAD && git update-ref refs/remotes/origin/main \$(git rev-parse FETCH_HEAD) && echo ok \$(git rev-parse --short HEAD); else echo no-git; fi" 2>&1) || true
+      case "$head_out" in
+        ok*)    echo "    ✓ target HEAD → ${head_out#ok } (worktree untouched)" ;;
+        no-git) echo "    · target is not a git checkout — HEAD sync skipped" ;;
+        *)      echo "    ⚠ target HEAD left as it was: $(printf '%s' "$head_out" | tail -1)" ;;
+      esac
+      "${SSH[@]}" "rm -f /tmp/lina-deploy.bundle" >/dev/null 2>&1 || true
+    else
+      echo "    ⚠ could not ship the git bundle — target HEAD left as it was"
+    fi
+    rm -f "$BUNDLE"
+  fi
+
   # 1b) recreate the machine-local src/geo link. The geo engine lives in the
   #     maps-realestate project (single source of truth) and rsync never carries
   #     it — the path differs per machine — so the target links it here, before

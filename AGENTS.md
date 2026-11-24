@@ -2539,13 +2539,20 @@ Pins: `tests/capture-0941-batch.test.ts`, `tests/route-coverage.test.ts`.
   «290 m од Буњаковец» for a flat in Центар is real information.
 - **THE DISTANCE IS DROPPED FOR THE AREA THE CARD ITSELF SITS IN.** Equality on
   `location` alone missed the nested case: a flat in Ново Лисиче measured «830 m
-  од Аеродром», the municipality it belongs to. `markOwnAreaAnchors` marks an
-  anchor `ownArea: true` when the row's own point is CLOSER to the anchor's
-  centre than the anchor is to the row — i.e. the row sits INSIDE the anchor —
-  and only for RESIDENTIAL area anchors (`isSettlementPlace`): the map stores
-  settlements as POINTS, so this is a point-to-point containment test, never an
-  invented polygon. A facility anchor (ТЦ Џевахир, a school) always keeps its
-  distance. The mark travels on the anchor object itself (`slots.pairAnchorOf`,
+  од Аеродром», the municipality it belongs to. The rule is ONE function,
+  `anchorIsOwnArea` in `src/llm/ownArea.ts`, because TWO serve sites build
+  anchors: the handler's pair/place queues (which mark what they store in the
+  session) and the responder's LLM-less fallback (which pins the session anchor
+  itself — its place resolver therefore carries the map row's `type`, not just
+  its coordinates). Only a RESIDENTIAL AREA anchor can swallow a distance
+  (`isSettlementType`): the map stores settlements as POINTS, so containment is
+  a point-to-point test, never an invented polygon, and a facility anchor
+  (ТЦ Џевахир, a school) always keeps its distance. THE ANCHOR MUST ALSO BE
+  NEAR: `dAnchor <= OWN_AREA_RADIUS_M` (1,5 km) AND the row's own centre no
+  farther than the anchor's. Without the radius, a flat in Центар lost its real
+  «4,1 km од Аеродром» because Центар is *by definition* nearer Центар — every
+  anchor farther away than the flat's own naselba counted as its district. The
+  mark travels on the anchor object itself (`slots.pairAnchorOf`,
   `pairAlsoNearOf`) and `pairBatchMeta` must SPREAD it (`{ ...a, name }`) — a
   rebuilt `{ name, lat, lon }` silently dropped it and the card measured the
   district again.
