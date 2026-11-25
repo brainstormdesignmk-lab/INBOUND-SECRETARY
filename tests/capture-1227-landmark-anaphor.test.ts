@@ -50,7 +50,7 @@ import { InboundHandler } from '../src/handlers/inbound';
 import { LlmClient } from '../src/llm/types';
 import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
-import { buildPropertyCard } from '../src/llm/prompts';
+import { buildPropertyCard, displayPlaceName } from '../src/llm/prompts';
 import { placeTypesFromNoun } from '../src/llm/lexicon';
 import { findProjectRoot } from './helpers/project-root';
 import {
@@ -164,7 +164,11 @@ test('[12:27→12:28] «каде?» then «на колкаво растојан�
 
   await handler.handle('test', 'c1227-anaphor', 'КАДЕ ТОЧНО СЕ НАОЃА ?');
   const where = sent[sent.length - 1]!;
-  assert.match(where, /Kindergarten "Kocho Racin"/u, `the claim rule serves the kindergarten: ${where}`);
+  // THE COPY IS MACEDONIAN: the map's Latin name is rendered for the client
+  // («Градинка "Кочо Рацин" - Наум Н. Борче» — displayPlaceName; the owner's
+  // «before the landmarks were Cyrillic» note). The MAP still spells it in
+  // Latin; only the copy changes, so the assertion is on the rendered form.
+  assert.match(where, /Градинка "Кочо Рацин"/u, `the claim rule serves the kindergarten: ${where}`);
   assert.doesNotMatch(where, /Линцура/u, `never the pharmacy in the flat's own building: ${where}`);
   // …and the link Names the place, not just a point (the owner's [12:27] ask).
   assert.match(where, /maps\.google\.com\/\?cid=\d+/u, `the landmark link must be a place CARD: ${where}`);
@@ -172,7 +176,7 @@ test('[12:27→12:28] «каде?» then «на колкаво растојан�
 
   await handler.handle('test', 'c1227-anaphor', ASK_DISTANCE);
   const answer = sent[sent.length - 1]!;
-  assert.match(answer, /Kindergarten "Kocho Racin"/u,
+  assert.match(answer, /Градинка "Кочо Рацин"/u,
     `the destination «градинкава» IS the kindergarten just named: ${answer}`);
   assert.match(answer, /\d+\s*метри/u, `and its distance is MEASURED, not invented: ${answer}`);
   assert.doesNotMatch(answer, /Меморијален|холокауст/u,
@@ -195,7 +199,7 @@ test('the info block reads the same claim-screened roster as the «каде?» a
   assert.equal(screened![0]!.distance_m, 157,
     'the distance is RE-MEASURED from the row\'s own centre, never the stored import-time number');
   const card = buildPropertyCard({ ...EB50, landmarks: screened } as never);
-  assert.match(card, /Kindergarten "Kocho Racin"/u, `the card names the kindergarten: ${card}`);
+  assert.match(card, /Градинка "Кочо Рацин"/u, `the card names the kindergarten: ${card}`);
   assert.doesNotMatch(card, /Линцура/u, `the card must not keep the pharmacy the chat dropped: ${card}`);
   map.close();
 });
@@ -268,6 +272,70 @@ test('the handler installs the claim screen at construction (a read before any t
     globalThis.fetch = savedFetch;
     map.close();
   }
+});
+
+// ── 8. THE ENTRY'S OWN CLASS, for every property (the owner's «rule, not
+// patches») — EB 53 is the sibling of this capture: its roster led with
+// «Pharmacy Biser» (12 reviews), and the map made it ADMISSIBLE by carrying a
+// second row with the pharmacy's own name typed «Shopping mall» (a data error
+// that lent its durable class to a storefront). The entry's declared type now
+// decides durability; twins donate only their review count. A pharmacy the map
+// EVIDENCES is still a landmark (tests/landmark-claim-relevance.test.ts) — the
+// rule refuses an unevidenced branch, not the class.
+test('a same-name mall row cannot lend its class to a pharmacy (the EB 53 shape)', async () => {
+  const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'c1227-ph-')), 'map.db');
+  writeMap(dbPath, [
+    { name: 'Pharmacy Biser', type: 'Pharmacy', lat: 41.98484, lon: 21.46604, source: 'google', review_count: 12 },
+    // the map's own mis-typed twin: same name, mall class, same 12 reviews
+    { name: 'Pharmacy Biser', type: 'Shopping mall', lat: 41.98484, lon: 21.46604, source: 'google', review_count: 12 },
+    { name: 'Deni Market', type: 'Supermarket', lat: 41.98431, lon: 21.46531, source: 'osm' },
+  ] as never, []);
+  const map = new OfflineMapStore(dbPath);
+  const real = new PropertyService('http://feed.test');
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true, status: 200,
+    json: async () => ({ properties: [{
+      evidenten_broj: 53, naselba: 'Аеродром', adresa: 'Ул. ТЦ Бисер 2', opis: 'Двособен стан.',
+      cena_eur: 55000, povrsina_m2: 44, servis: 'buy',
+      lat: 41.9848, lon: 21.466, geo_source: 'google_cached',
+      landmarks: [
+        { landmark: 'Pharmacy Biser', type: 'Pharmacy', distance_m: 35, maps_url: 'https://maps.google.com/?q=41.98484,21.46604' },
+        { landmark: 'Deni Market', type: 'Supermarket', distance_m: 80, maps_url: 'https://maps.google.com/?q=41.98431,21.46531' },
+      ],
+    }] }),
+  })) as unknown as typeof fetch;
+  try {
+    const svc = new LandmarkService(new Db(':memory:'), { osm: false, offlineMap: map });
+    real.setLandmarkScreen(p => svc.screenFeedLandmarks({
+      id: p.id, eb: p.eb, address: p.address, landmark_name: p.landmark,
+      lat: p.lat, lon: p.lon, geo_source: p.geo_source ?? null,
+      details: p.details, landmarks: p.landmarks,
+    } as never));
+    const row = await real.getByEb(53);
+    const names = (row!.landmarks ?? []).map(l => l.landmark);
+    assert.ok(!names.some(n => /аптек|pharmac/iu.test(n)), `no pharmacy may anchor the card: ${names.join(' | ')}`);
+    assert.ok(names.includes('Deni Market'), `the supermarket neighbour stays (кај Тинекс): ${names.join(' | ')}`);
+    const card = buildPropertyCard(row!);
+    assert.doesNotMatch(card, /аптек|pharmac/iu, `the card must not name a pharmacy: ${card}`);
+  } finally {
+    globalThis.fetch = savedFetch;
+    map.close();
+  }
+});
+
+// ── 9. THE NAME IS RENDERED, and only when the render is honest ────────────
+test('a Latin landmark name is rendered in Macedonian; English-worded names keep the map spelling', () => {
+  // The fold is a MACEDONIAN transliteration: right for the names the map
+  // carries in that spelling, wrong for English words.
+  assert.equal(displayPlaceName('Kindergarten "Kocho Racin" - Naum N. Borche'),
+    'Градинка "Кочо Рацин" - Наум Н. Борче');
+  assert.equal(displayPlaceName('Elipso 2 Madzari'), 'Елипсо 2 Маџари');
+  assert.equal(displayPlaceName('Pharmacy Biser'), 'Аптека Бисер');
+  // NEVER a mangled English word («Мусиц», «Елизабетх» were the live defects):
+  // the honest English name beats broken Cyrillic.
+  assert.equal(displayPlaceName('Crescendo School of Music & Ballet'), 'Crescendo School of Music & Ballet');
+  assert.equal(displayPlaceName('Elizabeth Apart House'), 'Elizabeth Apart House');
 });
 
 // ── 7. a cache filled before the screen existed is screened ON READ ─────────

@@ -1990,6 +1990,30 @@ The [12:27–12:28] capture showed the [10:24] fix was only half applied:
 [12:27] «Еве ги деталите…»           → «…во близина на ПЗУ Аптека Линцура 2…»
 ```
 
+- THE ENTRY'S OWN CLASS DECIDES DURABILITY — a twin donates its EVIDENCE, never
+  its class (the owner's «rule for all properties», and the EB 53 sibling of the
+  [12:27] capture). `isShopLevelPlace` stays a CLASS test (a shop/boutique first
+  word, the small-shop types; markets and pharmacies are deliberately NOT
+  shop-level — «кај Тинекс» / «кај аптеката» are how Skopje gives directions,
+  and an evidenced pharmacy IS a landmark, pinned in
+  `tests/landmark-claim-relevance.test.ts`). What brokers an unevidenced
+  storefront is the claim rule in `feedRosterSlots`: the map may hold TWO rows
+  for one place — the pharmacy (12 reviews) and a row typed «Shopping mall»
+  carrying the same name (a data error) — and the mall's durable class used to
+  lend its immunity to the pharmacy, so «Аптека Бисер» walked into the card. The
+  entry's own declared type decides durability; same-name twins only supply the
+  best review count. No declared type → the map's type, as before.
+- THE NAME IS RENDERED FOR THE CLIENT, EVERYWHERE
+  (`displayPlaceName`): the map/feed holds Latin names, so every copy site —
+  the card, the «каде?» answer, the MEASUREMENT answer (`placeLabel`) — renders
+  them the same way, or one flat is named two ways in one chat. The fold is a
+  MACEDONIAN transliteration («Kocho Racin» → Кочо Рацин, «Madzari» → Маџари)
+  and is right for names the map carries in that spelling; an English
+  descriptor (music, ballet, state, apart, head, office, ministry, …) means it
+  would mangle the word («Мусиц», «Елизабетх», «Хеад»), so `ENGLISH_DESCRIPTOR_
+  WORDS` keeps the map's own spelling — an honest English name beats broken
+  Cyrillic. Slots and matching keep the original spelling; this is rendering
+  only.
 - THE SCREEN IS AT THE SERVICE DOOR, NOT AT THE REPLY. Every builder prints
   `landmarks[0]`, and the stored roster is ranked by DISTANCE at import, so the
   pharmacy in the flat's own building survives forever. `PropertyService.
@@ -2037,6 +2061,7 @@ The [12:27–12:28] capture showed the [10:24] fix was only half applied:
   The guard is structural (every `nearbyLandmarks = <var>.map(…)` in
   `inbound.ts` must be followed by both arrays), because these sites grow.
 - Pinned in `tests/capture-1227-landmark-anaphor.test.ts` (the detector vetoes,
+  the pharmacy class e2e, the render/keep-spelling rule,
   the class vocabulary, the two-turn e2e, the shared screen, the rotation-write
   sweep, and the handler actually installing the screen) and
   `tests/where-is-reply.test.ts` / `tests/twin-centre.test.ts` (link form, card

@@ -350,17 +350,46 @@ const PLACE_PHRASES: Array<[RegExp, string]> = [
 // HOW MANY words may be transliterated blind before the name is left alone.
 // English PROSE in the map ("Boris Sarafov Palace - Ministry of Foreign Affairs
 // of the Republic of North Macedonia") folded letter-by-letter becomes
-// pseudo-Cyrillic gibberish — worse than the Latin the map holds. Up to two
-// unknown words are ordinary names (Kipper Market, ELS Novo Lisice, Embassy of
-// Montenegro); three or more mean English vocabulary, and the map's own
-// spelling stands. The bot never invents a translation it cannot stand behind.
-const PLACE_RENDER_MAX_UNKNOWN = 2;
+// pseudo-Cyrillic gibberish — worse than the Latin the map holds. A landmark
+// name is short (a brand + a type + a street), so the cap is six words; the
+// real guard is the vocabulary check below. The bot never invents a
+// translation it cannot stand behind.
+const PLACE_RENDER_MAX_UNKNOWN = 6;
+
+/** ENGLISH DESCRIPTOR VOCABULARY — the second half of that guard.
+ *
+ *  The fold is a MACEDONIAN transliteration: it is right for the names the map
+ *  carries in that spelling („Kocho Racin“ → Кочо Рацин, „Madzari“ → Маџари,
+ *  „Naum N. Borche“ → Наум Н. Борче) and wrong for English words, where it
+ *  produces «Мусиц» for Music, «Елизабетх» for Elizabeth, «Хеад» for Head.
+ *  A name containing any of these is left exactly as the map spells it (the
+ *  owner reads an honest English name, never broken Cyrillic); a name made
+ *  only of proper nouns is rendered. Words PLACE_WORDS translates (school,
+ *  market, hotel …) are not here: they are DESCRIPTIONS and are meant to be
+ *  translated, not avoided. */
+const ENGLISH_DESCRIPTOR_WORDS = new Set([
+  'music', 'ballet', 'art', 'arts', 'dance', 'drama', 'language', 'languages',
+  'state', 'national', 'public', 'private', 'municipal', 'central', 'general',
+  'visually', 'impaired', 'blind', 'deaf', 'disabled', 'special', 'children',
+  'child', 'youth', 'kids', 'kindergarten' /* translated when known — kept for safety */,
+  'head', 'main', 'branch', 'office', 'offices', 'department', 'departments',
+  'ministry', 'affairs', 'foreign', 'republic', 'international', 'academy',
+  'campus', 'club', 'fitness', 'beauty', 'apart', 'apartments', 'suites',
+  'universities', 'university' /* translated when known */, 'college',
+  'for', 'with', 'without', 'visually', 'impaired', 'and', 'the', 'of',
+]);
 
 /** The client-facing form of a map/feed place name: Cyrillic when the map holds
  *  a Latin-only name we can render faithfully, unchanged otherwise. */
 export function displayPlaceName(name: string): string {
   const src = (name ?? '').trim();
   if (!src || /[\u0400-\u04FF]/u.test(src)) return src;
+  // An English descriptor anywhere means the FOLD would mangle the name (see
+  // ENGLISH_DESCRIPTOR_WORDS): the map's own spelling is the honest one.
+  if (src.split(/\s+/).some(t => {
+    const bare = t.toLowerCase().replace(/[^\p{L}]/gu, '');
+    return ENGLISH_DESCRIPTOR_WORDS.has(bare) && !Object.prototype.hasOwnProperty.call(PLACE_WORDS, bare);
+  })) return src;
   // A word counts as KNOWN when the list maps it (even to nothing — "of",
   // "the") or when the place tables know how it is spelled.
   const renderable = (tok: string): boolean => {

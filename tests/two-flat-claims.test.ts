@@ -128,8 +128,11 @@ test('[11:43] with two flats on the table the where-is line names the Евиде
   assert.match(answer, new RegExp(`^Евидентен број ${bound} се наоѓа`, 'u'),
     `the bound flat (${bound}) is named, not «Тоа»: ${answer}`);
   assert.ok(!/^Тоа се наоѓа/u.test(answer), `never the unattributable «Тоа»: ${answer}`);
-  // The landmark is that flat's OWN, and the privacy contract holds.
-  assert.match(answer, bound === 94 ? /Пелагонија/u : /Internat Dimitar Vlahov/u,
+  // The landmark is that flat's OWN, and the privacy contract holds. The map
+  // row is Latin («Internat Dimitar Vlahov») and the COPY is rendered
+  // (displayPlaceName) — the client is written to in Macedonian, the map keeps
+  // its own spelling.
+  assert.match(answer, bound === 94 ? /Пелагонија/u : /Интернат Димитар Влахов/u,
     `the bound flat's own landmark: ${answer}`);
   assert.match(answer, /близина/u, `a nearby landmark: ${answer}`);
   assert.ok(!/Тоне Томшиќ|ТОМШИЌ|Локов/u.test(answer), `the street never appears: ${answer}`);

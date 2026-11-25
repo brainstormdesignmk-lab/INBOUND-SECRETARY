@@ -329,7 +329,10 @@ test('[21:22] the Евидентен број named in the ask is the flat the d
   assert.equal(sessions.get(chatId)?.slots.propertyId, 84, 'EB 84 owns the conversation first');
   await handler.handle('test', chatId, 'NA KOLKAVO RASTOJANIE E OD BROZ KAFE ?');
   const for84 = sent[sent.length - 1] ?? '';
-  assert.match(for84, /Broz Cafe/u, `the place is named: ${for84}`);
+  // THE COPY IS RENDERED («Broz Cafe» → «Броз Кафе», displayPlaceName): the
+  // measurement lane used to print the map's raw Latin name while every other
+  // copy site spoke Macedonian. The MAP keeps «Broz Cafe».
+  assert.match(for84, /Броз Кафе/u, `the place is named: ${for84}`);
   const d84 = metresOf(for84);
   assert.ok(d84 !== undefined, `EB 84's distance is measured: ${for84}`);
 

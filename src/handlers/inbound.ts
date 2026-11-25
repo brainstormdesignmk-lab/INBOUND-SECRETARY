@@ -7275,8 +7275,13 @@ export class InboundHandler {
       // client called «економското» is filed as «СЕПУГС Васил Антевски - Дрен»,
       // and answering with the acronym alone tells them nothing. The expansion is
       // the school's own official name, never a guess.
+      // THE PLACE IS RENDERED FOR THE CLIENT, like every other copy site
+      // (displayPlaceName): the map/feed holds Latin names («Kindergarten
+      // "Kocho Racin" - Naum N. Borche»), and the measurement answer used to
+      // print them VERBATIM while the card and the «каде?» answer spoke
+      // Macedonian — one flat named two ways in one chat.
       const placeLabel = (n: string): string =>
-        n.replace(/^СЕПУГС(?:\s|$)/u, 'Средно економско-правно училиште ');
+        displayPlaceName(n.replace(/^СЕПУГС(?:\s|$)/u, 'Средно економско-правно училиште '));
       // THE RATE HALF OF A COMPOSITE ASK (the [09:48] V16K11 capture): «kolku
       // doagjaat po kvadrat stanovive i na kolkavo rastojanie se od beverli?»
       // asked for the €/м² AND the distance in one sentence. This lane owns the
