@@ -361,7 +361,7 @@ test('surroundings wording that is not a side ask and not a „što ima“ ask s
 test('[01:29] a surroundings question in the closing state is answered from the real map — never the fee pitch', async () => {
   const answer = await sideTurn('kako izgleda okolinata, dali e mirno i zeleno ?', 'live-brain-shape');
   assert.ok(answer, 'a surroundings question must be answered');
-  assert.match(answer, /во близина на /,
+  assert.match(answer, /во близина на /i,
     `answered from the property's own location: ${answer}`);
   assert.ok(!FEE_PITCH.test(answer), `never the closing fee pitch: ${answer}`);
   assert.ok(!/МИРЧЕ|ОРОЕЧАНЕЦ|86/i.test(answer), `the street never appears: ${answer}`);
@@ -382,7 +382,7 @@ test('[01:29] a side ask is answered only with places the map really resolved ne
       `the claimed side is the map's own local anchor "${anchor!.name}", not a place 2 км away: ${answer}`);
   } else {
     // No local match → the approximate-location line, still no fee pitch.
-    assert.match(answer, /во близина на /, answer);
+    assert.match(answer, /во близина на /i, answer);
   }
   assert.ok(!FEE_PITCH.test(answer), `no fee pitch for a location question: ${answer}`);
 });

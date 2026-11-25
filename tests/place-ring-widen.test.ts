@@ -123,7 +123,7 @@ test('nothing inside 1 km: the place, the measured distance and ONE binary quest
   assert.match(answer, /најблиску што имам е на [\d.,]+ km/u, `the distance is measured: ${answer}`);
   // Both ways out, in one question.
   assert.match(answer, /истата населба/u, `the same-naselba option: ${answer}`);
-  assert.match(answer, /друга населба/u, `the other-naselba option: ${answer}`);
+  assert.match(answer, /друга населба/ui, `the other-naselba option: ${answer}`);
   // Nothing was served — the whole point of the ask.
   assert.doesNotMatch(answer, /Евидентен број/u, `no card rides the ring question: ${answer}`);
 });
@@ -159,7 +159,7 @@ test('«друга населба» drops the area lock and serves elsewhere', a
   assert.equal(s.slots.location, undefined, `the old area lock is released: ${answer}`);
   assert.match(answer, /Евидентен број 903/u, `the other-naselba stock is served: ${answer}`);
   assert.doesNotMatch(answer, /Евидентен број 902/u, `the old naselba is not this answer: ${answer}`);
-  assert.match(answer, /во друга населба/u, `the opener names the widen it used: ${answer}`);
+  assert.match(answer, /во друга населба/ui, `the opener names the widen it used: ${answer}`);
 });
 
 test('a bare «DRUGI» while the ring question is open re-asks — it is not a widen pick', async () => {

@@ -3570,6 +3570,28 @@ const TOLD_YOU_RE = new RegExp(
 const NOT_TOLD_YOU_RE = new RegExp(
   `(?:^|[^\\p{L}])(?:не|ne)\\s+(?:(?:ти|ве|ви|ti|ve|vi)\\s+)?(?:${TOLD_YOU_VERB})(?=$|[^\\p{L}])`, 'iu');
 
+/** THE CLIENT'S OWN FORGETTING («не го запишав бројчето», «не му го памтам
+ *  бројот», «не се сеќавам на бројчето»). It is the sentence that follows a
+ *  recall of a listing he saw — and it names no criterion, so every lane that
+ *  reads it as a complaint about OUR memory (the told-you nag) or as a fresh
+ *  question (the discovery grill) is wrong: the listing already described is
+ *  what he wants, without its number.
+ *  The forgetting verb and the number noun must sit in ONE clause, in either
+ *  order, so «не знам што да правам со бројот» stays out. */
+const FORGET_VERB = '(?:запиша\\p{L}*|zapisa\\p{L}*|запамти\\p{L}*|zapamti\\p{L}*|памета\\p{L}*|pameta\\p{L}*|памта\\p{L}*|pamta\\p{L}*|сеќава\\p{L}*|sekjava\\p{L}*|srekjava\\p{L}*)';
+const NUMBER_NOUN = '(?:број\\p{L}*|broj\\p{L}*|бројка\\p{L}*|brojka\\p{L}*)';
+const FORGOT_CLAUSE = `(?:^|[^\\p{L}])(?:не|ne)\\s+(?:(?:го|му|ми|ти|ви|ги|се|go|mu|mi|ti|vi|gi|se)\\s+)*`;
+export function detectForgotNumber(text: string): boolean {
+  const t = String(text ?? '').replace(/\s+/g, ' ');
+  if (!t) return false;
+  const one = (s: string): boolean => {
+    const fwd = new RegExp(`${FORGOT_CLAUSE}${FORGET_VERB}[^.!?\\n]{0,30}${NUMBER_NOUN}`, 'iu');
+    const back = new RegExp(`${FORGOT_CLAUSE}${NUMBER_NOUN}[^.!?\\n]{0,30}${FORGET_VERB}`, 'iu');
+    return fwd.test(s) || back.test(s);
+  };
+  return one(t) || one(normalizeMc(t));
+}
+
 /** «ЗОШТО МИ КАЖА ДЕКА Е СТАРА ПОНУДА И ДЕКА ЈА НЕМА ВЕЌЕ ?» — A CHALLENGE
  *  ABOUT OUR OWN WORDS (the [12:35] capture).
  *
@@ -3602,6 +3624,19 @@ export function detectToldYouNag(text: string): boolean {
   if (NOT_TOLD_YOU_RE.test(text)) return false;
   const cyr = normalizeMc(text);
   if (NOT_TOLD_YOU_RE.test(cyr)) return false;
+  // A RECALL OF ONE OF OUR LISTINGS IS NOT A NAG (the [05:48] capture). «ИМАШЕ
+  // ЕДНА КУЌА ШТО СЕ ИЗДАВАШЕ КАЈ ВАС, ОКОЛУ УНИВЕРЗАЛНА И КАТОЛИЧКА» is the
+  // client asking us to FIND the house — the seen-listing lane owns that turn.
+  // The nag lane ran first, claimed it through the second half of the same
+  // message («не го запишав бројчето…»), and answered «вратив се во
+  // разговорот… во кој дел од градот?» — the listing he had just described was
+  // never searched, twice in one day.
+  if (detectSeenListingRecall(text) || detectSeenListingRecall(cyr)) return false;
+  // …AND THE CLIENT FORGETTING HIS OWN NOTES IS NOT A NAG EITHER («не го
+  // запишав бројчето», «не му го памтам бројот»): the forgetting is HIS; this
+  // lane is about what WE failed to remember. It is also exactly the sentence
+  // that follows a recall (the number he never wrote down).
+  if (detectForgotNumber(text) || detectForgotNumber(cyr)) return false;
   return TOLD_YOU_RE.test(text) || TOLD_YOU_RE.test(cyr);
 }
 
@@ -4376,6 +4411,14 @@ export function detectSeenListingRecall(text: string): boolean {
   if (B(`${NB}(?:дали|dali)${NA}${GAP}{0,10}${NB}${had}${NA}`).test(flat)) return false;
   // (a) «имавте една куќа» — the verb first, the unit right after it.
   if (B(`${NB}${seen}${NA}${GAP}{0,18}${NB}${unit}${NA}${GAP}{0,14}${NB}${SEEN_LISTING_CATEGORY}${NA}`).test(flat)) return true;
+  // (a2) A REMEMBERED PRICE IS THE UNIT (the [05:51] capture): «ИМАВТЕ ДУЌАН
+  // КАЈ КАТОЛИШЧКА ЗА 1000 ЕВРА КИРИЈА» names one listing by its category and
+  // the money he remembers; «еден» is elided. Without this arm the turn was a
+  // fresh search — «во кој дел од градот?» about the shop he had just
+  // described. The money is what separates a recollection from a stock
+  // question («имавте дуќани?» stays a search — the present tense never even
+  // reaches here).
+  if (B(`${NB}${had}${NA}${GAP}{0,40}${NB}${SEEN_LISTING_CATEGORY}${NA}${GAP}{0,40}(?:${MEMORY_MONEY_RE.source})`).test(flat)) return true;
   // (b) «гледав куќи и имавте една» — the category first, the unit after the verb.
   if (B(`${NB}${SEEN_LISTING_CATEGORY}${NA}${GAP}{0,25}${NB}${seen}${NA}${GAP}{0,18}${NB}${unit}${NA}`).test(flat)) return true;
   // (c) THE UNIT IS OPTIONAL AFTER A MEMORY MARKER («имаше куќа», «беше куќа»):

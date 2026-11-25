@@ -162,7 +162,7 @@ test('[second miss] a day nobody can do is a miss; the second one goes solo and 
   assert.match(secondMiss, /88/u, secondMiss);
   assert.match(secondMiss, /и по втор ден/u, `the second miss is said out loud: ${secondMiss}`);
   assert.match(secondMiss, /остави го/u, `and the release is offered: ${secondMiss}`);
-  assert.match(secondMiss, /Кој ден и час/u, `the term is still asked for: ${secondMiss}`);
+  assert.match(secondMiss, /Кој ден и час/ui, `the term is still asked for: ${secondMiss}`);
   const s2 = h.sessions.get(h.chatId)!;
   assert.equal(s2.slots.deferCounts?.[84], 2);
   assert.equal(s2.slots.deferCounts?.[88], 2);

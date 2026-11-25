@@ -158,7 +158,7 @@ test('[10:15] «АДРЕСА ИМАШ ?» runs the nearby protocol with a map li
   const r = sent[sent.length - 1];
   // The nearby protocol: the landmark line + the map link, never the privacy
   // speech the dynamic brain produced in the field.
-  assert.match(r, /во близина на/u, `the nearby protocol answers: ${r}`);
+  assert.match(r, /во близина на/ui, `the nearby protocol answers: ${r}`);
   assert.ok(r.includes('Рамстор Мол'), `the resolved landmark is named: ${r}`);
   assert.match(r, /https:\/\/maps\.google\.com\/\?q=42\.00120,21\.43220/u,
     `a coordinate map link rides the answer: ${r}`);

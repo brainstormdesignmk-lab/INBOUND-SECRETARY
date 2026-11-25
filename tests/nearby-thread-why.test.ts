@@ -95,7 +95,7 @@ test('bare more-ask after nearby replies qualifies for the nearby thread', () =>
 test('address.why bank key: user wording first, all variants clean', () => {
   const v = (RESPONSE_BANK as Record<string, string[]> | undefined)['address.why'];
   assert.ok(Array.isArray(v) && v.length >= 6, 'address.why must carry >=6 seed variants');
-  assert.match(v![0]!, /Затоа што тоа се правилата на Агенцијата/);
+  assert.match(v![0]!, /Затоа што тоа се правилата на Агенцијата/i);
   for (const s of v!) {
     assert.doesNotMatch(s, /\{|\}|https?:|Евидентен|евра|денари/);
   }

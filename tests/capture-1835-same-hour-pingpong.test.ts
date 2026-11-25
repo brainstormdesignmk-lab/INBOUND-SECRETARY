@@ -137,7 +137,7 @@ test('[18:35] e2e: the client’s yes to the owner’s counter books it, with no
   assert.match(last, /Договорена посета/u, `the client hears the booking: ${last}`);
   assert.match(last, /18:00/u, last);
   for (const line of h.sent) {
-    assert.doesNotMatch(line, /не е во можност/u,
+    assert.doesNotMatch(line, /не е во можност/ui,
       `no refusal of a term nobody refused: ${line}`);
   }
 });

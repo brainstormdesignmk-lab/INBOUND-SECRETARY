@@ -19,7 +19,7 @@ import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAd
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectVisitDayChoice, detectPluralPropertyAsk, detectPostBookingAck, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
   detectPairReferent, detectIdentifyByFigure, detectOtherFlatAsk, detectPluralFlatAsk,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectForgotNumber, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectPublishedListingAsk, detectAcquisitionWish, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -1892,6 +1892,14 @@ export class InboundHandler {
   private chains = new Map<string, Promise<void>>();
   /** One watchdog per chat for the parallel owner round (see armChainWatchdog). */
   private chainWatchdogs = new Map<string, NodeJS.Timeout>();
+  /** The shortest gap between two route status bumps (see routeStatusLine): one
+   *  line per round is the contract — a verdict on each stop must not turn the
+   *  status into a census. */
+  private static readonly ROUTE_STATUS_MIN_GAP_MS = 20 * 60_000;
+  /** HOW LONG A ROUND WAITS BEFORE THE CLIENT HEARS A STATUS: an owner round is
+   *  usually answered in minutes, and a status that lands one millisecond before
+   *  the route itself is noise. Ten minutes is a real wait. */
+  private static readonly ROUTE_STATUS_MIN_WAIT_MS = 10 * 60_000;
 
   /** TYPED-RESIDENTIAL POOL LOCK (the [20:33] capture): a funnel whose ask was
    *  explicitly residential (the client typed a category that is NOT деловен —
@@ -2899,7 +2907,9 @@ export class InboundHandler {
     // this value is what his own yes is about.
     const targetHour = when.getMinutes() > 0 ? when.getHours() + 1 : when.getHours();
     if (targetHour > 21) return false; // no visit may start after 21:00
+    session.slots.routeStatusAt = undefined; // a new round starts its own clock
     session.slots.visitPlan = {
+      roundAt: 0, // stamped when the questions actually go out (see advanceChain)
       dayMs: dayStartOf(when),
       targetHour,
       term,
@@ -2917,8 +2927,6 @@ export class InboundHandler {
     return true;
   }
 
-  /** THE OWNER-CHECK WINDOW, in ms — the same one the deferred agent times out
-   *  on, so the two readers can never disagree about when a question is old. */
   private ownerCheckWindowMs(): number {
     return Math.max(1, this.deps.cfg.ownerCheckTimeoutMinutes || 30) * 60_000;
   }
@@ -2969,6 +2977,34 @@ export class InboundHandler {
     }, this.ownerCheckWindowMs() + 20_000);
     timer.unref?.();
     this.chainWatchdogs.set(chatId, timer);
+  }
+
+  /** THE CLIENT IS NOT SILENT WHILE THE OWNERS ARE BEING BALANCED (the
+   *  [06:34] capture): one owner answered and the chat then said nothing at all
+   *  until a watchdog dropped the silent ones — the operator read that as «she
+   *  stops the ping-pong with the first owner». One status line, at most once
+   *  per twenty minutes, names the flats still being checked and the day; it
+   *  never quotes a time nobody confirmed and never asks a question (the plan
+   *  that follows does). */
+  private async routeStatusLine(
+    session: ChatSession,
+    asked: Array<{ eb: number }>,
+  ): Promise<void> {
+    const plan = session.slots.visitPlan;
+    if (!plan || asked.length === 0) return;
+    if (Date.now() - (plan.roundAt ?? 0) < InboundHandler.ROUTE_STATUS_MIN_WAIT_MS) return;
+    const last = session.slots.routeStatusAt ?? 0;
+    if (Date.now() - last < InboundHandler.ROUTE_STATUS_MIN_GAP_MS) return;
+    const ebs = [...new Set(asked.map(s => s.eb))].sort((a, b) => a - b);
+    const list = ebs.length === 1
+      ? `Евидентен број ${ebs[0]}`
+      : `Евидентен број ${ebs.slice(0, -1).join(', ')} и ${ebs[ebs.length - 1]}`;
+    const day = new Date(plan.dayMs);
+    const reply = `Сè уште ги чекам одговорите од сопствениците на ${list} за ${weekdayName(day)}, ${formatDateOnly(day)}. Ќе Ве известам веднаш штом потврдат.`;
+    session.slots.routeStatusAt = Date.now();
+    pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+    await this.sendRaw(session, reply, 'deterministic');
   }
 
   /** THE ROUTE'S SEQUENCE, SAID OUT LOUD (the [04:41] capture, complaint 1).
@@ -3334,8 +3370,12 @@ export class InboundHandler {
     if (live.length === 0) { void this.finishChain(session); return; }
     // A question is out — the round is not over until every asked owner answers
     // (the answers are merged per stop, so a slow owner never blocks the others
-    // from being asked).
-    if (live.some(s => s.status === 'asked')) return;
+    // from being asked). The CLIENT is not left in the dark meanwhile: one
+    // status bump names the flats still being checked (see routeStatusLine).
+    if (live.some(s => s.status === 'asked')) {
+      void this.routeStatusLine(session, live.filter(s => s.status === 'asked'));
+      return;
+    }
     // THE BUDGET (3 questions per owner) — spent without a usable hour, he
     // leaves this day's route and is named to the client as a separate term.
     for (const s of live) {
@@ -3384,6 +3424,7 @@ export class InboundHandler {
       asked.push({ eb: ask.eb, hour: ask.hour, priorTerm });
     }
     plan.assignments = undefined; // the route is being re-solved
+    plan.roundAt = Date.now(); // every round stamps its own wait
     if (asked.length === 0) {
       this.deps.sessions.set(session);
       void this.finishChain(session);
@@ -11459,8 +11500,30 @@ export class InboundHandler {
     // takes over when nothing of that category+price stands at it (the same
     // drop-the-assumption ladder the landmark serve runs). A property already
     // on the table keeps its own funnel.
-    if (!EB_NAMED_RE.test(text) && detectSeenListingRecall(text)) {
-      const recallSlots = extractSlots(text);
+    // …AND THE TURN AFTER IT: «НЕ МУ ГО ПАМТАМ БРОЈЧЕТО» (the [05:48]/[05:51]
+    // captures). The number is the one thing he never wrote down; the listing is
+    // already described. The description is kept in `slots.recallQuery`, so this
+    // turn re-serves the SAME candidates — it used to fall to the funnel and ask
+    // «во кој дел од градот?» about a flat he had just pointed at.
+    const recalledQuery = session.slots.recallQuery;
+    // ONLY WHILE THE HUNT IS STILL A HUNT: a lost number in a closing/visit chat
+    // is about the booking, not about re-serving a listing from yesterday.
+    const recallStates = ['idle', 'discovery', 'presentation', 'property_locate', 'property_query'];
+    const forgotTheNumber = !detectSeenListingRecall(text)
+      && detectForgotNumber(text) && !!recalledQuery && recallStates.includes(session.state);
+    if (!EB_NAMED_RE.test(text) && (detectSeenListingRecall(text) || forgotTheNumber)) {
+      // A FORGOT-NUMBER TURN CARRIES NO CRITERIA OF ITS OWN — it re-reads the
+      // description the recall lane stored (category, service, remembered price).
+      const recallSlots = forgotTheNumber
+        ? {
+          service: recalledQuery!.service,
+          budget: recalledQuery!.price !== undefined ? String(recalledQuery!.price) : undefined,
+          house: recalledQuery!.kind === 'куќа' ? true : undefined,
+          business: recalledQuery!.kind === 'деловен простор' ? true : undefined,
+          plac: recalledQuery!.kind === 'плац' ? true : undefined,
+          garsonjera: recalledQuery!.kind === 'гарсоњера' ? true : undefined,
+        }
+        : extractSlots(text);
       // THE DEFINITE FORM COUNTS (the [06:46] variant «уште ли стои огласот за
       // КУЌАТА во Скопје Север»): extractSlots() flags «куќа» but not «куќата»,
       // so the lane asked «колку квадрати има СТАНОТ» about a house. The recall
@@ -11479,6 +11542,7 @@ export class InboundHandler {
         ? this.landmarks?.findPlace(session.slots.poiAnchor)
         : undefined;
       const recallPlace = this.placeWish(text)
+        ?? (forgotTheNumber ? this.resolvePlace(recalledQuery!.place) : undefined)
         ?? (heldAnchor ? { name: heldAnchor.name, lat: heldAnchor.lat, lon: heldAnchor.lon } : undefined);
       // THE NAME IN HIS SENTENCE OUTRANKS THE PLACE'S CONTAINING AREA (the
       // [06:19] field capture). This used to ask `areaAtPlace(place)` FIRST: the
@@ -11645,6 +11709,7 @@ export class InboundHandler {
             if (recallSlots.service) session.slots.service = recallSlots.service;
             session.slots.presentedIds = [...new Set([...(session.slots.presentedIds ?? []), ...picks.map(p => p.id)])];
             session.slots.currentBatch = picks.map(p => p.id);
+            session.slots.recallQuery = { price: recallPrice, place: recallPlace?.name, service: session.slots.service };
             session.state = 'property_locate';
             const placeName = recallPlace ? displayPlaceName(recallPlace.name) : undefined;
             const dualAreaLabel = recallArea ? displayAreaName(recallArea) : undefined;
@@ -11746,6 +11811,11 @@ export class InboundHandler {
         if (recallSlots.plac !== undefined) session.slots.plac = recallSlots.plac;
         if (recallSlots.garsonjera) session.slots.garsonjera = true;
         if (recallSlots.service) session.slots.service = recallSlots.service;
+        // THE DESCRIPTION OUTLIVES THE TURN (see slots.recallQuery): his next
+        // «не му го памтам бројчето» re-serves THESE candidates.
+        session.slots.recallQuery = {
+          kind, price: recallPrice, place: recallPlace?.name, service: session.slots.service,
+        };
         session.state = 'property_locate';
         let answer: string;
         // ONE DEAL AT THE ANCHOR IS THE ANSWER (the [06:46] helpful-mode rule):
@@ -11812,6 +11882,10 @@ export class InboundHandler {
             ? `Во моментов немам ${kind}${deal} во близина на ${displayPlaceName(recallPlace.name)} ${what}. Дали да погледнам во друг дел од градот, или да Ве известам штом излезе нешто слично?`
             : `Во моментов немам ${kind}${deal} во ${areaLabel} ${what}. Дали да погледнам во друг дел од градот, или да Ве известам штом излезе нешто слично?`;
         }
+        // «НЕ МУ ГО ПАМТАМ БРОЈЧЕТО» IS ANSWERED, NOT REPEATED AT HIM: the
+        // candidates are the same on purpose (the number is what he lost), so
+        // the turn says that out loud before serving them again.
+        if (forgotTheNumber) answer = `Се разбира, бројот не е проблем.\n\n${answer}`;
         routeLog(chatId, text, 'SEEN_LISTING_RECALL');
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
@@ -18122,6 +18196,31 @@ ${contactReminder}`;
     return agent.answer?.(chatId, eb, verdict) ?? false;
   }
 
+  /** THE FLAT THE OWNER'S MESSAGE IS ABOUT (the [06:34] capture).
+   *
+   *  A route asks its owners IN PARALLEL — the deferred agent keeps one pending
+   *  check per (chat, EB) — so the CHAT's `propertyId` is just one of them.
+   *  After the first owner answered, every later owner's verdict was filed
+   *  against that SAME flat: `applyChainVerdict` looked for a stop still `asked`
+   *  with that eb, found none, and dropped the answer. The client sat silent
+   *  while two owners had already replied — the ping-pong died with the first
+   *  owner. The pending check is the authority here; the chat's live eb is the
+   *  fallback for a late amendment after every check was answered. A flat the
+   *  transport NAMES is accepted as long as the chat is about it (pending, live
+   *  or a stop of the live route) — a stranger's property still is not. */
+  private ownerSubjectEb(session: ChatSession, named?: number): number | undefined {
+    const liveEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    const agent = this.ownerAgent as unknown as { pendingEbs?: (c: string) => number[] };
+    const pending = typeof agent.pendingEbs === 'function' ? agent.pendingEbs(session.chatId) : [];
+    const onRoute = session.slots.visitPlan?.stops.some(s => s.eb === named) ?? false;
+    if (named !== undefined) {
+      return pending.includes(named) || liveEb === named || onRoute ? named : undefined;
+    }
+    if (liveEb !== undefined && pending.includes(liveEb)) return liveEb;
+    if (pending.length > 0) return pending[0];
+    return liveEb;
+  }
+
   /** THE OWNER'S CHANNEL STAYS LIVE UNTIL THE TERM IS SETTLED (the [20:27]–
    *  [20:28] capture): the first verdict resolves the pending check, so the
    *  owner's NEXT sentence died with «нема активна проверка за овој клиент»
@@ -18162,8 +18261,8 @@ ${contactReminder}`;
    *  returns undefined for anything that is not an owner question, so a real
    *  verdict always stays with detectOwnerVerdict / applyOwnerVerdict.
    */
-  ownerQuestionReply(chatId: string, text: string): string | undefined {
-    const answer = this.ownerQuestionReplyRaw(chatId, text);
+  ownerQuestionReply(chatId: string, text: string, subjectEb?: number): string | undefined {
+    const answer = this.ownerQuestionReplyRaw(chatId, text, subjectEb);
     // The served line joins the owner pane's ring AFTER it is built, so the
     // pools below avoid what he has ALREADY read — never the line being served.
     if (answer) this.rememberOwnerLine(chatId, answer);
@@ -18186,10 +18285,13 @@ ${contactReminder}`;
     return t;
   }
 
-  private ownerQuestionReplyRaw(chatId: string, text: string): string | undefined {
+  private ownerQuestionReplyRaw(chatId: string, text: string, subjectEb?: number): string | undefined {
     const session = this.deps.sessions.get(chatId);
     if (!session) return undefined;
-    const liveEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    // THE STOP WHOSE OWNER IS SPEAKING (see ownerSubjectEb): a parallel round asks
+    // several owners, and the chat's live eb is whichever was asked LAST — the
+    // answer to «is it today?» must quote THIS owner's term, not another flat's.
+    const liveEb = subjectEb ?? session.slots.propertyId ?? session.slots.interestedPropertyId;
     // THE OWNER ASKS WHO WILL RENT IT (the #4 field request, 2026-11-12).
     //
     //   СОПСТВЕНИК: «КОЈ САКА ДА ЈА ИЗНАЈМИ?»
@@ -18260,7 +18362,7 @@ ${contactReminder}`;
     // evening hour; the check stays open.
     const workReason = !isOwnerQuestion(text) && isOwnerWorkReason(text) && !detectOwnerVerdict(text, session.slots.visitTime ?? '');
     if (!isOwnerQuestion(text) && !greetingOnly && !availabilityOnly && !workReason) return undefined;
-    const ownerEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    const ownerEb = liveEb;
     const term = (ownerEb !== undefined ? this.routeTermFor(session, ownerEb) : undefined)
       ?? session.slots.ownerAskTime ?? session.slots.visitTime ?? '';
     const shownTerm = term ? normalizeOwnerTime(term) : '';
@@ -18340,10 +18442,12 @@ ${contactReminder}`;
   async ownerMessage(chatId: string, text: string, opts: { eb?: number; messageId?: string } = {}): Promise<OwnerMessageResult> {
     const session = this.deps.sessions.get(chatId);
     if (!session) return { effect: 'unknown_chat' };
-    const liveEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
+    // THE FLAT THE OWNER IS ANSWERING FOR (see ownerSubjectEb): a route has one
+    // pending check PER FLAT, so the chat's live eb is only the fallback.
+    const subjectEb = this.ownerSubjectEb(session, opts.eb);
     // A transport that names the flat must name THE flat: an owner answer about
     // another property would move this funnel on a stranger's word.
-    if (opts.eb !== undefined && liveEb !== undefined && opts.eb !== liveEb) {
+    if (opts.eb !== undefined && subjectEb !== opts.eb) {
       return { effect: 'wrong_property', state: session.state };
     }
     const key = opts.messageId ? `owner.reply:${chatId}:${opts.messageId}` : undefined;
@@ -18363,7 +18467,7 @@ ${contactReminder}`;
     });
     const result = await runInTurn(ctx, async () => {
       try {
-        return await this.ownerMessageOnce(session, liveEb, text);
+        return await this.ownerMessageOnce(session, subjectEb, text);
       } finally {
         this.closeTurn(ctx);
       }
@@ -18462,7 +18566,7 @@ ${contactReminder}`;
     }
     // Everything else is HIS message, answered by the one answer seam (greeting,
     // «is it today?», the agency question, the availability half).
-    const reply = this.ownerQuestionReply(session.chatId, text);
+    const reply = this.ownerQuestionReply(session.chatId, text, liveEb ?? undefined);
     return reply
       ? { effect: 'answered', replyText: reply, state: this.deps.sessions.get(session.chatId)?.state ?? session.state }
       : { effect: 'no_pending', state: session.state };

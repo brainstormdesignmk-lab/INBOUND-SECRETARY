@@ -91,7 +91,7 @@ test('стан by room tier: the miss names двособни and ITS cap', async
   assert.match(reply, /Моментално во системот нема двособни до 120\.000 евра во Центар\./u,
     `the tier, its own cap and the area are named: ${reply}`);
   // The exits: he pinned an area AND gave money, so both pivots stand.
-  assert.match(reply, /друга населба/u, `another-neighbourhood exit: ${reply}`);
+  assert.match(reply, /друга населба/ui, `another-neighbourhood exit: ${reply}`);
   assert.match(reply, /прошириме цената/u, `widen-the-price exit: ${reply}`);
   assert.match(reply, /забележам/u, `the lead is never dropped: ${reply}`);
 });
@@ -138,7 +138,7 @@ test('гарсоњера city-wide: no invented area, and no other-neighbourhood
     `the studio category is named: ${reply}`);
   // He released the area: offering "another neighbourhood" would re-open a
   // criterion he explicitly waived.
-  assert.doesNotMatch(reply, /друга населба/u, `no area pivot for a city-wide ask: ${reply}`);
+  assert.doesNotMatch(reply, /друга населба/ui, `no area pivot for a city-wide ask: ${reply}`);
   assert.match(reply, /прошириме цената/u, `the money pivot still stands: ${reply}`);
 });
 

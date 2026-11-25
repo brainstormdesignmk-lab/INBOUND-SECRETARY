@@ -434,7 +434,7 @@ test('[21:41] «PORTA BUNJAKOVEC» binds, and «A NESTO OKOLU DAJMOND MOL» sear
   assert.deepEqual(sessions.get(chatId)!.slots.currentBatch, [421],
     'the serve is near the mall, not near Порта Буњаковец');
   assert.match(served, /Еве ги најблиските опции до Диамонд Мол:/);
-  assert.doesNotMatch(served, /телефонскиот број/, 'a search confirm is not a phone request');
+  assert.doesNotMatch(served, /телефонскиот број/i, 'a search confirm is not a phone request');
 
   // [21:46] «STANCINJA OKOLU DIAMOND MALL ?» — every mall-side row is shown, so
   // the drained line must speak about the MALL, never about the district it

@@ -208,7 +208,7 @@ test('the singular forms stay singular (the mirror defect)', async () => {
   h.seed();
   await h.say('САКАМ ДА КУПАМ ТРОСОБЕН СТАН. ДАЛИ 84 СЕ УШТЕ НА ПРОДАЖБА ?');
   const answer = await h.say('КОГА БИ МОЖЕЛО ДА СЕ ПОГЛЕДНЕ ?');
-  assert.match(answer, /сопственикот/u, answer);
+  assert.match(answer, /сопственикот/ui, answer);
   assert.doesNotMatch(answer, /сопствениците|становите со Евидентни/u,
     `one flat has one owner and no plural subject: ${answer}`);
 });

@@ -168,7 +168,7 @@ test('[deferred route] the flats that missed the day are chained on the NEXT ter
   }
   assert.match(secondOffer, /88/u, `the second route is offered: ${secondOffer}`);
   assert.match(secondOffer, /59/u, secondOffer);
-  assert.match(secondOffer, /Посети по ред/u, `…as a route, not a single visit: ${secondOffer}`);
+  assert.match(secondOffer, /Посети по ред/ui, `…as a route, not a single visit: ${secondOffer}`);
   await h.say('ДА');
   const all = h.appointments.listByChat(h.chatId);
   assert.equal(all.length, 4, `nobody is dropped: ${JSON.stringify(all.map((a: { propertyId: number; visitAt: string }) => [a.propertyId, a.visitAt]))}`);

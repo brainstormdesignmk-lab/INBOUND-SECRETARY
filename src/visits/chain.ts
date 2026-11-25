@@ -81,6 +81,10 @@ export interface VisitPlanState {
   /** LEGACY name for a flat that is genuinely unavailable (sold, gone, refused
    *  the route). Kept so old persisted sessions still load. */
   dropped?: number[];
+  /** WHEN THIS ROUND WAS PUT TO THE OWNERS (epoch ms). The status bump to the
+   *  client waits a real delay before it speaks (see routeStatusLine) — a line
+   *  sent a millisecond before the route itself is noise, not a status. */
+  roundAt?: number;
 }
 
 export interface ChainStop {

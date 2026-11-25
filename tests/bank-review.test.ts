@@ -311,7 +311,7 @@ test('gapfill review rows show generation reference and instruction without fabr
   assert.equal(row.key, key);
   assert.equal(row.userMsg, null, 'generation prompt text is not mislabeled as a client quote');
   assert.deepEqual(row.generationContext?.reference, ['До која цена го барате?']);
-  assert.match(row.generationContext?.instruction ?? '', /ДЕЛОВНИОТ ПРОСТОР/);
+  assert.match(row.generationContext?.instruction ?? '', /ДЕЛОВНИОТ ПРОСТОР/i);
   db.db.close();
 });
 

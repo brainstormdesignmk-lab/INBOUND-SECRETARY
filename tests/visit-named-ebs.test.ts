@@ -201,7 +201,7 @@ test('[06:33] EVERY rent disclosure variant pluralises, and still closes with a 
   assert.ok(pool.length >= 2, 'the rent disclosure pool is the thing being swept');
   for (const variant of pool) {
     const two = extendFeeAskForCount(variant, 'rent', 2);
-    assert.doesNotMatch(two, /сопственикот/u, `no singular owner for two flats: ${two}`);
+    assert.doesNotMatch(two, /сопственикот/ui, `no singular owner for two flats: ${two}`);
     assert.match(two, /За двете недвижности тоа е вкупно 600 денари\./u, two);
     assert.ok(two.trimEnd().endsWith('?'), `the agreement ask still closes it: ${two}`);
     // The disclosure itself is kept verbatim — only the owner count changed.

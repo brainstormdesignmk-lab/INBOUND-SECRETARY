@@ -100,7 +100,7 @@ test('stock exists but only kilometres away: the place is named, the distance is
   assert.match(reply, /3,2\s*(?:km|км)/iu, `the real distance (≈3.2 km): ${reply}`);
   // 3. BOTH ways out, as ONE question — and the choice is the client's
   assert.match(reply, /истата населба/u, `the same-naselba option is offered: ${reply}`);
-  assert.match(reply, /друга населба/u, `the other-neighbourhoods option is offered: ${reply}`);
+  assert.match(reply, /друга населба/ui, `the other-neighbourhoods option is offered: ${reply}`);
   // 4. NOTHING is served: the far rows are not the answer to «близу до X»
   assert.doesNotMatch(reply, /Евидентен број 50[12]/u, `no far card rides the ask: ${reply}`);
   assert.equal(s.slots.poiTooFarAsk, true, `the ring question is open: ${reply}`);
@@ -125,6 +125,6 @@ test('stock within reach keeps the plain anchored opener — no absence line', a
   const reply = await say('DO 120000');
   assert.equal(sessions.get(chatId)!.state, 'presentation', reply);
   assert.match(reply, /Еве ги најблиските опции до Буњаковец/u, `the anchored opener: ${reply}`);
-  assert.doesNotMatch(reply, /немам недвижност/u, `nothing absent when stock is near: ${reply}`);
+  assert.doesNotMatch(reply, /немам недвижност/ui, `nothing absent when stock is near: ${reply}`);
   assert.match(reply, /Евидентен број 51[12]/u, `the near pair is served: ${reply}`);
 });

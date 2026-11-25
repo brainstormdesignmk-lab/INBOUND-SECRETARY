@@ -1888,6 +1888,60 @@ The [22:51]–[22:55] capture, three answers to one pair of flats:
   `PAIR_LOCATION`/`PAIR_OTHER_LOCATION` in `ROUTING_ORDER`). Pinned in
   `tests/capture-2251-pair-address-and-availability.test.ts`.
 
+## 4d. Owner rounds: the subject is a STOP, the status is a WAIT
+
+- THE OWNER'S ANSWER BELONGS TO A STOP, NOT TO THE CHAT (`ownerSubjectEb`).
+  The [06:34] capture died here: every owner seam resolved its subject from the
+  chat's `propertyId`, which points at ONE stop — the first owner who answered.
+  Every later owner's verdict was filed on an already-answered stop and
+  dropped, so the ping-pong stopped after one reply and the route never reached
+  the client. The pending stop (chat + EB) is the authority now: the open-
+  question lookup first, the chat's current property only as the last resort.
+  `ownerMessage`/`ownerMessageOnce`/`ownerQuestionReply` all take that subject,
+  and the TUI's `/owner <eb>` accepts ANY member of `pendingEbs`. Pinned in
+  `tests/field-0634-parallel-owner-answers.test.ts` (second answer lands on his
+  own stop; the route reaches the client only when the LAST owner answers).
+- THE STATUS BUMP IS FOR A REAL WAIT, NEVER FOR THE MILLISECOND BEFORE THE
+  ROUTE: `routeStatusLine` speaks once per `plan.roundAt` + 10 min
+  (`ROUTE_STATUS_MIN_WAIT_MS`) and not again inside 20 min
+  (`ROUTE_STATUS_MIN_GAP_MS`). A round is stamped when its questions go out, so
+  a fast round never produces a status followed immediately by its own result
+  (that pairing broke `tests/deferred-second-day.test.ts`). The line names the
+  flats still out and the day/hour the client gave — never a fabricated hour.
+
+## 4e. Recall: the property he already saw answers his question
+
+- WHEN THE CLIENT RECALLS A PROPERTY BY ANYTHING HE REMEMBERS (type, price,
+  landmark, «оној со…»), the answer is the card, not the area question —
+  `detectSeenListingRecall` (arm a2: a memory verb + a category + a money
+  figure). The lane re-reads `slots.recallQuery`, which every serve site
+  stamps, so the recap survives a turn that moved the conversation on.
+- «НЕ МУ ГО ПАМТАМ БРОЈЧЕТО» IS NOT A NEW SEARCH (`detectForgotNumber`,
+  FORGET_VERB × NUMBER_NOUN × FORGOT_CLAUSE): it re-serves the remembered card
+  with its EB and prefixes a short reassurance. It only fires while the hunt is
+  still a hunt (`idle`, `discovery`, `presentation`, `property_locate`,
+  `property_query`) — in a booking chat the lost number is about the visit.
+- A RECALL IS NOT A NAG: `detectToldYouNag` vetoes listing recalls and the
+  forgot-number shapes, or the client saying «веќе ми го покажавте» would burn
+  a fee rung.
+- Pinned in `tests/field-0648-seen-listing-recall.test.ts`.
+
+## 4f. One typo in a name the map spells several times
+
+- `typoBest` refuses a tie between different ids («KAM»/«KAN» is ambiguity,
+  not a typo). The [05:51] capture showed the other shape: «кај
+  КАТОЛИШЧКА» is one extra ш on «Католичка црква», and the map holds several
+  rows of that family, so the tie rule answered MISS for a place the corrected
+  spelling resolves to exactly one row. `correctedTypoNeedle` rebuilds the
+  needle in the tied rows' own spelling — every token preserved (a dropped «5»
+  names a different place), every tied row must agree on the word (disagreement
+  is ambiguity), and at least one word must differ UNDER THE CANONICAL FOLD.
+  A CASE FOLD IS NOT A TYPO: «KAPITOL MOL» → «Capitol Mall» counted as a
+  correction and answered the mall by its English alias instead of «Трговски
+  центар Капитол» (six landmark/template suites caught it). Only then is the
+  corrected spelling put to the exact pass. Pinned in `tests/offlineMap.test.ts`
+  («miss-recovery allows one slip per word»).
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.

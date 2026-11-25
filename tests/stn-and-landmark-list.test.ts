@@ -113,6 +113,6 @@ test('LEPTOKARIJA ILI CITY MALL no longer re-asks the area', async () => {
   await handler.handle('test', chatId, 'STN MI TREBA');
   await handler.handle('test', chatId, 'LEPTOKARIJA ILI CITY MALL');
   const answer = sent[sent.length - 1] ?? '';
-  assert.doesNotMatch(answer, /кој дел од град/u,
+  assert.doesNotMatch(answer, /кој дел од град/ui,
     `the area question must not repeat after the landmark list: ${answer}`);
 });

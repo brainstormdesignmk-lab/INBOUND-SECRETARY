@@ -110,15 +110,15 @@ test('[02:39] «гледав куќи и имавте една во Скопје
   const { send } = makeHandler('helpful-recall');
   const first = await send('ГЛЕДАВ КУЌИ И ИМАВТЕ ЕДНА ВО СКОПЈЕ СЕВЕР');
   // The market is ONE legitimate question — the criteria grill is the defect.
-  assert.doesNotMatch(first.reply, /Колку спални/u, `a recall is never a criteria grill: ${first.reply}`);
+  assert.doesNotMatch(first.reply, /Колку спални/ui, `a recall is never a criteria grill: ${first.reply}`);
   assert.equal(first.session.slots.house, true);
   assert.match(String(first.session.slots.location ?? ''), /Скопје/u, 'the area he named is on file');
 
   // «ЗА КУПУВАЊЕ БЕШЕ. НЕ МОЖАМ ДА СЕ СЕТАМ НА БРОЈОТ» → the house he saw.
   const second = await send('ЗА КУПУВАЊЕ БЕШЕ. НЕ МОЖАМ ДА СЕ СЕТАМ НА БРОЈОТ');
   assert.match(second.reply, /Евидентен број 44/u, `the same listing is recalled: ${second.reply}`);
-  assert.doesNotMatch(second.reply, /Колку спални/u, `no grill on the recall: ${second.reply}`);
-  assert.doesNotMatch(second.reply, /До која цена/u, `no price grill either: ${second.reply}`);
+  assert.doesNotMatch(second.reply, /Колку спални/ui, `no grill on the recall: ${second.reply}`);
+  assert.doesNotMatch(second.reply, /До која цена/ui, `no price grill either: ${second.reply}`);
 });
 
 // ── 2. THE COPY SPEAKS THE CLIENT'S CATEGORY ────────────────────────────────
@@ -188,7 +188,7 @@ test('[02:51] «колку се раздалечени од Католичка»
   assert.match(asked.reply, /Евидентен број 42/u, `the first offer measured: ${asked.reply}`);
   assert.match(asked.reply, /Евидентен број 59/u, `the second offer measured: ${asked.reply}`);
   assert.match(asked.reply, /(метри|km|км)/u, `a measurement, not a rent: ${asked.reply}`);
-  assert.doesNotMatch(asked.reply, /киријата изнесува/u, `the rent is not the answer: ${asked.reply}`);
+  assert.doesNotMatch(asked.reply, /киријата изнесува/ui, `the rent is not the answer: ${asked.reply}`);
 });
 
 // ── 5. THE VISIT PROTOCOL OWNS A TIME, NEVER THE LLM ────────────────────────
@@ -225,7 +225,7 @@ test('[03:01] a timing question and a proposed hour stay deterministic', async (
   assert.equal(sess.slots.visitTime, 'UTRE NAKAJ 6', 'the client\'s own hour is kept for the owner ping');
   assert.match(hour.reply, /Евидентен број/u, `the offer he is booking is named: ${hour.reply}`);
   assert.match(hour.reply, /300 денари/u, `the visit fee is the protocol's next step: ${hour.reply}`);
-  assert.doesNotMatch(hour.reply, /Направив избор на неколку интересни/u,
+  assert.doesNotMatch(hour.reply, /Направив избор на неколку интересни/ui,
     'the canned variants line is never the answer to a proposed hour');
 });
 

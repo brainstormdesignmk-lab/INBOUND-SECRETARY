@@ -134,7 +134,7 @@ test('the served business pair is MEASURED when the client asks how far it stand
       `EB ${eb} is measured, not dropped: ${reply}`);
   }
   // …and it is never the area grill: he named the place, she knows the pair.
-  assert.doesNotMatch(reply, /За кој дел од градот/u, `never the business-area question: ${reply}`);
+  assert.doesNotMatch(reply, /За кој дел од градот/ui, `never the business-area question: ${reply}`);
 });
 
 // ── defects #3, #4, #5: the pair ON THE TABLE is the referent ───────────────

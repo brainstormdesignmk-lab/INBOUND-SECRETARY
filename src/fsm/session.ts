@@ -168,6 +168,26 @@ export interface SlotData {
    *  flats (the records she has — never «немам детали»), and a pick of one of
    *  them opens the availability answer instead of a card re-description. */
   describedEbs?: number[];
+  /** THE LISTING THE CLIENT DESCRIBED (the [05:48]/[05:51] captures): he
+   *  recalled a house/shop he had seen with us by its category, its place and
+   *  the money he remembers — «имавте дуќан кај Католичка за 1000 евра
+   *  кирија». The description is kept so his NEXT turn («не му го памтам
+   *  бројчето») answers with the SAME candidates instead of restarting the
+   *  funnel and asking for the area a second time. */
+  recallQuery?: {
+    /** куќа | деловен простор | плац | гарсоњера | стан — the category noun. */
+    kind?: string;
+    /** The price the client remembers (a band, never a live quote). */
+    price?: number;
+    /** The place (map name) the listing was described at. */
+    place?: string;
+    service?: 'rent' | 'buy';
+  };
+  /** WHEN THE CLIENT LAST HEARD A ROUTE STATUS BUMP (see routeStatusLine): a
+   *  parallel owner round may take many minutes, and the chat must not go
+   *  silent after the first owner answers — but it must not become a census
+   *  either. Timestamp, not a boolean, so the next round starts fresh. */
+  routeStatusAt?: number;
   /** The place the described flats sit near (the landmark the client named).
    *  It scopes the continuation of that hunt — the next options come from
    *  THERE, and only the client's «да» to the other-neighbourhoods question

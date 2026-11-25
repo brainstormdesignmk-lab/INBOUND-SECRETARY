@@ -182,7 +182,7 @@ test('[22:55] «DOSTAPNI LI SE USTE ?» answers availability for BOTH flats', as
   assert.match(reply, /Евидентен број 66/u, `EB 66 availability: ${reply}`);
   assert.match(reply, /Евидентен број 95/u, `EB 95 availability: ${reply}`);
   // The availability lane, not a geography line.
-  assert.doesNotMatch(reply, /во близина на/u, `never a landmark: ${reply}`);
+  assert.doesNotMatch(reply, /во близина на/ui, `never a landmark: ${reply}`);
   assert.doesNotMatch(reply, /maps\.google\.com/u, `never a pin: ${reply}`);
   assert.match(reply, /достап|актив/u, `availability wording: ${reply}`);
   // The fee is stated PER PROPERTY, as the plural lane always did.

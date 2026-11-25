@@ -771,10 +771,15 @@ export class TuiApp {
       const ownerTime = ownerMatch[3] ?? undefined;
       const agent = this.pipeline.ownerAgent as unknown as {
         pendingEb?: (chatId: string) => number | null;
+        pendingEbs?: (chatId: string) => number[];
         simulate?: (chatId: string, eb: number, action: 'ok' | 'available' | 'sold' | 'rented' | 'counter' | 'price', ownerTime?: string) => boolean;
       };
       const pending = agent.pendingEb?.(lead.chatId) ?? null;
-      if (pending !== eb) {
+      // A ROUTE ASKS SEVERAL OWNERS AT ONCE: any flat with an open check may be
+      // answered by name (the first-pending rule refused `/owner 88 ok` while EB
+      // 82 was still pending — one owner's silence made the others unanswerable).
+      const open = agent.pendingEbs?.(lead.chatId) ?? (pending !== null ? [pending] : []);
+      if (!open.includes(eb)) {
         this.appendMsg(lead.chatId, {
           role: 'system',
           text: `[owner] EB ${eb} — нема чекање за овој клиент (или погрешен EB)`,
@@ -1032,14 +1037,20 @@ export class TuiApp {
       // проверка») must reach the funnel, which re-relays it to the client.
       const liveSession = this.sessions.get(lead.chatId);
       const liveEb = liveSession?.slots.propertyId ?? liveSession?.slots.interestedPropertyId;
-      if (liveSession && liveEb !== undefined
+      // THE OWNER WHO IS SPEAKING IS THE PENDING CHECK (the [06:34] capture): a
+      // route asks its owners in parallel, so the chat's live eb is one of them.
+      // Filing every later owner's sentence against it dropped their answers
+      // (the stop was already answered) and the ping-pong died with the first
+      // owner. The pending check names the flat; live eb is the fallback.
+      const ownerEb = pending ?? liveEb;
+      if (liveSession && ownerEb !== undefined
         && (liveSession.state === 'owner_checking' || liveSession.state === 'time_confirm')) {
         const late = detectOwnerVerdict(text, liveSession.slots.visitTime ?? '');
         // A QUESTION IS NOT A LATE VERDICT (the [10:02] capture): the owner
         // asked «DALI PRASUVATE ZA DENES ?» and heard «нема активна проверка
         // за овој клиент». He is answered — and the client hears nothing.
         if (!late) {
-          const answer = this.pipeline.ownerQuestionReply(lead.chatId, text);
+          const answer = this.pipeline.ownerQuestionReply(lead.chatId, text, ownerEb);
           if (answer) {
             this.appendOwnerMsg(lead.chatId, { role: 'user', text, at: Date.now() });
             this.appendOwnerMsg(lead.chatId, { role: 'assistant', text: answer, at: Date.now() });
@@ -1047,7 +1058,7 @@ export class TuiApp {
             return;
           }
         }
-        if (late && this.pipeline.ownerFollowup(lead.chatId, liveEb, late)) {
+        if (late && this.pipeline.ownerFollowup(lead.chatId, ownerEb, late)) {
           this.appendOwnerMsg(lead.chatId, { role: 'user', text, at: Date.now() });
           // The applied text itself reaches the pane through onOwnerRelay; this
           // row only records that the verdict was taken (a counter that re-asks
@@ -1074,7 +1085,7 @@ export class TuiApp {
       // being asked for a viewing by an agent he has never met asks exactly
       // this. Answer HIS question first; only a message that is not a question
       // falls back to repeating the ask.
-      const answer = this.pipeline.ownerQuestionReply(lead.chatId, text);
+      const answer = this.pipeline.ownerQuestionReply(lead.chatId, text, pending ?? undefined);
       this.appendOwnerMsg(lead.chatId, {
         role: 'assistant',
         text: answer ?? buildOwnerAskAgain(pending),

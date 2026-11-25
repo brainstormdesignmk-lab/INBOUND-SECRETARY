@@ -189,7 +189,7 @@ test('[03:45] «подалеку» serves the farther card in the SAME naselba �
   const s = sessions.get(chatId)!;
   // The ring is released INSIDE the anchor's naselba, not the whole city.
   assert.equal(s.slots.poiWidenScope, 'area', `the farther ask is the same-naselba widen: ${farther}`);
-  assert.doesNotMatch(farther, /Ги исцрпивме/u, `the search is not drained: ${farther}`);
+  assert.doesNotMatch(farther, /Ги исцрпивме/ui, `the search is not drained: ${farther}`);
   assert.match(farther, /Евидентен број 75/u, `the 1,4 km card in the same area is served: ${farther}`);
   // The one-bedroom tier WAS shown here and is now gone: the drained wording.
   assert.match(farther, /Тоа е сè што имав двособни до 120\.000 евра/u,
@@ -287,5 +287,5 @@ test('[04:05] a visit counter during the owner ping-pong never becomes a place-d
   const ask = asks[asks.length - 1]!;
   assert.match(ask, /Понеделник, \d{2}\.\d{2}\.\d{4} во 18:00/u,
     `the new proposal is the Monday 18:00 the client named: ${ask}`);
-  assert.match(ask, /не е во можност/u, `the follow-up wording: ${ask}`);
+  assert.match(ask, /не е во можност/ui, `the follow-up wording: ${ask}`);
 });
