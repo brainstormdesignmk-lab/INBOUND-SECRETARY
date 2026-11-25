@@ -1942,6 +1942,42 @@ The [22:51]–[22:55] capture, three answers to one pair of flats:
   corrected spelling put to the exact pass. Pinned in `tests/offlineMap.test.ts`
   («miss-recovery allows one slip per word»).
 
+## 4g. A landmark line is a DIRECTION: who may anchor it
+
+The [10:24] capture answered «Тоа се наоѓа во близина на ПЗУ Аптека Линцура 2»
+— a pharmacy in the flat's own ground floor, 1 m from the pin. It won because
+significance rank sorted before distance and nothing higher-ranked stood inside
+the 200 m ring. The owner's rule: **a pharmacy is not a well-known place and it
+can be closed tomorrow** — the line must name a place a client recognises and
+will still find.
+
+- `admitsLandmarkClaim` (`src/geo/offlineMap.ts`) is the ONE test, and every
+  claim site applies it: the feed roster (`feedRosterSlots`), the map-scan
+  rotation (`nearbyLandmarks`) and the import-time resolver (`resolve`, the pass
+  that MINTS a roster). It replaces the `POI_PRIORITY`/`PERMANENCE`/
+  `effectivePriority` tables, which read like that rule but were **never called
+  by anyone** — dead code, deleted rather than left to mislead the next reader.
+- DURABLE public classes need no evidence at all (review counts are meaningless
+  for a municipal kindergarten, and a church/park/market/mall/hall outlives
+  every tenant). GEOGRAPHIC LABELS are refused whatever the evidence says
+  («во близина на Центар» says nothing when you are IN Центар). A TRANSIENT
+  business (pharmacy, bank, hotel, cafe, clinic, gym) needs
+  `KNOWN_PLACE_MIN_REVIEWS` (20) Google reviews — a storefront nobody reviewed
+  is not an anchor. A place the map cannot measure is not refused: only a
+  measured row can be refused for what it is.
+- THE ROSTER IS JUDGED AT ITS OWN PIN by the rows carrying THAT name within
+  40 m — never by `findPoiByName`, which prefers the shorter name and can hand
+  back a twin filed under another type (the same «Рамстор - Сити Мол» is a
+  `Supermarket` with no reviews AND the `Shopping mall` with 329). A
+  NEIGHBOUR'S evidence is not the entry's: the pharmacy shares its 40 m ring
+  with a restaurant and a grocery.
+- THE RESOLVER'S FILTER IS UNCONDITIONAL: when nothing in the ring is a place a
+  client navigates by, the honest answer is the neighbourhood line, never the
+  best of the refused ones.
+- Pinned in `tests/landmark-claim-relevance.test.ts` (unit rule + e2e on the
+  [10:24] roster, plus the evidenced-pharmacy case — the rule refuses a nameless
+  branch, not the class).
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.

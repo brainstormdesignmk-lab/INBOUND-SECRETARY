@@ -58,9 +58,12 @@ test('the name passes read the cached index, never the table', () => {
   // legitimately touch `pois`: the schema probe, stats(), the LIKE lookup and
   // the normed-name cache — but only poiRows() loads the row set the passes
   // derive from, and it must stay the only one.)
+  // The column list is the row set's CONTRACT, not its identity: it grew by the
+  // prominence trio (review_count / rating / closed) so the claim rule can
+  // judge a row by what it is, not only locate it (the [10:24] pharmacy).
   const rowSetReads = SOURCE.split('\n')
     .map(l => l.trim())
-    .filter(l => l.includes("SELECT name, type, lat, lon, place_url, place_id FROM pois"));
+    .filter(l => l.includes('FROM pois') && l.includes('SELECT name, type, lat, lon, place_url, place_id'));
   assert.equal(rowSetReads.length, 1,
     `the POI row set may be read in exactly one place (poiRows), found ${rowSetReads.length}:\n${rowSetReads.join('\n')}`);
   assert.ok(SOURCE.includes('private poiRows(): PoiIndexRow[]'), 'the POI index builder is gone');
