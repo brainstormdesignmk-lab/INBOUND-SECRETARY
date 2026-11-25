@@ -219,8 +219,10 @@ while IFS='|' read -r id host user key rpath note; do
     if [ "$DRY_RUN" = "1" ]; then
       echo "    [dry-run] would rsync $GEO_SRC → the target's src/geo target"
     else
+      # The path is REMOTE: never test it with a local `-d` (that reported
+      # GEO-MISSING on a healthy atom). Empty means the link does not resolve.
       GEO_DST=$("${SSH[@]}" "readlink -f '$rpath/src/geo'" 2>/dev/null || true)
-      if [ -n "$GEO_DST" ] && [ -d "$GEO_DST" ]; then
+      if [ -n "$GEO_DST" ]; then
         if rsync -az --delete -e "$RSYNC_SSH" --timeout=120 "$GEO_SRC/" "$user@$host:$GEO_DST/" >/tmp/rsync-geo-$id.log 2>&1; then
           echo "    ✓ geo engine synced ($GEO_DST)"
         else

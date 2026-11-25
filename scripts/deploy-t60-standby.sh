@@ -108,6 +108,29 @@ else
   echo "    ✗ rsync FAILED — tail of log:"; tail -5 /tmp/rsync-t60.log | sed 's/^/      /'; exit 1
 fi
 
+# ── 1a-bis) THE GEO ENGINE IS A SECOND TREE. rsync carries LINA only, so a fix
+#          in src/geo/offlineMap.ts would reach the standby as a link to the
+#          OLD vocabulary while this script reported a clean deploy. Ship the
+#          tree the standby's own link resolves to — the dev box's fleet deploy
+#          (deploy-atoms.sh) carries the same step.
+GEO_SRC=$(readlink -f ./src/geo)
+if [ -d "$GEO_SRC" ]; then
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "  [dry-run] would rsync $GEO_SRC → the standby's src/geo target"
+  else
+    # The path is REMOTE: an empty answer means the link does not resolve.
+    GEO_DST=$("${SSH[@]}" "readlink -f '$T60_RPATH/src/geo'" 2>/dev/null || true)
+    if [ -z "$GEO_DST" ]; then
+      echo "  ✗ the standby's src/geo does not resolve (run node scripts/link-geo.js there) — the geo fix would NOT be live"; exit 1
+    fi
+    if rsync -az --delete -e "$RSYNC_SSH" --timeout=120 "$GEO_SRC/" "$T60_USER@$T60_HOST:$GEO_DST/" >/tmp/rsync-geo-t60.log 2>&1; then
+      echo "  ✓ geo engine synced ($GEO_DST)"
+    else
+      echo "  ✗ geo rsync FAILED — tail:"; tail -5 /tmp/rsync-geo-t60.log | sed 's/^/      /'; exit 1
+    fi
+  fi
+fi
+
 # ── 1b) dependencies ONLY when the lockfile actually changed. npm ci rebuilds
 #        node_modules from scratch; running it on every deploy is how a box with
 #        no compiler ends up with a native module built for the wrong ABI.
