@@ -80,18 +80,23 @@ const AVAIL_HAVE_L = ['imate', 'imas', 'ima'];
 /** Availability adjectives — after "е" copula */
 const AVAIL_ADJ = [
   'достапен', 'достапна', 'достапно',
-  'остапен', 'остапна',
-  'слободен', 'слободна', 'слободно',
-  'продаден', 'продадена',
-  'издаден', 'издадена',
+  // THE PLURAL FORMS (the [22:55] capture «DOSTAPNI LI SE USTE ?»): the pair
+  // takes the plural adjective and the plural copula «се», and neither the
+  // adjective list nor a single slot knew it — the question fell to the
+  // nearby-thread and was answered with a landmark.
+  'достапни',
+  'остапен', 'остапна', 'остапни',
+  'слободен', 'слободна', 'слободно', 'слободни',
+  'продаден', 'продадена', 'продадени',
+  'издаден', 'издадена', 'издадени',
   'на продажба', 'на prodazba',
 ];
 const AVAIL_ADJ_L = [
-  'dostapen', 'dostapna', 'dostapno',
-  'ostapen', 'ostapna',
-  'sloboden', 'slobodna', 'slobodno',
-  'prodaden', 'prodadena',
-  'izdaden', 'izdadena',
+  'dostapen', 'dostapna', 'dostapno', 'dostapni',
+  'ostapen', 'ostapna', 'ostapni',
+  'sloboden', 'slobodna', 'slobodno', 'slobodni',
+  'prodaden', 'prodadena', 'prodadeni',
+  'izdaden', 'izdadena', 'izdadeni',
 ];
 
 // ── Visit Interest ────────────────────────────────────────────────────────────
@@ -286,6 +291,12 @@ export function buildAvailabilitySlots(): RegExp {
   const H  = or([...AVAIL_HAVE, ...AVAIL_HAVE_L]);
   const A  = or([...AVAIL_ADJ, ...AVAIL_ADJ_L]);
   const COPULA = '(?:е|е\\s+ли|e|e\\s+li)';
+  // THE PLURAL COPULA IS «СЕ» ("the flats ARE available"), so every copula slot
+  // built on «е» missed the pair question — «DOSTAPNI LI SE USTE ?» was answered
+  // with a landmark instead of availability. Each plural slot demands a question
+  // marker (Q, TIME or LI), so a plain assertion («становите се продадени») never
+  // reads as an ask.
+  const COPULA_PL = '(?:се|se)';
 
   const s = (base: string) => base; // passthrough — no template literal \s issue
 
@@ -319,6 +330,16 @@ export function buildAvailabilitySlots(): RegExp {
     s(`${COPULA}${WS}${LI}${WS}${A}`),
     // Slot: HAVE CLITIC TIME — "имате го уште?" (enclitic + time)
     s(`${H}${WS}${C}${WS}${T}`),
+
+    // ── Plural adjective copula patterns (достапни се / слободни се) ────────
+    // "DOSTAPNI LI SE USTE ?", "достапни ли се уште?" — ADJ LI COPULA_PL TIME?
+    s(`${A}${WS}${LI}${WS}${COPULA_PL}(?:${WS}${T})?`),
+    // "дали уште се достапни?" / "се уште се достапни" — Q? TIME COPULA_PL ADJ
+    s(`(?:${Q})?${WS}${T}${WS}${COPULA_PL}${WS}${A}`),
+    // "уште ли се достапни?" — TIME LI COPULA_PL ADJ
+    s(`${T}${WS}${LI}${WS}${COPULA_PL}${WS}${A}`),
+    // "дали уште достапни се?" — Q? TIME ADJ COPULA_PL
+    s(`(?:${Q})?${WS}${T}${WS}${A}${WS}${COPULA_PL}`),
 
     // ── Original hand-written patterns (kept for backward compat) ───────────
     // Every tail below carries the Unicode boundary guard: a bare word stem

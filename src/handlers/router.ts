@@ -19,6 +19,7 @@ import { recordRouteDrift } from '../store/routeDrift';
 import { currentTurnAudit } from './turn';
 import {
   detectExactAddressAsk, detectWhereIs, detectSurroundingsAsk, detectOwnerContact,
+  detectOtherFlatAsk, detectPluralFlatAsk, lastReplyWasNearby,
   isKadeTocno, detectPropertyDescription, detectService, detectBothServices,
   detectVisitCancellation, detectOfftopic, detectDefer, detectNegotiate,
   detectProvisionAsk, detectProvisionWho, detectEscalation, detectDocumentsAsk, detectMortgageAsk,
@@ -112,6 +113,12 @@ export interface RouteEvidence {
   addressWhy?: boolean;
   /** NEARBY_THREAD: a bare «more?» right after a reply that NAMED a landmark. */
   nearbyThread?: boolean;
+  /** PAIR_LOCATION / PAIR_OTHER_LOCATION: the pair (or «the other one») is the
+   *  subject of a location turn — two flats on the table, a where-word/address
+   *  noun or a landmark line just served. */
+  pairAsk?: boolean;
+  pairOtherAsk?: boolean;
+  pairLocIntent?: boolean;
   /** CONTACT_AFTER_FEE: the fee line was the last thing said and this message
    *  carries a real name + phone for the flat already picked. */
   contactAfterFee?: boolean;
@@ -367,6 +374,14 @@ export const ROUTING_ORDER: RouteRule[] = [
   { intent: 'EXACT_ADDRESS', note: 'explicit address demand WITHOUT a where-word enters the deterministic privacy ladder — same guard as the executor: !isKadeTocno and !(detectWhereIs && hasWhereWord), so каде-prefixed questions fall through',
     fires: (t) => detectExactAddressAsk(t) && !isKadeTocno(t)
       && !(detectWhereIs(t) && hasWhereWord(t)) },
+  // THE PAIR'S LOCATION (the [22:51]/[22:52] capture): «на која адреса се
+  // становиве?» / «а другиот?» on a batch of TWO — the executor serves one
+  // location line per flat. Predicted from the slots alone (the batch IS the
+  // pair), so no feed read is needed.
+  { intent: 'PAIR_LOCATION', note: 'the whole pair as the subject of a location turn (inbound.ts — EXACT_ADDRESS_PAIR / PAIR_LOCATION). EVIDENCE: the pair wording + a two-flat batch',
+    fires: (t, _s, sl, ev) => ev?.pairAsk === true && ev?.pairLocIntent === true },
+  { intent: 'PAIR_OTHER_LOCATION', note: '«а другиот?» — the OTHER card of the pair, its own location line (inbound.ts — PAIR_OTHER_LOCATION). EVIDENCE: the definite-other wording + a two-flat batch',
+    fires: (t, _s, sl, ev) => ev?.pairOtherAsk === true && ev?.pairLocIntent === true },
   { intent: 'OWNER_CONTACT', note: 'client leaves name/phone — captured before any other reply',
     fires: t => detectOwnerContact(t) },
   // A NEARBY ASK IS NOT A WHERE-IS (the 2026-11-15 replay): the executor's
@@ -1398,6 +1413,15 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   WORKDAYS_QUESTION: M('WORKDAYS_QUESTION', 'agency hours, never an owner term'),
   BUSINESS_BUDGET_ASK: M('BUSINESS_BUDGET_ASK', 'state-gated money/lane in intake states'),
   EXACT_ADDRESS: M('EXACT_ADDRESS', 'privacy ladder, !kade-guarded above WHERE_IS'),
+  // THE PAIR'S LOCATION (the [22:51]/[22:52] capture): the plural/other wording
+  // names both cards of the batch, so the turn serves one location line per
+  // flat instead of one. Logged as its own tag from the address ladder
+  // (EXACT_ADDRESS_PAIR) and from the standalone lane (PAIR_LOCATION /
+  // PAIR_OTHER_LOCATION); all three map to the same two mirrors.
+  EXACT_ADDRESS_PAIR: M('PAIR_LOCATION', 'plural address ask over the whole pair — one location line per flat'),
+  PAIR_LOCATION: M('PAIR_LOCATION', 'the whole pair as the subject of a location turn — one location line per flat'),
+  PAIR_OTHER_LOCATION: M('PAIR_OTHER_LOCATION', '«а другиот?» — the OTHER card of the pair gets its own location line'),
+  EXACT_ADDRESS_OTHER: M('PAIR_OTHER_LOCATION', '«а другиот?» inside an address demand — the other card of the pair'),
   OWNER_CONTACT: M('OWNER_CONTACT', 'name/phone capture first'),
   PERSONAL: M('PERSONAL', 'a question about Lina herself — the tag carries the KIND: PERSONAL:name / :age / :compliment / :origin (inbound.ts 5022)'),
   WHERE_IS: M('WHERE_IS', 'каде owns those questions'),

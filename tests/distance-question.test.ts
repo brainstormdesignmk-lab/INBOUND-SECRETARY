@@ -582,3 +582,63 @@ test('[09:09] a discussed flat OUTSIDE the batch answers the distance alone, by 
   assert.equal(sessions.get(chatId)?.slots.propertyId, 66,
     'the discussed flat stays bound (it was overwritten with the batch before)');
 });
+
+// ── SEVERAL NAMED FLATS, ONE PLACE ─────────────────────────────────────────
+// The [18:03] capture: «NA KOLKAVO RASTOJANIE SE 88 I 82 OD KAPITOL ?» was
+// answered for EB 88 alone — «Трговски центар Капитол се наоѓа на 380 метри …
+// од недвижноста со Евидентен број 88» — so the client comparing two flats got
+// one number. `inferPropertyId` returns ONE number by design (it guards against
+// prices and clocks in the landmark lane), and the batch arm only ever measured
+// the flats of the CURRENT BATCH, so a message that names two flats outside it
+// lost the second. The subject is now every flat the message names.
+
+class TwoProps extends PropertyService {
+  constructor(private rows: Property[]) { super('http://feed-not-used'); }
+  async getAll(): Promise<Property[]> { return this.rows; }
+  async getAllEbs(): Promise<Set<number>> { return new Set(this.rows.map(r => r.eb)); }
+  async getByEb(eb: number): Promise<Property | undefined> { return this.rows.find(r => r.eb === eb); }
+  get healthy(): boolean { return true; }
+}
+
+test('[18:03] two named flats get TWO measured distances, never the first alone', async () => {
+  if (!map().available) return; // no live map on this machine
+  const rows: Property[] = [
+    // Both in Аеродром, a few hundred metres apart, so the two numbers differ.
+    { eb: 88, id: 88, uuid: 'eb88-capture', address: 'ЈАНЕ САНДАНСКИ 12', location: 'Аеродром', lat: 41.9940, lon: 21.4560, service: 'buy', price: 133000, sqm: 62 } as Property,
+    { eb: 82, id: 82, uuid: 'eb82-capture', address: 'ЈАНЕ САНДАНСКИ 30', location: 'Аеродром', lat: 41.9900, lon: 21.4600, service: 'buy', price: 120000, sqm: 55 } as Property,
+  ];
+  const db = new Db(':memory:');
+  const sessions = new SessionStore(db);
+  const sent: string[] = [];
+  const channels = new ChannelRegistry();
+  channels.register({ name: 'test', send: async (_c, text) => { sent.push(text); } });
+  const props = new TwoProps(rows);
+  const handler = new InboundHandler({
+    cfg, db, sessions,
+    classifier: new Classifier(new FailingLlm(), cfg, props),
+    responder: new Responder(new FailingLlm(), cfg),
+    properties: props,
+    appointments: new AppointmentStore(db),
+    escalations: new EscalationStore(db),
+    meta: new MetaStore(db),
+    channels,
+    landmarks: new LandmarkService(db, { osm: false, offlineMap: map() }),
+  });
+  const chatId = 'capture-1803';
+  sessions.set(freshSession('test', chatId));
+
+  await handler.handle('test', chatId, 'NA KOLKAVO RASTOJANIE SE 88 I 82 OD KAPITOL ?');
+  const answer = sent[sent.length - 1] ?? '';
+
+  assert.match(answer, /Капитол/u, `the named place is spelled out: ${answer}`);
+  // ONE LINE PER NAMED FLAT, each with its own measurement.
+  const line88 = answer.split('\n').find(l => l.includes('88')) ?? '';
+  const line82 = answer.split('\n').find(l => l.includes('82')) ?? '';
+  assert.ok(line88, `EB 88 is answered: ${answer}`);
+  assert.ok(line82, `EB 82 is answered too (the whole defect): ${answer}`);
+  assert.match(line88, /(?:метри|километри)/u, `EB 88 carries a measured number: ${line88}`);
+  assert.match(line82, /(?:метри|километри)/u, `EB 82 carries a measured number: ${line82}`);
+  // It stays a distance answer — never the property card.
+  assert.ok(!/м²|Цената е|двособен/u.test(answer), `never a card: ${answer}`);
+  assert.ok(!/купување или/u.test(answer), `never the service grill: ${answer}`);
+});

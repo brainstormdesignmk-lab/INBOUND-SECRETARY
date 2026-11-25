@@ -112,6 +112,15 @@ test('detectMarketPriceAsk: the [16:57] line and the whole phrasing family fire'
     'KAKO ODAT CENITE NA STANOVITE VO AERODROM?',
     'KAKO SE MENUVAAT CENITE ZA KUKJI VO VLAE?',
     'цени по квадрат во аеродром?',
+    // [17:49]: the AREAS carry the question, with no category word at all.
+    'po kolku odat vo Aerodrom i novo lisice ?',
+    'PO KOLKU ODAT VO AERODROM I NOVO LISICE',
+    'POKOLKUODAT VO AERODROM I NOVO LISICE',   // Viber fuses the words
+    'cena po kvadrat vo aerodrom i novo lisice',
+    // [17:50]: the follow-up re-states the frame and nothing else.
+    'prasuvam za cena po kvadrat',
+    'PRASUVAM ZA CENA PO KVADRAT',
+    'по колку одат во аеродром и ново лисиче?',
   ]) {
     assert.ok(detectMarketPriceAsk(text), `must fire: ${text}`);
   }
@@ -126,6 +135,13 @@ test('detectMarketPriceAsk: a single property\'s price is NOT a market question'
     'CENATA ZA M2 E VISOKA',
     'cenata e 120.000 evra',
     'dali moze da se spusti cenata?',
+    // A VERDICT on the rate is an opinion, not an ask for a band.
+    'cenata za m2 e mnogu visoka',
+    'CENATA PO KVADRAT E OK',
+    // A figure is a STATEMENT of a rate.
+    'cenata e 1200 po kvadrat',
+    // «како одат работите» — the movement verb about no category at all.
+    'kako odat rabotite vo skopje',
   ]) {
     assert.equal(detectMarketPriceAsk(text), false, `must NOT fire: ${text}`);
   }
@@ -987,4 +1003,54 @@ test('[20:11] «CENA PO KVADRAT ZA 53» answers EB 53\'s rate, never the Аер�
   // The turn MOVES the conversation to the flat he priced (same rule as the
   // rest of the info family): the next bare «kolku kvadrati ima?» answers 53.
   assert.equal(sessions.get(chatId)?.slots.interestedPropertyId, 53);
+});
+
+// ── 3. SEVERAL NEIGHBOURHOODS ARE SEVERAL ANSWERS ──────────────────────────
+// The [17:49]–[17:52] capture: «po kolku odat vo Aerodrom i novo lisice ?» was
+// answered with «Дали станот го барате за да го купите или сакате да го земете
+// под закуп?», then «Колку спални соби…», and «prasuvam za cena po kvadrat» got
+// the bedroom question again. Three defects in one thread: the detector could
+// not see a per-м² ask that names AREAS instead of the category word, it
+// demanded a «?»/колку scaffold even for «cena po kvadrat», and the per-area
+// reply order followed the map instead of his sentence (Cyrillic names against
+// Latin text scored «not found» for both, so the order was arbitrary).
+const NOVO_LISICE: Property[] = [
+  { eb: 114, id: 114, address: 'Ново Лисиче 4', location: 'Ново Лисиче', price: 60000, sqm: 55, service: 'buy', bedrooms: 2 },
+  { eb: 115, id: 115, address: 'Ново Лисиче 9', location: 'Ново Лисиче', price: 75000, sqm: 60, service: 'buy', bedrooms: 2 },
+];
+
+test('[17:49] two named neighbourhoods get their OWN band, in the client\'s order', async () => {
+  const { handler, sessions, sent } = makeHandler([...ROWS, ...NOVO_LISICE]);
+  const chatId = 'capture-1749';
+  sessions.set(freshSession('test', chatId));
+  const send = async (m: string): Promise<string> => {
+    await handler.handle('test', chatId, m);
+    return sent[sent.length - 1] ?? '';
+  };
+
+  const answer = await send('po kolku odat vo Aerodrom i novo lisice ?');
+  assert.match(answer, /Во Аеродром, цените варираат од 1\.100 до 1\.218 евра за м²/u,
+    `Аеродром's own band: ${answer}`);
+  assert.match(answer, /Во Ново Лисиче, цените варираат од 1\.091 до 1\.250 евра за м²/u,
+    `Ново Лисиче's own band (never one merged range): ${answer}`);
+  assert.ok(answer.indexOf('Аеродром') < answer.indexOf('Ново Лисиче'),
+    `the reply follows the client's own order: ${answer}`);
+  // The thread's real complaint: no intake question instead of the price.
+  assert.ok(!/купување или изнајмување/u.test(answer), `never the service grill: ${answer}`);
+  assert.ok(!/колку спални/iu.test(answer), `never the bedroom grill: ${answer}`);
+  assert.ok(!/Евидентен број/u.test(answer), `never a property card: ${answer}`);
+
+  // «prasuvam za cena po kvadrat» — the frame WITHOUT the areas, or a «?».
+  const followUp = await send('prasuvam za cena po kvadrat');
+  assert.match(followUp, /Во Аеродром/u, `the scope survives the follow-up: ${followUp}`);
+  assert.match(followUp, /Во Ново Лисиче/u, `both areas stay in scope: ${followUp}`);
+  assert.ok(!/колку спални/iu.test(followUp), `the follow-up is answered, not grilled: ${followUp}`);
+  const stored = sessions.get(chatId)?.slots.location ?? '';
+  assert.ok(stored.includes('Аеродром') && stored.includes('Ново Лисиче'),
+    `both areas stay on file for the next turn: ${stored}`);
+});
+
+test('[17:49] the router mirror predicts MARKET_PRICE for both confirmations', () => {
+  assert.equal(resolveIntent('po kolku odat vo Aerodrom i novo lisice ?', 'idle'), 'MARKET_PRICE');
+  assert.equal(resolveIntent('prasuvam za cena po kvadrat', 'idle'), 'MARKET_PRICE');
 });

@@ -17,9 +17,9 @@ import { Classifier } from '../llm/classify';
 import { Responder } from '../llm/respond';
 import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAddressUnknown, mkTimePhrase, placeLooseKey, pricePerM2, monthlyRent, rentUnitWord, isSmallUnit, rowsInArea, numberedAreasNamed, isNumberedArea, feedArea, interleaveMixedPairs, interleaveServicePairs, adText, textNamesPlace, areaKey, extractPlacePhrases, inArea, adArea, isAdDefinedArea, detectWhichOfBatchPlace, budgetAmount, availabilityOf, withinRememberedPrice, withinBudgetCeiling, NearRing } from '../data/properties';
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
-  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectPluralPropertyAsk, detectPostBookingAck, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
-  detectPairReferent, detectIdentifyByFigure,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
+  distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectVisitDayChoice, detectPluralPropertyAsk, detectPostBookingAck, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
+  detectPairReferent, detectIdentifyByFigure, detectOtherFlatAsk, detectPluralFlatAsk,
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectPublishedListingAsk, detectAcquisitionWish, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -67,7 +67,7 @@ import { detectCategoryBudgets } from '../llm/deterministic';
 import { VisitScheduler } from '../visits/scheduler';
 import { recordPlaceMiss } from '../store/placeMisses';
 import {
-  serviceLabel,  VISIT_TIME_QUESTION, visitDayAsk, OWNER_CHECK_ACK, PATIENCE_LINE,
+  serviceLabel,  VISIT_TIME_QUESTION, VISIT_DAY_CHOICE_ASK, VISIT_SPLIT_ASK, visitDayAsk, OWNER_CHECK_ACK, PATIENCE_LINE,
   mergeOwnerTerm,
   FEE_GRACEFUL_CLOSE, QUEUED_CONFIRM, buildVisitConfirmation, buildContactAsk,
   buildOwnerAsk, buildOwnerRouteAsk, buildOwnerFollowupAsk, buildOwnerAcceptFollowupAsk, buildOwnerCounterRelay, buildOwnerWholeDayRelay, buildOwnerAvailabilityAck,
@@ -1131,7 +1131,42 @@ export function poiNameCoversClientWords(clientText: string, poiName: string, po
     const latinTwin = (w: string): string =>
       toLatin(w).toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^c(?=[iey])/, 's');
     const twinEqual = latinTwin(runW) === latinTwin(hitRaw);
-    if (haveC[mi] === run[k] && (rawEqual || twinEqual || runW.length >= 5 || run.length > 1)) return true;
+    // THE KEY'S OWN WIDTH DECIDES, NOT THE WORD'S (the [22:17] capture): the test
+    // used to ask whether the CLIENT'S WORD was long (≥5 letters), and a long
+    // word can still fold to a tiny skeleton — «БРОЈЧЕТО» (8 letters) is «brst»,
+    // which is exactly «Barista»'s, so the guard signed off on «Barista cafe» for
+    // «I can't remember the NUMBER». A four-letter key is not distinctive enough
+    // to bridge two different spellings; a multi-word run carries its own
+    // context and keeps the discriminated bridges («ДАЈМОНД МОЛ» → «Diamond
+    // Mall», «ЦИТИ МОЛ» → «Сити Мол» — both ≥4-letter keys anyway).
+    // VOWELS ARE THE ONE THING A KEY MAY FORGET: «OLYMPICO» and the map's
+    // «Олимпико» fold to the same short key only because the SAME consonants are
+    // written with different vowels (o/i against o/i/o). That is one name in two
+    // scripts — the bridge this guard exists for — while «БРОЈЧЕТО»/«Barista»
+    // agree on the key but not on their consonants (brjct… against brst). So a
+    // short key is also trusted when the vowels are the ONLY difference.
+    const vowelKey = (w: string): string => {
+      let s = toLatin(w).toLowerCase().replace(/[^a-z0-9]/g, '');
+      s = s.replace(/([a-z])\1+/g, '$1');
+      let out = '';
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i]!;
+        if (ch === 'c') { out += 'ei'.includes(s[i + 1] ?? '') ? 's' : 'k'; continue; }
+        if ('aeiouwy'.includes(ch)) continue;
+        out += ch;
+      }
+      return out;
+    };
+    // …and VOWEL-ONLY ALSO MEANS SAME LENGTH: a vowel substitution swaps one
+    // vowel for another (olympico/olimpiko), so the word keeps its letters. The
+    // [01:05] sweep's «чаим» (4 letters) folds to the shop «KAM» (3) under the
+    // key, and a consonant skeleton alone cannot tell them apart — a different
+    // LENGTH means letters were dropped, not vowels swapped.
+    const plainLen = (w: string): number => toLatin(w).toLowerCase().replace(/[^a-z0-9]/g, '').length;
+    const vowelOnly = vowelKey(runW) === vowelKey(hitRaw)
+      && plainLen(runW) === plainLen(hitRaw) && plainLen(runW) >= 4;
+    const keyDistinct = haveC[mi]!.length >= 5 || run.length > 1 || vowelOnly;
+    if (haveC[mi] === run[k] && (rawEqual || twinEqual || keyDistinct)) return true;
     return oneSlip(runW, hitRaw);
   };
   // ONE INSERTED MAP WORD IS STILL THE SAME NAME (the «Бунјаковац 5» →
@@ -3117,7 +3152,23 @@ export class InboundHandler {
     // The message's own numbers only when it asks for the visits (a contact turn
     // must never be read as an EB list — see contactAskFor).
     const plural = this.multiVisitEbs(session, wishHere ? text : '').length >= 2;
-    return plural ? pluralizeOwnerRefs(VISIT_TIME_QUESTION) : VISIT_TIME_QUESTION;
+    if (plural) {
+      // ONE DAY OR SEVERAL, ASKED BEFORE THE TERM (the owner's 2026-11-24
+      // brief): several flats are a ROUTE, each visit takes an hour, and the
+      // client's free afternoon may fit only some of them. Asking straight for
+      // «кој термин» (which is what happened) made him commit to a day before
+      // he knew the shape of the day, and the reply was «blank and confusing —
+      // what time is for what». Asked ONCE (`visitDayAsked`).
+      const choice = detectVisitDayChoice(text);
+      if (choice) session.slots.visitDayChoice = choice;
+      if (!session.slots.visitDayAsked) {
+        session.slots.visitDayAsked = true;
+        return VISIT_DAY_CHOICE_ASK;
+      }
+      if (session.slots.visitDayChoice === 'split') return VISIT_SPLIT_ASK;
+      return pluralizeOwnerRefs(VISIT_TIME_QUESTION);
+    }
+    return VISIT_TIME_QUESTION;
   }
 
   /** THE PROPERTIES THE BRAIN MUST ANSWER FOR, when the message is about a
@@ -4071,6 +4122,77 @@ export class InboundHandler {
     }), p.eb, session);
   }
 
+  /** ONE FLAT'S TURN-1 LOCATION LINE — read-only (no ladder rung, no session
+   *  rotation). The pair answers below serve several flats in one turn, so no
+   *  single rotation index can carry them: each property is measured on its own
+   *  and the SAME privacy contract holds (nearest landmark + pin, never the
+   *  street). A row the feed never placed falls back to its own neighborhood. */
+  private locationLineFor(p: Property): string {
+    if (isAddressUnknown(p)) {
+      const loc = (p.location ?? '').replace(/\s*\(населба\)\s*$/u, '');
+      return loc
+        ? `Евидентен број ${p.eb} се води во населбата ${loc}. Точната адреса ќе ја добиете на денот на посетата.`
+        : `Локацијата на недвижноста со Евидентен број ${p.eb} не ми е позната во моментов — ќе ја потврдам со сопственикот.`;
+    }
+    const propRow: PropertyRow = {
+      id: p.id, eb: p.eb, address: p.address, landmark_name: p.landmark,
+      lat: p.lat, lon: p.lon, geo_source: p.geo_source ?? null,
+      details: p.details, landmarks: p.landmarks,
+    };
+    const first = this.landmarks?.nearbyLandmarks(propRow)?.[0];
+    if (first) {
+      const link = Number.isFinite(first.lat) && Number.isFinite(first.lon)
+        ? `\n${landmarkLink(first.landmark, first.place_id ?? null, first.lat, first.lon)}`
+        : '';
+      return `Евидентен број ${p.eb} се наоѓа во близина на ${displayPlaceName(first.landmark)}.${link}`;
+    }
+    return buildWhereIsAnswer('', {
+      address: p.address, location: p.location, eb: p.eb,
+      business: p.business, landmark: p.landmark,
+    });
+  }
+
+  /** THE FLATS A PAIR REFERENCE POINTS AT — the pair shape detection shared by
+   *  the exact-address and the «other one» lanes.
+   *
+   *  The pair is the LAST PRESENTED batch in presentation order (currentBatch
+   *  first), never a feed-ordered slice. `plural` is the whole set, a single
+   *  reference is the other card of the pair — the one the chat is NOT already
+   *  answering about (propertyId / interestedPropertyId / the last asked EB),
+   *  which is exactly what «а другиот?» means (the [22:52] capture rotated the
+   *  SAME flat's landmarks instead). */
+  private pairFlats(session: ChatSession, all: Property[], mode: 'plural' | 'other'): Property[] {
+    const order = [...new Set([
+      ...(session.slots.currentBatch ?? []),
+      ...(session.slots.presentedIds ?? []).slice(-4),
+    ])];
+    const rows = order.map(id => all.find(p => p.id === id)).filter((p): p is Property => !!p);
+    if (rows.length < 2) return [];
+    if (mode === 'plural') return rows;
+    // THE FLAT THE CHAT IS ANSWERING ABOUT is the LAST one served (propertyId),
+    // not the one he leaned to earlier (interestedPropertyId): the [22:52]
+    // capture answered EB 95, and «А ДРУГИОТ?» then must reach EB 66.
+    const subjectEb = session.slots.propertyId ?? session.slots.interestedPropertyId ?? session.slots.askedEb;
+    const others = rows.filter(p => p.eb !== subjectEb);
+    return others.length > 0 ? [others[others.length - 1]!] : [];
+  }
+
+  /** Serve ONE location line per flat, labelled by EB (see `locationLineFor`).
+   *  The last flat served becomes the one the chat is answering about, so a
+   *  follow-up that names no property still has a subject. */
+  private async servePairLocations(
+    session: ChatSession, rows: Property[], chatId: string, text: string, route: string,
+  ): Promise<void> {
+    routeLog(chatId, text, route);
+    const answer = rows.map(p => this.locationLineFor(p)).join('\n\n');
+    const last = rows[rows.length - 1]!;
+    session.slots.propertyId = last.eb;
+    pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+    pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+    this.deps.sessions.set(session);
+    await this.sendRaw(session, answer);
+  }
+
   // THE 20:51 BUG — the where-is family has TWO dead ends, both ending in the
   // same visit-pitch line repeated forever:
   //   1. A NAMED property the feed no longer knows ("stanot so broj 77" →
@@ -4566,6 +4688,18 @@ export class InboundHandler {
       const trimmed = withoutClassTail(t);
       if (trimmed && !tries.includes(trimmed)) tries.push(trimmed);
     }
+    // THE FLAT IS NOT PART OF THE PLACE (the [22:17] capture): «КАЈ СЈО
+    // ТРОСОБЕН» names where the flat is and what he wants in one breath; the
+    // extractor's greedy tail carried both, and «СЈО ТРОСОБЕН» is not a venue
+    // on any map — so the place died at the lookup while the wrong anchor (the
+    // café) took its place. Try the phrase with the property spec taken off the
+    // end as well; the coverage guard still signs the result off, so this can
+    // only reach a place the client actually named.
+    const specStripped = new Set<string>();
+    for (const t of [...tries]) {
+      const stripped = stripTrailingPropertySpec(t);
+      if (stripped && !tries.includes(stripped)) { tries.push(stripped); specStripped.add(stripped); }
+    }
     // The place the lookup found but the guard refused — recorded with the miss
     // below, because "the map HAS a row and we threw it away" is a different
     // bug from "the map has no such place", and the weekly digest must not
@@ -4588,7 +4722,12 @@ export class InboundHandler {
       // brand put in FRONT of the area ("ELS …") is refused. A client entering
       // a chain by its own word still resolves ("kaj TTK Banka" → "TTK Banka
       // Beverly Hills").
-      if (hit && poiNameCoversClientWords(clean, hit.name, hit.type)) return hit;
+      // …and the guard is given the name that was TESTED. A spec-stripped form
+      // is the client's own place words with the flat he appended taken off
+      // («СЈО ТРОСОБЕН» → «СЈО»), so the words are the client's — comparing the
+      // FULL phrase here would refuse the place he named because of a room count
+      // that is not part of any place name.
+      if (hit && poiNameCoversClientWords(specStripped.has(t) ? t : clean, hit.name, hit.type)) return hit;
       if (hit && !refused) refused = hit.name;
     }
     // THE SECOND ROW THE SINGLE HIT HID (the [23:26] «ZELEZNICKA STANICA»
@@ -5545,15 +5684,22 @@ export class InboundHandler {
         const namedProp = namedEb != null
           ? await this.deps.properties.getByEb(namedEb).catch(() => undefined)
           : undefined;
-        if (!namedProp && this.landmarks) {
+        const namedEbsProbe = collectMentionedEbs([restOfText],
+          await this.deps.properties.getAllEbs(), 1);
+        if ((!namedProp || namedEbsProbe.length >= 2) && this.landmarks) {
           const batchEbs = [...new Set(session.slots.currentBatch?.length
             ? session.slots.currentBatch
             : (session.slots.presentedIds ?? []))].slice(-4);
           const discussedEb = session.slots.propertyId ?? session.slots.interestedPropertyId;
           const batchOwnsSubject = discussedEb === undefined || batchEbs.includes(discussedEb);
           const singularAsk = discussedEb !== undefined && !distanceAskIsPlural(text);
-          if (batchEbs.length >= 2 && batchOwnsSubject && !singularAsk) {
-            const rows = (await Promise.all(batchEbs.map(eb =>
+          // TWO NAMED FLATS ARE THE SUBJECT (the [18:03] capture) — the same
+          // rule the block itself applies, so the mirror predicts the lane the
+          // executor really runs.
+          const namedPlural = namedEbsProbe.length >= 2;
+          const subjectEbs = namedPlural ? namedEbsProbe : batchEbs;
+          if (subjectEbs.length >= 2 && (namedPlural || (batchOwnsSubject && !singularAsk))) {
+            const rows = (await Promise.all(subjectEbs.map(eb =>
               this.deps.properties.getByEb(eb).catch(() => undefined))))
               .filter((p): p is Property => !!p);
             let measured = 0;
@@ -5582,8 +5728,16 @@ export class InboundHandler {
     // term is the client NARROWING it («NE, SAMO 82 I 77, CETVRTOK VO 17:00»,
     // the [11:18] sibling): the visit lanes own that turn, not an identity card.
     // The executor's block carries the same veto — one shape, two gates.
-    const narrowingRoute = !!session.slots.visitPlan
+    // …AND A CLIENT CHOOSING THE FIRST GROUP OF A SPLIT VISIT IS DOING THE SAME
+    // THING (the owner's 2026-11-24 brief): after «различни денови» he answers
+    // «PRVO 88 I 82, ZADUTRE OD 5» — two numbers AND a term. No plan is running
+    // yet, so the old veto did not apply and the identity lane described both
+    // flats («Еве ги и двата:»), leaving the visit unscheduled. In the visit
+    // state a term beside the numbers is the visit's own subject.
+    const choosingVisitGroup = session.state === 'visit_scheduling'
       && (!!detectVisitTime(text) || hasDayWord(text) || hasClockHint(text));
+    const narrowingRoute = choosingVisitGroup || (!!session.slots.visitPlan
+      && (!!detectVisitTime(text) || hasDayWord(text) || hasClockHint(text)));
     if ((text.match(/\d{1,3}/gu)?.length ?? 0) >= 2
       && !narrowingRoute
       && !detectAvailabilityAsk(text) && !detectExactAddressAsk(text)
@@ -5800,7 +5954,35 @@ export class InboundHandler {
       // looks like a genuine question. The plain branch depends on
       // `skipInterceptors` (a classifier verdict the probe does not have), so it
       // stays unpredicted rather than guessed.
-      if (!ev.nearbyThread && mentionsMore(text) && !hasProximityAnchor(text)
+      // THE PAIR'S OWN LOCATION (the [22:51]/[22:52] capture) is predicted
+      // BEFORE the nearby-thread, which is what it used to be read as: the
+      // pair wording + a two-flat batch + a location turn. The singular
+      // address lane owns its own turn (EXACT_ADDRESS is predicted first), so
+      // only the standalone form feeds this evidence.
+      if (!ev.pairLocIntent && !detectExactAddressAsk(text)
+        && (detectOtherFlatAsk(text) || detectPluralFlatAsk(text))
+        && !isFeeTraffic(text) && !detectFeeNag(text) && !detectAvailabilityAsk(text)
+        && !detectAvailabilityPlural(text) && !detectVisitInterest(text)) {
+        const batchSize = new Set([
+          ...(session.slots.currentBatch ?? []),
+          ...(session.slots.presentedIds ?? []),
+        ]).size;
+        // The same topic guard as the executor: a facet ask that also names the
+        // pair («КОЛКУ М2 ИМААТ ДВАТА?») belongs to its facet lane.
+        const f = detectInfoFacets(text);
+        const facetHere = !!f && Object.values(f).some(v => v !== undefined && v !== false);
+        const locIntent = !facetHere
+          && (hasWhereWord(text) || /(?:адрес|adres|улиц|ulic|локаци|lokaci)/iu.test(text)
+            || (/во\s+бли[зж]ин/iu.test(lastLine)
+              && !/\d/u.test(text) && text.trim().split(/\s+/u).length <= 4
+              && !/(?:цена|cena|евр|evr|м2|m2|квадрат|kvadrat|кат|sprat|спалн|spaln)/iu.test(text)));
+        if (batchSize >= 2 && locIntent) {
+          ev.pairLocIntent = true;
+          if (detectOtherFlatAsk(text) && !detectPluralFlatAsk(text)) ev.pairOtherAsk = true;
+          else ev.pairAsk = true;
+        }
+      }
+      if (!ev.nearbyThread && !ev.pairLocIntent && mentionsMore(text) && !hasProximityAnchor(text)
         && !detectWidenIntent(text) && !detectExplicitWiden(text)
         && !detectAvailabilityAsk(text) && !detectPriceAsk(text)
         && /во\s+бли[зж]ин/iu.test(lastLine)) {
@@ -6419,6 +6601,23 @@ export class InboundHandler {
       const mbExact = await this.bindMention(text, session, { historyFallback: true });
       if (await this.sendIfClarify(mbExact, text, session)) return;
       const allExact = await this.deps.properties.getAll();
+      // A PAIR ASK OWES BOTH FLATS (the [22:51] capture): «НА КОЈА АДРЕСА СЕ
+      // СТАНОВИВЕ?» — «these flats» — is ONE question about the TWO cards on
+      // screen, and it was answered for a single one: the client had to push
+      // («А ДРУГИОТ?») to hear the other, and that push then rotated the SAME
+      // flat's landmarks instead of switching property. The pair reads as the
+      // whole batch, each flat measured on its own row and labelled by its EB;
+      // the privacy contract is unchanged (turn-1 approximation for each, never
+      // the street).
+      if (detectPluralFlatAsk(text) || detectOtherFlatAsk(text)) {
+        const pairRows = this.pairFlats(session, allExact,
+          detectOtherFlatAsk(text) && !detectPluralFlatAsk(text) ? 'other' : 'plural');
+        if (pairRows.length > 0) {
+          await this.servePairLocations(session, pairRows, chatId, text,
+            pairRows.length > 1 ? 'EXACT_ADDRESS_PAIR' : 'EXACT_ADDRESS_OTHER');
+          return;
+        }
+      }
       // THE LAST SERVE, NOT THE FEED'S ORDER (the [03:45] capture):
       // «NA KOJA ULICA E OVOJ ?» arrived with ONE card in the last batch (EB 75)
       // and was answered about EB 53 — a card from an earlier batch, picked
@@ -6552,6 +6751,46 @@ export class InboundHandler {
       this.deps.sessions.set(session);
       await this.sendRaw(session, answer);
       return;
+    }
+
+    // «А ДРУГИОТ?» / «КАДЕ СЕ ДВАТА?» — THE OTHER CARD OF THE PAIR (the [22:52]
+    // capture). „AND THE OTHER ONE?“ carries no place and no EB, so every lane
+    // read it as "what else is there": the nearby-thread rotated the SAME flat's
+    // landmarks (EB 66 → «Crescendo School» on the second turn, 500 m from the
+    // flat) and the other flat was never described. A definite "other" reaches
+    // the OTHER property of the last presented pair; the plural reaches all of
+    // them. Gated on a location turn (a where-word/address noun, or a reply that
+    // just named a landmark) so commentary about the pair («ДВАТА СЕ ДОБРИ») is
+    // not answered with geography. Fee, availability and visit traffic keep
+    // their own lanes: this block never quotes money and never books.
+    if ((detectOtherFlatAsk(text) || detectPluralFlatAsk(text))
+      && !isFeeTraffic(text) && !detectFeeNag(text) && !detectAvailabilityAsk(text)
+      && !detectAvailabilityPlural(text) && !detectVisitInterest(text)
+      && !detectPropertyChoice(text) && !detectPositiveEval(text) && !detectEnthusiasm(text)) {
+      const lastLine0 = assistantTexts(session).slice(-1)[0] ?? '';
+      // A PAIR REFERENCE IS ONLY A LOCATION TURN WHEN NOTHING ELSE OWNS IT (the
+      // [05:20] family): «КОЛКУ М2 ИМААТ ДВАТА ДУЌАНИ?» also names the pair, and
+      // the facet lane must answer it. A bare reference («А ДРУГИОТ?») carries
+      // no facet, no figure and no money word; anything longer needs its own
+      // where/address wording to claim this lane.
+      const facets0 = detectInfoFacets(text);
+      const hasFacet0 = !!facets0
+        && Object.values(facets0).some(v => v !== undefined && v !== false);
+      const barePair = !hasFacet0 && !/\d/u.test(text) && text.trim().split(/\s+/u).length <= 4
+        && !/(?:цена|cena|евр|evr|м2|m2|квадрат|kvadrat|кат|sprat|спалн|spaln)/iu.test(text);
+      const locIntent = !hasFacet0
+        && (hasWhereWord(text) || /(?:адрес|adres|улиц|ulic|локаци|lokaci)/iu.test(text)
+          || (barePair && lastReplyWasNearby(lastLine0)));
+      if (locIntent) {
+        const all0 = await this.deps.properties.getAll();
+        const mode = detectOtherFlatAsk(text) && !detectPluralFlatAsk(text) ? 'other' : 'plural';
+        const pairRows = this.pairFlats(session, all0, mode);
+        if (pairRows.length > 0) {
+          await this.servePairLocations(session, pairRows, chatId, text,
+            pairRows.length > 1 ? 'PAIR_LOCATION' : 'PAIR_OTHER_LOCATION');
+          return;
+        }
+      }
     }
 
     // LANDMARK LADDER — "I DON'T KNOW THAT PLACE" (the 11:45 capture).
@@ -6881,6 +7120,15 @@ export class InboundHandler {
       const namedProp = namedEb != null
         ? await this.deps.properties.getByEb(namedEb).catch(() => undefined)
         : undefined;
+      // EVERY FLAT THE QUESTION NAMES (the [18:03] capture: «NA KOLKAVO
+      // RASTOJANIE SE 88 I 82 OD KAPITOL ?» was answered for 88 alone).
+      // `inferPropertyId` deliberately returns ONE number — it guards the
+      // landmark lane against prices and clocks — so a plural ask lost the
+      // second flat and the client heard half a measurement. ONE reader for
+      // «which flats does this text name»: `collectMentionedEbs` (the same
+      // grammar the identity lane and inferPropertyId share), restricted to the
+      // feed's own numbers, so a year, a phone or a price names no flat.
+      const namedEbs = collectMentionedEbs([restOfText], await this.deps.properties.getAllEbs(), 1);
       // Anchor: the flat this message NAMES, else the property on the table. An EB named a turn or two ago still
       // owns the conversation — read straight from the history, because
       // inferPropertyId() deliberately VETOES any text containing каде/наоѓа
@@ -6970,11 +7218,13 @@ export class InboundHandler {
       // than given a number; a landmark the map cannot resolve is named as
       // unknown for that row instead of silently disappearing.
       if (placeNames.length >= 2 && this.landmarks) {
-        const matrixEbs = namedProp
-          ? [namedProp.eb]
-          : [...new Set(session.slots.currentBatch?.length
-            ? session.slots.currentBatch
-            : (session.slots.presentedIds ?? []))].slice(-4);
+        const matrixEbs = namedEbs.length > 0
+          ? namedEbs
+          : namedProp
+            ? [namedProp.eb]
+            : [...new Set(session.slots.currentBatch?.length
+              ? session.slots.currentBatch
+              : (session.slots.presentedIds ?? []))].slice(-4);
         const rows = (await Promise.all(matrixEbs.map(eb =>
           this.deps.properties.getByEb(eb).catch(() => undefined))))
           .filter((p): p is Property => !!p);
@@ -7015,7 +7265,10 @@ export class InboundHandler {
           return;
         }
       }
-      if (placeName && !namedProp && this.landmarks) {
+      // TWO NAMED FLATS ARE THE SUBJECT even though `namedProp` (the first of
+      // them, for the single-flat arms below) is set: the [18:03] capture named
+      // 88 AND 82 and this gate sent the turn to the single-flat answer.
+      if (placeName && (!namedProp || namedEbs.length >= 2) && this.landmarks) {
         const batchEbs = [...new Set(session.slots.currentBatch?.length
           ? session.slots.currentBatch
           : (session.slots.presentedIds ?? []))].slice(-4);
@@ -7040,8 +7293,15 @@ export class InboundHandler {
         // («NA KOLKAVO RASTOJANIE SE DO …», «KOLKU SE OD …», «dvata/ovie»)
         // is the comparison and keeps the per-row answer.
         const singularAsk = discussedEb !== undefined && !distanceAskIsPlural(text);
-        if (batchEbs.length >= 2 && batchOwnsSubject && !singularAsk) {
-          const rows = (await Promise.all(batchEbs.map(eb =>
+        // …AND THE FLATS THE MESSAGE ITSELF NAMES, even when the batch on the
+        // table has moved on (the [18:03] capture named 88 and 82 while the
+        // lane measured the first alone). TWO names IS the plural comparison,
+        // so the singular-ask guard — which protects the discussed flat from
+        // an old batch — does not apply to them.
+        const namedPlural = namedEbs.length >= 2;
+        const subjectEbs = namedPlural ? namedEbs : batchEbs;
+        if (subjectEbs.length >= 2 && (namedPlural || (batchOwnsSubject && !singularAsk))) {
+          const rows = (await Promise.all(subjectEbs.map(eb =>
             this.deps.properties.getByEb(eb).catch(() => undefined))))
             .filter((p): p is Property => !!p);
           const measured: Array<{ eb: number; d: number; trusted: boolean; loc?: string }> = [];
@@ -7613,8 +7873,14 @@ export class InboundHandler {
           return base && base !== loc ? bandFor(base) : undefined;
         };
         // Reply order follows the client's own sentence („KARPOS ILI CENTAR“).
+        // THE ORDER SURVIVES THE SCRIPT (the [17:49] capture: «vo Aerodrom i
+        // Novo Lisice» answered Ново Лисиче first). The area names come back
+        // from the map in CYRILLIC while the client typed Latin, so a raw
+        // indexOf found neither and both scored MAX — the reply then followed
+        // the map's own order, not his sentence. Compare transliterated.
         const at = (s: string): number => {
-          const i = text.toLowerCase().indexOf(s.toLowerCase());
+          const hay = toLatin(text).toLowerCase();
+          const i = hay.indexOf(toLatin(s).toLowerCase());
           return i < 0 ? Number.MAX_SAFE_INTEGER : i;
         };
         areaNames.sort((a, b) => at(a) - at(b));
@@ -9863,8 +10129,15 @@ export class InboundHandler {
     // …and the same MID-ROUTE RENAMING veto the probe applies (see the
     // INFO_ASK_PAIR_IDENTITY evidence block): a running route plus a term is a
     // narrowing of that route, not an identity ask about two flats.
-    const narrowingRoute = !!session.slots.visitPlan
+    // A CLIENT CHOOSING THE FIRST GROUP OF A SPLIT VISIT IS NARROWING TOO (the
+    // owner's 2026-11-24 brief): after «различни денови» he answers «PRVO 88 I
+    // 82, ZADUTRE OD 5» — two numbers AND a term. No plan runs yet, so the
+    // plan-only veto left the turn to this lane and it described both flats,
+    // leaving the visit unscheduled.
+    const choosingVisitGroup = session.state === 'visit_scheduling'
       && (!!detectVisitTime(text) || hasDayWord(text) || hasClockHint(text));
+    const narrowingRoute = choosingVisitGroup || (!!session.slots.visitPlan
+      && (!!detectVisitTime(text) || hasDayWord(text) || hasClockHint(text)));
     if (!narrowingRoute
       && !detectAvailabilityAsk(text) && !detectExactAddressAsk(text)
       && !isFeeTraffic(text) && !detectPriceAsk(text) && !detectBudget(text)
@@ -20660,7 +20933,19 @@ ${contactReminder}`;
     if (ev.visitTime) {
       const storedVt = session.slots.visitTime ?? '';
       const storedHasClock = storedVt.length > 0 && hasClockHint(storedVt);
-      if (hasDayWord(ev.visitTime) || !hasDayWord(storedVt) || (storedHasClock && !detectVagueTime(storedVt))) {
+      // A REPEATED BARE HOUR KEEPS THE STORED DAY (the [18:08] capture): the
+      // client said «ZADUTRE POPLADNE» → asked for the clock → «OD 5» → asked
+      // again → «5». The third answer REPLACED the whole slot (the stored term
+      // was already «precise», so the first arm fired) and the reply became
+      // «Забележав 17:00. Кој ден Ви одговара?» — the day he had already named
+      // was gone. A day-less phrase never deletes a day: it supplies the CLOCK.
+      // The [12:43] rule is preserved — the stored CLOCK is never resurrected,
+      // only its DAY is carried.
+      const relDay = /(задутре|zadutre|утре|utre|денес|денеска|denes|deneska)/iu.exec(storedVt)?.[0];
+      if (!hasDayWord(ev.visitTime) && storedHasClock && (extractDayWord(storedVt) || relDay)) {
+        const keep = extractDayWord(storedVt) ?? relDay!;
+        session.slots.visitTime = `${keep} ${ev.visitTime.trim()}`;
+      } else if (hasDayWord(ev.visitTime) || !hasDayWord(storedVt) || (storedHasClock && !detectVagueTime(storedVt))) {
         session.slots.visitTime = ev.visitTime;
       } else if (storedHasClock) {
         // STORED DAY + VAGUE CLOCK ("MOZAM VO VTORNIK POSLE 5"): the precise

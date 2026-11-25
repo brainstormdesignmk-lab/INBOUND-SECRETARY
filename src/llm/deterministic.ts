@@ -878,6 +878,35 @@ export function detectResidentialNeed(text: string): boolean {
   return house && flat;
 }
 
+// THE ROOM/SPEC WORD A CLIENT APPENDS TO A PLACE (the [22:17] capture): «ГЛЕДАВ
+// ЕДЕН СТАН … КАЈ СЈО ТРОСОБЕН» names the place AND the flat in one breath, and
+// the extractor's greedy tail carried both («СЈО ТРОСОБЕН»). «трисобен» is not a
+// property CATEGORY (it is a room count), so detectPropertyTypeWord cannot see
+// it — the «соб» stem plus the room vocabulary does.
+// The ROOM-COUNT ADJECTIVE carries its number in front («три-собен»,
+// «дво-soben», «едно-собен»), so the stem is matched INSIDE the word — a
+// word-boundary lookbehind would refuse every real spelling.
+const PROPERTY_SPEC_TAIL_RE =
+  /(?:\p{L}*(?:soben|собен)\p{L}*|(?<![\p{L}])(?:soba|соба|sobi|соби|spalna|спална|spalni|спални|kvm|квм|m2|м2|м²)(?![\p{L}]))/iu;
+
+/** The client's phrase with the PROPERTY SPEC he appended taken off the end:
+ *  «СЈО ТРОСОБЕН» → «СЈО», «БУЊАКОВЕЦ ДВОСОБЕН СТАН» → «БУЊАКОВЕЦ». The place
+ *  is what the client navigates by; the flat is what he wants there. Undefined
+ *  when the tail carries nothing to strip (so no caller churns a lookup), and
+ *  never strips the only word (a bare «СТАН» is still a type answer, read by its
+ *  own lane). */
+export function stripTrailingPropertySpec(text: string): string | undefined {
+  const words = String(text ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return undefined;
+  let n = words.length;
+  while (n > 1) {
+    const last = words[n - 1]!;
+    if (!detectPropertyTypeWord(last) && !PROPERTY_SPEC_TAIL_RE.test(last)) break;
+    n--;
+  }
+  return n === words.length ? undefined : words.slice(0, n).join(' ');
+}
+
 /** True when the message NAMES a property type (any of the feed's categories). */
 export function detectPropertyTypeWord(text: string): boolean {
   return PROPERTY_TYPE_WORD_RE.test(text) || PROPERTY_TYPE_WORD_RE.test(normalizeMc(text));
@@ -1155,7 +1184,44 @@ export function detectAvailabilityPlural(text: string): boolean {
   // still counts as nothing.
   if (ebNumbersInText(text).length >= 2) return true;
   return /(?<![\p{L}])(?:gi|ги|site|сите|dvata|двата|dvete|двете|ovie|овие|tie|тие)(?![\p{L}])/iu.test(text)
-    || /(?<![\p{L}])(?:se|се)\s+(?:uste\s+|уште\s+)?(?:slobodni|слободни|dostapni|достапни)(?![\p{L}])/iu.test(text);
+    || /(?<![\p{L}])(?:se|се)\s+(?:uste\s+|уште\s+)?(?:slobodni|слободни|dostapni|достапни)(?![\p{L}])/iu.test(text)
+    // THE ADJECTIVE-FIRST ORDER (the [22:55] capture «DOSTAPNI LI SE USTE ?»):
+    // «достапни ли се уште?» puts the plural adjective BEFORE the plural copula
+    // «се», so the copula-first arm above missed it and the pair question fell
+    // to the nearby-thread — a landmark for «are they still available?».
+    || /(?<![\p{L}])(?:slobodni|слободни|dostapni|достапни)(?:\s+(?:li|ли))?\s+(?:se|се)(?![\p{L}])/iu.test(text)
+    || /(?<![\p{L}])(?:se|се)\s+(?:[a-zа-яѓјќљњџѕ]+\s+){1,2}(?:slobodni|слободни|dostapni|достапни)(?![\p{L}])/iu.test(text);
+}
+
+/** «А ДРУГИОТ?» — the OTHER card of the pair (the [22:52] capture).
+ *
+ *  After a pair was presented and the client asked about one of them, «AND THE
+ *  OTHER ONE?» asks about the card he has NOT been answered for. The message
+ *  carries no place and no EB, so every lane read it as "what else is there" —
+ *  the nearby-thread rotated the SAME flat's landmark (EB 66 → «Crescendo
+ *  School» on the second turn) and the other flat was never described.
+ *
+ *  Only the DEFINITE forms count: «друго» (something else) and «други» (other
+ *  flats) are search wishes, not a reference to the pair on screen.
+ */
+export function detectOtherFlatAsk(text: string): boolean {
+  return /(?<![\p{L}\p{N}])(?:другиот|другата|другото|другиве|другите|drugiot|drugata|drugoto|drugive|drugite|the\s+other(?:\s+one)?|other\s+one)(?![\p{L}\p{N}])/iu.test(text);
+}
+
+/** «НА КОЈА АДРЕСА СЕ СТАНОВИВЕ?», «двата», «овие два» — the PAIR as a whole.
+ *
+ *  A question about BOTH flats owes both answers (the [22:51] capture: the
+ *  client asked for the address of «становиве» — these flats — and got one
+ *  location line; he had to push again for the second). The number grammar is
+ *  the shared one, so a price or a size is never read as a pair.
+ */
+export function detectPluralFlatAsk(text: string): boolean {
+  if (ebNumbersInText(text).length >= 2) return false; // the named-pair lane owns it
+  // Only the DEFINITE pair words count («становиве» = THESE flats). A bare
+  // «становите се…» sentence is an assertion about the flats, not a pair
+  // reference — the copula arm that read it as one answered evaluations with
+  // geography.
+  return /(?<![\p{L}\p{N}])(?:двата|двете|двава|двеве|овие\s+(?:два|две|двата|двете)|становиве|обидвата|обидвете|obidvata|obidvete|obidva|i\s+dvata|и\s+двата|и\s+двете|dvata|dvete|stanovive|both|the\s+two)(?![\p{L}\p{N}])/iu.test(text);
 }
 
 export function detectAvailabilityAsk(text: string): boolean {
@@ -1945,6 +2011,25 @@ export function detectArrangementPlanning(text: string): boolean {
  *  count of flats («да видам 3 стана»). A bare «сите» about prices or an area
  *  is somebody else's lane and must not fire.
  */
+/** ONE DAY OR SEVERAL? — the client's answer to the multi-property visit
+ *  question (the owner's 2026-11-24 brief). «ист ден / сите заедно / во еден
+ *  ден» means the whole route happens on one day; «различни денови / подели /
+ *  одделно / два дена» means he wants them spread out, and the first group is
+ *  arranged now. Everything else (a day name, an hour) is not this answer and
+ *  falls through to the ordinary term lanes. */
+export function detectVisitDayChoice(text: string): 'same' | 'split' | undefined {
+  const t = normalizeMc(text);
+  if (!t) return undefined;
+  if (/(?<![\p{L}\p{N}])(?:razlicni|различни|разлицни|razdvoi|раздвои|podeli|подели|oddelno|одделно|posebno|посебно|drug\s*den|друг\s*ден|dva\s*dena|два\s*дена|po\s*den|по\s*ден)(?![\p{L}\p{N}])/iu.test(t)) {
+    return 'split';
+  }
+  if (/(?<![\p{L}\p{N}])(?:ist|isti|eden|eden\s*den|ист|исти|еден|еден\s*ден)\s*(?:den|ден)?(?![\p{L}\p{N}])/iu.test(t)
+    || /(?<![\p{L}\p{N}])(?:site\s*zaedno|сите\s*заедно|zaedno|заедно|vo\s*eden\s*den|во\s*еден\s*ден)(?![\p{L}\p{N}])/iu.test(t)) {
+    return 'same';
+  }
+  return undefined;
+}
+
 export function detectMultiVisitIntent(text: string): boolean {
   const flat = text.trim().replace(/\n+/g, ' ');
   if (!flat) return false;
@@ -4595,7 +4680,20 @@ const DAY_PLUS_PERIOD_RE = /(?:утре|задутре|denes|utre|zadutre|sreda|
 export function detectVagueTime(text: string): boolean {
   // An OPEN WINDOW beats every specificity arm below: «од 17:00 па натака» is
   // explicit about the clock and still not a term the owner can accept.
-  if (OPEN_WINDOW_TAIL_RE.test(text) || OPEN_WINDOW_FROM_RE.test(text)) return true;
+  if (OPEN_WINDOW_TAIL_RE.test(text)) return true;
+  // …BUT «ПОПЛАДНЕ ОД 5» IS A START, NOT A WINDOW (the [18:07]–[18:08] capture):
+  // the client named the afternoon and then «OD 5» — asking him for «точно во
+  // колку часот» again read as if the two turns had not been heard, and he
+  // repeated the bare «5» (which is when the earlier bug dropped the day). A
+  // day or time-of-day word already scopes the hour, the visit is ONE hour, so
+  // «од 5» fixes the START. A RANGE («од 5 до 7») is still a window, and the
+  // open tail above still wins.
+  const periodOrDay = VAGUE_TIME_WORD_RE.test(text) || hasDayWord(text);
+  if (periodOrDay && hasClockHint(text)
+    && /(?:^|[\s,.:;!?])(?:од|od)\s*\d{1,2}(?!\d)/iu.test(text)
+    && !/(?:до|do)\s*\d{1,2}(?!\d)/iu.test(text)
+    && !/(?:после|posle|pred|пред)\s*\d{1,2}(?!\d)/iu.test(text)) return false;
+  if (OPEN_WINDOW_FROM_RE.test(text)) return true;
   if (SPECIFIC_CLOCK_RE.test(text)) return false;
   // Day-anchored clock PROPOSAL ("понеделник попладне околу 6", "ВТОРНИК ВО
   // 19") is already a concrete term — the day names the date and the clock
@@ -10730,6 +10828,16 @@ const MARKET_TYPE_PLURAL_RE = new RegExp(`${NB}${typePluralAlternation()}${NA}`,
 // the same optional prefix.
 const MARKET_MOVE_RE =
   /(?<![\p{L}\p{N}])(?:kako|како|kolku|колку)?\s*(?:se|се)?\s*(?:dvi[zž]\p{L}*|дви[жз]\p{L}*|odat|одат|idat|идат|menuv\p{L}*|менув\p{L}*|krenuv\p{L}*|кренув\p{L}*|rast\p{L}*|раст\p{L}*|pad\p{L}*|пад\p{L}*)(?![\p{L}\p{N}])/iu;
+// «PO KOLKU ODAT VO AERODROM I NOVO LISICE?» (the [17:49] capture): the client
+// names the AREAS instead of the category — «по колку одат во Аеродром и Ново
+// Лисиче» has no «станови» for the plural arm to see — so the turn fell into the
+// discovery grill and asked whether he was buying or renting, then how many
+// bedrooms, instead of quoting the two neighbourhoods' €/m². The KOLKU scaffold
+// IS the money ask («for how much do they go»), unlike KAKO («how are things
+// going»), which is why only the kolku form is evidence on its own. Viber fuses
+// it too («POKOLKUODAT»), so the wording is fused-tolerant like MARKET_MOVE_RE.
+const MARKET_KOLKU_MOVE_RE =
+  /(?<![\p{L}\p{N}])(?:po\s*)?(?:kolku|колку)\s*(?:se|се)?\s*(?:dvi[zž]\p{L}*|дви[жз]\p{L}*|odat|одат|idat|идат|menuv\p{L}*|менув\p{L}*|krenuv\p{L}*|кренув\p{L}*|rast\p{L}*|раст\p{L}*|pad\p{L}*|пад\p{L}*)(?![\p{L}\p{N}])/iu;
 // Question scaffold over the definite plural: „kakvi se cenite“, „kako cenite“.
 const MARKET_PRICE_SCAFFOLD_RE =
   /(?:kakvi|какви|kakva|каква|kakvo|какво|kako|како|koja|која|koi|кои|kolku|колку|dali|дали)\s+(?:se|се|e|е|gi|ги|ni|ни)?\s*(?:cenite|цените|cenive|цениве|cene|цене|ceni|цени)(?![\p{L}\p{N}])/iu;
@@ -10779,14 +10887,51 @@ export function detectMarketPriceAsk(text: string): boolean {
   // („како одат работите?“ would qualify), so it needs the CATEGORY in the
   // plural beside it — the same evidence the price-noun path demands.
   const moveWord = matchesBoth(MARKET_MOVE_RE, text);
+  const kolkuMove = matchesBoth(MARKET_KOLKU_MOVE_RE, text);
   const typePluralWord = matchesBoth(MARKET_TYPE_PLURAL_RE, text);
-  if (!priceWord && !rentWord && !(moveWord && typePluralWord)) return false;
-  if (!matchesBoth(MARKET_ASK_SHAPE_RE, text)) return false;
+  // «КОЛКУ ОДАТ» ALONE IS NOT A PRICE QUESTION (the pinned greeting): «колку
+  // одат работите?» is small talk. The KOLKU scaffold replaced the category
+  // requirement, so it must bring a SCOPE of its own — a place, the category, or
+  // the per-м² frame — exactly the evidence the [17:49] capture carried («во
+  // Аеродром и Ново Лисиче»).
+  const kolkuScoped = kolkuMove && (typePluralWord
+    || matchesBoth(MARKET_SQM_UNIT_RE, text)
+    || !!detectLocation(text, []));
+  if (!priceWord && !rentWord && !kolkuScoped && !(moveWord && typePluralWord)) return false;
+  // A PER-М² FRAME IS ITSELF THE QUESTION («PRASUVAM ZA CENA PO KVADRAT» — the
+  // [17:50] follow-up to the two-area ask). Requiring a «?» or a колку/како
+  // scaffold made the client's plain «I am asking for the price per m²» fall
+  // into the funnel, which re-asked bedrooms. A FIGURE means he is STATING a
+  // rate («cenata e 1200 po kvadrat»), not asking for the band — that stays out.
+  // …but a VERDICT on the rate is a statement, not a question: «CENATA ZA M2 E
+  // VISOKA» is the client's opinion of the number on the table (the pinned
+  // negative in tests/market-price.test.ts), never an ask for a band.
+  const rateVerdict = /(?:^|[\s,.:;!?])(?:e|se|е|се)\s+(?:visok\p{L}*|висок\p{L}*|nisk\p{L}*|ниск\p{L}*|mnogu|многу|dobr\p{L}*|добр\p{L}*|lo[sš]\p{L}*|лош\p{L}*|ok|ок|fer|фер|prihvatliv\p{L}*|прифатлив\p{L}*|realn\p{L}*|реалн\p{L}*|normaln\p{L}*|нормалн\p{L}*)(?![\p{L}\p{N}])/iu;
+  // …and a DEICTIC/DUAL reference points at the flats on the table, not at a
+  // market level: «НАПРАВИ МИ СПОРЕДБА НА ЦЕНА ПО КВАДРАТ ЗА ДВАТА СТАНА» is a
+  // comparison of those two rows (the [10:58] capture), and the band lane
+  // quoted the whole area instead.
+  const pointsAtTableFlats = /(?<![\p{L}\p{N}])(?:dvata|двата|dvete|двете|ovie|овие|ovie|tie|тие|niv|нив|ovoj|овој|ovaa|оваа)(?![\p{L}\p{N}])/iu.test(text);
+  // …and a plain REQUEST («POMAL MI TREBA SO TAKVA CENA ZA KVADRAT») is the
+  // smaller-at-that-rate filter, not a level question: tests/smaller-per-m2
+  // owns that lane. So the frame still needs a question SHAPE — a «?» or a
+  // question scaffold («прашувам», колку/како/која/дали) — beside the noun pair.
+  const rateHasQuestionShape = /\?/u.test(text)
+    || /(?:prasuv\p{L}*|прашув\p{L}*|kolku|колку|kako|како|koja|која|koj|кој|koe|кое|dali|дали)(?![\p{L}\p{N}])/iu.test(text)
+    // …or a PLACE: «cena po kvadrat vo aerodrom i novo lisice» names the scope
+    // it wants priced, which is the same ask without punctuation.
+    || !!detectLocation(text, []);
+  const rateFrame = priceWord && matchesBoth(MARKET_SQM_UNIT_RE, text)
+    && !/\d{3,}/u.test(text) && !rateVerdict.test(text) && !pointsAtTableFlats
+    && rateHasQuestionShape;
+  if (!matchesBoth(MARKET_ASK_SHAPE_RE, text) && !rateFrame) return false;
   if (matchesBoth(MARKET_PRICE_REFERENCE_RE, text)) return false;
   if (rentWord) return true;
   return matchesBoth(MARKET_SQM_UNIT_RE, text)
     || typePluralWord
     || moveWord
+    || kolkuScoped
+    || rateFrame
     || matchesBoth(MARKET_PRICE_SCAFFOLD_RE, text)
     || (priceWord && matchesBoth(MARKET_SERVICE_PHRASE_RE, text));
 }

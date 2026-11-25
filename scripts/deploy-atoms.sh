@@ -208,6 +208,32 @@ while IFS='|' read -r id host user key rpath note; do
     "${SSH[@]}" "cd '$rpath' && node scripts/link-geo.js" || { echo "    ✗ link-geo FAILED"; RESULTS+=("$id|LINK-FAIL"); continue; }
   fi
 
+  # 1b-bis) SHIP THE GEO ENGINE ITSELF. The link above points at the atom's own
+  #     maps-realestate checkout, and the rsync carries LINA only — so a fix in
+  #     src/geo/offlineMap.ts (the recall-word vetoes, a name fold, a ranking
+  #     rule) would deploy GREEN while the appliance kept running its old
+  #     vocabulary. The geo tree is the single source here, so the deploy sends
+  #     it to the tree the target's link resolves to (never to a guessed path).
+  GEO_SRC=$(readlink -f ./src/geo)
+  if [ -d "$GEO_SRC" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+      echo "    [dry-run] would rsync $GEO_SRC → the target's src/geo target"
+    else
+      GEO_DST=$("${SSH[@]}" "readlink -f '$rpath/src/geo'" 2>/dev/null || true)
+      if [ -n "$GEO_DST" ] && [ -d "$GEO_DST" ]; then
+        if rsync -az --delete -e "$RSYNC_SSH" --timeout=120 "$GEO_SRC/" "$user@$host:$GEO_DST/" >/tmp/rsync-geo-$id.log 2>&1; then
+          echo "    ✓ geo engine synced ($GEO_DST)"
+        else
+          echo "    ✗ geo rsync FAILED — tail:"; tail -5 /tmp/rsync-geo-$id.log | sed 's/^/      /'
+          RESULTS+=("$id|GEO-FAIL"); continue
+        fi
+      else
+        echo "    ✗ the target's src/geo does not resolve (link-geo said ok?) — the geo fix would NOT be live"
+        RESULTS+=("$id|GEO-MISSING"); continue
+      fi
+    fi
+  fi
+
   # 1c) BRAIN (--with-db): STAGED beside the live file, never moved into place
   #     now. The install happens inside the restart, after the old bot is gone:
   #     a running bot keeps the old inode open AND keeps writing -wal, so a file

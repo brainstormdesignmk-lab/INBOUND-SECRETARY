@@ -156,9 +156,18 @@ test('[16:13] the term ask asks for a term that fits several owners', async () =
   await h.say('ДА, ВО РЕД Е.');
   const answer = await h.say('Марко Марковски, 070123456');
   assert.equal(h.sessions.get(h.chatId)!.state, 'visit_scheduling');
-  assert.match(answer, /термин/u, `the term is asked for: ${answer}`);
-  assert.match(answer, /сопствениц(?:ите|и)/iu, `the term is for both owners: ${answer}`);
-  assert.doesNotMatch(answer, /сопственикот/iu, `never one owner for two visits: ${answer}`);
+  // EXPECTATION UPDATED (the owner's 2026-11-24 brief): several flats are a
+  // ROUTE of one-hour visits, so the client is first asked whether they all
+  // happen on one day or on different days — he must know the shape of the day
+  // before he can name a term that fits it. The plural-owner contract then
+  // moves to the term ask that follows his answer.
+  assert.match(answer, /ист ден/u, `the day shape is asked: ${answer}`);
+  assert.match(answer, /различни денови/u, `both options are offered: ${answer}`);
+  assert.match(answer, /еден час/u, `the hour-per-visit rule is stated: ${answer}`);
+  const term = await h.say('VO IST DEN');
+  assert.match(term, /термин/u, `the term is asked for: ${term}`);
+  assert.match(term, /сопствениц(?:ите|и)/iu, `the term is for both owners: ${term}`);
+  assert.doesNotMatch(term, /сопственикот/iu, `never one owner for two visits: ${term}`);
 });
 
 test('the same family, other spellings: the pair is always plural', async () => {

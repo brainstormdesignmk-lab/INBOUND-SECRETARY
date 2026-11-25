@@ -23,6 +23,19 @@ export const FIRST_QUESTIONS_PREFIX = 'Супер. Уште неколку пр�
 export const LAST_INFO_PREFIX = 'Одлично.';
 
 // --- Visit sub-funnel: exact phrases (code-built, never LLM-invented) --------
+/** THE ONE-DAY-OR-SEVERAL QUESTION (the owner's 2026-11-24 brief): several
+ *  flats to see is a ROUTE, and the client must know that before he picks a
+ *  term — each visit is one hour, so a free afternoon fits only some of them.
+ *  He then either names one day for all of them or says which come first. */
+export const VISIT_DAY_CHOICE_ASK =
+  'Дали би сакале да ги посетиме сите недвижности во ист ден, или да ги распоредиме во различни денови? Секоја посета зазема еден час — ако имате помалку време, кажете кои да ги оставиме за друг ден.';
+
+/** The SPLIT branch: he wants several days, so the first group is the one to
+ *  arrange now — WHICH flats, and the term for them. The rest keep their own
+ *  negotiation (the chain defers them by itself, never silently). */
+export const VISIT_SPLIT_ASK =
+  'Во ред — кои недвижности би сакале да ги посетите прво, и кој термин Ви одговара за нив? Останатите ќе ги договориме за друг ден.';
+
 export const VISIT_TIME_QUESTION =
   'Кој термин би Ви одговарал за посета? Да се обидам да договорам со сопственикот во тоа време.';
 

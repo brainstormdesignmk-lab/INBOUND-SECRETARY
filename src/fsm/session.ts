@@ -272,6 +272,14 @@ export interface SlotData {
    *  a sudden single visit — the brief's «several stays several». Cleared when
    *  the route is booked. */
   visitWanted?: boolean;
+  /** ONE DAY OR SEVERAL? (the owner's 2026-11-24 brief.) A client asking to
+   *  see SEVERAL flats is asked once whether they should all happen on one day
+   *  or be spread over different days, and is told that each visit takes an
+   *  hour — so he can pick which to do on the day he has free and leave the
+   *  rest for later. `visitDayAsked` stops the question repeating, and
+   *  `visitDayChoice` carries his answer into every later term ask. */
+  visitDayAsked?: boolean;
+  visitDayChoice?: 'same' | 'split';
   /** THE FLATS THE CLIENT NAMED for that visit, in his own order — the set the
    *  fee subject line, the fee arithmetic and the route's owner asks all read.
    *  It outlives the turns that will not carry the numbers: the visit command

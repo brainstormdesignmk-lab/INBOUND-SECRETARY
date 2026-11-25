@@ -1828,6 +1828,66 @@ question) and the drained-pool escape
   the promise expires on an unrelated turn, and an area with no peers names the
   absence instead of inventing a market.
 
+## 4d. A sound skeleton is not identity; the client's answers are not places
+
+The [22:17] capture: «ГЛЕДАВ ЕДЕН СТАН КАЈ ВАС НА САЈТ КАЈ СЈО ТРОСОБЕН /
+НЕМОЖАМ ДА СЕ СЕТАМ НА БРОЈЧЕТО» was answered «…во близина на Бариста Кафе».
+Three independent layers had to fail for that to be possible, and all three are
+now guarded — pin the family, not the one word:
+
+- THE MAP REFUSES THE CLIENT'S RECALL/ANSWER VOCABULARY (`refusesGenericNeedle`,
+  `src/geo/offlineMap.ts`): број/бројче/бројчето, цифра, адреса, влез, кат/
+  катче, спрат, ден, сетам/сеќавам/паметам, не можам — plus the ordinal family
+  (`ORDINAL_STEM_RE`: петтиот/вториот…). They are words a client APOLOGISES with
+  («I can't remember the number»), never venues. Word-exact: «Петар» and
+  «Седмица» keep resolving.
+- THE COVERAGE GUARD STOPS TRUSTING A SHORT SOUND KEY (`poiNameCoversClientWords`,
+  `src/handlers/inbound.ts`): `soundKey('БРОЈЧЕТО') === soundKey('Barista') ===
+  'brst'`, and a key match alone signed the café off. A key-only match now needs
+  a key of ≥5 letters, a multi-word run, or VOWELS ARE THE ONLY DIFFERENCE
+  (`vowelKey`) — «OLYMPICO» ↔ «Олимпико» is one name in two scripts, while
+  «БРОЈЧЕТО»/«Barista» agree on the key but not on their consonants.
+- THE FLAT THE CLIENT APPENDS IS NOT PART OF THE PLACE: `stripTrailingPropertySpec`
+  («СЈО ТРОСОБЕН» → «СЈО») before the lookup, and the guard is handed the
+  STRIPPED name (only the client's own place words), never the full phrase.
+- A PLACE THE CLIENT NAMED MUST BE USED, NEVER A PLACE HE DID NOT (owner's
+  2026-11-24 field rule). Pinned in `tests/recall-word-not-a-place.test.ts`
+  (map veto + real names, the guard bridges, the strip, the [22:17] e2e, the
+  recall line after a served batch).
+
+## 4e. THE PAIR IS THE SUBJECT (location and availability)
+
+The [22:51]–[22:55] capture, three answers to one pair of flats:
+
+- A PLURAL LOCATION ASK OWES ONE LINE PER FLAT: «НА КОЈА АДРЕСА СЕ СТАНОВИВЕ?»
+  («these flats») was answered for ONE of them, and the client had to push. The
+  pair comes from `currentBatch`/`presentedIds` (presentation order, never a
+  feed slice) via `pairFlats()`; each line is built by `locationLineFor()` from
+  that row's OWN nearest landmark + pin, labelled by its Евидентен број. The
+  privacy contract is unchanged: turn-1 approximation for every flat, never the
+  street.
+- «А ДРУГИОТ?» IS THE OTHER CARD, NOT MORE-NEARBY: `detectOtherFlatAsk` (the
+  definite forms only — «друго»/«други станови» are search wishes) and the
+  target is the pair member the chat is NOT already answering about
+  (`propertyId` first, then interest/asked). Before this it matched
+  NEARBY_THREAD and rotated the SAME flat's landmarks (EB 66 → «Crescendo
+  School»), so the other flat was never described.
+- THE PLURAL COPULA IS «СЕ», NOT «Е»: «DOSTAPNI LI SE USTE ?» is availability —
+  the adjective list had no plural and every copula slot was built on «е», so
+  the question fell to NEARBY_THREAD and got a landmark (Неуромедика). Plural
+  adjectives + `COPULA_PL` slots live in `buildAvailabilitySlots()`
+  (`src/llm/grammar.ts`), every slot demanding a question marker (Q, TIME or
+  LI) so «становите се продадени» stays an assertion. The pair lane then serves
+  BOTH rows and the per-property fee, as `AVAILABILITY_PLURAL` always did.
+- A PAIR REFERENCE IS A LOCATION TURN ONLY WHEN NOTHING ELSE OWNS IT: a facet
+  ask that also names the pair («КОЛКУ М2 ИМААТ ДВАТА ДУЌАНИ?») keeps its facet
+  lane — the handler vetoes any info facet, digits, money/area/floor words, and
+  positive evaluation.
+- Lanes: `EXACT_ADDRESS_PAIR`, `PAIR_LOCATION`, `PAIR_OTHER_LOCATION` /
+  `EXACT_ADDRESS_OTHER` (all registered in `ROUTE_LANES`, mirrored by
+  `PAIR_LOCATION`/`PAIR_OTHER_LOCATION` in `ROUTING_ORDER`). Pinned in
+  `tests/capture-2251-pair-address-and-availability.test.ts`.
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.
@@ -1840,6 +1900,13 @@ question) and the drained-pool escape
 - When a test fails, read the failure: the last two mis-fires in this repo were
   a typo in a test string (`PLALKA`) and a collapse-comparison without case
   folding (capital `Дали`), not product bugs. Fix the test with a comment.
+- A COPY ASSERTION ON ROTATING COPY IS CASE-INSENSITIVE (`i` on the regex) when
+  the pinned phrase can START A SENTENCE: `tests/visit-day-plan.test.ts` failed
+  roughly one run in three because one `clock.ask` variant renders «Во колку
+  часот точно?» and the assertion was `/во колку|…/u`. A copy rotation is never
+  a state bug, and a suite that is green only on some rotations is not a gate.
+  Assert the CLASS (an ask that names the hour, a figure, a question mark), not
+  the capitalisation of a bank variant.
 
 ### 4p. PROPERTY FOCUS: SUBJECT × PREDICATE × CERTAINTY (proposal Phase 3)
 
