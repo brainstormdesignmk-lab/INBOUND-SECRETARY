@@ -1978,6 +1978,64 @@ will still find.
   [10:24] roster, plus the evidenced-pharmacy case — the rule refuses a nameless
   branch, not the class).
 
+## 4h. The claim rule holds for EVERY reader, and a link NAMES the place
+
+The [12:27–12:28] capture showed the [10:24] fix was only half applied:
+
+```
+[12:27] «КАДЕ ТОЧНО СЕ НАОЃА ?»      → «во близина на Kindergarten …» + ?q=41.99727,21.41594
+[12:28] «НА КОЛКАВО РАСТОЈАНИЕ Е ОД ГРАДИНКАВА ?»
+                                        → «Не, тоа е на 1,6 километри од Меморијален
+                                           центар на холокаустот…»
+[12:27] «Еве ги деталите…»           → «…во близина на ПЗУ Аптека Линцура 2…»
+```
+
+- THE SCREEN IS AT THE SERVICE DOOR, NOT AT THE REPLY. Every builder prints
+  `landmarks[0]`, and the stored roster is ranked by DISTANCE at import, so the
+  pharmacy in the flat's own building survives forever. `PropertyService.
+  setLandmarkScreen` (installed by `InboundHandler` each turn, backed by
+  `LandmarkService.screenFeedLandmarks`) filters the roster ONCE, on the way out
+  of the feed: no builder can forget the rule, and no lane can disagree with
+  another about the same flat. Distances on the surviving entries are
+  RE-MEASURED from the row's own centre (the stored `distance_m` is the
+  import-time number, not evidence); when nothing survives, the map's own ring
+  rotation takes the card's line; an unmeasurable row (no map, no centre) is
+  left exactly as the feed wrote it.
+- A MEASUREMENT ASK IS NEVER A PLACE CONFIRM. `isPoiConfirmQuestion` refuses a
+  distance question (the confirm lane claims any place word plus a trailing
+  «?»; its extraction then built the candidate out of the QUESTION —
+  «КОЛКАВО РАСТОЈАНИЕ Е ОД» — and the map's fuzzy pass bound that to the
+  Holocaust memorial centre). `extractPoiConfirmPlace` refuses a candidate
+  carrying distance vocabulary as the second layer.
+- A DESTINATION NAMED BY ITS CLASS IS THE PLACE THE CHAT JUST SERVED.
+  `placeTypesFromNoun` (`src/llm/lexicon/place.ts`) maps the client's own word
+  (градинкава, училиштето, аптекава, молот …) to the map type, and the distance
+  lane binds it to the served rotation slot carrying that type — the «-ва/-та»
+  form to the one just named, else the nearest. The rotation now carries each
+  slot's `type` (`nearbyLandmarkTypes`) for exactly this; a real NAME is still
+  the map search's job, so a phrase with a name in it binds to nothing.
+- A LANDMARK LINK CARRIES BOTH THE CARD AND THE PIN, CARD FIRST
+  (`landmarkLink`). A bare `?q=lat,lon` names nothing (a dropped pin in a
+  courtyard is not the kindergarten — the owner's [12:27] verdict), and a card
+  alone shows no point (the 2026-10-13 complaint). Each form is emitted on its
+  own line: the canonical `/maps/place/…` URL when the capture script stored
+  one, else the `?cid=` deep-link from the POI's `place_id`, then the 44-char
+  ASCII coordinate pin. A landmark with no identity keeps the pin; a stored
+  `?q=` place_url is NOT a card (it is the pin in another coat), so the `cid`
+  is preferred.
+- EVERY ROTATION WRITE WRITES THE WHOLE ROTATION. `nearbyLandmarks` is the
+  chat's memory of what it served, so a lane that pre-resolves it for the
+  follow-up «каде?» must write `nearbyLandmarkCoords`, `nearbyLandmarkPlaceIds`
+  AND `nearbyLandmarkTypes` beside it — seven pre-resolve sites used to write
+  names only, which served a cardless pin and left the class anaphor unbound.
+  The guard is structural (every `nearbyLandmarks = <var>.map(…)` in
+  `inbound.ts` must be followed by both arrays), because these sites grow.
+- Pinned in `tests/capture-1227-landmark-anaphor.test.ts` (the detector vetoes,
+  the class vocabulary, the two-turn e2e, the shared screen, the rotation-write
+  sweep, and the handler actually installing the screen) and
+  `tests/where-is-reply.test.ts` / `tests/twin-centre.test.ts` (link form, card
+  first).
+
 ## 5. Tests and expectations
 
 - Every fix ships with a regression test that FAILS before it and passes after.

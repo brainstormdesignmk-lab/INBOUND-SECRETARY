@@ -151,8 +151,16 @@ test('[22:51] a plural address ask answers BOTH flats, each from its own row', a
   assert.match(reply, /СЈО/u, `EB 66's own landmark: ${reply}`);
   // The street is still never disclosed — the privacy contract is unchanged.
   assert.doesNotMatch(reply, /Рузвелтова|РУЗВЕЛТОВА|УЛ\. Б/u, `no street: ${reply}`);
-  assert.equal((reply.match(/maps\.google\.com/gu) ?? []).length, 2,
+  // ONE PIN PER FLAT — the contract this asserts. Since the owner's 2026-11-25
+  // rule a landmark with map identity serves its place CARD and then the PIN
+  // (landmarkLink), so a flat can carry two Google URLs; counting them would
+  // measure the link style, not the geography. Count the PINS.
+  assert.equal((reply.match(/maps\.google\.com\/\?q=/gu) ?? []).length, 2,
     `one pin per flat: ${reply}`);
+  for (const url of reply.match(/https:\/\/[^\s]+/gu) ?? []) {
+    assert.match(url, /^https:\/\/maps\.google\.com\/\?(?:cid=\d+|q=-?\d)/u,
+      `every served link is a card or a pin: ${url}`);
+  }
   // The chat now answers about the LAST flat served.
   assert.equal(sessions.get(chatId)!.slots.propertyId, 95);
 });

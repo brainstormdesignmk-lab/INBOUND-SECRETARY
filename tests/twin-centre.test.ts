@@ -8,11 +8,12 @@
 // one). The runtime's own merge must collapse them into ONE slot: the
 // Macedonian name (what the client reads) carrying Google's identity.
 //
-// LINK FORM (revised 2026-10-13, the [23:50] capture): the customer link is the
-// coordinate PIN (maps.google.com/?q=lat,lon) — a cid place card NAMES the place
-// but shows no pin, so the client cannot see WHERE it is. Google's identity is
-// still merged onto the served row: it is what serves the exact place card when
-// the row has no usable coordinate (the cid fallback).
+// LINK FORM (revised 2026-11-25, the [12:27] capture): the customer link is the
+// place CARD and then the coordinate PIN, each on its own line. The 2026-10-13
+// rule made the pin primary (a card shows no point), and the [12:27] answer then
+// shipped a bare `?q=` pin with no card — «WHY ARE THE MAP LINKS WITH X Y
+// COORDINATES AND NO CARD FOR THE LANDMARK STILL?». Google's identity merged
+// onto the served row is therefore what leads the link, and the pin follows it.
 //
 // The same test pins down the Turkey centre, the harder twin: there the Google
 // anchor is typed "Corporate office", so it ranks BELOW the OSM diplomatic row
@@ -81,8 +82,8 @@ test('Montenegro twin centre: one slot, Macedonian name, Google place card', () 
   assert.equal(slots.length, 1, `the same embassy took ${slots.length} rotation slots: ${JSON.stringify(out)}`);
   assert.equal(slots[0].landmark, 'Амбасада на Црна Гора', 'the client reads the local-script name');
   const link = landmarkLink(slots[0].landmark, slots[0].place_id ?? null, slots[0].lat, slots[0].lon, slots[0].place_url);
-  assert.match(link, /^https:\/\/maps\.google\.com\/\?q=\d+\.\d{5},\d+\.\d{5}$/,
-    `the served link must be the coordinate pin, got ${link}`);
+  assert.match(link, /^https:\/\/maps\.google\.com\/\?cid=\d+\nhttps:\/\/maps\.google\.com\/\?q=\d+\.\d{5},\d+\.\d{5}$/,
+    `the served link is the place card and then its pin, got ${link}`);
   // The merged identity still has to pay off: with NO coordinate the same slot
   // falls back to Google's exact place card instead of a name search.
   const noCoords = landmarkLink(slots[0].landmark, slots[0].place_id ?? null, NaN, NaN);
@@ -107,8 +108,10 @@ test('Turkey twin centre: the rank-0 Google row still donates its place_id', () 
   assert.equal(slots[0].landmark, 'Амбасада на Турција');
   assert.equal(slots[0].place_id, '0x135415ae91924109:0x1605863f0c240a04', 'identity transferred onto the ranked row');
   const link = landmarkLink(slots[0].landmark, slots[0].place_id ?? null, slots[0].lat, slots[0].lon, slots[0].place_url);
-  assert.match(link, /^https:\/\/maps\.google\.com\/\?q=42\.00356,21\.43461$/,
-    `the pin must carry the SERVED row's coordinates, got ${link}`);
+  assert.match(link, /\nhttps:\/\/maps\.google\.com\/\?q=42\.00356,21\.43461$/,
+    `the pin must carry the SERVED row's coordinates, after the card, got ${link}`);
+  assert.match(link, /^https:\/\/maps\.google\.com\/\?cid=\d+\n/,
+    `the transferred identity leads the link as its card, got ${link}`);
   // The transferred identity is what serves the card when coordinates are
   // missing — the original reason this test exists: never a name search.
   const noCoords = landmarkLink(slots[0].landmark, slots[0].place_id ?? null, NaN, NaN);

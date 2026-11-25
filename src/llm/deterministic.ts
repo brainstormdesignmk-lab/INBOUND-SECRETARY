@@ -9795,6 +9795,18 @@ export function isPoiConfirmQuestion(text: string): boolean {
   // protocol (fee → contact → term), exactly like the availability and describe
   // asks above own their own turns.
   if (detectVisitInterest(text)) return false;
+  // A DISTANCE QUESTION IS A MEASUREMENT, NOT A CONFIRM (the [12:28] capture):
+  // «НА КОЛКАВО РАСТОЈАНИЕ Е ОД ГРАДИНКАВА ?» ends with «?» and carries a
+  // place word, so this lane claimed it — and since the destination («од
+  // ГРАДИНКАВА») is a bare class noun no map name search can find, the lane
+  // extracted a candidate out of the QUESTION ITSELF («КОЛКАВО РАСТОЈАНИЕ Е
+  // ОД»), the map's fuzzy pass bound that to the Holocaust memorial centre, and
+  // the client was told «Не, тоа е на 1,6 километри од Меморијален центар на
+  // холокаустот…» — an unrelated place, on a question about distance. The
+  // distance lane owns every measurement ask (it is the only lane that answers
+  // with a MEASURED number), exactly like the availability/describe/visit
+  // lanes above own theirs.
+  if (isDistanceQuestion(text)) return false;
   // Wh-openers are a DIFFERENT family ("kade e skopjanka?", "koga moze da se
   // vidi?") — their own detectors own them, the trailing '?' alone must not
   // claim them. The opener guard is start-anchored; a каде-verb ANYWHERE in
@@ -10452,8 +10464,26 @@ export function extractPoiConfirmPlace(text: string): string | undefined {
   // client uses for the flat (стан/куќа/недвижност/имот/објект/гарсоњера/
   // деловен простор/локал), in both scripts and all definite forms.
   if (PROPERTY_PLACE_CANDIDATE_RE.test(place)) return undefined;
+  // A MEASUREMENT PHRASE IS NOT A PLACE (the [12:28] capture): the candidate
+  // built from «на колкаво растојание е од градинкава» was «КОЛКАВО РАСТОЈАНИЕ
+  // Е ОД» — the question's own scaffolding — and the map's fuzzy pass bound it
+  // to the Holocaust memorial centre. The distance lane answers a measurement
+  // ask (isPoiConfirmQuestion refuses it above); this guard is the second
+  // layer, so a future lane that reads the candidate never gets a quantity
+  // word handed to the map either.
+  if (DISTANCE_CANDIDATE_WORD_RE.test(place)) return undefined;
   return place.length >= 3 ? place : undefined;
 }
+
+/** Distance/measurement vocabulary — a candidate carrying it is the question's
+ *  own scaffolding, never a place name (see extractPoiConfirmPlace). */
+const DISTANCE_CANDIDATE_WORD_RE = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:растојани\\p{L}*|rastojani\\p{L}*|далечин\\p{L}*|dalecin\\p{L}*'
+  + '|далеку|daleku|оддалеч\\p{L}*|oddalec\\p{L}*|раздалеч\\p{L}*|razdalec\\p{L}*'
+  + '|колкаво|kolkavo|колку|kolku|километар\\p{L}*|kilometa\\p{L}*|метар\\p{L}*|metar\\p{L}*'
+  + '|метри|metri|metar|metara)(?![\\p{L}\\p{N}])',
+  'iu',
+);
 
 /** The candidate that is the PROPERTY, not a place (see extractPoiConfirmPlace).
  *  A place named beside a property noun («куќата на Карпош») keeps its own

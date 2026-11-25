@@ -165,7 +165,7 @@ const LANDMARK_OPPOSITE_RE = /(?:спроти|наспроти|sproti|nasproti)/
 // ONE definition, so a local copy can never drift. The module also carries the
 // guards the first local copy lacked: «до 130.000 евра» is a PRICE, not a
 // landmark, and «кај вас/нас» is the AGENCY anchor, not a place.
-import { ANCHOR_ADVERB_RE, LANDMARK_PREP_RE, isLandmarkAnchored } from '../llm/lexicon';
+import { ANCHOR_ADVERB_RE, LANDMARK_PREP_RE, isLandmarkAnchored, placeTypesFromNoun } from '../llm/lexicon';
 // «дали се продава УШТЕ?» — the trailing-adverb word order puts «уште» AFTER
 // the verb, which detectAvailabilityAsk's strict arms do not read (the [20:11]
 // capture: «dali se prodava uste ?» was answered with the same card again).
@@ -3979,6 +3979,7 @@ export class InboundHandler {
       session.slots.nearbyLandmarks = undefined;
       session.slots.nearbyLandmarkCoords = undefined;
       session.slots.nearbyLandmarkPlaceIds = undefined;
+      session.slots.nearbyLandmarkTypes = undefined;
       session.slots.nearbyLandmarkEb = undefined;
       session.slots.landmarkIndex = 0;
       session.slots.lastLandmark = undefined;
@@ -3992,6 +3993,7 @@ export class InboundHandler {
         session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
         session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
         session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+        session.slots.nearbyLandmarkTypes = nearby.map(n => n.type);
         session.slots.nearbyLandmarkEb = propRow.eb;
         session.slots.landmarkIndex = 0;
         session.slots.lastLandmark = undefined;
@@ -6216,6 +6218,22 @@ export class InboundHandler {
     // (and locks from the next turn, exactly as it did before).
     if (detectSeenListingRecall(text)) this.rememberCategory(session, text);
     try { this.deps.properties.setTypeLock(this.categoryLock(session)); } catch { /* test double without the lock */ }
+    // THE CLAIM SCREEN for every row this turn reads (the [12:27] capture): a
+    // stored roster ranked by distance puts a pharmacy in the flat's own ground
+    // floor first, and every reply builder prints `landmarks[0]` — so the info
+    // block still said «во близина на ПЗУ Аптека Линцура 2» while the answer to
+    // «каде?» named the kindergarten. The screen lives at the service DOOR, so
+    // no builder can forget it; an unmeasurable row (no map, no centre) is left
+    // exactly as the feed wrote it.
+    try {
+      this.deps.properties.setLandmarkScreen?.(p => this.landmarks
+        ? this.landmarks.screenFeedLandmarks({
+          id: p.id, eb: p.eb, address: p.address, landmark_name: p.landmark,
+          lat: p.lat, lon: p.lon, geo_source: p.geo_source ?? null,
+          details: p.details, landmarks: p.landmarks,
+        } as PropertyRow)
+        : undefined);
+    } catch { /* test double without the screen */ }
     session.channel = channel;
 
     // THE FLAT THE CLIENT NAMES OWNS THE TURNS THAT FOLLOW (the [02:24]
@@ -6736,6 +6754,7 @@ export class InboundHandler {
           session.slots.nearbyLandmarks = undefined;
           session.slots.nearbyLandmarkCoords = undefined;
           session.slots.nearbyLandmarkPlaceIds = undefined;
+          session.slots.nearbyLandmarkTypes = undefined;
           session.slots.nearbyLandmarkEb = undefined;
           session.slots.landmarkIndex = 0;
           session.slots.lastLandmark = undefined;
@@ -7146,6 +7165,45 @@ export class InboundHandler {
         ? extractDistancePlaces(text)
         : (bareDistancePlace ? [bareDistancePlace] : []);
       const placeName = placeNames[0];
+      // A DESTINATION NAMED BY ITS CLASS IS THE PLACE THE CHAT JUST SERVED (the
+      // [12:28] capture): «НА КОЛКАВО РАСТОЈАНИЕ Е ОД ГРАДИНКАВА ?» arrived one
+      // turn after Lina had named the kindergarten — «градинкава» is that place,
+      // but it is a CLASS word with a definite suffix, so the map has no name to
+      // look up and every arm below found nothing, dropping a perfectly
+      // answerable question. The rotation stores each slot's map TYPE for
+      // exactly this: a class noun binds to the served slot of that class (the
+      // «-ва/-та» form to the one just named, otherwise the nearest), and the
+      // measurement is taken from the slot's own validated point.
+      const servedSlots = (session.slots.nearbyLandmarks ?? []).map((lmName, i) => ({
+        name: lmName,
+        type: String(session.slots.nearbyLandmarkTypes?.[i] ?? '').trim().toLowerCase(),
+        lat: session.slots.nearbyLandmarkCoords?.[i]?.lat,
+        lon: session.slots.nearbyLandmarkCoords?.[i]?.lon,
+        placeId: session.slots.nearbyLandmarkPlaceIds?.[i] ?? null,
+      })).filter(s => s.lat != null && s.lon != null);
+      const anaphors = new Map<string, { name: string; lat: number; lon: number; place_id: string | null }>();
+      /** The served landmark a class-noun destination points at, if any. */
+      const anaphoricPlace = (raw: string): { name: string; lat: number; lon: number; place_id: string | null } | undefined => {
+        const key = raw.trim().toLowerCase();
+        if (anaphors.has(key)) return anaphors.get(key);
+        const types = placeTypesFromNoun(raw);
+        if (!types) return undefined;
+        const want = new Set(types.map(t => t.trim().toLowerCase()));
+        const hits = servedSlots.filter(s => s.type !== '' && want.has(s.type));
+        if (hits.length === 0) return undefined;
+        // THE PLACE JUST NAMED WINS («градинкава» = the kindergarten the chat
+        // named, not another kindergarten on the same rotation) — else the
+        // nearest to the flat, which is the order the rotation itself serves.
+        const last = session.slots.lastLandmark;
+        const pick = (last ? hits.find(h => h.name === last) : undefined) ?? hits[0]!;
+        const resolved = { name: pick.name, lat: pick.lat as number, lon: pick.lon as number, place_id: pick.placeId };
+        anaphors.set(key, resolved);
+        return resolved;
+      };
+      /** A place lookup for this lane: the served class first, then the map. */
+      const placeAt = (raw: string, c: { lat: number; lon: number }):
+        { name: string; lat: number; lon: number; place_id?: string | null } | undefined =>
+        anaphoricPlace(raw) ?? this.landmarks?.findPlace(raw, c);
       // THE EB NAMED IN THIS MESSAGE OUTRANKS THE ONE ON THE TABLE (the [21:22]
       // capture): «A OVOJ PRVIOT 95 NA KOLKAVO RASTOJANIE E OD BROZ KAFE?» asked
       // about EB 95 and heard EB 84's 530 m AGAIN — the lane only ever read the
@@ -7286,7 +7344,7 @@ export class InboundHandler {
             || (c.lat === 0 && c.lon === 0)) continue;
           const parts: string[] = [];
           for (const rawPlace of placeNames) {
-            const h = this.landmarks.findPlace(rawPlace, { lat: c.lat, lon: c.lon });
+            const h = placeAt(rawPlace, { lat: c.lat, lon: c.lon });
             parts.push(h
               ? `до ${placeLabel(h.name)} — ${say(Math.round(distM(c.lat, c.lon, h.lat, h.lon)), c.trusted)}`
               : `до ${rawPlace} — не можам да го пронајдам на картата`);
@@ -7354,7 +7412,7 @@ export class InboundHandler {
             } as PropertyRow);
             if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lon)
               || (c.lat === 0 && c.lon === 0)) continue;
-            const h = this.landmarks.findPlace(placeName, { lat: c.lat, lon: c.lon });
+            const h = placeAt(placeName, { lat: c.lat, lon: c.lon });
             if (!h) continue;
             placeShown = placeShown ?? h.name;
             measured.push({
@@ -7388,7 +7446,7 @@ export class InboundHandler {
         }
       }
       if (placeName && anchorProp && center && hasPoint) {
-        const hit = this.landmarks.findPlace(placeName, { lat: center.lat, lon: center.lon });
+        const hit = placeAt(placeName, { lat: center.lat, lon: center.lon });
         if (hit) {
           const d = Math.round(distM(center.lat, center.lon, hit.lat, hit.lon));
           const distPhrase = d < 1000
@@ -8095,6 +8153,7 @@ export class InboundHandler {
           session.slots.nearbyLandmarks = nearLm.map(n => n.landmark);
           session.slots.nearbyLandmarkCoords = nearLm.map(n => ({ lat: n.lat, lon: n.lon }));
           session.slots.nearbyLandmarkPlaceIds = nearLm.map(n => n.place_id ?? null);
+          session.slots.nearbyLandmarkTypes = nearLm.map(n => n.type);
           session.slots.nearbyLandmarkEb = p0.eb;
           session.slots.landmarkIndex = 0;
           session.slots.lastLandmark = undefined;
@@ -8548,6 +8607,7 @@ export class InboundHandler {
             session.slots.nearbyLandmarks = nearLm.map(n => n.landmark);
             session.slots.nearbyLandmarkCoords = nearLm.map(n => ({ lat: n.lat, lon: n.lon }));
             session.slots.nearbyLandmarkPlaceIds = nearLm.map(n => n.place_id ?? null);
+            session.slots.nearbyLandmarkTypes = nearLm.map(n => n.type);
             session.slots.nearbyLandmarkEb = p0.eb;
             session.slots.landmarkIndex = 0;
             session.slots.lastLandmark = undefined;
@@ -10797,6 +10857,7 @@ export class InboundHandler {
           session.slots.nearbyLandmarks = undefined;
           session.slots.nearbyLandmarkCoords = undefined;
           session.slots.nearbyLandmarkPlaceIds = undefined;
+          session.slots.nearbyLandmarkTypes = undefined;
           session.slots.nearbyLandmarkEb = undefined;
           session.slots.landmarkIndex = 0;
           session.slots.lastLandmark = undefined;
@@ -11157,6 +11218,7 @@ export class InboundHandler {
           session.slots.nearbyLandmarks = undefined;
           session.slots.nearbyLandmarkCoords = undefined;
           session.slots.nearbyLandmarkPlaceIds = undefined;
+          session.slots.nearbyLandmarkTypes = undefined;
           session.slots.nearbyLandmarkEb = undefined;
           session.slots.landmarkIndex = 0;
           session.slots.lastLandmark = undefined;
@@ -11356,6 +11418,10 @@ export class InboundHandler {
             if (nearby.length > 0) {
               session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
               session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+              // …and the same parallel arrays the card sites write (a rotation
+              // of names only serves a bare pin and no class anaphor binds).
+              session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+              session.slots.nearbyLandmarkTypes = nearby.map(n => n.type);
               session.slots.nearbyLandmarkEb = p.eb;
               session.slots.landmarkIndex = 0;
               session.slots.lastLandmark = undefined;
@@ -11415,6 +11481,8 @@ export class InboundHandler {
               if (nearby.length > 0) {
                 session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
                 session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+                session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+                session.slots.nearbyLandmarkTypes = nearby.map(n => n.type);
                 session.slots.nearbyLandmarkEb = p.eb;
                 session.slots.landmarkIndex = 0;
                 session.slots.lastLandmark = undefined;
@@ -12124,6 +12192,10 @@ export class InboundHandler {
             if (nearby.length > 0) {
               session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
               session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+              // …and the same parallel arrays the card sites write (a rotation
+              // of names only serves a bare pin and no class anaphor binds).
+              session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+              session.slots.nearbyLandmarkTypes = nearby.map(n => n.type);
               session.slots.nearbyLandmarkEb = p.eb;
               session.slots.landmarkIndex = 0;
               session.slots.lastLandmark = undefined;
@@ -12471,6 +12543,8 @@ export class InboundHandler {
             if (near.length > 0) {
               session.slots.nearbyLandmarks = near.map(n => n.landmark);
               session.slots.nearbyLandmarkCoords = near.map(n => ({ lat: n.lat, lon: n.lon }));
+              session.slots.nearbyLandmarkPlaceIds = near.map(n => n.place_id ?? null);
+              session.slots.nearbyLandmarkTypes = near.map(n => n.type);
               session.slots.nearbyLandmarkEb = target.eb;
               session.slots.landmarkIndex = 0;
               session.slots.lastLandmark = undefined;
@@ -16174,6 +16248,7 @@ ${contactReminder}`;
         session.slots.nearbyLandmarks = undefined;
         session.slots.nearbyLandmarkCoords = undefined;
         session.slots.nearbyLandmarkPlaceIds = undefined;
+        session.slots.nearbyLandmarkTypes = undefined;
         session.slots.nearbyLandmarkEb = undefined;
         session.slots.landmarkIndex = 0;
         session.slots.lastLandmark = undefined;
@@ -17240,6 +17315,8 @@ ${contactReminder}`;
           if (nearby.length > 0) {
             session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
             session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+            session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+            session.slots.nearbyLandmarkTypes = nearby.map(n => n.type);
             session.slots.nearbyLandmarkEb = props[0].eb;
             session.slots.landmarkIndex = 0;
             session.slots.lastLandmark = undefined;
@@ -17264,6 +17341,8 @@ ${contactReminder}`;
         if (nearby.length > 0) {
           session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
           session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+          session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+          session.slots.nearbyLandmarkTypes = nearby.map(n => n.type);
           session.slots.nearbyLandmarkEb = props[0].eb;
           session.slots.landmarkIndex = 0;
           session.slots.lastLandmark = undefined;
@@ -17438,6 +17517,8 @@ ${contactReminder}`;
           if (nearby.length > 0) {
             session.slots.nearbyLandmarks = nearby.map(n => n.landmark);
             session.slots.nearbyLandmarkCoords = nearby.map(n => ({ lat: n.lat, lon: n.lon }));
+            session.slots.nearbyLandmarkPlaceIds = nearby.map(n => n.place_id ?? null);
+            session.slots.nearbyLandmarkTypes = nearby.map(n => n.type);
             session.slots.nearbyLandmarkEb = target.eb;
             session.slots.landmarkIndex = 0;
             session.slots.lastLandmark = undefined;

@@ -111,9 +111,9 @@ describe('whereIsReply blocking tests', () => {
     // POLICY (2026-09-06): name searches are BANNED — with no city context
     // Google biases them by viewport/keywords and can return a results LIST
     // at country zoom (production bug: a "crna gora" name search opened a
-    // Montenegro-wide list). A landmark link is always a coordinate pin:
-    // maps.google.com/?q=lat,lon — a red pin on the exact spot. The NAME is
-    // carried in the reply text, never in the URL.
+    // Montenegro-wide list). With no place identity to give, a landmark link
+    // is the coordinate pin: maps.google.com/?q=lat,lon. The NAME is carried in
+    // the reply text, never in the URL.
     const link = landmarkLink('Рамстор Мол', null, 42.0, 21.428);
     assert.equal(link, 'https://maps.google.com/?q=42.00000,21.42800', link);
     assert.ok(link.length <= 45, `landmark link must fit the console window: ${link.length} chars`);
@@ -134,17 +134,24 @@ describe('whereIsReply blocking tests', () => {
     assert.ok(!link.includes('tinyurl'), 'never a third-party shortener');
   });
 
-  it('landmarkLink: coordinates WIN over the place_id — the pin shows WHERE, the card only names it', () => {
-    // POLICY 2026-10-13 (the [23:50] capture): the operator reported "link with
-    // card for the landmark but no pin" for a where-is answer, so the pin became
-    // the primary form. The cid card is now the no-coordinate fallback — the
-    // place_id is still consumed (never a name search), just lower in priority.
+  it('landmarkLink: the place CARD and the coordinate PIN, card first (owner rule 2026-11-25)', () => {
+    // POLICY 2026-11-25 (the [12:27] capture): the answer served «во близина на
+    // Kindergarten …» + a bare `?q=41.99727,21.41594` and the owner's verdict
+    // was «WHY ARE THE MAP LINKS WITH X Y COORDINATES AND NO CARD FOR THE
+    // LANDMARK STILL?» — a dropped pin in a courtyard names nothing. That is the
+    // other half of the 2026-10-13 complaint (a card with no pin shows no
+    // WHERE), so both are emitted, each on its own line: the card identifies the
+    // place, the pin shows the spot. Neither alone is an answer.
     const link = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e', 41.9955976, 21.4151772);
-    assert.equal(link, 'https://maps.google.com/?q=41.99560,21.41518', link);
-    assert.ok(link.length <= 49, `fits the console window: ${link.length} chars`);
-    assert.ok(!link.includes('%') && !/[^\x00-\x7F]/.test(link), 'pure ASCII');
-    assert.ok(!link.includes('tinyurl'), 'never a third-party shortener');
-    assert.ok(link.startsWith('https://maps.google.com/'), 'original Google link');
+    assert.equal(link,
+      'https://maps.google.com/?cid=16634210817354128158\nhttps://maps.google.com/?q=41.99560,21.41518', link);
+    for (const line of link.split('\n')) {
+      assert.ok(line.length <= 55, `each line fits the console window: ${line.length} chars`);
+      assert.ok(!line.includes('%') && !/[^\x00-\x7F]/.test(line), 'pure ASCII');
+      assert.ok(!line.includes('tinyurl'), 'never a third-party shortener');
+      assert.ok(line.startsWith('https://maps.google.com/'), 'original Google link');
+    }
+    assert.ok(link.split('\n')[0]!.includes('cid='), 'the card comes first — it names the place');
     // No usable coordinate → Google's exact place card (still GOOGLE, still no
     // name search): https://maps.google.com/?cid=16634210817354128158 renders
     // „ПЗУ Аптека Линцура 2“ in a real browser.
@@ -165,11 +172,18 @@ describe('whereIsReply blocking tests', () => {
     assert.ok(!/[^\x00-\x7F]/.test(link), 'pure ASCII');
   });
 
-  it('landmarkLink: a full canonical place_url is also emitted verbatim (never re-encoded)', () => {
+  it('landmarkLink: a full canonical place_url is emitted verbatim, followed by the pin', () => {
+    // The stored canonical place card is the BEST card (Google's own wording),
+    // so it leads; the pin still follows it (POLICY 2026-11-25: card AND pin).
     const canon = 'https://www.google.com/maps/place/%D0%9F%D0%97%D0%A3+%D0%90%D0%BF%D1%82%D0%B5%D0%BA%D0%B0+%D0%9B%D0%B8%D0%BD%D1%86%D1%83%D1%80%D0%B0+2/@41.9955976,21.4151772,17z/data=!4m7!3m6!1s0x135415004f259205:0xe6d8969b475a5b1e!8m2!3d41.9955976!4d21.4151772!16s%2Fg%2F11vsbplgjf';
     const link = landmarkLink('ПЗУ Аптека Линцура 2', null, 41.9955976, 21.4151772, canon);
-    assert.equal(link, canon, 'the canonical is emitted as-is — no double-encoding');
+    assert.equal(link, `${canon}\nhttps://maps.google.com/?q=41.99560,21.41518`,
+      'the canonical is emitted as-is — no double-encoding — and the pin follows');
     assert.ok(link.includes('maps/place/') && link.includes('!1s0x') && link.includes('!16s'), 'pins the place card');
+    // A stored link that is only a PIN is not a card: the cid must be preferred.
+    const pinOnly = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e',
+      41.9955976, 21.4151772, 'https://maps.google.com/?q=41.99560,21.41518');
+    assert.ok(pinOnly.startsWith('https://maps.google.com/?cid='), `a pin is not a card: ${pinOnly}`);
   });
 
   it('landmarkLink: empty name → coordinate pin (NEVER a name search, NEVER an @-view)', () => {
@@ -191,7 +205,7 @@ describe('whereIsReply blocking tests', () => {
     assert.ok(link.includes('41.99560'), '5-decimal precision kept');
   });
 
-  it('landmarkLink invariant: EVERY landmark link is a pin — coordinate pin or cid place card, never a name search', () => {
+  it('landmarkLink invariant: a card when the map has identity, a pin when it has a point, never a name search', () => {
     for (const name of ['ПЗУ Аптека Линцура 2', 'Рамстор Мол', 'Парк Авионче', '']) {
       const link = landmarkLink(name, null, 41.9956, 21.41518);
       assert.ok(link.startsWith('https://maps.google.com/?q='), `${name}: ${link}`);
@@ -203,12 +217,14 @@ describe('whereIsReply blocking tests', () => {
       // The name must NEVER be in the URL (ambiguity source).
       assert.ok(!/[a-z]{3,}/.test(link.split('?q=')[1] ?? ''), `${name}: no name text in the URL — ${link}`);
     }
-    // With a place_id AND coordinates → still the PIN (2026-10-13 policy): the
-    // landmark must be visible on the map, not merely named in a card.
+    // With a place_id AND coordinates → card FIRST, pin second (2026-11-25):
+    // the coordinate link alone names nothing (the [12:27] capture), and the
+    // card alone shows no point (the 2026-10-13 capture).
     const withId = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e', 41.9956, 21.41518);
-    assert.ok(withId.startsWith('https://maps.google.com/?q='), withId);
-    // The place_id is consumed for the no-coordinate case, so a landmark with
-    // identity but no usable coordinate still gets Google's own place card.
+    const [card, pin] = withId.split('\n');
+    assert.ok(card!.startsWith('https://maps.google.com/?cid='), withId);
+    assert.ok(pin!.startsWith('https://maps.google.com/?q='), withId);
+    // No usable coordinate → the card alone (never nothing at all).
     const withCid = landmarkLink('ПЗУ Аптека Линцура 2', '0x135415004f259205:0xe6d8969b475a5b1e', NaN, NaN);
     assert.ok(withCid.startsWith('https://maps.google.com/?cid='), withCid);
   });

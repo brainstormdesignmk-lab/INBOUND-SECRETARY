@@ -1599,9 +1599,42 @@ export class PropertyService {
    *  which is the owner's rule verbatim. */
   private typeLock: ((p: Property) => boolean) | undefined;
 
+  /** THE CLAIM SCREEN — installed once by the handler, with the map in hand.
+   *
+   *  A stored roster is not evidence that a client could name the place: the
+   *  feed's list was ranked by DISTANCE at import, so EB 50 carried «ПЗУ Аптека
+   *  Линцура 2» — a branch in the flat's own ground floor — and the card kept
+   *  printing «Се наоѓа во близина на …» for it long after the chat had stopped
+   *  (the [12:27] capture: the answer named the kindergarten, the info block the
+   *  pharmacy). ONE screen at the door: every Property this service yields has
+   *  only entries that pass the claim rule (the same rule the rotation and the
+   *  import resolver apply), so no reply builder has to know the rule and no
+   *  builder can forget it. The screen returns the entries to KEEP; returning
+   *  undefined (no map, no centre) leaves the list untouched — an unmeasurable
+   *  roster is never evidence of anything. */
+  private landmarkScreen: ((p: Property) => FeedLandmark[] | undefined) | undefined;
+
   /** Install (or clear) the per-turn category lock. */
   setTypeLock(lock?: (p: Property) => boolean): void {
     this.typeLock = lock;
+  }
+
+  /** Install (or clear) the roster claim screen (see landmarkScreen). */
+  setLandmarkScreen(screen?: (p: Property) => FeedLandmark[] | undefined): void {
+    this.landmarkScreen = screen;
+  }
+
+  /** The roster as the screen leaves it, and the row's own `landmark` line only
+   *  when it is still backed by a kept entry — a withdrawn anchor must not
+   *  survive as the fallback the card prints instead. */
+  private screened(p: Property): Property {
+    if (!this.landmarkScreen || !(p.landmarks?.length)) return p;
+    const kept = this.landmarkScreen(p);
+    if (kept === undefined) return p;
+    if (kept.length === p.landmarks!.length && kept.every((e, i) => e === p.landmarks![i])) return p;
+    const landmark = p.landmark && kept.some(e => e.landmark.trim().toLowerCase() === p.landmark!.trim().toLowerCase())
+      ? p.landmark : undefined;
+    return { ...p, landmarks: kept, landmark };
   }
 
   /** The lock, applied to a pool only when the caller declared no category. */
@@ -1641,7 +1674,10 @@ export class PropertyService {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = (await res.json()) as { properties?: Record<string, unknown>[] };
         const rows = Array.isArray(body) ? body : (body.properties ?? []);
-        const data = rows.map(mapRow).filter((p): p is Property => p !== null);
+        const data = rows.map(mapRow).filter((p): p is Property => p !== null)
+          // The claim screen runs at the DOOR (see landmarkScreen): a cached
+          // feed row must never carry an anchor no client could name.
+          .map(p => this.screened(p));
         this.cache = { at: Date.now(), data };
         this.ok = true;
         return data;

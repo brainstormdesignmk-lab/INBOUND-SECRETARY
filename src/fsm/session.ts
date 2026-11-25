@@ -391,6 +391,11 @@ export interface SlotData {
   nearbyLandmarks?: string[];     // top-3 nearby landmark names for rotation ("каде?" → first, "каде поточно?" → second, …)
   nearbyLandmarkCoords?: Array<{ lat: number; lon: number }>; // parallel coords for Google Maps links
   nearbyLandmarkPlaceIds?: Array<string | null>; // parallel Google place_ids → ?cid= place-card links
+  /** Parallel map TYPES. A follow-up may name the place the chat just served
+   *  by its CLASS («на колкаво растојание е од ГРАДИНКАВА?» — the [12:28]
+   *  capture): the class is what binds that word to this slot, and a name
+   *  search has nothing to look up (see placeTypesFromNoun). */
+  nearbyLandmarkTypes?: Array<string | undefined>;
   nearbyLandmarkEb?: number;      // WHICH property the slots were resolved for — a served slot must never outlive its property (21:51: EB 57 got EB 56's Завод landmarks 3.2 km away)
   /** THE FLATS THIS CHAT HAS BEEN ABOUT, most recent last (max 4). `presentedIds`
    *  is the last BATCH, so a client who asks about EB 52 and then about EB 51
