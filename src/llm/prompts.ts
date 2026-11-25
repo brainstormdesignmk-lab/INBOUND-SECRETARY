@@ -417,7 +417,12 @@ const PLACE_RENDER_MAX_UNKNOWN = 6;
 /** The client-facing form of a map/feed place name: Cyrillic when the map holds
  *  a Latin-only name we can render faithfully, unchanged otherwise. */
 export function displayPlaceName(name: string): string {
-  const src = (name ?? '').trim();
+  // A name the map spells out one letter at a time («X-Treme A C A D E M Y») is
+  // ONE word, not eight: left as tokens the letters are unknown words, so the
+  // render cap tripped and the name stayed Latin. Only a run of three or more
+  // bare single letters collapses — initials («I. K.») carry their dots.
+  const src = (name ?? '').trim()
+    .replace(/(^|\s)((?:\p{L}\s+){2,}\p{L})(?=\s|$)/gu, (_m, pre: string, run: string) => pre + run.replace(/\s+/gu, ''));
   if (!src || /[\u0400-\u04FF]/u.test(src)) return src;
   // An English name is rendered by TRANSLATION + the English-aware fold, never
   // by the Macedonian fold alone (see ENGLISH_WORDS / ENGLISH_PHRASES).

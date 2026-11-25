@@ -347,6 +347,12 @@ test('every Latin landmark name reaches the client in Macedonian', () => {
   assert.equal(displayPlaceName('Viola Kapištec'), 'Виола Капиштец');
   // A run of x is ONE «кс» (the Cineplexx cinema).
   assert.equal(displayPlaceName('Cineplexx'), 'Цинеплекс');
+  // A NAME SPELLED OUT LETTER BY LETTER is one word: left as tokens, every
+  // letter was an unknown word, the six-word cap tripped and the name stayed
+  // Latin («X-Treme A C A D E M Y» — the last name the corpus sweep found).
+  // Initials carry their dots, so «Dr. I. K. Kostovski» is untouched.
+  assert.equal(displayPlaceName('X-Treme A C A D E M Y'), 'КС-Треме Академија');
+  assert.equal(displayPlaceName('Dr. I. K. Kostovski'), 'Др. И. К. Костовски');
   // THE RULE OVER THE WHOLE CORPUS, not over the names that happened to fail:
   // the shipped map's every PURE-LATIN place name must reach the client in
   // Cyrillic. The only ones allowed to stay Latin are the ones the render cap
