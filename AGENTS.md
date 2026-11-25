@@ -2008,12 +2008,21 @@ The [12:27–12:28] capture showed the [10:24] fix was only half applied:
   the card, the «каде?» answer, the MEASUREMENT answer (`placeLabel`) — renders
   them the same way, or one flat is named two ways in one chat. The fold is a
   MACEDONIAN transliteration («Kocho Racin» → Кочо Рацин, «Madzari» → Маџари)
-  and is right for names the map carries in that spelling; an English
-  descriptor (music, ballet, state, apart, head, office, ministry, …) means it
-  would mangle the word («Мусиц», «Елизабетх», «Хеад»), so `ENGLISH_DESCRIPTOR_
-  WORDS` keeps the map's own spelling — an honest English name beats broken
-  Cyrillic. Slots and matching keep the original spelling; this is rendering
-  only.
+  and is right for names the map carries in that spelling; for an ENGLISH name
+  it would mangle the word («Мусиц», «Елизабетх», «Цресцендо» — the owner's
+  «Crescendo School of Music & Ballet» note), so an English name takes the
+  ENGLISH path: `ENGLISH_PHRASES` for the constructs English builds head-last
+  («School of Music & Ballet» → «училиште за музика и балет», «Head Office» →
+  «седиште», «Apart House» → «апартманска куќа»), `ENGLISH_WORDS` for the
+  descriptor vocabulary, then `englishFold` for the proper nouns (th→т, ck→к,
+  ph→ф, soft c→с). English is a RULE (the name is English when it carries an
+  English descriptor or construct), never a list of the names that were seen.
+  Latin diacritics are folded to their base letter first («Viola Kapištec» →
+  «Виола Капиштец», never «Капиšтец»), a run of x is one «кс» («Cineplexx» →
+  «Цинеплекс»), and the shipped map is swept in the test: every PURE-LATIN
+  name renders Latin-free, except the long English prose the render cap
+  (`PLACE_RENDER_MAX_UNKNOWN`) refuses on purpose. Slots and matching keep the
+  original spelling; this is rendering only.
 - THE SCREEN IS AT THE SERVICE DOOR, NOT AT THE REPLY. Every builder prints
   `landmarks[0]`, and the stored roster is ranked by DISTANCE at import, so the
   pharmacy in the flat's own building survives forever. `PropertyService.
@@ -2061,7 +2070,7 @@ The [12:27–12:28] capture showed the [10:24] fix was only half applied:
   The guard is structural (every `nearbyLandmarks = <var>.map(…)` in
   `inbound.ts` must be followed by both arrays), because these sites grow.
 - Pinned in `tests/capture-1227-landmark-anaphor.test.ts` (the detector vetoes,
-  the pharmacy class e2e, the render/keep-spelling rule,
+  the class-rule e2e, the render rule over the whole shipped map,
   the class vocabulary, the two-turn e2e, the shared screen, the rotation-write
   sweep, and the handler actually installing the screen) and
   `tests/where-is-reply.test.ts` / `tests/twin-centre.test.ts` (link form, card

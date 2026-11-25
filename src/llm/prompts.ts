@@ -3,7 +3,7 @@ import { SlotData, ChatSession } from '../fsm/session';
 import { RESPONSE_BANK } from '../data/responses';
 import { pickVariant } from '../data/responseBank';
 import { PURCHASE_MIN_PLAUSIBLE_EUR } from './deterministic';
-import { Property, locPrep, mkTimePhrase, normalizeTimePhrase, latinToCyrillicDisplay, knownPlaceWordCyrillic, monthlyRent, availabilityOf, pricePerM2 } from '../data/properties';
+import { Property, locPrep, mkTimePhrase, normalizeTimePhrase, latinToCyrillicDisplay, stripLatinDiacritics, knownPlaceWordCyrillic, monthlyRent, availabilityOf, pricePerM2 } from '../data/properties';
 import { firstLandmarkProblem } from '../geo/landmarks';
 import { distM } from '../geo/precision';
 import { parseVisitDateTime, formatVisitDate, formatDateOnly, weekdayName, hasClockHint, extractDayWord, namesADay } from '../visits/time';
@@ -347,6 +347,64 @@ const PLACE_PHRASES: Array<[RegExp, string]> = [
   [/\bold\s+town\b/giu, 'стар град'],
 ];
 
+/** ENGLISH CONSTRUCTS — the phrase layer for the names the map holds in
+ *  English (the owner's «Crescendo School of Music & Ballet»). English puts its
+ *  head noun LAST and its qualifiers in prepositional phrases, so the word
+ *  pass cannot compose these: „School of Music“ is «училиште за музика»,
+ *  „Apart House“ is «апартманска куќа». Applied before the word pass, longest
+ *  construct first. */
+const ENGLISH_PHRASES: Array<[RegExp, string]> = [
+  [/\bschool\s+of\s+music\s*(?:&|and)\s*ballet\b/giu, 'училиште за музика и балет'],
+  [/\bschool\s+of\s+music\b/giu, 'музичко училиште'],
+  [/\bschool\s+of\s+ballet\b/giu, 'балетско училиште'],
+  [/\bschool\s+of\s+(?:arts?|dance|drama)\b/giu, 'училиште за уметност'],
+  [/\bhead\s+offices?\b/giu, 'седиште'],
+  [/\bapart(?:ment)?s?\s+house\b/giu, 'апартманска куќа'],
+  [/\bapart(?:ment)?s?\s+suites\b/giu, 'апартмански апартмани'],
+  [/\bstate\s+school\b/giu, 'државно училиште'],
+  // longest first: the short «Ministry of Foreign Affairs» would eat the front
+  // of «…and foreign trade» and leave the tail untranslated
+  [/\bministry\s+of\s+foreign\s+affairs\s+and\s+foreign\s+trade\b/giu, 'министерство за надворешни работи'],
+  [/\bministry\s+of\s+foreign\s+affairs\b/giu, 'министерство за надворешни работи'],
+  [/\bvisually\s+impaired\b/giu, 'оштетен вид'],
+  [/\brepublic\s+of\s+north\s+macedonia\b/giu, 'Република Северна Македонија'],
+];
+
+/** ENGLISH DESCRIPTOR TRANSLATION — the vocabulary of the English names the
+ *  map holds (school types, civic bodies, lodging descriptions). The letter
+ *  fold cannot handle English: it is a MACEDONIAN transliteration, so Music
+ *  folds to «Мусиц», Elizabeth to «Елизабетх», Head to «Хеад». A descriptor is
+ *  a WORD whose meaning we know, so it is TRANSLATED — never folded. Words that
+ *  are also brand/type nouns (office → канцеларија, college → колеџ) live in
+ *  PLACE_WORDS; this table is the rest. */
+const ENGLISH_WORDS: Record<string, string> = {
+  music: 'музика', ballet: 'балет', art: 'уметност', arts: 'уметност',
+  dance: 'танц', drama: 'драма', language: 'јазик', languages: 'јазици',
+  state: 'државно', national: 'национално', public: 'јавно', private: 'приватно',
+  municipal: 'општинско', central: 'централно', general: 'општо',
+  visually: 'видно', impaired: 'оштетени', blind: 'слепи', deaf: 'глуви',
+  disabled: 'инвалидни', special: 'специјално', children: 'детско',
+  child: 'детско', youth: 'младинско', kids: 'детско', head: 'главно',
+  main: 'главно', branch: 'филијала', offices: 'канцеларии',
+  department: 'оддел', departments: 'оддели', ministry: 'министерство',
+  affairs: 'работи', foreign: 'надворешни', republic: 'република',
+  international: 'меѓународно', academy: 'академија', campus: 'кампус',
+  club: 'клуб', fitness: 'фитнес', beauty: 'убавина', apart: 'апартманска',
+  apartments: 'апартмани', suites: 'апартмани', universities: 'универзитети',
+  college: 'колеџ', palace: 'палата', trade: 'трговија',
+  for: 'за', with: 'со', without: 'без',
+};
+
+/** THE ENGLISH FOLD — for a token of an ENGLISH name, before the Macedonian
+ *  letter fold (which is what makes «Elizabeth» → «Елизабетх» and «Crescendo» →
+ *  «Цресцендо»): English digraphs and the soft «c» first, then the Macedonian
+ *  table. Applied only when the NAME is English (`isEnglishName`) — a
+ *  Macedonian-Latin name keeps its own reading (“Cvetko” stays «Цветко»). */
+const englishFold = (tok: string): string => latinToCyrillicDisplay(
+  tok.replace(/th/giu, 't').replace(/ck/giu, 'k').replace(/ph/giu, 'f')
+    .replace(/sh/giu, 'ш').replace(/ch/giu, 'ч').replace(/zh/giu, 'ж')
+    .replace(/c(?=[eiy])/giu, 's').replace(/c/giu, 'k'));
+
 // HOW MANY words may be transliterated blind before the name is left alone.
 // English PROSE in the map ("Boris Sarafov Palace - Ministry of Foreign Affairs
 // of the Republic of North Macedonia") folded letter-by-letter becomes
@@ -356,70 +414,62 @@ const PLACE_PHRASES: Array<[RegExp, string]> = [
 // translation it cannot stand behind.
 const PLACE_RENDER_MAX_UNKNOWN = 6;
 
-/** ENGLISH DESCRIPTOR VOCABULARY — the second half of that guard.
- *
- *  The fold is a MACEDONIAN transliteration: it is right for the names the map
- *  carries in that spelling („Kocho Racin“ → Кочо Рацин, „Madzari“ → Маџари,
- *  „Naum N. Borche“ → Наум Н. Борче) and wrong for English words, where it
- *  produces «Мусиц» for Music, «Елизабетх» for Elizabeth, «Хеад» for Head.
- *  A name containing any of these is left exactly as the map spells it (the
- *  owner reads an honest English name, never broken Cyrillic); a name made
- *  only of proper nouns is rendered. Words PLACE_WORDS translates (school,
- *  market, hotel …) are not here: they are DESCRIPTIONS and are meant to be
- *  translated, not avoided. */
-const ENGLISH_DESCRIPTOR_WORDS = new Set([
-  'music', 'ballet', 'art', 'arts', 'dance', 'drama', 'language', 'languages',
-  'state', 'national', 'public', 'private', 'municipal', 'central', 'general',
-  'visually', 'impaired', 'blind', 'deaf', 'disabled', 'special', 'children',
-  'child', 'youth', 'kids', 'kindergarten' /* translated when known — kept for safety */,
-  'head', 'main', 'branch', 'office', 'offices', 'department', 'departments',
-  'ministry', 'affairs', 'foreign', 'republic', 'international', 'academy',
-  'campus', 'club', 'fitness', 'beauty', 'apart', 'apartments', 'suites',
-  'universities', 'university' /* translated when known */, 'college',
-  'for', 'with', 'without', 'visually', 'impaired', 'and', 'the', 'of',
-]);
-
 /** The client-facing form of a map/feed place name: Cyrillic when the map holds
  *  a Latin-only name we can render faithfully, unchanged otherwise. */
 export function displayPlaceName(name: string): string {
   const src = (name ?? '').trim();
   if (!src || /[\u0400-\u04FF]/u.test(src)) return src;
-  // An English descriptor anywhere means the FOLD would mangle the name (see
-  // ENGLISH_DESCRIPTOR_WORDS): the map's own spelling is the honest one.
-  if (src.split(/\s+/).some(t => {
-    const bare = t.toLowerCase().replace(/[^\p{L}]/gu, '');
-    return ENGLISH_DESCRIPTOR_WORDS.has(bare) && !Object.prototype.hasOwnProperty.call(PLACE_WORDS, bare);
-  })) return src;
+  // An English name is rendered by TRANSLATION + the English-aware fold, never
+  // by the Macedonian fold alone (see ENGLISH_WORDS / ENGLISH_PHRASES).
   // A word counts as KNOWN when the list maps it (even to nothing — "of",
   // "the") or when the place tables know how it is spelled.
   const renderable = (tok: string): boolean => {
-    const bare = tok.toLowerCase().replace(/[^\p{L}]/gu, '');
+    const bare = stripLatinDiacritics(tok.toLowerCase()).replace(/[^\p{L}]/gu, '');
     return Object.prototype.hasOwnProperty.call(PLACE_WORDS, bare)
+      || Object.prototype.hasOwnProperty.call(ENGLISH_WORDS, bare)
       || knownPlaceWordCyrillic(bare) !== undefined;
   };
   const unknown = src.split(/\s+/).filter(t => /\p{L}/u.test(t) && !renderable(t));
   if (unknown.length > PLACE_RENDER_MAX_UNKNOWN) return src;
+  // An ENGLISH name (a descriptor we translate, or a construct we know) is
+  // folded the English way; a Latin name of Macedonian spelling is not.
+  const englishName = ENGLISH_PHRASES.some(([re]) => src.match(re) !== null)
+    || src.split(/\s+/).some((t) => {
+      const bare = t.toLowerCase().replace(/[^\p{L}]/gu, '');
+      return Object.prototype.hasOwnProperty.call(ENGLISH_WORDS, bare);
+    });
   let out = src;
   for (const [re, mk] of PLACE_PHRASES) out = out.replace(re, mk);
-  const words = out
-    .split(/(\s+)/)
+  for (const [re, mk] of ENGLISH_PHRASES) out = out.replace(re, mk);
+  const toks = out.split(/(\s+)/);
+  const words = toks
     .map((tok) => {
       if (!/\p{L}/u.test(tok)) return tok;
-      const bare = tok.toLowerCase().replace(/[^\p{L}]/gu, '');
-      const hit = PLACE_WORDS[bare];
+      const bare = stripLatinDiacritics(tok.toLowerCase()).replace(/[^\p{L}]/gu, '');
+      const hit = PLACE_WORDS[bare] ?? ENGLISH_WORDS[bare];
       if (hit === undefined) {
         // A neighborhood name inside a business name must keep the spelling the
         // map uses for it ("Novo Lisice" → "Ново Лисиче", never "Лисице" — the
         // letter fold cannot tell ц from ч).
-        return knownPlaceWordCyrillic(bare) ?? latinToCyrillicDisplay(tok);
+        return knownPlaceWordCyrillic(bare)
+          ?? (englishName ? englishFold(tok) : latinToCyrillicDisplay(tok));
       }
       if (hit === '') return '';
       // A known word is a DESCRIPTION, not a brand: one capital, never shouty
-      // ("ATM" the label reads "Банкомат", not "БАНКОМАТ").
-      return hit.charAt(0).toUpperCase() + hit.slice(1);
+      // ("ATM" the label reads "Банкомат", not "БАНКОМАТ"). The SOURCE case is
+      // kept otherwise: a lowercase English «for»/«and» inside a name must not
+      // sprout capitals («Државно училиште за … и …»).
+      const capital = /^[A-Z\u00C0-\u024F]/u.test(tok);
+      const w0 = capital ? hit.charAt(0).toUpperCase() + hit.slice(1) : hit;
+      return w0;
     })
     .join('');
-  return words.replace(/\s{2,}/g, ' ').trim();
+  const out2 = words.replace(/\s{2,}/g, ' ').trim();
+  // A name that began with a capital keeps one: the phrase layer writes
+  // lowercase («State school» → «државно училиште»).
+  return /^[A-Z\u00C0-\u024F]/u.test(src)
+    ? out2.charAt(0).toUpperCase() + out2.slice(1)
+    : out2;
 }
 
 /** The map place plus its area, without repeating one in the other (the map

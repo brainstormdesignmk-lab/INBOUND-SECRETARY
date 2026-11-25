@@ -1405,12 +1405,30 @@ export function placeLooseKey(s: string): string {
  *  digraph table the matcher uses, applied per Latin run, so a name never
  *  reaches the client lowercased. Matching NEVER uses this — place identity
  *  goes through placeLooseKey. */
+// The diacritics Skopje data uses for its own names ("Kapištec", "Šuto Orizari",
+// "Đorđi"): the fold table knows 26 Latin letters, so a stray «š» used to ride
+// through into the copy as a HALF-folded name ("Виола Капиšтец"). Base letter
+// first, fold second.
+const LATIN_DIACRITIC: Record<string, string> = {
+  'č': 'c', 'ć': 'c', 'š': 's', 'ž': 'z', 'đ': 'dj',
+  'ä': 'a', 'ö': 'o', 'ü': 'u', 'ñ': 'n', 'å': 'a', 'ø': 'o',
+  'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'à': 'a', 'è': 'e',
+  // the map also carries Turkish/Albanian/French rows («Pçela», «Yataş»,
+  // «Institut français», «TİKA») — the same rule, base letter first
+  'ç': 'c', 'ş': 's', 'ğ': 'g', 'ı': 'i', 'i̇': 'i', 'İ': 'i', 'ß': 'ss',
+  'æ': 'ae', 'œ': 'oe', 'ș': 's', 'ț': 't', 'ł': 'l', 'ą': 'a', 'ę': 'e',
+  'ė': 'e', 'ő': 'o', 'ű': 'u', 'ř': 'r', 'ů': 'u', 'ň': 'n', 'ť': 't',
+};
+export const stripLatinDiacritics = (s: string): string => s.replace(/[\u00C0-\u024F\u0130\u1E00-\u1EFF]/gu,
+  ch => LATIN_DIACRITIC[ch] ?? LATIN_DIACRITIC[ch.toLowerCase()] ?? ch);
+
 export function latinToCyrillicDisplay(s: string): string {
-  return s.replace(/[A-Za-z\u00C0-\u024F]+/gu, (w) => {
+  return stripLatinDiacritics(s).replace(/[A-Za-z]+/gu, (w) => {
     // Letters the Macedonian alphabet has no one-letter twin for: x is "кс"
     // ("Tinex" → Тинекс, never "Тинеx" — a half-transliterated name reads as a
     // broken font), and w/q are the English extras.
-    const pre = w.replace(/x/gi, m => (m === m.toUpperCase() ? 'KS' : 'ks'))
+    // A run of x is ONE «кс» ("Cineplexx" → Цинеплекс, never Цинеплекскс).
+    const pre = w.replace(/x+/giu, m => (m.charAt(0) === 'X' ? 'KS' : 'ks'))
       .replace(/w/gi, m => (m === m.toUpperCase() ? 'V' : 'v'))
       .replace(/q/gi, m => (m === m.toUpperCase() ? 'K' : 'k'));
     // Macedonian never doubles a letter: English spelling rides along

@@ -234,11 +234,15 @@ test('[10:29] the client reads place names in Cyrillic, the map keeps its own sp
   // Already Cyrillic (or mixed) → shown exactly as the map holds it.
   assert.equal(displayPlaceName('Кафе бар Ван Гог'), 'Кафе бар Ван Гог');
   assert.equal(displayPlaceName('Трговски Лисиче'), 'Трговски Лисиче');
-  // English PROSE is left alone: folding it letter-by-letter produced
-  // pseudo-Cyrillic ("Министрј Фореигн Аффаирс"), which is worse than the
-  // Latin the map holds — the bot never invents what it cannot stand behind.
+  // English is TRANSLATED, not folded: the Macedonian fold produced «Мусиц»,
+  // «Елизабетх» and pseudo-Cyrillic prose ("Министрј Фореигн Аффаирс"), so an
+  // English name takes the English path — known constructs and descriptors are
+  // translated, the rest is folded the English way (the owner's «Crescendo
+  // School of Music & Ballet» note). Only prose the render cap refuses stays
+  // Latin, and this one is a name, not prose.
   const prose = 'Boris Sarafov Palace - Ministry of Foreign Affairs and foreign trade of the Republic of North Macedonia';
-  assert.equal(displayPlaceName(prose), prose);
+  assert.equal(displayPlaceName(prose),
+    'Борис Сарафов Палата - министерство за надворешни работи Република Северна Македонија');
 });
 
 test('[13:28] he DOES know the number: the normal property_query workflow runs', async () => {

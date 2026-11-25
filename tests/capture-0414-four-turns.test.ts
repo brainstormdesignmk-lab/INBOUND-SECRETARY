@@ -238,7 +238,10 @@ test('[04:18] e2e: «OPISETE MI GO 91» describes 91, and the address stays 91',
   const address = await say('NA KOJA ULICA E ?');
   // EB 47 stands by the Геолошки завод; 91 by the ГТЦ. The answer follows 91.
   assert.doesNotMatch(address, /Геолошки завод/iu, `not the other flat's landmark: ${address}`);
-  assert.match(address, /трговски центар|ГТЦ/iu, `91's own landmark: ${address}`);
+  // The map's row is «City Trade Center Skopje (Gtk)» and the copy is
+  // rendered (displayPlaceName — an English name is translated, not folded):
+  // the landmark is still the one beside 91, whichever spelling it arrives in.
+  assert.match(address, /трговски центар|сити трговија|ГТЦ|ГТК/iu, `91's own landmark: ${address}`);
 });
 
 // ── 4. check-then-arrange takes the details ────────────────────────────────

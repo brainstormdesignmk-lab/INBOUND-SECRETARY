@@ -52,6 +52,7 @@ import { LandmarkService } from '../src/geo/landmarks';
 import { OfflineMapStore, writeMap } from '../src/geo/offlineMap';
 import { buildPropertyCard, displayPlaceName } from '../src/llm/prompts';
 import { placeTypesFromNoun } from '../src/llm/lexicon';
+import { canonicalPoisDb } from '../src/config';
 import { findProjectRoot } from './helpers/project-root';
 import {
   isPoiConfirmQuestion, extractPoiConfirmPlace, isDistanceQuestion, extractDistancePlaces,
@@ -324,18 +325,46 @@ test('a same-name mall row cannot lend its class to a pharmacy (the EB 53 shape)
   }
 });
 
-// ── 9. THE NAME IS RENDERED, and only when the render is honest ────────────
-test('a Latin landmark name is rendered in Macedonian; English-worded names keep the map spelling', () => {
+// ── 9. THE NAME IS RENDERED, for EVERY property (the owner's rule) ─────────
+test('every Latin landmark name reaches the client in Macedonian', () => {
   // The fold is a MACEDONIAN transliteration: right for the names the map
   // carries in that spelling, wrong for English words.
   assert.equal(displayPlaceName('Kindergarten "Kocho Racin" - Naum N. Borche'),
     'Градинка "Кочо Рацин" - Наум Н. Борче');
   assert.equal(displayPlaceName('Elipso 2 Madzari'), 'Елипсо 2 Маџари');
   assert.equal(displayPlaceName('Pharmacy Biser'), 'Аптека Бисер');
-  // NEVER a mangled English word («Мусиц», «Елизабетх» were the live defects):
-  // the honest English name beats broken Cyrillic.
-  assert.equal(displayPlaceName('Crescendo School of Music & Ballet'), 'Crescendo School of Music & Ballet');
-  assert.equal(displayPlaceName('Elizabeth Apart House'), 'Elizabeth Apart House');
+  // AN ENGLISH NAME IS TRANSLATED + FOLDED THE ENGLISH WAY — never left Latin
+  // (the owner: «before the landmarks were Cyrillic, now: Crescendo School of
+  // Music & Ballet»), and never Macedonian-folded either («Мусиц»,
+  // «Елизабетх», «Цресцендо» were the defect).
+  assert.equal(displayPlaceName('Crescendo School of Music & Ballet'),
+    'Кресендо училиште за музика и балет');
+  assert.equal(displayPlaceName('Elizabeth Apart House'), 'Елизабет апартманска куќа');
+  assert.equal(displayPlaceName('AgroTehnA - Head Office'), 'Агротехна - седиште');
+  assert.equal(displayPlaceName('State school'), 'Државно училиште');
+  // A DIACRITIC is a Latin letter, not decoration: a half-folded name
+  // («Виола Капиšтец») is broken script on the client's screen.
+  assert.equal(displayPlaceName('Viola Kapištec'), 'Виола Капиштец');
+  // A run of x is ONE «кс» (the Cineplexx cinema).
+  assert.equal(displayPlaceName('Cineplexx'), 'Цинеплекс');
+  // THE RULE OVER THE WHOLE CORPUS, not over the names that happened to fail:
+  // the shipped map's every PURE-LATIN place name must reach the client in
+  // Cyrillic. The only ones allowed to stay Latin are the ones the render cap
+  // itself refuses (a long English sentence is prose, not a place name — the
+  // pseudo-Cyrillic would be worse than the Latin).
+  const map = new OfflineMapStore(canonicalPoisDb()!);
+  const left: string[] = [];
+  for (const name of map.allNames()) {
+    if (!/[A-Za-z\u00C0-\u024F]/u.test(name) || /[\u0400-\u04FF]/u.test(name)) continue;
+    const out = displayPlaceName(name);
+    if (!/[A-Za-z\u00C0-\u024F]/u.test(out)) continue;
+    // the cap counts the words the renderer has no spelling for
+    const words = out.trim().split(/\s+/).filter(w => /\p{L}/u.test(w));
+    if (words.length > 6) continue;
+    left.push(`${name} → ${out}`);
+  }
+  map.close();
+  assert.deepEqual(left, [], `every Latin place name reads Macedonian: ${left.join(' | ')}`);
 });
 
 // ── 7. a cache filled before the screen existed is screened ON READ ─────────
