@@ -1993,10 +1993,16 @@ The [12:27–12:28] capture showed the [10:24] fix was only half applied:
 - THE SCREEN IS AT THE SERVICE DOOR, NOT AT THE REPLY. Every builder prints
   `landmarks[0]`, and the stored roster is ranked by DISTANCE at import, so the
   pharmacy in the flat's own building survives forever. `PropertyService.
-  setLandmarkScreen` (installed by `InboundHandler` each turn, backed by
-  `LandmarkService.screenFeedLandmarks`) filters the roster ONCE, on the way out
-  of the feed: no builder can forget the rule, and no lane can disagree with
-  another about the same flat. Distances on the surviving entries are
+  setLandmarkScreen` (installed ONCE by the `InboundHandler` constructor, backed
+  by `LandmarkService.screenFeedLandmarks`) filters the roster, on the way out of
+  the feed: no builder can forget the rule, and no lane can disagree with
+  another about the same flat. `getAll()` follows the literal rule — *a fetch
+  filters, a cache read must not*. That is why the install is at CONSTRUCTION,
+  not per turn: the feed's first fetch, a prefetch and the TUI card all read the
+  service before any turn runs. And even then the service re-screens on READ
+  (`cacheRows()`, one memoised screening per row per screen generation), so a
+  cache filled before the install — or the stale-cache fallback when the feed is
+  down — cannot hand a reply builder the raw roster. Distances on the surviving entries are
   RE-MEASURED from the row's own centre (the stored `distance_m` is the
   import-time number, not evidence); when nothing survives, the map's own ring
   rotation takes the card's line; an unmeasurable row (no map, no centre) is

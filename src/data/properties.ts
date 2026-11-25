@@ -1586,7 +1586,12 @@ function popularityRank(loc: string | undefined): number {
 }
 
 export class PropertyService {
-  private cache: { at: number; data: Property[] } | null = null;
+  /** `screenGen` is the landmark-screen generation the cached rows were built
+   *  under: a screen installed AFTER this cache was filled must still be
+   *  applied on read (the [12:27] card bug — the feed was fetched by a reader
+   *  that ran before the screen existed, and every later read of that cache
+   *  served the pharmacy again). */
+  private cache: { at: number; data: Property[]; screenGen: number } | null = null;
   private ok = false;
   /** THE CATEGORY LOCK (the [20:37] capture, set by InboundHandler each turn):
    *  once the client has chosen a type — кућа / деловен простор / плац /
@@ -1614,6 +1619,18 @@ export class PropertyService {
    *  roster is never evidence of anything. */
   private landmarkScreen: ((p: Property) => FeedLandmark[] | undefined) | undefined;
 
+  /** Bumped on every install/clear so a memo can never answer for a different
+   *  screen. The handler wires the process-wide screen once at construction;
+   *  a rewire (tests, a second handler) invalidates the memo. */
+  private screenGen = 0;
+
+  /** One screening per row per screen generation: `getAll()` walks the whole
+   *  feed, so re-measuring a roster on every read would query the map DB
+   *  hundreds of times a turn for a verdict that cannot have changed. The map
+   *  rows themselves are new objects on every feed refresh, so the memo dies
+   *  with the cache it was built from. */
+  private screenMemo = new WeakMap<Property, { gen: number; row: Property }>();
+
   /** Install (or clear) the per-turn category lock. */
   setTypeLock(lock?: (p: Property) => boolean): void {
     this.typeLock = lock;
@@ -1622,6 +1639,7 @@ export class PropertyService {
   /** Install (or clear) the roster claim screen (see landmarkScreen). */
   setLandmarkScreen(screen?: (p: Property) => FeedLandmark[] | undefined): void {
     this.landmarkScreen = screen;
+    this.screenGen += 1;
   }
 
   /** The roster as the screen leaves it, and the row's own `landmark` line only
@@ -1629,12 +1647,21 @@ export class PropertyService {
    *  survive as the fallback the card prints instead. */
   private screened(p: Property): Property {
     if (!this.landmarkScreen || !(p.landmarks?.length)) return p;
+    const memo = this.screenMemo.get(p);
+    if (memo && memo.gen === this.screenGen) return memo.row;
     const kept = this.landmarkScreen(p);
-    if (kept === undefined) return p;
-    if (kept.length === p.landmarks!.length && kept.every((e, i) => e === p.landmarks![i])) return p;
-    const landmark = p.landmark && kept.some(e => e.landmark.trim().toLowerCase() === p.landmark!.trim().toLowerCase())
-      ? p.landmark : undefined;
-    return { ...p, landmarks: kept, landmark };
+    let out = p;
+    if (kept !== undefined) {
+      if (kept.length === p.landmarks!.length && kept.every((e, i) => e === p.landmarks![i])) {
+        out = p;
+      } else {
+        const landmark = p.landmark && kept.some(e => e.landmark.trim().toLowerCase() === p.landmark!.trim().toLowerCase())
+          ? p.landmark : undefined;
+        out = { ...p, landmarks: kept, landmark };
+      }
+    }
+    this.screenMemo.set(p, { gen: this.screenGen, row: out });
+    return out;
   }
 
   /** The lock, applied to a pool only when the caller declared no category. */
@@ -1658,7 +1685,7 @@ export class PropertyService {
   }
 
   async getAll(): Promise<Property[]> {
-    if (this.cache && Date.now() - this.cache.at < this.ttlMs) return this.cache.data;
+    if (this.cache && Date.now() - this.cache.at < this.ttlMs) return this.cacheRows();
     // TWO attempts, fresh 8s budget each: the feed is a Supabase edge function
     // whose cold starts occasionally blow one 8s window ("This operation was
     // aborted" in production). A single retry absorbs that without ever
@@ -1678,7 +1705,7 @@ export class PropertyService {
           // The claim screen runs at the DOOR (see landmarkScreen): a cached
           // feed row must never carry an anchor no client could name.
           .map(p => this.screened(p));
-        this.cache = { at: Date.now(), data };
+        this.cache = { at: Date.now(), data, screenGen: this.screenGen };
         this.ok = true;
         return data;
       } catch (e) {
@@ -1690,12 +1717,25 @@ export class PropertyService {
         }
         console.error('[properties] fetch failed:', msg);
         if (!this.cache) this.ok = false; // stale cache is still real data; only distrust an empty hand
-        return this.cache?.data ?? [];
+        return this.cacheRows();
       } finally {
         clearTimeout(timer);
       }
     }
-    return this.cache?.data ?? []; // unreachable — the loop always returns/throws
+    return this.cacheRows(); // unreachable — the loop always returns/throws
+  }
+
+  /** The cached rows as the CURRENT screen leaves them.
+   *
+   *  A SCREEN INSTALLED AFTER THIS CACHE WAS FILLED STILL GOVERNS IT: the rows
+   *  were screened (or not) at build time, and the reader asks NOW, so the
+   *  answer is screened now. The memo makes the repeat walk cheap, and the
+   *  stale-cache fallbacks (feed down) go through the same door — a stale row
+   *  is still served to a reply builder, so it must not escape the screen. */
+  private cacheRows(): Property[] {
+    const cache = this.cache;
+    if (!cache) return [];
+    return cache.screenGen === this.screenGen ? cache.data : cache.data.map(p => this.screened(p));
   }
 
   /** Lookup by Евидентен број — the only correct identity. */

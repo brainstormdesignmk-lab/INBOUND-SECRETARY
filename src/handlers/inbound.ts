@@ -1934,6 +1934,27 @@ export class InboundHandler {
     this.owners = new OwnerStore(deps.db);
     this.dispatcher = new AgentDispatcher(this.agents);
     this.landmarks = deps.landmarks ?? new LandmarkService(deps.db);
+    // THE CLAIM SCREEN for every row this process reads (the [12:27] capture):
+    // a stored roster ranked by distance puts a pharmacy in the flat's own
+    // ground floor first, and every reply builder prints `landmarks[0]` — so the
+    // info block still said «во близина на ПЗУ Аптека Линцура 2» while the
+    // answer to «каде?» named the kindergarten. The screen lives at the service
+    // DOOR, installed ONCE at construction — never per turn: the feed's first
+    // fetch, a prefetch, and the TUI's own card all read the service before any
+    // turn runs, and a per-turn install left every one of them with the raw
+    // roster (the probe that caught it read the card after a turn: the cache
+    // had been filled BEFORE the screen existed and was never re-screened).
+    // An unmeasurable row (no map, no centre) is left exactly as the feed wrote
+    // it — silence is not evidence.
+    try {
+      deps.properties.setLandmarkScreen?.(p => this.landmarks
+        ? this.landmarks.screenFeedLandmarks({
+          id: p.id, eb: p.eb, address: p.address, landmark_name: p.landmark,
+          lat: p.lat, lon: p.lon, geo_source: p.geo_source ?? null,
+          details: p.details, landmarks: p.landmarks,
+        } as PropertyRow)
+        : undefined);
+    } catch { /* test double without the screen */ }
     // THE LLM-LESS PRESENTATION SERVE STATES DISTANCES (the presentation-lane
     // audit): a turn that reaches 'presentation' without a composition branch
     // (a STAY, a REJECTED from property_query/closing) falls to the responder,
@@ -6218,22 +6239,6 @@ export class InboundHandler {
     // (and locks from the next turn, exactly as it did before).
     if (detectSeenListingRecall(text)) this.rememberCategory(session, text);
     try { this.deps.properties.setTypeLock(this.categoryLock(session)); } catch { /* test double without the lock */ }
-    // THE CLAIM SCREEN for every row this turn reads (the [12:27] capture): a
-    // stored roster ranked by distance puts a pharmacy in the flat's own ground
-    // floor first, and every reply builder prints `landmarks[0]` — so the info
-    // block still said «во близина на ПЗУ Аптека Линцура 2» while the answer to
-    // «каде?» named the kindergarten. The screen lives at the service DOOR, so
-    // no builder can forget it; an unmeasurable row (no map, no centre) is left
-    // exactly as the feed wrote it.
-    try {
-      this.deps.properties.setLandmarkScreen?.(p => this.landmarks
-        ? this.landmarks.screenFeedLandmarks({
-          id: p.id, eb: p.eb, address: p.address, landmark_name: p.landmark,
-          lat: p.lat, lon: p.lon, geo_source: p.geo_source ?? null,
-          details: p.details, landmarks: p.landmarks,
-        } as PropertyRow)
-        : undefined);
-    } catch { /* test double without the screen */ }
     session.channel = channel;
 
     // THE FLAT THE CLIENT NAMES OWNS THE TURNS THAT FOLLOW (the [02:24]

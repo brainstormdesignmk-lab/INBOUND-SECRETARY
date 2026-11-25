@@ -228,7 +228,13 @@ test('every rotation write carries the parallel arrays (no lane serves a bare pi
 });
 
 // ── 6. the screen is INSTALLED by the handler, not just available ──────────
-test('the handler installs the claim screen at the service door (fetch → mapRow → screen)', async () => {
+// It is installed ONCE, at construction, never per turn. The live EB 50 probe
+// caught why: the per-turn install ran AFTER the feed's first fetch, and
+// PropertyService screened rows only while BUILDING its cache — so every later
+// read of that cache served the pharmacy again in the property block, which is
+// exactly the owner's [12:27] complaint. Both halves are pinned here: the
+// handler's install (this test) and the service's read-time screen (below).
+test('the handler installs the claim screen at construction (a read before any turn is screened)', async () => {
   const map = buildMap();
   const real = new PropertyService('http://feed.test');
   const fetchStub = (async () => ({
@@ -247,11 +253,63 @@ test('the handler installs the claim screen at the service door (fetch → mapRo
   globalThis.fetch = fetchStub;
   try {
     const { handler } = makeHandler(real, map);
-    await handler.handle('test', 'c1227-door', 'zdravo');
+    // NO TURN YET. The feed's first fetch, a prefetch and the TUI's own card
+    // all read the service before handle() ever runs.
     const row = await real.getByEb(50);
     assert.ok(row, 'the feed row is loaded through the real service');
     assert.deepEqual(row!.landmarks?.map(l => l.landmark), [KINDERGARTEN.name],
-      `the row must leave the service already screened: ${JSON.stringify(row!.landmarks)}`);
+      `the first read of the process must already be screened: ${JSON.stringify(row!.landmarks)}`);
+    // …and a turn neither clears the screen nor re-serves the raw roster.
+    await handler.handle('test', 'c1227-door', 'zdravo');
+    const after = await real.getByEb(50);
+    assert.deepEqual(after!.landmarks?.map(l => l.landmark), [KINDERGARTEN.name],
+      `the screen survives the turn: ${JSON.stringify(after!.landmarks)}`);
+  } finally {
+    globalThis.fetch = savedFetch;
+    map.close();
+  }
+});
+
+// ── 7. a cache filled before the screen existed is screened ON READ ─────────
+// The screen is installed at construction, but PropertyService must not depend
+// on that ordering: its cache lives for five minutes, and a row built before
+// the install (or by any other reader) has to be screened when it is handed
+// out. This is the exact shape the live probe found — screen at build time
+// only, raw pharmacy in the card forever after.
+test('a roster cached before the screen exists is screened on read, not just at build', async () => {
+  const map = buildMap();
+  const real = new PropertyService('http://feed.test');
+  const fetchStub = (async () => ({
+    ok: true, status: 200,
+    json: async () => ({ properties: [{
+      evidenten_broj: 50, naselba: 'Центар', adresa: 'Ул. Тест 50', opis: 'Куќа во Центар.',
+      cena_eur: 300, povrsina_m2: 74, servis: 'rent',
+      lat: 41.9962, lon: 21.4147, geo_source: 'stored',
+      landmarks: ROSTER,
+    }] }),
+  })) as unknown as typeof fetch;
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = fetchStub;
+  try {
+    // 1. the cache is filled with the feed's own (pharmacy-first) roster.
+    const before = await real.getByEb(50);
+    assert.deepEqual(before!.landmarks?.map(l => l.landmark), [PHARMACY.name, KINDERGARTEN.name],
+      'the fixture starts from the real roster order');
+
+    // 2. the screen arrives afterwards, as it does at boot.
+    const svc = new LandmarkService(new Db(':memory:'), { osm: false, offlineMap: map });
+    real.setLandmarkScreen(p => svc.screenFeedLandmarks({
+      id: p.id, eb: p.eb, address: p.address, landmark_name: p.landmark,
+      lat: p.lat, lon: p.lon, geo_source: p.geo_source ?? null,
+      details: p.details, landmarks: p.landmarks,
+    } as never));
+
+    // 3. the cache HIT must still be screened — and the cached row untouched.
+    const after = await real.getByEb(50);
+    assert.deepEqual(after!.landmarks?.map(l => l.landmark), [KINDERGARTEN.name],
+      `a cached roster read after the install is screened: ${JSON.stringify(after!.landmarks)}`);
+    assert.deepEqual(before!.landmarks?.map(l => l.landmark), [PHARMACY.name, KINDERGARTEN.name],
+      'the screen returns a new row, never mutates the cached one');
   } finally {
     globalThis.fetch = savedFetch;
     map.close();
