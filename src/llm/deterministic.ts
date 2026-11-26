@@ -531,8 +531,13 @@ export function detectSeenProperty(text: string): boolean {
 // must ANSWER with real DB offers (smallest м² first, area-locked) instead of
 // repeating the missing question. Latin + Cyrillic. "што имаш во Карпош?" (a
 // location search) is NOT this — the text after имаш/имате breaks the anchor.
+// A SIZE WAIVER IS NOT A SHOW-ME (the V16K11 06:25 turn): «spalnite ne se
+// tolku bitni» used to sit in this list, so the one message that RELEASES a
+// criterion was read as "show me the inventory" — and the release veto
+// (`!detectSeeOffers`) then blocked the new-criteria path, leaving the
+// exhausted line. The waiver family (buildSizeWaivedSlots) owns those words.
 const SEE_OFFERS_RE =
-  /(што\s+(?:имаш|имате|има)\s+(?:во\s+|на\s+)?понуда|што\s+(?:имаш|имате|има)\s+(?:на\s+)?(?:лагер|залиха)|sto\s+(?:imas|imate)\s+(?:vo\s+|na\s+)?ponuda|sto\s+(?:imas|imate)\s+(?:na\s+)?(?:lager|zaliha)|(?:што|sto)\s+(?:имаш|имате|има|imas|imate)\s+(?:достапн|dostapn)\p{L}*|помало\s+нешто|нешто\s+помало|покажи\s+ми|имате\s+ли\s+нешто|имаш\s+ли\s+нешто|pomalo\s+nesto|pokazi\s+mi|imate\s+li\s+nesto|imas\s+li\s+nesto|(?:што|sto)\s+(?:имаш|имате|imas|imate)\s*\??$|asto\s+po(?:e|е)ftin|најефтино|naj(e|е)ftino|што\s+е\s+најефтино|колку\s+е\s+најевтин|bilo\s+kolku|било\s+колку|билоколку|bilo\s+kolkube|било\s+колку\s+бе|spalnite\s+ne\s+se\s+tolku\s+bitni|спалните\s+не\s+се\s+толку\s+битни|не\s+се\s+битни\s+спалните|ne\s+se\s+bitni\s+spalnite|pokazi\s+koi|покажи\s+кои|koi\s+gi\s+ima\p{L}*|кои\s+ги\s+има\p{L}*|sto\s+gi\s+ima\p{L}*|што\s+ги\s+има\p{L}*)/iu;
+  /(што\s+(?:имаш|имате|има)\s+(?:во\s+|на\s+)?понуда|што\s+(?:имаш|имате|има)\s+(?:на\s+)?(?:лагер|залиха)|sto\s+(?:imas|imate)\s+(?:vo\s+|na\s+)?ponuda|sto\s+(?:imas|imate)\s+(?:na\s+)?(?:lager|zaliha)|(?:што|sto)\s+(?:имаш|имате|има|imas|imate)\s+(?:достапн|dostapn)\p{L}*|помало\s+нешто|нешто\s+помало|покажи\s+ми|имате\s+ли\s+нешто|имаш\s+ли\s+нешто|pomalo\s+nesto|pokazi\s+mi|imate\s+li\s+nesto|imas\s+li\s+nesto|(?:што|sto)\s+(?:имаш|имате|imas|imate)\s*\??$|asto\s+po(?:e|е)ftin|најефтино|naj(e|е)ftino|што\s+е\s+најефтино|колку\s+е\s+најевтин|bilo\s+kolku|било\s+колку|билоколку|bilo\s+kolkube|било\s+колку\s+бе|pokazi\s+koi|покажи\s+кои|koi\s+gi\s+ima\p{L}*|кои\s+ги\s+има\p{L}*|sto\s+gi\s+ima\p{L}*|што\s+ги\s+има\p{L}*)/iu;
 // The last three arm-pairs above are THE [12:34] UNDECIDED SHOW-ME:
 // mid-discovery the client asks to see the INVENTORY to decide for himself —
 // «pokazi koi imas za da odlucam», «кои ги имаш», «што ги имаш на лагер». The
@@ -7553,10 +7558,20 @@ const MORE_OPTIONS_RE = new RegExp(
   '(?:имат|имате|немат|немате|nemat(?:e)?|imate|ima|imaт|(?<![\\p{L}])има(?![\\p{L}])|посто|posto|ponud|понд)',
   'iu');
 
+// (d) THE OPTION NOUN NEEDS NO VERB (the V16K11 05:34 replay). «moze i drugi
+// opcii» accepts alternatives and names them; every arm above wants a
+// have-verb, so the message matched nothing, the classifier read it REJECTED,
+// and the direction pivot answered «Кажете ми што барате — куќа, деловен
+// простор или нешто друго?» to a client who had spelled out rent + flat +
+// Центар + 300 €. The other-word plus an OPTION noun is the ask.
+const OTHER_OPTION_NOUN_RE =
+  /(?<![\p{L}])(?:друг(?:и|о|а)\p{L}*|drugi|drugo|druga)[^.!?\n]{0,24}?(?:опци\p{L}*|opci\p{L}*|понуд\p{L}*|ponud\p{L}*|алтернатив\p{L}*|alternativ\p{L}*|вариант\p{L}*|varijant\p{L}*|станови|stanovi)/iu;
+
 /** True when the client asks for MORE/OTHER options (alternatives family).
  *  Covers both scripts via matchesBoth; call sites apply the fee/price vetoes. */
 export function detectMoreOptions(text: string): boolean {
   if (matchesBoth(MORE_OPTIONS_RE, text)) return true;
+  if (matchesBoth(OTHER_OPTION_NOUN_RE, text)) return true;
   // (c) bare "nesto novo" / "nesto drugo" — no verb needed
   return matchesBoth(/(?<![\p{L}])нест[оа]|(?<![\p{L}])nesto(?![\p{L}])/iu, text)
     && matchesBoth(/(?<![\p{L}])(?:нов|novo|nov|друг|drugo|druga)/iu, text);
@@ -9349,8 +9364,37 @@ const COST_CONTEXT_NOTARY_OFFICE_RE =
   /(?:во|vo|na|на)\s+(?:зградата|zgrabata|зграда|zgrada|приземје|prizemje|кат|kat)/iu;
 const PROPERTY_CRITERIA_RE =
   /(?<![\p{L}])(?:стан|stan|куќ|kukj|квадрат|kvadrat|м2|m2|спалн|spaln|споби|sobi|соби|изнајм|iznajm|купув|kupuv|евра|evra|евро|evro)(?![\p{L}])/iu;
+// THE QUESTION ABOUT THE AGENCY'S OWN MONEY (the [09:16] V16K11 transcript):
+//   klient: kako nemam provizija? koj ve plakja vas?
+//   LINA:   «сите обврски за адвокат, нотар и данок ги покрива самиот купувач»
+// The who-pays lane answered a question about OUR revenue with the client's
+// closing costs — the one thing he did not ask. «koj ve plakja vas» / «kako
+// nemate provizija» / «koj ja plaka provizijata» / «od sto ziveete» ask WHO
+// PAYS THE AGENCY, and the answer is the business model (buy: the owner pays,
+// the buyer 0%; rent: the tenant pays the commission). The lawyer/notary/tax
+// questions keep the existing who.buy/.rent/.danok.buy copy.
+const AGENCY_WHO_RE = new RegExp(
+  _cb('koj|кој|koja|која|koj|kogo|кого') + '[^.!?\\n]{0,20}' + _cb(PAY_VERBS)
+  + '[^.!?\\n]{0,16}' + _cb('vas|вас|vie|вие|agencij\\p{L}*|агенциј\\p{L}*')
+  + '|' + _cb('od|од|so|со|shto|што|sto') + '\\s+' + _cb('zivee\\p{L}*|живее\\p{L}*|zarabotuva\\p{L}*|заработува\\p{L}*')
+  + '|' + _cb('kako|како') + '[^.!?\\n]{0,12}' + _cb('nema\\p{L}*|нема\\p{L}*|nemate|немате') + '[^.!?\\n]{0,12}'
+  + _cb('provizij\\p{L}*|провизиј\\p{L}*|provizija|провизија')
+  + '|' + _cb('koj|кој') + '[^.!?\\n]{0,20}' + _cb('plak\\p{L}*|плак\\p{L}*|плаќ\\p{L}*')
+  + '[^.!?\\n]{0,14}' + _cb('provizij\\p{L}*|провизиј\\p{L}*|provizija|провизија'),
+  'iu');
+
+/** True when the client asks who pays the AGENCY (not the lawyer/notary/tax). */
+export function detectProvisionAgencyWho(text: string): boolean {
+  return AGENCY_WHO_RE.test(text);
+}
+
 /** True when the client asks WHO pays lawyer/notary/tax. */
 export function detectProvisionWho(text: string): boolean {
+  // A QUESTION ABOUT THE AGENCY'S OWN MONEY IS A WHO-PAYS QUESTION TOO
+  // («koj ja plaka provizijata?»): the cost-item family below only knows
+  // lawyer/notary/tax, so it rejected this shape and the plain commission ASK
+  // answered it with an amount and no payer.
+  if (detectProvisionAgencyWho(text)) return true;
   if (PROVISION_WHO_RE.test(text) || extFires('provision-who', text)) return true;
   // THE BARE COST-ITEM ECHO (the [05:17] capture) — see COST_ITEM_ECHO_RE.
   // A notary/inspector OFFICE inside the building is not a cost question, and a
@@ -10048,8 +10092,21 @@ const WHERE_LANDMARK_TAIL_REJECT_RE =
  *  of the neighbourhoods that DO have it — never a landmark's geography. */
 export function detectWhichAreaHas(text: string): boolean {
   if (isFeeTraffic(text)) return false;
-  return matchesBoth(WHICH_AREA_HAS_RE, text) || matchesBoth(WHICH_AREA_HAS_REV_RE, text);
+  return matchesBoth(WHICH_AREA_HAS_RE, text) || matchesBoth(WHICH_AREA_HAS_REV_RE, text)
+    || matchesBoth(WHERE_HAS_RE, text);
 }
+
+// THE SAME PROBE, TYPED SHORT (the V16K11 06:31 turn): «a kade ima?» — the
+// exhausted line had just offered «во друга населба», and the client asked the
+// follow-up the [19:46] capture already owns in its long form «А ВО КОЈА
+// НАСЕЛБА ИМА?». Only the long shape matched, so the short one fell through and
+// the funnel repeated its dead end. Grammar, both scripts:
+//   optional «а/a» + каде/где/кај + има/имате (+ ли)
+//   + an optional STOCK tail (уште/нешто/опции/станови/куќи…), end-anchored.
+// The end anchor is the guard: «каде има паркинг?», «каде има аптека?» name
+// something else and stay out of the stock lane.
+const WHERE_HAS_RE =
+  /(?:^|(?<=[\s,.;:!?]))(?:а|a)?\s*(?:каде|kade|где|gde|кај|kaj)\s*(?:има|ima)(?:\s*(?:ли|li))?(?:\s+(?:уште|uste|нешто|nesto|опции|opcii|станови|stanovi|станови?|куќи|kuki|стан|stan|куќа|kuka|гарсоњери|garsonjeri))?\s*[?.!]*$/iu;
 
 const WHICH_AREA_HAS_RE =
   /(?<![\p{L}\p{N}])(?:во|vo)\s+(?:која|кои|кој|koja|koi|koj)\s+(?:населба|населби|naselba|naselbi|дел|делови|del|delovi|реон|reoni)\s*,?\s*(?:има|имате|има\s+ли|ima|imate|ima\s+li)(?![\p{L}\p{N}])/iu;

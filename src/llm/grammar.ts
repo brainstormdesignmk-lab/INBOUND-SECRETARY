@@ -197,6 +197,16 @@ const SIZE_WAIVED_DISMISS = ['нема везе', 'не правам пробл�
 // ("nema veze spalnite"). Anaphoric “za toa“ stays unroutable on purpose.
 const SIZE_WAIVED_DISMISS_ZA = ['za', 'за'];
 const SIZE_WAIVED_TOLKU = ['толку', 'вака', 'како што ќе биде', 'какво што ќе биде'];
+// DEGREE — the adverb a client puts between the copula and the adjective.
+// The 06:25 V16K11 turn: «SPALNITE NE SE TOLKU BITNI. KIRIJATA TREBA DA E DO
+// 300 EVRA». The slot list knew «nebitni se spalnite» and «spalnite ne se
+// bitni», but the ONE word «tolku» broke the match, so the released bedrooms
+// criterion was not recorded and the funnel asked for bedrooms again. The same
+// hole swallowed «ne mi se mnogu vazni», «ne e posebno bitno», «ne e bas
+// bitno». It is an optional slot, never a wildcard: only these adverbs may sit
+// between the copula and the adjective, so «ne se 300 evra bitni» stays out.
+const SIZE_WAIVED_DEG_L = ['tolku', 'mnogu', 'poveke', 'povekje', 'vise', 'vishe', 'posebno', 'premnogu', 'bas'];
+const SIZE_WAIVED_DEG = ['толку', 'многу', 'повеќе', 'повеке', 'више', 'посебно', 'премногу', 'баш'];
 // Object nouns — “големината“ / “димензиите“ / “квадратурата“
 const SIZE_WAIVED_OBJ = ['големината', 'димензиите', 'квадратурата', 'површината', 'собите', 'спалните'];
 const SIZE_WAIVED_OBJ_L = ['goleminata', 'dimenziite', 'kvadraturata', 'povrsinata', 'sobite', 'spalnite'];
@@ -204,8 +214,12 @@ const SIZE_WAIVED_SUBJ = ['ми', 'ни'];
 const SIZE_WAIVED_SUBJ_L = ['mi', 'ni'];
 const SIZE_WAIVED_BE = ['е'];
 const SIZE_WAIVED_BE_L = ['e'];
-const SIZE_WAIVED_ADJ = ['битна', 'битно', 'важна', 'важно', 'битен'];
-const SIZE_WAIVED_ADJ_L = ['bitna', 'bitno', 'vazhna', 'vazhno', 'biten'];
+// The PLURAL forms belong here too: a client who names the noun in the plural
+// («spalni»/«sobi») says «ne mi se tolku VAZNI spalni» — the singular-only
+// list missed every such sentence, and «vazni» (the h-drop spelling the
+// lexicon's normaliser does not map) has to be its own entry.
+const SIZE_WAIVED_ADJ = ['битна', 'битно', 'важна', 'важно', 'битен', 'битни', 'важни'];
+const SIZE_WAIVED_ADJ_L = ['bitna', 'bitno', 'vazhna', 'vazhno', 'biten', 'bitni', 'vazhni', 'vazni'];
 // “bilo kolku / bilo kakvi“ — any number
 const SIZE_WAIVED_ANY = ['било колку', 'било какви', 'било каков', 'било колку соби', 'било колку спални'];
 // BARE fused-negation: “NEBITNO“, “НЕБИТНО“, “nebitni“, “неважно“ — one word,
@@ -567,6 +581,10 @@ export function buildSizeWaivedSlots(): RegExp {
   const SUBJ = or([...SIZE_WAIVED_SUBJ, ...SIZE_WAIVED_SUBJ_L]);
   const BE = or([...SIZE_WAIVED_BE, ...SIZE_WAIVED_BE_L]);
   const ADJ = or([...SIZE_WAIVED_ADJ, ...SIZE_WAIVED_ADJ_L, 'vazna', 'vazno']);
+  // DEG — optional degree adverb between the copula and the adjective
+  // («ne se TOLKU bitni»). Optional, so every slot that predates it keeps
+  // matching its own word order.
+  const DEG = `(?:${or([...SIZE_WAIVED_DEG, ...SIZE_WAIVED_DEG_L])}${WS})?`;
   const ANY = or([...SIZE_WAIVED_ANY, ...SIZE_WAIVED_ANY_L]);
   const EN = or([...SIZE_WAIVED_EN]);
   // NEADJ = fused negated adjective (небитни/nebitni…), NOUNDEF = definite noun
@@ -605,13 +623,13 @@ export function buildSizeWaivedSlots(): RegExp {
 
   const patterns = [
     // Slot: OBJ NEG SUBJ BE ADJ — “големината не ми е битна“
-    s(`${or([...SIZE_WAIVED_OBJ, ...SIZE_WAIVED_OBJ_L])}${WS}${NEG}${WS}${SUBJ}${WS}${BE}${WS}${ADJ}`),
-    // Slot: NEG SUBJ BE ADJ — “не ми е битно“
-    s(`${NEG}${WS}${SUBJ}${WS}${BE}${WS}${ADJ}`),
+    s(`${or([...SIZE_WAIVED_OBJ, ...SIZE_WAIVED_OBJ_L])}${WS}${NEG}${WS}${SUBJ}${WS}${BE}${WS}${DEG}${ADJ}`),
+    // Slot: NEG SUBJ BE ADJ — “не ми е битно“ / “ne mi e tolku bitno“
+    s(`${NEG}${WS}${SUBJ}${WS}${BE}${WS}${DEG}${ADJ}`),
     // Slot: NEG BE ADJ — “ne e bitno kolkju spalni“ — no subject clitic. The
     // 21:40 transcript form (“NE E BITNO KOLKU SPALNI“): colloquial speech
     // drops “ми/ни“, the old slot demanded it and the funnel looped.
-    s(`${NEG}${WS}${BE}${WS}${ADJ}`),
+    s(`${NEG}${WS}${BE}${WS}${DEG}${ADJ}`),
     // Short form + dangling quantifier — “ne bitno kolkju“: the quantifier
     // ends the message ("not important how-many").
     s(`(?:^|${WS})${NEG}${WS}${ADJ}${WS}(?:kolku|kolkju|колку|колкju)${ENDISH}`),
@@ -662,7 +680,7 @@ export function buildSizeWaivedSlots(): RegExp {
     // ("небитни") or PLAIN ("битни" — negation carried by the leading "не").
     // No ^|WS anchor: “како што дојде, собите не се битни“ follows a comma,
     // and or() already bounds the noun.
-    s(`${NOUNDEF}${WS}${NEG}${WS}(?:се|se|е|e)${WS}(?:${NEADJ}|${or(['битни', 'важни', 'bitni', 'vazhni'])})`),
+    s(`${NOUNDEF}${WS}${NEG}${WS}(?:се|se|е|e)${WS}${DEG}(?:${NEADJ}|${or(['битни', 'важни', 'bitni', 'vazhni'])})`),
     // “rekav nebitnoоо za sobi“ — BARE with a fuzz tail AND a trailing topic
     // noun: indifference stated in the past tense, topic appended. The ENDISH
     // BARE slots above miss it (topic noun after the fused negation). Topic
@@ -681,7 +699,7 @@ export function buildSizeWaivedSlots(): RegExp {
     // (“ima“) ride between, matching the real client word orders.
     s(`(?:^|${WS})(?:${or(SIZE_WAIVED_DISMISS_L)}|${or(SIZE_WAIVED_DISMISS)})${CONNS}${TOPIC}(?:${WS}(?:ima|imaa|има|имаа|treba|треба)(?:${WS}(?:stanot|куќата|kukata))?|${WS}(?:stanot|куќата|kukata))?${ENDISH}`),
     // “не ми се битни спални“ / “не ми се важни соби“
-    s(`${NEG}${WS}${SUBJ}${WS}(?:се|се|се)${WS}(?:битни|важни|битни|важни|bitni|vazhni)${WS}(?:спални|соби|sobni|spalni)`),
+    s(`${NEG}${WS}${SUBJ}${WS}(?:се|se)${WS}${DEG}(?:битни|важни|bitni|vazhni|vazni)${WS}(?:спални|соби|sobni|spalni)`),
     // “не ми требаат спални“ / “не ми требаат соби“
     s(`${NEG}${WS}${SUBJ}${WS}(?:требаат|треба|trebaat|treba)${WS}(?:спални|соби|spalni|sobni)`),
     // “goleminata ne mi e bitna“ (Latin)

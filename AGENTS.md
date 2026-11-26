@@ -3006,6 +3006,72 @@ Two rules came out of it, both class-level:
   contradiction lane (`detectStockContradiction`). A гарсоњера ask is a STUDIO
   answer (`isSmallUnit`), never a двособен.
 
+### A RELEASED CRITERION LEAVES ITS SLOT — and a money objection is answered where it lands
+
+The 2026-11-26 live V16K11 replay (the real chat, turn by turn, against the
+shipped build) found four more members of the §4c family. All are pinned:
+
+- **THE WAIVER KNOWS THE DEGREE ADVERB.** «spalnite ne se **tolku** bitni» is a
+  size waiver — the client had answered «dvosoben» and then released the rooms.
+  `buildSizeWaivedSlots` knew «nebitni se spalnite» / «spalnite ne se bitni» but
+  not one adverb («толку/многу/повеќе/посебо/превише/баш»), so nothing was
+  recorded, and the funnel asked for bedrooms again. The plural adjectives
+  («vazni», «bitni») are entries of their own — the singular-only list missed
+  every noun-in-plural sentence.
+- **A WAIVER IS NOT A «SHOW ME».** The same words sat in `SEE_OFFERS_RE`, and
+  that lane's `!detectSeeOffers` veto then blocked the new-criteria path, so the
+  release fell through to the exhausted line. The waiver family owns those
+  words; the show-me lane does not.
+- **THE RELEASE MUST CLEAR THE STORED CRITERION.** Arming `sizeWaived` while
+  `slots.bedrooms` stayed 2 kept the pool filtered on the very criterion the
+  client dropped (the same single house, then «ги исцрпивме»). The arming turn
+  clears `bedrooms`/ranges and the ladder key — only when the same message did
+  not name a size again, and only on the turn that ARMS it (a ladder walk like
+  «DRUGO» must never clear it).
+- **A MONEY OBJECTION MID-FUNNEL IS ANSWERED, NOT PIVOTED.** «ne sakam da
+  plakjam za otvaranje na stan» in DISCOVERY was classified REJECTED and
+  answered «Кажете ми што барате — куќа, деловен простор или нешто друго?».
+  The order is the [09:0x] contract: until the fee was DISCLOSED the client is
+  owed the explanation (`fee.why`, no rung, funnel keeps its state) —
+  `midFunnelFeeObjection` in both the fast and the FSM leg; the ladder owns
+  every nag after that. A REQUEST is never a denial: «moze i drugi opcii» is a
+  more-options ask (`OTHER_OPTION_NOUN_RE`) and never a direction pivot.
+- **WHO PAYS THE AGENCY IS ITS OWN ANSWER.** «kako nemam provizija? koj ve
+  plakja vas?» was answered with the buyer's lawyer/notary/tax list — the one
+  thing he did not ask. `detectProvisionAgencyWho` + `provisionWhoKey` (ONE
+  resolver for the three sites that used to carry their own ternary) serve
+  `provision.who.agency.buy/.rent/.both`: the owner pays on a sale (buyer 0%),
+  the tenant pays the rent commission (50% under 1.000 €, one month at 1.000 €+,
+  the only sanctioned figures). The lawyer/notary/tax questions keep
+  `provision.who.buy/.rent/.danok.buy`.
+- **«A KADE IMA?» IS THE SHORT «ВО КОЈА НАСЕЛБА ИМА?».** After the exhausted
+  line the client asks WHERE there is stock; only the long shape matched
+  `detectWhichAreaHas`, so the short one repeated the dead end. `WHERE_HAS_RE`
+  (end-anchored — «kade ima park?» names something else and stays out) owns it,
+  and the [19:46] lane answers with the areas that hold the stock.
+- **A BATCH ON THE TABLE IS NEVER AN EMPTY SYSTEM.** A size-waived search
+  carries no room tier, so `servedTierHere/servedEver` read «nothing of this
+  category was ever shown» and the turn said «Моментално во системот нема
+  станови до 300 евра во Центар» with two Центар cards on the screen. A flat
+  card carries a room count, so any tier served means flats were served;
+  `systemHoldsNothing` is the ONE reader for both call sites.
+
+- **THE OWNER'S INTERNAL NOTE NEVER REACHES THE CLIENT.** An ad description
+  carried «35.000 чисти бара 2%» and the card read it out verbatim
+  («Во описот е наведено: …»). `OWNER_NOTE_RE` in `conversationalDetails` drops
+  those sentences (amount + «чисти», «бара N%», «N% провизија», the announcing
+  meta clause) and keeps the property's real facts beside them.
+
+- **THE TRANSCRIPT OUTLIVES THE SESSION.** `sessions` is ONE row per chat and
+  the idle sweeper deletes it — a restart left the live conversation
+  unreviewable (the operator could not be shown the chat they asked for). Every
+  turn is now appended to `chat_log` from `closeTurn` (the same audit `sendRaw`
+  feeds: the text actually sent), 120-day retention,
+  `npx tsx scripts/chat-dump.ts <chatId>` prints it. Tests:
+  `tests/chat-transcript.test.ts`, `tests/size-waiver-release.test.ts`,
+  `tests/owner-note-leak.test.ts`, and the added cases in
+  `tests/capture-1946-which-area.test.ts` / `tests/fee-serve-routing.test.ts`.
+
 ### A place claim is grounded in the row, never in the model
 
 A reply may name a landmark only if the property row carries it. The responder

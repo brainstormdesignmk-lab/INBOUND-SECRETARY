@@ -2145,6 +2145,33 @@ const NOT_PREV = `(?<![${CYR}])`;
 const NOT_NEXT = `(?![${CYR}])`;
 
 // Whole-sentence ad copy that never survives into the chat.
+/** THE OWNER'S INTERNAL NOTE — an ad's description is written for the AGENT,
+ *  so it can carry the owner's own negotiation terms. The V16K11 [10:58]
+ *  capture read one out to a rent client verbatim:
+ *
+ *    «… Има површина од 240 м². Цената е 40.000 евра. Во описот е наведено:
+ *     35. 000 чисти бара 2%.»
+ *
+ *  «35.000 чисти» is what the owner wants NET, and «бара 2%» is his own
+ *  commission ask — neither is a fact about the property, and both are
+ *  negotiating ground the client must never be handed. The filter is
+ *  sentence-level (the same split conversationalDetails already uses) so the
+ *  real facts beside the note survive. Deliberately narrow: an amount followed
+ *  by «чисти», a «бара N%» ask, and a «N% провизија» rate are the owner-note
+ *  shapes; any other sentence mentioning a commission («без провизија» is
+ *  already dropped as agency copy above) is untouched.
+ */
+const OWNER_NOTE_RE: RegExp[] = [
+  /(?<![\p{L}\p{N}])\d[\d.,\s]{2,}(?:чисти|cisti)(?![\p{L}])/iu,   // «35.000 чисти»
+  /(?<![\p{L}])(?:чисти|cisti)\s+(?:бара|bara)(?![\p{L}])/iu,        // «чисти бара 2%»
+  /(?<![\p{L}])(?:бара|bara)\s*\d{1,2}\s*(?:%|процент|procent)/iu,  // «бара 2%»
+  /(?<![\p{L}\p{N}])\d{1,2}\s*%\s*(?:провизи|provizij)/iu,          // «2% провизија»
+  // The meta clause that announces the note («Во описот е наведено: …»): the
+  // sentence splitter cuts it at the amount's own dot, so without this the
+  // card would keep «Во описот е наведено: 35» as a dangling fragment.
+  /(?<![\p{L}])(?:во|vo)\s+описот\s+(?:е\s+)?(?:наведено|navedeno|пишува|pishuva)/iu,
+];
+
 const AD_COPY_RE: RegExp[] = [
   /агенц(иј|иj)а.*?(?:продава|издава|нуди|метрополис)/i,  // "Агенција МЕТРОПОЛИС Продава…"
   /(?:ексклузивно|единствено)\s+(?:преку|кај)/i,          // "Ексклузивно Преку МЕТРОПОЛИС" / "Единствено преку МЕТРОПОЛИС"
@@ -2261,6 +2288,9 @@ export function conversationalDetails(p: Property): string | undefined {
     sent = sent.replace(/^[-–•*\s]+/, '').trim();
     if (!sent) continue;
     if (AD_COPY_RE.some(re => re.test(sent))) continue;
+    // The owner's own terms (see OWNER_NOTE_RE) are for the agent, never for
+    // the client's card.
+    if (OWNER_NOTE_RE.some(re => re.test(sent))) continue;
     // A dangling "Цена." fragment from the ad author — nothing after it.
     if (/^цена(?:та|та е)?[.!]?$/i.test(sent)) continue;
     // The sell opener is implied — keep only the facts after it. Also strips a

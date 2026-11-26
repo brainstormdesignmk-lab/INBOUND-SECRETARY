@@ -47,7 +47,7 @@ import {
   detectProvisionResistance, detectProvisionWho,
 } from '../src/llm/deterministic';
 import { buildFeeAsk, feePersuasion, buildFeeRules, BYE_GRACEFUL, BYE_AGAIN, SOFT_REFUSAL_CLOSE, VISIT_CONFIRM_ASK,
-  provisionLadder, buildProvisionAsk } from '../src/llm/prompts';
+  provisionLadder, buildProvisionAsk, DIRECTION_PIVOT_LINE } from '../src/llm/prompts';
 
 setLearnedBank({
   variants: () => [],
@@ -1333,4 +1333,119 @@ test('e2e [08:58]: an accusation followed by an insult is still rung 1, and DOGO
   assert.ok(/име|телефон/iu.test(closeReply), `the name+phone ask must run, got: ${closeReply.slice(0, 160)}`);
   assert.doesNotMatch(closeReply, /верувам|одлична можност|размислите/iu,
     `another persuasion round was served instead of the contact ask: ${closeReply.slice(0, 160)}`);
+});
+
+// ── THE MID-FUNNEL MONEY TURN (the V16K11 05:26 / 05:34 replay) ─────────────
+//
+//   [05:25] klient: sakam da iznajmam stan vo centar
+//   [05:25] LINA:   1. Колку спални соби…? 2. Која е горната граница…?
+//   [05:26] klient: ne sakam da plakjam za otvaranje na stan      ← the visit fee
+//   [05:26] LINA:   «Кажете ми што барате — куќа, деловен простор или нешто
+//                    друго?»                                      ← a type question
+//   [05:34] klient: moze i drugi opcii                             ← wants options
+//   [05:34] LINA:   the same type question                        ← a direction pivot
+
+test('[V16K11 05:26] a fee refusal in DISCOVERY serves the fee rung, never a type question', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'midfunnel-fee-nag';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('zdravo');
+  const mid = await send('sakam da iznajmam stan vo centar');
+  assert.equal(mid.state, 'discovery');
+  assert.equal(mid.slots.service, 'rent');
+
+  const reply = sent[sent.length - 1] ?? '';
+  const after = await send('ne sakam da plakjam za otvaranje na stan');
+  const answer = sent[sent.length - 1] ?? '';
+
+  // The objection is FEE traffic in every state — and the ORDER is the [09:0x]
+  // contract: the fee was never quoted yet, so the client gets the EXPLANATION
+  // (no rung, funnel keeps its state), never the type pivot and never a
+  // bedroom question.
+  assert.notEqual(answer, DIRECTION_PIVOT_LINE, `never the direction pivot: ${answer}`);
+  assert.doesNotMatch(answer, /што барате/iu, `never a type question: ${answer}`);
+  assert.doesNotMatch(answer, /колку спални/iu, `never the room re-ask: ${answer}`);
+  // The bank rotates the wording and its gender («симболичен/симболична»);
+  // the contract is the reasons/filter framing, not one inflection.
+  assert.match(answer, /филтер|симболичн/iu, `the reasons for the fee: ${answer}`);
+  assert.doesNotMatch(answer, /500\s*денар/u, `never the buy script at a rent client: ${answer}`);
+  assert.ok((after.slots.feeRejections ?? 0) === 0,
+    'the disclosure turn burns no rung — the ladder starts after the fee is on the table');
+  assert.ok((after.slots.provisionRejections ?? 0) === 0,
+    'the commission counter is untouched — the isolation contract');
+  assert.equal(after.slots.service, 'rent', 'the market he named survives the objection');
+  // The funnel is mid-discovery: the criteria stay on file.
+  assert.ok(/Центар|Цент(ар)?/u.test(String(after.slots.location ?? '')),
+    `the area he named survives: ${JSON.stringify(after.slots.location)}`);
+  assert.ok(reply.length > 0);
+});
+
+test('[V16K11 05:34] «moze i drugi opcii» asks for options — it is never a direction pivot', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'midfunnel-more-options';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('zdravo');
+  await send('sakam da iznajmam stan vo centar do 300 evra');
+  const after = await send('moze i drugi opcii');
+  const answer = sent[sent.length - 1] ?? '';
+
+  assert.notEqual(answer, DIRECTION_PIVOT_LINE, `never the direction pivot: ${answer}`);
+  assert.doesNotMatch(answer, /што барате/iu,
+    `he already told us what he wants: ${answer}`);
+  assert.equal(after.slots.service, 'rent', 'the market survives');
+  assert.equal(after.state, 'discovery', `the funnel keeps its state: ${after.state}`);
+});
+
+// ── WHO PAYS THE AGENCY (the V16K11 [09:16] turn) ───────────────────────────
+//
+//   klient: kako nemam provizija? koj ve plakja vas?
+//   LINA:   «сите обврски за адвокат, нотар и данок ги покрива самиот купувач»
+//                       ← the client's closing costs, to a question about OUR
+//                         revenue. provision.who.buy answers the notary/tax
+//                         question; the agency's own money needs its own copy.
+
+test('[V16K11 09:16] «koj ve plakja vas?» is answered with who pays the AGENCY', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'agency-who-buy';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('zdravo');
+  await send('mi treba stan za kupuvanje do 80000 evra');
+  await send('kako nemam provizija? koj ve plakja vas?');
+  const answer = sent[sent.length - 1] ?? '';
+
+  assert.match(answer, /сопственик/u, `the owner is who pays us: ${answer}`);
+  assert.match(answer, /0\s*%/u, `the buyer's 0% is stated: ${answer}`);
+  assert.doesNotMatch(answer, /адвокат, нотар и данок (?:ги )?покрива|обврска на купувачот/iu,
+    `never the closing-costs answer: ${answer}`);
+});
+
+test('the lawyer/notary/tax question keeps its own who-pays copy', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'agency-who-notary';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('zdravo');
+  await send('mi treba stan za kupuvanje do 80000 evra');
+  await send('koj gi plaka advokatot i notarot?');
+  const answer = sent[sent.length - 1] ?? '';
+  assert.match(answer, /адвокат|нотар/iu, `the cost question is answered as such: ${answer}`);
+  assert.doesNotMatch(answer, /50\s*%\s*од една кирија/u, `not the rent commission: ${answer}`);
+});
+
+test('[V16K11 09:16] a RENT client asking who pays gets the rent commission rule', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'agency-who-rent';
+  const send = async (m: string) => { await handler.handle('test', chatId, m); return sessions.get(chatId)!; };
+
+  await send('zdravo');
+  await send('sakam da iznajmam stan vo centar');
+  await send('koj ja plaka provizijata?');
+  const answer = sent[sent.length - 1] ?? '';
+  assert.match(answer, /50\s*%/u, `the sanctioned tier figure: ${answer}`);
+  assert.match(answer, /1\.000/u, `the sanctioned threshold: ${answer}`);
+  // Either word for the tenant is the contract; the bank rotates its wording.
+  assert.match(answer, /изнајмувач|закупник/iu, `the tenant pays it: ${answer}`);
 });

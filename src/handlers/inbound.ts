@@ -1,5 +1,6 @@
 import { AppConfig } from '../config';
 import { Db } from '../store/db';
+import { ChatLogStore } from '../store/chatLog';
 import { decideCapture } from '../store/capture';
 import {
   ChatSession, SessionStore, freshSession, isExpired, resetToIdle, SlotData,
@@ -19,7 +20,7 @@ import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAd
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectVisitDayChoice, detectPluralPropertyAsk, detectPostBookingAck, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
   detectPairReferent, detectIdentifyByFigure, detectOtherFlatAsk, detectPluralFlatAsk,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectForgotNumber, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude,  detectStockContradiction, detectStockAbsenceAsk, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionAgencyWho, detectNegatedFeePay, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectForgotNumber, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude,  detectStockContradiction, detectStockAbsenceAsk, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectPublishedListingAsk, detectAcquisitionWish, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -1409,7 +1410,15 @@ function servedTierHere(slots: ChatSession['slots'], rooms: number[] | undefined
   if (rooms === undefined) {
     const kind = slots.business ? 'business' : slots.plac ? 'plac'
       : slots.house ? 'house' : slots.garsonjera ? 'garsonjera' : undefined;
-    return kind !== undefined && (slots.categoriesServedKinds ?? []).includes(kind);
+    if (kind !== undefined) return (slots.categoriesServedKinds ?? []).includes(kind);
+    // A SIZE-WAIVED FLAT SEARCH HAS NO TIER, YET IT SPEAKS ABOUT «станови»
+    // (the V16K11 06:31 turn): «rooms === undefined» used to mean «nothing of
+    // this category was ever shown», so a waived search could declare
+    // «Моментално во системот нема станови до 300 евра» with two Центар cards
+    // on the screen. A flat card carries a room count, so ANY tier served in
+    // this geography was a flat served in this geography.
+    if (slots.flat || slots.sizeWaived) return (slots.categoriesServed ?? []).length > 0;
+    return false;
   }
   return rooms.some(r => (slots.categoriesServed ?? []).includes(r));
 }
@@ -1425,7 +1434,10 @@ function servedEver(slots: ChatSession['slots'], rooms: number[] | undefined): b
   if (rooms === undefined) {
     const kind = slots.business ? 'business' : slots.plac ? 'plac'
       : slots.house ? 'house' : slots.garsonjera ? 'garsonjera' : undefined;
-    return kind !== undefined && (slots.categoriesEverKinds ?? []).includes(kind);
+    if (kind !== undefined) return (slots.categoriesEverKinds ?? []).includes(kind);
+    // Same reading of the system notebook for a tiermless flat search.
+    if (slots.flat || slots.sizeWaived) return (slots.categoriesEver ?? []).length > 0;
+    return false;
   }
   return rooms.some(r => (slots.categoriesEver ?? []).includes(r));
 }
@@ -1510,6 +1522,48 @@ function noStockWhere(slots: ChatSession['slots']): string {
   if (named) return ` ${locPrep(named)} ${named}`;
   if (slots.poiAnchor) return ` во близина на ${slots.poiAnchor}`;
   return '';
+}
+
+/** A FEE OBJECTION ARRIVING BEFORE THE FEE WAS EVER QUOTED (the V16K11 05:26
+ *  replay). Mid-discovery the client said «ne sakam da plakjam za otvaranje na
+ *  stan»: the detector knew it was fee traffic, but the nag ladder is a
+ *  closing/presentation lane, so the turn asked for bedrooms instead. The
+ *  [09:0x] contract is the ORDER of the two answers — until the fee has been
+ *  disclosed (or a rung burned) the client is owed the EXPLANATION, no rung,
+ *  and the funnel keeps its state; the ladder owns every nag after that. The
+ *  commission objection keeps its own ladder (isolation contract). */
+function midFunnelFeeObjection(session: ChatSession, text: string): boolean {
+  if (!detectFeeNag(text) || detectProvisionResistance(text) || detectFeePaymentAgreement(text)) return false;
+  // A FEE OBJECTION NAMES THE CHARGE (the [02:17] Водно capture): «VIE IMAVTE
+  // EDEN STAN TAMU, NE ZNAM KOJ BROJ BESE» is a hesitation about a PROPERTY's
+  // number, yet the nag family reads any «ne znam» as fee hesitation — and with
+  // this lane it was answered with the fee's rationale instead of the flat he
+  // was describing. Before the fee has been quoted a client cannot resist it;
+  // he can only ASK about it, so the explanation is owed to a message that
+  // negates PAYING (or pushes back on the charge), never to a bare «не знам»
+  // about something else.
+  if (!detectNegatedFeePay(text) && !detectFeeChargePushback(text)) return false;
+  if (!['discovery', 'intent', 'idle', 'property_query'].includes(session.state)) return false;
+  return !(session.slots.feeDisclosed || (session.slots.feeRejections ?? 0) > 0);
+}
+
+/** THE SYSTEM-CLAIM TRUTH SWITCH — may this turn speak about the SYSTEM
+ *  («Моментално во системот нема …»), or is the honest sentence its own
+ *  drained stock («Ги исцрпивме …»)?
+ *
+ *  Three notebooks must ALL be empty: nothing shown in this search
+ *  (`presentedIds`), nothing of this tier/type shown in this geography
+ *  (`servedTierHere`), nothing of it shown anywhere in the chat (`servedEver`).
+ *  Every call site reads this ONE function — the V16K11 06:31 turn went out as
+ *  «Моментално во системот нема станови до 300 евра месечно во Центар» with
+ *  EB 76 (200 €, Центар) and EB 50 (300 €, Центар) on the screen, because one
+ *  site checked the tier notebooks and a size-waived search carries no tier
+ *  (`rooms === undefined` → both false). A batch on the table is never an
+ *  empty system.
+ */
+function systemHoldsNothing(slots: ChatSession['slots']): boolean {
+  const rooms = requestedRooms(slots);
+  return !servedTierHere(slots, rooms) && !servedEver(slots, rooms);
 }
 
 /**
@@ -5658,6 +5712,12 @@ export class InboundHandler {
     await this.sendRaw(session, FEED_UNAVAILABLE_LINE, 'deterministic:outage');
   }
 
+  /** The transcript store, created on first use (one table, one index). */
+  private chatLogStore?: ChatLogStore;
+  private chatLog(): ChatLogStore {
+    return (this.chatLogStore ??= new ChatLogStore(this.deps.db));
+  }
+
   /** Finish the record: end state, the property the session points at, and one
    *  operator line. `lastTurn` rides the next `sessions.set()` (sendRaw always
    *  writes one) and survives restarts, so the NEXT turn can explain the answer
@@ -5680,6 +5740,21 @@ export class InboundHandler {
       // A ring of three had already forgotten the sentence being apologised for.
       session.recentTurns = [...(session.recentTurns ?? []), stored].slice(-5);
       this.deps.sessions.set(session);
+      // THE TRANSCRIPT OUTLIVES THE SESSION (the V16K11 incident): `sessions` is
+      // one row per chat and the sweeper deletes it, so a restart left the live
+      // conversation unreviewable. This append is the durable record — the same
+      // audit object, written once per turn at the ONE turn-end seam.
+      this.chatLog().append({
+        chatId: audit.chatId,
+        at: audit.at,
+        stateBefore: audit.stateBefore,
+        stateAfter: audit.stateAfter,
+        source: audit.source,
+        bankKey: audit.bankKey,
+        lanes: audit.lanes,
+        userText: audit.text,
+        replyText: audit.replies.join('\n—\n'),
+      });
     } catch { /* advisory: the record must never break a turn */ }
     console.log(`[turn] ${audit.chatId} ${audit.stateBefore}→${audit.stateAfter}`
       + ` lanes=${audit.lanes.join(',') || '-'} target=${audit.targetEb ?? '-'}`
@@ -13003,6 +13078,27 @@ export class InboundHandler {
         await this.sendRaw(session, reply, 'deterministic:fast');
         return;
       }
+      // A FEE OBJECTION BEFORE THE FEE WAS EVER QUOTED IS ANSWERED, NOT ASKED
+      // (the V16K11 05:26 replay): «ne sakam da plakjam za otvaranje na stan»
+      // arrived in DISCOVERY, the detector said fee traffic, the ladder is a
+      // closing/presentation lane, and the turn went on to ask for bedrooms —
+      // a money objection answered with a room count. The [09:0x] contract is
+      // the order of the two answers: until the fee has been DISCLOSED (or a
+      // rung burned) the client is owed the EXPLANATION (fee.why, no rung, the
+      // funnel keeps its state); the ladder owns every nag after that. The
+      // commission objection keeps its own lane and is vetoed here.
+      if (midFunnelFeeObjection(session, text)) {
+        reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
+        bankKey = 'fee.why';
+        routeLog(chatId, text, 'FEE_NAG_MIDFUNNEL:fast');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: reply }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic') && bankKey) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'FEE_NAG_MIDFUNNEL_FAST', userMsg: text, replyText: reply, replySource: 'deterministic', bankKey }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-deterministic) state=${session.state} src=deterministic bank=${bankKey}`);
+        await this.sendRaw(session, reply, 'deterministic:fast');
+        return;
+      }
       // A YES IS NEVER A WHY (the [19:34] capture): «STOM TAKA RABOTITE
       // DOGOVORI TOA E TOA» — the client concedes the practice and orders the
       // arrangement — carries a why-family word and was served a FOURTH
@@ -13440,14 +13536,7 @@ export class InboundHandler {
       if (effectiveKey === 'provision.ask') {
         effectiveKey = provisionKeyFor(session.slots.service);
       } else if (effectiveKey === 'provision.who') {
-        const isDanok = /danok|danokot|данок|данокот/i.test(text);
-        if (isDanok && session.slots.service !== 'rent') {
-          effectiveKey = 'provision.who.danok.buy';
-        } else {
-          effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent'
-            : session.slots.service === 'buy' ? 'provision.who.buy'
-            : PROVISION_ASK_NEITHER;
-        }
+        effectiveKey = provisionWhoKey(session.slots, text);
       }
       const pickedFast = pickVariant(effectiveKey, { recent: assistantTexts(session) });
       if (pickedFast) {
@@ -16055,12 +16144,7 @@ export class InboundHandler {
         if (effectiveKey === 'provision.ask') {
           effectiveKey = provisionKeyFor(session.slots.service);
         } else if (effectiveKey === 'provision.who') {
-          const isDanok = /danok|danokot|данок|данокот/i.test(text);
-          if (isDanok && session.slots.service !== 'rent') {
-            effectiveKey = 'provision.who.danok.buy';
-          } else {
-            effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
-          }
+          effectiveKey = provisionWhoKey(session.slots, text);
         }
         const picked = pickVariant(effectiveKey, { recent: assistantTexts(session) });
         const n = session.slots.contactAsks ?? 0;
@@ -16530,7 +16614,15 @@ ${contactReminder}`;
         bankKey = service === 'rent' ? 'fee.ask.rent' : 'fee.ask.buy';
       }
 
-    } else if ((next === 'closing' || session.state === 'closing' || before === 'closing')
+    } else if ((next === 'closing' || session.state === 'closing' || before === 'closing'
+        // …AND MID-FUNNEL (the V16K11 05:26 replay): the client refused the
+        // rent commission while the funnel was still in discovery
+        // («ne sakam da plakjam za otvaranje na stan»), the leg was gated to
+        // closing, and the REJECTED pivot below asked him what type he wants —
+        // the commission question answered with a type question while his
+        // rent/flat/Центар criteria sat in the slots. The commission is his
+        // objection wherever it arrives; the ladder is the same.
+        || before === 'discovery' || before === 'presentation' || before === 'intent')
         && detectProvisionResistance(text)) {
       // PROVISION ladder — the FSM-leg mirror of the fast lane. It sits BEFORE
       // every fee leg for two reasons: the commission has its OWN rungs (a
@@ -16683,7 +16775,22 @@ ${contactReminder}`;
       // burned; the funnel stays at the fee question.
       reply = pickVariant('fee.rule.hold', { recent: assistantTexts(session) }) ?? buildFeeRule();
       bankKey = 'fee.rule.hold';
-    } else if (ev.type === 'REJECTED' && ['idle', 'intent', 'discovery'].includes(before)) {
+    } else if (midFunnelFeeObjection(session, text)) {
+      // THE FSM LEG of the same rule (see midFunnelFeeObjection). It has to run
+      // BEFORE the REJECTED pivot: the classifier reads a money objection as a
+      // denial of the direction, and the pivot would ask the client what he
+      // wants while his rent/flat/area criteria sit in the slots.
+      reply = pickVariant('fee.why', { recent: assistantTexts(session) }) ?? buildFeeWhy();
+      bankKey = 'fee.why';
+    } else if (ev.type === 'REJECTED' && ['idle', 'intent', 'discovery'].includes(before)
+        // A PIVOT IS FOR A DENIAL, NOT FOR A REQUEST (the V16K11 05:34 replay):
+        // «moze i drugi opcii» was classified REJECTED and answered with
+        // «Кажете ми што барате — куќа, деловен простор или нешто друго?» —
+        // the client had just asked for MORE OPTIONS of the rent-flat-Центар
+        // search he had already spelled out. Only a denial that names no
+        // escorting ask may pivot; every concrete ask keeps its own lane.
+        && !detectMoreOptions(text) && !detectMoreStockRequest(text)
+        && !detectProvisionResistance(text) && !detectFeeNag(text)) {
       // The client denies the current direction ("не барам стан", "нешто
       // друго") before anything was shown — pivot to what they DO want
       // instead of re-asking the same discovery question.
@@ -17287,8 +17394,7 @@ ${contactReminder}`;
         // notebook already knows this geography has served the category, and
         // THAT is the turn's truth: «сѐ што имавме … е веќе прикажано».
         const servedHere = servedTierHere(session.slots, rooms) || servedEver(session.slots, rooms);
-        const noStock = noStockLine(session.slots,
-          !servedTierHere(session.slots, rooms) && !servedEver(session.slots, rooms));
+        const noStock = noStockLine(session.slots, systemHoldsNothing(session.slots));
         const drainedLine = exhaustedLine(session.slots.location, assistantTexts(session), this.searchPlaceLabel(session))
           ?? NO_MORE_ALTERNATIVES_LINE(session.slots.location);
         const emptyLine = noMatchLine(session.slots.location ?? ev.location, assistantTexts(session), this.searchPlaceLabel(session))
@@ -17759,14 +17865,11 @@ ${contactReminder}`;
           // евра» with the pair still on the screen. The notebook knows the
           // difference — cards of this search have been shown, so the honest
           // sentence is the drained one, never a claim about the system.
-          const rooms = requestedRooms(session.slots);
           const shownHere = (session.slots.presentedIds?.length ?? 0) > 0;
-          // The system claim needs BOTH notebooks empty (see servedEver):
-          // `rooms === undefined` is a statement about the TIER, not about the
-          // system, and a retire-on-area-change must not reopen the claim.
-          const noStock = noStockLine(session.slots,
-            !shownHere && !servedTierHere(session.slots, rooms)
-            && !servedEver(session.slots, rooms));
+          // The system claim needs all three notebooks empty — ONE reader
+          // (systemHoldsNothing), so this site and the drained lane can never
+          // drift apart again.
+          const noStock = noStockLine(session.slots, systemHoldsNothing(session.slots));
           reply = !this.deps.properties.healthy
             ? FEED_UNAVAILABLE_LINE
             : (session.slots.propertyId != null
@@ -18071,13 +18174,7 @@ ${contactReminder}`;
         if (effectiveKey === 'provision.ask') {
           effectiveKey = provisionKeyFor(session.slots.service);
         } else if (effectiveKey === 'provision.who') {
-          // Danok-specific question: buyer pays tax to Grad Skopje
-          const isDanok = /danok|danokot|данок|данокот/i.test(text);
-          if (isDanok && session.slots.service !== 'rent') {
-            effectiveKey = 'provision.who.danok.buy';
-          } else {
-            effectiveKey = session.slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
-          }
+          effectiveKey = provisionWhoKey(session.slots, text);
         }
         const picked = pickVariant(effectiveKey, { recent: assistantTexts(session) });
         if (picked) {
@@ -21075,6 +21172,9 @@ ${contactReminder}`;
     // message it is not an answer to anything — that is why the rule reads the
     // question actually asked (askedCriteria) instead of the words alone.
     if (askedArea && !askedBedrooms && namesOnlyTheCity(rawText)) session.slots.anywhere = true;
+    /** The size waiver was ARMED BY THIS TURN (see the released-criterion block
+     *  below): the slot clearing rides on the arming turn only. */
+    let waiverArmedNow = false;
     const bareDismissal = detectBareCriterionDismissal(rawText);
     if (ev.anywhere && bareDismissal) {
       // «НЕБИТНО» AFTER A BATCH IS NOT AN AREA RELEASE (the [23:51] capture):
@@ -21084,11 +21184,38 @@ ${contactReminder}`;
       // «најблиските опции до Универзална Сала» and a Карпош card rode it.
       // The area is released only when the AREA was the question.
       if (askedArea && !askedBedrooms) session.slots.anywhere = true;
-      else session.slots.sizeWaived = true;
+      else { session.slots.sizeWaived = true; waiverArmedNow = true; }
     } else if (ev.anywhere) {
       session.slots.anywhere = true;
     }
-    if (ev.sizeWaived) session.slots.sizeWaived = true;
+    if (ev.sizeWaived) { session.slots.sizeWaived = true; waiverArmedNow = true; }
+    // A RELEASED CRITERION MUST LEAVE ITS SLOT (the V16K11 06:25 turn, §4c):
+    // the client had answered «dvosoben» earlier, then released the rooms —
+    // «spalnite ne se tolku bitni». sizeWaived was armed but slots.bedrooms
+    // stayed 2, so the pool kept filtering on the criterion he had just
+    // dropped, found the same single house and read as "area exhausted". The
+    // waiver only clears what the client did NOT restate: a message that names
+    // a size again («nebitno, ama dve spalni») keeps it — and it clears only on
+    // the turn that ARMS the waiver, never on every later message of a waived
+    // search (the ladder walk «DRUGO» owns those turns).
+    if (waiverArmedNow
+      // «BILO KOLKU» IS THE MONEY WAIVER, not a release of the rooms (the
+      // [04:14] capture: a two-bedroom search answered «BILO KOLKU» to the
+      // PRICE ask and the room count must stay 3). The generic any-number word
+      // arms the size slot too; only a message that does not waive the MONEY
+      // may clear the stored size.
+      && !detectBudgetWaived(rawText)
+      && ev.bedrooms === undefined && ev.bedroomsMin === undefined
+      && ev.bedroomsMax === undefined && !ev.sqm) {
+      session.slots.bedrooms = undefined;
+      session.slots.bedroomsMin = undefined;
+      session.slots.bedroomsMax = undefined;
+      // The ladder was keyed on the released count («…|b2|…»): rebuilding it
+      // from the relaxed criteria is what lets the next pass offer the flats
+      // the bedroom filter had excluded.
+      session.slots.ladderKey = undefined;
+      session.slots.ladderQueue = [];
+    }
     // THE MONEY WAIVER (see detectBudgetWaived): «BILO KOLKU» releases the
     // price, a real figure takes the release back.
     if (detectBudgetWaived(rawText)) session.slots.budgetWaived = true;
@@ -22602,4 +22729,24 @@ function provisionKeyFor(service: Service | undefined): string {
   return service === 'rent' ? 'provision.ask.rent'
     : service === 'buy' ? 'provision.ask.buy'
     : 'provision.ask.neither';
+}
+
+/** WHICH who-pays ANSWER this turn needs — ONE reader for every site that
+ *  resolves the provision.who bank key (the fast lane, the contact-collection
+ *  lane and the FSM lane each carried their own copy of this ternary, and all
+ *  three answered «koj ve plakja vas?» with the buyer's lawyer/notary/tax list).
+ *  The order:
+ *    • the AGENCY's own revenue («koj ve plakja vas», «kako nemate provizija»,
+ *      «koj ja plaka provizijata») → provision.who.agency.<service>;
+ *    • the tax question (buy) → danok.buy;
+ *    • otherwise the lawyer/notary cost list for the declared service. */
+function provisionWhoKey(slots: ChatSession['slots'], text: string): string {
+  if (detectProvisionAgencyWho(text)) {
+    return slots.service === 'rent' ? 'provision.who.agency.rent'
+      : slots.service === 'buy' ? 'provision.who.agency.buy'
+      : 'provision.who.agency.both';
+  }
+  const isDanok = /danok|danokot|данок|данокот/i.test(text);
+  if (isDanok && slots.service !== 'rent') return 'provision.who.danok.buy';
+  return slots.service === 'rent' ? 'provision.who.rent' : 'provision.who.buy';
 }

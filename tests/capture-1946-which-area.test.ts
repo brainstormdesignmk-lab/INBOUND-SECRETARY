@@ -135,6 +135,27 @@ test('[19:46] the which-area-have family fires in every word order, raw and Lati
   }
 });
 
+test('[V16K11 06:31] the SHORT «a kade ima?» is the same area-availability ask', () => {
+  // The exhausted line had just offered «во друга населба»; the client answered
+  // with the short form of the [19:46] question and the funnel repeated its
+  // dead end. Same class, shorter phrasing — it must own the same lane.
+  for (const text of [
+    'a kade ima?', 'kade ima?', 'КАДЕ ИМА?', 'kade ima', 'gde ima?',
+    'a kaj ima?', 'a kade ima uste?', 'kade ima stanovi?', 'КАДЕ ИМА НЕШТО ?',
+  ]) {
+    assert.equal(detectWhichAreaHas(text), true, `the stock probe: ${text}`);
+    assert.equal(detectAreaHaveAsk(text), true, `an area-availability probe: ${text}`);
+  }
+  // …while a question about a PLACE keeps its own lane: the end anchor is the
+  // guard, so anything the client names after «каде има» is not stock talk.
+  for (const text of [
+    'kade ima park?', 'каде има аптека?', 'kade ima TC Leptokarija?',
+    'kade e stanot?', 'kade se naogja EB 88?',
+  ]) {
+    assert.equal(detectWhichAreaHas(text), false, `not the stock probe: ${text}`);
+  }
+});
+
 test('a genuine place-neighbourhood ask keeps its lane', () => {
   for (const text of [
     'ВО КОЈА НАСЕЛБА Е ТЦ ЛЕПТОКАРИЈА?',
@@ -173,6 +194,59 @@ test('a grammar word never resolves to a POI, a real name still does', () => {
 });
 
 // ── 3. THE TURN ──────────────────────────────────────────────────────────────
+
+test('[V16K11 06:31] «a kade ima?» after a drained area answers with the areas that hold stock', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'where-has';
+  const s = freshSession('test', chatId);
+  s.state = 'presentation';
+  // The live notebook: a size-waived rent search in Центар — no room tier at
+  // all — with the Центар card already on the screen.
+  s.slots = {
+    service: 'rent', budget: '350', location: 'Центар (населба)', sizeWaived: true,
+    presentedIds: [53], currentBatch: [53], categoriesServedGeo: 'Центар (населба)|',
+  };
+  s.history = [
+    { role: 'user', text: 'mi treba stan pod kirija / centar' },
+    { role: 'assistant', text: 'Станот под Евидентен број 53 е двособен стан во Центар. Цената е 350 евра месечно.' },
+  ];
+  sessions.set(s);
+
+  await handler.handle('test', chatId, 'a kade ima?');
+  const reply = sent.at(-1) ?? '';
+  const opener = reply.split('\n')[0] ?? '';
+  // THE LIVE DEFECT: the turn claimed «Моментално во системот нема станови до
+  // 300 евра месечно во Центар» while the card it had just served sat above.
+  assert.ok(!/во системот нема/iu.test(reply),
+    `a batch on the table is never an empty system: ${reply}`);
+  // AND IT ANSWERS THE QUESTION: the areas that DO hold it, then the cards.
+  assert.match(reply, /Евидентен број 51/u, `the Шуто Оризари flat serves: ${reply}`);
+  assert.match(opener, /Шуто Оризари/u, `the opener names the area: ${opener}`);
+  const after = sessions.get(chatId);
+  assert.equal(after?.slots.anywhere, true, 'the area criterion is released');
+  assert.equal(after?.slots.location, undefined, 'the drained area lock is dropped');
+});
+
+test('a search whose stock is DRAINED talks about its own stock, never about the system', async () => {
+  const { handler, sessions, sent } = makeHandler();
+  const chatId = 'drained-not-empty';
+  const s = freshSession('test', chatId);
+  s.state = 'presentation';
+  // Every in-budget row of the city has been shown already: the pool is empty
+  // only because of `presentedIds`, so «нема во системот» would deny stock the
+  // client is looking at.
+  s.slots = {
+    service: 'rent', budget: '350', location: 'Шуто Оризари', sizeWaived: true,
+    presentedIds: [51], currentBatch: [51],
+  };
+  sessions.set(s);
+
+  await handler.handle('test', chatId, 'a ima uste?');
+  const reply = sent.at(-1) ?? '';
+  assert.ok(!/во системот нема/iu.test(reply),
+    `the drained sentence, not a system claim: ${reply}`);
+});
+
 
 test('[19:46] the which-area ask releases the area and serves the pair', async () => {
   const { handler, sessions, sent } = makeHandler();

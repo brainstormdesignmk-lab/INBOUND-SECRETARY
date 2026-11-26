@@ -208,6 +208,28 @@ export const BANK_CONSTRAINTS: Record<string, KeyConstraint> = {
     maxLength: BASELINE_MAX_LENGTH + 80,
     note: 'rent commission tiers: 50% below 1.000 eur, one full monthly rent at 1.000+ eur; owner payload (first month + deposit) unchanged; the only sanctioned figure is the 1.000 threshold',
   },
+  // WHO PAYS THE AGENCY (the V16K11 [09:16] turn) — the agency's own revenue.
+  // The buy answer states the buyer's 0% and that the OWNER pays; the rent
+  // answer restates the tier rule, whose only sanctioned figure is the 1.000
+  // threshold (the live commission amount lives in rent.math.*).
+  'provision.who.agency.buy': {
+    mustIncludeAny: [/0\s*%|сопственик|owner/iu],
+    maxLength: BASELINE_MAX_LENGTH + 80,
+    allowedAmounts: FEE_ALLOWED_AMOUNTS,
+    note: 'who pays the agency on a SALE: the buyer pays 0% commission, the owner pays the agency; the visit fee may be named with its sanctioned figures, never a commission number',
+  },
+  'provision.who.agency.rent': {
+    mustIncludeAny: [/50\s*%|педесет|половин/iu],
+    maxLength: BASELINE_MAX_LENGTH + 80,
+    allowedAmounts: ['1000:eur'],
+    note: 'who pays the agency on a RENT: the tenant pays the commission; restates the 50% tier with the 1.000 eur threshold as its only figure',
+  },
+  'provision.who.agency.both': {
+    mustIncludeAny: [/50\s*%|педесет|половин/iu],
+    maxLength: BASELINE_MAX_LENGTH + 80,
+    allowedAmounts: [...FEE_ALLOWED_AMOUNTS, '1000:eur'],
+    note: 'who pays the agency when the market is not declared yet: the buyer 0% (owner pays) and the rent 50% tier; sanctioned figures only',
+  },
   // The rent-math breakdown keys: every real number arrives via {r}/{c}/{d}/{t}
   // placeholders (computed by computeRentMath); the only literal figure allowed
   // is the tier threshold 1.000 eur named in the wording.
