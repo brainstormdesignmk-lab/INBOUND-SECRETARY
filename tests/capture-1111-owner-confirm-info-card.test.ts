@@ -243,7 +243,7 @@ test('[05:09–05:11] «сакам да ја видам» on the card opens the 
 test('a wish to see with NO flat bound asks which flat — it never charges for nothing', async () => {
   const { turn } = makeHandler();
   const { answer, state } = await turn('nobody', 'САКАМ ДА ЈА ВИДАМ');
-  assert.ok(!/300 денари|5 евра|симболичн/iu.test(answer), `no viewing fee without a flat: ${answer}`);
+  assert.ok(!/300 денари|5 евра|симболич\p{L}*/iu.test(answer), `no viewing fee without a flat: ${answer}`);
   // Any identifying question is the right turn here — the entry service ask
   // («купување или изнајмување?», several pool variants) or the locate ask
   // (EB/населба). The stems cover every wording the rotation ships.

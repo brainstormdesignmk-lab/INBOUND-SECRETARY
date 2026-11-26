@@ -164,4 +164,9 @@ test('the newly mirrored lanes resolve through ROUTING_ORDER on canonical texts'
   // The same-word collision stays two-directional: provision wording must NOT
   // steal the bare WHY claim, and a genuine provision ask must NOT lose it.
   assert.equal(resolveIntent('KOLKU E PROVIZIJATA?', 'closing'), 'PROVISION_ASK');
+  // THE DAY ANSWER IS SCHEDULING IN A LIVE ARRANGEMENT, NOBODY IN DISCOVERY
+  // (the [10:25] V16K11 turn): «супер» alone is not enough — the state decides
+  // whether the words answer the arrangement's own question.
+  assert.equal(resolveIntent('ако може во ист ден би било супер', 'visit_scheduling'), 'VISIT_DAY_CHOICE');
+  assert.notEqual(resolveIntent('ако може во ист ден би било супер', 'discovery'), 'VISIT_DAY_CHOICE');
 });

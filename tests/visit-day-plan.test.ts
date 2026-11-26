@@ -58,7 +58,7 @@ class FakeProps extends PropertyService {
   get healthy(): boolean { return true; }
 }
 
-function makeHandler(chatId: string, ebs: number[] = [88, 82, 77]) {
+function makeHandler(chatId: string, ebs: number[] = [88, 82, 77], patch: (s: ReturnType<typeof freshSession>) => void = () => {}) {
   const cfg = loadConfig();
   const db = new Db(':memory:');
   const sessions = new SessionStore(db);
@@ -89,6 +89,7 @@ function makeHandler(chatId: string, ebs: number[] = [88, 82, 77]) {
   session.slots.currentBatch = ebs;
   session.slots.clientName = 'Дафина';
   session.slots.clientPhone = '076 723 456';
+  patch(session);
   sessions.set(session);
   const say = async (m: string) => {
     sent.length = 0;
@@ -168,6 +169,54 @@ test('the day he named survives the hour: «ZADUTRE POPLADNE» → «OD 5»', as
   assert.match(start.reply, new RegExp(dayAfterTomorrow().replace(/\./g, '\\.'), 'u'),
     `the day he named is the day arranged: ${start.reply}`);
   assert.ok(!/Забележав 17:00\. Кој ден/u.test(start.reply), `the day is never re-asked: ${start.reply}`);
+  db.close();
+});
+
+// THE ANSWER SHE ASKED FOR IS NEVER PRAISE OF A FLAT (the [10:25] V16K11
+// live turn):
+//
+//   [10:23] ЛИНА: Дали би сакале да ги посетиме сите недвижности во ист ден,
+//                 или да ги распоредиме во различни денови?
+//   [10:25] КЛИЕНТ: ако може во ист ден би било супер
+//   [10:25] ЛИНА: Многу ми е мило што Ви се допадна токму оваа недвижност!
+//                 Сакате ли да организирам средба…?      ← property.liked
+//
+// The «супер» walked into the ENTHUSIASM lane, which served the visit offer
+// again AND wrote state='closing' over visit_scheduling — the collected
+// name/phone and the two chosen flats stayed on file while the machine went
+// back to the fee, so the client was made to agree to it twice.
+test('a day answer in a live arrangement is scheduled, not praised (state kept)', async () => {
+  const { say, db, sessions, chatId } = makeHandler('day-live', [88, 82], s => {
+    s.slots.visitDayAsked = true;
+    s.slots.viewingFeeAgreed = true;
+  });
+  const same = await say('ако може во ист ден би било супер');
+  assert.equal(same.slots.visitDayChoice, 'same', `the choice is recorded: ${same.slots.visitDayChoice}`);
+  assert.equal(sessions.get(chatId)!.state, 'visit_scheduling', 'the arrangement state is not demoted');
+  assert.match(same.reply, /Кој термин|термин/u, `the term is asked: ${same.reply}`);
+  assert.ok(!/се допадна|Сакате ли да организирам средба/u.test(same.reply),
+    `never property.liked over the answer: ${same.reply}`);
+  assert.ok(!/500 денари|надомест|провизиј/u.test(same.reply), `the fee is not re-asked: ${same.reply}`);
+
+  // …and the next turn does not fall back to the fee question either.
+  const next = await say('дали може в сабота');
+  assert.equal(sessions.get(chatId)!.state, 'visit_scheduling', 'still arranging');
+  assert.ok(!/500 денари|надомест|провизиј/u.test(next.reply), `no second fee ask: ${next.reply}`);
+  assert.match(next.reply, /сабота|понеделник|работно/iu, `the calendar is answered: ${next.reply}`);
+  db.close();
+});
+
+// THE VOLUNTEERED SHAPE IS AN ANSWER TOO: a client who names the day plan
+// BEFORE the question was asked («ајде сите во еден ден») must not then be
+// asked «во ист ден или различни денови?» — the choice itself is the answer.
+test('a volunteered day choice is never followed by the day question', async () => {
+  const { say, db } = makeHandler('day-volunteered', [88, 82], s => {
+    s.slots.viewingFeeAgreed = true;
+  });
+  const first = await say('ајде сите во еден ден');
+  assert.equal(first.slots.visitDayChoice, 'same');
+  assert.ok(!/различни денови/u.test(first.reply), `the shape is not asked again: ${first.reply}`);
+  assert.match(first.reply, /Кој термин|термин/u, `it moves to the term: ${first.reply}`);
   db.close();
 });
 

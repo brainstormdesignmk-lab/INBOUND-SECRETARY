@@ -3084,3 +3084,46 @@ name after a proximity frame is property-row data, not agency prose — «Ваш
 exempt), `tests/enrichment-strict.test.ts`. So a poisoned answer is not banked,
 and the one row that had slipped into the queue (853) was rejected as
 `invented-place (landmark not in the property row)`.
+
+### An answer to her own question is never praise — and nothing moves the funnel backward
+
+Two defects in one live turn (V16K11, [10:23]–[10:25]):
+
+```
+[10:23] ЛИНА:  Дали би сакале да ги посетиме сите недвижности во ист ден,
+              или да ги распоредиме во различни денови?
+[10:25] КЛИЕНТ: ако може во ист ден би било супер
+[10:25] ЛИНА:  Многу ми е мило што Ви се допадна токму оваа недвижност!
+              Сакате ли да организирам средба…?          ← property.liked
+```
+
+- **THE ANSWER TO THE QUESTION SHE JUST ASKED IS THE SCHEDULING LANE'S.**
+  «супер» is approval vocabulary, so the ENTHUSIASM fast lane claimed the turn
+  and served the visit offer the arrangement had already passed. A day answer
+  (`detectVisitDayChoice`) in any live arrangement state (`VISIT_WINDOW_STATES`)
+  is now claimed before every informational lane: the choice is stored and the
+  TERM is asked (`visitTermAsk`). `visitTermAsk` also refuses to ask the day
+  question once a choice exists — a volunteered «ајде во ист ден» is the same
+  answer, and the old `visitDayAsked` gate served the question after storing
+  the choice.
+- **NO LANE WRITES `closing` OVER A LATER STATE.** The same turn wrote
+  `session.state = 'closing'` on `visit_scheduling`: the collected name/phone
+  and the chosen flats stayed in the slots while the machine went back to the
+  fee, and the next message was asked to agree to the fee a second time (the
+  [10:26] replay). `PRE_ARRANGEMENT_STATES` is the only set a praise/enthusiasm
+  turn may promote from (`idle/intent/discovery/property_locate/
+  property_query/presentation/closing`); `contact_collection`,
+  `visit_scheduling`, `owner_checking`, `time_confirm`, `pending`, `queued` are
+  never demoted — a lane that wants to change them moves them FORWARD or leaves
+  them alone.
+- Tests: `tests/visit-day-plan.test.ts` («a day answer in a live arrangement is
+  scheduled, not praised (state kept)», «a volunteered day choice is never
+  followed by the day question»). Both fail before the fix: the first on
+  `property.liked` and on `state === 'closing'`, the second on the day question
+  coming back.
+- **TEST COPY IS PINNED AS A STEM, NOT A WORD** (the same sweep): four
+  assertions spelled the fee framing «симболичн», which is the short form
+  (симболична/симболични) and never matches «симболичен» — the very wording the
+  rent copy uses, so `tests/fee-serve-routing.test.ts` passed or failed on which
+  bank variant was served. They are `/симболич\p{L}*/` now, and the positive one
+  also accepts the verb «филтрираме» (same framing as the noun «филтер»).

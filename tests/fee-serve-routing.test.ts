@@ -1367,8 +1367,12 @@ test('[V16K11 05:26] a fee refusal in DISCOVERY serves the fee rung, never a typ
   assert.doesNotMatch(answer, /што барате/iu, `never a type question: ${answer}`);
   assert.doesNotMatch(answer, /колку спални/iu, `never the room re-ask: ${answer}`);
   // The bank rotates the wording and its gender («симболичен/симболична»);
-  // the contract is the reasons/filter framing, not one inflection.
-  assert.match(answer, /филтер|симболичн/iu, `the reasons for the fee: ${answer}`);
+  // the contract is the reasons/filter framing, not one inflection. The old
+  // form of this regex was the short stem «симболичн», which does NOT match
+  // «симболичен» (the masculine the rent copy uses) — the assertion was a
+  // coin flip on which fee.why variant was served. The inflected stem covers
+  // every form, and the verb «филтрираме» is the same framing as the noun.
+  assert.match(answer, /филтр|симболич\p{L}*/iu, `the reasons for the fee: ${answer}`);
   assert.doesNotMatch(answer, /500\s*денар/u, `never the buy script at a rent client: ${answer}`);
   assert.ok((after.slots.feeRejections ?? 0) === 0,
     'the disclosure turn burns no rung — the ladder starts after the fee is on the table');

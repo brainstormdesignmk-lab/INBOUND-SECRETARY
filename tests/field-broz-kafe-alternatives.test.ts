@@ -171,7 +171,7 @@ test('[field] «мислев поскапо кај Броз Кафе» is a dear
   const answer = await h.say('МИСЛЕВ ПОСКАПО КАЈ БРОЗ КАФЕ');
   // The comparative is a price DIRECTION: the pricier neighbour near the place.
   assert.match(answer, /42/u, `the dearer nearby flat: ${answer}`);
-  assert.doesNotMatch(answer, /надомест|симболичн|500 денари/iu, `not the visit fee: ${answer}`);
+  assert.doesNotMatch(answer, /надомест|симболич\p{L}*|500 денари/iu, `not the visit fee: ${answer}`);
   assert.doesNotMatch(answer, /Да барам истите критериуми/iu, `no confirm-instead-of-search: ${answer}`);
 });
 

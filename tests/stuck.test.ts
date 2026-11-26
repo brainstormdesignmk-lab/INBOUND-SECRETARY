@@ -3062,7 +3062,7 @@ test('compliment reaches the real brain: conversational reply, never canned ack 
   assert.ok(!/Евидентен број/.test(remarkReply), `no card re-serve: ${remarkReply}`);
   assert.ok(sessions.get(chatId)!.state === 'closing', 'closing stays closing');
   // sanity: the context really was built (fee was disclosed before the remark)
-  assert.ok(/300 денари|симболичн/.test(sent[closingReplyIdx]), sent[closingReplyIdx]);
+  assert.ok(/300 денари|симболич\p{L}*/u.test(sent[closingReplyIdx]), sent[closingReplyIdx]);
 
   // Context 2 — property_query (client still browsing), FRESH chat so the
   // session doesn't start from context 1's closing state.
@@ -3990,7 +3990,7 @@ test('[09:05] charge-verb + money fee ask ("ZEMATE PARI ZA POSETA?") routes to t
   await send('SAKAM DA IZNAJMAM GARSONJERA VO CENTAR DO 500 EVRA');
   await send('SAKAM DA JA VIDAM');
   const feeReply = sent.at(-1)!;
-  assert.ok(/надомест|500 денари|10 евра|симболичн/iu.test(feeReply), `fee disclosure expected: ${feeReply}`);
+  assert.ok(/надомест|500 денари|10 евра|симболич\p{L}*/iu.test(feeReply), `fee disclosure expected: ${feeReply}`);
 
   // THE BUG: the fee re-ask without the word провизија got the discovery
   // intake (спални + буџет questions) instead of the fee answer.

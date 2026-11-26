@@ -38,6 +38,7 @@ import {
   detectOwnClaimChallenge, detectSubjectPerM2Ask, detectAvailabilityAsk,
   detectFeeNag, detectFeeComplaint, detectFeeSurprise, detectAreaHaveAsk, extractSlots,
   detectFeeAmountAsk, detectFeeRules, detectFeeFirstTime, detectFeeChargePushback,
+  detectVisitDayChoice,
   detectFeeTotalCost, detectAgreement, detectVisitRequest, detectCheaperSearch,
   detectVisitTimingQuestion, detectProceedAfterCheck, detectPriceFreshness,
   detectPriceAsk, detectRemark, detectSqmRate, detectProvisionResistance, detectBye,
@@ -183,6 +184,10 @@ const FEE_MONEY_STATES = ['closing', 'property_query', 'presentation', 'discover
 // fee context) and in property_locate (without it: a bare «НЕ ЗНАМ» there is an
 // answer to the identify question, not fee resistance).
 const FEE_NAG_STATES = ['closing', 'presentation', 'property_locate'];
+// inbound.ts VISIT_WINDOW_STATES — the states in which a day/shape answer IS
+// the arrangement's traffic (lane 0-e). Copied, not imported: the mirror must
+// not depend on the executor's module graph.
+const VISIT_LIVE_STATES = ['visit_scheduling', 'owner_checking', 'time_confirm', 'pending', 'queued'];
 
 /** A DEFINITE REFERENCE to the flat in play — «OD STANOT», «OD KUKJATA», «OD
  *  IМОТОТ». Its row lives in the session HISTORY, which the mirror never sees,
@@ -275,6 +280,14 @@ export const ROUTING_ORDER: RouteRule[] = [
         || (sl.presentedIds?.length ?? 0) > 0) }) },
   { intent: 'WORKDAYS_QUESTION', note: 'agency-hours question ("VO NEDELA RABOTITE?") — answered from the bank, never forwarded to the owner as a proposed term; must beat the visit-time capture (the day token inside it used to reach the owner)',
     fires: t => detectWorkdaysQuestion(t) },
+  // THE ANSWER TO HER OWN DAY QUESTION (inbound.ts lane 0-e, the [10:25]
+  // V16K11 turn) — «ако може во ист ден би било супер» answers the
+  // one-day/several question: the choice is stored and the TERM is asked.
+  // STATE-GATED on the executor's own live-arrangement list (VISIT_WINDOW_STATES
+  // in inbound.ts, copied here like the FEE_* lists above): in discovery the
+  // same words name nothing, and the funnel keeps the turn.
+  { intent: 'VISIT_DAY_CHOICE', note: 'the day/shape answer inside a live arrangement («во ист ден», «различни денови») — the choice is stored, the TERM is asked, and the day question is never asked twice; «супер» about the plan is never property.liked',
+    fires: (t, s) => VISIT_LIVE_STATES.includes(s) && detectVisitDayChoice(t) !== undefined },
   // THE ACKNOWLEDGEMENT AFTER THE BOOKING (inbound.ts 8975) — a bare «tocno» /
   // «vo red» / «blagodaram» in `pending`. State-gated and a closed set of whole
   // messages, so nothing with a request in it can be predicted here; the
@@ -1552,6 +1565,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   // not know made every correct cancellation a GAP — the same alias bug
   // `WAITING:fast` was. The row names the intent; the tag keeps its state.
   VISIT_CANCEL: M('VISIT_CANCEL', 'a cancellation in a visit state (the tag carries the state: VISIT_CANCEL:visit_scheduling …)'),
+  VISIT_DAY_CHOICE: M('VISIT_DAY_CHOICE', 'the day/shape answer inside a live arrangement («во ист ден», «различни денови») — the choice is stored and the TERM is asked; the client is never asked the day question twice (inbound.ts, lane 0-e)'),
   AVAILABILITY_PROCEED: M('AVAILABILITY_TABLE', 'an availability ask that ARRANGES the owner check («prasaj dali e dostapen i dogovori mi poseta») — same lane, the arranging half (inbound.ts 9732)'),
   // The smaller-by-rate lane has a detector but no ROUTING_ORDER row yet, so its
   // GOLEM variants cannot be mirrored without inventing one: pending, and the

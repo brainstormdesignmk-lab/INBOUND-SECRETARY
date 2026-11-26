@@ -183,6 +183,16 @@ const PLACE_PAIR_BAND_M = 250;
 const VISIT_WINDOW_STATES: Array<ChatSession['state']> = [
   'visit_scheduling', 'owner_checking', 'time_confirm', 'pending', 'queued',
 ];
+// THE STATES BEFORE THE VISIT PROTOCOL OPENS — the only ones an enthusiasm /
+// praise turn may promote into `closing`. Once the protocol is live (contact
+// collected, term being arranged, owner rung out) `closing` is a step BACKWARD
+// and writing it wipes the arrangement from the state machine while the slots
+// keep the data: the client is asked to agree to the fee a second time (the
+// [10:25] V16K11 turn, where «супер» about the day plan demoted
+// visit_scheduling to closing).
+const PRE_ARRANGEMENT_STATES = new Set<ChatSession['state']>([
+  'idle', 'intent', 'discovery', 'property_locate', 'property_query', 'presentation', 'closing',
+]);
 
 /**
  * PER-CATEGORY PAIR QUEUE (the [19:14] capture contract): the client named TWO
@@ -3278,8 +3288,18 @@ export class InboundHandler {
       // he knew the shape of the day, and the reply was «blank and confusing —
       // what time is for what». Asked ONCE (`visitDayAsked`).
       const choice = detectVisitDayChoice(text);
-      if (choice) session.slots.visitDayChoice = choice;
-      if (!session.slots.visitDayAsked) {
+      if (choice) {
+        session.slots.visitDayChoice = choice;
+        session.slots.visitDayAsked = true;
+      }
+      // AN ANSWERED QUESTION IS NEVER ASKED AGAIN (the [10:25] V16K11 turn):
+      // the first version keyed the ask on `visitDayAsked` alone, so a client
+      // who VOLUNTEERED the shape («ајде во ист ден») before the question was
+      // asked had his choice stored on one line and the question served on the
+      // next — the same re-ask in a new disguise. The choice itself is the
+      // answer; only a session that has neither a choice nor a prior ask owes
+      // the question.
+      if (!session.slots.visitDayChoice && !session.slots.visitDayAsked) {
         session.slots.visitDayAsked = true;
         return VISIT_DAY_CHOICE_ASK;
       }
@@ -12880,6 +12900,34 @@ export class InboundHandler {
       }
     }
 
+    // 0-e) THE ARRANGEMENT'S OWN QUESTION, ANSWERED (the [10:25] V16K11 turn):
+    // «ако може во ист ден би било супер» followed «Дали би сакале да ги
+    // посетиме сите недвижности во ист ден, или да ги распоредиме во различни
+    // денови?». «супер» is approval vocabulary, so the ENTHUSIASM fast lane
+    // claimed the turn: it served property.liked («Сакате ли да организирам
+    // средба…» — the very question the arrangement had already passed) and
+    // demoted visit_scheduling to closing, wiping the collected name/phone and
+    // the two chosen flats, so the NEXT message re-asked the fee.
+    // A day answer is the scheduling lane's, in every live arrangement state —
+    // the same rule as any other answer to a question she just asked.
+    if (VISIT_WINDOW_STATES.includes(session.state)) {
+      const dayChoice = detectVisitDayChoice(text);
+      if (dayChoice) {
+        routeLog(chatId, text, 'VISIT_DAY_CHOICE');
+        session.slots.visitDayChoice = dayChoice;
+        session.slots.visitDayAsked = true;
+        session.slots.visitWanted = true;
+        const answer = this.visitTermAsk(session, text);
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        if (this.deps.enrichment && shouldLogForEnrichment(this.deps.brainMode?.(), false, 'deterministic')) { try { this.deps.enrichment.insert({ chatId: session.chatId, state: session.state, eventType: 'VISIT_DAY_CHOICE', userMsg: text, replyText: answer, replySource: 'deterministic', bankKey: 'visit.term.ask' }); } catch { /* ignore */ } }
+        console.log(`[timing] ${Date.now() - pipelineStart}ms (fast-scheduling) state=${session.state} src=deterministic bank=visit.term.ask`);
+        await this.sendRaw(session, answer, 'deterministic:scheduling');
+        return;
+      }
+    }
+
     // Reply accumulators — declared early so the fast deterministic path
     // can use them before the classifier/FSM chain.
     let reply: string = '';
@@ -13182,6 +13230,12 @@ export class InboundHandler {
         && !detectHouse(text) && !detectBusiness(text) && !detectPriceAsk(text)
         && !detectWhereIs(text) && !detectExactAddressAsk(text)
         && !detectAgreement(text)
+        // A DAY/SHAPE ANSWER IS NOT PRAISE (the [10:25] V16K11 turn): «ако може
+        // во ист ден би било супер» answers the one-day/several question, and
+        // its «супер» is approval of the PLAN, not of a flat. The scheduling
+        // lane above owns it (and in a live arrangement this lane is not even
+        // reached); the guard keeps the two from drifting apart.
+        && !detectVisitDayChoice(text)
         && (session.state !== 'closing' || !!session.slots.ownerContactPending)) {
         const eb = this.namedOnTableEb(session, text)
           ?? session.slots.propertyId ?? session.slots.interestedPropertyId
@@ -13218,7 +13272,14 @@ export class InboundHandler {
         if (eb) {
           session.slots.interestedPropertyId = eb;
           session.slots.ownerContactPending = true;
-          if (session.state !== 'closing') session.state = 'closing';
+          // NEVER BACKWARD (the [10:25] V16K11 turn): «closing» is the START of
+          // the visit protocol, so writing it over contact_collection /
+          // visit_scheduling / owner_checking / time_confirm / pending / queued
+          // RESETS the arrangement — the collected name and phone and the
+          // chosen flats stayed on file but the state machine went back to the
+          // fee question, and the client was asked to agree to the fee twice.
+          // A praise may only move a session INTO the protocol.
+          if (PRE_ARRANGEMENT_STATES.has(session.state)) session.state = 'closing';
         }
         const praised = this.praiseReply(session, text);
         const liked = praised.reply;
