@@ -5767,6 +5767,12 @@ export class InboundHandler {
       this.chatLog().append({
         chatId: audit.chatId,
         at: audit.at,
+        // THE TURN'S OWN CLOCK: the operator's complaint about a live chat was
+        // «she took 3–7 minutes per answer» and nothing on the box recorded
+        // which turn was slow — after a restart the evidence was gone with the
+        // session. The audit stamps `at` when the turn opens, so the duration
+        // needs no second clock.
+        ms: typeof audit.at === 'number' ? Math.max(0, Date.now() - audit.at) : undefined,
         stateBefore: audit.stateBefore,
         stateAfter: audit.stateAfter,
         source: audit.source,

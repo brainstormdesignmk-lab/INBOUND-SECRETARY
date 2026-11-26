@@ -3067,7 +3067,12 @@ shipped build) found four more members of the §4c family. All are pinned:
   unreviewable (the operator could not be shown the chat they asked for). Every
   turn is now appended to `chat_log` from `closeTurn` (the same audit `sendRaw`
   feeds: the text actually sent), 120-day retention,
-  `npx tsx scripts/chat-dump.ts <chatId>` prints it. Tests:
+  `npx tsx scripts/chat-dump.ts <chatId>` prints it. **Each row also carries the
+  turn's duration** (`ms`, added to an existing table with `ALTER TABLE` so an
+  appliance's turns are kept): the operator's other complaint about the same
+  chat was «she took 3–7 minutes per answer», and after a restart there was no
+  evidence of WHICH turn was slow. The dump renders it beside the reply and
+  marks anything over 5 s `⚠ БАВНО`. Tests:
   `tests/chat-transcript.test.ts`, `tests/size-waiver-release.test.ts`,
   `tests/owner-note-leak.test.ts`, and the added cases in
   `tests/capture-1946-which-area.test.ts` / `tests/fee-serve-routing.test.ts`.

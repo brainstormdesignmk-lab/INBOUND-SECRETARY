@@ -91,6 +91,12 @@ test('every turn is recorded on both sides, and survives the session wipe', asyn
   assert.equal(rows[2]!.replyText, sent[sent.length - 1],
     'the row holds EXACTLY what the client received');
   assert.ok(rows[2]!.stateAfter.length > 0);
+  // THE TURN'S CLOCK IS ON THE RECORD (the operator's «she took 3–7 minutes»):
+  // a slow turn has to be visible after the fact, in the transcript itself.
+  assert.equal(typeof rows[0]!.ms, 'number', 'each turn stores how long it took');
+  assert.ok(rows[0]!.ms! >= 0 && rows[0]!.ms! < 600_000, `a plausible duration: ${rows[0]!.ms}`);
+  assert.match(ChatLogStore.render(rows), /· \d+(?:\.\d+)?(?:ms|s)/u,
+    'the dump shows the duration beside the reply');
 
   // THE SWEEPER'S OWN DELETION: the session row goes away, the transcript stays.
   sessions.delete(chatId);
@@ -103,6 +109,32 @@ test('every turn is recorded on both sides, and survives the session wipe', asyn
   assert.equal(after.length, 3, 'the transcript outlives the session AND the process');
   assert.match(ChatLogStore.render(after), /klient: dvosoben ili kukja/u, 'it renders as a readable chat');
   reopened.close();
+});
+
+// THE TABLE THAT ALREADY EXISTS ON THE APPLIANCE GAINS THE COLUMN IN PLACE:
+// a transcript that has to be dropped to add a field is not a transcript.
+test('an older chat_log (no ms column) is migrated, its rows kept', () => {
+  const dbPath = tmpDb();
+  const db = new Db(dbPath);
+  db.db.exec(`CREATE TABLE chat_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id TEXT NOT NULL, at INTEGER NOT NULL,
+    state_before TEXT NOT NULL DEFAULT '', state_after TEXT NOT NULL DEFAULT '',
+    source TEXT, bank_key TEXT, lanes TEXT NOT NULL DEFAULT '',
+    user_text TEXT NOT NULL DEFAULT '', reply_text TEXT NOT NULL DEFAULT '')`);
+  db.db.prepare(`INSERT INTO chat_log (chat_id, at, user_text, reply_text) VALUES (?, ?, ?, ?)`)
+    .run('old-chat', Date.now() - 1000, 'zdravo', 'Здраво!');
+
+  const log = new ChatLogStore(db);
+  log.append({
+    chatId: 'old-chat', at: Date.now(), ms: 42, stateBefore: 'idle', stateAfter: 'idle',
+    lanes: [], userText: 'pak jas', replyText: 'Се слушаме.',
+  });
+  const rows = log.recent('old-chat');
+  assert.equal(rows.length, 2, `the pre-existing row survives: ${rows.length}`);
+  assert.equal(rows[0]!.userText, 'zdravo');
+  assert.equal(rows[0]!.ms, undefined, 'a row from before the column has no duration');
+  assert.equal(rows[1]!.ms, 42, 'the new row carries it');
+  db.close();
 });
 
 test('the dump lists the chats that have a transcript', async () => {

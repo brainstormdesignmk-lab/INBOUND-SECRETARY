@@ -22,6 +22,13 @@ import { Db } from './db';
 export interface ChatLogRow {
   chatId: string;
   at: number;
+  /** How long the turn took, from the first byte in to the last reply out.
+   *  THE OPERATOR'S OWN QUESTION (the V16K11 slow turns): a client waited
+   *  minutes for deterministic answers and nothing on the box recorded which
+   *  turn was slow, so the delay could not be attributed after the fact. The
+   *  audit already stamps `at` when the turn opens, so this is measured at the
+   *  one turn-end seam and rendered next to the reply. */
+  ms?: number;
   stateBefore: string;
   stateAfter: string;
   source?: string;
@@ -61,6 +68,13 @@ export class ChatLogStore {
       reply_text   TEXT    NOT NULL DEFAULT ''
     )`);
     this.db.db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_log_chat ON chat_log(chat_id, at)`);
+    // THE LATENCY COLUMN LANDED AFTER THE TABLE DID (an appliance's table keeps
+    // the turns it already has): add it in place rather than recreate — a
+    // transcript that must be dropped to gain a column is not a transcript.
+    const cols = this.db.db.prepare('PRAGMA table_info(chat_log)').all() as Array<{ name: string }>;
+    if (!cols.some(c => c.name === 'ms')) {
+      this.db.db.exec('ALTER TABLE chat_log ADD COLUMN ms INTEGER');
+    }
   }
 
   /** Append one finished turn. Never throws into the turn (a transcript write
@@ -68,9 +82,9 @@ export class ChatLogStore {
   append(row: ChatLogRow): void {
     try {
       this.db.db.prepare(`INSERT INTO chat_log
-        (chat_id, at, state_before, state_after, source, bank_key, lanes, user_text, reply_text)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        row.chatId, row.at, row.stateBefore, row.stateAfter,
+        (chat_id, at, ms, state_before, state_after, source, bank_key, lanes, user_text, reply_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        row.chatId, row.at, row.ms ?? null, row.stateBefore, row.stateAfter,
         row.source ?? null, row.bankKey ?? null, row.lanes.join(','),
         row.userText, row.replyText,
       );
@@ -92,6 +106,7 @@ export class ChatLogStore {
       id: Number(r.id),
       chatId: String(r.chat_id),
       at: Number(r.at),
+      ms: r.ms === null || r.ms === undefined ? undefined : Number(r.ms),
       stateBefore: String(r.state_before ?? ''),
       stateAfter: String(r.state_after ?? ''),
       source: r.source === null ? undefined : String(r.source),
@@ -114,11 +129,22 @@ export class ChatLogStore {
     return rows.map(r => {
       const when = new Date(r.at).toISOString().replace('T', ' ').slice(0, 19);
       const head = `[${when}] ${r.chatId} · ${r.stateBefore}→${r.stateAfter}`
-        + `${r.bankKey ? ` · ${r.bankKey}` : ''}`;
+        + `${r.bankKey ? ` · ${r.bankKey}` : ''}`
+        + `${r.ms != null ? ` · ${renderMs(r.ms)}` : ''}`;
       const reply = r.replyText || '(no reply)';
       return `${head}\n  klient: ${oneLine(r.userText)}\n  LINA:   ${reply.split(SEP).map(oneLine).join('\n          ')}`;
     }).join('\n\n');
   }
+}
+
+/** A turn over this long is a defect worth SEEING in the transcript, not a
+ *  number to scroll past: the client waited through it. The threshold is the
+ *  operator's own patience line (the V16K11 waits were 3–7 minutes). */
+const SLOW_TURN_MS = 5_000;
+
+function renderMs(ms: number): string {
+  const shown = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+  return ms >= SLOW_TURN_MS ? `${shown} ⚠ БАВНО` : shown;
 }
 
 function oneLine(text: string): string {
