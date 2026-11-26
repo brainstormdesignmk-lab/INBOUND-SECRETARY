@@ -853,6 +853,11 @@ export function detectFlat(text: string): boolean {
 // message — «NE KUKJA, STAN» is a correction, not a union.
 const RESIDENTIAL_LIVING_RE = /(?<![\p{L}])(?:за\s+живеењ\p{L}*|живеењ\p{L}*|живеалишт\p{L}*|да\s+живеам\p{L}*|да\s+живеем\p{L}*|за\s+живот\p{L}*|za\s+ziveenj\p{L}*|ziveenj\p{L}*|zivealist\p{L}*|da\s+ziveam\p{L}*|da\s+ziveeme?\p{L}*|za\s+zhivot\p{L}*)(?![\p{L}])/iu;
 
+// THE EITHER/OR CONNECTIVE and the room adjective, for the union read below
+// («стан или куќа», «dvosoben ili kukja»).
+const FLAT_UNION_RE = /(?<![\p{L}])(?:или|ili)(?![\p{L}])/iu;
+const ROOM_ADJECTIVE_RE = /(?:soben|собен)/iu;
+
 /** True when the client means «a place to LIVE» — flats and houses alike —
  *  without pinning one: either a living clause («за живеење», «да живеам»), or
  *  BOTH station and house words in one un-negated message («стан или куќа»). */
@@ -873,8 +878,16 @@ export function detectResidentialNeed(text: string): boolean {
   // The union: both words survive the negation strip. HOUSE_RE/APARTMENT_RE are
   // the same readers detectHouse uses, so the scripts agree by construction.
   const house = HOUSE_RE.test(clean) || HOUSE_RE.test(norm);
-  const flat = FLAT_WORD_RE.test(clean) || FLAT_WORD_RE.test(norm)
+  let flat = FLAT_WORD_RE.test(clean) || FLAT_WORD_RE.test(norm)
     || FLAT_WORD_LATIN_RE.test(clean) || FLAT_WORD_LATIN_RE.test(norm);
+  // THE ROOM ADJECTIVE IS THE FLAT SIDE (the V16K11 capture): «DVOSOBEN ILI
+  // KUKJA MOZE DO 300 EVRA» is the client's either/or — a two-room FLAT or a
+  // house. «двособен» is a room count, not a type noun, so only the house
+  // survived and the pool became houses-only: he was offered the one house in
+  // stock and then asked «stance nema?», because the flat he had named first
+  // was never served. The adjective counts ONLY with the либо connective —
+  // «dvosoбna kukja» is a house, and it must not arm the flat side.
+  if (!flat && house && FLAT_UNION_RE.test(clean) && ROOM_ADJECTIVE_RE.test(clean)) flat = true;
   return house && flat;
 }
 
@@ -1836,6 +1849,81 @@ export function detectStockContradiction(text: string): boolean {
   // (b) «…nema…koga ovoj e eden od niv» — the proof clause ALONE carries the
   // accusation, even when the challenge verb is a plain negation.
   return proof && matchesBoth(/(?:нема|nema|немал|nemal)/iu, flat);
+}
+
+// ── Is there such a property at all? (the V16K11 capture) ──────────────────
+// The client asked for a flat, the serve held the only option in stock (a
+// house), and he asked «stance nema?» — a QUESTION about the offer. The turn
+// was read as a pick and answered with the visit fee («Посетата е за куќата
+// … 300 денари»), so a question became a commitment he never made, and the
+// flat he had asked about was never mentioned again. A stock question is a
+// TYPE noun inside an EXISTENCE frame («има ли / дали има / нема ли»), asked as
+// a question. Every other shape stays out of the lane:
+//   · a dismissive («nema veze», «нема врска», «nema problem») is not a stock
+//     claim — the phrases are stripped before the read;
+//   · a STATEMENT («nema stan, sakam kukja») is a correction, not a question;
+//     the «?» or the «ли/li» particle is what makes it an ask;
+//   · the caught contradiction («PA KAKO NEMA … KOGA OVOJ …») has its own lane
+//     (detectStockContradiction) and is never this one.
+const _absenceDismissiveRe = /(?<![\p{L}])(?:нема\s+(?:везе|врска|проблем\p{L}*|ништо|смисла|логика|потреба\p{L}*|зошто)|nema\s+(?:veze|vrska|problem\p{L}*|nisto|smisla|logika|potreba\p{L}*|zosto))(?![\p{L}])/iu;
+// The type nouns a client can ask about, with their inflections («stance» is
+// «стан» + a diminutive tail — the stem is what the client said).
+const _absenceTypeSrc = '(?:стан\\p{L}*|stan\\p{L}*|куќ\\p{L}*|kukj\\p{L}*|гарсоњер\\p{L}*|garsonjer\\p{L}*|плац\\p{L}*|plac\\p{L}*|локал\\p{L}*|lokal\\p{L}*|деловен\\s+простор|deloven\\s+prostor)';
+// The existence frame: «има/имате … ли», «дали има», «нема(т/ло)». A bare
+// «има» is not the frame — «ima 300 evra» is money, not stock.
+// A bare «има» counts only because the message must already be ASKED (the «?»
+// or the «ли/li» gate below) and must carry a type noun: «ima 300 evra?» has
+// no type, so the money reading is never stolen.
+const _absenceFrameSrc = '(?:нема\\p{L}*|nema\\p{L}*|има|имате|imate|ima|(?:дали|dali)\\s+(?:има|имате|imate|ima|imate))';
+// One or two words may sit between the frame and the type («има ли уште
+// двособен СТАН», «nema li vo centar stan»).
+const _absenceGapSrc = '(?:[^\\p{L}\\n]+\\p{L}+){0,2}[^\\p{L}\\n]*';
+// A DEICTIC TYPE IS THE SHOWN SET, NOT THE STOCK (the [23:57] capture): «SAMO
+// OVIE DVA STANA GI IMATE SO DVE ILI TRI SPALNI?» asks about the cards just
+// served — the counted-inventory lane owns it. «овие/тие/тој/оваа … стан» points
+// at rows already on the table; a stock question names the type indefinitely.
+const _absenceDeixisRe = new RegExp(
+  '(?:^|[^\\p{L}])(?:овие|овој|оваа|тие|тој|таа|оние|оној|ovie|ovoj|ovaa|toa|toj|taa|tie|onie|onoj)'
+  + '(?:[^\\p{L}\\n]+\\p{L}+){0,2}[^\\p{L}\\n]*'
+  + `(?:${_absenceTypeSrc})`, 'iu');
+const _absenceDefiniteRe = new RegExp(
+  '(?:^|[^\\p{L}])(?:станот|станов|куќата|куќава|гарсоњерата|плацот|локалот'
+  + '|stanot|stanov|kukjata|kukjava|garsonjerata|placot|lokalot'
+  + '|деловниот\\s+простор|delovniot\\s+prostor)(?![\\p{L}])', 'iu');
+const _absenceAskRe = new RegExp(
+  `(?:${_absenceFrameSrc})${_absenceGapSrc}(?:${_absenceTypeSrc})`
+  + `|(?:${_absenceTypeSrc})${_absenceGapSrc}(?:${_absenceFrameSrc})`, 'iu');
+
+/** Is the client asking WHETHER a type exists at all («stance nema?», «има ли
+ *  стан во Центар?», «nema li kukja do 300?»)? The turn is a question about the
+ *  OFFER: it is answered with the stock truth (and never with the visit fee). */
+export function detectStockAbsenceAsk(text: string): boolean {
+  const flat = String(text ?? '').replace(/\n+/g, ' ').trim();
+  if (flat.length < 5) return false;
+  // A question must be ASKED — the «?» or the «ли/li» particle. «NEMA STAN,
+  // SAKAM KUKJA» is a correction of the type, and a correction is the funnel's
+  // own business (the type lanes), never a stock answer about the old type.
+  const asked = /\?/u.test(flat) || /(?<![\p{L}])(?:ли|li)(?![\p{L}])/iu.test(flat);
+  if (!asked) return false;
+  // Dismissives name no property at all.
+  // THE CAUGHT CONTRADICTION IS NEVER THIS LANE (the [02:12] capture): «PA
+  // KAKO NEMA STANOVI … KOGA OVOJ E EDEN OD NIV?» carries a type noun and a
+  // «нема», so the frames would read it as a stock question — it is the client
+  // holding a card against a «нема» we said, and that lane owns the turn.
+  if (detectStockContradiction(flat)) return false;
+  // A FEATURE QUESTION IS NOT A STOCK QUESTION (the route mirror caught it):
+  // «DALI STANOT IMA PARKING?» carries a type noun and an «има», so the frames
+  // read it as «is there a flat?» and stole the turn from FEATURE_ASK. The type
+  // there is the SUBJECT of a possession sentence about a known property; a
+  // stock question only ever asks whether the type EXISTS.
+  if (detectFeatureAsk(flat)) return false;
+  // …and a demonstrative makes the type the one ALREADY SHOWN, while a
+  // DEFINITE type («станот», «куќата») is a known property whose features are
+  // being asked — a stock question names the type indefinitely.
+  if (_absenceDeixisRe.test(flat) || _absenceDeixisRe.test(normalizeMc(flat))) return false;
+  if (_absenceDefiniteRe.test(flat) || _absenceDefiniteRe.test(normalizeMc(flat))) return false;
+  const clean = flat.replace(new RegExp(_absenceDismissiveRe.source, 'giu'), ' ');
+  return _absenceAskRe.test(clean) || _absenceAskRe.test(normalizeMc(clean));
 }
 
 export function detectWhichPropertyAsk(text: string): boolean {

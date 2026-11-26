@@ -54,7 +54,7 @@ import {
   detectAgencyIdentityAsk, detectWhichPropertyAsk, detectPropertyChoice,
   detectBareEbFollowup, detectAvailabilityPlural, detectLocationNag,
   detectNegatedAgreement, detectRejection, detectVisitInterest,
-  detectStockContradiction, detectContactMechanicsChallenge, detectOwnerContactHold,
+  detectStockContradiction, detectStockAbsenceAsk, detectContactMechanicsChallenge, detectOwnerContactHold,
   detectRingNearestAsk, detectIdentifyByFigure,
   isAreaOfPlaceQuestion, extractAreaOfPlaceQuestion,
   isWhereLandmarkQuestion, extractWhereLandmarkPlace,
@@ -615,6 +615,10 @@ export const ROUTING_ORDER: RouteRule[] = [
     fires: t => detectOwnerContactHold(t) && !fsmRequired(t) },
   { intent: 'AGENCY_IDENTITY', note: '«КОЈА АГЕНЦИЈА СТЕ ВИЕ?» mid ping-pong (inbound.ts 4820) — the agency is named, then the interrupted question repeated. It runs BEFORE the money region, so it sits above every fee row here',
     fires: t => detectAgencyIdentityAsk(t) },
+  { intent: 'STOCK_ABSENCE_ASK', note: 'the client asks WHETHER a type exists at all («stance nema?», «има ли стан во Центар?», inbound.ts 9090) — the stock truth under his own criteria and never the visit fee: the V16K11 turn read it as a pick and quoted a viewing. Fee traffic is a money question, not a stock one',
+    fires: (t, s, sl) => detectStockAbsenceAsk(t) && !isFeeTraffic(t)
+      && !sl.areaExhausted
+      && ['presentation', 'closing', 'discovery', 'property_query'].includes(s) },
   { intent: 'STOCK_CONTRADICTION', note: 'the client quotes a card we served against a «нема» we said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?», inbound.ts 7267) — admission + the row\'s own facts, and without a card the apology plus the ask for the Евидентен број (never the geography reader). It beats every geography lane because it carries an area word',
     fires: t => detectStockContradiction(t) },
   { intent: 'WHICH_PROPERTY', note: '«ZA KOJ STAN STANUVA ZBOR?» — the flat the chat has in hand, named by EB + neighbourhood + price, and with nothing bound the honest «which Евидентен број?» line (bank key property.which.none) (inbound.ts 7449). Gate copied: not while the fee is agreed and never in queued/terminated/escalated (there the account is over, not a pick to identify)',
@@ -1442,6 +1446,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   MORE_STOCK: M('MORE_STOCK', 'a stock ask after a pair was served («сакам да видам уште», «што уште имате ?») — the NEXT unshown pair from the same search, or the honest drained line; never the availability table, never the booking protocol, never a repeat of a flat already served ([12:41] capture)'),
   AVAILABILITY_TABLE: M('AVAILABILITY_TABLE', 'an availability ask that points at ONE flat already on the table by its type/price («GARSONJERATA ZA 200E DALI E DOSTAPNA?») — the ack + the owner question for THAT flat, never a fresh criteria grill ([22:27] capture)'),
   CONTACT_MECHANICS: M('CONTACT_MECHANICS', 'the competence challenge «KAKO KE GO KONTAKTIRAS AKO NE ZNAES KOJ BROJ E?» — the number she holds + the mechanism, never the DEFER line ([22:28] capture; inbound.ts 7140)'),
+  STOCK_ABSENCE_ASK: M('STOCK_ABSENCE_ASK', 'the client asks WHETHER a type exists at all («stance nema?», «има ли стан во Центар?») — the stock truth under his own criteria, the closest honest option and never the visit fee ([V16K11] live capture; inbound.ts 9090)'),
   STOCK_CONTRADICTION: M('STOCK_CONTRADICTION', 'the client quotes a card she served against a «нема» she said («PA KAKO NEMA … KOGA OVOJ E EDEN OD NIV?») — admission + the row\'s own facts + the next step, never a location line ([02:12] capture; inbound.ts 6990)'),
   PICK_DESCRIBED: M('PICK_DESCRIBED', 'a pick among the flats she just described → the availability answer'),
   POST_BOOKING_ACK: M('POST_BOOKING_ACK', 'a bare acknowledgement after the visit is booked — answered from the booked record, never left to the brain to re-promise an owner check (inbound.ts 8975)'),

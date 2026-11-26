@@ -19,7 +19,7 @@ import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAd
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectVisitDayChoice, detectPluralPropertyAsk, detectPostBookingAck, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
   detectPairReferent, detectIdentifyByFigure, detectOtherFlatAsk, detectPluralFlatAsk,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectForgotNumber, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude, detectStockContradiction, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectForgotNumber, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude,  detectStockContradiction, detectStockAbsenceAsk, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectPublishedListingAsk, detectAcquisitionWish, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -451,6 +451,13 @@ function roomCategoryLabel(rooms: number): string {
         : rooms === 4 ? 'четирисобни'
           : `${rooms}-собни`;
 }
+
+/** THE SINGULAR ROOM WORD (2 → «двособен»), for a sentence about ONE flat —
+ *  the stock question («stance nema?») answers in the category the client
+ *  himself used, not in the plural of a batch opener. */
+const ROOMS_WORD_MK: Record<number, string> = {
+  1: 'Еднособен', 2: 'Двособен', 3: 'Трисобен', 4: 'Четирисобен',
+};
 
 // EB-DISCLAIM (the [11:08] TUI capture): "БРОЈОТ НЕ ГО ЗАПИШАВ" — the client
 // already said he does NOT have the Евидентен број; every later locate ask
@@ -9072,6 +9079,36 @@ export class InboundHandler {
       this.deps.sessions.set(session);
       await this.sendRaw(session, answer, 'deterministic');
       return;
+    }
+    // «STANCE NEMA ?» IS A QUESTION ABOUT THE OFFER (the V16K11 capture). The
+    // client had asked for a flat in Центар up to 300 €; the only match was a
+    // house, so the batch held one house, and he asked whether a FLAT exists at
+    // all. The classifier read it as a pick, and the turn answered with the
+    // visit protocol — «Посетата е за куќата со Евидентен број 50 … 300 денари
+    // … Дали се согласувате со овој услов?» — so a question became a commitment
+    // he never made, and nothing in the reply said whether a flat exists. The
+    // lane answers the QUESTION: what the asked type has in stock under his own
+    // criteria, and if it has none, what the closest honest option is. It never
+    // discloses the fee and never burns a rung — the client is not resisting
+    // money, he is asking about the goods.
+    // AN EXHAUSTED BATCH IS NOT A STOCK TRUTH TURN (the 23:26 transcript):
+    // «drugi garsonjeri nemate?» after the area lock was reported exhausted is
+    // a RE-SEARCH question — the release lanes below apply the fresh criteria
+    // and answer it. Answering it here would repeat the «немам» we just said.
+    if (detectStockAbsenceAsk(text)
+        && !isFeeTraffic(text)
+        && !session.slots.areaExhausted
+        && (session.state === 'presentation' || session.state === 'closing'
+          || session.state === 'discovery' || session.state === 'property_query')) {
+      const answer = await this.stockAbsenceAnswer(session, text);
+      if (answer) {
+        routeLog(chatId, text, 'STOCK_ABSENCE_ASK');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
     }
     if (isPoiConfirmQuestion(text)
         // A VISIT-WINDOW TERM IS NEVER A PLACE QUESTION (the [04:05] capture).
@@ -20929,7 +20966,14 @@ ${contactReminder}`;
       session.slots.business = undefined;
       session.slots.plac = undefined;
     }
-    if (ev.house !== undefined || ev.business || ev.plac) session.slots.residential = undefined;
+    // …AND THE SAME MESSAGE'S OWN HOUSE WORD DOES NOT RETIRE IT (the V16K11
+    // capture): «dvosoben ili kukja» carries BOTH reads — the union and the
+    // house the classifier saw — so the pair of lines above armed residential
+    // and this one disarmed it in the same breath. The pools then ran houses
+    // only and the client's «stance nema?» was about a flat the funnel had
+    // already forgotten. A LATER message that names a single type still
+    // retires the union (ev.residential is absent there).
+    if ((ev.house !== undefined || ev.business || ev.plac) && !ev.residential) session.slots.residential = undefined;
     // THE PRICE FLOOR AND THE WINDOW (the [01:50]/[01:51] field capture):
     // «ПОСКАПИ ОД 180000» then «ДО 200 000 МОЖЕ СЛОБОДНО» is ONE ask in two
     // sentences — a floor of 180k and a cap of 200k. Each half is a criterion,
@@ -21161,6 +21205,139 @@ ${contactReminder}`;
     }
     if (ev.name) session.slots.name = ev.name;
     if (ev.phone) session.slots.phone = ev.phone;
+  }
+
+  /** THE STOCK QUESTION, ANSWERED (the V16K11 capture): «stance nema?» after a
+   *  serve that held one house. The reply says what the ASKED TYPE has under the
+   *  client's own criteria — the matched cards, or the honest «немам» plus the
+   *  closest thing in the area — and never the visit fee: he asked about the
+   *  goods, not about money. Returns undefined when the notebook holds nothing
+   *  to answer with (a cold ask is the discovery funnel's turn). */
+  private async stockAbsenceAnswer(session: ChatSession, text: string): Promise<string | undefined> {
+    const slots = session.slots;
+    // WHICH TYPE the message names — the client's own word outranks the
+    // notebook, because he may ask about a type this search never held.
+    const asksHouse = /(?:куќ|kukj)/iu.test(text);
+    const asksPlac = /(?:плац|plac)/iu.test(text);
+    const asksBusiness = /(?:локал|lokal|деловен|deloven)/iu.test(text);
+    const asksStudio = /(?:гарсоњер|garsonjer)/iu.test(text)
+      || (slots.garsonjera === true && !asksHouse && !asksPlac && !asksBusiness);
+    const kind: 'flat' | 'house' | 'plac' | 'business' | 'studio' = asksPlac ? 'plac'
+      : asksBusiness ? 'business'
+        : asksHouse ? 'house'
+          : asksStudio ? 'studio'
+            : 'flat';
+    const svc = slots.service;
+    const area = slots.location ? displayAreaName(slots.location) : undefined;
+    const areaPhrase = area ? ` ${locPrep(area)} ${area}` : '';
+    const money = slots.budget ? Number(String(slots.budget).replace(/[^\d]/gu, '')) : undefined;
+    const moneyPhrase = money ? ` до ${money.toLocaleString('mk-MK')} евра` : '';
+    // THE MESSAGE'S OWN ROOM COUNT FIRST (the [22:48] capture): the lane answers
+    // BEFORE applySlots runs, so a «има ли трособен стан?» on a session whose
+    // notebook holds no rooms read as a generic flat ask and a гapсоњера rode
+    // the answer beside the трисобен.
+    const askedRooms = extractSlots(text).bedrooms ?? slots.bedrooms;
+    const rooms = kind === 'flat' ? askedRooms : kind === 'house' ? askedRooms : undefined;
+    const typePhrase = kind === 'house' ? 'Куќа'
+      : kind === 'plac' ? 'Плац'
+        : kind === 'business' ? 'Деловен простор'
+          : kind === 'studio' ? 'Гарсоњера'
+            : rooms ? `${ROOMS_WORD_MK[rooms] ?? `${rooms}-собен`} стан` : 'Стан';
+    const svcPhrase = svc === 'rent' ? ' за изнајмување' : svc === 'buy' ? ' за продажба' : '';
+    const criteria = `${typePhrase}${svcPhrase}${moneyPhrase}${areaPhrase}`;
+    // THE TYPE FILTER, the same vocabulary candidates() speaks.
+    const typeFilter: { house?: boolean; plac?: boolean; business?: boolean; garsonjera?: boolean } =
+      kind === 'house' ? { house: true }
+        : kind === 'plac' ? { plac: true }
+          : kind === 'business' ? { business: true }
+            : kind === 'studio' ? { house: false, garsonjera: true }
+              : { house: false };
+    const shown = [...(slots.presentedIds ?? [])];
+    // THE STUDIO ASK IS A STUDIO ANSWER (the pinned гapсоњера contract): a
+    // «има ли гарсоњера?» question must never be answered with a двособен, so
+    // the studio family filters by the flag / the small-unit rule, not by the
+    // flat pool at large.
+    const only = (rows: Property[]): Property[] => (kind === 'studio'
+      ? rows.filter(p => p.house !== true && p.business !== true && isSmallUnit(p))
+      : kind === 'flat'
+        ? rows.filter(p => p.house !== true && p.business !== true)
+        : rows);
+    // A ROOM COUNT IS AN EXACT CATEGORY, not a floor: candidates() lets a row
+    // with NO bedrooms tag ride any count (a wildcard is right for a pool, never
+    // for an answer), so the exact list is filtered to the category itself.
+    const exact = only(await this.deps.properties.candidates({
+      ...typeFilter, location: slots.location, service: svc, budget: slots.budget,
+      bedrooms: rooms, exclude: shown,
+    })).filter(p => rooms === undefined || p.bedrooms === rooms);
+    const priceLine = (p: Property): string => {
+      const parts: string[] = [];
+      if (typeof p.sqm === 'number' && p.sqm > 0) parts.push(`${p.sqm} м²`);
+      if (p.price !== undefined) {
+        parts.push(`${Number(p.price).toLocaleString('mk-MK')} евра${p.service === 'rent' ? ' месечно' : ''}`);
+      }
+      return parts.join(', ');
+    };
+    if (exact.length > 0) {
+      // THERE IS ONE — serve it, in the same voice as any other batch.
+      const rows = exact.slice(0, 2);
+      await this.landmarks.enrich(rows);
+      session.slots.currentBatch = rows.map(r => r.eb);
+      session.slots.presentedIds = [...new Set([...shown, ...rows.map(r => r.eb)])];
+      session.state = 'presentation';
+      this.noteCategoriesOnTable(session, rows);
+      const cards = rows.map(r => buildPropertyCard(r)).join('\n\n');
+      return `Да, имам ${criteria.replace(/^\p{L}/u, ch => ch.toLowerCase())}:\n\n${cards}\n\n`
+        + 'Дали некоја од нив Ви одговара за да организирам посета?';
+    }
+    // NONE UNDER HIS OWN CRITERIA — say so plainly, then offer the closest
+    // honest option in the same area (a smaller flat is a real answer to «нема
+    // двособен»; silence is not), and never pretend the card he is looking at
+    // does not exist.
+    // ALREADY-SHOWN ROWS OF THE TYPE COUNT (the live turn served the flat EB 76
+    // beside the house): the honest answer to «stance nema?» is that flat, and
+    // excluding the table from the query would hide it — the reply would name
+    // a house he already saw and no flat at all.
+    const typedAll = only(await this.deps.properties.candidates({
+      ...typeFilter, location: slots.location, service: svc, budget: slots.budget,
+    }));
+    const closest = [
+      ...typedAll.filter(p => shown.includes(p.eb)),
+      ...typedAll.filter(p => !shown.includes(p.eb)),
+    ].slice(0, 2);
+    const table = (await Promise.all((slots.currentBatch ?? [])
+      .map(eb => this.deps.properties.getByEb(eb).catch(() => undefined))))
+      .filter((p): p is Property => !!p && (kind === 'flat' ? p.house === true : p.house !== true));
+    // A SENTENCE STARTS WITH A CAPITAL («Двособен стан … немам»), and the
+    // criteria phrase is built capitalised for exactly that position.
+    const lines = [`${criteria} моментално немам.`];
+    if (closest.length > 0) {
+      const list = closest.map(p => {
+        const where = p.location ? ` ${locPrep(displayAreaName(p.location))} ${displayAreaName(p.location)}` : '';
+        const what = p.house === true ? 'куќа' : p.business === true ? 'деловен простор' : p.plac === true ? 'плац' : 'стан';
+        const price = priceLine(p);
+        return `${what} со Евидентен број ${p.eb}${price ? ` (${price})` : ''}${where}`;
+      }).join('; ');
+      lines.push(`Она што го имам во моментов: ${list}.`);
+      // …and the card he is looking at is not erased by the answer: it is still
+      // the closest thing to what he asked for.
+      if (table.length > 0) {
+        const p = table[0]!;
+        const price = priceLine(p);
+        lines.push(`Куќата со Евидентен број ${p.eb}${price ? ` (${price})` : ''} останува опција.`);
+      }
+      lines.push(`Да Ви го покажам тоа, или да барам ${typePhrase.toLowerCase()} со малку повисок буџет?`);
+    } else if (table.length > 0) {
+      // NO CLOSER FLAT IN STOCK AT ALL: the card on the table is the honest
+      // alternative, and it must be named or the client reads the silence as
+      // «nothing at all».
+      const p = table[0]!;
+      const price = priceLine(p);
+      lines.push(`Она што останува опција е ${p.house === true ? 'куќата' : 'станот'} со Евидентен број ${p.eb}${price ? ` (${price})` : ''}.`);
+      lines.push(`Да останеме на тоа, или да барам ${typePhrase.toLowerCase()} со малку повисок буџет?`);
+    } else {
+      lines.push('Дали да барам во друга населба, или да Ве контактам штом се појави нешто соодветно?');
+    }
+    return lines.join(' ');
   }
 
   /** «Ги покажав сите» for a dual search whose stock is exhausted — the
@@ -21861,7 +22038,12 @@ ${contactReminder}`;
       // serves a деловен row either, and an explicitly typed деловен funnel
       // (business === true) keeps its own family. Mirrors the dual-pair
       // contract's apartmentTyped filter applied to every dual leg.
+      // …UNLESS THE CLIENT ASKED FOR THE WHOLE FAMILY (the V16K11 capture):
+      // «dvosoben ili kukja» is `residential`, and a union serve must keep the
+      // house — the guard dropped it (rooms are set, house is not `true`) and
+      // the empty pool answered «нема двособни» while EB 50 stood in stock.
       if (pool.length > 0
+        && session.slots.residential !== true
         && session.slots.house !== true
         && (session.slots.house === false
           || session.slots.bedrooms !== undefined

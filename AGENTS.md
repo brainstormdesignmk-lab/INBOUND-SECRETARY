@@ -2966,6 +2966,46 @@ is installed on the data service for the turn, so `candidates()`,
   filters** — narrowing this arm to the flag alone dead-ended legacy studios in
   «нема гарсоњери». Positive pin: `tests/house-type-lock.test.ts`.
 
+## 4j. A STOCK QUESTION IS ANSWERED, NEVER BILLED (the live V16K11 chat)
+
+The first real Viber conversation (2026-11-25, `V16K11`) ran:
+
+```
+klient: mi treba stan pod kirija / centar
+klient: dvosoben ili kukja moze do 300 evra
+LINA:   <куќата EB 50 only — no flat, and «следниве опции» in the plural>
+klient: stance nema?                  ← «isn't there a flat?»
+LINA:   Посетата е за куќата со Евидентен број 50 … 300 денари … согласувате?   ← the fee
+```
+
+Two rules came out of it, both class-level:
+
+- **THE EITHER/OR IS A UNION.** «стан или куќа», «за живеење», and the room
+  adjective with the либо connective («dvosoben ili kukja») are `residential`:
+  the pool is both RESIDENTIAL types (`poolHouse` → `'both'`), ranked by the
+  money and the place. A room adjective is a ROOM COUNT, not a type noun —
+  without the union read only the house word survived, the pool ran
+  houses-only, and the flat the client named first was never a candidate.
+  Guards, all pinned in `tests/stock-absence-ask.test.ts`:
+  - a LATER single type retires the union (the same message's own house word
+    must not — `applySlots` retired `residential` on `ev.house` in the same
+    breath it armed it);
+  - `dvosoбna kukja` (no connective) stays a house;
+  - the CRITERIA-TYPE GUARD (apartment-shaped searches never serve a house)
+    stands down for `residential`, or the union's own pool is emptied.
+- **A STOCK QUESTION IS NOT A PICK.** `detectStockAbsenceAsk` — a TYPE noun in
+  an existence frame («има ли / дали има / нема ли / имате ли»), asked as a
+  question (a `?` or the `ли/li` particle) — owns the turn. It answers what the
+  asked type has under the client's own criteria, and when it has none, says
+  «…немам» and names the closest honest option plus the card already on the
+  table. It NEVER discloses the fee, never burns a rung (a question about the
+  goods is not fee resistance) and never lets the classifier read it as a
+  choice of whatever was served (the live turn quoted a viewing for a flat the
+  client had asked about). Standing down: dismissives («nema veze»), statements
+  of correction («nema stan, sakam kukja»), where-is, and the caught
+  contradiction lane (`detectStockContradiction`). A гарсоњера ask is a STUDIO
+  answer (`isSmallUnit`), never a двособен.
+
 ### A place claim is grounded in the row, never in the model
 
 A reply may name a landmark only if the property row carries it. The responder
