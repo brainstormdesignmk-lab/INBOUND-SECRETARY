@@ -446,6 +446,11 @@ export interface SlotData {
    *  (1/2, 3/1, 2/3 for three places). Absent or a single entry keeps the
    *  single-anchor serve (the two nearest to that place). */
   poiPlaces?: Array<{ name: string; lat: number; lon: number }>;
+  /** THE FLATS A SIDE-BY-SIDE COMPARISON WAS JUST MADE OF (the [09:15] V16K11
+   *  capture): the table comparison names its rows, so a follow-up («а
+   *  другиот?», «зошто тој е поевтин?») has the set the client is looking at
+   *  instead of a feed-ordered guess. */
+  compareEbs?: number[];
   /** id → the place THIS card was drawn for, so each card of a cross-place
    *  pair states its own distance ("на 220 m од Универзална Сала"). */
   /** `ownArea: true` marks an anchor that IS (or contains) this card's own

@@ -3132,3 +3132,55 @@ Two defects in one live turn (V16K11, [10:23]–[10:25]):
   rent copy uses, so `tests/fee-serve-routing.test.ts` passed or failed on which
   bank variant was served. They are `/симболич\p{L}*/` now, and the positive one
   also accepts the verb «филтрираме» (same framing as the noun «филтер»).
+
+## A set is answered for every member, and a comparison is arithmetic
+
+The [09:14]–[09:27] V16K11 turns (one client, five defects). Each rule below is
+pinned by `tests/capture-0924-v16k11.test.ts`, which drives the real handler:
+
+- **EVERY NUMBER HE TYPES IS A MEMBER OF THE SET, INCLUDING THE GONE ONE.**
+  «ДАЛИ УШТЕ ВИ СЕ ПРОДАВААТ 66 И 65 ?» — 66 was in the feed, 65 was not, so
+  `namedPair` (feed-filtered) dropped to one, the plural lane's `rows.length >= 2`
+  failed, and the turn answered ONE-flat availability. The set is read with the
+  shared number grammar (`ebNumbersInText`), the rows that exist are answered
+  from their own columns, and each missing number gets the bank's not-found line
+  (first sentence only — the answer continues into the fee question). The
+  evidence probe sets `availabilityPair` on two typed numbers for the same
+  reason, or the mirror reports a drift on a correct serve.
+- **A DEFINITE PLURAL IS THE SET ON THE TABLE.** «KOLKU SE PO KVADRAT
+  STANOVIVE ?» answered one flat's rate (the focus module picks a single
+  subject). When the message is a plural (`detectPluralFlatAsk`) and names no
+  EB, the €/м² answer is ONE LINE PER FLAT on the table, each with its own
+  price ÷ м².
+- **A COMPARISON IS ARITHMETIC OVER THE ROWS HE CAN SEE.** «NAPRAJ MI SPOREDBA
+  SO PONUDENITE PRETHODNO» reached the place ring and got «немам недвижност во
+  близина на Сити Мол» — a stock search for a question about numbers already on
+  screen. `detectComparisonRequest` reads the EXPLICIT command family (`споредб`,
+  `спореди`, `сравни`, `пореди`) — deliberately narrower than `detectComparison`,
+  whose comparative adjectives belong to the value-ranking lane («која е подобра
+  вредност?» must not become a table diff) — and `buildTableComparison` serves
+  price, м² and
+  €/м² per shown flat, marks the best rate, and asks one way forward. Never
+  fires for a named EB, fee traffic, a search/widen or a visit request.
+- **A REQUEST FOR THE FLAT'S FACTS IS THE CARD, NEVER THE FEE.** «КОИ
+  ИНФОРМАЦИИ МОЖЕТЕ ДА МИ КАЖЕТЕ ЗА 66 ?» put «да ми кажете» between the modal
+  and its object and named the flat by NUMBER — neither shape was in the
+  describe family, so the turn fell to the closing lane and served the 500
+  денари disclosure as if he had agreed to a visit. Both are in
+  `REFERENT_INFO_ASK_RE` now (verb stems `мож/моз` + `каж/каз`, because
+  `normalizeMc` folds a typed «MOZETE» to «мозете»), and the EB is a referent.
+- **«ИЛИ ТОА Е ТОА?» CONFIRMS THE SET — it is not a search and not a promise.**
+  Nothing claimed it, so the LLM invented «Сакате ли да Ве контактирам веднаш
+  штом се појави нова соодветна понуда?» — a sentence the funnel then re-served
+  and the owner has removed from the protocol. `detectSetConfirmationAsk` reads
+  the alternative tail (`или тоа е тоа`, `тоа е сè`, `дали тоа е се`), the lane
+  confirms the flats from the LAST REPLIES' own cards (never `currentBatch`,
+  which this turn's `loadProps` has already rebuilt) and asks for the visit.
+- **A ROUTE'S STATUS LINE MUST NOT WAIT FOR ANOTHER VERDICT** (the [09:04]
+  capture: one owner said «ВО 6 МОЖАМ» and the client heard nothing until the
+  next owner replied). `routeStatusLine` is throttle-gated (10 min wait, one
+  line per 20) and was only called from `advanceChain` — i.e. on an answer.
+  `armRouteStatusTimer` calls the same gated line when a round goes quiet, so
+  the wait is reported once per round (the per-answer bump was tried first and
+  reverted: it broke the pinned «one bump per round» contract in
+  `tests/field-0634-parallel-owner-answers.test.ts`).

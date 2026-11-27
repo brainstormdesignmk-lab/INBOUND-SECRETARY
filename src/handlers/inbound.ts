@@ -20,7 +20,7 @@ import { PropertyService, Property, normalizeLocation, locMatches, locPrep, isAd
 import { KNOWN_NEIGHBORHOODS, AGENT_ATTENDS_VIEWING_ANSWER, AGENT_ATTENDS_VIEWING_KEY, AGENCY_IDENTITY_ANSWER, FEATURE_OWNER_CHECK, detectAgentAttendanceAsk, detectAgencyIdentityAsk, BUSINESS_BUDGET_ASK_KEY, BUSINESS_BUDGET_ASK_FALLBACK, detectBusinessBudgetAsk, PRICE_EVAL_CHEAP_KEY, PRICE_EVAL_CHEAP_FALLBACK, PRICE_EVAL_EXPENSIVE_KEY, PRICE_EVAL_EXPENSIVE_FALLBACK, detectPriceEval, isMoneyWithoutTarget, MONEY_CLARIFY_KEY, MONEY_CLARIFY_FALLBACK, cheapLaneConflict, detectAgreement, detectRejection, isPoiConfirmQuestion, extractPoiConfirmPlace, detectWidenIntent, detectExplicitWiden, detectSameAreaWiden, detectLocation, detectLocationConfirm, isLocationConfirmMarker, detectWhereIs, detectSurroundingsAsk,  detectNearbyAsk, isOptionsFollowUp, detectExactAddressAsk, isKadeTocno,  detectOwnerContact, detectContactRequest, detectSeeOffers, detectPomaloAsk, detectBudgetUpAsk, detectSmallerPerM2Ask, detectGolemComplaint, detectAvailabilityAsk, detectArrangementRecall, detectArrangementPlanning, detectNumberUnknownRecall, detectSimilarAsk, EB_NAMED_RE,  detectFeeWhy, detectFeeComplaint, detectFeeSurprise, detectFeeChargePushback, detectFeeNag, detectFeeFirstTime, detectFeeAnaphoricRefusal, detectInvestmentOpinion, isGenuineQuestion, detectPriceAsk, detectPriceFreshness, detectBudget, detectCountBudget, isWhereLandmarkQuestion, extractWhereLandmarkPlace, detectUnknownLandmark, isDistanceQuestion, extractDistancePlace, extractDistancePlaces, extractBareDistancePlace, isAreaOfPlaceQuestion, namesPriceExtreme, extractAreaOfPlaceQuestion,  detectMarketPriceAsk, detectMarketLevelFollowUp, hasMarketTypePlural, isMarketRentWordAsk, detectMarketMemoryAsk, memoryTypeNoun, memoryRentSegment, detectNearestOfShown,
   distanceAskIsPlural, isOwnerQuestion, isOwnerAvailabilityOnly, isOwnerWorkReason, detectOwnerVerdict, detectPriceChangeComplaint, detectAvailabilityPlural, detectBareEbFollowup, detectMultiVisitIntent, detectVisitDayChoice, detectPluralPropertyAsk, detectPostBookingAck, detectPluralViewingWish, namedVisitEbs, detectParkVisit,
   detectPairReferent, detectIdentifyByFigure, detectOtherFlatAsk, detectPluralFlatAsk,
-  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionAgencyWho, detectNegatedFeePay, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectForgotNumber, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude,  detectStockContradiction, detectStockAbsenceAsk, detectPriceFloor, isNonClientNotice } from '../llm/deterministic';
+  memoryAmountText, detectPriceExtremeAsk, extractPriceExtremeQuery,  detectExhaustedFollowUp, detectRemark, detectEnthusiasm, detectSuggestAlternatives, detectOfftopic, detectDefer, detectNegotiate, detectProvisionAsk, detectProvisionWho, detectProvisionAgencyWho, detectNegatedFeePay, detectProvisionResistance, detectDrugAlternative, detectSchedulingFlex, detectVagueTime, detectWorkdaysQuestion, detectEscalation, detectDocumentsAsk, detectMortgageAsk, detectNeighborhoodAsk, detectAreaHaveAsk, detectWhichAreaHas, detectComparison, detectFeatureAsk, detectResultSetQuestion, detectBedroomsRange, detectVisitCancellation, detectVisitTime, detectPropertyInterest, detectPropertySelection,  detectPropertyDescription, detectSeenListingRecall, detectRecallCategory, splitRecallCategories, detectPlaceOfferAsk, recallCarriesFigure, detectVisitInterest, detectVisitRequest, detectBothServices, detectService, detectBusiness, detectHouse, detectPlac, detectYardNeed, detectResidentialNeed, detectEyeCatch, detectPositiveEval, detectUnderstatedPositive, detectPriceReference, detectPricePriority, detectCheaperSearch, detectEbPriceAssertion, extractEbPriceAssertion, detectLocationNag, detectFeePaymentAgreement, detectWhyFollowUp, lastReplyWasNearby, lastReplyWasExhausted, mentionsMore, hasProximityAnchor, hasWhereWord, extractSlots, fsmRequired, mentionsLandmark,  detectNearCenter, namesCenterOutsideNearPhrase, detectRingElimination, CENTER_RING, hasDayWord, detectWaitingAck, detectOwnerContactHold, detectSendToOwnerAsk, GREETING_ONLY_RE, extractRentMath, computeRentMath, detectTotalCostAsk, detectMoreOptions, detectMoreStockRequest, detectBareBothAnswer, detectMeetingSpotAsk, detectNegatedAgreement, detectFeeRules, detectFeeTotalCost, detectFeeAmountAsk,  detectBye, detectSoftRefusal, detectVisitTimingQuestion, detectExplicitCancel, proposesVisitTerm, detectTimeRejection,  detectExitCheck, detectContactMechanicsChallenge, extractPoiWish, extractPoiWishCandidates, extractPoiListCandidates, isPlaceSearchPivot, detectWhichPropertyAsk, detectPropertyChoice, isFeeTraffic, isFeeFrame, detectDescribeAsk, detectContact, isPlausibleName, isValidPhone, detectLocatePick, detectCloseRemarkToBatch, detectRentTermsAsk, detectFeePerPropertyAsk, feeArithmeticCount, namesVisitAnchor, extractInventoryPlace, detectPropertyTypeWord, stripTrailingPropertySpec, detectFlat, detectInventoryAsk, detectInventoryOptionsAsk, detectSizeWaived, detectBudgetWaived, detectSmallerOfferAsk, detectBareCriterionDismissal, detectToldYouNag, detectForgotNumber, detectBareBedroomCount, roomsFromBedrooms, purchaseBudgetMagnitude,  detectStockContradiction, detectStockAbsenceAsk, detectPriceFloor, isNonClientNotice, detectSetConfirmationAsk, detectComparisonRequest } from '../llm/deterministic';
 import { arbitrateMoney, collisionTag } from '../llm/moneyArbitration';
 import { detectCriteriaStatement, detectPublishedListingAsk, detectAcquisitionWish, detectNegatedType, detectNegatedGarsonjera, detectOwnerAddressReply, detectSqmRate, detectRingNearestAsk, detectProceedAfterCheck, detectOwnerTenantAsk, isAreaNegated, looksLikeScreenEcho, detectSubjectPerM2Ask, detectOwnClaimChallenge } from '../llm/deterministic';
 import { laneServeDenied, GENERIC_ACK_KEY, GENERIC_ACK_FALLBACK } from '../llm/stateLanes';
@@ -94,7 +94,7 @@ import {
   OFFTOPIC_REDIRECT, FOLLOWUP_DEFER, PRICE_NEGOTIATE, PROVISION_ANSWER,
   SCHED_FLEX_ANSWER, ESCALATION_ANSWER, DOCUMENTS_ANSWER, MORTGAGE_ANSWER,
   NEIGHBORHOOD_ANSWER, COMPARISON_ANSWER, FEATURE_ANSWER,
-  provisionLadder, type ProvisionRung, missingCriteriaAsk, buildSearchMatchCards, buildRateComparison,
+  provisionLadder, type ProvisionRung, missingCriteriaAsk, buildSearchMatchCards, buildRateComparison, buildTableComparison,
 } from '../llm/prompts';
 import { detectRecommendAsk, detectValueAsk, collectMentionedEbs, buildRecommendation, buildValueRanking } from '../llm/recommend';
 
@@ -1963,6 +1963,8 @@ export class InboundHandler {
   private chains = new Map<string, Promise<void>>();
   /** One watchdog per chat for the parallel owner round (see armChainWatchdog). */
   private chainWatchdogs = new Map<string, NodeJS.Timeout>();
+  /** One status-bump timer per chat (see armRouteStatusTimer). */
+  private chainStatusTimers = new Map<string, NodeJS.Timeout>();
   /** The shortest gap between two route status bumps (see routeStatusLine): one
    *  line per round is the contract — a verdict on each stop must not turn the
    *  status into a census. */
@@ -3071,6 +3073,35 @@ export class InboundHandler {
     this.chainWatchdogs.set(chatId, timer);
   }
 
+  /** THE STATUS LINE MUST NOT DEPEND ON ANOTHER VERDICT ARRIVING (the [09:04]
+   *  V16K11 capture). `routeStatusLine` is throttle-gated (ten minutes of wait,
+   *  one line per twenty) and it was only ever CALLED from `advanceChain` — i.e.
+   *  when an owner answered. So a round whose first owner replied and whose
+   *  second went quiet told the client NOTHING: no verdict was coming to wake
+   *  the line, and the watchdog only speaks at the end of the window (up to
+   *  thirty minutes). The timer below is armed with every round and calls the
+   *  same throttle-gated line, so the honest «сѐ уште го чекам одговорот за
+   *  …» reaches the client after a real wait — once per round, never a census
+   *  (the throttle is the same one the answer path uses). */
+  private armRouteStatusTimer(session: ChatSession): void {
+    const chatId = session.chatId;
+    const prev = this.chainStatusTimers.get(chatId);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => {
+      this.chainStatusTimers.delete(chatId);
+      void this.enqueue(chatId, async () => {
+        const live = this.deps.sessions.get(chatId);
+        const plan = live?.slots.visitPlan;
+        if (!live || !plan || live.state !== 'owner_checking') return;
+        const asked = plan.stops.filter(s => s.status === 'asked');
+        if (asked.length === 0) return;
+        await this.routeStatusLine(live, asked);
+      });
+    }, InboundHandler.ROUTE_STATUS_MIN_WAIT_MS + 5_000);
+    timer.unref?.();
+    this.chainStatusTimers.set(chatId, timer);
+  }
+
   /** THE CLIENT IS NOT SILENT WHILE THE OWNERS ARE BEING BALANCED (the
    *  [06:34] capture): one owner answered and the chat then said nothing at all
    *  until a watchdog dropped the silent ones — the operator read that as «she
@@ -3408,6 +3439,26 @@ export class InboundHandler {
     ])];
   }
 
+  /** THE FLATS A PLURAL RATE QUESTION IS ABOUT (the [09:14] capture): the two
+   *  the client is looking at, in the order they were put on the table, each
+   *  with its own price ÷ м². A row without a price or an area cannot carry a
+   *  rate and is left out (the answer then names only what it can prove). */
+  private async perM2TableSet(session: ChatSession): Promise<Array<{ p: Property; rate: number }>> {
+    const ebs = [...new Set([
+      ...(session.slots.describedEbs ?? []),
+      ...this.onScreenEbs(session),
+    ])].slice(0, 3);
+    const rows = await Promise.all(ebs.map(eb =>
+      this.deps.properties.getById(eb).catch(() => undefined)));
+    const out: Array<{ p: Property; rate: number }> = [];
+    for (const p of rows) {
+      if (!p) continue;
+      const rate = pricePerM2(p);
+      if (rate !== undefined) out.push({ p, rate });
+    }
+    return out;
+  }
+
   /** THE HOUR A DEFERRED FLAT'S OWNER GAVE, ON THE CLIENT'S NEW DAY (see
    *  `slots.deferHours`): the term the next owner question should carry. Absent
    *  when nothing is remembered, when the term names no day, or when his hour
@@ -3552,6 +3603,7 @@ export class InboundHandler {
       });
     }
     this.armChainWatchdog(session.chatId);
+    this.armRouteStatusTimer(session);
   }
 
   /** One owner's answer for the stop he was asked about. */
@@ -5935,12 +5987,20 @@ export class InboundHandler {
     // shape pays no lookup).
     if (detectAvailabilityPlural(text) && !isFeeTraffic(text)
       && !detectMoreStockRequest(text)) {
+      // TWO NUMBERS ARE A PAIR EVEN WHEN ONE OF THEM IS GONE (the [09:24]
+      // «ДАЛИ УШТЕ ВИ СЕ ПРОДАВААТ 66 И 65 ?»): filtering the typed numbers
+      // against the feed left one, so neither the mirror nor the old executor
+      // lane saw a set — and the client heard about 66 alone. The executor now
+      // answers every member of the typed set (found AND missing), and the
+      // mirror recognises the same turn from the numbers themselves.
+      const typed = ebNumbersInText(text);
       const namedPair = collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1);
-      if (namedPair.length >= 2) {
-        const pairRows = (await Promise.all(namedPair.map(eb =>
+      const set = [...new Set([...namedPair, ...typed])];
+      if (set.length >= 2) {
+        const pairRows = (await Promise.all(set.map(eb =>
           this.deps.properties.getByEb(eb).catch(() => undefined))))
           .filter((p): p is Property => !!p);
-        if (pairRows.length >= 2) ev.availabilityPair = true;
+        if (pairRows.length >= 2 || typed.length >= 2) ev.availabilityPair = true;
       }
     }
 
@@ -7844,6 +7904,30 @@ export class InboundHandler {
     // cenata po kvadrat?» about the flat the chat is holding. It reuses the info
     // family's wording («односно X евра за м² (N м²)») instead of forking copy.
     if (detectSubjectPerM2Ask(text) && inferPropertyId(text) === undefined) {
+      // «KOLKU SE PO KVADRAT STANOVIVE ?» — THE PLURAL SUBJECT IS EVERY FLAT HE
+      // WAS SHOWN (the [09:14] V16K11 capture): the question was about the pair
+      // on the table and the lane answered ONE of them (the last one shown, by
+      // the focus module's single-subject rule), so the client had to ask again
+      // to hear the other. A definite plural («становиве», «двата», «овие два»)
+      // is a set, and a rate question about a set is a rate per member.
+      const pluralRates = detectPluralFlatAsk(text) ? await this.perM2TableSet(session) : [];
+      if (pluralRates.length >= 2) {
+        routeLog(chatId, text, 'SUBJECT_PER_M2');
+        const moneyP = (n: number): string => n.toLocaleString('mk-MK');
+        const linesP = pluralRates.map(({ p, rate }) => {
+          noteTurnFact(this.turn.audit, `perM2:${p.eb}`, rate);
+          const labelsP = ownerPropertyLabels(p);
+          return (session.slots.service ?? p.service) === 'rent'
+            ? `${labelsP.type} со Евидентен број ${p.eb} — кирија ${moneyP(p.price as number)} евра, односно ${moneyP(rate)} евра за м² (${p.sqm} м²).`
+            : `${labelsP.type} со Евидентен број ${p.eb} — ${moneyP(p.price as number)} евра, односно ${moneyP(rate)} евра за м² (${p.sqm} м²).`;
+        });
+        const answerP = `${linesP.join('\n')}\n\nДали сакате да ги споредам страна по страна — цена, квадратура и цена за м²?`;
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answerP }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answerP, 'deterministic');
+        return;
+      }
       // THE SUBJECT OF «колку му доаѓа» IS THE FLAT ON THE TABLE — resolved by
       // the ONE focus module (proposal Phase 3), never by a local read of the
       // slots: a card that was PRESENTED and never promoted into `propertyId`
@@ -7898,6 +7982,36 @@ export class InboundHandler {
         noteTurnFact(this.turn.audit, 'price', subject.price);
         noteTurnFact(this.turn.audit, 'sqm', subject.sqm);
         noteTurnFact(this.turn.audit, 'perM2', rate);
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
+    }
+
+    // ── «СПОРЕДИ ГИ» IS ABOUT THE FLATS HE CAN SEE (the [09:15] capture) ─────
+    // «NAPRAJ MI SPOREDBA SO PONUDENITE PRETHODNO» asks for a side-by-side of
+    // the properties he was JUST shown. Nothing claimed the sentence, so the
+    // turn fell to the place ring and answered a LANDMARK («немам недвижност во
+    // близина на Сити Мол до 1 km») — a stock search for a client who asked
+    // about numbers already on his screen. A comparison over the table is
+    // arithmetic on feed rows, so it is answered from the rows themselves:
+    // price, area, price/m², the best rate named, and one way forward.
+    // Never a fee turn, never a search: a message naming an EB keeps the
+    // info/rate lanes, and «something cheaper» keeps the cheaper-search lane.
+    if (detectComparisonRequest(text) && inferPropertyId(text) === undefined
+      && !isFeeTraffic(text) && !detectSeeOffers(text) && !detectExplicitWiden(text)
+      && !detectCheaperSearch(text) && !detectVisitRequest(text) && !detectVisitInterest(text)) {
+      const rows = await this.perM2TableSet(session);
+      // TWO IS THE MINIMUM FOR A «SPOREDBA»: one row has nothing to be compared
+      // with, and the single-flat question already has its own lane (the rate /
+      // the card), so this one only answers a set.
+      if (rows.length >= 2) {
+        const answer = buildTableComparison(rows.map(r => r.p));
+        routeLog(chatId, text, 'TABLE_COMPARE');
+        for (const { p, rate } of rows) noteTurnFact(this.turn.audit, `compare:${p.eb}`, rate);
+        session.slots.compareEbs = rows.map(r => r.p.eb);
         pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
         pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
         this.deps.sessions.set(session);
@@ -12513,9 +12627,16 @@ export class InboundHandler {
       const namedPlural = pluralAsk
         ? collectMentionedEbs([text], await this.deps.properties.getAllEbs(), 1)
         : [];
-      const namedPair = namedPlural.length >= 2;
+      // THE NUMBERS HE TYPED ARE THE SET — INCLUDING THE ONES WE NO LONGER
+      // HAVE (the [09:24] «ДАЛИ УШТЕ ВИ СЕ ПРОДАВААТ 66 И 65 ?»): collecting
+      // them against the feed drops the sold number, so the question about TWO
+      // flats became a question about one and the client was never told that
+      // 65 is gone. The shared number reader is feed-independent on purpose.
+      const typedEbs = pluralAsk ? ebNumbersInText(text) : [];
+      const namedPair = namedPlural.length >= 2 || typedEbs.length >= 2;
+      const namedSet = [...new Set([...namedPlural, ...typedEbs])];
       const pluralEbs = namedPair
-        ? namedPlural
+        ? namedSet
         : [...new Set([
           ...(session.slots.currentBatch ?? []),
           ...(session.slots.presentedIds ?? []),
@@ -12543,7 +12664,17 @@ export class InboundHandler {
         const rows = (await Promise.all(pluralEbs
           .map(eb => this.deps.properties.getById(eb).catch(() => undefined))))
           .filter((p): p is Property => !!p);
-        if (rows.length >= 2) {
+        // A NAMED FLAT THAT NO LONGER EXISTS IS AN ANSWER TOO (the [09:24]
+        // V16K11 capture): «ДАЛИ УШТЕ ВИ СЕ ПРОДАВААТ 66 И 65 ?» named TWO
+        // numbers; 66 was in the feed and 65 was not, so `rows.length >= 2`
+        // failed and the turn fell to the ONE-flat ack — the client heard about
+        // 66 alone and never learned that 65 is gone. A question about a SET is
+        // answered for EVERY member of the set: the flats we have, and one line
+        // naming each number the agency no longer carries.
+        const missing = namedPair
+          ? pluralEbs.filter(eb => !rows.some(p => p.eb === eb))
+          : [];
+        if (rows.length >= 2 || (namedPair && rows.length >= 1 && missing.length > 0)) {
           routeLog(chatId, text, 'AVAILABILITY_PLURAL');
           const svc = session.slots.service ?? rows[0].service ?? 'buy';
           const lines = rows.map(p => {
@@ -12553,6 +12684,17 @@ export class InboundHandler {
             const claim = buildAvailabilityClaim(p).replace(/\.$/u, '');
             return `${boundFlatIdentity(p)} — ${claim}.`;
           });
+          // THE MISSING NUMBER IS SAID, NOT SILENTLY DROPPED: the not-found copy
+          // is the bank's own (it already names the number), and its trailing
+          // suggestion is trimmed because this answer continues into the fee
+          // question — one question per turn.
+          for (const eb of missing) {
+            noteTurnFact(this.turn.audit, `availability:${eb}`, 'gone');
+            const notFound = pickVariant('property.notfound', {
+              recent: assistantTexts(session), vars: { eb: `Евидентен број ${eb}` },
+            }) ?? `Евидентен број ${eb} повеќе не се наоѓа во нашата понуда.`;
+            lines.push(notFound.split(/(?<=\.)\s/u)[0]!.trim());
+          }
           // The fee is PER PROPERTY, and a plural ask is exactly where a client
           // starts multiplying — the arithmetic is stated, not left to him.
           // SAME DISCLOSURE AS A ONE-FLAT VISIT (the owner's 2026-11-12 rule):
@@ -15384,6 +15526,48 @@ export class InboundHandler {
     if (typedAnswer && blankBatchBefore) {
       session.slots.inventoryOptionsServed = undefined;
       session.slots.inventoryPending = undefined;
+    }
+
+    // ── «УШТЕ НЕШТО ИМА ЛИ ИЛИ ТОА Е ТОА ?» — THE SET ON THE TABLE IS THE SET
+    // (the [08:54] V16K11 capture): the client asks whether the current offer
+    // is complete. Nothing claimed the sentence, so the LLM answered it and
+    // invented «Сакате ли да Ве контактирам веднаш штом се појави нова
+    // соодветна понуда?» — a promise the funnel kept re-serving and a question
+    // the owner has removed from the protocol. The honest answer is the row set
+    // itself, and the forward step is a visit on what he is looking at.
+    // It runs BEFORE the ring ask: a confirmation of the set is not an empty
+    // search, and a landmark sentence here is the [08:54] defect repeating.
+    if (detectSetConfirmationAsk(text)
+      && !isFeeTraffic(text) && !detectVisitRequest(text) && !detectVisitInterest(text)
+      && this.onScreenEbs(session).length > 0) {
+      // THE CARDS HE IS LOOKING AT ARE THE ONES IN THE LAST REPLY (the §4b
+      // «last shown means last presented» rule): `currentBatch` has already been
+      // rebuilt by this turn's `loadProps` (the first draft of this lane listed
+      // «82 и 53» beside a turn that had just shown 53 and 63), and
+      // `presentedIds` accumulates every card of the chat. The card copy itself
+      // names the numbers, so the served set is read from it.
+      const lastReply = assistantTexts(session).slice(-1)[0] ?? '';
+      const onScreen = new Set(this.onScreenEbs(session));
+      const servedEbs = [...new Set(ebNumbersInText(lastReply))]
+        .filter(eb => onScreen.has(eb)).slice(0, 2);
+      const shown = (await Promise.all(servedEbs
+        .map(eb => this.deps.properties.getById(eb).catch(() => undefined))))
+        .filter((p): p is Property => !!p);
+      if (shown.length > 0) {
+        const list = shown.length === 1
+          ? `Евидентен број ${shown[0]!.eb}`
+          : `Евидентните броеви ${shown.map(p => p.eb).join(' и ')}`;
+        const answer = `Да — ${list} се сите моментални понуди што одговараат на Вашите барања. `
+          + (shown.length === 1
+            ? 'Дали да Ви го закажам разгледувањето?'
+            : 'Дали да Ви го закажам разгледувањето, или сакате да го погледнеме само едниот?');
+        routeLog(chatId, text, 'SET_CONFIRM');
+        pushHistory(session, { role: 'user', text }, this.cfg.maxHistory);
+        pushHistory(session, { role: 'assistant', text: answer }, this.cfg.maxHistory);
+        this.deps.sessions.set(session);
+        await this.sendRaw(session, answer, 'deterministic');
+        return;
+      }
     }
 
     // THE ONE-KILOMETRE RING ASK (loadProps withheld the pool, it did not drain

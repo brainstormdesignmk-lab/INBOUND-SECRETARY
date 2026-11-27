@@ -7477,16 +7477,34 @@ const PROPERTY_NOUN_L =
   + '|имотот|imotot|објектот|objektot|гарсоњера(?:та)?|garsonjera(?:ta)?|деловниот\\s+простор|просторот|prostorot)';
 const INFO_NOUN_L =
   '(?:информаци\\p{L}*|инфо|податоци|податок|детали|детал|спецификаци\\p{L}*|карактеристики|характеристики|факти|опис)';
+// THE REFERENT MAY BE AN ЕВИДЕНТЕН БРОЈ (the [09:27] V16K11 capture): «КОИ
+// ИНФОРМАЦИИ МОЖЕТЕ ДА МИ КАЖЕТЕ ЗА 66 ?» names the flat by its number — the
+// only referent this family did not know — so nothing read the request for the
+// CARD and the turn fell to the closing/fee lane, which served the 500 денари
+// disclosure as if he had agreed to a visit. The number grammar is the shared
+// one (ebNumber.ts): a price, an area or a clock is never a flat.
+const EB_REFERENT_L = '(?<![\\p{L}\\p{N}])\\d{1,4}(?![\\p{L}\\p{N}])';
 const REFERENT_INFO_ASK_RE = new RegExp(
   '(?<![\\p{L}\\p{N}])(?:кои|какви|каква|каков|што|сто|shto|sto)\\s+'
   + INFO_NOUN_L + '\\p{L}*(?:\\s+\\p{L}+){0,2}?\\s+(?:ги\\s+)?'
   + '(?:имаш|имас|имате|има|имаат|знаеш|знаете|знаат|можеш|можете|можат|ke\\s+kazes|mozes|znas)\\s+'
-  + '(?:за|на|za|na)\\s+(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој|' + PROPERTY_NOUN_L + ')(?![\\p{L}\\p{N}])'
+  + '(?:за|на|za|na)\\s+(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој|' + PROPERTY_NOUN_L + '|' + EB_REFERENT_L + ')(?![\\p{L}\\p{N}])'
+  // THE MODAL SCAFFOLD (the [09:27] capture): «КОИ ИНФОРМАЦИИ МОЖЕТЕ ДА МИ
+  // КАЖЕТЕ ЗА …» puts «да ми кажете» between the modal verb and the object, so
+  // the arm above (which wants the preposition straight after «можете») matched
+  // nothing. The verb is the ASK — the info noun in front of it is the request
+  // for the whole card.
+  + '|(?<![\\p{L}\\p{N}])' + INFO_NOUN_L + '\\p{L}*(?:\\s+\\p{L}+){0,2}?\\s+'
+  // The verbs are STEMS: normalizeMc folds Latin letter-by-letter, so a typed
+  // «MOZETE DA MI KAZETE» arrives as «мозете да ми казете» (ж never appears) —
+  // the spelled-out «можете/кажете» forms missed the exact turn that matters.
+  + '(?:мож|моз|moz)\\p{L}*\\s+да\\s+ми\\s+(?:каж|каз|kaz)\\p{L}*\\s+'
+  + '(?:за|на|za|na)\\s+(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој|' + PROPERTY_NOUN_L + '|' + EB_REFERENT_L + ')(?![\\p{L}\\p{N}])'
   // THE VERB-ONLY FORM: «ШТО ЗНАЕШ ЗА СТАНОТ» carries no info noun at all —
   // the KNOWING is the ask, and the property noun is its object.
   + '|(?<![\\p{L}\\p{N}])(?:што|сто|shto|sto)\\s+(?:знаеш|знаете|znas|znate'
   + '|можеш\\s+да\\s+ми\\s+(?:кажеш|кажете)|mozes\\s+da\\s+mi\\s+kazes)\\s+(?:за|на|za|na)\\s+'
-  + '(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој|' + PROPERTY_NOUN_L + ')(?![\\p{L}\\p{N}])',
+  + '(?:неа|нејзе|него|нив|оваа|овој|ова|тоа|таа|тој|' + PROPERTY_NOUN_L + '|' + EB_REFERENT_L + ')(?![\\p{L}\\p{N}])',
   'iu');
 // THE NOUN-OF-THE-FLAT form of the same ask: «КАРАКТЕРИСТИКИ НА КУЌАВА ?»,
 // «ДЕТАЛИ ЗА СТАНОТ», «СПЕЦИФИКАЦИИ НА КУЌАТА». The info noun is the subject and
@@ -7504,6 +7522,28 @@ export function detectDescribeAsk(text: string): boolean {
   const normalized = normalizeMc(text);
   return DESCRIBE_ASK_RE.test(normalized) || TELL_ME_SCAFFOLD_RE.test(text)
     || REFERENT_INFO_ASK_RE.test(normalized) || PROPERTY_INFO_OF_RE.test(normalized);
+}
+
+/** «УШТЕ НЕШТО ИМА ЛИ ИЛИ ТОА Е ТОА ?» — IS THE SET ON THE TABLE ALL THERE IS?
+ *  (the [08:54] V16K11 capture).
+ *
+ *  The client asks whether the current offer is complete. Nothing read the
+ *  sentence, so it fell to the LLM, which invented «Сакате ли да Ве контактирам
+ *  веднаш штом се појави нова соодветна понуда?» — a promise the funnel then
+ *  served AGAIN, turn after turn, and a question the owner has removed from the
+ *  protocol. The honesty is the row set itself: what he is looking at IS the
+ *  current matching offer, and the next step is a visit on it.
+ *
+ *  The marker is the ALTERNATIVE TAIL («или тоа е тоа», «или е тоа то», «тоа е
+ *  сè»): a bare «уште нешто има?» is a REQUEST for more stock and keeps that
+ *  lane (MORE_STOCK), while the tail asks to confirm the set is closed.
+ *  normalizeMc folds Latin letter-by-letter, so both scripts are listed.
+ */
+export function detectSetConfirmationAsk(text: string): boolean {
+  const n = normalizeMc(text);
+  return /(?<![\p{L}\p{N}])(?:или|ili)\s+(?:тоа|то|toa|to)\s+(?:е|e)\s+(?:тоа|то|toa|to)(?![\p{L}\p{N}])/iu.test(n)
+    || /(?<![\p{L}\p{N}])(?:тоа|то|toa|to)\s+(?:е|e)\s+(?:сè|се|se|sve)(?![\p{L}\p{N}])/iu.test(n)
+    || /(?<![\p{L}\p{N}])(?:дали|dali)\s+(?:тоа|toa)\s+(?:е|e)\s+(?:се|sve|se)(?![\p{L}\p{N}])/iu.test(n);
 }
 
 // ── CONTEXT DISAMBIGUATION for the ambiguous "more/other" family ───────────
@@ -11477,6 +11517,17 @@ export function detectPriceExtremeAsk(text: string): boolean {
 const COMPARISON_RE =
   /(?:што\s+е\s+(?:подобро|посигурно|подобра|побргзо|поевтино|поскапо|поголемо|помало)|(?:кој|која|кое)\s+е\s+(?:подобро|посигурно|подобра|побргзо|поевтин|поевтино|поскапо|поголем|поголемо|помал|помало|популарно|барано)|(?:кој|која|кое)\s+(?:ќе\s+ми\s+(?:одговара|биде\s+подобар)|е\s+(?:подобар|добар|погоден))|спореди|сравни|compare|which\s+(?:is\s+)?(?:better|cheaper|bigger|smaller|newer)|whats\s+(?:the\s+)?(?:difference|better|best)|пониско|поскапо|поголемо|помало|подобро|е\s+пониско|е\s+поскапо|е\s+поголемо|е\s+помало|е\s+подобро|poеftino|pockapo|pogolemo|pomalo|podobro|lower|higher|bigger|smaller)/iu;
 
+// A COMMAND TO MAKE A COMPARISON IS THE SAME ASK (the [09:15] V16K11 capture):
+// «NAPRAJ MI SPOREDBA SO PONUDENITE PRETHODNO» — the NOUN «споредба» (and its
+// plural, and the verbs «спореди/сравни/пореди/uporedi» typed with a v/f slip)
+// was in no arm, so a request for a side-by-side of the flats on the table
+// reached the stock lanes and was answered with a landmark sentence. The verb
+// families are stems so every inflection («споредбата», «споредби», «споредив»,
+// «споредувам») counts, and the noun stem «споредб» can never match an ordinal
+// («според» is a different stem and stays out).
+const COMPARISON_COMMAND_RE =
+  /(?<![\p{L}\p{N}])(?:споредб|sporedb|споредув|sporeduv|спореден|sporeden|спореди|sporedi|сравн|sravn|споредува|sporeduva|упорeд|upored|поредб|poredb)\p{L}*/iu;
+
 /** True when the client asks to compare properties. */
 export function detectComparison(text: string): boolean {
   // BUDGET-UP veto (the [25:2x] queue): the bare upward ask (
@@ -11494,6 +11545,16 @@ export function detectComparison(text: string): boolean {
   // arms — the search lanes own them, and a diff of two rows is not the answer.
   if (detectSeeOffers(text) || detectExplicitWiden(text)) return false;
   return matchesBoth(COMPARISON_RE, text) || extFires('comparison', text);
+}
+
+/** AN EXPLICIT «MAKE ME A COMPARISON» IS ITS OWN ASK (the [09:15] V16K11
+ *  capture): «NAPRAJ MI SPOREDBA SO PONUDENITE PRETHODNO», «направи ми
+ *  споредба», «спореди ги». The general comparison family (`detectComparison`)
+ *  is the LLM's judgment lane — «која е подобра вредност?» has its own ranking
+ *  lane — so the deterministic table diff may only claim the EXPLICIT command,
+ *  never every comparative adjective. */
+export function detectComparisonRequest(text: string): boolean {
+  return matchesBoth(COMPARISON_COMMAND_RE, text);
 }
 
 // Feature question after a property was shown: the client asks about a feature.

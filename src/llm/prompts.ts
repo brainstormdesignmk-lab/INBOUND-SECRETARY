@@ -723,6 +723,40 @@ export function buildRateComparison(subject: Property, peers: Property[]): strin
   return [head, ...lines, span, verdict, close].join('\n');
 }
 
+/** «NAPRAJ MI SPOREDBA SO PONUDENITE PRETHODNO» — SIDE BY SIDE, THE FLATS HE
+ *  WAS JUST SHOWN (the [09:15] V16K11 capture).
+ *
+ *  The client asked for a comparison of the properties on the table and the turn
+ *  answered a LANDMARK («немам недвижност во близина на Сити Мол до 1 km») — a
+ *  stock search, about flats in a different neighbourhood. A comparison is
+ *  arithmetic over rows the client can see, so it is built here from those rows
+ *  only: price, area and price/m² per flat, cheapest per м² marked, and one
+ *  question that moves the chat forward. No market band, no peers he never saw.
+ *
+ *  Rows without both a price and an area cannot carry a rate and are left out
+ *  (the sentence never compares a figure it cannot compute). */
+export function buildTableComparison(rows: Property[]): string {
+  const money = (n: number): string => n.toLocaleString('mk-MK');
+  const usable = rows
+    .map(p => ({ p, rate: pricePerM2(p) }))
+    .filter((r): r is { p: Property; rate: number } =>
+      r.rate !== undefined && r.p.price !== undefined && r.p.sqm !== undefined);
+  if (usable.length === 0) {
+    return 'За овие недвижности немам доволно податоци за споредба (цена и квадратура). Кажете ми кој Евидентен број Ви е најважен и ќе Ви ги кажам деталите.';
+  }
+  const base = usable[0]!.p;
+  const baseLabels = ownerPropertyLabels(base);
+  const head = usable.length === 1
+    ? 'Имам податоци само за една од нив, па еве ги нејзините бројки:'
+    : `Споредба на ${baseLabels.type === 'стан' ? 'становите' : 'недвижностите'} што ги разгледавме — цена, квадратура и цена за м²:`;
+  const lines = usable.map(({ p, rate }) => `• Евидентен број ${p.eb}: ${money(p.price as number)} евра, ${p.sqm} м² — ${money(rate)} евра за м².`);
+  const best = [...usable].sort((a, b) => a.rate - b.rate || a.p.eb - b.p.eb)[0]!;
+  const tail = usable.length >= 2
+    ? `Најдобра цена за м² има Евидентен број ${best.p.eb} (${money(best.rate)} евра за м²). Дали да Ви го закажам разгледувањето за него, или сакате да го видите и другиот?`
+    : `Дали да Ви го закажам разгледувањето?`;
+  return [head, ...lines, tail].join('\n');
+}
+
 export function buildLocateMatches(properties: Property[], closerIndex = 0, withNumberInvite = true): string {
   const lines = properties.slice(0, 2).map(p => buildLocateMatchLine(p)).join('\n');
   // ONE CARD, ONE QUESTION (the [11:07] replay): the plural closer asked him to

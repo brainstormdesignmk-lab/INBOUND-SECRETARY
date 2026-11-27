@@ -38,8 +38,8 @@ import {
   detectOwnClaimChallenge, detectSubjectPerM2Ask, detectAvailabilityAsk,
   detectFeeNag, detectFeeComplaint, detectFeeSurprise, detectAreaHaveAsk, extractSlots,
   detectFeeAmountAsk, detectFeeRules, detectFeeFirstTime, detectFeeChargePushback,
-  detectVisitDayChoice,
-  detectFeeTotalCost, detectAgreement, detectVisitRequest, detectCheaperSearch,
+  detectVisitDayChoice, detectSetConfirmationAsk, detectComparisonRequest,
+  detectFeeTotalCost, detectAgreement, detectVisitRequest, detectCheaperSearch, detectSeeOffers,
   detectVisitTimingQuestion, detectProceedAfterCheck, detectPriceFreshness,
   detectPriceAsk, detectRemark, detectSqmRate, detectProvisionResistance, detectBye,
   detectPriceChangeComplaint, detectRentTermsAsk, detectTotalCostAsk, extractRentMath,
@@ -1179,6 +1179,20 @@ export const ROUTING_ORDER: RouteRule[] = [
   // detectors, same allowedStates). COMPARISON precedes FEATURE_ASK — the
   // SIMPLE_DISPATCH order rule — because a “which one is better” wording can
   // also carry a feature token (a parking/floor word) and must keep its diff lane.
+  // A SIDE-BY-SIDE OF THE TABLE IS ANSWERED DETERMINISTICALLY (the [09:15]
+  // V16K11 capture): «NAPRAJ MI SPOREDBA SO PONUDENITE PRETHODNO» has rows it
+  // can only mean — the flats on screen — so the comparison lane runs before
+  // the LLM's diff lane (COMPARISON) and its own row must sit right there, or
+  // every such turn reports a route gap. The executor's gates are copied: no
+  // named EB, no fee, no search/widen, no visit intent.
+  { intent: 'TABLE_COMPARE', note: 'a side-by-side of the flats on the table («направи ми споредба со понудените претходно», inbound.ts 7676) — arithmetic on the shown rows, never a stock search. Fires only over a set (>=2 rows), never for a named EB or fee/search/visit traffic',
+    fires: (t, s, sl) => {
+      if (!['presentation', 'property_query', 'closing'].includes(s)) return false;
+      if (!detectComparisonRequest(t) || inferPropertyId(t) !== undefined) return false;
+      if (isFeeTraffic(t) || detectSeeOffers(t) || detectExplicitWiden(t) || detectCheaperSearch(t)) return false;
+      if (detectVisitRequest(t) || detectVisitInterest(t)) return false;
+      return new Set([...(sl.describedEbs ?? []), ...(sl.currentBatch ?? []), ...(sl.presentedIds ?? [])]).size >= 2;
+    } },
   { intent: 'COMPARISON', note: 'which one is better — same-class diff (from SIMPLE_DISPATCH)',
     fires: (t, s) => detectComparison(t) && ['presentation', 'property_query'].includes(s) },
   { intent: 'FEATURE_ASK', note: 'per-property feature (parking, floor…) (from SIMPLE_DISPATCH)',
@@ -1205,6 +1219,15 @@ export const ROUTING_ORDER: RouteRule[] = [
   // in the order, because only a turn that reached the pool can match it —
   // predicts the lane the executor is about to log. Without it every residential
   // similarity ask logged a false drift pair against SURROUNDINGS.
+  // «УШТЕ НЕШТО ИМА ЛИ ИЛИ ТОА Е ТОА ?» — the set on the table confirmed (the
+  // [08:54] capture). It is answered BEFORE the ring ask, so its row sits here,
+  // just before PLACE_RING_ASK's, and mirrors the executor's gate exactly: the
+  // tail marker, something on the table, and no fee/visit traffic.
+  { intent: 'SET_CONFIRM', note: '«уште нешто има ли ИЛИ ТОА Е ТОА?» (inbound.ts 15499) — the flats on the table ARE the current matching offer, and the forward step is a visit (never the «we will contact you when a new offer appears» question the owner removed). Gate: the alternative tail, a non-empty table, no fee/visit traffic',
+    fires: (t, s, sl) => detectSetConfirmationAsk(t)
+      && ['presentation', 'closing', 'property_query'].includes(s)
+      && !isFeeTraffic(t) && !detectVisitRequest(t) && !detectVisitInterest(t)
+      && new Set([...(sl.currentBatch ?? []), ...(sl.presentedIds ?? [])]).size > 0 },
   { intent: 'PLACE_RING_ASK', note: '«НАКАЈ АЕРОДРОМ ИМАШ НЕШТО СЛИЧНО?» with nothing inside 1 km ([21:05]) — the place, the MEASURED distance and the ONE binary widen question, no cards. Predicted on the refinement pass from slots.poiTooFarAsk (the pool\'s own verdict), never from the text: the same sentence with stock in the ring is a different turn',
     fires: (t, s, sl) => sl.poiTooFarAsk === true
       && ['presentation', 'closing'].includes(s)
@@ -1475,6 +1498,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'FEE_WHY:fast': M('FEE_WHY', 'the bare WHY claim (must beat provision.ask)'),
   SCHEDULING_FLEX: M('SCHEDULING_FLEX', 'time-window preference in visit states'),
   // --- mirrored by dispatchSimple (SIMPLE_DETECTORS), rows added in R1 ---
+  TABLE_COMPARE: M('TABLE_COMPARE', 'a side-by-side of the flats on the table (price, м², €/м²)'),
   COMPARISON: M('COMPARISON', 'client wants a same-class diff'),
   FEATURE_ASK: M('FEATURE_ASK', 'per-property feature (parking, floor…)'),
   FEE_WHY: M('FEE_WHY', 'the bare WHY claim (before provision.ask)'),
@@ -1525,6 +1549,7 @@ export const ROUTE_LANES: Record<string, LaneEntry> = {
   'OWNER_HOLD:fast': M('OWNER_HOLD', '«NE GO KONTAKTIRAJ USTE» — acknowledge and stop, never proceed (inbound.ts 10460)'),
   POI_CONFIRM: M('POI_CONFIRM', 'a place-confirm question about the bound flat («da ne e vo karpos ?») — the executor answers it only when the MAP resolves the named place (inbound.ts 6861: a landmark hit or a named area). The map is data, not text: a mirror row would have to guess, and the probe showed exactly that — «DA NE E VO SKOPJANKA ?» is a POI-confirm by wording while the executor served nothing. Labelled backlog, not a guessed row'),
   PLACE_PIVOT: M('PLACE_PIVOT', 'same search at a different named place («а нешто кај X?») — the criteria stand and one question confirms them (inbound.ts 7156)'),
+  SET_CONFIRM: M('SET_CONFIRM', '«уште нешто има ли или тоа е тоа?» — the shown flats are the whole matching offer'),
   PLACE_RING_ASK: M('PLACE_RING_ASK', 'the 1 km place ring: nothing inside the ring — the place, the measured distance and the one binary widen question (predicted on the refinement pass, from the pool\'s own poiTooFarAsk verdict)'),
   PLACE_RING_ROW: M('PLACE_RING_ROW', 'the identity of the flat the place ring measured (“koj e toj stan na 1,4 km?”, inbound.ts 12640) — predicted from the ring\'s own slots (a pending ask, an unmoved anchor, a measured row)',),
   'PRICE_ASK:fast': M('PRICE_ASK', 'the plain price ask in the !fsmRequired fast block — the flat named or the one on the table, else the Евидентен број question'),
