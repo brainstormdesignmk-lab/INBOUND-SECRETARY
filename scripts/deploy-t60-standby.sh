@@ -90,9 +90,17 @@ if [ "$DO_DB" = "1" ]; then
   echo "      sha256 ${DB_SHA:0:16}…"
 fi
 
-ping -c1 -W2 "$T60_HOST" >/dev/null 2>&1 || { echo "FATAL: $T60_HOST does not answer ping — standby unreachable"; exit 1; }
-
 [ -f "$T60_KEY" ] || { echo "FATAL: no ssh key at $T60_KEY — the standby cannot be reached without it"; exit 1; }
+
+# THE TRANSPORT DECIDES REACHABILITY, NOT ICMP. The gate used to be `ping -c1`,
+# and on 2026-11-27 a live standby (ssh fine, rsync fine, /health ok) was
+# reported "does not answer ping — standby unreachable" while the box was
+# serving traffic: the network drops ICMP, so the deploy refused to run and the
+# standby silently stayed one commit behind. Probe what the deploy actually uses.
+if ! ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=8 -i "$T60_KEY" \
+    "$T60_USER@$T60_HOST" true 2>/dev/null; then
+  echo "FATAL: $T60_USER@$T60_HOST does not accept ssh — standby unreachable"; exit 1
+fi
 SSH=(ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=8 -i "$T60_KEY" "$T60_USER@$T60_HOST")
 RSYNC_SSH="ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=8 -i $T60_KEY"
 
