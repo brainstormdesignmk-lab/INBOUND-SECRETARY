@@ -3184,3 +3184,25 @@ pinned by `tests/capture-0924-v16k11.test.ts`, which drives the real handler:
   the wait is reported once per round (the per-answer bump was tried first and
   reverted: it broke the pinned «one bump per round» contract in
   `tests/field-0634-parallel-owner-answers.test.ts`).
+
+## The owner channel is the client channel (order + antiban window)
+
+Two owner-side rules from the same V16K11 route, both pinned in
+`tests/capture-0900-owner-channel.test.ts`:
+
+- **THE CLIENT'S ORDER OPENS THE ROUTE.** He answered «ПОНЕДЕЛНИК 6» (18:00) for
+  a pair and the owner of the FIRST flat was asked about 19:00 while 18:00 went
+  to the second. An unknown hour is free, so the first question of a round is
+  his own hour on the FIRST flat in HIS order (`planAsks` walks the stop array,
+  which the handler builds from the cards he saw), then one hour per following
+  flat, ascending, never over an occupied hour. `prefer` (a deferred flat's own
+  earlier answer) still wins for that flat.
+- **A REPEATED OWNER SENTENCE INSIDE THE TYPING WINDOW IS ONE MESSAGE.** «ВО 6
+  МОЖАМ» arrived twice and was applied twice («одговор примен: counter (ВО 6)»
+  ×2). `ownerMessage` now keeps the client's antiban rule: the same normalised
+  sentence for the same flat inside `ownerTypingDelayMs` answers with the FIRST
+  outcome and is marked `replay` — a transport retry never takes a second turn
+  of the conversation. The window key is per (chat, flat): two owners are never
+  each other's duplicate, and **a repeated insult is never a replay** — the
+  abuse ladder must climb 1 → 2 → 3 on every message (`effect === 'offended'`
+  is excluded from the fold).

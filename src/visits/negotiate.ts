@@ -117,20 +117,38 @@ export function planAsks(view: NegotiateView): NegotiateAsk[] {
     const unknown = live.find(s => s.can === undefined && remaining(s));
     return unknown ? [{ eb: unknown.eb, hour: scope.targetHour, reason: 'first' }] : [];
   }
+  // THE CLIENT'S ORDER OPENS THE ROUTE (the [09:00] V16K11 capture): he chose
+  // «ПОНЕДЕЛНИК 6» for the pair, and the owner of the FIRST flat was asked about
+  // 19:00 while 18:00 went to the second — «the ask should be based on his
+  // choice first». An unknown hour is free, so the first question of the round
+  // is his own hour on the FIRST flat in HIS order (the array order the caller
+  // built from the cards he saw), then one hour per following flat, ascending
+  // and never over an hour the calendar already holds. A deferred flat's own
+  // earlier hour still wins for that flat (`prefer`): asking a man who already
+  // said «only 09:00» whether he can do 14:00 spends a question on a refusal we
+  // were told.
   const firstRound: NegotiateAsk[] = [];
-  for (const placed of plan.stops) {
-    const stop = live.find(s => s.eb === placed.eb);
-    if (!stop || stop.can !== undefined) continue;
+  const busySet = new Set(scope.busy ?? []);
+  const taken = new Set<number>();
+  let cursor = Math.max(scope.targetHour, VISIT_FIRST_HOUR);
+  const nextFree = (from: number): number | undefined => {
+    for (let h = Math.max(from, VISIT_FIRST_HOUR); h <= VISIT_LAST_HOUR; h++) {
+      if (busySet.has(h) || taken.has(h)) continue;
+      return h;
+    }
+    return undefined;
+  };
+  for (const stop of live) {
+    if (stop.can !== undefined) continue;
     if (!remaining(stop)) continue;
-    // HIS OWN EARLIER ANSWER LEADS (a deferred flat's second day): the hours he
-    // gave on the missed day are the question to ask now — the plan's hour is
-    // only the fallback, because an unknown hour is free and the plan cannot
-    // know his real one. Both are still questions, never a placement.
-    const prefer = (stop.prefer ?? []).find(h => h >= VISIT_FIRST_HOUR && h <= VISIT_LAST_HOUR
-      && !(scope.busy ?? []).includes(h));
-    const hour = prefer ?? placed.hour;
-    if ((stop.askedHours ?? []).includes(hour)) continue;
+    const prefer = (stop.prefer ?? []).find(h => h >= VISIT_FIRST_HOUR
+      && h <= VISIT_LAST_HOUR && !busySet.has(h) && !taken.has(h));
+    const hour = prefer ?? nextFree(cursor);
+    if (hour === undefined) continue;
+    if ((stop.askedHours ?? []).includes(hour)) { cursor = hour + 1; continue; }
     firstRound.push({ eb: stop.eb, hour, reason: 'first' });
+    taken.add(hour);
+    cursor = hour + 1;
   }
   if (firstRound.length > 0) return firstRound;
 

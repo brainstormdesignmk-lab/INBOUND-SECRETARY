@@ -18933,6 +18933,35 @@ ${contactReminder}`;
         try { return { ...(JSON.parse(prior) as OwnerMessageResult), replay: true }; } catch { /* unreadable — recompute */ }
       }
     }
+    // THE OWNER GETS THE CLIENT'S OWN ANTIBAN WINDOW (the [09:04] V16K11
+    // capture): his «ВО 6 МОЖАМ» arrived twice inside one typing window and the
+    // pane applied it twice («одговор примен: counter (ВО 6)» ×2) — the same
+    // sentence read as two verdicts, on a channel where a doubled answer is
+    // exactly what the client-side burst window exists to prevent. The window
+    // is `ownerTypingDelayMs` (the value the operator pane gives a human to
+    // finish a thought) and the key is the FLAT he is answering for: two
+    // different owners are never each other's duplicate. The repeat answers
+    // with the FIRST result (a transport retry must not take a second turn)
+    // and is marked `replay`, like a messageId replay.
+    const burstKey = `owner.burst:${chatId}:${subjectEb ?? 'any'}`;
+    const normOwner = text.replace(/\s+/gu, ' ').trim().toLowerCase();
+    if (!key) {
+      const priorBurst = this.deps.meta.getText(burstKey);
+      if (priorBurst) {
+        try {
+          const seen = JSON.parse(priorBurst) as { text: string; at: number; result: OwnerMessageResult };
+          const withinWindow = Date.now() - seen.at <= Math.max(this.cfg.ownerTypingDelayMs, 1_000);
+          // A REPEATED INSULT IS A NEW STRIKE, NEVER A REPLAY (the [10:24]
+          // protocol): «ПУШИ КУРАЦ» sent three times must climb 1 → 2 → 3, so
+          // the window only folds the sentences whose FIRST outcome was not the
+          // tone warning. Duplicates of an ordinary answer are what the window
+          // is for; the abuse ladder counts every message.
+          if (withinWindow && seen.text === normOwner && seen.result.effect !== 'offended') {
+            return { ...seen.result, replay: true };
+          }
+        } catch { /* unreadable — recompute */ }
+      }
+    }
     // AN OWNER TURN IS A TURN TOO (the same isolation the client path gets):
     // the per-turn values are async-local, and an owner seam that ran OUTSIDE
     // the scope would write to the handler's shared fallback context — i.e. the
@@ -18949,6 +18978,11 @@ ${contactReminder}`;
       }
     });
     if (key) this.deps.meta.setText(key, JSON.stringify(result));
+    // …and the burst record (see the window above) — written for every message
+    // so the NEXT identical one inside the window is a replay, not a verdict.
+    try {
+      this.deps.meta.setText(burstKey, JSON.stringify({ text: normOwner, at: Date.now(), result }));
+    } catch { /* advisory */ }
     return result;
   }
 
