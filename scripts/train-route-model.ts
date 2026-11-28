@@ -122,6 +122,15 @@ if (result.safeServed > 0 && result.safeAccuracy < 0.99) reasons.push(`safe accu
 if (!beatsMajority) reasons.push(`cost/row ${result.costPerRow.toFixed(2)} is not below majority ${majority.costPerRow.toFixed(2)}`);
 console.log(`[route:train] ${ok ? 'PASSES the gate' : `FAILS the gate — ${reasons.join('; ')}`}`);
 
-writeFileSync(outPath, JSON.stringify({ ...calibrated, trainedAt: Date.now(), trainedRows: fitRows.length }), 'utf8');
-console.log(`[route:train] wrote ${outPath} (${(JSON.stringify(calibrated).length / 1024).toFixed(0)} KB)`);
-if (!ok) process.exitCode = 3;
+// A MODEL THAT FAILS THE GATE IS NEVER WRITTEN TO THE SERVABLE PATH. The
+// servable path is what `LINA_LOCAL=serve` loads; a gate-failing file there
+// would be one config flag away from routing real clients, which is the whole
+// reason the gate exists. The rejected artifact is kept for inspection.
+const artifact = JSON.stringify({ ...calibrated, trainedAt: Date.now(), trainedRows: fitRows.length });
+const target = ok ? outPath : `${outPath}.rejected.json`;
+writeFileSync(target, artifact, 'utf8');
+console.log(`[route:train] wrote ${target} (${(artifact.length / 1024).toFixed(0)} KB)`);
+if (!ok) {
+  console.log(`[route:train] ${outPath} was NOT touched — a model that fails the gate never becomes servable`);
+  process.exitCode = 3;
+}

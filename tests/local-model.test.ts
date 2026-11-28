@@ -277,6 +277,38 @@ test('the majority baseline is what a model must beat', () => {
   assert.equal(base.costPerRow, 0.25);
 });
 
+// ── The trainer's gate is a FILE boundary ───────────────────────────────────
+
+test('a model that fails the gate is written to .rejected, never to the servable path', async () => {
+  // The servable path is what `LINA_LOCAL=serve` loads. If a failing model
+  // landed there, one config flag would route real clients with an artifact
+  // the gate just refused — so the boundary is tested through the real CLI.
+  const fs = await import('node:fs');
+  const { execFileSync } = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(tmpdir(), 'route-train-'));
+  const corpus = path.join(dir, 'corpus.jsonl');
+  const out = path.join(dir, 'model.json');
+  const sig = JSON.stringify({
+    negated: false, digit: false, moneyWord: false, propertyOnTable: false,
+    feeRung: false, awaiting: 'service', service: 'buy', key: 'buy.service',
+  });
+  // One class only: the model is perfect AND worthless (it cannot beat the
+  // majority baseline, which is exactly the same prediction), so the gate fails
+  // deterministically without depending on training noise.
+  const rows = Array.from({ length: 40 }, (_, i) => JSON.stringify({
+    norm: `test message ${i}`, state: 'idle', sig, sigKey: 'buy.service',
+    event: 'STAY', label: 'STAY', createdAt: i,
+  }));
+  fs.writeFileSync(corpus, rows.join('\n') + '\n');
+  let status = 0;
+  try {
+    execFileSync('npx', ['tsx', 'scripts/train-route-model.ts', '--corpus', corpus, '--out', out], { stdio: 'pipe', timeout: 120_000 });
+  } catch (e) { status = (e as { status?: number }).status ?? -1; }
+  assert.equal(status, 3, 'the gate must fail and exit 3');
+  assert.equal(fs.existsSync(out), false, 'the servable path must not exist');
+  assert.equal(fs.existsSync(`${out}.rejected.json`), true, 'the rejected artifact is kept for inspection');
+});
+
 // ── The seam ────────────────────────────────────────────────────────────────
 
 const ROWS = [{ eb: 79, id: 79, location: 'Водно', address: 'Водно', price: 300, service: 'rent', bedrooms: 2, sqm: 35, size: '35 м²' }] as unknown as Property[];
