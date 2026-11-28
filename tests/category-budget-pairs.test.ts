@@ -211,3 +211,53 @@ test('[19:14] e2e: near a landmark the pair starts with the CLOSEST to it', asyn
   assert.deepEqual(s.slots.currentBatch, [611, 613],
     `one of each, closest to the place first: ${JSON.stringify(s.slots.currentBatch)}`);
 });
+
+// ── THE SET IS ONLY THE SET WHEN IT IS EMPTY (the [08:54] V16K11 capture) ─────
+//
+// The client, after a pair of двособни, asked «УШТЕ НЕШТО ИМА ЛИ ИЛИ ТОА Е ТОА?»
+// and heard «Да — 53 и 54 се сите моментални понуди» while the carve for the
+// OTHER category (the two трособни under his own 180.000 cap) had just been
+// made and thrown away. Two rules: a set confirmation may only stand on an
+// EMPTY pool, and the notebook may only hold cards that were actually shown.
+
+test('[08:54] e2e: «уште нешто» serves the stock that exists instead of declaring the set complete', async () => {
+  const { say, sessions, chatId } = makeHandler('set-not-the-set');
+  await say('ZDRAVO SAKAM DA KUPAM STAN VO AERODROM');
+  await say('DVOSOBEN MOZE DO 90000 I TROSOBEN DO 150000');
+  const first = sessions.get(chatId)!.slots.currentBatch ?? [];
+  assert.equal(first.length, 2, `the pair leads: ${JSON.stringify(first)}`);
+
+  const more = await say('USTE NESTO IMA LI ILI TOA E TOA ?');
+  assert.doesNotMatch(more, /се сите моментални понуди/iu,
+    `a set claim over stock still in the pool is a lie: ${more}`);
+  assert.match(more, /Евидентен број/u, `the honest answer IS the next cards: ${more}`);
+  const second = sessions.get(chatId)!.slots.currentBatch ?? [];
+  assert.equal(second.length, 2, `the other pair is served: ${JSON.stringify(second)}`);
+  assert.ok(second.every(id => !first.includes(id)), `never the same pair twice: ${JSON.stringify([first, second])}`);
+});
+
+test('[08:54] e2e: the notebook holds only cards that were actually shown', async () => {
+  const { say, sessions, chatId } = makeHandler('set-notebook');
+  await say('ZDRAVO SAKAM DA KUPAM STAN VO AERODROM');
+  await say('DVOSOBEN MOZE DO 90000 I TROSOBEN DO 150000');
+  const s = sessions.get(chatId)!;
+  const spoken = (s.history ?? []).filter(h => h.role === 'assistant').map(h => h.text).join('\n');
+  for (const id of s.slots.presentedIds ?? []) {
+    assert.match(spoken, new RegExp(`Евидентен број ${id}\\b`, 'u'),
+      `EB ${id} is banked as shown but never appeared in a reply (the [08:54] defect)`);
+  }
+});
+
+test('[08:54] e2e: once the pool IS empty the set confirmation is allowed', async () => {
+  const { say, sessions, chatId } = makeHandler('set-truly-empty');
+  await say('ZDRAVO SAKAM DA KUPAM STAN VO AERODROM');
+  await say('DVOSOBEN MOZE DO 90000 I TROSOBEN DO 150000');
+  // Walk the ladder out: each turn serves a pair until the stock is gone.
+  for (let i = 0; i < 6; i++) {
+    const r = await say('DRUGI OPCII');
+    if (/друга населба/iu.test(r)) break;
+  }
+  const last = await say('USTE NESTO IMA LI ILI TOA E TOA ?');
+  assert.match(last, /се сите моментални понуди|исцрпивме/iu,
+    `an empty pool is what the set claim is for: ${last}`);
+});

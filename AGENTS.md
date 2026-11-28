@@ -25,6 +25,26 @@ Concretely, that means:
 - Report what did NOT work as a limitation. Never present an unrun or failed
   check as a pass.
 
+## 0a. The work order: "do it" means ALL of it
+
+The owner has said this twice and it is not negotiable:
+
+- **"DO IT" = every item on the list AND everything that surfaces while working.**
+  A defect found in the middle of a task is part of the task — fix it in the
+  same pass, with its regression test, before you report anything.
+- **NO "NOT DONE" LIST.** An open item in a report is a broken promise, not
+  honesty. The report may only contain what shipped, what was checked, and what
+  is genuinely blocked on an outside fact (a host that is off, a key that does
+  not exist) — never something that was simply left for later.
+- **ASK DURING THE WORK, NOT AFTER IT.** If the owner's decision is needed, ask
+  at the moment it comes up, keep working on everything that does not depend on
+  it, and finish the rest as soon as the answer lands.
+- **RUN THE GATES ONCE.** Batch the fixes, then run the full gate set once at the
+  end. Re-running the whole suite after every small edit is an hour burned per
+  round trip — iterate with the one affected file, then gate once.
+- A worker, not a philosopher: state the finding in one sentence, fix it, show
+  the check.
+
 ## 1. Verification before declaring anything done
 
 ```bash

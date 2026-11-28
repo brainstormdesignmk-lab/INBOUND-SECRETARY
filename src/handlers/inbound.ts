@@ -15537,7 +15537,19 @@ export class InboundHandler {
     // itself, and the forward step is a visit on what he is looking at.
     // It runs BEFORE the ring ask: a confirmation of the set is not an empty
     // search, and a landmark sentence here is the [08:54] defect repeating.
-    if (detectSetConfirmationAsk(text)
+    // THE SET IS ONLY THE SET WHEN THE SEARCH HAS NOTHING LEFT (the [08:54]
+    // V16K11 capture, second half): «УШТЕ НЕШТО ИМА ЛИ ИЛИ ТОА Е ТОА?» was
+    // answered «Да — 53 и 54 се сите моментални понуди» while `loadProps` had
+    // JUST carved the pair for the other category (82 Аеродром 143.000, 52
+    // Козле 167.600, both трособен under the 180.000 cap he named) — the batch
+    // was dropped, its ids were banked as if shown, and the client was told the
+    // set was complete over stock the agency still had. This lane may only
+    // confirm what is TRUE: an empty carve (`props.length === 0` — nothing else
+    // fits these criteria) means the answer is the set; a non-empty one means
+    // the honest answer IS the stock, and the turn falls through to the serve
+    // that shows it.
+    if (props.length === 0
+      && detectSetConfirmationAsk(text)
       && !isFeeTraffic(text) && !detectVisitRequest(text) && !detectVisitInterest(text)
       && this.onScreenEbs(session).length > 0) {
       // THE CARDS HE IS LOOKING AT ARE THE ONES IN THE LAST REPLY (the §4b
