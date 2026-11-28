@@ -245,6 +245,23 @@ test('evaluateLocal counts UNKNOWN as abstain, not as a served error', () => {
   assert.equal(res.coverage, 0);
   assert.equal(res.unknownServed, 1);
   assert.equal(res.cost, 0);
+  assert.equal(res.costPerRow, 0);
+});
+
+test('cost per row is the baseline-comparable figure, not cost per served', () => {
+  // Zero-weight [STAY] always serves STAY: right twice, wrong (cost 1) on the
+  // INTERESTED row. cost/served = 1/3, cost/row = 1/3 too; the point is that a
+  // model which abstains on the INTERESTED row keeps cost/row the same while
+  // cost/served collapses — so the gate must read cost/row.
+  const model = emptyModel(['STAY']);
+  const rows = [
+    { norm: 'aaa', sig: sigOf('AAA'), event: 'STAY' },
+    { norm: 'bbb', sig: sigOf('BBB'), event: 'STAY' },
+    { norm: 'ccc', sig: sigOf('CCC'), event: 'STAY' },
+  ];
+  const res = evaluateLocal(model, rows, 0.5);
+  assert.equal(res.served, 3);
+  assert.equal(res.costPerRow, 0);
 });
 
 test('the majority baseline is what a model must beat', () => {

@@ -213,6 +213,10 @@ export interface EvalResult {
   /** 100 for any error touching a commitment event, 1 otherwise. */
   cost: number;
   costPerServed: number;
+  /** The BASELINE-COMPARABLE figure: total cost over ALL rows, so a model is
+   *  not flattered by abstaining on the hard ones (cost/served can look cheap
+   *  while the decision quality is worse). */
+  costPerRow: number;
   unknownServed: number;
 }
 
@@ -229,7 +233,7 @@ export function evaluateLocal(model: LocalModel, rows: EvalRow[], floor: number)
   const out: EvalResult = {
     total: rows.length, served: 0, correct: 0, coverage: 0, accuracy: 0,
     safeServed: 0, safeCorrect: 0, safeAccuracy: 0, cost: 0, costPerServed: 0,
-    unknownServed: 0,
+    costPerRow: 0, unknownServed: 0,
   };
   for (const row of rows) {
     const pred = predictLocal(model, row.norm, row.sig);
@@ -249,6 +253,7 @@ export function evaluateLocal(model: LocalModel, rows: EvalRow[], floor: number)
   out.accuracy = out.served ? out.correct / out.served : 0;
   out.safeAccuracy = out.safeServed ? out.safeCorrect / out.safeServed : 0;
   out.costPerServed = out.served ? out.cost / out.served : 0;
+  out.costPerRow = out.total ? out.cost / out.total : 0;
   return out;
 }
 

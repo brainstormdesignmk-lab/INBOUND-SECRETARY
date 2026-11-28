@@ -104,11 +104,13 @@ console.log(`[route:train] rows=${rows.length} train=${fitRows.length} cal=${cal
 console.log(`[route:train] temperature=${temperature.toFixed(2)} (fitted on ${calRows.length} rows)`);
 console.log(`  coverage=${pct(result.coverage)} accuracy=${pct(result.accuracy)} safe=${pct(result.safeAccuracy)} served=${result.served}`);
 console.log(`  abstained: unknown=${result.unknownServed} below-floor=${result.total - result.served - result.unknownServed - 0}`);
-console.log(`  cost: ${result.cost.toFixed(1)} total · ${result.costPerServed.toFixed(2)}/served`);
+console.log(`  cost: ${result.cost.toFixed(1)} total · ${result.costPerServed.toFixed(2)}/served · ${result.costPerRow.toFixed(2)}/row`);
 console.log(`  majority baseline: "${majority.event}" accuracy=${pct(majority.accuracy)} cost=${majority.costPerRow.toFixed(2)}/row`);
 console.log(`  commitment events in test: ${evalRows.filter(r => COMMITMENT_EVENTS.has(r.event)).length}`);
 
-const beatsMajority = result.served > 0 && result.costPerServed < majority.costPerRow;
+// Compare the SAME denominator: cost per served turn against a baseline that
+// answered every turn would reward abstaining on the hard rows.
+const beatsMajority = result.served > 0 && result.costPerRow < majority.costPerRow;
 const ok = result.served > 0
   && result.accuracy >= 0.95
   && (result.safeServed === 0 || result.safeAccuracy >= 0.99)
@@ -117,7 +119,7 @@ const reasons: string[] = [];
 if (result.served === 0) reasons.push('coverage is zero');
 if (result.accuracy < 0.95) reasons.push(`accuracy ${pct(result.accuracy)} < 95%`);
 if (result.safeServed > 0 && result.safeAccuracy < 0.99) reasons.push(`safe accuracy ${pct(result.safeAccuracy)} < 99%`);
-if (!beatsMajority) reasons.push(`cost/served ${result.costPerServed.toFixed(2)} is not below majority ${majority.costPerRow.toFixed(2)}`);
+if (!beatsMajority) reasons.push(`cost/row ${result.costPerRow.toFixed(2)} is not below majority ${majority.costPerRow.toFixed(2)}`);
 console.log(`[route:train] ${ok ? 'PASSES the gate' : `FAILS the gate — ${reasons.join('; ')}`}`);
 
 writeFileSync(outPath, JSON.stringify({ ...calibrated, trainedAt: Date.now(), trainedRows: fitRows.length }), 'utf8');

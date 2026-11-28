@@ -274,6 +274,13 @@ npm run replay -- <file>                # transcript replay
 
 - 2026-11-28 — runbook created. Baseline measurements and the trigram
   rejection recorded. Phase 0 specified; HEAD pushed at `760481a`.
+- 2026-11-28 — MEASURED v2 (400 rows, 6 classes, 20 epochs): train 218 ms,
+  **12.8 µs per prediction**, 11 136 params, 5 136 non-zero, **112 KB** JSON.
+  The v1 figures (4.3 µs, 6.4 KB, 2 classes) are obsolete — do not quote them.
+  Still ~78× under the "~1 ms" budget, and still no native dependencies.
+- 2026-11-28 — the gate compares **cost per ROW** against the majority
+  baseline, not cost per served turn: per-served flatters a model that
+  abstains on the hard rows, which is exactly the model a gate must catch.
 - 2026-11-28 — MODEL v2: point 18 is now implemented in full, not partially.
   3-, 4- and 5-gram buckets in a versioned layout; a trained `UNKNOWN` class
   fed by repeat/followup negatives (`route:corpus --with-negatives`); a
