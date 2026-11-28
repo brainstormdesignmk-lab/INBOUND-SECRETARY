@@ -26,7 +26,13 @@ export interface CorpusRow {
   norm: string;
   state: string;
   sigKey: string;
+  /** The recorded verdict event (kept for auditing). */
   event: string;
+  /** THE TRAINING LABEL. Equal to `event` for a clean turn; `UNKNOWN` for the
+   *  turns that failed to land (repeat/followup) when negatives are included.
+   *  Keeping both fields means the corpus never loses what the tier actually
+   *  decided, while the trainer gets a label it can learn a reject class from. */
+  label: string;
   tier: ClassifyTier;
   outcome: string;
   createdAt: number;
@@ -81,15 +87,18 @@ export function linkOutcomes(
  *  must abstain on the former and replace the latter. */
 export function buildCorpus(
   store: ClassifyTurnStore,
-  opts: { sinceMs?: number; limit?: number } = {},
+  opts: { sinceMs?: number; limit?: number; includeNegatives?: boolean } = {},
 ): CorpusRow[] {
   const since = opts.sinceMs ?? 0;
   const limit = opts.limit ?? 50_000;
   const rows = store.linkedSince(since, limit);
   return rows
-    .filter(r => r.outcome !== null && isTeachable(r.outcome as never))
+    .filter(r => r.outcome !== null && (opts.includeNegatives || isTeachable(r.outcome as never)))
     .map(r => ({
       norm: r.norm, state: r.state, sigKey: r.sigKey, event: r.event,
+      // A NEGATIVE is a turn that did not land: the router should have
+      // abstained, so the label is UNKNOWN, never the event it guessed.
+      label: isTeachable(r.outcome as never) ? r.event : 'UNKNOWN',
       tier: r.tier, outcome: r.outcome as string, createdAt: r.createdAt,
     }));
 }

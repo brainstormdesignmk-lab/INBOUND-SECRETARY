@@ -14,7 +14,7 @@ import { Classified } from './classify';
 import { EventType } from '../fsm/machine';
 import { buildRouteSig, sigKey } from './routeSig';
 import { normalizedKey } from '../store/capture';
-import { LocalModel, predictLocal, validateModel } from './localModel';
+import { LocalModel, predictLocal, validateModel, UNKNOWN } from './localModel';
 import { SAFE_EVENTS } from '../store/routes';
 
 export type LocalMode = 'off' | 'shadow' | 'serve';
@@ -61,6 +61,10 @@ export function localDecision(
   const norm = normalizedKey(text);
   if (!norm) return undefined;
   const pred = predictLocal(model, norm, buildRouteSig(session, text));
+  // UNKNOWN is a TRAINED class, and it means "do not route this": the model
+  // has learned that this phrasing resembles the turns which failed to land.
+  // It is an abstain even when it wins the argmax.
+  if (pred.event === UNKNOWN) return undefined;
   // The commitment ban applies to EVERY learned tier, the local model
   // included: a false consent is never a routing convenience.
   if (!SAFE_EVENTS.has(pred.event)) return undefined;

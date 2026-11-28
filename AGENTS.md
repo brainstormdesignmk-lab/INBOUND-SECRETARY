@@ -11,6 +11,13 @@ from real field incidents, and every rule here has a test behind it.
 > No shortcuts, no patches. Straight, clean, bulletproof code, no matter the
 > time.
 
+**PROFESSIONAL GRADE IS THE FLOOR, NOT THE GOAL.** A green test suite does not
+make a partial implementation done. Build the full spec — calibration, explicit
+abstain classes, versioned feature layouts, cost-weighted gates — or mark the
+clause OPEN in `docs/classifier-build-runbook.md` and say so out loud. "It
+passes the tests" is never a reason to ship the smaller version: this repo is
+an appliance, and the parts that rot quietly are the parts that were cut short.
+
 Concretely, that means:
 
 - When a bug is found in a code path you are touching, FIX the cause — including

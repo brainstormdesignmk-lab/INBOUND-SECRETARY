@@ -177,11 +177,12 @@ job idempotent when run twice.
 
 | id | task | file |
 | --- | --- | --- |
-| P4.1 | feature extractor: char 3–5-grams + sig flags | `src/llm/localFeatures.ts` (new) |
-| P4.2 | trainer: multinomial logistic regression, pure TS, JSON weights | `scripts/train-route-model.ts` |
-| P4.3 | inference: `predict()` → `{event, confidence}`; `UNKNOWN` class | `src/llm/localClassify.ts` |
-| P4.4 | temperature scaling + confidence floor → abstain to remote | P4.3 |
-| P4.5 | mode `LINA_LOCAL=off\|shadow\|serve` | `src/config.ts` |
+| P4.1 | feature extractor: char 3–5-grams + sig flags, **layout v2** | `src/llm/localFeatures.ts` |
+| P4.2 | trainer: multinomial logistic regression, class weighting, pure TS, JSON weights | `scripts/train-route-model.ts` |
+| P4.3 | inference: `predict()` → `{event, confidence}`; `UNKNOWN` trained from repeat/followup negatives | `src/llm/localClassify.ts` |
+| P4.4 | temperature fitted on a held-out slice + confidence floor → abstain to remote | `src/llm/localModel.ts` |
+| P4.5 | cost-weighted gate vs the majority baseline (a wrong consent = 100×) | `scripts/train-route-model.ts` |
+| P4.6 | mode `LINA_LOCAL=off\|shadow\|serve` | `src/config.ts` |
 
 **NOT Tiny 2.1.** It is a 367 k-param char-level *fact recall* net ("outside
 those it makes things up confidently"). Wrong tool for a 16-class decision with
@@ -273,6 +274,13 @@ npm run replay -- <file>                # transcript replay
 
 - 2026-11-28 — runbook created. Baseline measurements and the trigram
   rejection recorded. Phase 0 specified; HEAD pushed at `760481a`.
+- 2026-11-28 — MODEL v2: point 18 is now implemented in full, not partially.
+  3-, 4- and 5-gram buckets in a versioned layout; a trained `UNKNOWN` class
+  fed by repeat/followup negatives (`route:corpus --with-negatives`); a
+  temperature fitted on the last 10 % of the training window and stored in the
+  weight file; inverse-frequency class weighting; and a cost-weighted gate
+  (a wrong consent costs 100×) measured against the majority baseline. A v1
+  weight file is refused loudly with the retrain instruction.
 - 2026-11-28 — Phases 0–4 implemented and green: verdict ledger + signature +
   classify deadline/degraded, outcome linker + corpus CLIs, route table with
   shadow/serve and the commitment ban, promotion/retirement/conflict, and the

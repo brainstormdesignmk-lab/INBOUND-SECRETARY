@@ -17,6 +17,7 @@ import { buildCorpus, corpusStats } from '../src/scripts/routeCorpus';
 const args = process.argv.slice(2);
 const emitIdx = args.indexOf('--emit');
 const sinceIdx = args.indexOf('--since');
+const withNegatives = args.includes('--with-negatives');
 const sinceMs = sinceIdx !== -1 ? Date.parse(args[sinceIdx + 1]!) : 0;
 if (sinceIdx !== -1 && !Number.isFinite(sinceMs)) {
   console.error('[route:corpus] --since needs a parseable date');
@@ -25,7 +26,7 @@ if (sinceIdx !== -1 && !Number.isFinite(sinceMs)) {
 
 const db = new Db(process.env.DB_PATH || 'data/lina.db');
 const store = new ClassifyTurnStore(db);
-const rows = buildCorpus(store, { sinceMs });
+const rows = buildCorpus(store, { sinceMs, includeNegatives: withNegatives });
 const stats = corpusStats(rows);
 
 console.log(`[route:corpus] teachable rows=${stats.total}`);
