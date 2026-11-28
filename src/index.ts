@@ -27,6 +27,8 @@ import { OWNER_CHECK_STILL_WAITING } from './visits/messages';
 import { EventStore } from './store/events';
 import { OwnerStore } from './store/owners';
 import { EnrichmentStore } from './store/enrichment';
+import { ClassifyTurnStore } from './store/classifyTurns';
+import { RouteStore } from './store/routes';
 import { CaptureStore } from './store/capture';
 import { registerHermesApi } from './hermes/api';
 
@@ -90,6 +92,13 @@ async function main(): Promise<void> {
   });
 
   const enrichment = new EnrichmentStore(db);
+  // THE VERDICT LEDGER (Phase 0): every classify-tier decision, with the
+  // context signature. Without it the route table and the abstain calibration
+  // have no ground truth — the exact gap this build closes first.
+  const classifyTurns = new ClassifyTurnStore(db);
+  // The learned route tier: rows are written by route:seed from the corpus and
+  // serve only when LINA_ROUTES=serve AND the row is active.
+  const routes = new RouteStore(db);
   // Learned bank layer — SQLite-backed, live without rebuild. Attached to the
   // responseBank picker so pickVariant merges seed + learned everywhere, and
   // retrieval (free answers for known questions) works in the request path.
@@ -108,7 +117,7 @@ async function main(): Promise<void> {
 
   const pipeline = new InboundHandler({
     cfg, db, sessions, classifier, responder, properties, appointments, escalations, meta, channels,
-    landmarks, visits, enrichment, capture,
+    landmarks, visits, enrichment, capture, classifyTurns, routes,
     // THE CLIENT IS NEVER LEFT ON A SILENT PROMISE (visit audit #5): the owner
     // check timed out, so the operator is told and the client hears a true
     // status line instead of «ќе Ве известам штом потврдам» followed by nothing.

@@ -29,6 +29,36 @@ export interface Classified {
   event: Event;
   offensive: boolean;
   offenseLevel: number;
+  /** WHICH TIER decided this turn. The ledger (Phase 0) needs it to answer
+   *  "how much traffic still needs the remote classifier?" without log
+   *  archaeology. */
+  tier?: 'det' | 'route' | 'local' | 'remote';
+  /** The leaf backend that actually answered ('gemini:2', 'groq'). */
+  provider?: string;
+  latencyMs?: number;
+  /** Provider callbacks observed — a fallback chain shows up here. */
+  attempts?: number;
+  /** TRUE when the remote call FAILED (timeout or every key refused). A STAY
+   *  from a dead classifier is not a decision, and must never be counted as
+   *  one: without this flag the appliance looks healthy while it is mute. */
+  degraded?: boolean;
+}
+
+/** A deadline around one completion. The client's message must not wait 396 s
+ *  (the measured maximum) for an intent label; on expiry the verdict degrades
+ *  to STAY + `degraded`, which the ledger counts. The abandoned promise is not
+ *  cancelled (the LlmClient interface has no abort) — it is simply ignored. */
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    // NOT unref'd: an unref'd deadline lets the event loop empty before it can
+    // fire, so a turn awaiting the verdict is abandoned by the runtime instead
+    // of degrading — the guard would exist on paper and never run (the test
+    // harness caught exactly that). The timer is cleared in `finally`, so it
+    // cannot outlive the call.
+    timer = setTimeout(() => reject(new Error(`classify deadline ${ms}ms exceeded`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
 /**
@@ -469,7 +499,20 @@ export class Classifier {
     } catch { return undefined; }
   }
 
+  /** THE TIER STAMP IS THE WRAPPER'S JOB (Phase 0). The body below has MANY
+   *  early returns — the greeting ownership, the bare-number override, the
+   *  defer-to-LLM `undefined`s — and tagging only the last one tagged almost
+   *  nothing: «ZDRAVO» came back with no tier at all because the greeting lane
+   *  returns before the funnel. One wrapper stamps every path, and a future
+   *  lane cannot forget it. */
   async deterministicClassify(session: ChatSession, text: string): Promise<Classified | undefined> {
+    const t0 = Date.now();
+    const verdict = await this.deterministicClassifyCore(session, text);
+    if (!verdict) return undefined; // signals the caller to fire the remote tier
+    return { ...verdict, tier: 'det', latencyMs: Date.now() - t0 };
+  }
+
+  private async deterministicClassifyCore(session: ChatSession, text: string): Promise<Classified | undefined> {
     const t0 = Date.now();
 
     // --- Bare-number override ---
@@ -1113,8 +1156,9 @@ export class Classifier {
       return undefined; // signals caller to fire Groq
     }
 
-    console.log(`[timing] det-classify ${Date.now() - t0}ms → ${ev.type}`);
-    return { event: ev, offensive: false, offenseLevel: 0 };
+    const detLatencyMs = Date.now() - t0;
+    console.log(`[timing] det-classify ${detLatencyMs}ms → ${ev.type}`);
+    return { event: ev, offensive: false, offenseLevel: 0, tier: 'det', latencyMs: detLatencyMs };
   }
 
   async classify(session: ChatSession, text: string): Promise<Classified> {
@@ -1126,16 +1170,22 @@ export class Classifier {
     ];
     let parsed: Classified;
     let llmDown = false;
+    let provider: string | undefined;
+    let attempts = 0;
     const t0 = Date.now();
     try {
-      const raw = await this.llm.complete({
+      const raw = await withDeadline(this.llm.complete({
         role: 'classify',
         messages,
         temperature: this.cfg.classifyTemp,
         maxTokens: 300,
         topP: this.cfg.topP,
         json: true,
-      });
+        // THE LEAF THAT ANSWERED, race-free through Hybrid/Rotating: a verdict
+        // whose provider rotated three times is a quota story, and the ledger
+        // is where that story has to be visible.
+        onProvider: (p: string) => { provider = p; attempts++; },
+      }), Math.max(500, this.cfg.classifyTimeoutMs ?? 8_000));
       parsed = parseClassified(raw);
     } catch (e) {
       console.error('[classify] LLM failed:', (e as Error).message);
@@ -1722,6 +1772,13 @@ export class Classifier {
         parsed.event = { type: 'INTERESTED', propertyId: batch[0] };
       }
     }
-    return parsed;
+    return {
+      ...parsed,
+      tier: 'remote',
+      provider,
+      latencyMs: Date.now() - t0,
+      attempts,
+      degraded: llmDown,
+    };
   }
 }

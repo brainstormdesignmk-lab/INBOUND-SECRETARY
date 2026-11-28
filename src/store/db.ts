@@ -253,6 +253,77 @@ export class Db {
         created_at INTEGER NOT NULL
       );
     `);
+    // PHASE 0 OF THE LLM-FREE CLASSIFIER (docs/classifier-build-runbook.md):
+    // the verdict ledger. Three months of classifier calls produced zero rows,
+    // so every calibration had to re-pair log lines with captures by
+    // timestamp. One row per classify-tier decision, carrying the context
+    // signature the route table keys on and the degraded flag that separates
+    // "model said stay" from "model never answered".
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS classify_turns (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id    TEXT NOT NULL,
+        state      TEXT NOT NULL,
+        text       TEXT NOT NULL,
+        norm       TEXT NOT NULL,
+        sig        TEXT NOT NULL,
+        sig_key    TEXT NOT NULL,
+        event      TEXT NOT NULL,
+        tier       TEXT NOT NULL,
+        provider   TEXT,
+        latency_ms INTEGER NOT NULL DEFAULT 0,
+        attempts   INTEGER NOT NULL DEFAULT 0,
+        degraded   INTEGER NOT NULL DEFAULT 0,
+        outcome    TEXT,
+        outcome_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_classify_turns_created ON classify_turns(created_at);
+      CREATE INDEX IF NOT EXISTS idx_classify_turns_key ON classify_turns(norm, sig_key);
+      CREATE INDEX IF NOT EXISTS idx_classify_turns_chat ON classify_turns(chat_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_classify_turns_unlinked ON classify_turns(outcome, created_at);
+    `);
+    // PHASE 2 — THE ROUTE TABLE (docs/classifier-build-runbook.md). A row is a
+    // LEARNED route: exact identity (norm + state + signature) → event. Rows are
+    // bank_variants-shaped on purpose: staged → active on evidence, retired by a
+    // correction, frozen on a conflict. Commitment events are never stored here
+    // (the store refuses them): a learned consent is a false consent.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS route_table (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        norm        TEXT NOT NULL,
+        state       TEXT NOT NULL,
+        sig         TEXT NOT NULL,
+        sig_key     TEXT NOT NULL,
+        event       TEXT NOT NULL,
+        source      TEXT NOT NULL DEFAULT 'corpus',
+        lifecycle   TEXT NOT NULL DEFAULT 'staged',
+        hits        INTEGER NOT NULL DEFAULT 0,
+        misses      INTEGER NOT NULL DEFAULT 0,
+        shadow_hits INTEGER NOT NULL DEFAULT 0,
+        shadow_misses INTEGER NOT NULL DEFAULT 0,
+        last_served INTEGER,
+        validator_version TEXT NOT NULL DEFAULT 'v1',
+        note        TEXT,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_route_table_identity
+        ON route_table(norm, state, sig_key, event);
+      CREATE INDEX IF NOT EXISTS idx_route_table_lifecycle ON route_table(lifecycle);
+      CREATE INDEX IF NOT EXISTS idx_route_table_key ON route_table(norm, state, sig_key);
+      CREATE TABLE IF NOT EXISTS route_corrections (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        norm         TEXT NOT NULL,
+        state        TEXT NOT NULL,
+        sig_key      TEXT NOT NULL,
+        served_event TEXT NOT NULL,
+        expected     TEXT,
+        reason       TEXT NOT NULL,
+        resolved     INTEGER NOT NULL DEFAULT 0,
+        created_at   INTEGER NOT NULL
+      );
+    `);
     // P0 meters: per-key last-serve timestamp — safe no-op on fresh DBs.
     const bmCols = this.db.prepare(`PRAGMA table_info(bank_metrics)`).all() as Array<{ name: string }>;
     if (!bmCols.some(c => c.name === 'updated_at')) {

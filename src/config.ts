@@ -18,6 +18,25 @@ export interface AppConfig {
   ownerTypingDelayMs: number; // owner "typing" window before Lina relays (Enter bypasses)
   clientTypingDelayMs: number; // client "typing" window before Lina replies (follow-ups reset, Enter flushes)
   classifyTemp: number;
+  /** THE LEARNED-ROUTE TIER (docs/classifier-build-runbook.md, Phase 2):
+   *  'off' = today's behaviour, 'shadow' = look up and record agreement but
+   *  let the remote classifier serve, 'serve' = an ACTIVE exact match decides.
+   *  A kill switch must exist before a learned tier serves anything. */
+  routesMode: 'off' | 'shadow' | 'serve';
+  /** THE LOCAL MODEL TIER (Phase 4): 'off' | 'shadow' | 'serve'. Separate
+   *  switch from the route table so either tier can be withdrawn alone. */
+  localMode: 'off' | 'shadow' | 'serve';
+  /** JSON weight file. An absent file disables the tier (a normal state). */
+  localModelPath: string;
+  /** Below this confidence the local tier ABSTAINS to the remote classifier.
+   *  Never 0: an uncalibrated model that always answers is the failure mode. */
+  localConfidenceFloor: number;
+  /** Hard deadline for ONE classifier verdict. The measured p90 was 22.5 s and
+   *  the max 396 s (nine Gemini attempts x three keys, then Groq): a client
+   *  waiting six minutes for an intent label is an appliance defect. On expiry
+   *  the verdict is STAY + `degraded`, which the ledger counts, instead of a
+   *  silent STAY that looks like a decision. */
+  classifyTimeoutMs: number;
   topP: number;
   topK: number;
   maxTokens: number;
@@ -109,6 +128,17 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     ownerTypingDelayMs: num(process.env.OWNER_TYPING_DELAY_MS, 30_000),
     clientTypingDelayMs: num(process.env.CLIENT_TYPING_DELAY_MS, 30_000),
     classifyTemp: num(process.env.CLASSIFY_TEMP, 0.2),
+    routesMode: ((): 'off' | 'shadow' | 'serve' => {
+      const v = (process.env.LINA_ROUTES || 'off').toLowerCase();
+      return v === 'serve' || v === 'shadow' ? v : 'off';
+    })(),
+    localMode: ((): 'off' | 'shadow' | 'serve' => {
+      const v = (process.env.LINA_LOCAL || 'off').toLowerCase();
+      return v === 'serve' || v === 'shadow' ? v : 'off';
+    })(),
+    localModelPath: process.env.LINA_LOCAL_MODEL || path.join(process.cwd(), 'data', 'route-model.json'),
+    localConfidenceFloor: num(process.env.LINA_LOCAL_FLOOR, 0.72),
+    classifyTimeoutMs: num(process.env.CLASSIFY_TIMEOUT_MS, 8_000),
     topP: num(process.env.TOP_P, 0.95),
     topK: num(process.env.TOP_K, 40),
     maxTokens: num(process.env.MAX_TOKENS, 1024),

@@ -28,12 +28,12 @@ a slot, never consent.
 | Repo HEAD | `760481a` (main, pushed to `origin` on 2026-11-28) |
 | Uncommitted source | none |
 | Untracked, MUST stay uncommitted | `data/place-misses-*.jsonl`, `data/route-drift-*.jsonl`, `logs/` |
-| Phase 0 | **not started** |
-| Phase 1 | not started |
-| Phase 2 | not started |
-| Phase 3 | not started |
-| Phase 4 | not started |
-| Phase 5 | not started |
+| Phase 0 | **code+test green** (`ClassifyTurnStore`, `routeSig`, deadline, degraded, teach/measure split) |
+| Phase 1 | **code+test green** (`routeOutcome`, `routeCorpus`, `route:link`, `route:corpus`) |
+| Phase 2 | **code+test green** (`route_table`, `RouteStore`, shadow/serve, 3 modes) |
+| Phase 3 | **code+test green** (promote/retire/conflict, corrections) |
+| Phase 4 | **code+test green** (`localFeatures`, `localModel`, `localClassify`, `route:train`) |
+| Phase 5 | **in progress** (`/status` row added; backup/cron/kill-switch tests pending) |
 | Production deploy | both hosts at `760481a` |
 
 Phase status values: `not started` → `in progress` → `code+test green` →
@@ -273,3 +273,9 @@ npm run replay -- <file>                # transcript replay
 
 - 2026-11-28 — runbook created. Baseline measurements and the trigram
   rejection recorded. Phase 0 specified; HEAD pushed at `760481a`.
+- 2026-11-28 — Phases 0–4 implemented and green: verdict ledger + signature +
+  classify deadline/degraded, outcome linker + corpus CLIs, route table with
+  shadow/serve and the commitment ban, promotion/retirement/conflict, and the
+  pure-TS local model with an abstain floor. Tests: `classify-turns`,
+  `route-outcome`, `route-table`, `local-model`. Remaining: full-suite gate,
+  Phase 5 backup/cron wiring, and a real shadow run before any `serve` mode.

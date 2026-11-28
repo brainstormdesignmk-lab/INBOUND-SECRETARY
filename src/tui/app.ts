@@ -29,6 +29,8 @@ import { OWNER_CHECK_STILL_WAITING } from '../visits/messages';
 import { EventStore } from '../store/events';
 import { OwnerStore } from '../store/owners';
 import { EnrichmentStore } from '../store/enrichment';
+import { ClassifyTurnStore } from '../store/classifyTurns';
+import { RouteStore } from '../store/routes';
 import { BankStore } from '../store/bank';
 import { loopStatusLines } from './status';
 import { setLearnedBank } from '../data/responseBank';
@@ -271,6 +273,10 @@ export class TuiApp {
       enrichment: new EnrichmentStore(this.db),
       bank: this.bank,
       capture: this.capture,
+      // THE VERDICT LEDGER (Phase 0): the TUI is where the funnel is driven by
+      // hand, so it is the richest source of labelled route decisions.
+      classifyTurns: new ClassifyTurnStore(this.db),
+      routes: new RouteStore(this.db),
       // THE TEACHER/EXAM POLICY: hybrid teaches the bank (replies logged for
       // the cron), free is the exam (nothing logged — the deterministic+bank
       // stack must answer alone, proving the enrichment worked). The CAPTURE
@@ -631,6 +637,12 @@ export class TuiApp {
       const available = (['hybrid', 'gemini', 'groq', 'free'] as BrainMode[]).filter(m => this.brains[m]).join(' / ');
       lines.push(`—`);
       lines.push(`мозок: ${this.brainMode} (достапни: ${available})`);
+      // PHASE 5 — THE LEARNED TIERS ARE VISIBLE WHERE THE OPERATOR ALREADY
+      // LOOKS. A silent tier is indistinguishable from an inert one, and a
+      // degraded count is the only way to see a mute classifier from the TUI.
+      const routeStats = new RouteStore(this.db).stats();
+      const degradedToday = new ClassifyTurnStore(this.db).stats(Date.now() - 86_400_000).degraded;
+      lines.push(`рути: активни=${routeStats.active} чекаат=${routeStats.staged} послужени=${routeStats.hits} · деградирани=${degradedToday}`);
       const warn = this.detFallbackCount >= 10 ? '  ⚠ ВИСОКО — провери ги LLM клучите!' : '';
       lines.push(`детерминистички одговори оваа сесија: ${this.detFallbackCount}${warn}`);
       // Bank health — the perpetuum's proof: free-rate climbing = learning.

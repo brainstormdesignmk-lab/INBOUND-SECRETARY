@@ -7,7 +7,11 @@ import {
   touchInbound, touchOutbound, canSend, pushHistory, buildGreeting, assistantTexts,
 } from '../fsm/session';
 import { pickVariant, noMatchLine, exhaustedLine, fallbackVariant, relaxedCategoryLine } from '../data/responseBank';
-import { shouldLogForEnrichment } from '../llm/enrichPolicy';
+import { shouldLogForEnrichment, shouldRecordTurn } from '../llm/enrichPolicy';
+import { buildRouteSig, sigKey } from '../llm/routeSig';
+import { findRoute, routeVerdict, noteShadowAgreement } from '../llm/routeServe';
+import { localVerdict, localDecision, loadLocalModel } from '../llm/localClassify';
+import { normalizedKey } from '../store/capture';
 import { sessionPlaces, shouldTryDynamic, validateDynamicAnswer, typeEstablished } from '../llm/dynamicFallback';
 import { PLACE_PROMOTE_AFTER, PLACE_TEMPLATE_KEY, assertsStockAtPlace, placeTemplateFrom, renderPlaceTemplate } from '../llm/placeTemplate';
 import { detectPersonalAsk, personalReply } from '../llm/personal';
@@ -1851,6 +1855,14 @@ export interface HandlerDeps {
    *  production server passes nothing (its enrichment queue already covers
    *  the wording side); the TUI supplies a file-backed CaptureStore. */
   capture?: import('../store/capture').CaptureStore;
+  /** PHASE 0 LEDGER (docs/classifier-build-runbook.md) — every classify-tier
+   *  verdict with the context signature it was decided in. Optional: without
+   *  it the appliance still runs, it just cannot be tuned — which is exactly
+   *  the state that made every earlier calibration a log-pairing exercise. */
+  classifyTurns?: import('../store/classifyTurns').ClassifyTurnStore;
+  /** PHASE 2 THE ROUTE TABLE — learned exact-identity routes. Optional: without
+   *  it the tier is inert and the remote classifier runs as today. */
+  routes?: import('../store/routes').RouteStore;
 }
 
 // Address/street wording does not bypass the location ladder. First location
@@ -1957,6 +1969,87 @@ export class InboundHandler {
   private set detGaveUp(v: boolean) { this.turn.detGaveUp = v; }
   private get feeServiceHint(): Service | undefined { return this.turn.feeServiceHint; }
   private set feeServiceHint(v: Service | undefined) { this.turn.feeServiceHint = v; }
+
+  /** Record ONE verdict in the ledger. Never throws into the turn: a lost row
+   *  is better than a broken reply (the capture/drift contract). The signature
+   *  is built from the session AS IT WAS when the tier decided — before the
+   *  slots are applied — so the row describes the input, not the outcome. */
+  private recordClassifyTurn(
+    session: ChatSession,
+    text: string,
+    c: { event: { type: string }; tier?: string; provider?: string; latencyMs?: number; attempts?: number; degraded?: boolean },
+  ): void {
+    const store = this.deps.classifyTurns;
+    if (!store || !shouldRecordTurn()) return;
+    try {
+      const sig = buildRouteSig(session, text);
+      store.insert({
+        chatId: session.chatId,
+        state: session.state,
+        text,
+        norm: normalizedKey(text),
+        sig: JSON.stringify(sig),
+        sigKey: sigKey(sig),
+        event: c.event.type,
+        tier: (c.tier as 'det' | 'route' | 'local' | 'remote' | undefined) ?? 'det',
+        provider: c.provider,
+        latencyMs: c.latencyMs ?? 0,
+        attempts: c.attempts ?? 0,
+        degraded: c.degraded === true,
+      });
+    } catch (e) {
+      console.error('[classify-turns] record failed:', (e as Error).message);
+    }
+  }
+
+  /** The exact-identity candidate, when the route tier is enabled at all. */
+  private routeCandidate(session: ChatSession, text: string): ReturnType<typeof findRoute> {
+    const store = this.deps.routes;
+    if (!store || this.cfg.routesMode === 'off') return undefined;
+    return findRoute(store, session, text);
+  }
+
+  /** Serve a learned route, or abstain upward. A served row counts as a hit;
+   *  the outcome linker is what later proves whether it was CLEAN. */
+  private tryRouteClassify(session: ChatSession, text: string) {
+    const candidate = this.routeCandidate(session, text);
+    if (!candidate) return undefined;
+    const verdict = routeVerdict(candidate, this.cfg.routesMode);
+    if (verdict && this.deps.routes) this.deps.routes.recordServe(candidate.route.id, true);
+    return verdict;
+  }
+
+  /** Shadow evidence only: the remote verdict is in, so record whether the
+   *  route would have agreed. Never touches the client's turn. */
+  private noteRouteShadow(session: ChatSession, text: string, actualEvent: string): void {
+    const store = this.deps.routes;
+    if (!store) return;
+    const candidate = this.routeCandidate(session, text);
+    if (candidate) noteShadowAgreement(store, candidate, actualEvent);
+  }
+
+  /** THE LOCAL TIER (Phase 4). Serve mode only; a model file that is absent or
+   *  stale simply disables it. */
+  private tryLocalClassify(session: ChatSession, text: string) {
+    if (this.cfg.localMode !== 'serve') return undefined;
+    return localVerdict(loadLocalModel(this.cfg.localModelPath), this.cfg.localConfidenceFloor, session, text);
+  }
+
+  /** Shadow evidence lives in `meta` counters, not in a route row: the local
+   *  model has no per-row identity to attach it to. Counting agreement is what
+   *  decides whether the tier is ever allowed to serve. */
+  private noteLocalShadow(session: ChatSession, text: string, actualEvent: string): void {
+    if (this.cfg.localMode !== 'shadow') return;
+    try {
+      const decision = localDecision(loadLocalModel(this.cfg.localModelPath)!, session, text);
+      if (!decision) return;
+      const key = decision.event === actualEvent ? 'local.shadow.agree' : 'local.shadow.disagree';
+      this.deps.db.db.prepare(
+        `INSERT INTO meta (key, value) VALUES (?, '1')
+         ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`,
+      ).run(key);
+    } catch { /* measurement must never break a turn */ }
+  }
   private get lastUserText(): string { return this.turn.audit.text; }
   private set lastUserText(v: string) { this.turn.audit.text = v; }
 
@@ -13777,6 +13870,11 @@ export class InboundHandler {
     // Classify using only regex detectors + buildEvent. Only falls to Groq
     // when the message is truly novel (no detector fires, no slots extracted).
     let classified = await this.deps.classifier.deterministicClassify(session, text);
+    // PHASE 0: record the verdict WITH its context signature. Deterministic
+    // rows are recorded too — the ledger's denominator is what makes "how much
+    // traffic still needs the remote classifier" a query instead of a month of
+    // log pairing.
+    if (classified) this.recordClassifyTurn(session, text, classified);
     if (!classified) {
       // Truly novel message — Groq classifies the state, then Gemini answers.
       // LEARNING LAYER: flag the fallthrough — the turn-end capture hook turns
@@ -13792,7 +13890,19 @@ export class InboundHandler {
       // when no template exists or the rendered sentence fails validation.
       if (await this.tryPlaceInventoryServe(session, text)) return;
       if (await this.tryLearnedServe(session, text)) return;
-      classified = await this.deps.classifier.classify(session, text);
+      // THE LEARNED ROUTE TIER (Phase 2): exact identity only, safe events
+      // only, ACTIVE rows only. In shadow mode the remote tier still serves and
+      // the route's agreement is recorded — the evidence promotion is built on.
+      const routed = this.tryRouteClassify(session, text);
+      const local = routed ? undefined : this.tryLocalClassify(session, text);
+      if (routed || local) {
+        classified = (routed ?? local)!;
+      } else {
+        classified = await this.deps.classifier.classify(session, text);
+        this.noteRouteShadow(session, text, classified.event.type);
+        this.noteLocalShadow(session, text, classified.event.type);
+      }
+      this.recordClassifyTurn(session, text, classified);
     }
 
     // 2) Slots + FSM transition
